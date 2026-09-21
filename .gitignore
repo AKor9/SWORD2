@@ -1,0 +1,19 @@
+bin/
+obj/
+.vs/
+*.user
+*.bmp
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# Пак контента *.swpak — вне git, в том числе эталонный Content.reference.swpak (этап 0 ARCHITECTURE_PLAN.md).
+*.swpak
+*.swpak.tmp
+
+# Выгрузки агентских сеансов, снимки, отчёты.
+artifacts/
+
+# Пользовательские настройки: конфиг игры и локальные корни исходников пекарни.
+sword.user.json
+bake.user.json
+.bake/

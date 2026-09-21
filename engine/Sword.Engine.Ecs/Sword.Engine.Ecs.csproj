@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Архетипный ECS: мир, чанки, запросы, CommandBuffer, журналы, стадии, планировщик (раздел 5). -->
+  <PropertyGroup>
+    <SwordSide>Neutral</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>

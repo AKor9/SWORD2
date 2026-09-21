@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Симуляция игры: системы и правила (раздел 9). Модули её не видят. -->
+  <PropertyGroup>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Geometry\Sword.Engine.Geometry.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>

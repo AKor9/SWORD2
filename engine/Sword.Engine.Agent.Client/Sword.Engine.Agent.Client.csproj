@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Инструменты агента в клиенте: пакет наблюдения capture.bundle, GPU-время (раздел 8). Только из exe. -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Agent\Sword.Engine.Agent.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Client\Sword.Engine.Client.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+  </ItemGroup>
+
+</Project>

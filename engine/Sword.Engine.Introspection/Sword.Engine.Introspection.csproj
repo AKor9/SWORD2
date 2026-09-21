@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Интроспекция без окна — общая основа DevTools и агента: точка обслуживания, условия, история, инварианты (раздел 8). -->
+  <PropertyGroup>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>

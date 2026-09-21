@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Рендер-граф, GPU-сцена, скиннинг, свет, GPU-симуляции, UI-проход, debug draw (раздел 6). -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <!-- Vortice — только здесь и в Rhi; PrivateAssets=compile — типы D3D12 не утекают к ссылающимся на Render. -->
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct3D12" PrivateAssets="compile" />
+    <PackageReference Include="Vortice.DXGI" PrivateAssets="compile" />
+    <PackageReference Include="Vortice.Dxc" PrivateAssets="compile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Geometry\Sword.Engine.Geometry.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Rhi\Sword.Engine.Rhi.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Ui\Sword.Engine.Ui.csproj" />
+  </ItemGroup>
+
+</Project>

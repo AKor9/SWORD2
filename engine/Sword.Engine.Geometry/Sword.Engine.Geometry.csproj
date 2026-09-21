@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Примитивы и пересечения, HeightField, пространственные структуры. -->
+  <PropertyGroup>
+    <SwordSide>Neutral</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Представление игры: ввод → команды, камера, Extract, проходы сцены, HUD (раздел 9). -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Game\Sword.Game.csproj" />
+    <ProjectReference Include="..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Client\Sword.Engine.Client.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Ui\Sword.Engine.Ui.csproj" />
+  </ItemGroup>
+
+</Project>

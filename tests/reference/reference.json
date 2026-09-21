@@ -1,0 +1,34 @@
+{
+    "purpose":  "Эталон SWORD для сверки фич SWORD2 (этап 0 ARCHITECTURE_PLAN.md). Сверки с SWORD — только на этом паке.",
+    "sourceRepo":  "D:\\Work\\Visual Studio\\SWORD",
+    "sourceCommit":  "2eab13b2262f6b336c3fc9bdcd71fb3dfc5a51a4",
+    "sourceClean":  true,
+    "content":  {
+                    "file":  "Content.reference.swpak",
+                    "sha256":  "0c6f717303ac76b91ef0a1bc1b0b3a692827e79aa8513a6c701a41fcab92efd0",
+                    "size":  442368354,
+                    "pak":  {
+                                "formatVersion":  1,
+                                "files":  1083,
+                                "bakeProject":  "SWORD",
+                                "builtUtc":  "2026-09-19T16:19:11.573863Z",
+                                "assets":  29
+                            }
+                },
+    "environment":  {
+                        "dotnetSdk":  "10.0.400",
+                        "os":  "Microsoft Windows NT 10.0.26100.0",
+                        "gpus":  [
+                                     {
+                                         "name":  "Базовый видеоадаптер (Майкрософт)",
+                                         "driver":  "10.0.26100.1"
+                                     },
+                                     {
+                                         "name":  "NVIDIA GeForce RTX 5070",
+                                         "driver":  "32.0.15.9597"
+                                     }
+                                 ]
+                    },
+    "resolution":  "1280x720",
+    "pinnedUtc":  "2026-09-21T16:50:02Z"
+}

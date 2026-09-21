@@ -1,0 +1,25 @@
+<Project>
+
+  <!-- Версии пакетов — только здесь (Central Package Management). В проектах — PackageReference без версии. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- D3D12: Vortice — только у Rhi и Render (раздел 4 ARCHITECTURE_PLAN.md); Agility SDK — у exe. -->
+    <PackageVersion Include="Vortice.Direct3D12" Version="3.8.3" />
+    <PackageVersion Include="Vortice.DXGI" Version="3.8.3" />
+    <PackageVersion Include="Vortice.Dxc" Version="3.8.3" />
+    <PackageVersion Include="Microsoft.Direct3D.D3D12" Version="$(AgilitySdkVersion)" />
+
+    <!-- Текст -->
+    <PackageVersion Include="HarfBuzzSharp" Version="14.2.1.2" />
+    <PackageVersion Include="StbTrueTypeSharp" Version="1.26.12" />
+
+    <!-- Тесты -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+</Project>

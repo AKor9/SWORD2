@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Реализация платформы для Win32. Ссылаются на неё только exe. -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Platform\Sword.Engine.Platform.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- D3D12: устройство, очереди, буферы, текстуры, bindless, PSO, шейдеры, профайлер GPU. -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <!-- Версия Agility SDK — в метаданные сборки: по ней выбирается app-local D3D12 runtime до создания устройства. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="AgilitySdkVersion" Value="$(AgilitySdkVersion)" />
+  </ItemGroup>
+
+  <!-- Vortice — только здесь и в Render. PrivateAssets=compile: типы D3D12 не видны ссылающимся на Rhi при сборке,
+       работать им можно только через API Rhi (раздел 4 ARCHITECTURE_PLAN.md). -->
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct3D12" PrivateAssets="compile" />
+    <PackageReference Include="Vortice.DXGI" PrivateAssets="compile" />
+    <PackageReference Include="Vortice.Dxc" PrivateAssets="compile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Platform\Sword.Engine.Platform.csproj" />
+  </ItemGroup>
+
+</Project>

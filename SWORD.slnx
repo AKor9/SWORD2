@@ -1,0 +1,46 @@
+<Solution>
+  <Folder Name="/solution/">
+    <File Path="AGENTS.md" />
+    <File Path="ARCHITECTURE_PLAN.md" />
+    <File Path="CLAUDE.md" />
+    <File Path="README.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path=".editorconfig" />
+  </Folder>
+  <Folder Name="/engine/">
+    <Project Path="engine/Sword.Engine.Core/Sword.Engine.Core.csproj" />
+    <Project Path="engine/Sword.Engine.Diagnostics/Sword.Engine.Diagnostics.csproj" />
+    <Project Path="engine/Sword.Engine.Geometry/Sword.Engine.Geometry.csproj" />
+    <Project Path="engine/Sword.Engine.Formats/Sword.Engine.Formats.csproj" />
+    <Project Path="engine/Sword.Engine.Ecs/Sword.Engine.Ecs.csproj" />
+    <Project Path="engine/Sword.Engine.Content/Sword.Engine.Content.csproj" />
+    <Project Path="engine/Sword.Engine.Platform/Sword.Engine.Platform.csproj" />
+    <Project Path="engine/Sword.Engine.Platform.Win32/Sword.Engine.Platform.Win32.csproj" />
+    <Project Path="engine/Sword.Engine.Rhi/Sword.Engine.Rhi.csproj" />
+    <Project Path="engine/Sword.Engine.Ui/Sword.Engine.Ui.csproj" />
+    <Project Path="engine/Sword.Engine.Render/Sword.Engine.Render.csproj" />
+    <Project Path="engine/Sword.Engine.Runtime/Sword.Engine.Runtime.csproj" />
+    <Project Path="engine/Sword.Engine.Client/Sword.Engine.Client.csproj" />
+    <Project Path="engine/Sword.Engine.Introspection/Sword.Engine.Introspection.csproj" />
+    <Project Path="engine/Sword.Engine.Agent/Sword.Engine.Agent.csproj" />
+    <Project Path="engine/Sword.Engine.Agent.Client/Sword.Engine.Agent.Client.csproj" />
+  </Folder>
+  <Folder Name="/game/">
+    <Project Path="game/Sword.Game.Contracts/Sword.Game.Contracts.csproj" />
+    <Project Path="game/Sword.Game/Sword.Game.csproj" />
+    <Project Path="game/Sword.Game.Client/Sword.Game.Client.csproj" />
+    <Project Path="game/Sword.Game.Bootstrap/Sword.Game.Bootstrap.csproj" />
+    <Project Path="game/Sword.Game.Agent/Sword.Game.Agent.csproj" />
+    <Project Path="game/Sword.Game.App/Sword.Game.App.csproj" />
+    <Project Path="game/Sword.Game.Headless/Sword.Game.Headless.csproj" />
+  </Folder>
+  <Folder Name="/game/modules/" />
+  <Folder Name="/tools/" />
+  <Folder Name="/tests/">
+    <Project Path="tests/Sword.Architecture.Tests/Sword.Architecture.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Platform.Tests/Sword.Engine.Platform.Tests.csproj" />
+  </Folder>
+</Solution>

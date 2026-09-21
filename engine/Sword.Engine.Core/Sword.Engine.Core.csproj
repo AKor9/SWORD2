@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Основа: хэндлы, контейнеры, пулы, базовая математика, время, AssetPath/AssetId, Jobs. -->
+  <PropertyGroup>
+    <SwordSide>Neutral</SwordSide>
+  </PropertyGroup>
+
+</Project>

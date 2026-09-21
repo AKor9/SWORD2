@@ -1,0 +1,14 @@
+# Текстовые файлы — CRLF в рабочем дереве (соглашение AGENTS.md).
+* text=auto eol=crlf
+
+# Двоичные файлы — без преобразований.
+*.png binary
+*.jpg binary
+*.bmp binary
+*.dds binary
+*.ttf binary
+*.otf binary
+*.glb binary
+*.swpak binary
+*.dll binary
+*.exe binary

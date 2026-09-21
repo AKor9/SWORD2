@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Симуляция без окна и D3D12: реплеи, сценарии, бенчи симуляции, агент по stdio. Только сборки симуляции —
+       это проверяет архитектурный тест замыкания (раздел 4 ARCHITECTURE_PLAN.md). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Sword.Headless</AssemblyName>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Game.Bootstrap\Sword.Game.Bootstrap.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
+  </ItemGroup>
+
+  <!-- Агентский доступ (раздел 8): в сборке без агента (-p:WithoutAgent=true) его нет. -->
+  <ItemGroup Condition="'$(WithoutAgent)' != 'true'">
+    <ProjectReference Include="..\..\engine\Sword.Engine.Agent\Sword.Engine.Agent.csproj" />
+    <ProjectReference Include="..\Sword.Game.Agent\Sword.Game.Agent.csproj" />
+  </ItemGroup>
+
+</Project>

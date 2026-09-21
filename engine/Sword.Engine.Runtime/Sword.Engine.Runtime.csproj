@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Симуляция без окна: мир, тик, стадии, модули, конфиг, ГСЧ, реплеи, хеш состояния (раздел 7). -->
+  <PropertyGroup>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+  </ItemGroup>
+
+</Project>

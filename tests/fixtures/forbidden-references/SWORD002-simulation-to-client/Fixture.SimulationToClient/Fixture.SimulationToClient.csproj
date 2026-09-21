@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Заготовка для проверки правил ссылок (verify.ps1): слой и сторона заданы явно. Не входит в решение. -->
+  <PropertyGroup>
+    <SwordLayer>Game</SwordLayer>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\targets\Fixture.GameClient\Fixture.GameClient.csproj" />
+  </ItemGroup>
+
+</Project>

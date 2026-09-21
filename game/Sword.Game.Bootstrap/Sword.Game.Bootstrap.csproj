@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Единая композиция симуляции: ядро и модули симуляции — одна для App и Headless (раздел 3). -->
+  <PropertyGroup>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Game\Sword.Game.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
+    <ProjectReference Include="..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

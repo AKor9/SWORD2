@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Контракты игры для модулей: компоненты, события, команды, идентификаторы, метки систем — без логики (раздел 9). -->
+  <PropertyGroup>
+    <SwordSide>Neutral</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\engine\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />
+  </ItemGroup>
+
+</Project>

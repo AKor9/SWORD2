@@ -1,0 +1,40 @@
+<Project>
+
+  <!-- Общие свойства всех проектов SWORD2. Единственное место, где живут TFM и флаги. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Разрядность держит PlatformTarget (заголовок сборки), а не Platforms. -->
+    <PlatformTarget>x64</PlatformTarget>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Deterministic>true</Deterministic>
+
+    <!-- Предупреждение — это ошибка. Исключение — аудит уязвимостей NuGet: новая уязвимость в пакете не должна
+         внезапно ронять сборку, её разбирают отдельно. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+
+    <!-- Предсказуемый кадр важнее пропускной способности GC. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+
+    <!-- Версия app-local DirectX 12 Agility SDK — единственное место. -->
+    <AgilitySdkVersion>1.619.5</AgilitySdkVersion>
+  </PropertyGroup>
+
+  <!-- Слой проекта — по его папке (раздел 4 ARCHITECTURE_PLAN.md): engine → Engine, game → Game, tools → Tool,
+       tests → Test. Проект может задать слой сам — так делают заготовки запрещённых ссылок в tests/fixtures.
+       Сторону (SwordSide: Neutral | Simulation | Client) задаёт каждый проект движка, игры и инструментов. -->
+  <PropertyGroup>
+    <_SwordRelativeDir>$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)'))</_SwordRelativeDir>
+    <SwordLayer Condition="'$(SwordLayer)' == '' and $(_SwordRelativeDir.StartsWith('engine'))">Engine</SwordLayer>
+    <SwordLayer Condition="'$(SwordLayer)' == '' and $(_SwordRelativeDir.StartsWith('game'))">Game</SwordLayer>
+    <SwordLayer Condition="'$(SwordLayer)' == '' and $(_SwordRelativeDir.StartsWith('tools'))">Tool</SwordLayer>
+    <SwordLayer Condition="'$(SwordLayer)' == '' and $(_SwordRelativeDir.StartsWith('tests'))">Test</SwordLayer>
+  </PropertyGroup>
+
+</Project>

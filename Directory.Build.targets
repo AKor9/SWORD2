@@ -1,0 +1,42 @@
+<Project>
+
+  <!-- Слой и сторона — в метаданные сборки: их видят архитектурные тесты и агент (architecture.projects). -->
+  <ItemGroup Condition="'$(SwordLayer)' != ''">
+    <AssemblyMetadata Include="SwordLayer" Value="$(SwordLayer)" />
+    <AssemblyMetadata Include="SwordSide" Value="$(SwordSide)" Condition="'$(SwordSide)' != ''" />
+  </ItemGroup>
+
+  <!-- Слой и сторона этого проекта — для проверки ссылающихся на него. -->
+  <Target Name="SwordGetLayer" Returns="@(_SwordLayerInfo)">
+    <ItemGroup>
+      <_SwordLayerInfo Include="$(MSBuildProjectName)" SwordLayer="$(SwordLayer)" SwordSide="$(SwordSide)" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Быстрая проверка ссылок прямо в сборке (раздел 4 ARCHITECTURE_PLAN.md). Здесь — только общие правила:
+      SWORD001  слой:    движок не знает игру и инструменты; игра не знает инструменты; никто не ссылается на тесты.
+      SWORD002  сторона: нейтральное видит только нейтральное; симуляция не видит клиент.
+      SWORD003  у проекта движка, игры или инструмента не задана сторона.
+    Полная матрица ссылок, замыкание симуляции, пакеты Vortice и изоляция модулей — в tests/Sword.Architecture.Tests.
+  -->
+  <Target Name="SwordCheckReferences" BeforeTargets="ResolveProjectReferences"
+          Condition="'$(SwordLayer)' != '' and '$(SwordLayer)' != 'Test'">
+    <Error Code="SWORD003" Condition="'$(SwordSide)' != 'Neutral' and '$(SwordSide)' != 'Simulation' and '$(SwordSide)' != 'Client'"
+           Text="$(MSBuildProjectName): сторона SwordSide = «$(SwordSide)»; нужна Neutral, Simulation или Client (раздел 4 ARCHITECTURE_PLAN.md)." />
+
+    <MSBuild Projects="@(ProjectReference)" Targets="SwordGetLayer" BuildInParallel="$(BuildInParallel)"
+             Condition="'@(ProjectReference)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwordReferenced" />
+    </MSBuild>
+
+    <Error Code="SWORD001"
+           Condition="'@(_SwordReferenced)' != '' and (('$(SwordLayer)' == 'Engine' and '%(_SwordReferenced.SwordLayer)' != 'Engine') or ('$(SwordLayer)' == 'Game' and '%(_SwordReferenced.SwordLayer)' != 'Engine' and '%(_SwordReferenced.SwordLayer)' != 'Game') or ('$(SwordLayer)' == 'Tool' and '%(_SwordReferenced.SwordLayer)' == 'Test'))"
+           Text="$(MSBuildProjectName) (слой $(SwordLayer)) ссылается на %(_SwordReferenced.Identity) (слой %(_SwordReferenced.SwordLayer)): зависимости идут только вниз — движок не знает игру и инструменты, игра не знает инструменты (раздел 4 ARCHITECTURE_PLAN.md)." />
+
+    <Error Code="SWORD002"
+           Condition="'@(_SwordReferenced)' != '' and (('$(SwordSide)' == 'Neutral' and '%(_SwordReferenced.SwordSide)' != 'Neutral') or ('$(SwordSide)' == 'Simulation' and '%(_SwordReferenced.SwordSide)' != 'Neutral' and '%(_SwordReferenced.SwordSide)' != 'Simulation'))"
+           Text="$(MSBuildProjectName) (сторона $(SwordSide)) ссылается на %(_SwordReferenced.Identity) (сторона %(_SwordReferenced.SwordSide)): нейтральное видит только нейтральное, симуляция не видит клиент (раздел 4 ARCHITECTURE_PLAN.md)." />
+  </Target>
+
+</Project>

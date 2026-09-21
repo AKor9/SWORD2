@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Агентский хост: MCP-сервер, реестр инструментов, сеансы, квитанции, артефакты (раздел 8). Только из exe. -->
+  <PropertyGroup>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Introspection\Sword.Engine.Introspection.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>

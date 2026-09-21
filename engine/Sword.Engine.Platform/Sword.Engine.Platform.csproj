@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Абстракции окна, ввода, диалогов. Конкретную платформу создаёт exe. -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <!-- Реализации платформы кормят InputState через internal-методы. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Engine.Platform.Win32" />
+    <InternalsVisibleTo Include="Sword.Engine.Platform.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+  </ItemGroup>
+
+</Project>
