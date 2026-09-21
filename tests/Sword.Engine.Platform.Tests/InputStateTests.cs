@@ -20,6 +20,26 @@ public sealed class InputStateTests
     }
 
     [Fact]
+    public void KeyRelease_IsAnEdge_OnlyFromHeldKey_ClearedNextFrame()
+    {
+        // Фронт отпускания клавиши (как у мыши): тап в одном кадре даёт и нажатие, и отпускание.
+        var input = new InputState();
+        input.BeginFrame();
+        input.SetKey((int)Key.Space, true);
+        input.SetKey((int)Key.Space, false);
+        Assert.True(input.WasPressed(Key.Space) && input.WasReleased(Key.Space));
+
+        input.BeginFrame();
+        Assert.False(input.WasReleased(Key.Space));
+        input.SetKey((int)Key.Space, false);   // отпускание не зажатой клавиши — не фронт
+        Assert.False(input.WasReleased(Key.Space));
+
+        input.SetKey((int)Key.Space, true);
+        input.ForgetAll();                     // фокус потерян — фронты забыты
+        Assert.False(input.WasReleased(Key.Space));
+    }
+
+    [Fact]
     public void BeginFrame_ClearsEdges_KeepsLevels()
     {
         var input = new InputState();

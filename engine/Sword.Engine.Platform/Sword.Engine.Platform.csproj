@@ -9,6 +9,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Sword.Engine.Platform.Win32" />
     <InternalsVisibleTo Include="Sword.Engine.Platform.Tests" />
+    <!-- Ввод без окна: тесты фронтов тика в клиенте движка нажимают клавиши сами. -->
+    <InternalsVisibleTo Include="Sword.Engine.Client.Tests" />
   </ItemGroup>
 
   <ItemGroup>

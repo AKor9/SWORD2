@@ -19,6 +19,15 @@ public sealed class ConfigSet
 {
     public const string FileName = "sword.json", UserFileName = "sword.user.json", EnvPrefix = "SWORD_";
 
+    /// <summary>Секция привязок клавиш — её читает клиент движка (<c>InputBindings</c>).</summary>
+    public const string InputSection = "input";
+
+    /// <summary>
+    /// Секции общего конфига, которые читает клиент движка. Exe без клиента (Headless) пропускает их
+    /// (<see cref="SkipClientSections"/>), не ссылаясь на клиентские сборки: общий <c>sword.json</c> один на оба exe.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ClientSections = [InputSection];
+
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -176,6 +185,43 @@ public sealed class ConfigSet
         return result;
     }
 
+    /// <summary>
+    /// Секция-словарь строк с известными ключами (привязки клавиш: <c>input.move_forward=W</c>): те же слои и та же
+    /// строгость, что у <see cref="Section{T}"/> — ключ не из <paramref name="defaults"/> — ошибка, значение — строка;
+    /// переменная — <c>SWORD_&lt;СЕКЦИЯ&gt;_&lt;КЛЮЧ&gt;</c>. Ключи результата — как в <paramref name="defaults"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Strings(string name, IReadOnlyDictionary<string, string> defaults)
+    {
+        NotCompleted();
+        var node = new JsonObject();
+        foreach (var (key, value) in defaults) node[key] = value;
+        OverlayStrings(node, FindPath(_files, [name], name), name);
+        foreach (var key in defaults.Keys)
+        {
+            string env = EnvPrefix + name.ToUpperInvariant() + "_" + key.ToUpperInvariant();
+            if (_env(env) is not { } value) continue;
+            node[key] = value;
+            AddSource($"{env}={value}");
+        }
+        OverlayStrings(node, FindPath(_sets, [name], name), name);
+        _effective[name] = node.DeepClone();
+        _consumed.Add(name);
+        return defaults.Keys.ToDictionary(k => k, k => node[k]!.GetValue<string>(), StringComparer.Ordinal);
+    }
+
+    private static void OverlayStrings(JsonObject node, JsonObject? layer, string where)
+    {
+        if (layer is null) return;
+        foreach (var (key, value) in layer)
+        {
+            var known = FindKey(node, key)
+                ?? throw new InvalidDataException($"конфиг: в секции {where} нет ключа {key}; есть: {string.Join(", ", node.Select(p => p.Key).Order())}");
+            if (value is not JsonValue v || v.GetValueKind() != JsonValueKind.String)
+                throw new InvalidDataException($"конфиг: {where}.{known}: ожидается строка, а не {value?.ToJsonString() ?? "null"}");
+            node[known] = v.GetValue<string>();
+        }
+    }
+
     /// <summary>Запись по пути: значения в коде → файлы → переменные → <c>--set</c>; неизвестный ключ — ошибка.</summary>
     private T Resolve<T>(string[] path) where T : new()
     {
@@ -256,7 +302,16 @@ public sealed class ConfigSet
         _skipped.Add(name);
     }
 
-    /// <summary>Пропущенные секции (выключенные модули) — для итога запуска.</summary>
+    /// <summary>
+    /// Exe без клиента: клиентские секции (<see cref="ClientSections"/>) не читаются и не проверяются — их проверяет
+    /// Sword.exe, — но и неизвестными не считаются.
+    /// </summary>
+    public void SkipClientSections()
+    {
+        foreach (var section in ClientSections) Skip(section);
+    }
+
+    /// <summary>Пропущенные секции (выключенные модули, клиентские у exe без клиента) — для итога запуска.</summary>
     public IReadOnlyCollection<string> Skipped => _skipped;
 
     /// <summary>Секции файлов и <c>--set</c>, которые никто не запросил, — ошибка.</summary>

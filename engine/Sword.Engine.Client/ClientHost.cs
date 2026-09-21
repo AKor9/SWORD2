@@ -50,6 +50,28 @@ public sealed record ClientOptions
     /// <see cref="SimSettings.MaxTicksPerFrame"/> тиков, после упора остаток срезается до одного тика).
     /// </summary>
     public int TicksPerFrame { get; init; }
+
+    /// <summary>
+    /// Шаг кадра для накопителя, с, вместо часов (проверочные прогоны «как при N кадрах в секунду»: тики и доля тика
+    /// повторяются от прогона к прогону); 0 — по часам. Вместе с <see cref="TicksPerFrame"/> не задаётся.
+    /// </summary>
+    public double FrameSeconds { get; init; }
+
+    /// <summary>
+    /// Не больше стольких кадров в секунду (0 — без ограничения): кадр досыпает до своей доли секунды. Проверка плавности
+    /// при низкой и «неровной» частоте кадров вживую (30, 45…).
+    /// </summary>
+    public double MaxFps { get; init; }
+
+    /// <summary>Привязки действий ввода (секция конфига <c>input</c>); null — клавиши игры по умолчанию.</summary>
+    public InputBindings? Bindings { get; init; }
+
+    /// <summary>
+    /// Действия, удерживаемые весь прогон, по именам (проверочные прогоны и агент: управление без клавиатуры). Действие,
+    /// а не клавиша: привязки не участвуют; в первом кадре действие ещё и «нажато», как клавиша, зажатая с начала.
+    /// Неизвестное действие — ошибка; регистр не важен.
+    /// </summary>
+    public IReadOnlyList<string> HeldActions { get; init; } = [];
 }
 
 /// <summary>
@@ -81,12 +103,14 @@ public sealed record ClientRunReport(
     int PooledResources,
     long AllocatedBytesPerFrame,
     int Gen0Collections,
+    float Alpha,
     string? Screenshot,
     IReadOnlyList<RenderPassReport> Passes);
 
 /// <summary>
-/// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → тики симуляции (<see cref="SimulationClock"/>: очередь кадра,
-/// накопитель, команды тиков от игры) → кадр → показ. Ввод, Extract с интерполяцией и UI — следующие точки.
+/// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
+/// (<see cref="SimulationClock"/>: очередь кадра, накопитель, команды тиков от игры) → мир представления с долей тика
+/// (<see cref="FrameView"/>) → кадр → показ. UI — точка 1д.
 /// Окно и симуляцию создаёт exe и отдаёт сюда: клиент знает <see cref="IWindow"/>, API рендера (устройство D3D12 —
 /// внутри рендера) и симуляцию; клиентской части игры он отдаёт только <see cref="SimulationLink"/>.
 /// </summary>
@@ -101,6 +125,10 @@ public sealed class ClientHost : IDisposable
     private string? _screenshot;
     private readonly Simulation? _simulation;
     private readonly SimulationClock? _clock;
+    private readonly InputBindings _bindings;
+    private readonly InputEdges _edges;
+    private readonly IReadOnlySet<string>? _held;
+    private FrameView _view = new(1, 0, 0);
 
     /// <summary>Исключение кадра, нарисованного из системного цикла перетаскивания; бросается в главном цикле.</summary>
     private ExceptionDispatchInfo? _liveResizeError;
@@ -109,11 +137,26 @@ public sealed class ClientHost : IDisposable
     {
         if (options.ResizeCycle && (options.ResizeCycleFrames < 1 || options.ResizeCycleSizes.Count == 0))
             throw new ArgumentException("ResizeCycle: нужны ResizeCycleFrames ≥ 1 и хотя бы один размер", nameof(options));
+        if (options.TicksPerFrame > 0 && options.FrameSeconds > 0)
+            throw new ArgumentException("TicksPerFrame и FrameSeconds вместе не задаются", nameof(options));
+        _bindings = options.Bindings ?? InputBindings.Resolve(game.Actions, null);
+        foreach (var a in game.Actions)
+            if (!_bindings.Has(a.Name)) throw new ArgumentException($"привязки не знают действия игры {a.Name}", nameof(options));
+        // Имена действий — строчные (правило ключей конфига): регистр в --hold не важен, как и в конфиге.
+        var held = options.HeldActions.Select(n => n.ToLowerInvariant()).ToList();
+        foreach (var name in held)
+            if (!game.Actions.Any(a => a.Name == name))
+                throw new ArgumentException($"удерживаемое действие {name}: у игры его нет; есть: {string.Join(", ", game.Actions.Select(a => a.Name))}");
+        _held = held.Count > 0 ? new HashSet<string>(held, StringComparer.Ordinal) : null;
+        if (options.CloseOnEscape && _bindings.ActionsOn(Key.Escape).FirstOrDefault() is { } onEscape)
+            throw new ArgumentException($"действие {onEscape} привязано к Escape, а Escape закрывает окно (CloseOnEscape)", nameof(options));
         _window = window;
         _options = options;
         _game = game;
         _simulation = simulation;
-        _clock = simulation is null ? null : new SimulationClock(simulation, game.BeforeTick, options.TicksPerFrame);
+        _edges = new InputEdges(_bindings);
+        _clock = simulation is null ? null
+            : new SimulationClock(simulation, (link, input) => game.BeforeTick(link, input), options.TicksPerFrame, _edges);
         _buildFrame = game.BuildFrame;
         _screenshotFrame = options.ScreenshotFrame > 0 ? options.ScreenshotFrame : options.MaxFrames > 0 ? options.MaxFrames : 30;
         var contract = new ShaderContract();
@@ -135,6 +178,7 @@ public sealed class ClientHost : IDisposable
             throw;
         }
         _window.LiveResize += OnLiveResize;
+        Log.Info("input", "привязки: " + string.Join(", ", _bindings.Keys.Select(p => $"{p.Key}={p.Value}")));
         Log.Info("client", $"{_renderer.AdapterName}, {_renderer.AdapterVramMb} МБ, {window.Width}×{window.Height}, " +
             $"вертикальная синхронизация {(options.Vsync ? "вкл" : "выкл")}" +
             (options.GpuValidation ? ", отладочный слой D3D12 с GPU-валидацией" : options.DebugLayer ? ", отладочный слой D3D12" : ""));
@@ -180,10 +224,20 @@ public sealed class ClientHost : IDisposable
 
             ResizeIfNeeded();
             long simNow = Stopwatch.GetTimestamp();
-            _clock?.RunFrame(Stopwatch.GetElapsedTime(lastSim, simNow).TotalSeconds);
+            double seconds = _options.FrameSeconds > 0 ? _options.FrameSeconds : Stopwatch.GetElapsedTime(lastSim, simNow).TotalSeconds;
             lastSim = simNow;
+            // Кадр (раздел 7): ввод и камера → тики с командами → мир представления → проходы.
+            float frameSeconds = _clock?.FrameSeconds(seconds) ?? (float)Math.Max(seconds, 0);
+            var input = new FrameInput(_window.Input, _bindings, _held, heldPressed: frames == 0, _window.MouseInside,
+                _renderer.Width, _renderer.Height, frameSeconds);
+            _game.Input(input);
+            _edges.Note(input);   // фронты кадра — до ближайшего тика (раздел 7)
+            int ticks = _clock?.RunFrame(seconds) ?? 0;
+            _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds);
+            _game.Extract(_view);
             bool shot = frames + 1 == _screenshotFrame && _options.ScreenshotPath is not null;
             RenderFrame(shot ? _options.ScreenshotPath : null);
+            if (_options.MaxFps > 0) WaitForFrameSlot(last, 1 / _options.MaxFps);
 
             long now = Stopwatch.GetTimestamp();
             long allocated = GC.GetAllocatedBytesForCurrentThread();
@@ -234,6 +288,7 @@ public sealed class ClientHost : IDisposable
             PooledResources: _renderer.Graph.PooledResources,
             AllocatedBytesPerFrame: steady > 0 ? allocatedSum / steady : 0,
             Gen0Collections: gen0Sum,
+            Alpha: _view.Alpha,
             Screenshot: _screenshot,
             Passes: _renderer.Graph.LastFrame);
     }
@@ -250,6 +305,21 @@ public sealed class ClientHost : IDisposable
         _renderer.Resize(_window.Width, _window.Height);
         _resizes++;
         Log.Info("client", $"размер {_window.Width}×{_window.Height}");
+    }
+
+    /// <summary>
+    /// Ограничитель кадров: досыпает до доли секунды кадра. Сон в Windows идёт шагом системного таймера (~15,6 мс),
+    /// поэтому спим, только пока до конца кадра больше 20 мс, остаток — ожидание с уступкой процессора.
+    /// </summary>
+    private static void WaitForFrameSlot(long frameStart, double seconds)
+    {
+        while (true)
+        {
+            double left = seconds - Stopwatch.GetElapsedTime(frameStart).TotalSeconds;
+            if (left <= 0) return;
+            if (left > 0.020) Thread.Sleep(TimeSpan.FromSeconds(left - 0.017));
+            else Thread.Yield();
+        }
     }
 
     private void RenderFrame(string? screenshot = null)
@@ -278,6 +348,7 @@ public sealed class ClientHost : IDisposable
             ResizeIfNeeded();
             // Кадр без тиков: очередь кадра пуста — события прошлого кадра не обрабатываются второй раз.
             _clock?.EmptyFrame();
+            _game.Extract(_view with { Ticks = 0, Seconds = 0 });
             RenderFrame();
         }
         catch (Exception ex)

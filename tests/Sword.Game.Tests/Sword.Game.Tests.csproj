@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\game\Sword.Game\Sword.Game.csproj" />
     <ProjectReference Include="..\..\game\Sword.Game.Bootstrap\Sword.Game.Bootstrap.csproj" />
+    <ProjectReference Include="..\..\game\Sword.Game.Client\Sword.Game.Client.csproj" />
   </ItemGroup>
 
 </Project>

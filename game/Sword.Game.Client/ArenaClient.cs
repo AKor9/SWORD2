@@ -12,14 +12,14 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Client;
 
 /// <summary>
-/// Клиент игры: арена — пол, рельеф из <see cref="HeightField"/>, колонны — и игрок: Manny в позе привязки стоит в корне
-/// бойца игрока (<see cref="Transform"/>) с его курсом на высоте поля рельефа (<c>DuelArena.KinWorld</c> SWORD).
-/// Один непрозрачный проход «scene.opaque» пишет цвет, нормали и глубину (порядок отрисовки —
-/// <c>SceneRenderer.Record</c> SWORD 2eab13b: пол, рельеф, колонны, скин).
+/// Клиент игры: арена — пол, рельеф из <see cref="HeightField"/>, колонны — и бойцы: Manny в позе привязки в корне бойца
+/// с его курсом на высоте рельефа (<c>DuelArena.KinWorld</c> SWORD). Один непрозрачный проход «scene.opaque» пишет цвет,
+/// нормали и глубину (порядок отрисовки — <c>SceneRenderer.Record</c> SWORD 2eab13b: пол, рельеф, колонны, скин).
 ///
-/// Точка 1в: корень читается из мира прямо в кадре, без интерполяции; камера смотрит на игрока без сглаживания;
-/// команда игрока — заданная (<c>--move</c>), одна и та же каждый тик. Ввод, Extract в <c>RenderWorld</c> с
-/// интерполяцией и управляемая RTS-камера — точка 1г.
+/// Кадр — порядок <c>Program.cs</c> SWORD: <see cref="Input"/> — камера (<see cref="RtsCamera"/>, следует за игроком,
+/// каким его показал прошлый кадр) и команда игрока из WASD по этой камере и курсора на земле; <see cref="BeforeTick"/> —
+/// та же команда в каждый тик кадра (удерживаемое, раздел 7); <see cref="Extract"/> — мир представления
+/// (<see cref="ArenaView"/>, интерполяция по доле тика); <see cref="BuildFrame"/> рисует только его.
 /// </summary>
 public sealed class ArenaClient : IClientGame
 {
@@ -42,34 +42,52 @@ public sealed class ArenaClient : IClientGame
 
     private readonly RtsCamera _camera = new();
     private readonly HeightField _field = ArenaTerrain.BuildField();
+    private readonly ArenaView _view;
     private readonly Action<RenderPassContext> _drawOpaque;
     private Renderer? _renderer;
     private GpuData? _heights, _capsule;
     private GpuIndices? _capsuleIndices;
     private int _manny = -1;
     private SimulationLink? _simulation;
-    private ReadQuery? _players;
     private readonly PlayerCommand? _scripted;
-    private readonly bool _followPlayer;
+    private readonly bool _fixedCamera;
+    private PlayerCommand _frameCommand;
 
-    /// <param name="camera">Ракурс вместо исходного SWORD (проверочные снимки); null — исходный, взгляд на игрока.</param>
-    /// <param name="scripted">Команда игрока на каждый тик (проверочные прогоны); null — стоять.</param>
+    /// <param name="camera">Неподвижный ракурс вместо камеры SWORD (проверочные снимки); null — камера за игроком.</param>
+    /// <param name="scripted">Команда игрока на каждый тик вместо ввода (проверочные прогоны); null — клавиатура и мышь.</param>
     public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null)
     {
         _drawOpaque = DrawOpaque;
+        _view = new ArenaView(ArenaTerrain.Height);
         _scripted = scripted;
-        _followPlayer = camera is null;
         if (camera is { } c)
         {
+            // Пределы SWORD (--pitch, --zoom: наклон 0,45…1,45, дистанция через SetDistance — 6…110 м).
+            _fixedCamera = true;
+            _camera.Follow = false;
             _camera.Yaw = c.Yaw;
-            _camera.Pitch = c.Pitch;
-            _camera.Distance = c.Distance;
+            _camera.Pitch = Math.Clamp(c.Pitch, RtsCamera.MinPitch, RtsCamera.MaxPitch);
+            _camera.SetDistance(c.Distance);
             _camera.Target = new Vector3(c.TargetX, 0, c.TargetZ);
         }
     }
 
     /// <summary>Поле высот арены — то же, что рисуется.</summary>
     public HeightField Field => _field;
+
+    /// <summary>Мир представления последнего кадра.</summary>
+    public ArenaView View => _view;
+
+    /// <summary>Камера (для итога и агента).</summary>
+    public RtsCamera Camera => _camera;
+
+    /// <summary>Корень игрока в симуляции на последнем тике кадра (итог Sword.exe, сверка с Headless); нет игрока — null.</summary>
+    public Transform? LastPlayer => _view.PlayerAtTick;
+
+    /// <summary>Позиция тени и кольца игрока, когда игрока в кадре нет: за пределами арены — не рисуются.</summary>
+    private static readonly Vector3 NoPlayer = new(0, 0, 1e6f);
+
+    public IReadOnlyList<InputAction> Actions => ArenaInput.All;
 
     public void ContributeShaders(ShaderContract c)
     {
@@ -88,7 +106,6 @@ public sealed class ArenaClient : IClientGame
         _renderer = renderer;
         // Игрок и его команда — ядро игры: симуляция у арены есть всегда.
         _simulation = simulation ?? throw new ArgumentNullException(nameof(simulation), "клиенту арены нужна симуляция");
-        _players = simulation.World.Query().With<PlayerTag>().Read<Transform>();
         _heights = renderer.CreateData<float>("Arena.Heights", _field.Heights);
 
         var verts = new List<CapsuleVertex>();
@@ -103,24 +120,36 @@ public sealed class ArenaClient : IClientGame
             $"высоты {min:0.###}…{max:0.###} м");
     }
 
-    public void BeforeTick(SimulationLink simulation)
+    public void Input(in FrameInput input)
     {
-        if (_scripted is { } command) simulation.Enqueue(command);
+        // Камера — до тиков, за игроком, каким его показал прошлый кадр (Program.cs SWORD: focus по renderAlpha прошлого кадра).
+        if (_fixedCamera) _camera.Rebuild(input.Width, input.Height);
+        else _camera.Update(ArenaInput.Camera(input), input.Seconds, _view.Player is { } p ? p.Root with { Y = 0 } : _camera.Target,
+            input.Width, input.Height);
+
+        if (_scripted is { } scripted)
+        {
+            _frameCommand = scripted;
+            return;
+        }
+        // Курсор — после камеры этого кадра; точка на плоскости земли, только когда курсор над окном (SWORD).
+        bool hit = _camera.ScreenToGround(input.MouseX, input.MouseY, input.Width, input.Height, out var ground);
+        _frameCommand = PlayerIntent.Command(ArenaInput.Player(input), _camera, hit && input.MouseInside, ground);
     }
+
+    // Фронтов у действий 1г нет (WASD, Shift, курсор — уровни; F — камера): первым их возьмёт удар/уклонение.
+    public void BeforeTick(SimulationLink simulation, in TickInput input) => simulation.Enqueue(_frameCommand);
+
+    public void Extract(in FrameView view) => _view.Extract(_simulation!, view.Alpha);
 
     public void BuildFrame(RenderFrame frame)
     {
-        var player = LastPlayer = Player();
-        if (_followPlayer) _camera.Target = player.Position;
-        _camera.Rebuild(frame.Width, frame.Height);
-        frame.SetFrameConstants(Constants(player.Position));
+        _camera.Rebuild(frame.Width, frame.Height);   // кадр из перетаскивания рамки — без Input, со своим размером
+        frame.SetFrameConstants(Constants());
 
-        // Manny в позе привязки: палитра InverseBind·Component·World = World (компоненты — те же, что при привязке),
-        // World — поворот на курс и перенос в корень на высоте рельефа (DuelArena.KinWorld).
-        var world = Matrix4x4.CreateRotationY(player.Facing);
-        world.Translation = new Vector3(player.Position.X, _field.Sample(player.Position.X, player.Position.Z), player.Position.Z);
-        var palette = _renderer!.Skinned.Add(_manny, PlayerColour);
-        palette.Fill(GpuMat34.From(world));
+        // Manny в позе привязки: палитра InverseBind·Component·World = World (компоненты — те же, что при привязке).
+        foreach (var fighter in _view.Fighters)
+            _renderer!.Skinned.Add(_manny, PlayerColour).Fill(GpuMat34.From(fighter.World));
 
         frame.Graph.AddPass("scene.opaque")
             .Color(frame.Graph.BackBuffer, ClearColour)
@@ -145,30 +174,24 @@ public sealed class ArenaClient : IClientGame
         _renderer!.Skinned.Record(ctx, Skin);
     }
 
-    /// <summary>Корень игрока, показанный последним кадром (итог Sword.exe, сверка с Headless).</summary>
-    public Transform LastPlayer { get; private set; }
-
-    /// <summary>Корень игрока из мира (игрока создаёт ядро игры при сборке мира).</summary>
-    private Transform Player()
-    {
-        foreach (var chunk in _simulation!.World.Iterate(_players!))
-            if (chunk.Count > 0) return chunk.Read<Transform>()[0];
-        throw new InvalidOperationException("в мире нет игрока");
-    }
-
-    private FrameConstants Constants(Vector3 playerPos)
+    /// <summary>
+    /// Константы кадра (<c>Program.Fill</c> SWORD): шаг и время тика, номер последнего тика, доля тика. Тень и кольцо
+    /// игрока — в показанной (интерполированной) точке, как и Manny. Намеренное отличие: в SWORD — таз тела на последнем
+    /// тике, и кольцо дрожит относительно плавно идущего бойца.
+    /// </summary>
+    private FrameConstants Constants()
     {
         var pl = ArenaLayout.Pillars;
         return new FrameConstants
         {
-            Dt = 1f / 60f, Alpha = 1f,
+            Dt = _view.TickDt, Time = _view.Time, Tick = (uint)_view.LastTick, Alpha = _view.Alpha,
             ViewProj = _camera.ViewProj,
             InvViewProj = Matrix4x4.Invert(_camera.ViewProj, out var inv) ? inv : Matrix4x4.Identity,
             CameraPos = _camera.Eye, ArenaRadius = ArenaLayout.ArenaRadius,
             Pillar0 = pl[0], Pillar1 = pl[1], Pillar2 = pl[2], Pillar3 = pl[3],
             Pillar4 = pl[4], Pillar5 = pl[5], Pillar6 = pl[6], Pillar7 = pl[7],
             LightDir = Vector3.Normalize(new Vector3(-0.45f, -1f, -0.3f)),
-            PlayerPos = playerPos,
+            PlayerPos = _view.PlayerMarker ?? NoPlayer,
             PlayerHpFrac = 1f,
         };
     }

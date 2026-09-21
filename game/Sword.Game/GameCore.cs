@@ -17,7 +17,9 @@ public static class GameCore
     {
         b.Component<Transform>().Component<PrevTransform>().Component<RootVelocity>().Component<FighterCommand>()
             .Component<GazeTarget>().Component<Fighter>().Component<PlayerTag>()
-            .Command<PlayerCommand>();
+            .Command<PlayerCommand>()
+            // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
+            .Export<Added<Fighter>>().Export<Removed<Fighter>>();
 
         b.System(GameStages.Begin, new PrevTransformSystem())
             .System(GameStages.Intent, new PlayerCommandSystem())
@@ -41,8 +43,11 @@ public static class GameCore
         var e = world.CreateImmediate();
         world.AddImmediate(e, new Fighter());
         world.AddImmediate(e, new PlayerTag());
-        world.AddImmediate(e, new Transform());
-        world.AddImmediate(e, new PrevTransform());
+        // Прошлый корень — тот же, что нынешний: боец, появившийся посреди тика, не «прилетает» в кадр из начала
+        // координат (в SWORD: RenderPos = Pos при постройке).
+        var root = new Transform();
+        world.AddImmediate(e, root);
+        world.AddImmediate(e, new PrevTransform { Position = root.Position, Facing = root.Facing });
         world.AddImmediate(e, new RootVelocity());
         world.AddImmediate(e, new FighterCommand());
         world.AddImmediate(e, new GazeTarget());

@@ -1,0 +1,77 @@
+using Sword.Engine.Platform;
+using Sword.Engine.Runtime;
+
+namespace Sword.Engine.Client.Tests;
+
+/// <summary>
+/// Фронты ввода до тика (раздел 7 плана): нажатие и отпускание достаются ровно одному тику — первому после кадра, где
+/// случились; кадр без тиков их не теряет, кадр из нескольких тиков не повторяет.
+/// </summary>
+public class InputEdgesTests
+{
+    private static readonly InputAction Attack = new("attack", "Space");
+    private static readonly InputAction Block = new("block", "MouseRight");
+    private static readonly InputBindings Bindings = InputBindings.Resolve([Attack, Block], null);
+
+    private readonly InputState _state = new();
+    private readonly InputEdges _edges = new(Bindings);
+    private readonly List<(ulong Tick, bool Pressed, bool Released, bool BlockPressed)> _seen = [];
+    private readonly SimulationClock _clock;
+
+    public InputEdgesTests()
+    {
+        var sim = Simulation.Build(ConfigSet.Empty(), ["S"], []);
+        _clock = new SimulationClock(sim, (link, input) =>
+            _seen.Add((link.Tick, input.WasPressed(Attack), input.WasReleased(Attack), input.WasPressed(Block))), edges: _edges);
+    }
+
+    /// <summary>Кадр: платформа начала кадр, клавиши, ввод кадра в защёлку, тики.</summary>
+    private int Frame(int ticks, Action<InputState>? keys = null)
+    {
+        _state.BeginFrame();
+        keys?.Invoke(_state);
+        _edges.Note(new FrameInput(_state, Bindings, null, false, true, 640, 480, 1f / 60));
+        return _clock.RunFrame(ticks / 120.0);
+    }
+
+    [Fact]
+    public void PressInFrameWithoutTicks_ReachesFirstTickOfNextFrame_Once()
+    {
+        Assert.Equal(0, Frame(0, s => s.SetKey((int)Key.Space, true)));   // кадр без тиков — нажатие не теряется
+        Assert.Equal(3, Frame(3));                                         // кадр из трёх тиков — только первый
+        Assert.Equal([true, false, false], _seen.Select(x => x.Pressed));
+    }
+
+    [Fact]
+    public void PressInFrameWithThreeTicks_IsNotRepeated()
+    {
+        Frame(3, s => s.SetKey((int)Key.Space, true));
+        Frame(2);   // клавиша удерживается — новых нажатий нет
+        Assert.Equal([true, false, false, false, false], _seen.Select(x => x.Pressed));
+    }
+
+    [Fact]
+    public void TapWithinOneFrame_GivesPressAndRelease_ToOneTick()
+    {
+        Frame(2, s =>
+        {
+            s.SetKey((int)Key.Space, true);
+            s.SetKey((int)Key.Space, false);
+        });
+        Assert.Equal([(true, true), (false, false)], _seen.Select(x => (x.Pressed, x.Released)));
+    }
+
+    [Fact]
+    public void Release_AndMouseButton_FollowTheSameRule()
+    {
+        Frame(1, s =>
+        {
+            s.SetKey((int)Key.Space, true);
+            s.SetMouseButton(MouseButton.Right, true);
+        });
+        Frame(0, s => s.SetKey((int)Key.Space, false));   // отпущена в кадре без тиков
+        Frame(2);
+        Assert.Equal([(true, false, true), (false, true, false), (false, false, false)],
+            _seen.Select(x => (x.Pressed, x.Released, x.BlockPressed)));
+    }
+}

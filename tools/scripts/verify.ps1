@@ -18,7 +18,9 @@
                             кругу, слой отладки D3D12 с GPU-валидацией, снимок последнего кадра — итог JSON в
                             порядке, предупреждений и ошибок D3D12 и предупреждений шейдеров нет, проход
                             scene.opaque нарисовал арену и Manny, снимок не пустой, тиков ровно 180, корень игрока
-                            совпал с Headless на 180 тиках (нужны видеокарта и пак контента; -SkipGpu — пропустить);
+                            совпал с Headless на 180 тиках; прогон с удержанием действия move_forward (--hold) —
+                            игрок бежит по направлению камеры; прогон --fps 45 — ровно 242 тика, доля тика 2/3,
+                            показанный игрок интерполирован (нужны видеокарта и пак контента; -SkipGpu — пропустить);
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
                             плана); итог — artifacts/bench/ecs.json;
@@ -155,6 +157,9 @@ Add-Step 'headless-smoke' {
         if (-not $b.ok) { $problems += "без модуля ${m}: $($b.error)" }
         elseif ($b.ticks -ne $ticks10s -or @($b.inactiveModules) -notcontains $m) { $problems += "без модуля ${m}: тиков $($b.ticks), выключены $($b.inactiveModules)" }
     }
+    # Клиентская секция общего конфига (привязки клавиш) Headless не мешает.
+    $withInput = (& $exe.FullName --ticks 1 --set input.move_forward=Up --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+    if (-not $withInput.ok) { $problems += "Headless с --set input.move_forward=Up: $($withInput.error)" }
     # Строгость конфига на всей композиции: опечатка в секции и попытка выключить ядро (принцип 4) — ошибки запуска.
     foreach ($case in @(@('sim2.tickRate=60', 'неизвестные секции'), @('modules.core.enabled=false', 'modules.core'))) {
         $bad = (& $exe.FullName --ticks 1 --set $case[0] --json 2>$null | Out-String).Trim()
@@ -163,7 +168,7 @@ Add-Step 'headless-smoke' {
         if ($code -eq 0 -or -not $b -or $b.ok -or "$($b.error)" -notmatch [regex]::Escape($case[1])) { $problems += "--set $($case[0]) прошёл или дал не ту ошибку: $bad" }
     }
     $moduleNote = if ($modules.Count -gt 0) { "по очереди без модуля ($($modules -join ', ')) — 10 с без ошибок" } else { 'модулей нет' }
-    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; $moduleNote; опечатка в конфиге и выключение ядра — ошибки" } }
+    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; $moduleNote; привязки клавиш не мешают; опечатка в конфиге и выключение ядра — ошибки" } }
     else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
@@ -207,9 +212,48 @@ else {
             $headless = Get-ChildItem (Join-Path $root "game\Sword.Game.Headless\bin\$Configuration") -Recurse -Filter 'Sword.Headless.exe' | Select-Object -First 1
             $ErrorActionPreference = 'Continue'
             $h = (& $headless.FullName --ticks ($frames * $ticksPerFrame) --move 1,0 --json 2>$null | Out-String).Trim() | ConvertFrom-Json
-            if ($result.player.x -lt 1) { $problems += "игрок не побежал: x = $($result.player.x)" }
+            if ($LASTEXITCODE -ne 0 -or -not $h.ok) { $problems += "Headless для сверки: код $LASTEXITCODE, $($h.error)" }
+            elseif ($result.player.x -lt 1) { $problems += "игрок не побежал: x = $($result.player.x)" }
             elseif ($result.player.x -ne $h.player.x -or $result.player.z -ne $h.player.z -or $result.player.facing -ne $h.player.facing) {
                 $problems += "корень игрока в Sword.exe ($($result.player.x), $($result.player.z), $($result.player.facing)) не совпал с Headless ($($h.player.x), $($h.player.z), $($h.player.facing))"
+            }
+            elseif ($result.report.alpha -ne 1) { $problems += "при заданных тиках доля тика $($result.report.alpha), ждали 1" }
+            else {
+                # Дополнительные прогоны: вывод — в artifacts/verify/app-smoke, код выхода и итог проверяются.
+                function Invoke-App([string]$Name, [string[]]$Arguments) {
+                    $out = Join-Path $dir "$Name.json"
+                    $err = Join-Path $dir "$Name.log"
+                    $p = Start-Process -FilePath $exe.FullName -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err `
+                        -ArgumentList (@('--windowed', '640x480', '--no-activate', '--json') + $Arguments)
+                    $text = [System.IO.File]::ReadAllText($out).Trim()
+                    if ($p.ExitCode -ne 0 -or -not $text) { return @{ ok = $false; error = "код выхода $($p.ExitCode); $([System.IO.File]::ReadAllText($err).Trim())" } }
+                    return ($text | ConvertFrom-Json)
+                }
+                # Точка 1г: ввод действиями (move_forward удерживается), — игрок бежит «от камеры»: по её
+                # GroundForward = (−sin yaw, −cos yaw).
+                $held = Invoke-App 'hold' @('--frames', '60', '--hold', 'move_forward', '--ticks-per-frame', '2')
+                if (-not $held.ok) { $problems += "прогон с --hold: $($held.error)" }
+                else {
+                    $len = [math]::Sqrt($held.player.x * $held.player.x + $held.player.z * $held.player.z)
+                    $fx = -[math]::Sin($held.camera.yaw); $fz = -[math]::Cos($held.camera.yaw)
+                    if ($len -lt 1 -or ($held.player.x * $fx + $held.player.z * $fz) / $len -lt 0.999) {
+                        $problems += "--hold move_forward: игрок в ($($held.player.x), $($held.player.z)), камера yaw $($held.camera.yaw) — бег не «от камеры»"
+                    }
+                }
+                # Точка 1г: интерполяция в самой игре. «Как при 45 кадрах/с», 91 кадр: 91 · 120 / 45 = 242,67 — ровно
+                # 242 тика и доля тика 2/3; показанный игрок — на 1/3 шага тика позади последнего тика.
+                $fps = Invoke-App 'fps45' @('--frames', '91', '--fps', '45', '--move', '1,0')
+                if (-not $fps.ok) { $problems += "прогон с --fps 45: $($fps.error)" }
+                elseif ($fps.report.simTicks -ne 242 -or [math]::Abs($fps.report.alpha - 2 / 3) -gt 1e-3) {
+                    $problems += "--fps 45: тиков $($fps.report.simTicks), доля тика $($fps.report.alpha); ждали 242 и 0,667"
+                }
+                else {
+                    $lag = $fps.player.x - $fps.shown.x
+                    $expected = (1 - $fps.report.alpha) * 4.2 / 120
+                    if ([math]::Abs($lag - $expected) -gt 0.2 * $expected) {
+                        $problems += "--fps 45: показанный игрок позади тика на $lag м, ждали $expected (интерполяция)"
+                    }
+                }
             }
         }
         if ($d3d12.Count -gt 0) { $problems += "сообщения D3D12: $($d3d12 | Select-Object -First 3)" }
@@ -224,7 +268,7 @@ else {
             elseif ((Get-Item $shot).Length -lt 50KB) { $problems += "снимок подозрительно мал: $((Get-Item $shot).Length) Б — пустой кадр?" }
         }
         if ($problems.Count -eq 0) {
-            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless, кадр $($result.report.averageFrameMs) мс, снимок $shot" }
+            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless; с удержанием move_forward бежит от камеры; при --fps 45 — 242 тика, доля 2/3, интерполяция; кадр $($result.report.averageFrameMs) мс, снимок $shot" }
         }
         else { @{ ok = $false; detail = $problems -join '; ' } }
     }

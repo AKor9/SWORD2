@@ -15,24 +15,51 @@ public sealed class SimulationClock
     /// <summary>Шаг кадра больше этого — пауза (отладчик, перетаскивание окна): симуляция не догоняет её.</summary>
     public const double MaxFrameSeconds = 0.25;
 
+    /// <summary>
+    /// Допуск накопителя, с. Накопитель считает в точном шаге <c>1 / tickRate</c> (double), а не во float-шаге тика
+    /// (1/120 ≈ 0,0083333338): иначе «кадр 1/60 с» набирал бы 1,99999994 тика, недобор копился бы от кадра к кадру и
+    /// заданный шаг кадра (<c>--fps</c>) терял тики. Допуск — от округления double; на часах наносекунда незаметна.
+    /// </summary>
+    private const double Epsilon = 1e-12;
+
     private readonly Simulation _simulation;
-    private readonly Action<SimulationLink> _beforeTick;
+    private readonly Action<SimulationLink, TickInput> _beforeTick;
+    private readonly InputEdges? _edges;
     private readonly int _ticksPerFrame;
     private double _accumulator;
 
-    /// <param name="beforeTick">Команды игры на тик (<see cref="IClientGame.BeforeTick"/>).</param>
+    /// <param name="beforeTick">Команды игры на тик (<see cref="IClientGame.BeforeTick"/>) — с фронтами ввода для тика.</param>
     /// <param name="ticksPerFrame">Ровно столько тиков на кадр; 0 — по часам.</param>
-    public SimulationClock(Simulation simulation, Action<SimulationLink> beforeTick, int ticksPerFrame = 0)
+    /// <param name="edges">Защёлка фронтов ввода: первый тик после кадра забирает их; null — без ввода.</param>
+    public SimulationClock(Simulation simulation, Action<SimulationLink, TickInput> beforeTick, int ticksPerFrame = 0,
+        InputEdges? edges = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(ticksPerFrame);
         _simulation = simulation;
         _beforeTick = beforeTick;
+        _edges = edges;
         _ticksPerFrame = ticksPerFrame;
         Link = new SimulationLink(simulation);
     }
 
     /// <summary>Доступ клиентской части игры к симуляции.</summary>
     public SimulationLink Link { get; }
+
+    /// <summary>
+    /// Доля следующего тика, прошедшая по часам после тиков кадра (<c>accumulator / dt</c> SWORD): 0 — показать прошлый
+    /// тик, 1 — последний. При заданном числе тиков на кадр — 1: кадр показывает ровно состояние тика.
+    /// </summary>
+    public float Alpha => _ticksPerFrame > 0 ? 1f : (float)Math.Clamp(_accumulator / TickSeconds, 0, 1);
+
+    /// <summary>Точный шаг тика для накопителя, с.</summary>
+    private double TickSeconds => 1.0 / _simulation.Settings.TickRate;
+
+    /// <summary>
+    /// Шаг кадра для представления (сглаживание камеры): при заданном числе тиков — их время, иначе как есть, без
+    /// ограничения 0,25 с (SWORD отдаёт камере сырой <c>frameDt</c>: после паузы камера догоняет цель сразу).
+    /// </summary>
+    public float FrameSeconds(double measured) =>
+        _ticksPerFrame > 0 ? _ticksPerFrame * _simulation.Dt : (float)(measured > 0 ? measured : 0);
 
     /// <summary>
     /// Тики кадра длиной <paramref name="frameSeconds"/> (отрицательная и нечисловая — ноль: часы не встают навсегда);
@@ -47,13 +74,13 @@ public sealed class SimulationClock
             for (int i = 0; i < _ticksPerFrame; i++) Tick();
             return _ticksPerFrame;
         }
-        double dt = _simulation.Dt;
+        double dt = TickSeconds;
         int max = _simulation.Settings.MaxTicksPerFrame, ticks = 0;
         _accumulator += Math.Clamp(frameSeconds, 0, MaxFrameSeconds);
-        while (_accumulator >= dt && ticks < max)
+        while (_accumulator + Epsilon >= dt && ticks < max)
         {
             Tick();
-            _accumulator -= dt;
+            _accumulator = Math.Max(_accumulator - dt, 0);
             ticks++;
         }
         if (ticks == max) _accumulator = Math.Min(_accumulator, dt);
@@ -65,7 +92,8 @@ public sealed class SimulationClock
 
     private void Tick()
     {
-        _beforeTick(Link);
+        _beforeTick(Link, _edges?.ForTick() ?? TickInput.None);
+        _edges?.Consume();   // фронты — ровно одному тику
         _simulation.Step();
     }
 }

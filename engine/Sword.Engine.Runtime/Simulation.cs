@@ -98,8 +98,8 @@ public sealed class Simulation
     /// <summary>Записи тиков для клиента: срабатывания, объявленные <see cref="SimulationBuilder.Export{TTrigger}"/>.</summary>
     public TickExport Export { get; }
 
-    /// <summary>Секции конфига, которые читает сама симуляция: Id модуля с ними совпадать не может.</summary>
-    public static readonly IReadOnlyList<string> EngineSections = ["sim", "modules"];
+    /// <summary>Секции конфига движка — симуляции и клиента: Id модуля (имя его секции) с ними совпадать не может.</summary>
+    public static readonly IReadOnlyList<string> EngineSections = ["sim", "modules", .. ConfigSet.ClientSections];
 
     /// <summary>
     /// Служебные стадии Runtime вокруг стадий игры: команды тика — до первой (их события видят все стадии игры в том же

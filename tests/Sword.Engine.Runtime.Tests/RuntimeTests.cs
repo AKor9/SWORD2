@@ -120,6 +120,19 @@ public class ConfigTests : IDisposable
     }
 
     [Fact]
+    public void ExeWithoutClient_SkipsClientSections_ButNotTypos()
+    {
+        var c = ConfigSet.Empty("input.move_forward=Up");
+        c.SkipClientSections();
+        c.Complete();   // Headless: секция привязок из общего конфига — не ошибка
+        Assert.Contains("input", c.Skipped);
+
+        var typo = ConfigSet.Empty("inpt.move_forward=Up");
+        typo.SkipClientSections();
+        Assert.Contains("неизвестные секции inpt", Assert.Throws<InvalidDataException>(typo.Complete).Message);
+    }
+
+    [Fact]
     public void UnknownKeyAndUnknownSection_AreErrors()
     {
         var typo = ConfigSet.Empty("arena.radus=10");
@@ -348,6 +361,7 @@ public class SimulationTests
     [InlineData("_a")]
     [InlineData("sim")]      // секции движка
     [InlineData("modules")]
+    [InlineData("input")]    // секция клиента движка
     public void ModuleId_OutsideRule_IsAnError(string id) =>
         Assert.Contains("Id", Assert.Throws<InvalidOperationException>(() =>
             Simulation.Build(ConfigSet.Empty(), Stages, [new PingModule(id)])).Message);

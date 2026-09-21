@@ -5,6 +5,12 @@
     <SwordSide>Client</SwordSide>
   </PropertyGroup>
 
+  <!-- Ввод кадра (FrameInput) собирают тесты клиента и игры: без окна и клавиатуры. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Engine.Client.Tests" />
+    <InternalsVisibleTo Include="Sword.Game.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
     <ProjectReference Include="..\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />

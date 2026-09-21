@@ -74,7 +74,8 @@ public static class Program
         {
             var config = ConfigSet.Load(AppContext.BaseDirectory, sets);
             var sim = SwordSimulation.Create(config);
-            config.Complete();   // композиция закончена: неизвестная секция конфига — ошибка
+            config.SkipClientSections();   // клиента нет: привязки клавиш из общего sword.json не читаются
+            config.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
             var player = GameCore.Player(sim.World);
             var trajectory = new List<object>();
             // Выделения — только тиков (без записи траектории) и после прогрева: раздел 12 плана — 0 байт на тик.

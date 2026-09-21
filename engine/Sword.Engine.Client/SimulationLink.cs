@@ -31,6 +31,9 @@ public sealed class SimulationLink
     /// <summary>Номер следующего тика.</summary>
     public ulong Tick => _simulation.Tick;
 
+    /// <summary>Время симуляции на последнем тике, с (<see cref="SimTime.Time"/>).</summary>
+    public float Time => _simulation.World.Resource<SimTime>().Time;
+
     /// <summary>Фиксированный шаг тика, с.</summary>
     public float Dt => _simulation.Dt;
 

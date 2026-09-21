@@ -14,8 +14,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.App;
 
 /// <summary>
-/// Точка входа игры SWORD: композиция симуляции (<see cref="SwordSimulation"/> — та же, что у Headless) и клиента
-/// (<see cref="ArenaClient"/>). Точка 1в: игрок идёт по заданной команде (<c>--move</c>); ввод — точка 1г.
+/// Точка входа игры SWORD: композиция симуляции (<see cref="SwordSimulation"/> — та же, что у Headless), клиента
+/// (<see cref="ArenaClient"/>) и привязок ввода (секция конфига <c>input</c>). Точка 1г: WASD относительно камеры,
+/// курсор — взгляд, колесо — зум; <c>--move</c> заменяет ввод заданной командой (проверочные прогоны).
 /// </summary>
 public static class Program
 {
@@ -35,10 +36,17 @@ public static class Program
         public CameraPose? Camera;
         public PlayerCommand? Command;
         public int TicksPerFrame;
+        public double FrameSeconds;
+        public double MaxFps;
+        public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
     }
 
     private const string Usage = """
+        Управление (привязки — секция конфига input, например --set input.move_forward=Up):
+          WASD — ход относительно камеры, Shift — шагом, курсор на земле — куда смотреть;
+          колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
+          F — камера за игроком / свободная (стрелки — панорама); Esc — выход.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
@@ -50,13 +58,20 @@ public static class Program
           --resize-cycle    менять размер окна по кругу (проверка пересоздания задних буферов)
           --no-activate     не отбирать фокус: окно показано внизу порядка перекрытия
           --shot FILE.png   снять кадр в PNG: последний кадр прогона (--frames), без него — 30-й
-          --camera Y,P,D[,X,Z]  ракурс камеры: поворот и наклон (рад), дистанция (м), точка взгляда (м);
-                            по умолчанию — исходный SWORD 0.6,0.95,24,0,0
-          --move X,Z        команда игрока каждый тик: направление по земле (мировые оси); длина не
-                            важна: ход — бегом или шагом, как WASD в SWORD
-          --walk            с --move: шагом, а не бегом
-          --gaze X,Z        точка взгляда игрока на земле
+          --camera Y,P,D[,X,Z]  неподвижная камера (проверочные снимки): поворот и наклон (рад), дистанция (м),
+                            точка взгляда (м); управление камерой выключено; наклон 0.45…1.45, дистанция 6…110;
+                            без ключа — камера SWORD за игроком, 0.6,0.95,24
+          --move X,Z        заданная команда игрока каждый тик вместо клавиатуры и мыши: направление по земле
+                            (мировые оси); длина не важна — бегом или шагом, как WASD в SWORD
+          --walk            заданная команда: шагом (без --move — стоять)
+          --gaze X,Z        заданная команда: точка взгляда на земле
+                            (любой из трёх ключей заменяет ввод игрока заданной командой; камера управляется)
           --ticks-per-frame N  ровно N тиков на кадр (проверочные прогоны); без ключа — по часам
+          --hold A[,B…]     удерживать действия ввода весь прогон (имена — как в секции input, например
+                            move_forward,walk): управление без клавиатуры; в первом кадре действие ещё и нажато
+          --max-fps N       не больше N кадров в секунду — проверить плавность при низкой частоте кадров вживую
+          --fps N           шаг кадра для симуляции — как при N кадрах в секунду, а не по часам: тики и доля тика
+                            (интерполяция) повторяются от прогона к прогону
           --set секция.ключ=значение  конфиг (перекрывает sword.json и переменные SWORD_*)
           --json            итог — одной строкой JSON в stdout (для агента)
         """;
@@ -86,7 +101,8 @@ public static class Program
             var config = ConfigSet.Load(AppContext.BaseDirectory, options.Sets);
             var simulation = SwordSimulation.Create(config);
             var arena = new ArenaClient(options.Camera, options.Command);
-            config.Complete();   // композиция закончена (симуляция и клиент): неизвестная секция конфига — ошибка
+            var bindings = InputBindings.Resolve(arena.Actions, config);
+            config.Complete();   // композиция закончена (симуляция, клиент, ввод): неизвестная секция конфига — ошибка
             using var window = new Win32Window(new WindowOptions(
                 Title: "SWORD",
                 Width: options.Width,
@@ -105,18 +121,31 @@ public static class Program
                 ResizeCycle = options.ResizeCycle,
                 ScreenshotPath = options.Shot,
                 TicksPerFrame = options.TicksPerFrame,
+                FrameSeconds = options.FrameSeconds,
+                MaxFps = options.MaxFps,
+                Bindings = bindings,
+                HeldActions = options.Hold,
             }, arena, simulation))
             {
                 report = client.Run();
             }
 
             // Корень игрока последнего кадра — для сверки с Headless на том же числе тиков (verify.ps1, app-smoke).
+            // Показанный кадром игрок (интерполированный) и камера — что видел пользователь.
             var player = arena.LastPlayer;
+            var shown = arena.View.Player;
             if (options.Json)
                 Console.WriteLine(JsonSerializer.Serialize(new
                 {
                     ok = true, report,
-                    player = new { x = player.Position.X, z = player.Position.Z, facing = player.Facing },
+                    player = player is { } t ? new { x = t.Position.X, z = t.Position.Z, facing = t.Facing } : null,
+                    shown = shown is { } v ? new { x = v.Root.X, z = v.Root.Z, facing = v.Facing, height = v.Height } : null,
+                    camera = new
+                    {
+                        follow = arena.Camera.Follow, yaw = arena.Camera.Yaw, pitch = arena.Camera.Pitch,
+                        distance = arena.Camera.Distance, target = new[] { arena.Camera.Target.X, arena.Camera.Target.Z },
+                    },
+                    input = bindings.Keys,
                 }, JsonOptions));
             else
                 Log.Info("sword", $"выход: {report.ExitReason}; кадров {report.Frames}, изменений размера {report.Resizes}, " +
@@ -189,12 +218,23 @@ public static class Program
                     if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.TicksPerFrame))
                         throw new ArgumentException($"{a}: ожидается число тиков");
                     break;
+                case "--hold": o.Hold.AddRange(Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)); break;
+                case "--max-fps":
+                    if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out o.MaxFps) || !(o.MaxFps >= 1 && o.MaxFps <= 10000))
+                        throw new ArgumentException($"{a}: ожидается число кадров в секунду 1…10000");
+                    break;
+                case "--fps":
+                    if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out double fps) || !(fps >= 1 && fps <= 10000))
+                        throw new ArgumentException($"{a}: ожидается число кадров в секунду 1…10000");
+                    o.FrameSeconds = 1 / fps;
+                    break;
                 case "--set": o.Sets.Add(Next()); break;
                 case "--camera":
                 {
                     var parts = Next().Split(',');
                     var v = new float[5];
-                    if (parts.Length is not (3 or 5) || parts.Where((t, k) => !float.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out v[k])).Any())
+                    if (parts.Length is not (3 or 5)
+                        || parts.Where((t, k) => !float.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out v[k]) || !float.IsFinite(v[k])).Any())
                         throw new ArgumentException($"{a}: ожидается «поворот,наклон,дистанция[,x,z]», например 0.6,0.95,24");
                     o.Camera = new CameraPose(v[0], v[1], v[2], v[3], v[4]);
                     break;
@@ -202,6 +242,7 @@ public static class Program
                 default: throw new ArgumentException($"неизвестный ключ {a}");
             }
         }
+        if (o.TicksPerFrame > 0 && o.FrameSeconds > 0) throw new ArgumentException("--ticks-per-frame и --fps вместе не задаются");
         return o;
     }
 

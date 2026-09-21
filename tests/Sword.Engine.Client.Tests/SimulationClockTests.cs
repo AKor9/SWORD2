@@ -50,7 +50,7 @@ public class SimulationClockTests
         var probe = new Probe();
         var sim = Simulation.Build(ConfigSet.Empty(), Stages, [probe]);
         // Команда игры на тик — с номером тика, который клиент видит перед ним.
-        var clock = new SimulationClock(sim, link => link.Enqueue(new Ping { SentForTick = link.Tick }), ticksPerFrame);
+        var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new Ping { SentForTick = link.Tick }), ticksPerFrame);
         return (clock, probe);
     }
 
@@ -104,6 +104,40 @@ public class SimulationClockTests
         var (clock, probe) = Create(ticksPerFrame: 3);
         clock.RunFrame(0);
         Assert.Equal([(0ul, 0ul), (1ul, 1ul), (2ul, 2ul)], probe.Commands);
+    }
+
+    [Fact]
+    public void Alpha_IsShareOfNextTick_OneWithFixedTicks()
+    {
+        var (clock, _) = Create();
+        double dt = clock.Link.Dt;
+        Assert.Equal(2, clock.RunFrame(2.25 * dt));
+        Assert.Equal(0.25f, clock.Alpha, 4);          // accumulator / dt после тиков кадра (Program.cs SWORD)
+        Assert.Equal(1, clock.RunFrame(0.9 * dt));
+        Assert.Equal(0.15f, clock.Alpha, 4);
+        Assert.Equal((float)(0.25 * dt), clock.FrameSeconds(0.25 * dt));
+        Assert.Equal(5f, clock.FrameSeconds(5));   // камере — сырой шаг кадра, как в SWORD (тики — не больше 0,25 с)
+
+        var (fixedClock, _) = Create(ticksPerFrame: 3);
+        fixedClock.RunFrame(0.001);
+        Assert.Equal(1f, fixedClock.Alpha);               // заданные тики — кадр показывает ровно тик
+        Assert.Equal(3 * fixedClock.Link.Dt, fixedClock.FrameSeconds(0.001));
+    }
+
+    [Theory]
+    [InlineData(60, 2)]
+    [InlineData(120, 1)]
+    [InlineData(30, 4)]
+    public void FixedFrameStep_GivesExactTicks_AndZeroAlpha(double fps, int ticks)
+    {
+        // Шаг тика — float (1/120 ≈ 0,0083333338), шаг кадра — double: без допуска накопителя «кадр 1/60 с» набирал
+        // 1,99999994 тика — первый кадр терял тик, доля тика была ≈1 вместо 0.
+        var (clock, _) = Create();
+        for (int i = 0; i < 50; i++)
+        {
+            Assert.Equal(ticks, clock.RunFrame(1 / fps));
+            Assert.Equal(0f, clock.Alpha, 5);
+        }
     }
 
     [Theory]

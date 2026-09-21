@@ -14,6 +14,9 @@ public sealed class InputState
     // Фронты нажатия за кадр: не «уровень сейчас и уровень тогда», а «нажатие было». Пара down+up внутри одного
     // кадра при сравнении уровней не видна.
     private readonly bool[] _pressed = new bool[256];
+
+    // Фронт отпускания клавиши — как у мыши: короткий тап (нажата и отпущена в одном кадре) по уровням не виден.
+    private readonly bool[] _released = new bool[256];
     private readonly bool[] _mousePressed = new bool[MouseButtons];
 
     // Автоповтор удерживаемой клавиши. Отдельно от фронта: переключателям повтор не нужен — удержание щёлкало бы
@@ -41,6 +44,7 @@ public sealed class InputState
     internal void BeginFrame()
     {
         Array.Clear(_pressed);
+        Array.Clear(_released);
         Array.Clear(_repeated);
         Array.Clear(_mousePressed);
         Array.Clear(_mouseReleased);
@@ -58,6 +62,7 @@ public sealed class InputState
     {
         Array.Clear(_down);
         Array.Clear(_pressed);
+        Array.Clear(_released);
         Array.Clear(_repeated);
         Array.Clear(_mouseReleased);
         ForgetMouse();
@@ -98,6 +103,7 @@ public sealed class InputState
         // Фронт запоминается ОТДЕЛЬНО от уровня: сравнение уровней теряло нажатие, случившееся и отпущенное внутри
         // одного кадра — на просевшем кадре короткий тап пропадал молча.
         if (down && !_down[i]) _pressed[i] = true;
+        if (!down && _down[i]) _released[i] = true;
         _down[i] = down;
     }
 
@@ -145,6 +151,9 @@ public sealed class InputState
 
     /// <summary>Клавиша нажата именно в этом кадре — для переключателей.</summary>
     public bool WasPressed(Key key) => _pressed[(int)key & 0xFF];
+
+    /// <summary>Клавиша отпущена именно в этом кадре.</summary>
+    public bool WasReleased(Key key) => _released[(int)key & 0xFF];
 
     /// <summary>Нажата в этом кадре или повторена удержанием — для полей ввода и списков.</summary>
     public bool WasPressedOrRepeated(Key key) => _pressed[(int)key & 0xFF] || _repeated[(int)key & 0xFF];
