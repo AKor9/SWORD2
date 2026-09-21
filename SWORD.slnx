@@ -41,6 +41,15 @@
   <Folder Name="/tools/" />
   <Folder Name="/tests/">
     <Project Path="tests/Sword.Architecture.Tests/Sword.Architecture.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Geometry.Tests/Sword.Engine.Geometry.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Ecs.Tests/Sword.Engine.Ecs.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Runtime.Tests/Sword.Engine.Runtime.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Client.Tests/Sword.Engine.Client.Tests.csproj" />
+    <Project Path="tests/Sword.Benchmarks/Sword.Benchmarks.csproj" />
+    <Project Path="tests/Sword.Engine.Formats.Tests/Sword.Engine.Formats.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Content.Tests/Sword.Engine.Content.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Render.Tests/Sword.Engine.Render.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Platform.Tests/Sword.Engine.Platform.Tests.csproj" />
+    <Project Path="tests/Sword.Game.Tests/Sword.Game.Tests.csproj" />
   </Folder>
 </Solution>

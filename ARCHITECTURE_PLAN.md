@@ -151,8 +151,9 @@ SWORD2/
     Sword.Engine.Formats/          форматы движка (меш, скелет, клипы, текстуры, шрифты, PNG): чтение и запись
     Sword.Engine.Platform/         абстракции окна, ввода, диалогов
     Sword.Engine.Platform.Win32/   реализация Win32
-    Sword.Engine.Rhi/              D3D12: устройство, очереди, буферы, текстуры, bindless, PSO, шейдеры, профайлер GPU
-    Sword.Engine.Render/           рендер-граф, GPU-сцена, скиннинг, свет, GPU-симуляции, UI-проход, debug draw
+    Sword.Engine.Rhi/              D3D12: устройство, очереди, буферы, текстуры, bindless, компиляция шейдеров, профайлер GPU
+    Sword.Engine.Render/           рендер-граф, конвейеры и контракт шейдеров, GPU-сцена, скиннинг, свет, GPU-симуляции,
+                                   UI-проход, debug draw
     Sword.Engine.Ui/               immediate UI без GPU: виджеты, списки отрисовки, шейпинг текста
     Sword.Engine.Physics/          XPBD: тела, сочленения, контакты, земля, запросы
     Sword.Engine.Animation/        клипы, пул поз, смешивание, Motion Matching, IK, контакты стоп
@@ -239,7 +240,7 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 | Engine.Render | Core, Diagnostics, Geometry, Rhi, Formats, Content, Ui |
 | Engine.Platform.Win32 | Core, Diagnostics, Platform |
 | Engine.Runtime | Core, Diagnostics, Ecs, Content |
-| Engine.Client | Runtime, Platform, Rhi, Render, Ui, Diagnostics |
+| Engine.Client | Runtime, Ecs, Platform, Rhi, Render, Ui, Diagnostics — Ecs: Extract читает мир и журналы |
 | Engine.Introspection | Core, Diagnostics, Ecs, Runtime — сторона симуляции |
 | Engine.Agent | Introspection, Runtime, Diagnostics (+ пакет MCP) — сторона симуляции |
 | Engine.Agent.Client | Agent, Client, Render |
@@ -248,9 +249,9 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 | Game.Data | Core, Formats |
 | Sword.Game | Contracts, Data, Runtime, Physics, Animation, Geometry, Ecs, Content, Diagnostics |
 | модуль (симуляция) | то же, **кроме Sword.Game**; других модулей — нет |
-| Sword.Game.Client | Sword.Game, Contracts, Data, Client, Render, Ui, Geometry, Ecs, Diagnostics |
+| Sword.Game.Client | Sword.Game, Contracts, Data, Client, Render, Ui, Geometry, Ecs, Diagnostics — ассеты представления (меши, позже текстуры) грузит Render по пути ассета, форматы игре не видны |
 | модуль `.Client` | свой модуль симуляции (если есть), Contracts, Data, Client, Render, Ui — **не Sword.Game, не Sword.Game.Client, не другие модули** |
-| Sword.Game.Bootstrap | Sword.Game, модули симуляции, Runtime, Contracts, Data — сторона симуляции |
+| Sword.Game.Bootstrap | Sword.Game, модули симуляции, Runtime, Contracts, Data, Diagnostics — сторона симуляции |
 | Game.Agent | Sword.Game, Contracts, Data, Engine.Agent, Introspection — сторона симуляции |
 | Sword.Game.Faults | как модуль симуляции; подключается только в сборках разработки, как агент |
 | Sword.Agent.Evals | ничего из движка по ссылкам: запускает агента и `Game.Headless` процессами, читает квитанции и артефакты |
@@ -336,7 +337,7 @@ sealed class DeathToRagdollSystem : IReactiveSystem<Added<Dead>>
         s.Writes<BodyMode>();
     }
 
-    public void React(in SystemContext ctx, ReadOnlySpan<Entity> died)   // только умершие с прошлого запуска
+    public void React(in SystemContext ctx, ReadOnlySpan<Added<Dead>> died)   // только умершие с прошлого запуска
     {
         foreach (var e in died) { /* перевести тело в рэгдолл по позе прошлого тика */ }
     }
@@ -345,7 +346,9 @@ sealed class DeathToRagdollSystem : IReactiveSystem<Added<Dead>>
 
 - Реактивная система — обычная система: стадия, метка, `After/Before`, объявленный доступ. В v0 у неё одно
   срабатывание; нужно два — две системы.
-- Непрерывная система тоже может читать журнал (`ctx.Journal<Event<Hit>>()`) своим курсором.
+- Непрерывная система тоже может читать журнал (`ctx.Journal<Event<Hit>>()`) своим курсором. Дополнительный журнал
+  реактивной системы (`HitApplySystem`: `StrikeBlocked` при срабатывании по `StrikeContact`) — контекст срабатывания:
+  в тике срабатывания видны его записи с её прошлого места в тике, записи тиков без срабатывания пропускаются.
 - Реактивная система без срабатываний стоит одну проверку длины журнала.
 - Журнал заводится только для срабатываний, на которые кто-то подписан.
 - Одну систему можно зарегистрировать в двух стадиях (у каждой регистрации свой курсор) — тогда она обязана быть
@@ -364,7 +367,7 @@ sealed class DeathToRagdollSystem : IReactiveSystem<Added<Dead>>
                                                  если потребитель не объявил NextTickOk<T>()
 ```
 
-Производители объявляют, что порождают (`Writes<Event<E>>`, `Adds<T>`, `Removes<T>`, `Sets<T>`, `SetsResource<T>`;
+Производители объявляют, что порождают (`Emits<E>`, `Adds<T>`, `Removes<T>`, `Sets<T>`, `SetsResource<T>`;
 в Debug необъявленное — исключение), потребители — срабатывания; **при сборке мира планировщик проверяет каждую пару
 по правилу выше**. Пример: ранняя регистрация `DeathToRagdoll@Gameplay` стоит раньше производителей `Dead` из
 Resolve и Aftermath и объявляет `NextTickOk<Added<Dead>>()` — задержки там нет по смыслу, эти смерти в том же тике
@@ -418,10 +421,12 @@ ctx.Commands.Emit(new LimbDetached { Part = piece.Ref, … });  // поле Part
   прошлое не проигрывается.
 - Порядок записей стабилен и не зависит от числа потоков.
 - `CommandBuffer` проигрывается **на каждом барьере**, а не в конце тика.
-- В конце каждого тика (стадия End) журналы читает **шаг экспорта Runtime**: он копирует записи тика в очередь кадра
-  клиента с номером тика (`TickId` — кадр из трёх тиков получает события всех трёх) и в `ObservationHistory` для
-  агента (раздел 8). Других внешних курсоров у журналов нет: клиент и агент получают копии и на освобождение памяти
-  симуляции не влияют.
+- В конце каждого тика журналы читает **шаг экспорта Runtime** — служебная стадия `runtime.export` после барьера
+  последней стадии игры (End), поэтому в экспорт тика попадают записи всех его стадий, включая End. Он копирует
+  записи тика в очередь кадра клиента с номером тика (`TickId` — кадр из трёх тиков получает события всех трёх, кадр
+  без тиков — ничего) и в `ObservationHistory` для агента (раздел 8). Других внешних курсоров у журналов нет: клиент и
+  агент получают копии и на освобождение памяти симуляции не влияют. Команды тика становятся событиями в служебной
+  стадии `runtime.commands` до первой стадии игры — их видят все стадии игры, включая Begin, в том же тике.
 - Сущность, созданная командой, становится живой на барьере (раздел «Создание сущностей: черновики»).
 
 **Нормализация на барьере.** События (`Event<E>`) не склеиваются: сколько записали, столько и прочтут. Срабатывания
@@ -540,7 +545,9 @@ RenderWorld (клиент): инстансы отрисовки по Entity — 
 
 - Примитивы и пересечения (отрезок–отрезок из `Xpbd.SegSeg` и подобное).
 - `HeightField` — **одна правда о рельефе**: игра строит поле высот из описания уровня; физика и IK читают его на CPU,
-  шейдеры — то же поле текстурой. Дублирование `Terrain.cs` / `sim_common.hlsli` исчезает.
+  шейдеры — те же узлы структурированным буфером. Дублирование `Terrain.cs` / `sim_common.hlsli` исчезает. Поле линейно
+  между узлами: вертикальные уступы (подступенки пирамиды) физика получает явными примитивами рядом с полем, а не
+  из него.
 - Пространственные структуры (хэш-сетка, позже BVH) — общий тип, но **у каждого владельца свой экземпляр** со своим
   размером ячейки: широкая фаза физики, ИИ, проходы клинков.
 
@@ -548,6 +555,9 @@ RenderWorld (клиент): инстансы отрисовки по Entity — 
 
 - **Рендер-граф v0:** проходы объявляют читаемые и записываемые ресурсы (импортированные или временные); граф ставит
   барьеры сам и выделяет временные цели из пула. **Одна graphics-очередь**: `PassKind.Compute` — dispatch на ней же.
+  Ресурсы — текстуры и структурированные буферы; буферы, чьё содержимое переживает кадр (состояние GPU-симуляций), —
+  хранилища `GpuStorage`, импортируемые в кадр. Цели создаются с оптимальным значением очистки и чистятся только им.
+  Проверка — GPU-тесты графа на настоящем устройстве с GPU-валидацией (точка 1б).
   Порядок — порядок регистрации (без переупорядочивания и отсечения). Отдельная compute-очередь, межочередные fence
   и async compute — вместе с первой GPU-симуляцией (этап 12); алиасинг памяти — позже.
 - **Фазы кадра:** `Simulation` (compute) → `Opaque` → `Composite` → `Transparent` → `Ui` → `Debug`. Заменяют
@@ -597,15 +607,22 @@ public interface IGpuSimulation
 | | Runtime (симуляция) | Client (представление) |
 |---|---|---|
 | что | мир ECS, стадии тика, барьеры, журналы, планировщик, фиксированный тик, модули (часть симуляции), конфиг, ГСЧ, реплеи, хеш состояния | окно, ввод → команды, цикл кадра, Extract, рендер-граф, GPU-симуляции, UI, снимки, бенч кадра, оверлей разработчика |
-| зависит от | Core, Diagnostics, Ecs, Content | Runtime, Platform, Rhi, Render, Ui |
+| зависит от | Core, Diagnostics, Ecs, Content | Runtime, Ecs, Platform, Rhi, Render, Ui |
 | нужен GPU | нет | да |
 | exe | `Game.Headless` — только `Sword.Game.Bootstrap`: реплеи, сценарии, бенчи симуляции, тесты | `Game.App` — `Sword.Game.Bootstrap` и клиент |
+
+Симуляцию (`Simulation`) создаёт exe через `Sword.Game.Bootstrap` и отдаёт клиенту движка; тики исполняет только он.
+Клиентская часть игры видит симуляцию через узкий `SimulationLink` (Engine.Client): мир только для чтения
+(`WorldReader` — чтение компонентов и ресурсов-значений, запросы и обход без записи; ни немедленных операций, ни тика,
+ни записи колонок), какие команды принимаются (`Accepts<T>`), команды на ближайший тик, время тика, — поэтому
+`Sword.Game.Client` не ссылается на Runtime (точка 1в). Проверка — `PublicSurfaceTests.SimulationLink_ReachesOnlyReadOnlyWorld`:
+из публичных сигнатур `SimulationLink` транзитивно не достижим ни один изменяющий тип ECS и Runtime.
 
 ### Тик (Runtime)
 
 ```
 Тик — после каждой стадии барьер (раздел 5)
-├─ Begin       время тика, Prev* для интерполяции; команды тика (ручки, команды арены) применяются здесь
+├─ Begin       время тика, Prev* для интерполяции
 ├─ Intent      команды игрока (из клиента или реплея), ИИ, сценарии → FighterCommand; команды арены → спаун, Set<WeaponSlot>
 ├─ Gameplay    смерти до физики → рэгдолл; настройка новых бойцов; смена оружия; решения боя, аниматор; Guard: выносливость
 ├─ Animation   Push → Animation.Tick → Pull: позы, корневое движение
@@ -619,7 +636,10 @@ public interface IGpuSimulation
 ├─ React       отдача и реакции на удары; последствия отруба (маска Severed, кровотечение)
 ├─ Aftermath   кровопотеря (→ Dead), возрождение, пересборка разбитых, политика обломков
 ├─ Settle      смерти тика → рэгдолл; «усадка» свежих отрубов (Cutting); статистика
-└─ End         экспорт тика: очередь кадра клиента и ObservationHistory; хеш состояния; запись реплея
+└─ End         хеш состояния; запись реплея
+служебные      runtime.commands до Begin: команды тика (игрока, арены, ручек, модулей) → события, их читают системы
+               любой стадии игры в том же тике; runtime.export после барьера End: очередь кадра клиента и
+               ObservationHistory. Добавляет Runtime, модулям недоступны
 между тиками   точка обслуживания агента: мир согласован, запросы из очереди исполняются здесь (раздел 8)
 ```
 
@@ -635,7 +655,7 @@ public interface IGpuSimulation
 | `ApplyReactions`, `KinematicReactions` | React |
 | `AfterTick` (кровопотеря), возрождение, пересборка | Aftermath |
 | `SettleDeaths()` в конце тика — в том числе умершие от кровопотери и свежие отрубы | Settle: вторая регистрация `DeathToRagdoll`, усадка отрубов модулем Cutting |
-| `TickEnded` (модули) | End → очередь кадра клиента |
+| `TickEnded` (модули) | End; затем служебная `runtime.export` → очередь кадра клиента |
 
 Одно намеренное отличие: в SWORD отруб выполняется внутри `ApplyHit`, поэтому второй удар того же тика по той же
 части приходится уже по отделённой части. Здесь все удары тика применяются в Resolve, а отрубы — в Dismember; повторная
@@ -662,7 +682,8 @@ public interface IGpuSimulation
 - нажатие и отпускание потребляются **ровно одним тиком** — первым после кадра, в котором случились;
 - кадр без тиков: фронт сохраняется до ближайшего тика; кадр из трёх тиков: `AttackPressed` не повторяется трижды;
 - направление движения относительно камеры вычисляется в клиенте **до** записи команды: симуляция камеры не знает;
-- реплей хранит готовые `FighterCommand` по тикам, а не клавиши.
+- реплей хранит готовые команды по тикам (`PlayerCommand` — уже в мировых координатах), а не клавиши; `FighterCommand` —
+  намерение бойца, его пишет Intent из команды игрока, ИИ или сценария.
 
 Клавиши арены (число врагов PageUp/PageDown, сброс R, смена оружия T, инвентарь 1–9) в SWORD меняют арену прямо
 из `Program.cs`; здесь они — `ArenaCommand` из `Game.Contracts` по тем же правилам: фронт — ровно одним тиком,
@@ -687,6 +708,8 @@ public interface IGpuSimulation
 посреди игры) в v1 заменяет `modules.<id>.deactivateAt`.
 
 Регистрация модулей симуляции — только в `Sword.Game.Bootstrap` (раздел 3); `Game.App` добавляет к ней клиентские.
+Ядро (принцип 4) регистрируется тем же построителем, но не как модуль: `Simulation.Build(config, stages, core, modules)` —
+без токена модуля и без ключа `modules.<id>`, выключить его нельзя.
 
 ```csharp
 public interface IModule                          // Engine.Runtime; реализует сборка симуляции модуля
@@ -718,7 +741,8 @@ public interface IClientModule                    // Engine.Client; реализ
 `sword.user.json` (вне git) → переменные `SWORD_<СЕКЦИЯ>_<КЛЮЧ>` → ключи `--set секция.ключ=значение`.
 Секции — типизированные записи. Подсистемы конфиг не читают: получают готовые объекты настроек при композиции;
 ручки (`TuningGroup` из Diagnostics) привязываются к этим объектам там же. **Изменение ручки на ходу — команда
-симуляции:** панель F3 ставит её на ближайший тик, она применяется в стадии Begin с `TickId` (для реактивных систем —
+симуляции:** панель F3 ставит её на ближайший тик, в служебной стадии `runtime.commands` она становится событием с
+`TickId` и применяется системой ручек в том же тике (для реактивных систем —
 `ResourceChanged`) и записывается в реплей. Соответствие ~70 нынешних `SWORD_*` новым ключам составляется по мере
 переноса фич; ручки живого рэгдолла не переносятся.
 
@@ -736,7 +760,8 @@ GPU — по проходам графа; счётчики (выделенные
   (хеш-функция уровня Philox/xxHash). Решение конкретного бойца не зависит от порядка обхода, потока исполнения
   и от того, сколько случайных чисел взяли другие системы. У представления свои потоки, в реплей они не входят.
 - **Всё, что меняет симуляцию на ходу, — команда с `TickId`:** команды игрока и арены, изменения ручек, деактивация
-  и активация модулей. Клиент ставит их на ближайший тик, симуляция применяет в стадии Begin, реплей записывает.
+  и активация модулей. Клиент ставит их на ближайший тик, симуляция в служебной стадии `runtime.commands` делает
+  из них события этого тика (их применяют системы стадий игры), реплей записывает.
   Отдельных «тихих» путей изменить симуляцию мимо команд нет.
 - **Реплей** хранит: версию сборки (коммит), хеш `Content.swpak`, fixed dt и число подшагов, полный конфиг запуска
   (после всех слоёв), список активных модулей, главное зерно, команды по тикам (игрока, арены, ручек, модулей) и
@@ -802,7 +827,7 @@ public interface IStateContributor                        // Engine.Runtime
 
 - Обработчик MCP живёт на своём потоке и **никогда напрямую не читает** `World`, Physics, Animation или Render.
 - Запрос к симуляции ставится в очередь и исполняется **на потоке симуляции в точке обслуживания** — между тиками,
-  после барьера End, когда мир согласован. `Game.App` обслуживает очередь раз в кадр после шага Simulate (и на паузе),
+  после экспорта тика (служебная стадия `runtime.export`), когда мир согласован. `Game.App` обслуживает очередь раз в кадр после шага Simulate (и на паузе),
   `Game.Headless` — после каждого тика (и на паузе). По запросу `time.break` точка обслуживания ставится после
   барьера нужной стадии — останов посреди тика.
 - В точке обслуживания данные только **копируются** в ответ; разбор, JSON и отправка — на потоке агента. У точки есть
@@ -1088,7 +1113,7 @@ lod      = [hero, hybrid, crowd]
 
 - **`Game.Contracts`** — всё, что видят модули: стабильные компоненты (`Transform`, `Health`, `CombatState`, `Dead`,
   `Severed`, `WeaponSlot`…), события (`StrikeContact`, `StrikeBlocked`, `Clash`, `Hit`, `SeverRequested`,
-  `LimbDetached`), команды (`FighterCommand`, `ArenaCommand`), идентификаторы (сегменты тела — сейчас константы `Fighter.Pelvis`,
+  `LimbDetached`), команды (`PlayerCommand`, `ArenaCommand`), намерение бойца (`FighterCommand`), идентификаторы (сегменты тела — сейчас константы `Fighter.Pelvis`,
   `Fighter.FArmL`…), метки систем ядра; раскладки GPU-данных тел (`GpuUnit`, `GpuSeg`) и ключи ресурсов графа —
   чистыми данными, без ссылок на Render. Без логики и без интерфейсов-стратегий.
 - **`Sword.Game`** — симуляция: системы и правила. Модули его не видят, поэтому устройство арены им недоступно.
@@ -1313,11 +1338,11 @@ Blood и Innards — представление: на игру не влияют
 
 | точка | что | видно |
 |---|---|---|
-| 1а. Окно | Core, Diagnostics (Log), Platform.Win32 (перенос), Rhi (перенос `Graphics/*`), `Game.App` | окно, очистка экрана, закрытие, изменение размера |
-| 1б. Контент | Content и Formats (пак, меш, скелет), Geometry (`HeightField` из функции рельефа SWORD), Render v0 (рендер-граф на одной graphics-очереди, земля, скиннинг-проход) | земля с четырьмя участками рельефа, Manny в позе привязки, неподвижная камера |
+| 1а. Окно · сделана | Core, Diagnostics (Log), Platform.Win32 (перенос), Rhi (перенос `Graphics/*`), `Game.App` | окно, очистка экрана, закрытие, изменение размера |
+| 1б. Контент · сделана | Content и Formats (пак, меш, скелет), Geometry (`HeightField` из функции рельефа SWORD), Render v0 (рендер-граф на одной graphics-очереди, земля, скиннинг-проход) | земля с четырьмя участками рельефа, Manny в позе привязки, неподвижная камера |
 | 1в. Симуляция | ECS v0 (с журналами, реактивными системами и их граничными тестами), Runtime v0 (тик, стадии, барьеры, команды тика, статические модули, конфиг: json + ключи); `Game.Contracts` v0, `Sword.Game`: игрок, контроллер корня (разгон к желаемой скорости — логика `KinematicBegin`), граница арены; `Sword.Game.Bootstrap` | персонаж двигается по заданной команде |
-| 1г. Клиент | Client v0: цикл кадра с накопителем, ввод → команды (правила раздела 7), Extract и `RenderWorld` с интерполяцией; `Sword.Game.Client`: RTS-камера | WASD относительно камеры, колесо — зум, плавное движение при любой частоте кадров |
-| 1д. Инструменты прототипа | Ui (рантайм без GPU) и UI-проход, HUD (FPS, подсказка), снимок F4, простой бенч кадра, `Game.Headless` на том же `Sword.Game.Bootstrap` | FPS на экране, F4 — снимок; `Headless` проходит 600 тиков без окна |
+| 1г. Клиент | Client v0: ввод → команды (правила раздела 7), Extract и `RenderWorld` с интерполяцией; `Sword.Game.Client`: RTS-камера (цикл кадра с накопителем — уже в 1в: `SimulationClock`) | WASD относительно камеры, колесо — зум, плавное движение при любой частоте кадров |
+| 1д. Инструменты прототипа | Ui (рантайм без GPU) и UI-проход, HUD (FPS, подсказка), снимок F4, простой бенч кадра (`Game.Headless` на том же `Sword.Game.Bootstrap` — уже в 1в) | FPS на экране, F4 — снимок; `Headless` проходит 600 тиков без окна |
 | 1е. Агентский доступ | Introspection, Engine.Agent (MCP, stdio, квитанции, инструкции сервера), Engine.Agent.Client (`capture.bundle` v0), Game.Agent; карта архитектуры; инструменты этапа 1е из раздела 8; `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `docs/agent-playbook.md` | Claude Code подключается к `Game.Headless --agent` и к живому `Game.App --agent`: шагает время, читает игрока, отправляет команду движения, снимает пакет наблюдения, объясняет систему через `ecs.explainSystem` |
 
 **Не входит:** клипы, враги, физика, бой, модули, пекарня, панели DevTools, реплеи, параллельность, проверка доступа
@@ -1336,7 +1361,7 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 |---|---|---|---|
 | 2 | Анимация и локомоция клипами: подсистема Animation (клипы, пул поз, сэмплинг), скиннинг на GPU, аниматор бойца (слой локомоции); модуль Locomotion, часть 1 — `LegacyLocomotion` | `Sword.Anim`, `FighterAnimator`, `LegacyLocomotion`, `SkinnedRenderer` | персонаж ходит и бегает клипами |
 | 3 | Детерминизм и реплеи: счётчиковый ГСЧ, хеш состояния с участниками `IStateContributor` (правила раздела 7), запись и воспроизведение команд всех видов (игрок, арена, ручки, модули); `Headless` воспроизводит запись `Game.App` с теми же хешами; агенту — реплеи, язык условий, история, реестр инвариантов, снимки мира и их сравнение, `FeatureManifest` и `feature.verify` (задним числом — для прототипа и анимации), `experiment.fork`/`compare`/`sweep` по конфигу (раздел 8, «По этапам») | новое | ничего: проверяется автоматически |
-| 4 | Враги и ИИ: спавн, `EnemyAi`, столкновения корней, колонны и край арены, PageUp/PageDown, R | `EnemyAi`, `ResolveRoots`, `ArenaLayout`, `ArenaWorld` | враги подходят и окружают |
+| 4 | Враги и ИИ: спавн, `EnemyAi`, столкновения корней бойцов между собой (колонны и край арены — уже в 1в), PageUp/PageDown, R | `EnemyAi`, `ResolveRoots`, `ArenaLayout`, `ArenaWorld` | враги подходят и окружают |
 | 5 | Физика и тела: подсистема Physics, хуки ECS, капсулы по позе, debug draw капсул, панель ручек F3; инварианты физики, оверлеи и ID-буфер в `capture.bundle` | `Sword.Physics`, `PlaceBodies`, `KinematicContacts`, `Tuning` | капсулы тел поверх персонажей |
 | 6 | Бой: слой действий аниматора, выбор удара, окна ударов, проходы клинков, урон, смерть, оружие в руке, инвентарь (T, I), HUD боя; стадии Combat → Resolve → React, команды арены; журнал причинности и `state.why` | `FighterAnimator`, `PlayerAttackPicker`, `StrikeWindows`, `KinematicStrikes`, `ApplyHit`, `WeaponInventory`, `Hud` | удары, попадания, смерть (до этапа 7 труп замирает) |
 | 7 | Смерть и рэгдолл: трупы на физике, обломки, возрождение | подшаги и контакты `DuelArena`, `Fighter.Joints`, суставная часть `Fighter.Muscles`, `RagTrace`, `RagdollScene` | трупы падают и лежат, удары по трупам |
@@ -1429,9 +1454,9 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 | `Sword.Content/ContentLocator, IContentSource, MemorySource, Pak/*` | `Engine.Content` |
 | `Sword.Content/Formats/TextureFile, UiFontFormat, UiVectorFontFormat` | `Engine.Formats` |
 | `Sword.Content/Formats/WeaponBloodFile` | `Game.Data` |
-| `Sword.Engine/Graphics/*` (кроме `Png`, `SceneTargets`) | `Engine.Rhi` |
+| `Sword.Engine/Graphics/*` (кроме `Png`, `SceneTargets`, `PipelineCache`, `ShaderContract`, `Screenshot`) | `Engine.Rhi` |
 | `Sword.Engine/Graphics/Png` | `Engine.Formats` |
-| `Sword.Engine/Graphics/SceneTargets` | `Engine.Render` |
+| `Sword.Engine/Graphics/SceneTargets, PipelineCache, ShaderContract, Screenshot` | `Engine.Render` — их видит игра, а игра видит только Render |
 | `Sword.Engine/Shaders/common/*` | `Engine.Rhi` / `Engine.Render` (по смыслу) |
 | `Sword.Engine/Diagnostics/Tuning` | `Engine.Diagnostics` |
 | `Sword.Engine.Ui/Widgets/*, Ui/UiDrawList, UiQuad, UiRect, Text/UiTextShaper, UiVectorFontData` | `Engine.Ui` |

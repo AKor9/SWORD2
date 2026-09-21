@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- D3D12: устройство, очереди, буферы, текстуры, bindless, PSO, шейдеры, профайлер GPU. -->
+  <!-- D3D12: устройство, очереди, буферы, текстуры, bindless, компиляция шейдеров, профайлер GPU. -->
   <PropertyGroup>
     <SwordSide>Client</SwordSide>
   </PropertyGroup>

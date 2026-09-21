@@ -1,0 +1,90 @@
+using System.Text.Json;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Diagnosers;
+using BenchmarkDotNet.Exporters;
+using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Reports;
+using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Toolchains.InProcess.Emit;
+
+namespace Sword.Benchmarks;
+
+/// <summary>
+/// Микробенчмарки ECS (BenchmarkDotNet) и вердикт по целям раздела 5 плана: обход медленнее сырого цикла не более чем
+/// на <see cref="MaxRatio"/>, команды и журналы в устойчивом режиме — 0 байт на тик. Итог — <c>artifacts/bench/ecs.json</c>,
+/// код выхода 0 — цели выполнены. <c>--quick</c> — короткий прогон (меньше итераций, шире разброс).
+/// </summary>
+public static class Program
+{
+    /// <summary>Верх цели «20–30 %»: отношение медиан ECS / сырой цикл.</summary>
+    public const double MaxRatio = 1.30;
+
+    public static int Main(string[] args)
+    {
+#if DEBUG
+        Console.Error.WriteLine("бенчмарки — только Release: dotnet run -c Release --project tests/Sword.Benchmarks");
+        return 2;
+#else
+        bool quick = args.Contains("--quick");
+        string root = RepoRoot();
+        string outDir = Path.Combine(root, "artifacts", "bench");
+        Directory.CreateDirectory(outDir);
+
+        // В процессе: BenchmarkDotNet не собирает отдельный проект (правила сборки репозитория ему ни к чему).
+        var job = (quick ? Job.ShortRun : Job.Default.WithWarmupCount(6).WithIterationCount(20))
+            .WithToolchain(InProcessEmitToolchain.Instance);
+        var config = ManualConfig.CreateMinimumViable()
+            .AddJob(job)
+            .AddDiagnoser(MemoryDiagnoser.Default)
+            .AddExporter(MarkdownExporter.GitHub)
+            .WithArtifactsPath(Path.Combine(outDir, "BenchmarkDotNet"));
+
+        var iteration = BenchmarkRunner.Run<EcsIteration>(config);
+        var commands = BenchmarkRunner.Run<EcsCommandsAndJournals>(config);
+
+        var chunks = new List<object>();
+        bool ok = true;
+        foreach (int chunkBytes in new[] { 16 * 1024, 64 * 1024 })
+        {
+            double raw = Median(iteration, nameof(EcsIteration.RawSpan), chunkBytes);
+            double ecs = Median(iteration, nameof(EcsIteration.EcsByColumnLength), chunkBytes);
+            double naive = Median(iteration, nameof(EcsIteration.EcsByChunkCount), chunkBytes);
+            double ratio = ecs / raw;
+            ok &= ratio <= MaxRatio;
+            chunks.Add(new
+            {
+                chunkBytes, rawNs = Math.Round(raw), ecsNs = Math.Round(ecs), ratio = Math.Round(ratio, 3),
+                naiveNs = Math.Round(naive), naiveRatio = Math.Round(naive / raw, 3),
+            });
+        }
+        var tick = commands.Reports.Single();
+        long bytes = tick.GcStats.GetBytesAllocatedPerOperation(tick.BenchmarkCase) ?? -1;
+        ok &= bytes == 0;
+
+        var result = new
+        {
+            ok, quick, maxRatio = MaxRatio, entities = EcsIteration.Entities, iteration = chunks,
+            commandsAndJournals = new { tickNs = Math.Round(tick.ResultStatistics!.Median), bytesPerTick = bytes },
+            runtime = Environment.Version.ToString(), machine = Environment.MachineName, date = DateTime.UtcNow.ToString("u"),
+        };
+        string json = JsonSerializer.Serialize(result, new JsonSerializerOptions
+        {
+            WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+        File.WriteAllText(Path.Combine(outDir, "ecs.json"), json);
+        Console.WriteLine(json);
+        return ok ? 0 : 1;
+#endif
+    }
+
+    private static double Median(Summary summary, string method, int chunkBytes) =>
+        summary.Reports.Single(r => r.BenchmarkCase.Descriptor.WorkloadMethod.Name == method
+            && (int)r.BenchmarkCase.Parameters["ChunkBytes"] == chunkBytes).ResultStatistics!.Median;
+
+    private static string RepoRoot()
+    {
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
+            if (File.Exists(Path.Combine(d.FullName, "SWORD.slnx"))) return d.FullName;
+        throw new DirectoryNotFoundException("не найден корень репозитория (SWORD.slnx)");
+    }
+}

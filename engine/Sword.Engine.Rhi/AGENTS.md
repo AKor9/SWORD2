@@ -1,6 +1,10 @@
 # Sword.Engine.Rhi — правила
 
-D3D12: устройство, очередь, свопчейн, кольцо кадров, bindless-куча. Логика — из SWORD (`Sword.Engine/Graphics`).
+D3D12: устройство, очередь, свопчейн, кольцо кадров, bindless-куча, компиляция шейдеров (`ShaderLibrary`, DXC, своё
+раскрытие `#include`, преамбула контракта строкой), буферы (`StaticBuffer`, `MappedStructuredRing`, `ConstantRing`).
+Логика — из SWORD (`Sword.Engine/Graphics`). Сюда ходит только Render: ни игра, ни клиент движка типов Rhi не видят
+(устройство создаёт `Renderer`; контракт шейдеров, конвейеры, корневая сигнатура — в Render). Проверяют
+`CompiledAssemblies_FollowArchitecture` и `PublicSurfaceTests`.
 
 - Vortice — только здесь и в Render, с `PrivateAssets=compile`: остальные сборки типов D3D12 не видят. Члены,
   нужные клиенту (размер, кадр, `Resize`, `WaitForIdle`), — без типов Vortice в сигнатурах.

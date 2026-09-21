@@ -15,6 +15,40 @@ public sealed class SolutionTests
         Assert.True(violations.Count == 0, "Нарушения архитектуры:\n" + string.Join("\n", violations));
     }
 
+    /// <summary>
+    /// Собранные сборки продукта ссылаются только на разрешённое. Компилятор пишет в метаданные ссылку на каждую сборку,
+    /// чьи типы код использует, в том числе доступную лишь транзитивно, — такую ссылку .csproj не показывает.
+    /// Сборки берутся той же конфигурации, что и тесты; решение должно быть собрано (dotnet test SWORD.slnx собирает).
+    /// </summary>
+    [Fact]
+    public void CompiledAssemblies_FollowArchitecture()
+    {
+        var projects = SolutionModel.Load(Root);
+        string configuration = SolutionModel.TestConfiguration();
+        var problems = new List<string>();
+        int checkedCount = 0;
+        foreach (var p in projects.Where(p => !p.IsTest))
+        {
+            string? dll = SolutionModel.BuiltAssembly(Root, p, configuration);
+            if (dll is null)
+            {
+                problems.Add($"{p.Name}: нет собранной {p.Assembly}.dll — соберите решение ({configuration})");
+                continue;
+            }
+            problems.AddRange(ArchitectureRules.CheckCompiled(p, CompiledReferences(dll), projects).Select(v => v.ToString()));
+            checkedCount++;
+        }
+        Assert.True(problems.Count == 0, $"Проверено сборок: {checkedCount}. Нарушения:\n" + string.Join("\n", problems));
+    }
+
+    private static List<string> CompiledReferences(string dll)
+    {
+        using var stream = File.OpenRead(dll);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+        var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+        return md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name)).ToList();
+    }
+
     [Fact]
     public void Headless_DoesNotReachClientAssemblies()
     {

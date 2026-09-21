@@ -73,15 +73,27 @@ public sealed class GraphicsDevice : IDisposable
     /// <summary>Сколько CPU простоял в ожидании свободного слота кадра, мс.</summary>
     public double LastFenceWaitMs { get; private set; }
 
-    public GraphicsDevice(nint hwnd, int width, int height, bool enableDebugLayer)
+    /// <param name="gpuValidation">
+    /// GPU-валидация (только вместе с <paramref name="enableDebugLayer"/>): проверяет на GPU состояния ресурсов, взятых
+    /// шейдером из bindless-кучи, — обычный слой отладки их не видит. Медленно: для тестов и проверочных прогонов.
+    /// </param>
+    public GraphicsDevice(nint hwnd, int width, int height, bool enableDebugLayer, bool gpuValidation = false)
     {
         AgilitySdk.Initialize();
 
         if (enableDebugLayer && D3D12.D3D12GetDebugInterface(out ID3D12Debug? debug).Success && debug is not null)
         {
             debug.EnableDebugLayer();
+            if (gpuValidation)
+            {
+                using var debug1 = debug.QueryInterfaceOrNull<ID3D12Debug1>()
+                    ?? throw new InvalidOperationException("GPU-валидация недоступна: нет ID3D12Debug1");
+                debug1.SetEnableGPUBasedValidation(true);
+            }
             debug.Dispose();
         }
+        else if (gpuValidation)
+            throw new ArgumentException("GPU-валидация — только со слоем отладки D3D12", nameof(gpuValidation));
 
         try
         {
@@ -253,12 +265,28 @@ public sealed class GraphicsDevice : IDisposable
         _allocators[FrameIndex].Reset();
         _lists[FrameIndex].Reset(_allocators[FrameIndex], null);
         _lists[FrameIndex].SetDescriptorHeaps(Bindless.Heap);
+        FrameOpen = true;
+    }
+
+    /// <summary>Кадр открыт: <see cref="BeginFrame"/> был, <see cref="EndFrame"/> или <see cref="AbandonFrame"/> — нет.</summary>
+    public bool FrameOpen { get; private set; }
+
+    /// <summary>
+    /// Бросить открытый кадр, не отправляя: список команд закрывается, GPU его не увидит. После ошибки посреди записи
+    /// кадра — иначе следующий <see cref="BeginFrame"/> сбрасывал бы открытый список.
+    /// </summary>
+    public void AbandonFrame()
+    {
+        if (!FrameOpen) return;
+        FrameOpen = false;
+        _lists[FrameIndex].Close();
     }
 
     /// <summary>Отправляет список кадра и показывает кадр. CPU не ждёт ничего.</summary>
     public void EndFrame(bool vsync)
     {
         var list = _lists[FrameIndex];
+        FrameOpen = false;
         list.Close();
         GraphicsQueue.ExecuteCommandList(list);
 
@@ -295,7 +323,10 @@ public sealed class GraphicsDevice : IDisposable
             _frameFenceValues[i] = 0;
         }
 
-        SwapChain.ResizeBuffers(FrameCount, (uint)width, (uint)height, BackBufferFormat, _swapChainFlags);
+        // Vortice возвращает результат, а не бросает: без проверки размер записался бы новый, а буферы остались старые.
+        var resized = SwapChain.ResizeBuffers(FrameCount, (uint)width, (uint)height, BackBufferFormat, _swapChainFlags);
+        if (resized.Failure)
+            throw new InvalidOperationException($"ResizeBuffers {width}×{height} отказал: {resized} (устройство: {Device.DeviceRemovedReason})");
         BackBufferWidth = width;
         BackBufferHeight = height;
         CreateSizeDependent();

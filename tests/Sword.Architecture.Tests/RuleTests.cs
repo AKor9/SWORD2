@@ -33,6 +33,34 @@ public sealed class RuleTests
         Assert.Empty(violations);
     }
 
+    /// <summary>
+    /// Сборка игры, использующая типы Rhi через транзитивную ссылку (в .csproj её нет): .csproj чист, метаданные — нет.
+    /// </summary>
+    [Fact]
+    public void CompiledReferenceOutsideMatrix_IsFound()
+    {
+        var rhi = P("engine/Sword.Engine.Rhi/Sword.Engine.Rhi.csproj", Sides.Client, ["Sword.Engine.Core"]);
+        var render = P("engine/Sword.Engine.Render/Sword.Engine.Render.csproj", Sides.Client, ["Sword.Engine.Rhi"]);
+        var client = P("game/Sword.Game.Client/Sword.Game.Client.csproj", Sides.Client, ["Sword.Engine.Render"]);
+        var projects = new[] { Core, rhi, render, client };
+        Assert.DoesNotContain(Check(projects), v => v.Project == client.Name);
+
+        var compiled = ArchitectureRules.CheckCompiled(client, ["System.Runtime", "Sword.Engine.Render", "Sword.Engine.Rhi"], projects);
+        Assert.Contains(compiled, v => v.Rule == "compiled-matrix" && v.Message.Contains("Sword.Engine.Rhi"));
+        Assert.DoesNotContain(compiled, v => v.Message.Contains("Sword.Engine.Render "));
+    }
+
+    [Fact]
+    public void CompiledReference_MapsAssemblyNameToProject()
+    {
+        // Sword.Game.App собирается в Sword.dll: ссылку на «Sword» надо узнать как ссылку на App.
+        var app = new ProjectNode("Sword.Game.App", "game/Sword.Game.App/Sword.Game.App.csproj", Layers.Game, Sides.Client,
+            true, [], [], AssemblyName: "Sword");
+        var diag = P("engine/Sword.Engine.Diagnostics/Sword.Engine.Diagnostics.csproj", Sides.Neutral, ["Sword.Engine.Core"]);
+        var compiled = ArchitectureRules.CheckCompiled(diag, ["Sword"], [Core, app, diag]);
+        Assert.Contains(compiled, v => v.Rule == "compiled-layer");
+    }
+
     [Fact]
     public void EngineReferencingGame_IsLayerViolation() => AssertViolates("layer",
         Core,

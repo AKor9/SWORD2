@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Тесты рендера на настоящем устройстве D3D12 (скрытое окно, отладочный слой): рендер-граф — временные ресурсы,
+       вычислительные проходы, барьеры, инварианты. Категория Gpu: verify.ps1 -SkipGpu их не запускает. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.Direct3D.D3D12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\engine\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Platform\Sword.Engine.Platform.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Platform.Win32\Sword.Engine.Platform.Win32.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+  <!-- Проверочные шейдеры — в Shaders/ рядом с общими шейдерами движка (Shaders/common/ приходит из Render). -->
+  <ItemGroup>
+    <None Update="Shaders\**\*.hlsl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- App-local Agility SDK — как у игры: D3D12Core.dll и слой отладки в D3D12\ рядом с тестами. -->
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\D3D12Core.dll"
+          Link="D3D12\D3D12Core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\d3d12SDKLayers.dll"
+          Link="D3D12\d3d12SDKLayers.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

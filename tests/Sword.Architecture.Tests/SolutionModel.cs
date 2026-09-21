@@ -8,6 +8,7 @@ namespace Sword.Architecture.Tests;
 /// <param name="Layer">Engine | Game | Tool | Test — по папке или из свойства SwordLayer.</param>
 /// <param name="Side">Neutral | Simulation | Client; null — не задана.</param>
 /// <param name="IsExe">OutputType = Exe.</param>
+/// <param name="AssemblyName">Свойство AssemblyName; null — как имя проекта.</param>
 public sealed record ProjectNode(
     string Name,
     string RelativePath,
@@ -15,8 +16,12 @@ public sealed record ProjectNode(
     string? Side,
     bool IsExe,
     IReadOnlyList<string> References,
-    IReadOnlyList<PackageRef> Packages)
+    IReadOnlyList<PackageRef> Packages,
+    string? AssemblyName = null)
 {
+    /// <summary>Имя собранной сборки (Sword.Game.App собирается в Sword.exe / Sword.dll).</summary>
+    public string Assembly => AssemblyName ?? Name;
+
     public bool IsTest => Layer == Layers.Test;
 
     /// <summary>Модуль игры: всё, что лежит в game/modules/.</summary>
@@ -93,8 +98,26 @@ public static class SolutionModel
             Side: Property("SwordSide"),
             IsExe: string.Equals(Property("OutputType"), "Exe", StringComparison.OrdinalIgnoreCase),
             References: references,
-            Packages: packages);
+            Packages: packages,
+            AssemblyName: Property("AssemblyName"));
     }
+
+    /// <summary>
+    /// Собранная сборка проекта в конфигурации <paramref name="configuration"/>: bin/&lt;конфигурация&gt;/&lt;TFM&gt;/имя.dll,
+    /// самая свежая; null — не собрана.
+    /// </summary>
+    public static string? BuiltAssembly(string root, ProjectNode project, string configuration)
+    {
+        string bin = Path.Combine(root, Path.GetDirectoryName(project.RelativePath)!, "bin", configuration);
+        return Directory.Exists(bin)
+            ? Directory.EnumerateFiles(bin, project.Assembly + ".dll", SearchOption.AllDirectories)
+                .Where(f => Path.GetDirectoryName(Path.GetDirectoryName(f)) == bin)
+                .OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault()
+            : null;
+    }
+
+    /// <summary>Конфигурация сборки тестов (Debug/Release) — по каталогу, из которого они запущены.</summary>
+    public static string TestConfiguration() => new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
 
     /// <summary>Слой по первой папке пути — как в Directory.Build.props.</summary>
     public static string LayerOf(string relativePath) => relativePath.Split('/')[0] switch

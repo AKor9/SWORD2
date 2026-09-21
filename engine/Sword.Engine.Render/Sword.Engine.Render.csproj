@@ -22,4 +22,11 @@
     <ProjectReference Include="..\Sword.Engine.Ui\Sword.Engine.Ui.csproj" />
   </ItemGroup>
 
+  <!-- Общие шейдеры движка: в выходе — Shaders/common/…, рядом с шейдерами игры. -->
+  <ItemGroup>
+    <None Update="Shaders\**\*.hlsl;Shaders\**\*.hlsli">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

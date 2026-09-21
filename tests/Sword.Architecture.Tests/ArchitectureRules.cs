@@ -49,7 +49,7 @@ public static class ArchitectureRules
         [Render] = [Diag, Geometry, Rhi, Formats, Content, Ui],
         [Win32] = [Diag, Platform],
         [Runtime] = [Diag, Ecs, Content],
-        [Client] = [Runtime, Platform, Rhi, Render, Ui, Diag],
+        [Client] = [Runtime, Ecs, Platform, Rhi, Render, Ui, Diag],
         [Introspection] = [Diag, Ecs, Runtime],
         [Agent] = [Introspection, Runtime, Diag],
         [AgentClient] = [Agent, Client, Render],
@@ -116,6 +116,21 @@ public static class ArchitectureRules
                 violations.Add(new("simulation-closure", p.Name, $"транзитивно достаёт до клиентской сборки {reached.Name}"));
 
         return violations;
+    }
+
+    /// <summary>
+    /// Ссылки собранной сборки проекта <paramref name="from"/> (из метаданных .dll) — по тем же правилам, что ссылки
+    /// .csproj. Ловят то, чего .csproj не видит: типы транзитивно доступной сборки, использованные напрямую.
+    /// </summary>
+    public static IReadOnlyList<Violation> CheckCompiled(ProjectNode from, IEnumerable<string> referencedAssemblies,
+        IReadOnlyList<ProjectNode> projects)
+    {
+        var byAssembly = projects.Where(p => !p.IsTest).ToDictionary(p => p.Assembly, StringComparer.Ordinal);
+        var found = new List<Violation>();
+        foreach (string assembly in referencedAssemblies)
+            if (byAssembly.TryGetValue(assembly, out var target) && target.Name != from.Name)
+                CheckReference(from, target, found);
+        return found.Select(v => v with { Rule = "compiled-" + v.Rule, Message = v.Message + " (ссылка собранной сборки)" }).ToList();
     }
 
     private static void CheckProject(ProjectNode p, List<Violation> violations)

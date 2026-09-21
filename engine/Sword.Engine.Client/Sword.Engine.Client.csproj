@@ -7,8 +7,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />
     <ProjectReference Include="..\Sword.Engine.Platform\Sword.Engine.Platform.csproj" />
-    <ProjectReference Include="..\Sword.Engine.Rhi\Sword.Engine.Rhi.csproj" />
     <ProjectReference Include="..\Sword.Engine.Render\Sword.Engine.Render.csproj" />
     <ProjectReference Include="..\Sword.Engine.Ui\Sword.Engine.Ui.csproj" />
     <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
