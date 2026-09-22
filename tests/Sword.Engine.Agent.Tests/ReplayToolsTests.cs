@@ -233,6 +233,29 @@ public sealed class ReplayToolsTests : IDisposable
         await Tool("replay.observe", new JsonObject { ["path"] = "obs.swreplay" }, error: true);   // нечего наблюдать
     }
 
+    /// <summary>
+    /// Нарушение инварианта в реплее (этап 3г): NaN-толчок тика 12 — replay.observe находит первое нарушение глубже истории;
+    /// инвариант агента переживает перемотку назад.
+    /// </summary>
+    [Fact]
+    public async Task ReplayObserve_FindsViolation_AgentInvariantSurvivesSeek()
+    {
+        await Tool("command.send", new JsonObject { ["command"] = "Push", ["fields"] = new JsonObject { ["X"] = "NaN" }, ["tick"] = 12 });
+        await Step(20);
+        await Tool("replay.save", new JsonObject { ["name"] = "nan" });
+        var r = await Tool("replay.observe", new JsonObject { ["path"] = "nan.swreplay", ["events"] = new JsonArray("InvariantViolation") });
+        Assert.Equal(24, r["violations"]!["count"]!.GetValue<int>());                       // три тела × тики 12…19
+        Assert.Equal(("ecs.finite", 12ul), (r["violations"]!["first"]!["id"]!.GetValue<string>(), r["violations"]!["first"]!["tick"]!.GetValue<ulong>()));
+        Assert.Equal(24, r["events"]!["InvariantViolation"]!.GetValue<int>());
+
+        await Tool("invariant.define", new JsonObject { ["id"] = "agent.anyBody", ["condition"] = JsonNode.Parse("""{"count":{"component":"Body"},"equals":3}""") });
+        await Tool("time.seek", new JsonObject { ["tick"] = 5 });
+        var list = await Tool("invariant.list", new JsonObject { ["filter"] = "agent" });
+        var agent = list["invariants"]!.AsArray().Single()!;
+        Assert.Equal(("agent.anyBody", "agent"), (agent["id"]!.GetValue<string>(), agent["owner"]!.GetValue<string>()));
+        Assert.Equal(5, agent["evaluations"]!.GetValue<int>());                               // перемотка — повтор с тика 0
+    }
+
     [Fact]
     public async Task Seek_Back_RebuildsHistory_ByReplay()
     {

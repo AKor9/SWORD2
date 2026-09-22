@@ -90,6 +90,20 @@
 6. Глубже истории — `replay.observe {"path":"my.swreplay","events":["*"],"watch":{…},"condition":…}`: прогон реплея в
    отдельной симуляции, строки — в `.jsonl` артефакта, сводка — первый и последний `tickId` условия.
 
+**Инварианты: что должно держаться всегда (этап 3г).** `invariant.list` — что проверяется (id, чей, когда, стоимость) и
+что уже нарушено (`recent`, `violationsTotal`). Нарушение — факт с тиком, стадией, сущностью и подробностями.
+1. «Где сломалось»: `time.breakOnInvariant {"ids":["animation.owners"]}` (без `ids` — любой включённый) — Headless
+   встаёт посреди тика после нарушившего барьера (`receipt.stage`); `entity.get`, `invariant.run`, `world.snapshot`
+   видят мир там; `time.step 1` доигрывает тик.
+2. «Своё правило»: `invariant.define {"id":"agent.onArena","must":{"field":"Transform.Position.X","between":[-40,40]},"where":{"component":"Fighter"}}`
+   или `{"id":"agent.x","condition":…,"after":"Movement","every":10}` — дальше как с кодовым (`time.breakOnInvariant`,
+   `events.history`); `remove: true` — убрать. Переживает `session.start` и перемотку.
+3. «Проверить сейчас»: `invariant.run {"ids":["ecs.entityRefs"]}` — в том числе «по запросу» (висячие ссылки) и посреди
+   тика; `invariant.enable {"ids":["ecs.entityRefs"],"enabled":true}` — проверять каждый тик.
+4. «Было ли раньше»: `events.history {"types":["InvariantViolation"]}` — нарушения последних 1200 тиков; глубже —
+   `replay.observe {"path":…, "events":["InvariantViolation"]}` (сводка `violations.first`).
+Новый инвариант в коде — `IInvariant` у подсистемы или модуля и `SimulationBuilder.Invariant` (`AGENTS.md` Runtime).
+
 **Понять, почему поле такое.** `ecs.componentUsage {"name":"Transform"}` — кто пишет; `ecs.explainSystem` писателя —
 его входы (`upstream`, с пометкой «в этом тике» или «с прошлого тика» и причиной `why`: команды той же стадии —
 только в следующем тике) и место регистрации (`source`).

@@ -23,5 +23,8 @@
   попадает в историю), живая игра — exe при старте. Останов посреди тика (`time.break`) — точка обслуживания внутри
   тика в `SimulationLoop`: ждёт, пока время разрешит тики или сеанс поставит операцию (тик доигрывается). Инструменты —
   `ObservationTools`, `replay.observe` — в `ReplayTools`.
+- Инварианты (этап 3г) — `InvariantTools`: реестр и проверка — в Runtime (`ServiceContext.Invariants` в точке
+  обслуживания), свои инварианты агента, включения и остановка на нарушении — через `AgentHost.Observation` (переносит
+  их в каждую новую симуляцию сеанса). Ожидание остановки — общее с `runUntil`/`break` (`ObservationTools.Await`).
 
 Проверка: `tests/Sword.Engine.Agent.Tests`, `verify.ps1` шаг `agent-smoke`.

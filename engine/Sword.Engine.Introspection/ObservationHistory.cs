@@ -1,4 +1,5 @@
 using Sword.Engine.Ecs;
+using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Introspection;
 
@@ -7,7 +8,8 @@ namespace Sword.Engine.Introspection;
 /// мира каждого тика (события, команды, срабатывания <c>Added/Removed/Changed</c>) с тиком, стадией и байтами. Копия
 /// снимается после тика (<see cref="Capture"/>) прямо из журналов по возрасту записей — без своего курсора и подписки:
 /// мир, его журналы и хеш состояния от истории не зависят. Видны журналы, которые в мире есть: событие без потребителя
-/// журнала не имеет и в историю не попадает. Живёт на потоке симуляции; наружу — копиями в точке обслуживания.
+/// журнала не имеет и в историю не попадает. Нарушения инвариантов тика (<see cref="AddViolation"/>) — рядом с записями
+/// журналов. Живёт на потоке симуляции; наружу — копиями в точке обслуживания.
 /// </summary>
 public sealed class ObservationHistory
 {
@@ -21,6 +23,8 @@ public sealed class ObservationHistory
         public int Bytes;
         public Rec[] Records = new Rec[16];
         public int Count;
+        public InvariantViolation[] Violations = [];
+        public int ViolationCount;
     }
 
     private readonly record struct Rec(int Journal, int Stage, int Offset, int Length);
@@ -28,6 +32,7 @@ public sealed class ObservationHistory
     private readonly Slot[] _slots;
     private ulong _oldest, _newest;
     private bool _any;
+    private readonly List<InvariantViolation> _pending = [];
 
     public ObservationHistory(int ticks = DefaultTicks)
     {
@@ -53,6 +58,7 @@ public sealed class ObservationHistory
     public void Reset(WorldReader world)
     {
         _any = false;
+        _pending.Clear();
         Journals = world.Journals;
         Stages = world.Stages;
     }
@@ -70,6 +76,14 @@ public sealed class ObservationHistory
         slot.Tick = tick;
         slot.Bytes = 0;
         slot.Count = 0;
+        slot.ViolationCount = 0;
+        foreach (var v in _pending)
+        {
+            if (v.Tick != tick) continue;
+            if (slot.ViolationCount == slot.Violations.Length) Array.Resize(ref slot.Violations, Math.Max(4, slot.Violations.Length * 2));
+            slot.Violations[slot.ViolationCount++] = v;
+        }
+        _pending.Clear();
         for (int j = 0, journals = Journals.Count; j < journals; j++)
             for (int i = 0, n = world.JournalLength(j); i < n; i++)
             {
@@ -93,6 +107,20 @@ public sealed class ObservationHistory
         bytes.CopyTo(slot.Data.AsSpan(slot.Bytes));
         slot.Records[slot.Count++] = new Rec(journal, stage, slot.Bytes, bytes.Length);
         slot.Bytes += bytes.Length;
+    }
+
+    /// <summary>Нарушение инварианта идущего тика (поток симуляции, после барьера): в историю — вместе с тиком (<see cref="Capture"/>).</summary>
+    public void AddViolation(in InvariantViolation violation) => _pending.Add(violation);
+
+    /// <summary>Нарушения идущего тика, ещё не снятые в историю (посреди тика — до этой стадии).</summary>
+    public IReadOnlyList<InvariantViolation> Pending => _pending;
+
+    /// <summary>Нарушения инвариантов тика (нет тика в истории — пусто).</summary>
+    public ReadOnlySpan<InvariantViolation> ViolationsAt(ulong tick)
+    {
+        if (!Has(tick)) return [];
+        var slot = _slots[tick % (ulong)_slots.Length];
+        return slot.Violations.AsSpan(0, slot.ViolationCount);
     }
 
     /// <summary>Тик <paramref name="tick"/> есть в истории.</summary>

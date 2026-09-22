@@ -178,10 +178,11 @@ internal static class ObservationTools
             Description = "События, команды и срабатывания (Added/Removed/Changed) последних тиков из истории наблюдений: tick — " +
                 "номер тика, в котором запись сделана (как у command.send), stage — стадия, на барьере которой; поля записи. " +
                 "types — типы (PlayerCommand, Added<Fighter>; без них — все), entity — только записи про эту сущность, where — " +
-                "условие на поля записи (с types). Видны журналы, у которых в мире есть потребитель. Посреди тика (time.break) — " +
-                "и записи идущего тика до этой стадии (window — только сыгранные тики).",
+                "условие на поля записи (с types). Видны журналы, у которых в мире есть потребитель. Нарушения инвариантов — тип " +
+                "InvariantViolation (поля id, entity, details). Посреди тика (time.break) — и записи идущего тика до этой стадии " +
+                "(window — только сыгранные тики).",
             Arguments = CoreTools.Props(
-                ("types", CoreTools.StrArray("типы: PlayerCommand, Added<Fighter>… (world.types; без них — все)")),
+                ("types", CoreTools.StrArray("типы: PlayerCommand, Added<Fighter>, InvariantViolation… (world.types; без них — все)")),
                 ("entity", CoreTools.Str("только записи с этой сущностью в полях (номер или имя)")),
                 ("where", Condition("условие на поля записи ({field:\"Walk\", equals:true}); только вместе с types")),
                 ("from", CoreTools.Int("с тика", 0, long.MaxValue)),
@@ -201,8 +202,12 @@ internal static class ObservationTools
                     var history = host.Observation.History;
                     var journals = history.Journals;
                     var selected = new Dictionary<int, (ObservationPredicate? Where, ObservationPredicate? Entity)>();
+                    bool IsViolation(string t) => string.Equals(t, InvariantRecord.Type, StringComparison.OrdinalIgnoreCase);
+                    bool violations = types.Count == 0 || types.Any(IsViolation);
+                    if (violations && where is not null) throw new ArgumentException($"where — поля записей журналов; у {InvariantRecord.Type} — только entity");
+                    Entity? violationEntity = violations && entityName is not null ? ResolveEntity(ctx, entityName, host.Names) : null;
                     IEnumerable<JournalInfo> chosen = types.Count == 0 ? journals
-                        : types.Select(t => ObservationPredicate.ResolveJournal(ctx.World, t, "types"));
+                        : types.Where(t => !IsViolation(t)).Select(t => ObservationPredicate.ResolveJournal(ctx.World, t, "types"));
                     foreach (var j in chosen)
                     {
                         ObservationPredicate? byEntity = null;
@@ -218,7 +223,7 @@ internal static class ObservationTools
                         var filter = where is null ? null : ObservationPredicate.Compile(where, ctx, host.Catalog, host.Names, PredicateScope.Record, j);
                         selected[j.Id] = (filter, byEntity);
                     }
-                    var rows = new List<(ulong Tick, int Stage, int Journal, byte[] Bytes)>();
+                    var rows = new List<(ulong Tick, int Stage, int Journal, byte[] Bytes, InvariantViolation? Violation)>();
                     int total = 0;
                     void Consider(in ServiceContext ctx, ulong t, int journal, int stage, ReadOnlySpan<byte> bytes)
                     {
@@ -226,15 +231,24 @@ internal static class ObservationTools
                         if (f.Entity is not null && !f.Entity.MatchesRecord(ctx, bytes)) return;
                         if (f.Where is not null && !f.Where.MatchesRecord(ctx, bytes, history)) return;
                         if (total++ < skip || rows.Count >= take) return;
-                        rows.Add((t, stage, journal, bytes.ToArray()));
+                        rows.Add((t, stage, journal, bytes.ToArray(), null));
+                    }
+                    void ConsiderViolation(in InvariantViolation v)
+                    {
+                        if (!violations || violationEntity is { } only && v.Entity != only) return;
+                        if (total++ < skip || rows.Count >= take) return;
+                        rows.Add((v.Tick, -1, -1, [], v));
                     }
                     if (history.Oldest is { } oldest && history.Newest is { } newest)
                         for (ulong t = Math.Max(oldest, from); t <= Math.Min(newest, to); t++)
+                        {
                             for (int i = 0, n = history.CountAt(t); i < n; i++)
                             {
                                 var (journal, stage) = history.RecordAt(t, i, out var bytes);
                                 Consider(ctx, t, journal, stage, bytes);
                             }
+                            foreach (var v in history.ViolationsAt(t)) ConsiderViolation(v);
+                        }
                     // Посреди тика (time.break) — и записи идущего тика до этой стадии: в историю они попадут после тика,
                     // а в журналах мира — с возрастом 1…число пройденных стадий (как их видит условие {event}).
                     int done = ctx.Stage is { } at ? ctx.World.Stages.ToList().IndexOf(at) + 1 : 0;
@@ -245,12 +259,19 @@ internal static class ObservationTools
                                 var bytes = ctx.World.JournalEntry(j.Id, i, out long age);
                                 if (age >= 1 && age <= done) Consider(ctx, ctx.Tick, j.Id, done - (int)age, bytes);
                             }
+                    if (done > 0 && ctx.Tick >= from && ctx.Tick <= to)
+                        foreach (var v in history.Pending) ConsiderViolation(v);
                     return (Rows: rows, Total: total, history.Oldest, history.Newest, history.Capacity, Journals: journals, Stages: history.Stages, ctx.Point);
                 }, call.Cancel);
 
                 var list = new JsonArray();
-                foreach (var (tick, stage, journal, bytes) in r.Rows)
+                foreach (var (tick, stage, journal, bytes, violation) in r.Rows)
                 {
+                    if (violation is { } v)
+                    {
+                        list.Add(new JsonObject { ["tick"] = tick, ["stage"] = v.Stage, ["type"] = InvariantRecord.Type, ["fields"] = InvariantRecord.Fields(v) });
+                        continue;
+                    }
                     var info = r.Journals[journal];
                     list.Add(new JsonObject
                     {
@@ -353,16 +374,33 @@ internal static class ObservationTools
     /// на паузе время заказывается до предела тиков; выполнилось — время встаёт на его тике (посреди тика — на стадии).
     /// Таймаут — условие снимается, симуляция встаёт на паузу.
     /// </summary>
-    internal static async Task<ToolOutput> RunUntil(AgentHost host, ToolCall call, string? stage, JsonNode condition)
+    internal static Task<ToolOutput> RunUntil(AgentHost host, ToolCall call, string? stage, JsonNode condition)
     {
-        ulong maxTicks = (ulong)call.Integer("maxTicks", 100_000, 1, 10_000_000);
-        double seconds = call.Number("timeoutSeconds", stage is null ? Math.Min(30, host.MaxWaitSeconds) : 60, 0.1, Math.Max(host.MaxWaitSeconds, 0.1));
         if (stage is not null && host.Simulation is null) throw new InvalidOperationException("time.break — только Sword.Headless --agent (в живой игре тик посреди кадра не останавливается)");
-        var armed = await host.Serve(ctx =>
+        return Await(host, call, stage is null ? Math.Min(30, host.MaxWaitSeconds) : 60, (ctx, limit) =>
         {
             var predicate = ObservationPredicate.Compile(condition, ctx, host.Catalog, host.Names);
+            return (host.Observation.Arm(ctx, predicate, stage, limit), predicate.Cost(ctx.World));
+        }, stage is null ? "условие проверяется после каждого тика; tick — сыграно тиков, когда оно выполнилось"
+            : "стоим посреди тика после стадии: time.step 1 — доиграть тик, time.break — следующее попадание");
+    }
+
+    /// <summary>
+    /// Поставить условие остановки (<paramref name="arm"/> — в точке обслуживания, с пределом тика) и ждать: на паузе время
+    /// заказывается до предела; выполнилось — время встаёт на его тике (посреди тика — на стадии). Таймаут — условие
+    /// снимается, симуляция встаёт на паузу. Общая часть <c>time.runUntil {condition}</c>, <c>time.break</c>,
+    /// <c>time.breakOnInvariant</c>.
+    /// </summary>
+    internal static async Task<ToolOutput> Await(AgentHost host, ToolCall call, double defaultSeconds,
+        Func<ServiceContext, ulong, (Task<ConditionHit> Task, string? Cost)> arm, string hint)
+    {
+        ulong maxTicks = (ulong)call.Integer("maxTicks", 100_000, 1, 10_000_000);
+        double seconds = call.Number("timeoutSeconds", defaultSeconds, 0.1, Math.Max(host.MaxWaitSeconds, 0.1));
+        var armed = await host.Serve(ctx =>
+        {
             ulong limit = ctx.Tick + maxTicks;
-            return (Task: host.Observation.Arm(ctx, predicate, stage, limit), Limit: limit, Cost: predicate.Cost(ctx.World), From: ctx.Point);
+            var (task, cost) = arm(ctx, limit);
+            return (Task: task, Limit: limit, Cost: cost, From: ctx.Point);
         }, call.Cancel);
         if (host.Time.Paused) host.Time.RunUntil(armed.Limit);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(call.Cancel);
@@ -390,10 +428,18 @@ internal static class ObservationTools
             ["from"] = armed.From.Tick,
             ["paused"] = host.Time.Paused,
             ["cost"] = armed.Cost,
-            ["hint"] = hit.Met ? (stage is null ? "условие проверяется после каждого тика; tick — сыграно тиков, когда оно выполнилось"
-                : "стоим посреди тика после стадии: time.step 1 — доиграть тик, time.break — следующее попадание")
-                : null,
+            ["violations"] = hit.Violations is { } list ? new JsonArray([.. list.Select(v => (JsonNode?)ViolationJson(v))]) : null,
+            ["hint"] = hit.Met ? hint : null,
         }) { Point = point };
+    }
+
+    /// <summary>Нарушение инварианта для ответа: id, тик, стадия, сущность (с именем игры), подробности.</summary>
+    internal static JsonObject ViolationJson(in InvariantViolation v)
+    {
+        var o = InvariantRecord.Fields(v);
+        o["tick"] = v.Tick;
+        o["stage"] = v.Stage;
+        return o;
     }
 
     private static JsonObject Describe(Watch w, WorldReader world) => new()

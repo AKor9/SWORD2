@@ -120,7 +120,9 @@ public static partial class Program
 
         try
         {
-            var config = ConfigSet.Load(AppContext.BaseDirectory, options.Sets);
+            // Бенч кадра — без инвариантов (раздел 8 плана: их стоимость меряется отдельно); --set перекрывает.
+            List<string> sets = options.Bench > 0 ? ["sim.invariants=false", .. options.Sets] : options.Sets;
+            var config = ConfigSet.Load(AppContext.BaseDirectory, sets);
             var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud);
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions], config);

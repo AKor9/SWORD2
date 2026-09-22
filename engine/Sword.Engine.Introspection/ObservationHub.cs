@@ -5,15 +5,20 @@ using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Introspection;
 
-/// <summary>Итог условия остановки: выполнилось ли, после скольких тиков (посреди тика — номер идущего) и на какой стадии.</summary>
-public sealed record ConditionHit(bool Met, ulong Tick, string? Stage, string Reason);
+/// <summary>
+/// Итог условия остановки: выполнилось ли, после скольких тиков (посреди тика — номер идущего) и на какой стадии;
+/// у остановки на инварианте — нарушения, на которых встали.
+/// </summary>
+public sealed record ConditionHit(bool Met, ulong Tick, string? Stage, string Reason, IReadOnlyList<InvariantViolation>? Violations = null);
 
 /// <summary>
 /// Наблюдение агента за симуляцией (раздел 8 плана): наблюдатель тиков (<see cref="ISimulationObserver"/>) — после каждого
 /// тика снимает историю (<see cref="History"/>) и строки наблюдений (<see cref="Watches"/>), проверяет условие остановки
 /// (<c>time.runUntil</c> — после тика, <c>time.break</c> — после барьера своей стадии) и останавливает время на его тике
-/// (<see cref="TimeControl.Halt"/>). Всё — на потоке симуляции; агент читает копиями в точке обслуживания. Мир не меняет,
-/// в хеш состояния не входит.
+/// (<see cref="TimeControl.Halt"/>). Условие остановки может быть и нарушением инварианта (<c>time.breakOnInvariant</c>):
+/// нарушения тика узел кладёт в историю. Инварианты агента (<c>invariant.define</c>) и включения инвариантов агентом узел
+/// переносит в каждую новую симуляцию, как наблюдения. Всё — на потоке симуляции; агент читает копиями в точке
+/// обслуживания. Мир не меняет, в хеш состояния не входит.
 /// </summary>
 public sealed class ObservationHub : ISimulationObserver
 {
@@ -25,14 +30,22 @@ public sealed class ObservationHub : ISimulationObserver
     private Catalog? _catalog;
     private IEntityNames? _names;
 
-    private sealed class Armed(ObservationPredicate predicate, int? stage, string? stageName, ulong limit)
+    private sealed class Armed(ObservationPredicate? predicate, int? stage, string? stageName, ulong limit, HashSet<string>? invariants = null)
     {
-        public readonly ObservationPredicate Predicate = predicate;
+        public readonly ObservationPredicate? Predicate = predicate;
         public readonly int? Stage = stage;
         public readonly string? StageName = stageName;
         public readonly ulong Limit = limit;
         public readonly TaskCompletionSource<ConditionHit> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Остановка на нарушении инварианта (<see cref="Predicate"/> нет): какие Id (null — любой).</summary>
+        public readonly bool OnInvariant = predicate is null;
+        public readonly HashSet<string>? Invariants = invariants;
+        public readonly List<InvariantViolation> Hits = [];
     }
+
+    private readonly List<JsonObject> _defined = [];
+    private readonly Dictionary<string, bool> _enabled = new(StringComparer.Ordinal);
 
     public ObservationHub(TimeControl time, int historyTicks = ObservationHistory.DefaultTicks)
     {
@@ -68,6 +81,26 @@ public sealed class ObservationHub : ISimulationObserver
         History.Reset(simulation.World);
         Finish(null, new ConditionHit(false, simulation.Tick, null, "симуляция сменилась (session.start, time.seek назад)"));
         var ctx = new ServiceContext(simulation);
+        foreach (var d in _defined.ToList())
+            try
+            {
+                simulation.Invariants.Add(AgentInvariant.Create(d, ctx, catalog, names, History), AgentInvariant.Owner);
+            }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+            {
+                _defined.Remove(d);
+                Log.Warning("agent", $"инвариант {d["id"]} снят: в новой симуляции не собрался — {e.Message}");
+            }
+        foreach (var (id, enabled) in _enabled.ToList())
+            try
+            {
+                simulation.Invariants.SetEnabled(id, enabled);
+            }
+            catch (ArgumentException)
+            {
+                _enabled.Remove(id);
+                Log.Warning("agent", $"включение инварианта {id} не перенесено: в новой симуляции его нет");
+            }
         foreach (var w in _watches.ToList())
             try
             {
@@ -99,7 +132,26 @@ public sealed class ObservationHub : ISimulationObserver
             if (i < 0) throw new ArgumentException($"stage: нет стадии «{stage}»; есть: {string.Join(", ", ctx.World.Stages)}");
             index = i;
         }
-        var armed = new Armed(predicate, index, stage, limit);
+        return Replace(new Armed(predicate, index, stage, limit), ctx);
+    }
+
+    /// <summary>
+    /// Встать на нарушении инварианта (<c>time.breakOnInvariant</c>; поток симуляции, точка обслуживания): <paramref name="ids"/>
+    /// (null — любого). Headless встаёт посреди тика после нарушившего барьера (<see cref="BreakHandler"/>), живая игра — после
+    /// тика. Прежнее условие остановки снимается.
+    /// </summary>
+    public Task<ConditionHit> ArmInvariant(in ServiceContext ctx, IReadOnlyCollection<string>? ids, ulong limit)
+    {
+        var invariants = ctx.Simulation.Invariants;
+        if (ids is not null)
+            foreach (string id in ids)
+                if (invariants.Find(id) is null)
+                    throw new ArgumentException($"нет инварианта «{id}»; есть: {string.Join(", ", invariants.List().Select(i => i.Id))}");
+        return Replace(new Armed(null, null, null, limit, ids is null ? null : [.. ids]), ctx);
+    }
+
+    private Task<ConditionHit> Replace(Armed armed, in ServiceContext ctx)
+    {
         Armed? previous;
         lock (_gate)
         {
@@ -135,9 +187,26 @@ public sealed class ObservationHub : ISimulationObserver
 
     // ── наблюдатель тиков ──────────────────────────────────────────────────
 
+    public void OnViolation(Simulation simulation, in InvariantViolation violation)
+    {
+        History.AddViolation(violation);
+        var armed = Volatile.Read(ref _armed);
+        if (armed is { OnInvariant: true } && (armed.Invariants is null || armed.Invariants.Contains(violation.Id))) armed.Hits.Add(violation);
+    }
+
     public void AfterStage(Simulation simulation, int stage)
     {
         var armed = Volatile.Read(ref _armed);
+        if (armed is { OnInvariant: true })
+        {
+            // Нарушение этого барьера: Headless встаёт здесь же, посреди тика; живая игра — после тика (AfterTick).
+            if (armed.Hits.Count == 0 || BreakHandler is null) return;
+            string name = simulation.World.Stages[stage];
+            _time.Halt(simulation.Tick);
+            Finish(armed, new ConditionHit(true, simulation.Tick, name, "нарушен инвариант", [.. armed.Hits]));
+            BreakHandler(simulation, name);
+            return;
+        }
         if (armed?.Stage != stage) return;
         var ctx = new ServiceContext(simulation);
         if (!Evaluate(armed, ctx)) return;
@@ -153,7 +222,12 @@ public sealed class ObservationHub : ISimulationObserver
         foreach (var w in _watches) w.Sample(ctx, History);
         var armed = Volatile.Read(ref _armed);
         if (armed is null) return;
-        if (armed.Stage is null && Evaluate(armed, ctx))
+        if (armed.OnInvariant && armed.Hits.Count > 0)
+        {
+            _time.Halt(simulation.Tick);
+            Finish(armed, new ConditionHit(true, simulation.Tick, null, "нарушен инвариант", [.. armed.Hits]));
+        }
+        else if (!armed.OnInvariant && armed.Stage is null && Evaluate(armed, ctx))
         {
             _time.Halt(simulation.Tick);
             Finish(armed, new ConditionHit(true, simulation.Tick, null, "выполнилось"));
@@ -166,7 +240,7 @@ public sealed class ObservationHub : ISimulationObserver
     {
         try
         {
-            return armed.Predicate.Evaluate(ctx, History);
+            return armed.Predicate!.Evaluate(ctx, History);
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or IndexOutOfRangeException)
         {
@@ -193,6 +267,47 @@ public sealed class ObservationHub : ISimulationObserver
     }
 
     public bool RemoveWatch(string id) => _watches.RemoveAll(w => w.Id == id) > 0;
+
+    // ── инварианты агента ──────────────────────────────────────────────────
+
+    /// <summary>Определения инвариантов агента (переносятся в новую симуляцию).</summary>
+    public IReadOnlyList<JsonObject> DefinedInvariants => _defined;
+
+    /// <summary>
+    /// Инвариант агента (<c>invariant.define</c>; поток симуляции, точка обслуживания): тот же id агента заменяется; кодовый
+    /// id — ошибка.
+    /// </summary>
+    public AgentInvariant DefineInvariant(in ServiceContext ctx, JsonObject definition)
+    {
+        if (_catalog is null) throw new InvalidOperationException("наблюдение не подключено к симуляции");
+        var invariant = AgentInvariant.Create(definition, ctx, _catalog, _names, History);
+        var invariants = ctx.Simulation.Invariants;
+        if (invariants.Find(invariant.Id) is { } existing)
+        {
+            if (existing.Owner != AgentInvariant.Owner) throw new ArgumentException($"инвариант {invariant.Id} — {existing.Owner}: id занят");
+            invariants.Remove(invariant.Id, AgentInvariant.Owner);
+            _defined.RemoveAll(d => (string?)d["id"] == invariant.Id);
+        }
+        invariants.Add(invariant, AgentInvariant.Owner);
+        _defined.Add(invariant.Definition);
+        _enabled.Remove(invariant.Id);
+        return invariant;
+    }
+
+    /// <summary>Убрать инвариант агента.</summary>
+    public bool RemoveInvariant(in ServiceContext ctx, string id)
+    {
+        _enabled.Remove(id);
+        _defined.RemoveAll(d => (string?)d["id"] == id);
+        return ctx.Simulation.Invariants.Remove(id, AgentInvariant.Owner);
+    }
+
+    /// <summary>Включить или выключить инвариант (и в следующих симуляциях сеанса).</summary>
+    public void SetInvariantEnabled(in ServiceContext ctx, string id, bool enabled)
+    {
+        ctx.Simulation.Invariants.SetEnabled(id, enabled);
+        _enabled[id] = enabled;
+    }
 
     public void ClearWatches() => _watches.Clear();
 

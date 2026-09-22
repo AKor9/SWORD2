@@ -101,7 +101,7 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 | новое видимое — поза Manny | `capture.bundle` (картинка кадра; оверлея скелета нет — этап 5) |
 | порядок систем | `ecs.plan`, `ecs.explainSystem` (`core.root-steer` → `core.animator-input` → `locomotion.legacy` → `core.animator-pose` → `core.animation-tick`) |
 | сверка с SWORD | `ReferenceTraceTests` (трасса `tests/reference/anim-locomotion.trace.json`, программа — `tests/reference/sword-trace`) |
-| новая подсистема | участник хеша `animation` (`AnimationState`, этап 3а — [Детерминизм](../Determinism/README.md)): пул поз в `state.hash`, позы по суставам — `state.describe`; инварианты — 3г; API пула допускает второй экземпляр (дифференциальный прогон) |
+| новая подсистема | участник хеша `animation` (`AnimationState`, этап 3а — [Детерминизм](../Determinism/README.md)): пул поз в `state.hash`, позы по суставам — `state.describe`; инварианты — `animation.finite`, `animation.settled`, `animation.pool`, `animation.owners` (3г, `AnimationInvariants`), у локомоции — `locomotion.poses`; API пула допускает второй экземпляр (дифференциальный прогон) |
 
 Инструменты агента: добавлены `anim.pose`, `anim.clips` (тест `AnimationTests.AgentTools_ShowPoseAndClips`, строки в
 `docs/agent-playbook.md`, проверка в `verify.ps1` `agent-smoke`). Инвариантов нет — реестр инвариантов появится на

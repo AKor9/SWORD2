@@ -897,7 +897,7 @@ public interface IInvariant                      // Engine.Runtime, как IStat
     string Id { get; }                           // стабильный: "physics.finite", "fighter.deadNotKinematic", …
     InvariantCost Cost { get; }                  // каждый тик, раз в N тиков, по запросу
     InvariantScope Scope { get; }                // сущность, система, подсистема (в т. ч. внутри шага), мир, клиент
-    StageId After { get; }                       // после какого барьера проверяется
+    string After { get; }                        // после барьера какой стадии (имя; runtime.export — конец тика)
     void Evaluate(in InvariantContext ctx, ref ViolationSink violations);
 }
 ```
@@ -912,6 +912,14 @@ public interface IInvariant                      // Engine.Runtime, как IStat
 - Режимы: в тестах и `verify` — все дешёвые включены; в бенче — выключены (их стоимость меряется отдельно); в игре —
   по конфигу. Инвариант ничего не меняет, его стоимость измеряется.
 - Инструменты: `invariant.list`, `invariant.run`, `invariant.enable`, `invariant.define`, `time.breakOnInvariant`.
+- Решено на точке 3г: стадия — имя (стадии мира — строки, отдельного `StageId` нет); `InvariantCost` — период в тиках
+  (1 — каждый тик, N, 0 — по запросу: сам не включается, включённый явно — каждый тик); Id — части из латиницы, цифр и
+  `_` через точку, первой — строчная буква; режим — `sim.invariants` (по умолчанию включены; бенч кадра — выключены);
+  `TickId` нарушения — номер тика, в котором нарушено (как у событий); в живой игре `time.breakOnInvariant` встаёт после
+  тика нарушения (посреди тика — только Headless, как `time.break`). Базовые: движка — `ecs.finite` (каждый тик),
+  `ecs.entityRefs` (по запросу); анимации — `animation.finite`, `animation.settled`, `animation.pool`,
+  `animation.owners`; модуля Locomotion — `locomotion.poses`. Поз без владельца ядро не ищет: позы модуля лежат в его
+  компонентах — их держит инвариант модуля.
 
 ### Причинность: state.why
 
@@ -1398,7 +1406,7 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 | 3а. Хеш и ГСЧ · сделана | счётчиковый ГСЧ (`sim.seed`); `StateHasher` и план полей типа (хеш и описание по одним и тем же полям, `-0` → `+0`, один NaN); `IStateContributor`, участники `ecs` (сущности по `Entity`, компоненты и ресурсы-значения по стабильным именам; свободные номера, журналы последнего оборота и курсоры систем — возрастом и числом непрочитанных) и `animation` (пул поз); агенту — `state.hash`, `state.describe` | два прогона — одинаковые хеши каждого тика; изменение поля меняет хеш своего участника; запросы агента не меняют хеш; хеш не выделяет памяти |
 | 3б. Реплеи · сделана | запись всех команд тика по типам (игрок, арена, ручки, модули — любые зарегистрированные) с хешами участников каждые K тиков; `Game.App --record`, `Game.Headless --replay` с первым расхождением (тик, участник); `replay.*`, `time.seek`, `session.start` с реплеем; эталоны SWORD2 прототипа и анимации | `Headless` воспроизводит запись `Game.App` с теми же хешами; порченый реплей называет тик и участника |
 | 3в. Наблюдение · сделана | `ObservationPredicate`; `runUntil`/`break` по условию; `ObservationHistory`, `watch.*`, `entity.history`, `events.history`, `replay.observe`; `world.snapshot`/`world.diff` | условия на эталонном реплее; снимки двух тиков — разница по полям |
-| 3г. Инварианты | `IInvariant` (Runtime), реестр, базовые инварианты движка и анимации, `invariant.*`, `time.breakOnInvariant` | модуль-неисправность в тесте ловится на своём тике |
+| 3г. Инварианты · сделана | `IInvariant` (Runtime), реестр, базовые инварианты движка и анимации, `invariant.*`, `time.breakOnInvariant` | модуль-неисправность в тесте ловится на своём тике |
 | 3д. Приёмка и эксперименты | `FeatureManifest` (`feature.json`) и `feature.verify` — задним числом для прототипа и анимации; `experiment.fork`/`compare`/`sweep` по конфигу | `feature.verify` прототипа и анимации зелёный; ветка с другой ручкой расходится на ожидаемом тике |
 
 Редактор анимаций можно поднять раньше, если понадобится при работе над анимацией.

@@ -189,6 +189,7 @@ public sealed class LocomotionModule : IModule
         b.Component<LegacyLocomotionState>()
             .System(GameStages.Gameplay, new LegacyLocomotionSetupSystem())
             .System(GameStages.Animation, new LegacyLocomotionSystem())
-            .System(GameStages.End, new LegacyLocomotionReleaseSystem());
+            .System(GameStages.End, new LegacyLocomotionReleaseSystem())
+            .Invariant(new LocomotionPosesInvariant());
     }
 }

@@ -68,6 +68,7 @@ public sealed class AgentHost
         CoreTools.Register(this);
         ReplayTools.Register(this);
         ObservationTools.Register(this);
+        InvariantTools.Register(this);
     }
 
     public string Mode => _options.Mode;
@@ -223,6 +224,8 @@ public sealed class AgentHost
         Условия (один JSON-язык): time.runUntil с condition — встать на тике, где выполнилось; watch.add → entity.history —
         значения полей по тикам; events.history — события последних тиков; world.snapshot / world.diff — что изменилось;
         world.query с where и aggregate; replay.observe — то же на прогоне реплея.
+        Инварианты: invariant.list — что проверяется и что нарушено; time.breakOnInvariant — встать на нарушении;
+        invariant.run — проверить сейчас; invariant.define — свой инвариант условием; нарушения — events.history (InvariantViolation).
         {(Mode == "app" ? "Живая игра: время идёт само, time.pause останавливает симуляцию (кадры рисуются); capture.bundle — снимок кадра с глубиной, видимыми сущностями и камерой." : "Headless стартует на паузе: время двигают time.step и time.runUntil; time.seek — назад и вперёд, session.start {replay} — воспроизвести реплей (свои команды ветвят его); time.break {stage, condition} — встать посреди тика после стадии.")}
         """;
 

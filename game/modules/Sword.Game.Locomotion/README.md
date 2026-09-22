@@ -40,6 +40,10 @@ SWORD 2eab13b, `Sword.Combat/LegacyLocomotion.cs` — без изменений 
 | Animation | `locomotion.legacy` (`LegacyLocomotionSystem`), до `core.animator-pose` | непрерывная: на первом тике бойца — две позы из пула (слой и снимок), дальше выбор клипа, задания пулу |
 | End | `locomotion.release` (`LegacyLocomotionReleaseSystem`) | реактивная `Removed<LegacyLocomotionState>`: позы — в пул |
 
+Инвариант модуля `locomotion.poses` (`LocomotionPosesInvariant`, после End, каждый тик): позы слоя и снимка живые,
+свои у каждого бойца и не совпадают с его итоговой позой. Пул модуль видит только видом `IAnimationView` (живая поза —
+непустые модельные матрицы). Утечку позы ядро не видит — позы модуля лежат в его компоненте, поэтому держит их модуль.
+
 Состояние добавляется на барьере Gameplay, поэтому новый боец ходит с первого же тика (Animation идёт после). Позы
 берёт `locomotion.legacy`, а не `locomotion.setup`: к этому моменту состояние уже в мире, и `Removed` при снятии вернёт
 их в пул. Если бы позы брала реакция, а команда добавления не сыграла (боец снят на том же барьере, тик прерван), они
@@ -76,6 +80,8 @@ walk_*, run_*), `Sword.Engine.Animation` (пул поз, клипы), `Sword.Eng
 
 ## Агентский доступ
 
+Инвариант — `invariant.list {"filter":"locomotion"}`, остановка на нарушении — `time.breakOnInvariant
+{"ids":["locomotion.poses"]}` (тест `GameInvariantTests` — общая поза слоя и снимка ловится на своём тике).
 Состояние видно `entity.get {"entity":"player","components":["LegacyLocomotionState"]}` (клип — номер; имя —
 `anim.clips {"index":N}`), поза — `anim.pose`. Итог анализа по чек-листу раздела 8 — в
 [фиче «Анимация»](../../Sword.Game/Features/Animation/README.md).

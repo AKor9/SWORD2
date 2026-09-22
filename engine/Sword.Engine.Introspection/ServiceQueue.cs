@@ -32,6 +32,12 @@ public readonly struct ServiceContext
     /// <summary>Симуляция точки — для наблюдения (<see cref="ObservationHub"/>) и снимков; менять её отсюда нельзя.</summary>
     internal Simulation Simulation => _simulation;
 
+    /// <summary>
+    /// Инварианты симуляции (раздел 8 плана): список, включение, проверка сейчас. Мир и хеш от них не зависят — поэтому
+    /// менять их включение можно из точки обслуживания.
+    /// </summary>
+    public SimulationInvariants Invariants => _simulation.Invariants;
+
     /// <summary>Шаг тика, с.</summary>
     public float Dt => _simulation.Dt;
 

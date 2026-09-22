@@ -134,7 +134,7 @@ internal static class ReplayTools
         {
             Name = "replay.observe", Title = "Наблюдать прогон реплея",
             Description = "Прогнать реплей в отдельной симуляции (сеанс не трогается) и записать наблюдение глубже кольца истории: " +
-                "события типов events («*» — все; tick — номер тика), строки наблюдения watch (как watch.add; tickId), переходы " +
+                "события типов events («*» — все, InvariantViolation — нарушения инвариантов; tick — номер тика), строки наблюдения watch (как watch.add; tickId), переходы " +
                 "условия condition (tickId, true/false) и сводка — первый и последний tickId, когда условие выполнялось. Строки — " +
                 "в файл .jsonl в артефактах, в ответе — сводка и первые строки. " + ObservationPredicate.Syntax + " Только Headless.",
             Arguments = Props(
@@ -185,6 +185,11 @@ internal static class ReplayTools
                     ["truncated"] = result.Truncated,
                     ["events"] = new JsonObject([.. result.EventCounts.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))]),
                     ["watchRows"] = result.WatchRows,
+                    ["violations"] = new JsonObject
+                    {
+                        ["count"] = result.Violations,
+                        ["first"] = result.FirstViolation is { } v ? ObservationTools.ViolationJson(v) : null,
+                    },
                     ["condition"] = result.Condition is { } c ? new JsonObject
                     {
                         ["firstTickId"] = c.First, ["lastTickId"] = c.Last, ["ticks"] = c.Ticks, ["cost"] = result.ConditionCost,

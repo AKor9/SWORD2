@@ -13,7 +13,10 @@ public sealed record ReplayObserveOptions
     /// <summary>До скольких сыгранных тиков идти (не больше длины реплея, если она задана).</summary>
     public ulong To { get; init; }
 
-    /// <summary>Типы событий и срабатываний (<c>PlayerCommand</c>, <c>Added&lt;Fighter&gt;</c>, <c>*</c> — все журналы).</summary>
+    /// <summary>
+    /// Типы событий и срабатываний (<c>PlayerCommand</c>, <c>Added&lt;Fighter&gt;</c>, <c>InvariantViolation</c> — нарушения
+    /// инвариантов, <c>*</c> — всё).
+    /// </summary>
     public IReadOnlyList<string> Events { get; init; } = [];
 
     /// <summary>Наблюдение как у <c>watch.add</c> (<c>entities</c>, <c>where</c>, <c>fields</c>, <c>every</c>); null — нет.</summary>
@@ -34,6 +37,10 @@ public sealed class ReplayObserveResult
     public ulong Ticks { get; set; }
     public SortedDictionary<string, long> EventCounts { get; } = new(StringComparer.Ordinal);
     public long WatchRows { get; set; }
+
+    /// <summary>Нарушений инвариантов с from (пишутся всегда, строки — если просили) и первое из них.</summary>
+    public long Violations { get; set; }
+    public InvariantViolation? FirstViolation { get; set; }
 
     /// <summary>Условие: первый и последний <c>tickId</c>, когда выполнялось, и сколько тиков; null — условия не было.</summary>
     public (ulong? First, ulong? Last, long Ticks)? Condition { get; set; }
@@ -61,9 +68,15 @@ public static class ReplayObservation
         var result = new ReplayObserveResult { Player = player };
 
         var journals = new HashSet<int>();
+        bool violationLines = false;
         foreach (string type in options.Events)
         {
-            if (type == "*") journals.UnionWith(simulation.World.Journals.Select(j => j.Id));
+            if (type == "*")
+            {
+                journals.UnionWith(simulation.World.Journals.Select(j => j.Id));
+                violationLines = true;
+            }
+            else if (string.Equals(type, InvariantRecord.Type, StringComparison.OrdinalIgnoreCase)) violationLines = true;
             else journals.Add(ObservationPredicate.ResolveJournal(simulation.World, type, "events").Id);
         }
         var condition = options.Condition is null ? null : ObservationPredicate.Compile(options.Condition, ctx, catalog, names);
@@ -104,6 +117,15 @@ public static class ReplayObservation
                         ["fields"] = info.EntrySize > 0 ? FieldCodec.Decode(info.EntryType, bytes) : null,
                     });
                 }
+
+            foreach (var v in hub.History.ViolationsAt(tick))
+            {
+                result.Violations++;
+                result.FirstViolation ??= v;
+                if (!violationLines) continue;
+                result.EventCounts[InvariantRecord.Type] = result.EventCounts.GetValueOrDefault(InvariantRecord.Type) + 1;
+                Line(new JsonObject { ["tick"] = tick, ["stage"] = v.Stage, ["type"] = InvariantRecord.Type, ["fields"] = InvariantRecord.Fields(v) });
+            }
 
             if (watch is not null)
                 foreach (var row in watch.Tail((int)Math.Min(watch.Appended - appended, watch.Capacity)))

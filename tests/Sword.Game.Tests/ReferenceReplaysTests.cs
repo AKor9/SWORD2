@@ -44,6 +44,8 @@ public sealed class ReferenceReplaysTests
             $"{file}: {player.Divergence} — поведение изменилось. Намеренно — перезапишите эталон " +
             $"(Sword.Headless --replay tests/reference/replays/{file} --record tests/reference/replays/{file}) и запишите причину в md фичи");
         Assert.Equal(replay.Hashes.Count, player.HashesChecked);
+        // Инварианты (этап 3г) на эталоне не нарушаются: реплей записан с тем же конфигом, где они включены.
+        Assert.True(sim.Invariants.Total == 0, $"{file}: нарушения инвариантов:\n{string.Join("\n", sim.Invariants.Recent())}");
     }
 
     /// <summary>

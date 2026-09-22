@@ -211,6 +211,7 @@ Add-Step 'headless-smoke' {
     elseif ($r.allocatedBytesPerTick -ne 0) { $problems += "тик выделяет $($r.allocatedBytesPerTick) Б после прогрева, ждали 0 (раздел 12 плана)" }
     elseif (-not $r.pose -or $r.pose.bindPose) { $problems += "игрок бежит, а поза — поза привязки: локомоция не работает" }
     elseif (-not $r.stateHash -or @($r.stateHash.parts.PSObject.Properties.Name) -notcontains 'animation') { $problems += "нет хеша состояния с участником animation: $($r.stateHash | ConvertTo-Json -Compress)" }
+    elseif ($r.invariants.enabled -lt 6 -or $r.invariants.violations -ne 0) { $problems += "инварианты: включено $($r.invariants.enabled), нарушений $($r.invariants.violations): $(@($r.invariants.first) -join '; ')" }
     # Детерминизм (этап 3): тот же прогон ещё раз — тот же хеш каждого участника.
     if ($problems.Count -eq 0) {
         $again = (& $exe.FullName --ticks 600 --move 1,0 --json 2>$null | Out-String).Trim() | ConvertFrom-Json
@@ -240,7 +241,7 @@ Add-Step 'headless-smoke' {
         if ($code -eq 0 -or -not $b -or $b.ok -or "$($b.error)" -notmatch [regex]::Escape($case[1])) { $problems += "--set $($case[0]) прошёл или дал не ту ошибку: $bad" }
     }
     $moduleNote = if ($modules.Count -gt 0) { "по очереди без модуля ($($modules -join ', ')) — 10 с без ошибок" } else { 'модулей нет' }
-    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; хеш состояния $($r.stateHash.total) повторился; $moduleNote; привязки клавиш не мешают; опечатка в конфиге и выключение ядра — ошибки" } }
+    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; хеш состояния $($r.stateHash.total) повторился; инвариантов $($r.invariants.enabled), нарушений 0 (с ними — 0 Б/тик); $moduleNote; привязки клавиш не мешают; опечатка в конфиге и выключение ядра — ошибки" } }
     else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
@@ -411,6 +412,7 @@ Add-Step 'replay-smoke' {
     $code = $LASTEXITCODE
     if ($code -ne 0 -or -not $play.ok -or -not $play.replay.match) { $problems += "воспроизведение: код $code, $($play.replay.divergence | ConvertTo-Json -Compress -Depth 5) $($play.error)" }
     elseif ($play.replay.hashesChecked -ne $recorded.hashes -or $play.replay.hashesChecked -lt 300) { $problems += "сверено хешей $($play.replay.hashesChecked), записано $($recorded.hashes)" }
+    elseif ($play.invariants.violations -ne 0) { $problems += "воспроизведение: нарушения инвариантов $(@($play.invariants.first) -join '; ')" }
     # Порча: команда одного тика в середине отрезка — отрезок [0, N, cmd] делится, в тике 150 другое направление.
     $text = [System.IO.File]::ReadAllText($file)
     $m = [regex]::Match($text, '\[0, (\d+), (\[0, [^\]]+\])\]')
@@ -436,10 +438,11 @@ Add-Step 'replay-smoke' {
         foreach ($ref in $refs) {
             $r = (& $headless.FullName --replay $ref.FullName --json 2>$null | Out-String).Trim() | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0 -or -not $r.replay.match) { $problems += "эталон $($ref.Name): $($r.replay.divergence | ConvertTo-Json -Compress -Depth 5) $($r.error)" }
+            elseif ($r.invariants.violations -ne 0) { $problems += "эталон $($ref.Name): нарушения инвариантов $(@($r.invariants.first) -join '; ')" }
         }
         $refNote = "эталоны ($(($refs | ForEach-Object { $_.BaseName }) -join ', ')) совпали"
     }
-    if ($problems.Count -eq 0) { @{ ok = $true; detail = "запись $by — $($recorded.ticks) тиков, Headless повторил все $($play.replay.hashesChecked) хешей; порча в тике 150 — расхождение после 151 тика, участники $($parts -join ', '), код 3; $refNote" } }
+    if ($problems.Count -eq 0) { @{ ok = $true; detail = "запись $by — $($recorded.ticks) тиков, Headless повторил все $($play.replay.hashesChecked) хешей без нарушений инвариантов; порча в тике 150 — расхождение после 151 тика, участники $($parts -join ', '), код 3; $refNote" } }
     else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
@@ -488,7 +491,8 @@ Add-Step 'agent-smoke' {
         $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
         foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'state.hash', 'state.describe',
                 'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek',
-                'time.break', 'watch.add', 'watch.list', 'watch.remove', 'entity.history', 'events.history', 'world.snapshot', 'world.diff', 'replay.observe')) {
+                'time.break', 'watch.add', 'watch.list', 'watch.remove', 'entity.history', 'events.history', 'world.snapshot', 'world.diff', 'replay.observe',
+                'invariant.list', 'invariant.enable', 'invariant.run', 'invariant.define', 'time.breakOnInvariant')) {
             if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
         }
         $player = Call-Stdio 'entity.get' @{ entity = 'player' }
@@ -548,13 +552,29 @@ Add-Step 'agent-smoke' {
         $diff = Call-Stdio 'world.diff' @{ a = $snap.id; b = 'now'; filter = 'Transform/Position.X' }
         $events = Call-Stdio 'events.history' @{ types = @('PlayerCommand') }
         if ([int]$diff.changed -lt 1 -or [int]$events.total -lt 1) { $problems += "Headless: world.diff — изменено $($diff.changed), events.history — $($events.total)" }
+        # Этап 3г: базовые инварианты движка, анимации и модуля не нарушены; свой инвариант агента — остановка на нарушении.
+        $list = Call-Stdio 'invariant.list' @{}
+        $ids = @($list.invariants | ForEach-Object { $_.id })
+        foreach ($id in @('ecs.finite', 'animation.finite', 'animation.settled', 'animation.pool', 'animation.owners', 'locomotion.poses')) {
+            if ($ids -notcontains $id) { $problems += "Headless: invariant.list — нет $id" }
+        }
+        if ([int]$list.violationsTotal -ne 0) { $problems += "Headless: нарушения инвариантов: $($list.recent | ConvertTo-Json -Compress -Depth 4)" }
+        $x0 = [double](Call-Stdio 'entity.get' @{ entity = 'player' }).components.Transform.Position.X
+        $null = Call-Stdio 'invariant.define' @{ id = 'agent.playerNear'; must = @{ field = 'Transform.Position.X'; lessThan = $x0 + 1 }; where = @{ entity = 'player' } }
+        $null = Call-Stdio 'command.send' @{ command = 'PlayerCommand'; fields = @{ Move = @{ X = 1; Y = 0 } }; repeat = 240 }
+        $broke = Call-Stdio 'time.breakOnInvariant' @{ ids = @('agent.playerNear'); maxTicks = 600 }
+        $v = @($broke.violations)[0]
+        $recorded3g = Call-Stdio 'events.history' @{ types = @('InvariantViolation') }
+        if (-not $broke.met -or $broke.receipt.stage -ne 'runtime.export' -or $v.id -ne 'agent.playerNear' -or -not $v.entity -or [int]$recorded3g.total -lt 1) {
+            $problems += "Headless: time.breakOnInvariant — $($broke | ConvertTo-Json -Compress -Depth 5), история $($recorded3g.total)"
+        }
         $null = Call-Stdio 'session.stop' @{}
         if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
         elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
     }
     catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
     finally { if (-not $proc.HasExited) { $proc.Kill() } }
-    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают"
+    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают; инварианты не нарушены, свой инвариант агента встал на нарушении посреди тика"
 
     $appNote = 'живая игра — пропущено (-SkipGpu)'
     if (-not $SkipGpu) {
@@ -605,6 +625,10 @@ Add-Step 'agent-smoke' {
             if (-not $until.met -or [int]$until.tick -ne $goal -or [int]$after.tick -ne $goal -or -not $after.paused) {
                 $problems += "App: time.runUntil {condition} — встали на $($after.tick), ждали $goal ($($until | ConvertTo-Json -Compress -Depth 4))"
             }
+            # Этап 3г: инварианты в живой игре проверяются и не нарушены.
+            $inv = Call-Http 'invariant.list' @{}
+            $checked = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.evaluations -gt 0 }).Count
+            if ($checked -lt 6 -or [int]$inv.violationsTotal -ne 0) { $problems += "App: инварианты — проверялось $checked, нарушений $($inv.violationsTotal): $($inv.recent | ConvertTo-Json -Compress -Depth 4)" }
             $graph = Call-Http 'render.graph' @{}
             $passes = @($graph.passes | ForEach-Object { $_.name })
             if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
@@ -617,7 +641,7 @@ Add-Step 'agent-smoke' {
             # Снимок глубины и цвета — под GPU-валидацией: сообщения слоя и предупреждения шейдеров — отказ.
             $d3d12 = @(Get-Content $err -Encoding UTF8 | Where-Object { ($_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:') -or $_ -match '^\[shader\]' })
             if ($d3d12.Count -gt 0) { $problems += "App: сообщения D3D12 или шейдеров: $($d3d12 | Select-Object -First 3)" }
-            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; условие runUntil встало на своём тике"
+            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет"
         }
         catch { $problems += "App: $($_.Exception.Message) — журнал $err" }
         finally { if (-not $app.HasExited) { $app.Kill() } }

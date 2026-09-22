@@ -21,6 +21,12 @@ public sealed record SimSettings
 
     /// <summary>Главное зерно счётчикового ГСЧ (<see cref="SimRandom"/>); пишется в реплей.</summary>
     public ulong Seed { get; init; } = 1;
+
+    /// <summary>
+    /// Кодовые инварианты проверяются (раздел 8 плана): в тестах, verify и игре — да; в бенче — нет (их стоимость меряется
+    /// отдельно). Выключенные включает агент (<c>invariant.enable</c>); на состояние и хеш не влияет.
+    /// </summary>
+    public bool Invariants { get; init; } = true;
 }
 
 /// <summary>Настройки модуля (секция групп <c>modules.&lt;id&gt;</c>).</summary>
@@ -70,9 +76,16 @@ public sealed class Simulation
     private float _time;
 
     private Simulation(World world, SimSettings settings, TickCommands commands, TickExport export,
-        IReadOnlyList<string> active, IReadOnlyList<string> inactive, ConfigSet config, IStateContributor[] state)
+        IReadOnlyList<string> active, IReadOnlyList<string> inactive, ConfigSet config, IStateContributor[] state,
+        SimulationInvariants invariants)
     {
         _state = state;
+        Invariants = invariants;
+        invariants.Violated = v =>
+        {
+            for (int i = 0; i < _observers.Count; i++) _observers[i].OnViolation(this, v);
+        };
+        _afterBarrier = AfterBarrier;
         StateParts = [.. state.Select(c => c.Id)];
         _hashParts = new ulong[state.Length];
         _world = world;
@@ -190,9 +203,12 @@ public sealed class Simulation
         foreach (var init in b.WorldInits) init(built);
         // Участники хеша — по Id (раздел 7 плана): порядок не зависит от порядка регистрации.
         IStateContributor[] state = [.. b.Contributors.Append(new EcsStateContributor(built.Reader)).OrderBy(c => c.Id, StringComparer.Ordinal)];
+        // Инварианты: базовые движка, затем ядра и модулей в порядке регистрации.
+        var invariants = new SimulationInvariants(built.Reader, settings.Invariants,
+            [.. EcsInvariants.For(built.Reader).Select(i => (i, "engine")), .. b.Registered]);
         Log.Info("runtime", $"симуляция: {settings.TickRate} тиков/с, модули: {string.Join(", ", active)}" +
             (inactive.Count > 0 ? $"; выключены: {string.Join(", ", inactive)}" : ""));
-        return new Simulation(built, settings, commands, export, active, inactive, config, state);
+        return new Simulation(built, settings, commands, export, active, inactive, config, state, invariants);
     }
 
     /// <summary>
@@ -223,7 +239,10 @@ public sealed class Simulation
     public string? Stage { get; private set; }
 
     private readonly List<ISimulationObserver> _observers = [];
-    private Action<int>? _afterBarrier;
+    private readonly Action<int> _afterBarrier;
+
+    /// <summary>Инварианты (раздел 8 плана): проверяются после барьеров своих стадий, до наблюдателей.</summary>
+    public SimulationInvariants Invariants { get; }
 
     /// <summary>
     /// Наблюдатель тиков (агент, инструменты): после барьера каждой стадии и после тика — только читает мир (<see cref="World"/>)
@@ -233,7 +252,6 @@ public sealed class Simulation
     {
         ArgumentNullException.ThrowIfNull(observer);
         if (!_observers.Contains(observer)) _observers.Add(observer);
-        _afterBarrier ??= AfterBarrier;
     }
 
     public void Unobserve(ISimulationObserver observer) => _observers.Remove(observer);
@@ -243,6 +261,8 @@ public sealed class Simulation
         Stage = _world.Stages[stage];
         try
         {
+            // Инварианты — первыми: наблюдатель (останов агента) видит нарушения этого барьера.
+            if (Invariants.Active) Invariants.AfterBarrier(stage, Tick, Dt);
             for (int i = 0; i < _observers.Count; i++) _observers[i].AfterStage(this, stage);
         }
         finally
@@ -359,7 +379,7 @@ public sealed class Simulation
     {
         _time += Dt;
         _world.SetResourceImmediate(new SimTime(Tick, Dt, _time));
-        _world.RunTick(Tick, _observers.Count > 0 ? _afterBarrier : null);
+        _world.RunTick(Tick, _observers.Count > 0 || Invariants.Active ? _afterBarrier : null);
         Tick++;
         if (Recorder is not null || Player is not null)
         {
@@ -388,6 +408,14 @@ public interface ISimulationObserver
 
     /// <summary>После тика: сыграно <see cref="Simulation.Tick"/> тиков.</summary>
     void AfterTick(Simulation simulation);
+
+    /// <summary>
+    /// Нарушение инварианта (<see cref="Simulation.Invariants"/>) после барьера стадии — до <see cref="AfterStage"/> этого
+    /// барьера.
+    /// </summary>
+    void OnViolation(Simulation simulation, in InvariantViolation violation)
+    {
+    }
 }
 
 /// <summary>
@@ -405,6 +433,7 @@ public sealed class SimulationBuilder
     internal bool Sealed;
 
     internal readonly List<IStateContributor> Contributors = [];
+    internal readonly List<(IInvariant Invariant, string Owner)> Registered = [];
 
     internal SimulationBuilder(ConfigSet config, WorldBuilder world, TickCommands commands, TickExport export, IReadOnlyList<string> stages)
     {
@@ -446,6 +475,29 @@ public sealed class SimulationBuilder
             throw new InvalidOperationException($"участник хеша «{contributor.Id}»: нужно {IModule.IdRule}, не «ecs»");
         if (Contributors.Any(c => c.Id == contributor.Id)) throw new InvalidOperationException($"участник хеша «{contributor.Id}» дважды");
         Contributors.Add(contributor);
+        return this;
+    }
+
+    /// <summary>
+    /// Инвариант (раздел 8 плана) ядра или модуля: проверяется после барьера своей стадии (<see cref="IInvariant.After"/> —
+    /// стадия игры или <see cref="Simulation.ExportStage"/>, конец тика). Id — <see cref="IInvariant.IdRule"/>, без повторов.
+    /// </summary>
+    public SimulationBuilder Invariant(IInvariant invariant)
+    {
+        Open();
+        ArgumentNullException.ThrowIfNull(invariant);
+        if (!IInvariant.IsValidId(invariant.Id)) throw new InvalidOperationException($"инвариант «{invariant.Id}»: нужно {IInvariant.IdRule}");
+        if (Registered.Any(i => i.Invariant.Id == invariant.Id)) throw new InvalidOperationException($"инвариант «{invariant.Id}» дважды");
+        if (!Stages.Contains(invariant.After) && invariant.After != Simulation.ExportStage)
+            throw new ArgumentException($"инвариант {invariant.Id}: нет стадии {invariant.After}; есть: {string.Join(", ", Stages)}, {Simulation.ExportStage}");
+        Registered.Add((invariant, Module ?? "core"));
+        return this;
+    }
+
+    /// <summary>Несколько инвариантов подсистемы — <see cref="Invariant"/> по порядку.</summary>
+    public SimulationBuilder Invariants(IEnumerable<IInvariant> invariants)
+    {
+        foreach (var i in invariants) Invariant(i);
         return this;
     }
 

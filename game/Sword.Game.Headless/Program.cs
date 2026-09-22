@@ -168,6 +168,16 @@ public static partial class Program
                 pose = Pose(sim, player),
                 stateHash = StateHashJson(sim),
                 replay = playback is null ? null : ReplayJson(replayPath!, playback),
+                // Инварианты (этап 3г): сколько проверялось и нарушений за прогон; первые — строками.
+                invariants = new
+                {
+                    enabled = sim.Invariants.List().Count(i => i.Enabled),
+                    violations = sim.Invariants.Total,
+                    first = sim.Invariants.Recent().Take(5).Select(v => v.ToString()),
+                    // Стоимость (раздел 8 плана: инвариант ничего не меняет, его стоимость измеряется) — мкс на проверку.
+                    microseconds = sim.Invariants.List().Where(i => i.Evaluations > 0)
+                        .ToDictionary(i => i.Id, i => Math.Round(i.MeanMicroseconds, 3)),
+                },
                 recorded = recorded is null ? null : new
                 {
                     file = Path.GetFullPath(record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count, runs = recorded.Runs.Count,
@@ -192,6 +202,7 @@ public static partial class Program
                         : playback.Replay.Hashes.Count == 0 ? "в реплее нет хешей (сценарий) — сверять нечего; хеши даёт --record"
                         : $"реплей совпал: сверено хешей {playback.HashesChecked}, последний — после {playback.LastMatch?.ToString() ?? "—"} тиков");
                 if (recorded is not null) Log.Info("replay", $"записан {Path.GetFullPath(record!)}: {recorded.Ticks} тиков, хешей {recorded.Hashes.Count}");
+                if (sim.Invariants.Total > 0) Log.Warning("invariant", $"нарушений инвариантов за прогон: {sim.Invariants.Total}");
             }
             return playback?.Divergence is null ? 0 : 3;
         }
