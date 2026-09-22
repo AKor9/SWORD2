@@ -57,14 +57,19 @@ public sealed class InputState
         _typed.Clear();
     }
 
-    /// <summary>Забыть всё: фокус потерян, отпускания уйдут другому окну.</summary>
+    /// <summary>
+    /// Фокус потерян: настоящие отпускания уйдут другому окну, поэтому всё удерживаемое считается отпущенным — с
+    /// фронтом отпускания, иначе у действия было бы нажатие без пары. Фронты этого кадра — факты (как в
+    /// <see cref="ForgetMouse"/>): нажатие, случившееся до потери фокуса, остаётся.
+    /// </summary>
     internal void ForgetAll()
     {
+        for (int i = 0; i < _down.Length; i++)
+            if (_down[i]) _released[i] = true;
+        for (int b = 0; b < MouseButtons; b++)
+            if (_mouse[b]) _mouseReleased[b] = true;
         Array.Clear(_down);
-        Array.Clear(_pressed);
-        Array.Clear(_released);
         Array.Clear(_repeated);
-        Array.Clear(_mouseReleased);
         ForgetMouse();
         _typed.Clear();
 

@@ -1,67 +1,78 @@
-using Sword.Engine.Platform;
-
 namespace Sword.Engine.Client;
 
 /// <summary>
 /// Защёлка фронтов действий до тика (раздел 7 плана, «Ввод»): клиент снимает ввод раз в кадр, а тиков в кадре 0, 1 или
 /// несколько. Нажатие и отпускание копятся с кадров (<see cref="Note"/>) и достаются ровно одному тику — первому после
-/// кадра, в котором случились (<see cref="TickInput"/>, затем <see cref="Consume"/>): кадр без тиков их не теряет, кадр
-/// из трёх тиков не повторяет трижды. Удерживаемое (уровни) сюда не входит — его клиент повторяет в каждом тике кадра.
+/// кадра, в котором случились (<see cref="ForTick"/>, затем <see cref="Consume"/>): кадр без тиков их не теряет, кадр из
+/// трёх тиков не повторяет трижды. Уровень (удерживается ли действие) — по последнему кадру: по нему тик восстанавливает
+/// порядок («отпустил и снова нажал» против «нажал и отпустил»). Два нажатия одного действия между двумя тиками
+/// (быстрее 1/120 с) сливаются в одно. Удерживаемое клиент повторяет в каждом тике кадра командой из <c>Input</c>.
 /// </summary>
 public sealed class InputEdges
 {
+    /// <summary>Действий не больше: снимок тика — битовые маски.</summary>
+    public const int MaxActions = 64;
+
     private readonly InputBindings _bindings;
-    private readonly bool[] _pressed, _released;
+    private ulong _pressed, _released, _down;
 
     public InputEdges(InputBindings bindings)
     {
+        if (bindings.Actions.Count > MaxActions)
+            throw new ArgumentException($"действий ввода больше {MaxActions}: снимок тика — битовые маски");
         _bindings = bindings;
-        _pressed = new bool[bindings.Actions.Count];
-        _released = new bool[bindings.Actions.Count];
     }
 
-    /// <summary>Фронты кадра — в защёлку (до ближайшего тика).</summary>
+    /// <summary>Фронты и уровни кадра — в защёлку (до ближайшего тика).</summary>
     public void Note(in FrameInput input)
     {
         var actions = _bindings.Actions;
+        ulong down = 0;
         for (int i = 0; i < actions.Count; i++)
         {
-            if (input.WasPressed(actions[i])) _pressed[i] = true;
-            if (input.WasReleased(actions[i])) _released[i] = true;
+            ulong bit = 1UL << i;
+            if (input.WasPressed(actions[i])) _pressed |= bit;
+            if (input.WasReleased(actions[i])) _released |= bit;
+            if (input.IsDown(actions[i])) down |= bit;
         }
+        _down = down;
     }
 
-    /// <summary>Фронты для ближайшего тика.</summary>
-    public TickInput ForTick() => new(this);
+    /// <summary>Снимок для ближайшего тика: его можно хранить — он не меняется следующими кадрами.</summary>
+    public TickInput ForTick() => new(_bindings, _pressed, _released, _down);
 
-    /// <summary>Тик забрал фронты: следующие тики их не видят.</summary>
-    public void Consume()
-    {
-        Array.Clear(_pressed);
-        Array.Clear(_released);
-    }
-
-    internal bool Pressed(InputAction action) => _pressed[_bindings.IndexOf(action)];
-
-    internal bool Released(InputAction action) => _released[_bindings.IndexOf(action)];
+    /// <summary>Тик забрал фронты: следующие тики их не видят (уровень остаётся).</summary>
+    public void Consume() => _pressed = _released = 0;
 }
 
 /// <summary>
-/// Фронты действий для одного тика (<see cref="IClientGame.BeforeTick"/>): нажатие или отпускание с прошлого тика —
-/// только в первом тике после кадра, где оно случилось.
+/// Фронты и уровни действий для одного тика (<see cref="IClientGame.BeforeTick"/>) — снимок: нажатие или отпускание с
+/// прошлого тика видит только первый тик после кадра, где оно случилось.
 /// </summary>
 public readonly struct TickInput
 {
-    private readonly InputEdges? _edges;
+    private readonly InputBindings? _bindings;
+    private readonly ulong _pressed, _released, _down;
 
-    internal TickInput(InputEdges edges) => _edges = edges;
+    internal TickInput(InputBindings bindings, ulong pressed, ulong released, ulong down)
+    {
+        _bindings = bindings;
+        _pressed = pressed;
+        _released = released;
+        _down = down;
+    }
 
     /// <summary>Без ввода (симуляция без клиента ввода, тесты).</summary>
     public static TickInput None => default;
 
     /// <summary>Действие нажато с прошлого тика.</summary>
-    public bool WasPressed(InputAction action) => _edges?.Pressed(action) == true;
+    public bool WasPressed(InputAction action) => Has(_pressed, action);
 
     /// <summary>Действие отпущено с прошлого тика.</summary>
-    public bool WasReleased(InputAction action) => _edges?.Released(action) == true;
+    public bool WasReleased(InputAction action) => Has(_released, action);
+
+    /// <summary>Действие удерживается (по последнему кадру перед тиком).</summary>
+    public bool IsDown(InputAction action) => Has(_down, action);
+
+    private bool Has(ulong mask, InputAction action) => _bindings is not null && (mask >> _bindings.IndexOf(action) & 1) != 0;
 }

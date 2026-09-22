@@ -34,9 +34,21 @@ public sealed class InputStateTests
         input.SetKey((int)Key.Space, false);   // отпускание не зажатой клавиши — не фронт
         Assert.False(input.WasReleased(Key.Space));
 
+    }
+
+    [Fact]
+    public void FocusLoss_ReleasesHeldKeysAndButtons_KeepsThisFramesEdges()
+    {
+        // Фокус потерян с зажатым Space: отпускание уйдёт другому окну — у нажатия должна быть пара.
+        var input = new InputState();
         input.SetKey((int)Key.Space, true);
-        input.ForgetAll();                     // фокус потерян — фронты забыты
-        Assert.False(input.WasReleased(Key.Space));
+        input.SetMouseButton(MouseButton.Right, true);
+        input.BeginFrame();
+        input.SetKey((int)Key.W, true);        // нажатие этого кадра, случившееся до потери фокуса, — факт
+        input.ForgetAll();
+        Assert.True(input.WasReleased(Key.Space) && !input.IsDown(Key.Space));
+        Assert.True(input.WasMouseReleased(MouseButton.Right) && !input.IsMouseDown(MouseButton.Right));
+        Assert.True(input.WasPressed(Key.W) && input.WasReleased(Key.W));
     }
 
     [Fact]

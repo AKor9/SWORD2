@@ -62,6 +62,29 @@ public class InputEdgesTests
     }
 
     [Fact]
+    public void TickInput_IsASnapshot_AndCarriesLevel()
+    {
+        // Снимок первого тика не меняется от следующих кадров; уровень отличает «отпустил и снова нажал» от «нажал и
+        // отпустил» между двумя тиками.
+        TickInput kept = default;
+        var sim = Simulation.Build(ConfigSet.Empty(), ["S"], []);
+        var clock = new SimulationClock(sim, (_, input) => kept = kept.Equals(default(TickInput)) ? input : kept, edges: _edges);
+        _state.BeginFrame();
+        _state.SetKey((int)Key.Space, true);
+        _edges.Note(new FrameInput(_state, Bindings, null, false, true, 640, 480, 1f / 60));
+        clock.RunFrame(1 / 120.0);
+        Frame(0, s => s.SetKey((int)Key.Space, false));
+        Assert.True(kept.WasPressed(Attack) && !kept.WasReleased(Attack) && kept.IsDown(Attack));
+
+        // Между тиками: отпустил (кадр без тиков), снова нажал (кадр без тиков) — тик видит оба фронта и уровень «нажато».
+        Frame(0, s => s.SetKey((int)Key.Space, true));
+        Frame(1);
+        var last = _seen[^1];
+        Assert.True(last.Pressed && last.Released);
+        Assert.True(_edges.ForTick().IsDown(Attack));
+    }
+
+    [Fact]
     public void Release_AndMouseButton_FollowTheSameRule()
     {
         Frame(1, s =>

@@ -415,8 +415,18 @@ public sealed class Win32Window : IWindow
             // Системные клавиши записываются, но НЕ поглощаются: именно DefWindowProc превращает их в WM_SYSCOMMAND
             // (Alt+F4 → SC_CLOSE → WM_CLOSE, Alt+Space — системное меню).
             case Win32.WM_SYSKEYDOWN:
-                Input.SetKey((int)(wParam.ToInt64() & 0xFF), true);
+            {
+                int vk = (int)(wParam.ToInt64() & 0xFF);
+                Input.SetKey(vk, true);
+                if (((lParam.ToInt64() >> 30) & 1) != 0) Input.RepeatKey(vk);
                 return Win32.DefWindowProc(hWnd, msg, wParam, lParam);
+            }
+
+            // Одиночный Alt или F10 открыл бы меню окна с клавиатуры (SC_KEYMENU без символа): его модальный цикл
+            // останавливает кадры и съедает следующую клавишу. Alt+Space (символ пробела) и Alt+F4 (SC_CLOSE) — как
+            // обычно. В SWORD такой обработки не было.
+            case Win32.WM_SYSCOMMAND when (wParam.ToInt64() & 0xFFF0) == Win32.SC_KEYMENU && lParam == nint.Zero:
+                return nint.Zero;
 
             case Win32.WM_SYSKEYUP:
                 Input.SetKey((int)(wParam.ToInt64() & 0xFF), false);

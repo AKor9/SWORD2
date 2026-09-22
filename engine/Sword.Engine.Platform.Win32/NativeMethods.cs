@@ -77,6 +77,8 @@ internal static class Win32
     public const uint WM_KEYUP = 0x0101;
     public const uint WM_SYSKEYDOWN = 0x0104;
     public const uint WM_SYSKEYUP = 0x0105;
+    public const uint WM_SYSCOMMAND = 0x0112;
+    public const long SC_KEYMENU = 0xF100;
     public const uint WM_MOUSEMOVE = 0x0200;
     public const uint WM_LBUTTONDOWN = 0x0201;
     public const uint WM_LBUTTONUP = 0x0202;
