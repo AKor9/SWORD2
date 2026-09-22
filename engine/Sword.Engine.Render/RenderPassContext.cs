@@ -73,6 +73,20 @@ public sealed class RenderPassContext
 
     public void SetConstant(int slot, float value) => SetConstant(slot, BitConverter.SingleToUInt32Bits(value));
 
+    /// <summary>
+    /// Обрезка следующих отрисовок: прямоугольник в пикселях цели [<paramref name="left"/>, <paramref name="right"/>) ×
+    /// [<paramref name="top"/>, <paramref name="bottom"/>), зажимается в цель. В начале прохода — вся цель.
+    /// </summary>
+    public void SetScissor(int left, int top, int right, int bottom)
+    {
+        Require(PassKind.Graphics, "обрезка");
+        left = Math.Clamp(left, 0, Width);
+        right = Math.Clamp(right, left, Width);
+        top = Math.Clamp(top, 0, Height);
+        bottom = Math.Clamp(bottom, top, Height);
+        _list!.RSSetScissorRect(new Vortice.RawRect(left, top, right, bottom));
+    }
+
     /// <summary>Вершины из SV_VertexID, без вершинного и индексного буферов.</summary>
     public void Draw(uint vertexCount, uint instanceCount = 1)
     {

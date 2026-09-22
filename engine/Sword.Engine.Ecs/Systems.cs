@@ -222,6 +222,8 @@ internal sealed class Registration
     public required int StageIndex { get; init; }
     public required int Id { get; init; }
     public string? Module { get; init; }
+    /// <summary>Где система зарегистрирована (файл:строка) — для людей и агента; null — неизвестно.</summary>
+    public string? Source { get; init; }
     public SystemLabel Label;
     public readonly List<SystemLabel> After = [];
     public readonly List<SystemLabel> Before = [];
@@ -261,7 +263,46 @@ internal sealed class Registration
     }
 }
 
-/// <summary>Регистрация системы наружу — для описания мира, профайлера, агента.</summary>
+/// <summary>Потребляемый журнал: вид срабатывания и данные (стабильное имя компонента, события или ресурса).</summary>
+public sealed record TriggerInfo(string Kind, string Data);
+
+/// <summary>
+/// Регистрация системы наружу — для описания мира, профайлера, агента (карта архитектуры, раздел 8 плана): что система
+/// читает и пишет, какие события порождает и какие журналы потребляет, где стоит в стадии и где зарегистрирована.
+/// Компоненты и события — стабильными именами.
+/// </summary>
 public sealed record SystemInfo(
     string Name, string Stage, string Label, int RegistrationId, string? Module, bool Active, bool Reactive,
-    IReadOnlyList<string> Consumes);
+    IReadOnlyList<string> Consumes)
+{
+    /// <summary>Место в порядке исполнения своей стадии (с 0).</summary>
+    public int Order { get; init; }
+
+    /// <summary>Тип системы (полное имя).</summary>
+    public string SystemType { get; init; } = "";
+
+    /// <summary>Срабатывание реактивной системы (<c>Added&lt;T&gt;</c>…); у непрерывной — null.</summary>
+    public string? Trigger { get; init; }
+
+    public IReadOnlyList<string> Reads { get; init; } = [];
+    public IReadOnlyList<string> Writes { get; init; } = [];
+    public IReadOnlyList<string> Adds { get; init; } = [];
+    public IReadOnlyList<string> Removes { get; init; } = [];
+    public IReadOnlyList<string> Sets { get; init; } = [];
+    public IReadOnlyList<string> Emits { get; init; } = [];
+    public IReadOnlyList<string> SetsResources { get; init; } = [];
+    public IReadOnlyList<string> NextTickOk { get; init; } = [];
+
+    /// <summary>Данные потребляемых журналов (<see cref="Consumes"/> и срабатывание) — стабильными именами.</summary>
+    public IReadOnlyList<string> ConsumesData { get; init; } = [];
+
+    /// <summary>Потребляемые журналы с видом: <c>Added</c>, <c>Removed</c>, <c>Changed</c>, <c>Event</c>, <c>ResourceChanged</c>.</summary>
+    public IReadOnlyList<TriggerInfo> ConsumesTriggers { get; init; } = [];
+    public IReadOnlyList<string> After { get; init; } = [];
+    public IReadOnlyList<string> Before { get; init; } = [];
+    public bool CreatesEntities { get; init; }
+    public bool DestroysEntities { get; init; }
+
+    /// <summary>Где зарегистрирована (файл:строка); null — неизвестно.</summary>
+    public string? Source { get; init; }
+}

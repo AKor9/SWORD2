@@ -140,6 +140,35 @@ public class SimulationClockTests
         }
     }
 
+    private sealed class Gate(int? ticks) : ITickGate
+    {
+        public int? Ticks = ticks;
+        public readonly List<ulong> Reported = [];
+        public int? Override(int maxPerFrame) => Ticks is { } t ? Math.Min(t, maxPerFrame) : null;
+        public void Ran(ulong tick) => Reported.Add(tick);
+    }
+
+    [Fact]
+    public void Gate_PausesAndStepsInsteadOfClock_ShowsLastTick()
+    {
+        // Инструмент (агент): пауза — ноль тиков при любом шаге кадра, шаги — ровно заданные; часы стоят, доля тика 1.
+        var (clock, _) = Create();
+        double dt = clock.Link.Dt;
+        var gate = new Gate(0);
+        clock.Gate = gate;
+        Assert.Equal(0, clock.RunFrame(5 * dt));
+        Assert.Equal(1f, clock.Alpha);
+        gate.Ticks = 3;
+        Assert.Equal(3, clock.RunFrame(0));
+        Assert.Equal(3, Frame(clock.Link).Count);                    // очередь кадра — как у обычных тиков
+        gate.Ticks = 100;
+        Assert.Equal(8, clock.RunFrame(0));                          // не больше MaxTicksPerFrame
+        gate.Ticks = null;                                           // снова по часам — накопитель пуст
+        Assert.Equal(0, clock.RunFrame(0.5 * dt));
+        Assert.Equal(0.5f, clock.Alpha, 4);
+        Assert.Equal([0ul, 3ul, 11ul, 11ul], gate.Reported);        // сколько сыграно — каждому кадру
+    }
+
     [Theory]
     [InlineData(double.NaN)]
     [InlineData(-1.0)]

@@ -192,4 +192,32 @@ public sealed class RenderGraphGpuTests : IDisposable, ILogSink
         Assert.Equal("test.ok", Assert.Single(_renderer.Graph.LastFrame).Name);
         AssertNoDebugMessages();
     }
+
+    [Fact]
+    public void FrameCapture_ColorAndDepth_UnderGpuValidation_StateRestored()
+    {
+        // Снимок агента (capture.bundle): цвет и глубина сцены кадра — копии из заднего буфера и из глубины графа;
+        // состояние глубины после копии — прежнее, следующий кадр граф ведёт без переходов вслепую.
+        string dir = Path.Combine(Path.GetTempPath(), $"sword-capture-{Guid.NewGuid():N}");
+        void Scene(RenderFrame f) => f.Graph.AddPass("test.scene")
+            .Color(f.Graph.BackBuffer, new System.Numerics.Vector4(0.2f, 0.4f, 0.6f, 1))
+            .Depth(f.Scene.Depth, DepthAccess.Write, clear: 0f);
+        try
+        {
+            _window.PumpMessages();
+            _renderer.Render(Scene, vsync: false, new FrameCapture(Path.Combine(dir, "c.png"), Path.Combine(dir, "d.png")));
+            var capture = _renderer.LastCapture!;
+            Assert.True(File.Exists(capture.ColorPath) && File.Exists(capture.DepthPath));
+            Assert.Equal((_renderer.Width, _renderer.Height), (capture.Width, capture.Height));
+            Assert.Equal(0f, capture.DepthCoverage);            // очищена в 0 (reversed-Z: дальняя плоскость)
+            Frame(Scene);                                        // следующий кадр — глубина в своём состоянии
+            _renderer.Render(Scene, vsync: false, new FrameCapture(null, Path.Combine(dir, "d2.png")));
+            Assert.Null(_renderer.LastCapture!.ColorPath);       // итог — только этого снимка
+            AssertNoDebugMessages();
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
 }

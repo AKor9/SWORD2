@@ -5,7 +5,7 @@ namespace Sword.Engine.Ecs;
 /// инструменты). Ни одного пути изменить мир: нет немедленных операций, тика, включения систем, записи колонок,
 /// журналов с курсорами; ресурсы — только значения. Меняют симуляцию команды тика у её владельца.
 /// </summary>
-public readonly struct WorldReader
+public readonly partial struct WorldReader
 {
     private readonly World _world;
 

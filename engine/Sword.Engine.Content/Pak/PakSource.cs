@@ -22,6 +22,27 @@ public sealed class PakSource : IContentSource, IDisposable
     public IReadOnlyList<PakEntry> Entries => _sorted;
     public long Length { get; }
 
+    /// <summary>
+    /// Отпечаток содержимого: SHA-256 оглавления (пути и хеши файлов по порядку), первые 8 байт — 16 шестнадцатеричных
+    /// цифр. Дёшево (файлы не читаются) и меняется с любым файлом пака: квитанции агента и реплеи называют им контент.
+    /// </summary>
+    public string ContentHash => _contentHash ??= ComputeContentHash();
+
+    private string? _contentHash;
+
+    private string ComputeContentHash()
+    {
+        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> hash = stackalloc byte[8];
+        foreach (var e in _sorted)
+        {
+            sha.AppendData(Encoding.UTF8.GetBytes(e.Path.ToLowerInvariant()));
+            BinaryPrimitives.WriteUInt64LittleEndian(hash, e.Hash);
+            sha.AppendData(hash);
+        }
+        return PakFormat.HashText(PakFormat.HashOf(sha.GetHashAndReset()));
+    }
+
     /// <exception cref="InvalidDataException">Не пак, другая версия, обрезан или оглавление испорчено.</exception>
     public static PakSource Open(string path)
     {

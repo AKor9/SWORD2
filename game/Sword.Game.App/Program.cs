@@ -15,11 +15,16 @@ namespace Sword.Game.App;
 
 /// <summary>
 /// Точка входа игры SWORD: композиция симуляции (<see cref="SwordSimulation"/> — та же, что у Headless), клиента
-/// (<see cref="ArenaClient"/>) и привязок ввода (секция конфига <c>input</c>). Точка 1г: WASD относительно камеры,
-/// курсор — взгляд, колесо — зум; <c>--move</c> заменяет ввод заданной командой (проверочные прогоны).
+/// (<see cref="ArenaClient"/>) и привязок ввода (секция конфига <c>input</c>: действия игры и клиента движка). Точка 1г:
+/// WASD относительно камеры, курсор — взгляд, колесо — зум; <c>--move</c> заменяет ввод заданной командой (проверочные
+/// прогоны). Точка 1д: HUD (FPS, справка — F1), снимок F4, бенч кадра (<c>--bench</c>). Точка 1е: <c>--agent</c> — сервер
+/// MCP для агента (AgentMode.cs; в сборке без агента его нет).
 /// </summary>
-public static class Program
+public static partial class Program
 {
+    /// <summary>Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="agent"/> остаётся null.</summary>
+    static partial void StartAgent(ClientHost client, Simulation sim, int port, ref IDisposable? agent);
+
     private sealed class Options
     {
         public int Width = 1600, Height = 900;
@@ -38,6 +43,11 @@ public static class Program
         public int TicksPerFrame;
         public double FrameSeconds;
         public double MaxFps;
+        public bool NoHud;
+        public double Bench;
+        public string? Screenshots;
+        public bool Agent;
+        public int AgentPort = 47813;
         public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
     }
@@ -46,7 +56,7 @@ public static class Program
         Управление (привязки — секция конфига input, например --set input.move_forward=Up):
           WASD — ход относительно камеры, Shift — шагом, курсор на земле — куда смотреть;
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
-          F — камера за игроком / свободная (стрелки — панорама); Esc — выход.
+          F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F4 — снимок; Esc — выход.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
@@ -57,7 +67,14 @@ public static class Program
           --frames N        выйти после N кадров (проверочный прогон)
           --resize-cycle    менять размер окна по кругу (проверка пересоздания задних буферов)
           --no-activate     не отбирать фокус: окно показано внизу порядка перекрытия
-          --shot FILE.png   снять кадр в PNG: последний кадр прогона (--frames), без него — 30-й
+          --shot FILE.png   снять кадр в PNG: последний кадр прогона (--frames), без него — 30-й; с --bench — последний
+                            кадр замера
+          --screenshots DIR куда класть снимки F4 (по умолчанию screenshots в текущем каталоге)
+          --no-hud          без HUD (FPS, справка): снимки, сравнимые между прогонами
+          --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
+                            снимок кадра; порт — --agent-port N (по умолчанию 47813)
+          --bench N         бенч кадра: N с игрового времени (первые 4 — прогрев), затем выход с итогом (кадр ср.,
+                            p50, p99, макс, CPU); vsync выключен, справка скрыта, F4 не действует
           --camera Y,P,D[,X,Z]  неподвижная камера (проверочные снимки): поворот и наклон (рад), дистанция (м),
                             точка взгляда (м); управление камерой выключено; наклон 0.45…1.45, дистанция 6…110;
                             без ключа — камера SWORD за игроком, 0.6,0.95,24
@@ -100,8 +117,10 @@ public static class Program
         {
             var config = ConfigSet.Load(AppContext.BaseDirectory, options.Sets);
             var simulation = SwordSimulation.Create(config);
-            var arena = new ArenaClient(options.Camera, options.Command);
-            var bindings = InputBindings.Resolve(arena.Actions, config);
+            var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud);
+            var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions], config);
+            arena.UseBindings(bindings.Keys);
+            if (options.Bench > 0) arena.Hud.ShowHelp = false;   // SWORD: ShowHelp = !bench
             config.Complete();   // композиция закончена (симуляция, клиент, ввод): неизвестная секция конфига — ошибка
             using var window = new Win32Window(new WindowOptions(
                 Title: "SWORD",
@@ -120,6 +139,8 @@ public static class Program
                 MaxFrames = options.Frames,
                 ResizeCycle = options.ResizeCycle,
                 ScreenshotPath = options.Shot,
+                ScreenshotDirectory = options.Screenshots,
+                BenchSeconds = options.Bench,
                 TicksPerFrame = options.TicksPerFrame,
                 FrameSeconds = options.FrameSeconds,
                 MaxFps = options.MaxFps,
@@ -127,7 +148,20 @@ public static class Program
                 HeldActions = options.Hold,
             }, arena, simulation))
             {
-                report = client.Run();
+                IDisposable? agent = null;
+                if (options.Agent)
+                {
+                    StartAgent(client, simulation, options.AgentPort, ref agent);
+                    if (agent is null) throw new InvalidOperationException("--agent: сборка без агента (-p:WithoutAgent=true)");
+                }
+                try
+                {
+                    report = client.Run();
+                }
+                finally
+                {
+                    agent?.Dispose();
+                }
             }
 
             // Корень игрока последнего кадра — для сверки с Headless на том же числе тиков (verify.ps1, app-smoke).
@@ -146,10 +180,12 @@ public static class Program
                         distance = arena.Camera.Distance, target = new[] { arena.Camera.Target.X, arena.Camera.Target.Z },
                     },
                     input = bindings.Keys,
+                    hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, quads = arena.HudQuads, lines = arena.HelpLines },
                 }, JsonOptions));
             else
                 Log.Info("sword", $"выход: {report.ExitReason}; кадров {report.Frames}, изменений размера {report.Resizes}, " +
-                    $"кадр в среднем {report.AverageFrameMs:0.###} мс, худший {report.MaxFrameMs:0.###} мс");
+                    $"кадр в среднем {report.AverageFrameMs:0.###} мс, худший {report.MaxFrameMs:0.###} мс" +
+                    (report.Bench is { } b ? $"; бенч: {b}" : ""));
             return 0;
         }
         catch (Exception ex)
@@ -201,6 +237,18 @@ public static class Program
                 case "--no-activate": o.Activate = false; break;
                 case "--json": o.Json = true; break;
                 case "--shot": o.Shot = Next(); break;
+                case "--screenshots": o.Screenshots = Next(); break;
+                case "--no-hud": o.NoHud = true; break;
+                case "--agent": o.Agent = true; break;
+                case "--agent-port":
+                    if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.AgentPort) || o.AgentPort is < 1 or > 65535)
+                        throw new ArgumentException($"{a}: ожидается порт 1…65535");
+                    o.Agent = true;
+                    break;
+                case "--bench":
+                    if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out o.Bench) || !(o.Bench > 4 && o.Bench <= 3600))
+                        throw new ArgumentException($"{a}: ожидается число секунд игрового времени больше 4 (прогрев) и не больше 3600");
+                    break;
                 case "--move":
                 {
                     var m = Pair(a, Next());
@@ -243,6 +291,9 @@ public static class Program
             }
         }
         if (o.TicksPerFrame > 0 && o.FrameSeconds > 0) throw new ArgumentException("--ticks-per-frame и --fps вместе не задаются");
+        if (o.Bench > 0 && o.Frames > 0) throw new ArgumentException("--bench и --frames вместе не задаются: бенч кончается сам");
+        if (o.Bench > 0 && o.MaxFps > 0) throw new ArgumentException("--bench и --max-fps вместе не задаются: ограничитель исказил бы замер");
+        if (o.Bench > 0 && o.Agent) throw new ArgumentException("--bench и --agent вместе не задаются: пауза и снимки агента исказили бы замер");
         return o;
     }
 

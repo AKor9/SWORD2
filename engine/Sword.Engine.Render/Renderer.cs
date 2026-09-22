@@ -32,6 +32,18 @@ public sealed class RenderFrame
 }
 
 /// <summary>
+/// Что снять с кадра: цвет (задний буфер, с интерфейсом) в PNG (<c>.bmp</c> — BMP) и глубину сцены в PNG (ближе —
+/// светлее). null — не снимать.
+/// </summary>
+public sealed record FrameCapture(string? ColorPath, string? DepthPath = null);
+
+/// <summary>Итог снимка: размер кадра, файлы, диапазон глубины (reversed-Z: больше — ближе) и доля пикселей с геометрией.</summary>
+public sealed record CaptureResult(int Width, int Height, string? ColorPath, string? DepthPath, float DepthMin, float DepthMax, float DepthCoverage);
+
+/// <summary>Снимок кадра не записан в файл (каталог недоступен, диск полон, неверный путь); сам кадр показан.</summary>
+public sealed class CaptureException(string message, Exception inner) : IOException(message, inner);
+
+/// <summary>
 /// Как создать рендер: окно (HWND), начальный размер, отладочный слой D3D12, каталог шейдеров; GPU-валидация — проверка
 /// состояний ресурсов, взятых шейдерами из bindless-кучи (медленно, только со слоем отладки).
 /// </summary>
@@ -53,6 +65,7 @@ public sealed class Renderer : IDisposable
 
     private readonly RenderFrame _frame;
     private PakSource? _content;
+    private UiPass? _ui;
 
     /// <param name="contract">Преамбула контракта: движок (<see cref="Contribute"/>) и игра.</param>
     public Renderer(RendererOptions options, ShaderContract contract)
@@ -85,6 +98,7 @@ public sealed class Renderer : IDisposable
         c.Section("движок (Sword.Engine.Render)");
         c.Add("PASS_COUNT", RootLayout.ConstantCount, "столько gPassN объявляет pass.hlsli");
         SkinnedMeshes.Contribute(c);
+        UiPass.Contribute(c);
     }
 
     internal GraphicsDevice Device { get; }
@@ -114,6 +128,18 @@ public sealed class Renderer : IDisposable
     /// Когда контент начнёт открывать Runtime (точка 1в), рендер получит тот же источник от композиции.
     /// </summary>
     internal IContentSource Content => _content ??= ContentLocator.Open();
+
+    /// <summary>
+    /// UI-проход и шрифты интерфейса: создаётся при первом обращении (шрифты — из пака контента, <see cref="Content"/>).
+    /// Рендер без интерфейса шрифтов не читает.
+    /// </summary>
+    public UiPass Ui => _ui ??= new UiPass(this);
+
+    /// <summary>Ожидание GPU в начале последнего кадра (забор кадра в полёте), мс.</summary>
+    public double LastFenceWaitMs => Device.LastFenceWaitMs;
+
+    /// <summary>Запись последнего кадра на CPU, мс: построение графа и его исполнение в список команд, без ожидания GPU и показа.</summary>
+    public double LastRecordMs { get; private set; }
 
     /// <summary>Конвейеров собрано (каждый — компиляция шейдеров при первом использовании).</summary>
     public int PipelineCount => Pipelines.PipelineCount;
@@ -199,53 +225,98 @@ public sealed class Renderer : IDisposable
         }
     }
 
+    /// <summary>Итог последнего снимка (<see cref="Render(Action{RenderFrame}, bool, FrameCapture?)"/>); null — не снимали.</summary>
+    public CaptureResult? LastCapture { get; private set; }
+
     /// <summary>
     /// Кадр: <paramref name="build"/> регистрирует проходы, граф их исполняет, кадр показывается.
     /// <paramref name="capturePath"/> — снять этот кадр в PNG (ждёт GPU).
     /// </summary>
-    public void Render(Action<RenderFrame> build, bool vsync, string? capturePath = null)
+    public void Render(Action<RenderFrame> build, bool vsync, string? capturePath = null) =>
+        Render(build, vsync, capturePath is null ? null : new FrameCapture(capturePath));
+
+    /// <summary>
+    /// Кадр со снимком <paramref name="capture"/>: цвет и (или) глубина сцены этого кадра — в файлы (ждёт GPU); итог —
+    /// <see cref="LastCapture"/>. Файл не записался — <see cref="CaptureException"/> (кадр показан).
+    /// </summary>
+    public void Render(Action<RenderFrame> build, bool vsync, FrameCapture? capture)
     {
+        if (capture is not null) LastCapture = null;   // итог — только этого снимка
         Device.BeginFrame();
+        long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var list = Device.GraphicsList;
         try
         {
             Constants.BeginFrame(Device.FrameIndex);
             Scene.EnsureSize();
             Skinned.Begin();
+            _ui?.BeginFrame();
             Graph.BeginFrame(0);
 
             build(_frame);
 
             Graph.Execute(list);
+            LastRecordMs = System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds;
         }
         catch
         {
             // Кадр не собран (ошибка сцены или нарушен инвариант графа): список команд закрывается без отправки,
-            // следующий кадр начнётся чисто.
+            // следующий кадр начнётся чисто. Время записи — этого кадра, а не прошлого удачного.
+            LastRecordMs = System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds;
             Device.AbandonFrame();
             throw;
         }
 
-        Vortice.Direct3D12.ID3D12Resource? readback = null;
+        Vortice.Direct3D12.ID3D12Resource? readback = null, depthReadback = null;
         try
         {
-            int w = 0, h = 0, pitch = 0;
-            if (capturePath is not null) readback = Screenshot.RecordCapture(Device, list, out w, out h, out pitch);
+            int w = 0, h = 0, pitch = 0, dw = 0, dh = 0, dpitch = 0;
+            if (capture?.DepthPath is not null)
+                depthReadback = Screenshot.RecordDepthCapture(Device, list, Scene.DepthResource, out dw, out dh, out dpitch);
+            if (capture?.ColorPath is not null) readback = Screenshot.RecordCapture(Device, list, out w, out h, out pitch);
 
             Device.EndFrame(vsync);
 
-            if (readback is not null)
+            if (readback is not null || depthReadback is not null)
             {
                 Device.WaitForIdle();
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capturePath!))!);
-                Screenshot.Save(readback, capturePath!, w, h, pitch);
+                string? current = null;
+                try
+                {
+                    var depth = (Min: 0f, Max: 0f, Coverage: 0f);
+                    if (readback is not null)
+                    {
+                        current = capture!.ColorPath!;
+                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                        Screenshot.Save(readback, current, w, h, pitch);
+                    }
+                    if (depthReadback is not null)
+                    {
+                        current = capture!.DepthPath!;
+                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                        depth = Screenshot.SaveDepth(depthReadback, current, dw, dh, dpitch);
+                    }
+                    LastCapture = new CaptureResult(Width, Height, readback is not null ? capture!.ColorPath : null,
+                        depthReadback is not null ? capture!.DepthPath : null, depth.Min, depth.Max, depth.Coverage);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {
+                    // Кадр показан; не записался только файл — своя ошибка, чтобы клиент отличил её от ошибки кадра.
+                    throw new CaptureException($"снимок {current} не записан: {e.Message}", e);
+                }
             }
+        }
+        catch (CaptureException)
+        {
+            Device.DrainDebugMessages();   // кадр показан: его сообщения D3D12 — сейчас, а не со следующим кадром
+            throw;
         }
         finally
         {
-            // Копия снимка записана в список кадра: при ошибке после отправки GPU мог ещё писать в неё — освобождение
+            // Копии снимка записаны в список кадра: при ошибке после отправки GPU мог ещё писать в них — освобождение
             // отложенное, по забору кадра, а не сразу.
             if (readback is not null) Device.DeferRelease(readback);
+            if (depthReadback is not null) Device.DeferRelease(depthReadback);
         }
         Device.DrainDebugMessages();
     }
@@ -254,6 +325,7 @@ public sealed class Renderer : IDisposable
     public void Dispose()
     {
         Device.WaitForIdle();
+        _ui?.Dispose();
         Skinned.Dispose();
         Graph.Dispose();
         Scene.Dispose();

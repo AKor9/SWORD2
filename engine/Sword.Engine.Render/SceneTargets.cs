@@ -48,6 +48,9 @@ public sealed class SceneTargets : IDisposable
 
     /// <summary>SRV глубины и нормалей — для корневых констант проходов, которые их читают.</summary>
     public int DepthSrv => _depth.Srv;
+
+    /// <summary>Глубина как ресурс графа — для снимка глубины (<see cref="Renderer.Render(System.Action{RenderFrame}, bool, FrameCapture?)"/>).</summary>
+    internal GraphResource DepthResource => _depth;
     public int NormalSrv => _normal.Srv;
 
     /// <summary>Пересоздаёт цели под размер заднего буфера; прежние освобождаются после своего кадра.</summary>

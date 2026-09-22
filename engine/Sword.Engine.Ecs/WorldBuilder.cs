@@ -18,7 +18,7 @@ public sealed class WorldBuilder
     private readonly Dictionary<Type, Func<DataType>> _events = [];
     private readonly List<Action<World>> _resources = [];
     private readonly HashSet<Type> _resourceTypes = [];
-    private readonly List<(string Stage, ISystem System, string? Module)> _systems = [];
+    private readonly List<(string Stage, ISystem System, string? Module, string? Source)> _systems = [];
     private string[] _stages = [];
 
     public WorldOptions Options { get; set; } = new();
@@ -52,9 +52,10 @@ public sealed class WorldBuilder
 
     /// <summary>Система в стадию. Одну систему можно зарегистрировать в двух стадиях — тогда она обязана быть идемпотентной.</summary>
     /// <param name="module">Модуль-владелец (токен модуля: включение и выключение всех его регистраций).</param>
-    public WorldBuilder System(string stage, ISystem system, string? module = null)
+    /// <param name="source">Где система зарегистрирована (файл:строка) — для описания мира; null — неизвестно.</param>
+    public WorldBuilder System(string stage, ISystem system, string? module = null, string? source = null)
     {
-        _systems.Add((stage, system, module));
+        _systems.Add((stage, system, module, source));
         return this;
     }
 
@@ -67,13 +68,14 @@ public sealed class WorldBuilder
         foreach (var add in _resources) add(world);
 
         var registrations = new List<Registration>();
-        foreach (var (stage, system, module) in _systems)
+        foreach (var (stage, system, module, source) in _systems)
         {
             int stageIndex = Array.IndexOf(_stages, stage);
             if (stageIndex < 0) throw new InvalidOperationException($"{system.GetType().Name}: нет стадии {stage}");
             var r = new Registration
             {
                 System = system, Stage = stage, StageIndex = stageIndex, Id = registrations.Count + 1, Module = module,
+                Source = source,
             };
             world.AddRegistration(r);
             system.Setup(new SystemSetup(world, r));

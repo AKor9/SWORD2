@@ -5,6 +5,7 @@ using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 using Sword.Engine.Geometry;
 using Sword.Engine.Render;
+using Sword.Engine.Ui;
 using Sword.Game.Arena;
 using Sword.Game.Client.Scene;
 using Sword.Game.Contracts;
@@ -19,10 +20,14 @@ namespace Sword.Game.Client;
 /// Кадр — порядок <c>Program.cs</c> SWORD: <see cref="Input"/> — камера (<see cref="RtsCamera"/>, следует за игроком,
 /// каким его показал прошлый кадр) и команда игрока из WASD по этой камере и курсора на земле; <see cref="BeforeTick"/> —
 /// та же команда в каждый тик кадра (удерживаемое, раздел 7); <see cref="Extract"/> — мир представления
-/// (<see cref="ArenaView"/>, интерполяция по доле тика); <see cref="BuildFrame"/> рисует только его.
+/// (<see cref="ArenaView"/>, интерполяция по доле тика); <see cref="BuildFrame"/> рисует только его, поверх — HUD
+/// (<see cref="Hud"/>: FPS и числа кадра, справка) UI-проходом рендера.
 /// </summary>
-public sealed class ArenaClient : IClientGame
+public sealed class ArenaClient : IClientGame, IClientObservable
 {
+    /// <summary>Рамка бойца для наблюдения: полуширина и рост от корня (капсула Manny SWORD: радиус 0,35, рост ~1,8 м).</summary>
+    public const float FighterHalfWidth = 0.45f, FighterHeight = 1.85f;
+
     /// <summary>Меш персонажа в контенте (<c>CharacterRig.MeshFile</c> SWORD).</summary>
     public const string MannyMesh = "characters/manny/mesh.swmesh";
 
@@ -52,11 +57,18 @@ public sealed class ArenaClient : IClientGame
     private readonly PlayerCommand? _scripted;
     private readonly bool _fixedCamera;
     private PlayerCommand _frameCommand;
+    private readonly Hud _hud = new();
+    private readonly bool _showHud;
+    private UiDrawList? _ui;
+    private FrameStats _stats;
+    private IReadOnlyList<string> _help = Hud.HelpLines(new Dictionary<string, string>());
 
     /// <param name="camera">Неподвижный ракурс вместо камеры SWORD (проверочные снимки); null — камера за игроком.</param>
     /// <param name="scripted">Команда игрока на каждый тик вместо ввода (проверочные прогоны); null — клавиатура и мышь.</param>
-    public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null)
+    /// <param name="hud">HUD поверх сцены; false — кадр без интерфейса (снимки, сравнимые между прогонами).</param>
+    public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true)
     {
+        _showHud = hud;
         _drawOpaque = DrawOpaque;
         _view = new ArenaView(ArenaTerrain.Height);
         _scripted = scripted;
@@ -80,6 +92,36 @@ public sealed class ArenaClient : IClientGame
 
     /// <summary>Камера (для итога и агента).</summary>
     public RtsCamera Camera => _camera;
+
+    /// <summary>HUD (для итога и агента: показана ли справка).</summary>
+    public Hud Hud => _hud;
+
+    /// <summary>HUD рисуется.</summary>
+    public bool ShowsHud => _showHud;
+
+    /// <summary>Квадов HUD в последнем кадре (0 — HUD не рисуется).</summary>
+    public int HudQuads { get; private set; }
+
+    /// <summary>Строки справки HUD.</summary>
+    public IReadOnlyList<string> HelpLines => _help;
+
+    /// <summary>Камера показанного кадра — для пакета наблюдения агента.</summary>
+    CameraView IClientObservable.Camera =>
+        new(_camera.ViewProj, _camera.Eye, _camera.Target, _camera.Yaw, _camera.Pitch, _camera.Distance, _camera.Follow);
+
+    /// <summary>Бойцы кадра в показанном (интерполированном) положении — рамкой вокруг тела.</summary>
+    void IClientObservable.Visible(List<VisibleEntity> into)
+    {
+        foreach (var f in _view.Fighters)
+        {
+            var base_ = new Vector3(f.Root.X, f.Height, f.Root.Z);
+            into.Add(new VisibleEntity(f.Entity, f.IsPlayer ? "player" : "fighter",
+                base_ - new Vector3(FighterHalfWidth, 0, FighterHalfWidth), base_ + new Vector3(FighterHalfWidth, FighterHeight, FighterHalfWidth)));
+        }
+    }
+
+    /// <summary>Справка — по действующим привязкам (действие → клавиша): композиция отдаёт их после разрешения конфига.</summary>
+    public void UseBindings(IReadOnlyDictionary<string, string> keys) => _help = Hud.HelpLines(keys);
 
     /// <summary>Корень игрока в симуляции на последнем тике кадра (итог Sword.exe, сверка с Headless); нет игрока — null.</summary>
     public Transform? LastPlayer => _view.PlayerAtTick;
@@ -115,6 +157,11 @@ public sealed class ArenaClient : IClientGame
         _capsuleIndices = renderer.CreateIndices("Mesh.CapsuleIndices", CollectionsMarshal.AsSpan(idx));
 
         _manny = renderer.Skinned.LoadMesh("Manny", MannyMesh);
+        if (_showHud)
+        {
+            _ui = renderer.Ui.CreateDrawList();
+            Log.Info("hud", renderer.Ui.Report());
+        }
         var (min, max) = _field.Range();
         Log.Info("arena", $"рельеф {_field.Cells}×{_field.Cells} ячеек ({_field.Nodes}×{_field.Nodes} узлов), шаг {_field.Step} м, " +
             $"высоты {min:0.###}…{max:0.###} м");
@@ -122,6 +169,7 @@ public sealed class ArenaClient : IClientGame
 
     public void Input(in FrameInput input)
     {
+        if (input.WasPressed(ArenaInput.HudHelp)) _hud.ShowHelp = !_hud.ShowHelp;
         // Камера — до тиков, за игроком, каким его показал прошлый кадр (Program.cs SWORD: focus по renderAlpha прошлого кадра).
         if (_fixedCamera) _camera.Rebuild(input.Width, input.Height);
         else _camera.Update(ArenaInput.Camera(input), input.Seconds, _view.Player is { } p ? p.Root with { Y = 0 } : _camera.Target,
@@ -140,7 +188,11 @@ public sealed class ArenaClient : IClientGame
     // Фронтов у действий 1г нет (WASD, Shift, курсор — уровни; F — камера): первым их возьмёт удар/уклонение.
     public void BeforeTick(SimulationLink simulation, in TickInput input) => simulation.Enqueue(_frameCommand);
 
-    public void Extract(in FrameView view) => _view.Extract(_simulation!, view.Alpha);
+    public void Extract(in FrameView view)
+    {
+        _view.Extract(_simulation!, view.Alpha);
+        _stats = view.Stats;
+    }
 
     public void BuildFrame(RenderFrame frame)
     {
@@ -156,6 +208,21 @@ public sealed class ArenaClient : IClientGame
             .Color(frame.Scene.Normal, SceneTargets.NormalClear)
             .Depth(frame.Scene.Depth, DepthAccess.Write, clear: 0f)
             .Execute(_drawOpaque);
+
+        if (_ui is not null) DrawHud(frame);
+    }
+
+    /// <summary>HUD поверх сцены: числа кадра — прошлого (этот ещё пишется), вызовы и квады — тоже.</summary>
+    private void DrawHud(RenderFrame frame)
+    {
+        var renderer = _renderer!;
+        int draws = 0;
+        var passes = renderer.Graph.LastFrame;
+        for (int i = 0; i < passes.Count; i++) draws += passes[i].Draws;
+        _ui!.Clear();
+        _hud.Draw(_ui, frame.Width, frame.Height, new HudData(_stats, draws, renderer.Ui.LastQuads, renderer.AdapterName), _help);
+        HudQuads = _ui.Count;
+        renderer.Ui.Add(frame, _ui, "hud");
     }
 
     private void DrawOpaque(RenderPassContext ctx)

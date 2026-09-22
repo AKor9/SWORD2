@@ -179,9 +179,10 @@ public readonly struct FrameInput
     public float Seconds { get; }
 }
 
-/// <summary>Кадр после тиков (шаг Extract): доля тика для интерполяции и сколько тиков сделано.</summary>
+/// <summary>Кадр после тиков (шаг Extract): доля тика для интерполяции, сколько тиков сделано, числа кадров для HUD.</summary>
 /// <param name="Alpha">
 /// Доля следующего тика, прошедшая по часам: 0 — состояние прошлого тика, 1 — последнего (<c>accumulator / dt</c> SWORD;
 /// при заданном числе тиков на кадр — 1).
 /// </param>
-public readonly record struct FrameView(float Alpha, int Ticks, float Seconds);
+/// <param name="Stats">FPS, шаг и работа прошлого кадра, тики этого (<see cref="FrameStats"/>).</param>
+public readonly record struct FrameView(float Alpha, int Ticks, float Seconds, FrameStats Stats);

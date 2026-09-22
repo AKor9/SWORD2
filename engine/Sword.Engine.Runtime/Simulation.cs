@@ -199,6 +199,26 @@ public sealed class Simulation
         _commands.Enqueue(tick, command);
     }
 
+    /// <summary>Типы команд тика (их регистрируют ядро и модули) — для инструментов и агента.</summary>
+    public IReadOnlyList<Type> CommandTypes => _commands.Types;
+
+    /// <summary>
+    /// Команда тика байтами (<see cref="CommandTypes"/>; размер — <c>sizeof</c> типа) на тик <paramref name="tick"/>
+    /// (не раньше следующего): путь инструментов и агента, которые собирают команду по полям, не зная типа. Как и
+    /// <see cref="Enqueue{T}(ulong, in T)"/> — только с потока владельца симуляции, между тиками. Команды этого пути в тике
+    /// выдаются после поставленных <see cref="Enqueue{T}(ulong, in T)"/> того же типа: где действует последняя команда
+    /// тика своего типа, побеждает инструмент (агент), а не ввод клиента того же тика. Между типами порядок — порядок
+    /// регистрации типов. <paramref name="repeat"/> — та же команда на столько тиков подряд, одной постановкой (очередь
+    /// не сдвигается на каждый тик диапазона).
+    /// </summary>
+    public void EnqueueRaw(Type type, ulong tick, ReadOnlySpan<byte> command, int repeat = 1)
+    {
+        if (tick < Tick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл (следующий — {Tick})");
+        if (repeat < 1 || ulong.MaxValue - tick < (ulong)(repeat - 1))
+            throw new ArgumentOutOfRangeException(nameof(repeat), repeat, "повторов — от 1, последний тик — в пределах ulong");
+        _commands.EnqueueRaw(type, tick, command, repeat);
+    }
+
     /// <summary>Один тик: время (<c>DuelArena.Tick</c>: <c>Time += dt</c> первым делом), стадии с барьерами, экспорт.</summary>
     public void Step()
     {
@@ -278,11 +298,13 @@ public sealed class SimulationBuilder
     }
 
     /// <summary>Система в стадию игры (служебные стадии Runtime модулям недоступны).</summary>
-    public SimulationBuilder System(string stage, ISystem system)
+    /// <remarks>Место регистрации (файл и строка вызова) попадает в описание системы — карта архитектуры агента.</remarks>
+    public SimulationBuilder System(string stage, ISystem system,
+        [System.Runtime.CompilerServices.CallerFilePath] string file = "", [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
     {
         if (!Open().Stages.Contains(stage))
             throw new ArgumentException($"{system.GetType().Name}: нет стадии игры {stage}; есть: {string.Join(", ", Stages)}");
-        _world.System(stage, system, Module);
+        _world.System(stage, system, Module, file.Length > 0 ? $"{file}:{line}" : null);
         return this;
     }
 

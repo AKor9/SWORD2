@@ -47,6 +47,9 @@
     <Project Path="tests/Sword.Engine.Client.Tests/Sword.Engine.Client.Tests.csproj" />
     <Project Path="tests/Sword.Benchmarks/Sword.Benchmarks.csproj" />
     <Project Path="tests/Sword.Engine.Formats.Tests/Sword.Engine.Formats.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Ui.Tests/Sword.Engine.Ui.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Introspection.Tests/Sword.Engine.Introspection.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Agent.Tests/Sword.Engine.Agent.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Content.Tests/Sword.Engine.Content.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Render.Tests/Sword.Engine.Render.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Platform.Tests/Sword.Engine.Platform.Tests.csproj" />

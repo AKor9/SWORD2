@@ -195,7 +195,7 @@ internal sealed class EventJournal<E> : IJournalWriter where E : unmanaged
 }
 
 /// <summary>Ресурс мира: синглтон. Замена — командой или сразу вне систем; попадает в <see cref="ResourceChanged{T}"/>.</summary>
-internal abstract class ResourceSlot
+internal abstract partial class ResourceSlot
 {
     public abstract Type Type { get; }
     /// <summary>Применить значение, отложенное командой (номер — из <see cref="ResourceSlot{T}.Stage"/>).</summary>
@@ -205,7 +205,7 @@ internal abstract class ResourceSlot
     public abstract void Attach(JournalBase journal);
 }
 
-internal sealed class ResourceSlot<T> : ResourceSlot
+internal sealed partial class ResourceSlot<T> : ResourceSlot
 {
     public T Value = default!;
     public bool Set;

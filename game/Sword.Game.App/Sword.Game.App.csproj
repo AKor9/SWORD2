@@ -24,6 +24,9 @@
     <ProjectReference Include="..\..\engine\Sword.Engine.Agent.Client\Sword.Engine.Agent.Client.csproj" />
     <ProjectReference Include="..\Sword.Game.Agent\Sword.Game.Agent.csproj" />
   </ItemGroup>
+  <ItemGroup Condition="'$(WithoutAgent)' == 'true'">
+    <Compile Remove="AgentMode.cs" />
+  </ItemGroup>
 
   <!-- App-local Agility SDK: D3D12Core.dll и слой отладки — в D3D12\ рядом с exe. -->
   <ItemGroup>

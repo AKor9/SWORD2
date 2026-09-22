@@ -27,6 +27,7 @@ public sealed class SimulationClock
     private readonly InputEdges? _edges;
     private readonly int _ticksPerFrame;
     private double _accumulator;
+    private bool _gated;
 
     /// <param name="beforeTick">Команды игры на тик (<see cref="IClientGame.BeforeTick"/>) — с фронтами ввода для тика.</param>
     /// <param name="ticksPerFrame">Ровно столько тиков на кадр; 0 — по часам.</param>
@@ -45,11 +46,15 @@ public sealed class SimulationClock
     /// <summary>Доступ клиентской части игры к симуляции.</summary>
     public SimulationLink Link { get; }
 
+    /// <summary>Ворота тиков (инструмент: пауза, шаги); null — тики по часам или заданные.</summary>
+    public ITickGate? Gate { get; set; }
+
     /// <summary>
     /// Доля следующего тика, прошедшая по часам после тиков кадра (<c>accumulator / dt</c> SWORD): 0 — показать прошлый
-    /// тик, 1 — последний. При заданном числе тиков на кадр — 1: кадр показывает ровно состояние тика.
+    /// тик, 1 — последний. При заданном числе тиков на кадр и при тиках, заданных воротами (пауза, шаги), — 1: кадр
+    /// показывает ровно состояние тика.
     /// </summary>
-    public float Alpha => _ticksPerFrame > 0 ? 1f : (float)Math.Clamp(_accumulator / TickSeconds, 0, 1);
+    public float Alpha => _ticksPerFrame > 0 || _gated ? 1f : (float)Math.Clamp(_accumulator / TickSeconds, 0, 1);
 
     /// <summary>Точный шаг тика для накопителя, с.</summary>
     private double TickSeconds => 1.0 / _simulation.Settings.TickRate;
@@ -69,6 +74,23 @@ public sealed class SimulationClock
     {
         if (!(frameSeconds > 0)) frameSeconds = 0;
         _simulation.Export.BeginFrame();
+        if (Gate?.Override(_simulation.Settings.MaxTicksPerFrame) is { } forced)
+        {
+            // Пауза или шаги инструмента: часы стоят, кадр показывает последний тик.
+            for (int i = 0; i < forced; i++) Tick();
+            _accumulator = 0;
+            _gated = true;
+            Gate.Ran(_simulation.Tick);
+            return forced;
+        }
+        _gated = false;
+        int done = RunByClock(frameSeconds);
+        Gate?.Ran(_simulation.Tick);
+        return done;
+    }
+
+    private int RunByClock(double frameSeconds)
+    {
         if (_ticksPerFrame > 0)
         {
             for (int i = 0; i < _ticksPerFrame; i++) Tick();

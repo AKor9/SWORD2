@@ -28,7 +28,7 @@ public sealed record WorldOptions
 /// подставляет их в поля), нормализация срабатываний компонентов (таблица раздела 5), затем события в том же порядке.
 /// Исполнение последовательное (v0). Собирает мир <see cref="WorldBuilder"/>.
 /// </summary>
-public sealed class World
+public sealed partial class World
 {
     // ── типы ───────────────────────────────────────────────────────────────
     private readonly DataType[] _types;
@@ -120,8 +120,35 @@ public sealed class World
 
     /// <summary>Регистрации систем в порядке исполнения по стадиям.</summary>
     public IReadOnlyList<SystemInfo> Systems =>
-        [.. _order.SelectMany(o => o).Select(r => new SystemInfo(r.Name, r.Stage, r.Label.Name, r.Id, r.Module, r.Active,
-            IsReactive(r.System), [.. r.Consumes.Select(k => k.ToString())]))];
+        [.. _order.SelectMany(o => o.Select((r, i) => Describe(r, i)))];
+
+    private SystemInfo Describe(Registration r, int order)
+    {
+        string[] Names(HashSet<int> ids) => [.. ids.Order().Select(i => _types[i].StableName)];
+        string[] EventNames(HashSet<int> ids) => [.. ids.Order().Select(i => _eventTypes[i].StableName)];
+        return new SystemInfo(r.Name, r.Stage, r.Label.Name, r.Id, r.Module, r.Active, IsReactive(r.System),
+            [.. r.Consumes.Select(k => k.ToString())])
+        {
+            Order = order,
+            SystemType = r.System.GetType().FullName ?? r.System.GetType().Name,
+            Trigger = r.Trigger?.ToString(),
+            Reads = Names(r.Reads),
+            Writes = Names(r.Writes),
+            Adds = Names(r.Adds),
+            Removes = Names(r.Removes),
+            Sets = Names(r.Sets),
+            Emits = EventNames(r.Emits),
+            SetsResources = [.. r.SetsResources.Select(t => t.FullName ?? t.Name).Order()],
+            NextTickOk = [.. r.NextTickOk.Select(k => k.ToString())],
+            ConsumesData = [.. r.Consumes.Select(k => k.Data.FullName ?? k.Data.Name).Distinct().Order()],
+            ConsumesTriggers = [.. r.Consumes.Select(k => new TriggerInfo(k.Kind.ToString(), k.Data.FullName ?? k.Data.Name))],
+            After = [.. r.After.Select(l => l.Name)],
+            Before = [.. r.Before.Select(l => l.Name)],
+            CreatesEntities = r.CreatesEntities,
+            DestroysEntities = r.DestroysEntities,
+            Source = r.Source,
+        };
+    }
 
     private static bool IsReactive(ISystem s) =>
         s.GetType().GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IReactiveSystem<>));

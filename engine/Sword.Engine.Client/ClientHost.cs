@@ -35,11 +35,26 @@ public sealed record ClientOptions
     /// <summary>Escape закрывает окно.</summary>
     public bool CloseOnEscape { get; init; } = true;
 
-    /// <summary>Снять кадр в PNG: путь файла; снимается кадр <see cref="ScreenshotFrame"/>.</summary>
+    /// <summary>
+    /// Снять кадр в PNG: путь файла; снимается кадр <see cref="ScreenshotFrame"/>, с бенчем — последний кадр замера.
+    /// </summary>
     public string? ScreenshotPath { get; init; }
 
     /// <summary>Номер снимаемого кадра (с 1); 0 — последний кадр прогона (<see cref="MaxFrames"/>), без него — 30-й.</summary>
     public int ScreenshotFrame { get; init; }
+
+    /// <summary>
+    /// Куда класть снимки по действию <see cref="ClientHost.Screenshot"/> (F4): <c>sword-&lt;дата-время&gt;.png</c>;
+    /// null — <c>screenshots</c> в текущем каталоге.
+    /// </summary>
+    public string? ScreenshotDirectory { get; init; }
+
+    /// <summary>
+    /// Бенч кадра (<see cref="FrameBench"/>): замер до стольких секунд игрового времени после прогрева, затем выход
+    /// (<c>bench</c>) с итогом в <see cref="ClientRunReport.Bench"/>; 0 — без бенча. Вертикальная синхронизация в бенче
+    /// выключена (как в SWORD).
+    /// </summary>
+    public double BenchSeconds { get; init; }
 
     /// <summary>Каталог шейдеров; по умолчанию — Shaders рядом с exe.</summary>
     public string? ShaderRoot { get; init; }
@@ -105,17 +120,30 @@ public sealed record ClientRunReport(
     int Gen0Collections,
     float Alpha,
     string? Screenshot,
+    int Screenshots,
+    FrameStats Stats,
+    FrameBenchReport? Bench,
     IReadOnlyList<RenderPassReport> Passes);
 
 /// <summary>
 /// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
 /// (<see cref="SimulationClock"/>: очередь кадра, накопитель, команды тиков от игры) → мир представления с долей тика
-/// (<see cref="FrameView"/>) → кадр → показ. UI — точка 1д.
+/// (<see cref="FrameView"/>, с числами кадра <see cref="FrameStats"/> для HUD) → кадр (проходы игры, её UI-проход) → показ;
+/// снимок по действию <see cref="Screenshot"/> (F4), бенч кадра (<see cref="ClientOptions.BenchSeconds"/>).
 /// Окно и симуляцию создаёт exe и отдаёт сюда: клиент знает <see cref="IWindow"/>, API рендера (устройство D3D12 —
 /// внутри рендера) и симуляцию; клиентской части игры он отдаёт только <see cref="SimulationLink"/>.
 /// </summary>
 public sealed class ClientHost : IDisposable
 {
+    /// <summary>Снимок кадра в <see cref="ClientOptions.ScreenshotDirectory"/> (<c>Program.cs</c> SWORD: F4).</summary>
+    public static readonly InputAction Screenshot = new("screenshot", "F4");
+
+    /// <summary>
+    /// Действия ввода клиента движка — привязываются вместе с действиями игры (секция <c>input</c>): композиция
+    /// разрешает привязки для <c>[.. game.Actions, .. ClientHost.Actions]</c>.
+    /// </summary>
+    public static IReadOnlyList<InputAction> Actions { get; } = [Screenshot];
+
     private readonly IWindow _window;
     private readonly ClientOptions _options;
     private readonly Renderer _renderer;
@@ -127,8 +155,15 @@ public sealed class ClientHost : IDisposable
     private readonly SimulationClock? _clock;
     private readonly InputBindings _bindings;
     private readonly InputEdges _edges;
+    private readonly List<IClientTool> _tools = [];
+    private ulong _frame;
+    private bool _running;
+    private volatile bool _closeRequested;
     private readonly IReadOnlySet<string>? _held;
-    private FrameView _view = new(1, 0, 0);
+    private FrameView _view;
+    private readonly bool _vsync;
+    private readonly FrameStatsMeter _meter = new();
+    private int _screenshots;
 
     /// <summary>Исключение кадра, нарисованного из системного цикла перетаскивания; бросается в главном цикле.</summary>
     private ExceptionDispatchInfo? _liveResizeError;
@@ -139,19 +174,28 @@ public sealed class ClientHost : IDisposable
             throw new ArgumentException("ResizeCycle: нужны ResizeCycleFrames ≥ 1 и хотя бы один размер", nameof(options));
         if (options.TicksPerFrame > 0 && options.FrameSeconds > 0)
             throw new ArgumentException("TicksPerFrame и FrameSeconds вместе не задаются", nameof(options));
-        _bindings = options.Bindings ?? InputBindings.Resolve(game.Actions, null);
-        foreach (var a in game.Actions)
-            if (!_bindings.Has(a.Name)) throw new ArgumentException($"привязки не знают действия игры {a.Name}", nameof(options));
+        if (options.BenchSeconds != 0 && !(options.BenchSeconds > FrameBench.Warmup && double.IsFinite(options.BenchSeconds)))
+            throw new ArgumentException($"бенч — больше {FrameBench.Warmup} с игрового времени (прогрев), задано {options.BenchSeconds}", nameof(options));
+        if (options.BenchSeconds > 0 && simulation is null)
+            throw new ArgumentException("бенч идёт по игровому времени: нужна симуляция", nameof(options));
+        if (options.BenchSeconds > 0 && options.MaxFps > 0)
+            throw new ArgumentException("бенч и ограничитель кадров вместе не задаются: ограничитель исказил бы замер", nameof(options));
+        IReadOnlyList<InputAction> actions = [.. game.Actions, .. Actions];
+        _bindings = options.Bindings ?? InputBindings.Resolve(actions, null);
+        foreach (var a in actions)
+            if (!_bindings.Has(a.Name)) throw new ArgumentException($"привязки не знают действия {a.Name}", nameof(options));
         // Имена действий — строчные (правило ключей конфига): регистр в --hold не важен, как и в конфиге.
         var held = options.HeldActions.Select(n => n.ToLowerInvariant()).ToList();
         foreach (var name in held)
-            if (!game.Actions.Any(a => a.Name == name))
-                throw new ArgumentException($"удерживаемое действие {name}: у игры его нет; есть: {string.Join(", ", game.Actions.Select(a => a.Name))}");
+            if (!actions.Any(a => a.Name == name))
+                throw new ArgumentException($"удерживаемое действие {name}: такого нет; есть: {string.Join(", ", actions.Select(a => a.Name))}");
         _held = held.Count > 0 ? new HashSet<string>(held, StringComparer.Ordinal) : null;
         if (options.CloseOnEscape && _bindings.ActionsOn(Key.Escape).FirstOrDefault() is { } onEscape)
             throw new ArgumentException($"действие {onEscape} привязано к Escape, а Escape закрывает окно (CloseOnEscape)", nameof(options));
         _window = window;
         _options = options;
+        _vsync = options.Vsync && options.BenchSeconds <= 0;
+        _view = new FrameView(1, 0, 0, _meter.Stats(0, _vsync));
         _game = game;
         _simulation = simulation;
         _edges = new InputEdges(_bindings);
@@ -180,13 +224,14 @@ public sealed class ClientHost : IDisposable
         _window.LiveResize += OnLiveResize;
         Log.Info("input", "привязки: " + string.Join(", ", _bindings.Keys.Select(p => $"{p.Key}={p.Value}")));
         Log.Info("client", $"{_renderer.AdapterName}, {_renderer.AdapterVramMb} МБ, {window.Width}×{window.Height}, " +
-            $"вертикальная синхронизация {(options.Vsync ? "вкл" : "выкл")}" +
+            $"вертикальная синхронизация {(_vsync ? "вкл" : "выкл")}" +
             (options.GpuValidation ? ", отладочный слой D3D12 с GPU-валидацией" : options.DebugLayer ? ", отладочный слой D3D12" : ""));
     }
 
     /// <summary>Главный цикл до закрытия окна, Escape или <see cref="ClientOptions.MaxFrames"/>.</summary>
     public ClientRunReport Run()
     {
+        _running = true;
         var total = Stopwatch.StartNew();
         long last = Stopwatch.GetTimestamp(), lastSim = last;
         long lastAllocated = GC.GetAllocatedBytesForCurrentThread();
@@ -196,10 +241,16 @@ public sealed class ClientHost : IDisposable
         long allocatedSum = 0;
         int gen0Sum = 0;
         string reason = "closed";
+        var bench = _options.BenchSeconds > 0 ? new FrameBench(_options.BenchSeconds) : null;
 
         while (_window.PumpMessages())
         {
             _liveResizeError?.Throw();
+            if (_closeRequested)
+            {
+                reason = "closed-by-tool";
+                break;
+            }
             if (_options.CloseOnEscape && _window.Input.WasPressed(Key.Escape))
             {
                 reason = "escape";
@@ -208,7 +259,9 @@ public sealed class ClientHost : IDisposable
 
             if (_window.Minimized)
             {
-                // Свёрнутое окно не рисуется: DXGI ответил бы «перекрыто», а цикл крутился бы впустую.
+                // Свёрнутое окно не рисуется: DXGI ответил бы «перекрыто», а цикл крутился бы впустую. Инструменты
+                // обслуживаются и так — агент не ждёт, пока окно развернут.
+                ServeTools();
                 Thread.Sleep(16);
                 last = lastSim = Stopwatch.GetTimestamp();
                 lastAllocated = GC.GetAllocatedBytesForCurrentThread();
@@ -224,6 +277,7 @@ public sealed class ClientHost : IDisposable
 
             ResizeIfNeeded();
             long simNow = Stopwatch.GetTimestamp();
+            long cpuStart = simNow;
             double seconds = _options.FrameSeconds > 0 ? _options.FrameSeconds : Stopwatch.GetElapsedTime(lastSim, simNow).TotalSeconds;
             lastSim = simNow;
             // Кадр (раздел 7): ввод и камера → тики с командами → мир представления → проходы.
@@ -233,10 +287,20 @@ public sealed class ClientHost : IDisposable
             _game.Input(input);
             _edges.Note(input);   // фронты кадра — до ближайшего тика (раздел 7)
             int ticks = _clock?.RunFrame(seconds) ?? 0;
-            _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds);
+            ServeTools();   // точка обслуживания инструментов: тики кадра сыграны, мир согласован (и на паузе)
+            _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds, _meter.Stats(ticks, _vsync));
             _game.Extract(_view);
-            bool shot = frames + 1 == _screenshotFrame && _options.ScreenshotPath is not null;
-            RenderFrame(shot ? _options.ScreenshotPath : null);
+            double simTime = _clock is { } clock ? clock.Link.Tick * (double)clock.Link.Dt : 0;
+            // Последний кадр замера — по игровому времени после тиков кадра (BenchRecorder.Done SWORD).
+            bool lastBenchFrame = bench?.Done(simTime) == true;
+            string? shotPath = null;
+            if (_options.ScreenshotPath is not null && (bench is not null ? lastBenchFrame : frames + 1 == _screenshotFrame))
+                shotPath = _options.ScreenshotPath;
+            else if (bench is null && input.WasPressed(Screenshot))   // в бенче F4 нет (SWORD: !bench && F4)
+                shotPath = ScreenshotFile();
+            double preRenderMs = Stopwatch.GetElapsedTime(cpuStart).TotalMilliseconds;
+            RenderFrame(shotPath, required: shotPath == _options.ScreenshotPath, tools: true);
+            double cpuMs = preRenderMs + _renderer.LastRecordMs;
             if (_options.MaxFps > 0) WaitForFrameSlot(last, 1 / _options.MaxFps);
 
             long now = Stopwatch.GetTimestamp();
@@ -244,7 +308,11 @@ public sealed class ClientHost : IDisposable
             int gen0 = GC.CollectionCount(0);
             double ms = Stopwatch.GetElapsedTime(last, now).TotalMilliseconds;
             // Служебный кадр: первый, со сменой размера с конца прошлого кадра (и из цикла перетаскивания рамки), снимок.
-            bool service = frames == 0 || _resizes != lastResizes || shot;
+            bool service = frames == 0 || _resizes != lastResizes || shotPath is not null || _toolCaptured;
+            _meter.Frame(ms, cpuMs, _renderer.LastFenceWaitMs);
+            // Последний кадр замера (со снимком — ожидание GPU и PNG) в замер не входит: SWORD копит шаг кадра, измеренный
+            // в начале следующего, и после последнего кадра выходит — его шаг не попадает в итог.
+            if (!lastBenchFrame) bench?.Frame(simTime, ms, cpuMs, _renderer.LastFenceWaitMs);
             if (frames == 0) firstFrameMs = ms;
             if (service)
                 serviceFrames++;
@@ -261,12 +329,19 @@ public sealed class ClientHost : IDisposable
             lastResizes = _resizes;
             frames++;
 
+            if (lastBenchFrame)
+            {
+                reason = "bench";
+                break;
+            }
             if (_options.MaxFrames > 0 && frames >= _options.MaxFrames)
             {
                 reason = "max-frames";
                 break;
             }
         }
+        var benchReport = bench?.Result();
+        if (benchReport is not null) Log.Info("bench", benchReport.ToString());
 
         _liveResizeError?.Throw();
         int steady = frames - serviceFrames;
@@ -290,6 +365,9 @@ public sealed class ClientHost : IDisposable
             Gen0Collections: gen0Sum,
             Alpha: _view.Alpha,
             Screenshot: _screenshot,
+            Screenshots: _screenshots,
+            Stats: _meter.Stats(_view.Ticks, _vsync),
+            Bench: benchReport,
             Passes: _renderer.Graph.LastFrame);
     }
 
@@ -322,14 +400,97 @@ public sealed class ClientHost : IDisposable
         }
     }
 
-    private void RenderFrame(string? screenshot = null)
+    /// <param name="required">
+    /// Снимок заказан прогоном (<see cref="ClientOptions.ScreenshotPath"/>): не записался — ошибка прогона. Снимок по
+    /// F4 не записался — ошибка в журнал, игра идёт дальше.
+    /// </param>
+    /// <param name="tools">Кадр главного цикла: инструменты могут заказать снимок. Итог кадра они получают всегда.</param>
+    private void RenderFrame(string? screenshot = null, bool required = true, bool tools = false)
     {
-        _renderer.Render(_buildFrame, _options.Vsync, screenshot);
-        if (screenshot is not null)
+        _frame++;
+        _toolCaptured = false;
+        // Снимок инструмента — в кадре без своего снимка (прогона или F4): инструмент просит, пока не получит.
+        FrameCapture? toolCapture = null;
+        IClientTool? capturer = null;
+        if (tools && screenshot is null)
+            foreach (var t in _tools)
+                if (t.Capture(_frame) is { } c)
+                {
+                    toolCapture = c;
+                    capturer = t;
+                    break;
+                }
+        var capture = screenshot is not null ? new FrameCapture(screenshot) : toolCapture;
+        bool captured = true;
+        try
         {
+            _renderer.Render(_buildFrame, _vsync, capture);
+        }
+        catch (CaptureException e) when (!required || toolCapture is not null)
+        {
+            Log.Error("client", e.Message);
+            captured = false;
+        }
+        if (_simulation is not null)   // итог — каждого кадра: инструмент видит граф и тик показанного
+            foreach (var t in _tools)
+                t.Presented(_simulation, _frame, t == capturer ? toolCapture : null,
+                    t == capturer && captured ? _renderer.LastCapture : null);
+        _toolCaptured = toolCapture is not null;
+        if (screenshot is not null && captured)
+        {
+            _screenshots++;
             _screenshot = Path.GetFullPath(screenshot);
             Log.Info("client", $"снимок {_screenshot}");
         }
+    }
+
+    private bool _toolCaptured;
+
+    private void ServeTools()
+    {
+        if (_simulation is null) return;
+        foreach (var t in _tools) t.Serve(_simulation, _frame + 1);
+    }
+
+    /// <summary>
+    /// Подключить инструмент (агент, DevTools) — до <see cref="Run"/>: он обслуживается каждый кадр на потоке кадра.
+    /// </summary>
+    public void AddTool(IClientTool tool)
+    {
+        if (_running) throw new InvalidOperationException("инструменты подключаются до Run");
+        _tools.Add(tool);
+    }
+
+    /// <summary>Ворота тиков (пауза и шаги инструмента); null — тики по часам. Нужна симуляция.</summary>
+    public ITickGate? TickGate
+    {
+        get => _clock?.Gate;
+        set => (_clock ?? throw new InvalidOperationException("ворота тиков без симуляции")).Gate = value;
+    }
+
+    /// <summary>Рендер клиента — для инструментов (граф проходов, снимки).</summary>
+    public Renderer Renderer => _renderer;
+
+    /// <summary>Клиентская часть игры — для инструментов (наблюдаемость: <see cref="IClientObservable"/>).</summary>
+    public IClientGame Game => _game;
+
+    /// <summary>Номер последнего нарисованного кадра (с 1).</summary>
+    public ulong Frame => _frame;
+
+    /// <summary>Доля тика последнего кадра (1 — кадр показывает ровно последний тик).</summary>
+    public float Alpha => _view.Alpha;
+
+    /// <summary>Закончить <see cref="Run"/> после текущего кадра (с любого потока: инструмент, агент).</summary>
+    public void RequestClose() => _closeRequested = true;
+
+    /// <summary>Файл снимка F4: <c>sword-ггггММдд-ччммсс-мсм.png</c> (местное время, инвариантный календарь); занят — с номером.</summary>
+    private string ScreenshotFile()
+    {
+        string dir = _options.ScreenshotDirectory ?? Path.Combine(Environment.CurrentDirectory, "screenshots");
+        string stem = "sword-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture);
+        string path = Path.Combine(dir, stem + ".png");
+        for (int i = 2; File.Exists(path); i++) path = Path.Combine(dir, $"{stem}-{i}.png");
+        return path;
     }
 
     /// <summary>
@@ -348,7 +509,8 @@ public sealed class ClientHost : IDisposable
             ResizeIfNeeded();
             // Кадр без тиков: очередь кадра пуста — события прошлого кадра не обрабатываются второй раз.
             _clock?.EmptyFrame();
-            _game.Extract(_view with { Ticks = 0, Seconds = 0 });
+            ServeTools();   // тянут рамку — главный цикл стоит, инструменты обслуживаются отсюда
+            _game.Extract(_view with { Ticks = 0, Seconds = 0, Stats = _view.Stats with { Ticks = 0 } });
             RenderFrame();
         }
         catch (Exception ex)

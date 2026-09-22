@@ -8,8 +8,8 @@ namespace Sword.Game.Client;
 /// <summary>
 /// Действия ввода арены и их клавиши по умолчанию — как в SWORD 2eab13b (<c>PlayerController</c>, <c>RtsCamera</c>):
 /// WASD — ход относительно камеры, Shift — шагом, F — камера за игроком / свободная, Z/C — поворот, +/− — зум, средняя
-/// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит. Колесо и курсор — не действия: они
-/// берутся из ввода кадра.
+/// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD. Колесо и курсор — не
+/// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
 /// </summary>
 public static class ArenaInput
@@ -30,13 +30,17 @@ public static class ArenaInput
     public static readonly InputAction CameraPanLeft = new("camera_pan_left", "Left");
     public static readonly InputAction CameraPanRight = new("camera_pan_right", "Right");
 
-    /// <summary>Пока удерживается, колесо не зумит (SWORD: Ctrl+колесо — масштаб интерфейса, точка 1д).</summary>
+    /// <summary>Пока удерживается, колесо не зумит (SWORD: Ctrl+колесо — масштаб интерфейса).</summary>
     public static readonly InputAction UiModifier = new("ui_modifier", "Control");
+
+    /// <summary>Справка HUD: показать / скрыть (SWORD: F1).</summary>
+    public static readonly InputAction HudHelp = new("hud_help", "F1");
 
     public static readonly IReadOnlyList<InputAction> All =
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
+        HudHelp,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>

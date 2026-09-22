@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Engine.Agent.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Sword.Engine.Agent\Sword.Engine.Agent.csproj" />
     <ProjectReference Include="..\Sword.Engine.Client\Sword.Engine.Client.csproj" />
     <ProjectReference Include="..\Sword.Engine.Render\Sword.Engine.Render.csproj" />

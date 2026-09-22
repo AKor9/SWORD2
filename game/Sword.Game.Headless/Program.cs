@@ -12,9 +12,10 @@ namespace Sword.Game.Headless;
 
 /// <summary>
 /// Симуляция SWORD без окна и D3D12 — та же композиция, что у игры (<see cref="SwordSimulation"/>). Точка 1в: прогон
-/// заданного числа тиков с постоянной командой игрока и итог — где игрок, куда смотрит, с какой скоростью.
+/// заданного числа тиков с постоянной командой игрока и итог — где игрок, куда смотрит, с какой скоростью. Точка 1е:
+/// <c>--agent</c> — сервер MCP на stdio для агента (AgentMode.cs; в сборке без агента его нет).
 /// </summary>
-public static class Program
+public static partial class Program
 {
     private const string Usage = """
         Ключи:
@@ -26,7 +27,12 @@ public static class Program
           --sample N          точка траектории каждые N тиков (по умолчанию 60)
           --set секция.ключ=значение   конфиг (перекрывает sword.json и переменные SWORD_*)
           --json              итог — одной строкой JSON в stdout (для агента)
+          --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
+                              двигает агент; stdout — только протокол, журнал — в stderr
         """;
+
+    /// <summary>Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
+    static partial void RunAgent(Simulation sim, ref int? exit);
 
     /// <summary>Тиков прогрева перед замером выделений: ёмкости журналов, буферов и очередей выросли.</summary>
     private const int WarmupTicks = 120;
@@ -36,7 +42,7 @@ public static class Program
         Console.OutputEncoding = Encoding.UTF8;
         int ticks = 600, sample = 60;
         var command = new PlayerCommand();
-        bool json = false;
+        bool json = false, agent = false;
         var sets = new List<string>();
         try
         {
@@ -57,6 +63,7 @@ public static class Program
                         break;
                     case "--set": sets.Add(Next()); break;
                     case "--json": json = true; break;
+                    case "--agent": agent = true; break;
                     default: throw new ArgumentException($"неизвестный ключ {a}");
                 }
             }
@@ -69,13 +76,21 @@ public static class Program
             return 2;
         }
 
-        if (json) Log.SetSinks(new ConsoleLogSink(allToStandardError: true));
+        if (json || agent) Log.SetSinks(new ConsoleLogSink(allToStandardError: true));
         try
         {
             var config = ConfigSet.Load(AppContext.BaseDirectory, sets);
             var sim = SwordSimulation.Create(config);
             config.SkipClientSections();   // клиента нет: привязки клавиш из общего sword.json не читаются
             config.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
+            if (agent)
+            {
+                int? exit = null;
+                RunAgent(sim, ref exit);
+                if (exit is { } code) return code;
+                Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
+                return 2;
+            }
             var player = GameCore.Player(sim.World);
             var trajectory = new List<object>();
             // Выделения — только тиков (без записи траектории) и после прогрева: раздел 12 плана — 0 байт на тик.

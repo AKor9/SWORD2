@@ -242,8 +242,8 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 | Engine.Runtime | Core, Diagnostics, Ecs, Content |
 | Engine.Client | Runtime, Ecs, Platform, Rhi, Render, Ui, Diagnostics — Ecs: Extract читает мир и журналы |
 | Engine.Introspection | Core, Diagnostics, Ecs, Runtime — сторона симуляции |
-| Engine.Agent | Introspection, Runtime, Diagnostics (+ пакет MCP) — сторона симуляции |
-| Engine.Agent.Client | Agent, Client, Render |
+| Engine.Agent | Introspection, Runtime, Ecs, Diagnostics — сторона симуляции; MCP — свой минимальный JSON-RPC, без пакета (точка 1е) |
+| Engine.Agent.Client | Agent, Introspection, Client, Render, Runtime, Ecs — точка обслуживания в кадре клиента (1е) |
 | Engine.DevTools | Client, Ui, Ecs, Introspection |
 | Game.Contracts | Core, Ecs |
 | Game.Data | Core, Formats |
@@ -252,7 +252,7 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 | Sword.Game.Client | Sword.Game, Contracts, Data, Client, Render, Ui, Geometry, Ecs, Diagnostics — ассеты представления (меши, позже текстуры) грузит Render по пути ассета, форматы игре не видны |
 | модуль `.Client` | свой модуль симуляции (если есть), Contracts, Data, Client, Render, Ui — **не Sword.Game, не Sword.Game.Client, не другие модули** |
 | Sword.Game.Bootstrap | Sword.Game, модули симуляции, Runtime, Contracts, Data, Diagnostics — сторона симуляции |
-| Game.Agent | Sword.Game, Contracts, Data, Engine.Agent, Introspection — сторона симуляции |
+| Game.Agent | Sword.Game, Contracts, Data, Engine.Agent, Introspection, Ecs — сторона симуляции |
 | Sword.Game.Faults | как модуль симуляции; подключается только в сборках разработки, как агент |
 | Sword.Agent.Evals | ничего из движка по ссылкам: запускает агента и `Game.Headless` процессами, читает квитанции и артефакты |
 | Game.DevTools | Sword.Game, Sword.Game.Client, Engine.DevTools |
@@ -272,6 +272,10 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 - Platform.Win32 — только из exe;
 - сборки агента (Engine.Agent, Engine.Agent.Client, Game.Agent) — только из exe; ядро игры и модули о них не знают:
   своё состояние они отдают через контракты Runtime (`IStateContributor`, раздел 7), а не через агента;
+  сборки агента вправе напрямую зависеть от нижележащих Ecs, Runtime и Introspection, когда их публичные контракты
+  непосредственно используют эти типы (подтверждено на точке 1е);
+- Engine.Client → Ecs — разрешённая граница только для чтения: Extract читает мир через `SimulationLink`
+  (`WorldReader`), исполнения симуляции клиент не получает (подтверждено на точке 1е);
 - сборка без агента (`-p:WithoutAgent=true`, как для DevTools) не содержит ни одной сборки агента;
 - сборки `Vortice.*` — только у Rhi и Render (временный список исключений **может только сокращаться**).
 
@@ -321,7 +325,7 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 |---|---|
 | `Added<T>` | компонент добавлен (командой, на барьере) |
 | `Removed<T>` | компонент снят или сущность удалена; запись хранит последнее значение `T` |
-| `Changed<T>` | значение реактивного компонента заменено командой `Set<T>` |
+| `Changed<T>` | существующий реактивный компонент заменён командой `Set<T>`; при отключённых проверках ошибочный `Add<T>` уже существующего компонента также даёт `Changed<T>` |
 | `Event<E>` | записано событие `E` |
 | `ResourceChanged<T>` | ресурс заменён (ручки, настройки, уровень) |
 
@@ -436,7 +440,7 @@ ctx.Commands.Emit(new LimbDetached { Part = piece.Ref, … });  // поле Part
 |---|---|
 | нет `T` → есть `T` | один `Added<T>` — сколько бы `Set<T>` ни было после добавления |
 | есть `T` → нет `T` | один `Removed<T>` со значением на момент снятия |
-| есть → есть, значение заменено (один или несколько `Set<T>`) | один `Changed<T>` с итоговым значением |
+| есть → есть, значение заменено (один или несколько `Set<T>`; при отключённых проверках — и ошибочный `Add<T>` существующего) | один `Changed<T>` с итоговым значением |
 | есть → есть, снят и добавлен заново | `Removed<T>` (старое значение), затем `Added<T>` |
 | нет → нет (добавлен и снят на одном барьере) | ничего: для потребителей компонента не было; хуки при этом отработали оба |
 | сущность удалена | `Removed<T>` по каждому компоненту, на который есть подписка, со значениями на момент удаления |
@@ -471,7 +475,7 @@ ctx.Commands.Emit(new LimbDetached { Part = piece.Ref, … });  // поле Part
 
 | версия | что входит |
 |---|---|
-| v0 (прототип) | сущности, регистрация, архетипы и чанки, запросы `Read/Write/With/Without`, `CommandBuffer`, ресурсы, стадии и барьеры, `After/Before`, **журналы и реактивные системы** (`Added`, `Removed`, `Changed` через `Set`, `Event`, `ResourceChanged`) с нормализацией на барьере, черновики сущностей, объявления производителей и проверка порядка стадий, идентичность регистрации, слот `CauseId` в записях, граничные тесты журналов; исполнение последовательное |
+| v0 (прототип) | сущности, регистрация, архетипы и чанки, запросы `Read/Write/With/Without`, `CommandBuffer`, ресурсы, стадии и барьеры, `After/Before`, **журналы и реактивные системы** (`Added`, `Removed`, `Changed` через `Set` — при отключённых проверках и через ошибочный `Add` существующего, поэтому планировщик считает `Add` возможным производителем `Changed`, `Event`, `ResourceChanged`) с нормализацией на барьере, черновики сущностей, объявления производителей и проверка порядка стадий, идентичность регистрации, слот `CauseId` в записях, граничные тесты журналов; исполнение последовательное |
 | v1 (по мере надобности) | хуки времени жизни ресурсов (к физике), проверка доступа в Debug, версии изменений для Push, параллельные чанки и группы систем |
 | нет | отношения, префабы, сериализация мира, управляемые компоненты, несколько миров, отслеживание изменений у всех компонентов подряд — пока нет потребителя |
 
@@ -584,11 +588,12 @@ public interface IGpuSimulation
   только для чтения; его раскладка и ключ в графе — в `Game.Contracts`. Кровь — эталонная реализация этого API;
   **песок — только после неё**.
 - **Debug draw:** линии, капсулы, текст в мире — для диагностики фич.
-- **UI-проход:** `UiRenderer`, `UiVectorFontGpu`, `ui.hlsl` — из `Sword.Engine.Ui`.
+- **UI-проход:** `UiRenderer`, `UiVectorFontGpu`, `ui.hlsl` — из `Sword.Engine.Ui` (`UiPass`, `Renderer.Ui`).
 
 ### Ui, Content, Formats, Platform
 
 - **Ui** — без GPU: `UiContext` и виджеты, `UiDrawList`, `UiTextShaper`, данные векторного шрифта. Отрисовка — в Render.
+  Виджеты переносятся с первыми панелями DevTools (в точке 1д их пользователя нет: HUD рисует списком квадов).
   Запекание шрифтов (`UiFontBaker`) — в `Bake.Engine`. Тесты UI идут без видеокарты.
 - **Content** — хранилище: пак, источники (`PakSource`, `MemorySource`), поиск пака, загрузка с кэшем и хэндлами,
   крючок горячей перезагрузки. Стабильная ссылка на ассет (`AssetPath`/`AssetId`) — маленький тип в Core: ею
@@ -1014,8 +1019,8 @@ lod      = [hero, hybrid, crowd]
 | группа | инструменты |
 |---|---|
 | сеанс | `session.start` (Headless или живой App; конфиг, модули, зерно), `session.status`, `session.stop` |
-| время | `time.pause`, `time.step(n)`, `time.runUntil(тик или условие)`, `time.break(стадия, условие)`, `time.breakOnInvariant`, `time.seek(тик)` |
-| мир | `world.query(условие, проекция, агрегаты)`, `entity.get`, `world.snapshot`, `world.diff` |
+| время | `time.pause`, `time.resume`, `time.step(n)`, `time.runUntil(тик или условие)`, `time.break(стадия, условие)`, `time.breakOnInvariant`, `time.seek(тик)` |
+| мир | `world.types` (типы данных и их поля), `world.query(условие, проекция, агрегаты)`, `entity.get`, `world.snapshot`, `world.diff` |
 | история | `watch.add(условие, проекция)`, `watch.remove`, `entity.history`, `events.history` (из `ObservationHistory`), `replay.observe` (глубже кольца) |
 | почему | `state.why(сущность, поле)`, `state.describe(id, отбор)`, `state.hash` — по участникам |
 | проверки | `invariant.list`, `invariant.run`, `invariant.enable`, `invariant.define` |
@@ -1029,9 +1034,10 @@ lod      = [hero, hybrid, crowd]
 ### Правила
 
 - **Один протокол — MCP**: его понимают Claude Code, Codex и другие клиенты. Транспорт: stdio для
-  `Game.Headless --agent`; для живого `Game.App --agent` — локальный канал (localhost или именованный канал —
-  решается на точке 1е). Реализация — официальный C#-SDK MCP, если к этапу подходит; иначе свой минимальный JSON-RPC
-  по спецификации MCP.
+  `Game.Headless --agent`; для живого `Game.App --agent` — Streamable HTTP на 127.0.0.1 (решено на точке 1е: HTTP
+  Claude Code подключает без моста; свой HTTP/1.1 на `TcpListener`, потому что http.sys без прав администратора
+  резервирует не всякий адрес). Реализация — свой минимальный JSON-RPC по спецификации MCP (решено на точке 1е:
+  официальный SDK тянет хостинг и внедрение зависимостей в exe игры, а нужны четыре метода).
 - **По умолчанию — только чтение.** Всё, что меняет симуляцию, — команды с `TickId` (ручки, команды игрока и арены,
   модули); они пишутся в реплей. Сеанс агента воспроизводим и проверяем человеком: вот реплей, вот что агент сделал.
 - **Стабильные имена и коды ошибок** — те же, что в ECS, конфиге и журналах; ответ — JSON по схеме инструмента.
@@ -1097,7 +1103,7 @@ lod      = [hero, hybrid, crowd]
 |---|---|
 | 0 | корневой `AGENTS.md`, `CLAUDE.md`, правило анализа агентских инструментов |
 | 1в | слот `CauseId` в записях команд и событий ECS v0 |
-| 1е | потоковая модель; квитанции; инструкции сервера и аннотации инструментов; сеанс; время (`pause`, `step`, `runUntil(тик)`); мир (`query`, `get`); `command.send`; `log.tail`; `capture.bundle` v0 (цвет, глубина, видимые сущности с прямоугольниками, камера); карта архитектуры — этого достаточно, чтобы агент сам принял прототип |
+| 1е | потоковая модель; квитанции; инструкции сервера и аннотации инструментов; сеанс (`status`, `stop`; `session.start` — с реплеями и сценариями, этап 3); время (`pause`, `resume`, `step`, `runUntil(тик)`); мир (`types`, `query` — отбор по наборам компонентов, проекция, страницы; `get`); `command.send`; `log.tail`; `capture.bundle` v0 (цвет, глубина, видимые сущности с прямоугольниками, камера); `render.graph`; карта архитектуры — этого достаточно, чтобы агент сам принял прототип. `gpu.passes` — с профайлером GPU |
 | 3 | реплеи, `state.hash`, `time.seek`, `replay.diff`; `ObservationPredicate`, условия в `runUntil`/`break`; `ObservationHistory`, `watch.*`, история, `replay.observe`; реестр инвариантов и базовые инварианты движка, `time.breakOnInvariant`; `world.snapshot`/`diff`; `FeatureManifest` и `feature.verify` (задним числом — для прототипа и анимации); `experiment.fork`/`compare`, `experiment.sweep` по конфигу |
 | 5 | инварианты физики, в т. ч. внутри шага; оверлеи капсул и контактов; ID-буфер в `capture.bundle` |
 | 6 | журнал причинности и `state.why` — бой даёт первые длинные причинные цепочки |
@@ -1341,8 +1347,8 @@ Blood и Innards — представление: на игру не влияют
 | 1а. Окно · сделана | Core, Diagnostics (Log), Platform.Win32 (перенос), Rhi (перенос `Graphics/*`), `Game.App` | окно, очистка экрана, закрытие, изменение размера |
 | 1б. Контент · сделана | Content и Formats (пак, меш, скелет), Geometry (`HeightField` из функции рельефа SWORD), Render v0 (рендер-граф на одной graphics-очереди, земля, скиннинг-проход) | земля с четырьмя участками рельефа, Manny в позе привязки, неподвижная камера |
 | 1в. Симуляция · сделана | ECS v0 (с журналами, реактивными системами и их граничными тестами), Runtime v0 (тик, стадии, барьеры, команды тика, статические модули, конфиг: json + ключи); `Game.Contracts` v0, `Sword.Game`: игрок, контроллер корня (разгон к желаемой скорости — логика `KinematicBegin`), граница арены; `Sword.Game.Bootstrap` | персонаж двигается по заданной команде |
-| 1г. Клиент | Client v0: ввод → команды (правила раздела 7), Extract и `RenderWorld` с интерполяцией (v0 — мир представления клиента игры `ArenaView`); `Sword.Game.Client`: RTS-камера (цикл кадра с накопителем — уже в 1в: `SimulationClock`) | WASD относительно камеры, колесо — зум, плавное движение при любой частоте кадров |
-| 1д. Инструменты прототипа | Ui (рантайм без GPU) и UI-проход, HUD (FPS, подсказка), снимок F4, простой бенч кадра (`Game.Headless` на том же `Sword.Game.Bootstrap` — уже в 1в) | FPS на экране, F4 — снимок; `Headless` проходит 600 тиков без окна |
+| 1г. Клиент · сделана | Client v0: ввод → команды (правила раздела 7), Extract и `RenderWorld` с интерполяцией (v0 — мир представления клиента игры `ArenaView`); `Sword.Game.Client`: RTS-камера (цикл кадра с накопителем — уже в 1в: `SimulationClock`) | WASD относительно камеры, колесо — зум, плавное движение при любой частоте кадров |
+| 1д. Инструменты прототипа · сделана | Ui (рантайм без GPU: списки квадов, шрифты и shaping; виджеты `UiContext` — с панелями DevTools) и UI-проход, HUD (FPS, подсказка), снимок F4, простой бенч кадра (`Game.Headless` на том же `Sword.Game.Bootstrap` — уже в 1в) | FPS на экране, F4 — снимок; `Headless` проходит 600 тиков без окна |
 | 1е. Агентский доступ | Introspection, Engine.Agent (MCP, stdio, квитанции, инструкции сервера), Engine.Agent.Client (`capture.bundle` v0), Game.Agent; карта архитектуры; инструменты этапа 1е из раздела 8; `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `docs/agent-playbook.md` | Claude Code подключается к `Game.Headless --agent` и к живому `Game.App --agent`: шагает время, читает игрока, отправляет команду движения, снимает пакет наблюдения, объясняет систему через `ecs.explainSystem` |
 
 **Не входит:** клипы, враги, физика, бой, модули, пекарня, панели DevTools, реплеи, параллельность, проверка доступа

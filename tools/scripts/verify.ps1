@@ -6,7 +6,8 @@
     Шаги:
       build                 сборка SWORD.slnx (предупреждения — ошибки);
       test                  тесты решения, в том числе архитектурные и GPU-тесты рендера (категория Gpu:
-                            устройство D3D12 с GPU-валидацией; -SkipGpu — без них);
+                            устройство D3D12 с GPU-валидацией; -SkipGpu — без них) и тесты на шрифтах пака
+                            (категория Content; -SkipReference — без них);
       forbidden-references  заготовки tests/fixtures/forbidden-references/SWORD00N-*: каждая обязана упасть со своим
                             кодом — иначе проверка ссылок в сборке сломана;
       without-agent         App и Headless с -p:WithoutAgent=true собираются и не содержат сборок агента;
@@ -20,7 +21,16 @@
                             scene.opaque нарисовал арену и Manny, снимок не пустой, тиков ровно 180, корень игрока
                             совпал с Headless на 180 тиках; прогон с удержанием действия move_forward (--hold) —
                             игрок бежит по направлению камеры; прогон --fps 45 — ровно 242 тика, доля тика 2/3,
-                            показанный игрок интерполирован (нужны видеокарта и пак контента; -SkipGpu — пропустить);
+                            показанный игрок интерполирован; HUD — проход hud нарисовал фигуры и текст, шаг кадра
+                            посчитан; действия screenshot и hud_help (F4, F1, --hold) — один снимок в --screenshots и
+                            справка скрыта; --no-hud — HUD не показан, прохода hud нет;
+                            --bench 5 — выход «bench» с итогом замера и снимком последнего кадра (нужны видеокарта и
+                            пак контента; -SkipGpu — пропустить);
+      agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
+                            (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
+                            time.step, игрок ушёл по +X, ecs.explainSystem, session.stop — выход 0; Sword.exe --agent
+                            (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
+                            рамкой), render.graph, session.stop — выход closed-by-tool (с -SkipGpu — только Headless);
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
                             плана); итог — artifacts/bench/ecs.json;
@@ -31,7 +41,7 @@
     Итог одним JSON-объектом в stdout, UTF-8 (для агентов). Код выхода: 0 — всё прошло, 1 — нет.
 
 .PARAMETER SkipReference
-    Не проверять эталонный пак (например, на машине без него).
+    Не проверять эталонный пак и не запускать тесты, которым он нужен (категория Content) — например, на машине без него.
 
 .PARAMETER Bench
     Прогнать микробенчмарки ECS (BenchmarkDotNet, Release, около двух минут) и проверить цели производительности.
@@ -96,7 +106,10 @@ Add-Step 'build' {
 Add-Step 'test' {
     # Тесты идут без пересборки: после упавшей сборки они проверяли бы старые сборки.
     if (-not $script:buildOk) { return @{ ok = $false; detail = 'не запускались: сборка не прошла' } }
-    $filter = if ($SkipGpu) { @('--filter', 'Category!=Gpu') } else { @() }
+    $skip = @()
+    if ($SkipGpu) { $skip += 'Category!=Gpu' }
+    if ($SkipReference) { $skip += 'Category!=Content' }
+    $filter = if ($skip.Count -gt 0) { @('--filter', ($skip -join '&')) } else { @() }
     $out = & dotnet test $solution -c $Configuration --no-build -nologo @filter | Out-String
     @{ ok = ($LASTEXITCODE -eq 0); detail = (Get-Lines $out 'Passed!|Failed!|\[FAIL\]' 6) }
 }
@@ -254,6 +267,35 @@ else {
                         $problems += "--fps 45: показанный игрок позади тика на $lag м, ждали $expected (интерполяция)"
                     }
                 }
+                # Точка 1д: действия screenshot (F4) и hud_help (F1) — удержание нажимает их в первом кадре: ровно один
+                # снимок, справка скрыта.
+                $shots = Join-Path $dir 'screenshots'
+                if (Test-Path $shots) { Remove-Item -Recurse -Force $shots }
+                $f4 = Invoke-App 'f4' @('--frames', '5', '--hold', 'screenshot,hud_help', '--screenshots', "`"$shots`"")
+                if (-not $f4.ok) { $problems += "прогон с --hold screenshot,hud_help: $($f4.error)" }
+                else {
+                    $files = @(if (Test-Path $shots) { Get-ChildItem $shots -Filter 'sword-*.png' })
+                    if ($f4.report.screenshots -ne 1 -or $files.Count -ne 1) { $problems += "F4: снимков в итоге $($f4.report.screenshots), файлов $($files.Count); ждали 1" }
+                    elseif ($files[0].Length -lt 20KB) { $problems += "F4: снимок подозрительно мал: $($files[0].Length) Б" }
+                    if ($f4.hud.help -ne $false) { $problems += "F1: справка не скрыта (hud.help = $($f4.hud.help))" }
+                }
+                # Точка 1д: без HUD его нет ни в итоге, ни проходом (снимки, сравнимые между прогонами).
+                $bare = Invoke-App 'no-hud' @('--frames', '3', '--no-hud')
+                if (-not $bare.ok) { $problems += "прогон с --no-hud: $($bare.error)" }
+                elseif ($bare.hud.shown -ne $false -or @($bare.report.passes | Where-Object { $_.name -eq 'hud' }).Count -ne 0) { $problems += "--no-hud: HUD показан ($($bare.hud.shown)) или проход hud есть" }
+                # Точка 1д: бенч кадра — 5 с игрового времени, из них 4 — прогрев; выход сам, итог и снимок последнего кадра.
+                $benchShot = Join-Path $dir 'bench.png'
+                if (Test-Path $benchShot) { Remove-Item $benchShot }
+                $bench = Invoke-App 'bench' @('--bench', '5', '--shot', "`"$benchShot`"")
+                if (-not $bench.ok) { $problems += "прогон с --bench 5: $($bench.error)" }
+                else {
+                    $b = $bench.report.bench
+                    if ($bench.report.exitReason -ne 'bench' -or -not $b -or $b.frames -lt 1) { $problems += "--bench 5: выход $($bench.report.exitReason), кадров замера $($b.frames)" }
+                    elseif (-not ($b.p50Ms -le $b.p99Ms -and $b.p99Ms -le $b.maxMs -and $b.averageMs -gt 0)) { $problems += "--bench 5: перцентили не по порядку: p50 $($b.p50Ms), p99 $($b.p99Ms), макс $($b.maxMs)" }
+                    elseif ($bench.report.simTicks -lt 600) { $problems += "--bench 5: тиков $($bench.report.simTicks), замер кончился раньше 5 с" }
+                    elseif (-not (Test-Path $benchShot)) { $problems += '--bench 5: нет снимка последнего кадра замера' }
+                    else { $script:benchNote = "бенч: $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс" }
+                }
             }
         }
         if ($d3d12.Count -gt 0) { $problems += "сообщения D3D12: $($d3d12 | Select-Object -First 3)" }
@@ -263,15 +305,147 @@ else {
             $opaque = @($result.report.passes | Where-Object { $_.name -eq 'scene.opaque' })
             if ($opaque.Count -ne 1) { $problems += 'нет прохода scene.opaque' }
             elseif ($opaque[0].draws -lt 4) { $problems += "scene.opaque: вызовов отрисовки $($opaque[0].draws), ожидалось не меньше 4" }
+            # HUD: панели (фигуры) и текст — разные конвейеры, значит не меньше двух вызовов; FPS посчитан.
+            $hud = @($result.report.passes | Where-Object { $_.name -eq 'hud' })
+            if ($hud.Count -ne 1) { $problems += 'нет прохода hud' }
+            elseif ($hud[0].draws -lt 2) { $problems += "hud: вызовов отрисовки $($hud[0].draws), ожидалось не меньше 2" }
+            elseif ($result.hud.quads -lt 100) { $problems += "hud: квадов $($result.hud.quads) — HUD пуст?" }
+            # Шаг кадра — от счётчика кадров (FPS начинается с 60 и сам по себе ничего не доказывает).
+            elseif (-not ($result.report.stats.frameMs -gt 0 -and $result.report.stats.fps -gt 0)) { $problems += "числа кадра в итоге: шаг $($result.report.stats.frameMs) мс, FPS $($result.report.stats.fps)" }
             # Кадр одного цвета сжимается в PNG до пары килобайт; сцена — на порядки больше.
             if (-not (Test-Path $shot)) { $problems += 'нет снимка кадра' }
             elseif ((Get-Item $shot).Length -lt 50KB) { $problems += "снимок подозрительно мал: $((Get-Item $shot).Length) Б — пустой кадр?" }
         }
         if ($problems.Count -eq 0) {
-            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless; с удержанием move_forward бежит от камеры; при --fps 45 — 242 тика, доля 2/3, интерполяция; кадр $($result.report.averageFrameMs) мс, снимок $shot" }
+            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless; с удержанием move_forward бежит от камеры; при --fps 45 — 242 тика, доля 2/3, интерполяция; HUD $($result.hud.quads) квадов; F4 — снимок; $($script:benchNote); кадр $($result.report.averageFrameMs) мс, снимок $shot" }
         }
         else { @{ ok = $false; detail = $problems -join '; ' } }
     }
+}
+
+Add-Step 'agent-smoke' {
+    # Сеанс MCP как у Claude Code: запрос — строка JSON-RPC, ответ — строка (stdio) или тело POST (HTTP).
+    $problems = @()
+    $headless = Get-ChildItem (Join-Path $root "game\Sword.Game.Headless\bin\$Configuration") -Recurse -Filter 'Sword.Headless.exe' | Select-Object -First 1
+    if (-not $headless) { return @{ ok = $false; detail = 'не найден Sword.Headless.exe' } }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $headless.FullName
+    $psi.Arguments = '--agent'
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $psi.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stderr = $proc.StandardError.ReadToEndAsync()
+    $script:rpcId = 0
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    function Write-Stdio([string]$line) {
+        # Байтами UTF-8: у StandardInput в PowerShell 5.1 кодировка консоли (OEM), кириллица исказилась бы.
+        $bytes = $utf8.GetBytes($line + "`n")
+        $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $proc.StandardInput.BaseStream.Flush()
+    }
+    function Send-Stdio($method, $params) {
+        $script:rpcId++
+        Write-Stdio (@{ jsonrpc = '2.0'; id = $script:rpcId; method = $method; params = $params } | ConvertTo-Json -Compress -Depth 20)
+        $read = $proc.StandardOutput.ReadLineAsync()
+        if (-not $read.Wait(60000)) { throw "Headless не ответил на $method за 60 с" }
+        if (-not $read.Result) { throw "Headless закрыл вывод на $method" }
+        return ($read.Result | ConvertFrom-Json)
+    }
+    function Call-Stdio($tool, $arguments) {
+        $r = Send-Stdio 'tools/call' @{ name = $tool; arguments = $arguments }
+        if ($r.error) { throw "${tool}: $($r.error.message)" }
+        if ($r.result.isError) { throw "${tool}: $($r.result.structuredContent.error)" }
+        return $r.result.structuredContent
+    }
+    try {
+        $init = Send-Stdio 'initialize' @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'verify' } }
+        if ($init.result.protocolVersion -ne '2025-06-18') { $problems += "Headless: протокол $($init.result.protocolVersion)" }
+        Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+        $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
+        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects')) {
+            if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
+        }
+        $player = Call-Stdio 'entity.get' @{ entity = 'player' }
+        if ($player.name -ne 'player') { $problems += "Headless: entity.get player — $($player.name)" }
+        $null = Call-Stdio 'command.send' @{ command = 'PlayerCommand'; fields = @{ Move = @{ X = 1; Y = 0 } }; repeat = 120 }
+        $step = Call-Stdio 'time.step' @{ ticks = 120 }
+        if ($step.receipt.tickId -ne 120) { $problems += "Headless: после time.step тик $($step.receipt.tickId), ждали 120" }
+        $moved = Call-Stdio 'entity.get' @{ entity = 'player'; components = @('Transform') }
+        $x = $moved.components.Transform.Position.X
+        if (-not ($x -gt 3.5)) { $problems += "Headless: игрок не ушёл по +X за 120 тиков: x = $x" }
+        $explain = Call-Stdio 'ecs.explainSystem' @{ name = 'PlayerCommand' }
+        if ($explain.stage -ne 'Intent' -or -not $explain.source) { $problems += "Headless: ecs.explainSystem — стадия $($explain.stage), источник $($explain.source)" }
+        $null = Call-Stdio 'session.stop' @{}
+        if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
+        elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
+    }
+    catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
+    finally { if (-not $proc.HasExited) { $proc.Kill() } }
+    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента"
+
+    $appNote = 'живая игра — пропущено (-SkipGpu)'
+    if (-not $SkipGpu) {
+        $exe = Get-ChildItem (Join-Path $root "game\Sword.Game.App\bin\$Configuration") -Recurse -Filter 'Sword.exe' | Select-Object -First 1
+        $port = Get-Random -Minimum 47900 -Maximum 48900
+        $dir = Join-Path $root 'artifacts\verify\agent-smoke'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $out = Join-Path $dir 'app.json'
+        $err = Join-Path $dir 'app.log'
+        $app = Start-Process -FilePath $exe.FullName -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err `
+            -ArgumentList @('--windowed', '640x480', '--no-activate', '--json', '--gpu-validation', '--agent-port', "$port")
+        $url = "http://127.0.0.1:$port/mcp"
+        $script:httpId = 0
+        function Send-Http($method, $params) {
+            $script:httpId++
+            $body = @{ jsonrpc = '2.0'; id = $script:httpId; method = $method; params = $params } | ConvertTo-Json -Compress -Depth 20
+            return Invoke-RestMethod -Method Post -Uri $url -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json' -TimeoutSec 60
+        }
+        function Call-Http($tool, $arguments) {
+            $r = Send-Http 'tools/call' @{ name = $tool; arguments = $arguments }
+            if ($r.error) { throw "${tool}: $($r.error.message)" }
+            if ($r.result.isError) { throw "${tool}: $($r.result.structuredContent.error)" }
+            return $r.result.structuredContent
+        }
+        try {
+            $ready = $false
+            for ($i = 0; $i -lt 150 -and -not $ready -and -not $app.HasExited; $i++) {
+                try { $null = Send-Http 'initialize' @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'verify' } }; $ready = $true }
+                catch { Start-Sleep -Milliseconds 200 }
+            }
+            if (-not $ready) { throw "сервер не поднялся на $url" }
+            $paused = Call-Http 'time.pause' @{}
+            $null = Call-Http 'command.send' @{ command = 'PlayerCommand'; fields = @{ Move = @{ X = 1; Y = 0 } }; repeat = 60 }
+            $step = Call-Http 'time.step' @{ ticks = 60 }
+            if ($step.tick -ne $paused.tick + 60) { $problems += "App: после time.step тик $($step.tick), ждали $($paused.tick + 60)" }
+            $bundle = Call-Http 'capture.bundle' @{ name = 'verify' }
+            $player = @($bundle.entities | Where-Object { $_.name -eq 'player' })
+            if (-not (Test-Path $bundle.color) -or -not (Test-Path $bundle.depth) -or -not (Test-Path $bundle.bundle)) { $problems += 'App: capture.bundle — нет файлов' }
+            elseif ($player.Count -ne 1) { $problems += "App: capture.bundle — игрока в кадре нет ($(@($bundle.entities).Count) сущностей)" }
+            elseif ($bundle.tickId -ne $step.tick) { $problems += "App: снимок на тике $($bundle.tickId), ждали $($step.tick) (пауза)" }
+            elseif (-not ($bundle.depthCoverage -gt 0.5)) { $problems += "App: глубина почти пуста: $($bundle.depthCoverage)" }
+            $graph = Call-Http 'render.graph' @{}
+            $passes = @($graph.passes | ForEach-Object { $_.name })
+            if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
+            $null = Call-Http 'session.stop' @{}
+            if (-not $app.WaitForExit(15000)) { $problems += 'App: не вышла после session.stop' }
+            else {
+                $report = ([System.IO.File]::ReadAllText($out).Trim()) | ConvertFrom-Json
+                if ($report.report.exitReason -ne 'closed-by-tool') { $problems += "App: выход $($report.report.exitReason)" }
+            }
+            # Снимок глубины и цвета — под GPU-валидацией: сообщения слоя и предупреждения шейдеров — отказ.
+            $d3d12 = @(Get-Content $err -Encoding UTF8 | Where-Object { ($_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:') -or $_ -match '^\[shader\]' })
+            if ($d3d12.Count -gt 0) { $problems += "App: сообщения D3D12 или шейдеров: $($d3d12 | Select-Object -First 3)" }
+            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]"
+        }
+        catch { $problems += "App: $($_.Exception.Message) — журнал $err" }
+        finally { if (-not $app.HasExited) { $app.Kill() } }
+    }
+    if ($problems.Count -eq 0) { @{ ok = $true; detail = "$headlessNote; $appNote" } }
+    else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
 if ($Bench) {
@@ -295,7 +469,7 @@ else {
 
 Add-Step 'line-endings' {
     $extensions = @('.cs', '.csproj', '.props', '.targets', '.slnx', '.md', '.json', '.ps1', '.xml', '.hlsl', '.hlsli',
-        '.editorconfig', '.gitattributes', '.gitignore', '.txt', '.yml', '.yaml')
+        '.editorconfig', '.gitattributes', '.gitignore', '.txt', '.yml', '.yaml', '.cmd')
     $skip = '\\(bin|obj|\.git|\.vs|artifacts|TestResults)\\'
     $bad = @(Get-ChildItem $root -Recurse -File -Force | Where-Object {
             ($extensions -contains $_.Extension.ToLowerInvariant()) -and ($_.FullName -notmatch $skip) -and

@@ -1,12 +1,13 @@
 # Sword.Engine.Render — правила
 
-Рендер движка: рендер-граф v0, цели сцены, временные ресурсы, хранилища, скинированные меши, данные для шейдеров,
-снимок кадра. Логика — из SWORD (`Sword.Engine/Graphics`, `Sword.Game/Render`), устройство — раздел 6 плана.
+Рендер движка: рендер-граф v0, цели сцены, временные ресурсы, хранилища, скинированные меши, UI-проход, данные для
+шейдеров, снимок кадра. Логика — из SWORD (`Sword.Engine/Graphics`, `Sword.Game/Render`), устройство — раздел 6 плана.
 
 - Публичный API — без типов нижних слоёв (Vortice, Rhi, Formats, Content): устройство D3D12 создаёт и держит сам
   `Renderer` (`RendererOptions`: окно, размер, отладочный слой, GPU-валидация, шейдеры), наружу — размер, `Resize`,
   `WaitForIdle`, имя адаптера. Игра строит кадр через `RenderGraph.AddPass`, `RenderPassContext` (`SetPipeline`, `SetConstant`,
-  `Draw`, `DrawIndexed`), данные `GpuData`, `GpuIndices`, `FrameData<T>` и пути ассетов. Проверяет
+  `SetScissor`, `Draw`, `DrawIndexed`), данные `GpuData`, `GpuIndices`, `FrameData<T>`, UI-проход (`Renderer.Ui`) и пути
+  ассетов. Проверяет
   `PublicSurfaceTests` (все публичные и защищённые сигнатуры Render и Engine.Client) и
   `CompiledAssemblies_FollowArchitecture` (ссылки собранных сборок).
 - Проход — графический (`AddPass`) или вычислительный (`AddComputePass`, dispatch на той же graphics-очереди).
@@ -32,7 +33,15 @@
   (`GraphicsDevice.AbandonFrame`), следующий начинается чисто.
 - Корневые константы обнуляются в начале каждого прохода: слоты разных проходов не пересекаются по построению.
   Внутри прохода слоты делятся по контракту шейдеров (`ShaderContract.AddSlot`): скин — 13–16
-  (`SkinnedMeshes`), сцена арены — 8–9 (`ArenaClient`).
+  (`SkinnedMeshes`), сцена арены — 8–9 (`ArenaClient`), UI-проход — 0–8 (`UiPass`, свой проход).
+- UI-проход (`Renderer.Ui`, `UiPass`): создаётся при первом обращении — читает шрифты `ui/fonts/*.swfont` из пака и
+  кладёт склеенные таблицы в DEFAULT-кучу; `Add(frame, list, name)` копирует квады `UiDrawList` в кольцо кадра сразу и
+  регистрирует проход поверх заднего буфера (без очистки) — вызов на отрезок `UiDrawList.Split`, обрезка —
+  `RenderPassContext.SetScissor`. Проходов интерфейса в кадре — до `UiPass.MaxPassesPerFrame`; кольцо растёт вдвое,
+  старое освобождается отложенно. Числа кадра для HUD: `LastFenceWaitMs`, `LastRecordMs`, `Ui.LastQuads`.
+- Снимок кадра (`Render(…, FrameCapture)`): цвет (задний буфер) и глубина сцены (reversed-Z в 8-битный PNG, ближе —
+  светлее; состояние ресурса после копии прежнее) — итог в `LastCapture`. Кадр показан, а файл не записался —
+  `CaptureException` (клиент отличает её от ошибки кадра).
 - Контракт шейдеров (`ShaderContract`), корневая сигнатура (`RootLayout`) и кеш конвейеров (`PipelineCache`) — здесь,
   а не в Rhi: их видит игра, а игра видит только Render. Корневая сигнатура одна: b0 — константы кадра, b1 — вида,
   b2 — `RootLayout.ConstantCount` корневых констант, сэмплеры s0–s2; меняя число констант, менять и `pass.hlsli`
@@ -42,7 +51,8 @@
 - Константы кадра (`RenderFrame.SetFrameConstants`) запоминает проход при регистрации: проходы до и после вызова
   видят разные константы.
 - Общие шейдеры движка — `Shaders/common/` (в выходе `Shaders/common/`): `pass.hlsli` (корневые константы,
-  сэмплеры), `gbuffer.hlsli` (чтение целей сцены), `skin.hlsli` (скиннинг).
+  сэмплеры), `gbuffer.hlsli` (чтение целей сцены), `skin.hlsli` (скиннинг), `ui.hlsl` (интерфейс: фигуры полем
+  расстояний, GPU-векторный текст).
 - Числа, которые знают и C#, и HLSL, объявляются один раз — в `Contribute` (C#); `#define` того же имени в HLSL
   роняет компиляцию шейдера.
 - Структура, которую читают и C#, и HLSL (вершины, палитры, экземпляры, константы кадра), сверяется с обеих сторон:
@@ -61,4 +71,6 @@
   пул, инварианты и восстановление после брошенного кадра; любое предупреждение D3D12 — провал. GPU-валидация
   видит ресурс не в том состоянии даже через bindless-кучу: убранный переход в SRV она ловит с именем ресурса.
 - `verify.ps1`, шаг `app-smoke` — игра с `--gpu-validation`; итог `--json` содержит `passes` (вид, записи, чтения,
-  барьеры, вызовы отрисовки и dispatch каждого прохода), `pipelines`, `pooledResources`; `--shot FILE.png` снимает кадр.
+  барьеры, вызовы отрисовки и dispatch каждого прохода), `pipelines`, `pooledResources`; `--shot FILE.png` снимает кадр;
+  проход `hud` (UI-проход) нарисовал фигуры и текст. Разбиение UI на вызовы проверяется без GPU
+  (`tests/Sword.Engine.Ui.Tests`), сам проход — `UiPassGpuTests` (категории Gpu и Content: нужны видеокарта и пак).
