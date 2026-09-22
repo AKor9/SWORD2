@@ -13,8 +13,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Client;
 
 /// <summary>
-/// Клиент игры: арена — пол, рельеф из <see cref="HeightField"/>, колонны — и бойцы: Manny в позе привязки в корне бойца
-/// с его курсом на высоте рельефа (<c>DuelArena.KinWorld</c> SWORD). Один непрозрачный проход «scene.opaque» пишет цвет,
+/// Клиент игры: арена — пол, рельеф из <see cref="HeightField"/>, колонны — и бойцы: Manny в позе последнего тика
+/// (аниматор, этап 2) в корне бойца с его курсом на высоте рельефа (<c>DuelArena.KinWorld</c> SWORD). Один непрозрачный
+/// проход «scene.opaque» пишет цвет,
 /// нормали и глубину (порядок отрисовки — <c>SceneRenderer.Record</c> SWORD 2eab13b: пол, рельеф, колонны, скин).
 ///
 /// Кадр — порядок <c>Program.cs</c> SWORD: <see cref="Input"/> — камера (<see cref="RtsCamera"/>, следует за игроком,
@@ -199,9 +200,13 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _camera.Rebuild(frame.Width, frame.Height);   // кадр из перетаскивания рамки — без Input, со своим размером
         frame.SetFrameConstants(Constants());
 
-        // Manny в позе привязки: палитра InverseBind·Component·World = World (компоненты — те же, что при привязке).
+        // Manny в позе тика (аниматор); позы нет — поза привязки: палитра InverseBind·Component·World = World.
         foreach (var fighter in _view.Fighters)
-            _renderer!.Skinned.Add(_manny, PlayerColour).Fill(GpuMat34.From(fighter.World));
+        {
+            var pose = _view.Pose(fighter);
+            if (pose.IsEmpty) _renderer!.Skinned.Add(_manny, PlayerColour).Fill(GpuMat34.From(fighter.World));
+            else _renderer!.Skinned.AddPosed(_manny, pose, fighter.World, PlayerColour);
+        }
 
         frame.Graph.AddPass("scene.opaque")
             .Color(frame.Graph.BackBuffer, ClearColour)

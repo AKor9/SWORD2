@@ -5,8 +5,13 @@ using Sword.Game.Contracts;
 
 namespace Sword.Game.Client;
 
-/// <summary>Боец в кадре: корень, курс и высота тела на рельефе — уже интерполированные по доле тика.</summary>
-public readonly record struct FighterView(Entity Entity, bool IsPlayer, Vector3 Root, float Facing, float Height)
+/// <summary>
+/// Боец в кадре: корень, курс и высота тела на рельефе — уже интерполированные по доле тика; поза последнего тика —
+/// <see cref="PoseCount"/> модельных матриц с <see cref="PoseStart"/> в снимке кадра (<see cref="ArenaView.Pose"/>),
+/// 0 — позы нет (рисуется поза привязки).
+/// </summary>
+public readonly record struct FighterView(Entity Entity, bool IsPlayer, Vector3 Root, float Facing, float Height,
+    int PoseStart = 0, int PoseCount = 0)
 {
     /// <summary>Мировая система скелета (<c>DuelArena.KinWorld</c> SWORD): поворот на курс, перенос в корень на высоте.</summary>
     public Matrix4x4 World
@@ -32,6 +37,8 @@ public sealed class ArenaView
     private readonly Func<float, float, float> _height;
     private readonly List<Entity> _fighters = [];
     private readonly List<FighterView> _views = [];
+    /// <summary>Позы бойцов кадра подряд — снимок пула поз после тиков кадра (рендер читает только его).</summary>
+    private Matrix4x4[] _poses = [];
 
     /// <param name="height">Высота рельефа в точке (x, z) — функция рельефа (<c>ArenaTerrain.Height</c>), не сетка рисования.</param>
     public ArenaView(Func<float, float, float> height) => _height = height;
@@ -83,6 +90,8 @@ public sealed class ArenaView
         PlayerAtTick = null;
         Skipped = 0;
         _views.Clear();
+        world.TryView<IAnimationView>(out var poses);
+        int posed = 0;
         foreach (var e in _fighters)
         {
             if (!world.TryGet<Transform>(e, out var cur) || !world.TryGet<PrevTransform>(e, out var prev))
@@ -91,6 +100,14 @@ public sealed class ArenaView
                 continue;
             }
             var view = Interpolate(e, world.Has<PlayerTag>(e), prev, cur, alpha, _height);
+            // Поза — последнего тика, без интерполяции между тиками (как SkinnedCharacters SWORD): плавно идёт корень.
+            if (poses is not null && world.TryGet<PoseRef>(e, out var poseRef) && poses.Model(poseRef) is { Length: > 0 } model)
+            {
+                if (_poses.Length < posed + model.Length) Array.Resize(ref _poses, Math.Max(_poses.Length * 2, posed + model.Length));
+                model.CopyTo(_poses.AsSpan(posed));
+                view = view with { PoseStart = posed, PoseCount = model.Length };
+                posed += model.Length;
+            }
             _views.Add(view);
             if (view.IsPlayer)
             {
@@ -99,6 +116,9 @@ public sealed class ArenaView
             }
         }
     }
+
+    /// <summary>Поза бойца кадра — модельные матрицы суставов последнего тика; пусто — позы нет.</summary>
+    public ReadOnlySpan<Matrix4x4> Pose(in FighterView fighter) => _poses.AsSpan(fighter.PoseStart, fighter.PoseCount);
 
     /// <summary>
     /// Появления и уходы бойцов — по тикам кадра по порядку, внутри тика уход раньше появления (нормализация барьера:

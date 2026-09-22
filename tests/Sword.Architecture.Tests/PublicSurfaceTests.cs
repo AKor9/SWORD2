@@ -75,8 +75,9 @@ public sealed class PublicSurfaceTests
             if (!seen.Add(type)) continue;
             // Обобщённый параметр обходчик сигнатур не разворачивает: T подставляет вызывающий. Подставить можно только
             // чистые данные — иначе копия структуры со ссылкой (на общий список) давала бы изменить симуляцию.
+            // Исключение — вид только для чтения (IReadView): его интерфейсы проверяет ReadViews_OnlyRead.
             foreach (var (member, parameter) in GenericParameters(type))
-                if (!IsUnmanaged(parameter))
+                if (!IsUnmanaged(parameter) && !IsReadView(parameter))
                     problems.Add($"{member}<{parameter.Name}> — параметр не unmanaged: через него отдаются ссылки");
             foreach (var (member, t) in SignatureTypes(type))
             {
@@ -91,6 +92,87 @@ public sealed class PublicSurfaceTests
         }
         Assert.True(problems.Count == 0, "Из SimulationLink достижимо изменение мира:\n" + string.Join("\n", problems.Distinct()));
         Assert.Contains(seen, t => t.FullName == "Sword.Engine.Ecs.ReadChunkView");   // обход действительно дошёл до чанков
+    }
+
+    private const string ReadViewName = "Sword.Engine.Ecs.IReadView";
+
+    /// <summary>Параметр ограничен видом только для чтения (<c>where T : IReadView</c>).</summary>
+    public static bool IsReadView(Type parameter) =>
+        parameter.GetGenericParameterConstraints().Any(c => c.FullName == ReadViewName);
+
+    /// <summary>
+    /// Каждый вид только для чтения в сборках продукта (интерфейс, наследующий <c>IReadView</c>) только читает: иначе через
+    /// <c>WorldReader.View</c> клиент получил бы путь изменить симуляцию мимо команд тика.
+    /// </summary>
+    [Fact]
+    public void ReadViews_OnlyRead()
+    {
+        var projects = SolutionModel.Load(Root).ToDictionary(p => p.Name);
+        string? app = SolutionModel.BuiltAssembly(Root, projects["Sword.Game.App"], SolutionModel.TestConfiguration());
+        Assert.True(app is not null, "нет собранной игры — соберите решение");
+        var views = Directory.GetFiles(Path.GetDirectoryName(app)!, "Sword.*.dll")
+            .Select(Assembly.LoadFrom)
+            .SelectMany(a => a.GetExportedTypes())
+            .Where(t => t.IsInterface && t.FullName != ReadViewName && t.GetInterfaces().Any(i => i.FullName == ReadViewName))
+            .ToList();
+        Assert.Contains(views, v => v.FullName == "Sword.Game.Contracts.IAnimationView");   // обход нашёл виды
+        var problems = views.SelectMany(ReadViewProblems).ToList();
+        Assert.True(problems.Count == 0, "Вид только для чтения даёт изменить данные:\n" + string.Join("\n", problems));
+    }
+
+    /// <summary>Что в интерфейсе вида даёт писать: сеттер, массив, <c>Span</c>, <c>ref</c>, ссылка на объект, изменяющий тип ECS.</summary>
+    public static IEnumerable<string> ReadViewProblems(Type view)
+    {
+        foreach (var p in view.GetProperties())
+            if (p.SetMethod is not null) yield return $"{view.Name}.{p.Name}: сеттер";
+        foreach (var m in view.GetMethods().Where(m => !m.IsSpecialName || m.Name.StartsWith("get_", StringComparison.Ordinal)))
+        {
+            var signature = m.GetParameters().Select(p => (p.ParameterType, p.IsOut)).Prepend((m.ReturnType, false));
+            foreach (var (type, isOut) in signature)
+            {
+                if (type.IsByRef && !isOut) { yield return $"{view.Name}.{m.Name}: ref"; continue; }
+                var raw = type.IsByRef ? type.GetElementType()! : type;
+                if (raw.IsArray || raw.IsPointer) { yield return $"{view.Name}.{m.Name}: {raw.Name} — массив или указатель"; continue; }
+                foreach (var t in Expand(raw))
+                {
+                    var open = t.IsGenericType ? t.GetGenericTypeDefinition() : t;
+                    if (open == typeof(Span<>)) yield return $"{view.Name}.{m.Name}: Span<T>";
+                    else if (MutatingEcs.Contains(open.FullName)) yield return $"{view.Name}.{m.Name}: {open.FullName}";
+                    else if (!open.IsValueType && open != typeof(string) && open != typeof(void))
+                        yield return $"{view.Name}.{m.Name}: {open.Name} — ссылка на объект";
+                }
+            }
+        }
+    }
+
+    public interface IBadView
+    {
+        int Count { get; set; }
+        int[] Items();
+        Span<int> Write();
+        ref int Slot(int i);
+        List<int> Shared();
+    }
+
+    public interface IGoodView
+    {
+        int Count { get; }
+        string Name(int i);
+        ReadOnlySpan<System.Numerics.Matrix4x4> Pose(int i);
+        bool TryGet(int i, out ReadOnlySpan<float> values);
+    }
+
+    [Fact]
+    public void ReadViewCheck_CatchesEveryWritePath()
+    {
+        // Сам проверяющий: без этого зелёный ReadViews_OnlyRead ничего не доказывает.
+        var bad = ReadViewProblems(typeof(IBadView)).ToList();
+        Assert.Contains(bad, p => p.Contains("сеттер"));
+        Assert.Contains(bad, p => p.Contains("Items") && p.Contains("массив"));
+        Assert.Contains(bad, p => p.Contains("Write") && p.Contains("Span"));
+        Assert.Contains(bad, p => p.Contains("Slot") && p.Contains("ref"));
+        Assert.Contains(bad, p => p.Contains("Shared") && p.Contains("ссылка"));
+        Assert.Empty(ReadViewProblems(typeof(IGoodView)));
     }
 
     /// <summary>Обобщённые параметры видимых методов типа и самого типа.</summary>

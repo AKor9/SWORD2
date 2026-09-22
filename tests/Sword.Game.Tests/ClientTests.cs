@@ -122,7 +122,7 @@ public class PlayerIntentTests
     {
         // W при повёрнутой камере: игрок бежит «от камеры» — по GroundForward этой камеры.
         var cam = new RtsCamera { Yaw = 2.1f };
-        var sim = SwordSimulation.Create(ConfigSet.Empty());
+        var sim = TestAssets.Simulation(ConfigSet.Empty());
         var p = GameCore.Player(sim.World);
         var cmd = PlayerIntent.Command(new PlayerKeys(true, false, false, false, false), cam, false, default);
         for (int i = 0; i < 240; i++)
@@ -158,7 +158,7 @@ public class ArenaViewTests
     /// <summary>Прогон «клиент при заданной частоте кадров»: скорость показанного игрока по кадрам.</summary>
     private static List<float> ShownSpeeds(double fps, bool interpolate)
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty());
+        var sim = TestAssets.Simulation(ConfigSet.Empty());
         var run = new PlayerCommand { Move = new Vector2(1, 0) };
         var clock = new SimulationClock(sim, (link, _) => link.Enqueue(run));
         var view = new ArenaView(Field);
@@ -227,7 +227,7 @@ public class ArenaViewTests
     /// <summary>Кадр из одного тика (появление игрока), затем кадр из двух тиков (1 и 2) по расписанию.</summary>
     private static (ArenaView View, Simulation Sim) TwoTickFrame(params (ulong Tick, string Stage, bool Remove)[] plan)
     {
-        var sim = Simulation.Build(ConfigSet.Empty(), GameStages.All, GameCore.Configure, [new FighterToggle(plan)]);
+        var sim = Simulation.Build(ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets), [new FighterToggle(plan)]);
         var view = new ArenaView(Field);
         var first = new SimulationClock(sim, (_, _) => { }, ticksPerFrame: 1);
         first.RunFrame(0);
@@ -270,7 +270,7 @@ public class ArenaViewTests
     [Fact]
     public void Fighters_ComeFromFrameQueue_AfterFirstTick()
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty());
+        var sim = TestAssets.Simulation(ConfigSet.Empty());
         var clock = new SimulationClock(sim, (_, _) => { });
         var view = new ArenaView(Field);
         clock.RunFrame(0);   // кадр без тиков: экспорта ещё не было — бойцов в представлении нет

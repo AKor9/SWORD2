@@ -289,6 +289,13 @@ public sealed class SimulationBuilder
         return this;
     }
 
+    /// <summary>Вид только для чтения для наблюдателей симуляции (клиент, агент) — <see cref="WorldBuilder.ReadView{TView}"/>.</summary>
+    public SimulationBuilder ReadView<TView>(TView view) where TView : class, IReadView
+    {
+        Open()._world.ReadView(view);
+        return this;
+    }
+
     /// <summary>Тип команды тика: команда, поставленная на тик, — событие <see cref="Event{E}"/> первой стадии этого тика.</summary>
     public SimulationBuilder Command<T>() where T : unmanaged
     {

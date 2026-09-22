@@ -61,10 +61,24 @@ public static class Program
         long bytes = tick.GcStats.GetBytesAllocatedPerOperation(tick.BenchmarkCase) ?? -1;
         ok &= bytes == 0;
 
+        // Сэмплинг поз (раздел 12): время — для сравнения будущих версий, цель — 0 байт на тик.
+        var poses = BenchmarkRunner.Run<PoseSampling>(config);
+        var animation = poses.Reports.Select(r =>
+        {
+            long b = r.GcStats.GetBytesAllocatedPerOperation(r.BenchmarkCase) ?? -1;
+            ok &= b == 0;
+            return new
+            {
+                fighters = (int)r.BenchmarkCase.Parameters["Fighters"], joints = PoseSampling.Joints,
+                tickNs = Math.Round(r.ResultStatistics!.Median), bytesPerTick = b,
+            };
+        }).OrderBy(x => x.fighters).ToList();
+
         var result = new
         {
             ok, quick, maxRatio = MaxRatio, entities = EcsIteration.Entities, iteration = chunks,
             commandsAndJournals = new { tickNs = Math.Round(tick.ResultStatistics!.Median), bytesPerTick = bytes },
+            poseSampling = animation,
             runtime = Environment.Version.ToString(), machine = Environment.MachineName, date = DateTime.UtcNow.ToString("u"),
         };
         string json = JsonSerializer.Serialize(result, new JsonSerializerOptions

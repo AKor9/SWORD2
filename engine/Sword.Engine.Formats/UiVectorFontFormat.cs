@@ -184,27 +184,8 @@ public sealed class UiFontFile
         // Остальные IOException — ошибки чтения потока (диск, пак), а не испорченные данные: уходят как есть.
     }
 
-    /// <summary>
-    /// Строка как у <c>BinaryWriter</c> (7-битная длина, UTF-8), но испорченная длина — <see cref="InvalidDataException"/>,
-    /// а не IOException или FormatException, которые не отличить от ошибки чтения потока.
-    /// </summary>
-    private static string ReadString(BinaryReader r, string path)
-    {
-        int length;
-        try
-        {
-            length = r.Read7BitEncodedInt();
-        }
-        catch (FormatException e)
-        {
-            throw new InvalidDataException($"{path}: испорчена строка ({e.Message})", e);
-        }
-        if (length is < 0 or > UiVectorFontFormat.MaxStringBytes)
-            throw new InvalidDataException($"{path}: испорчена строка (длина {length})");
-        byte[] bytes = new byte[length];
-        r.BaseStream.ReadExactly(bytes);
-        return Encoding.UTF8.GetString(bytes);
-    }
+    /// <summary>Строка шрифта: испорченная длина — <see cref="InvalidDataException"/> (<see cref="FormatStrings.Read"/>).</summary>
+    private static string ReadString(BinaryReader r, string path) => FormatStrings.Read(r, path, UiVectorFontFormat.MaxStringBytes);
 
     /// <summary>Записать в поток (текущая версия формата). Поток остаётся открытым; противоречивый шрифт не пишется.</summary>
     /// <exception cref="InvalidDataException">Шрифт противоречив (<see cref="Validate"/>).</exception>

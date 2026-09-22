@@ -13,8 +13,8 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 | SWORD | SWORD2 |
 |---|---|
 | `PlayerController.Think`: желаемая скорость — направление WASD на `RunSpeed` 4,2 / `WalkSpeed` 1,6 м/с; курсор запоминается (`_cursor`), курс-цель каждый тик — на него от текущего корня, если дальше 0,3 м | `PlayerCommandSystem` (Intent) из `Event<PlayerCommand>`; точка — `GazeTarget` |
-| `DuelArena.KinematicSteer`: курс ≤ `KinTurnRate` 12 рад/с, разгон `KinAccel` 14 1/с | `RootControlSystem` (Movement) |
-| `KinematicBegin`: `Root += RootVel·dt`, `Root.Y = 0`; `KinPrevRoot/KinPrevFacing` | `RootControlSystem`, `PrevTransformSystem` (Begin) |
+| `DuelArena.KinematicSteer`: курс ≤ `KinTurnRate` 12 рад/с, разгон `KinAccel` 14 1/с | `RootSteerSystem` (Gameplay — до аниматора, этап 2) |
+| `KinematicBegin`: `Root += RootVel·dt`, `Root.Y = 0`; `KinPrevRoot/KinPrevFacing` | `RootControlSystem` (Movement), `PrevTransformSystem` (Begin) |
 | `ResolveRoots`: два прохода; колонны — корень на радиус колонны + 0,35 м, скорость внутрь гасится; край арены `ArenaRadius − 0,6`, скорость наружу гасится | `RootCollisionSystem` (Movement, после RootControl) |
 | `DuelArena.Reset`: игрок в (0, 0), курс 0 | `GameCore.SpawnPlayer` |
 | `DuelArena.Tick`: `Time += dt` (float) первым делом; тик 120 Гц (`Fighter.FastTick`), не больше 8 тиков за кадр | `SimTime.Time`; `sim.tickRate`, `sim.maxTicksPerFrame` |
@@ -38,10 +38,10 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 
 ## Ограничения (намеренные, до своих этапов)
 
-- Аниматора нет (этап 2): масштаб хода и поворота — 1, корневого движения клипов нет, поворота на месте клипом нет.
-  **К этапу 2:** в SWORD `KinematicBegin` делает курс и разгон, затем `anim.Tick` по новой скорости, затем перенос
-  корня; в плане стадия Animation стоит до Movement — поворот и разгон придётся вынести до Animation (или записать
-  намеренное отличие), иначе аниматор увидит скорость прошлого тика.
+- Действий нет (этап 6): масштаб хода и поворота — 1, корневого движения клипов действий нет, поворота на месте
+  клипом нет. Порядок `KinematicBegin` SWORD (курс и разгон → `anim.Tick` по новой скорости → перенос корня) сохранён
+  с этапа 2: курс и разгон — `RootSteerSystem` в Gameplay, до аниматора, перенос — `RootControlSystem` в Movement
+  (фича [«Анимация»](../Animation/README.md), побитовая сверка с SWORD — `ReferenceTraceTests`).
 - Только путь игрока (`Agile`): поворот врагов на месте — с врагами (этап 4), как и столкновения корней бойцов между
   собой (первая часть `ResolveRoots`). **К этапу 4:** в SWORD два прохода идут по всем бойцам (пары, колонны, край), а
   здесь проходы внутри бойца — для одного бойца это то же самое, для многих `RootCollisionSystem` нужно переложить

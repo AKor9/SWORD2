@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Микробенчмарки (раздел 12 плана): ECS против сырого Span, команды и журналы. Запуск только в Release,
+  <!-- Микробенчмарки (раздел 12 плана): ECS против сырого Span, команды и журналы, сэмплинг поз. Запуск только в Release,
        из корня: dotnet run, конфигурация Release, проект tests/Sword.Benchmarks (ключ quick — короткий прогон);
        вердикт — artifacts/bench/ecs.json; из проверки — verify.ps1 с ключом Bench. -->
   <PropertyGroup>
@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\engine\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Animation\Sword.Engine.Animation.csproj" />
   </ItemGroup>
 
 </Project>

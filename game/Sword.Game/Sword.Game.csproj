@@ -7,6 +7,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
+    <ProjectReference Include="..\Sword.Game.Data\Sword.Game.Data.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Animation\Sword.Engine.Animation.csproj" />
     <ProjectReference Include="..\..\engine\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
     <ProjectReference Include="..\..\engine\Sword.Engine.Geometry\Sword.Engine.Geometry.csproj" />
     <ProjectReference Include="..\..\engine\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />

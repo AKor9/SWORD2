@@ -80,7 +80,7 @@ public static partial class Program
         try
         {
             var config = ConfigSet.Load(AppContext.BaseDirectory, sets);
-            var sim = SwordSimulation.Create(config);
+            var sim = SwordSimulation.Create(config, Animation.CharacterAssets.LoadFromPak());
             config.SkipClientSections();   // клиента нет: привязки клавиш из общего sword.json не читаются
             config.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
             if (agent)
@@ -119,6 +119,7 @@ public static partial class Program
                 allocatedBytesPerTick = ticks > warmup ? Math.Round(allocated / (double)(ticks - warmup), 3) : 0,
                 command = new { move = new[] { command.Move.X, command.Move.Y }, command.Walk, gaze = command.HasGaze ? new[] { command.Gaze.X, command.Gaze.Z } : null },
                 player = State(sim, player),
+                pose = Pose(sim, player),
                 trajectory,
                 modules = sim.ActiveModules,
                 inactiveModules = sim.InactiveModules,
@@ -165,6 +166,24 @@ public static partial class Program
     }
 
     private sealed record PlayerState(ulong tick, float x, float z, float facing, float speed);
+
+    /// <summary>
+    /// Поза игрока на последнем тике: суставов, наибольшее отклонение сустава от позы привязки (м) и признак «поза
+    /// привязки» — без модуля локомоции поза остаётся ею, с модулем — нет (проверка verify.ps1).
+    /// </summary>
+    private static PoseState? Pose(Simulation sim, Sword.Engine.Ecs.Entity player)
+    {
+        if (!sim.World.TryView<IAnimationView>(out var view) || !sim.World.TryGet<PoseRef>(player, out var poseRef)) return null;
+        var model = view.Model(poseRef);
+        var bind = view.ReferenceModel();
+        float max = 0;
+        for (int j = 0; j < model.Length; j++) max = MathF.Max(max, Vector3.Distance(model[j].Translation, bind[j].Translation));
+        // Пустая поза (освобождена или не выделена) — не поза привязки: иначе проверка «без модуля» прошла бы впустую.
+        bool bindPose = model.Length > 0 && model.Length == bind.Length && max < 1e-4f;
+        return new PoseState(model.Length, max, bindPose);
+    }
+
+    private sealed record PoseState(int joints, float maxBindDeviation, bool bindPose);
 
     private static string Fmt(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 

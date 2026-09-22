@@ -187,6 +187,13 @@ public sealed partial class World
 
     internal void AddResource<T>(T initial) => _resourceIndex[typeof(T)] = AddSlot(new ResourceSlot<T> { Value = initial, Set = true });
 
+    /// <summary>Виды только для чтения по типу интерфейса (<see cref="WorldBuilder.ReadView{TView}"/>).</summary>
+    private readonly Dictionary<Type, object> _views = [];
+
+    internal void AddView(Type type, object view) => _views[type] = view;
+
+    internal object? ViewOf(Type type) => _views.GetValueOrDefault(type);
+
     private int AddSlot(ResourceSlot slot)
     {
         _resources.Add(slot);

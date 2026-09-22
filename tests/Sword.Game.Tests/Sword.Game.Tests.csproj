@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Тесты игры: описание арены (рельеф, колонны), движение игрока в симуляции (та же композиция, что у игры). -->
+  <!-- Тесты игры: описание арены (рельеф, колонны), движение игрока и анимация в симуляции (та же композиция, что у
+       игры), сверка с SWORD на эталонном паке, инструменты агента игры. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -20,6 +21,7 @@
     <ProjectReference Include="..\..\game\Sword.Game\Sword.Game.csproj" />
     <ProjectReference Include="..\..\game\Sword.Game.Bootstrap\Sword.Game.Bootstrap.csproj" />
     <ProjectReference Include="..\..\game\Sword.Game.Client\Sword.Game.Client.csproj" />
+    <ProjectReference Include="..\..\game\Sword.Game.Agent\Sword.Game.Agent.csproj" />
   </ItemGroup>
 
 </Project>

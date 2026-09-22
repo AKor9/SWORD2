@@ -50,6 +50,22 @@ public sealed class WorldBuilder
         return this;
     }
 
+    /// <summary>
+    /// Вид только для чтения на данные владельца мира, которых нет в ECS (пул поз подсистемы и т. п.): наблюдатели
+    /// симуляции получают его через <see cref="WorldReader.View{TView}"/>. Тип вида — интерфейс, и его члены обязаны
+    /// только читать (значения и <c>ReadOnlySpan</c>): так <see cref="WorldReader"/> остаётся без путей изменить мир.
+    /// </summary>
+    public WorldBuilder ReadView<TView>(TView view) where TView : class, IReadView
+    {
+        if (!typeof(TView).IsInterface) throw new ArgumentException($"вид {typeof(TView).FullName} — не интерфейс: наблюдателю отдаётся только интерфейс");
+        ArgumentNullException.ThrowIfNull(view);
+        if (!_viewTypes.Add(typeof(TView))) throw new InvalidOperationException($"вид {typeof(TView).FullName} зарегистрирован дважды");
+        _resources.Add(w => w.AddView(typeof(TView), view));
+        return this;
+    }
+
+    private readonly HashSet<Type> _viewTypes = [];
+
     /// <summary>Система в стадию. Одну систему можно зарегистрировать в двух стадиях — тогда она обязана быть идемпотентной.</summary>
     /// <param name="module">Модуль-владелец (токен модуля: включение и выключение всех его регистраций).</param>
     /// <param name="source">Где система зарегистрирована (файл:строка) — для описания мира; null — неизвестно.</param>

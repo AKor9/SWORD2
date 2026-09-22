@@ -108,18 +108,18 @@ public sealed class PlayerCommandSystem : IContinuousSystem
 }
 
 /// <summary>
-/// Movement: корень-контроллер (<c>KinematicSteer</c> и шаг корня <c>KinematicBegin</c>): курс догоняет цель не быстрее
-/// <see cref="MovementRules.TurnRate"/>, скорость — желаемую с разгоном <see cref="MovementRules.Accel"/>, корень едет
-/// на скорость·dt по земле. Аниматора ещё нет (этап 2): масштаб хода и поворота — 1, корневого движения клипа нет,
-/// поворот на месте клипом (у врагов) не делается.
+/// Gameplay: курс и разгон корня (<c>KinematicSteer</c>, начало <c>KinematicBegin</c>): курс догоняет цель не быстрее
+/// <see cref="MovementRules.TurnRate"/>, скорость — желаемую с разгоном <see cref="MovementRules.Accel"/>. Стоит до
+/// аниматора: в SWORD <c>anim.Tick</c> идёт между разгоном и переносом корня и видит новую скорость. Действий ещё нет
+/// (этап 6): масштаб хода и поворота — 1, поворот на месте клипом (у врагов) не делается.
 /// </summary>
-public sealed class RootControlSystem : IContinuousSystem
+public sealed class RootSteerSystem : IContinuousSystem
 {
     private Query _query = null!;
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.RootControl).Reads<FighterCommand>().Writes<Transform>().Writes<RootVelocity>();
+        s.Label(GameLabels.RootSteer).Reads<FighterCommand>().Writes<Transform>().Writes<RootVelocity>();
         _query = s.Query().With<Fighter>().Read<FighterCommand>().Write<Transform>().Write<RootVelocity>();
     }
 
@@ -131,12 +131,12 @@ public sealed class RootControlSystem : IContinuousSystem
             var t = chunk.Write<Transform>();
             var intent = chunk.Read<FighterCommand>()[..t.Length];
             var v = chunk.Write<RootVelocity>()[..t.Length];
-            for (int i = 0; i < t.Length; i++) Step(intent[i], ref t[i], ref v[i].Value, dt);
+            for (int i = 0; i < t.Length; i++) Steer(intent[i], ref t[i], ref v[i].Value, dt);
         }
     }
 
-    /// <summary>Один тик корня — порядок вычислений как в SWORD: курс, скорость, перенос.</summary>
-    public static void Step(in FighterCommand intent, ref Transform t, ref Vector3 velocity, float dt)
+    /// <summary>Курс, затем скорость — порядок SWORD.</summary>
+    public static void Steer(in FighterCommand intent, ref Transform t, ref Vector3 velocity, float dt)
     {
         float df = MathF.IEEERemainder(intent.FacingGoal - t.Facing, MathF.Tau);
         t.Facing += Math.Clamp(df, -MovementRules.TurnRate * dt, MovementRules.TurnRate * dt);
@@ -144,7 +144,36 @@ public sealed class RootControlSystem : IContinuousSystem
         var desired = new Vector3(intent.DesiredVelocity.X, 0, intent.DesiredVelocity.Z);
         velocity += (desired - velocity) * MathF.Min(1, MovementRules.Accel * dt);
         velocity.Y = 0;
+    }
+}
 
+/// <summary>
+/// Movement: перенос корня на скорость·dt по земле (<c>KinematicBegin</c> после <c>anim.Tick</c>). Корневого движения
+/// действий (выпад, уклонение) и поворота клипом ещё нет — они придут с действиями (этап 6).
+/// </summary>
+public sealed class RootControlSystem : IContinuousSystem
+{
+    private Query _query = null!;
+
+    public void Setup(SystemSetup s)
+    {
+        s.Label(GameLabels.RootControl).Reads<RootVelocity>().Writes<Transform>();
+        _query = s.Query().With<Fighter>().Read<RootVelocity>().Write<Transform>();
+    }
+
+    public void Run(in SystemContext ctx)
+    {
+        float dt = ctx.World.Resource<SimTime>().Dt;
+        foreach (var chunk in ctx.Iterate(_query))
+        {
+            var t = chunk.Write<Transform>();
+            var v = chunk.Read<RootVelocity>()[..t.Length];
+            for (int i = 0; i < t.Length; i++) Move(ref t[i], v[i].Value, dt);
+        }
+    }
+
+    public static void Move(ref Transform t, Vector3 velocity, float dt)
+    {
         t.Position += velocity * dt;
         t.Position.Y = 0;
     }

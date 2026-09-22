@@ -16,7 +16,7 @@ public class MovementTests
 {
     private static (Simulation Sim, Entity Player) Create(params string[] sets)
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty(sets));
+        var sim = TestAssets.Simulation(ConfigSet.Empty(sets));
         return (sim, GameCore.Player(sim.World));
     }
 
@@ -24,11 +24,11 @@ public class MovementTests
     public void Core_IsNotAModule_AndCannotBeSwitchedOff()
     {
         // Принцип 4 плана: ядро — не модуль и не выключается; его регистрации без токена модуля.
-        var sim = SwordSimulation.Create(ConfigSet.Empty());
+        var sim = TestAssets.Simulation(ConfigSet.Empty());
         Assert.DoesNotContain(sim.ActiveModules, m => m == "core");
         Assert.All(sim.World.Systems.Where(s => s.Label.StartsWith("core.", StringComparison.Ordinal)), s => Assert.Null(s.Module));
         Assert.Contains("modules.core", Assert.Throws<InvalidDataException>(() =>
-            SwordSimulation.Create(ConfigSet.Empty("modules.core.enabled=false"))).Message);
+            TestAssets.Simulation(ConfigSet.Empty("modules.core.enabled=false"))).Message);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class MovementTests
         Assert.Equal(0.35f, MovementRules.RootRadius);
         Assert.Equal(0.6f, MovementRules.EdgeMargin);
         Assert.Equal(2, MovementRules.CollisionIterations);
-        Assert.Equal(1f / 120, SwordSimulation.Create(ConfigSet.Empty()).Dt);   // Fighter.FastTick
+        Assert.Equal(1f / 120, TestAssets.Simulation(ConfigSet.Empty()).Dt);   // Fighter.FastTick
     }
 
     private static void Run(Simulation sim, int ticks, PlayerCommand command)

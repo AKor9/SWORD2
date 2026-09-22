@@ -52,12 +52,14 @@ public sealed class SkinnedMeshes : IDisposable
 
     public const int SlotVerts = 13, SlotPalette = 14, SlotInstances = 15, SlotInstanceBase = 16;
 
-    private sealed class Mesh(string name, GpuData vertices, GpuIndices indices, int jointCount) : IDisposable
+    private sealed class Mesh(string name, GpuData vertices, GpuIndices indices, int jointCount, Matrix4x4[] inverseBind) : IDisposable
     {
         public readonly string Name = name;
         public readonly GpuData Vertices = vertices;
         public readonly GpuIndices Indices = indices;
         public readonly int JointCount = jointCount;
+        /// <summary>Обратные bind-матрицы суставов (у статического меша — пусто).</summary>
+        public readonly Matrix4x4[] InverseBind = inverseBind;
         public readonly List<int> Pending = [];
 
         public void Dispose()
@@ -133,7 +135,7 @@ public sealed class SkinnedMeshes : IDisposable
         var mesh = new Mesh(name,
             _renderer.CreateData<SkinVertex>(name + ".Vertices", data.Vertices),
             _renderer.CreateIndices(name + ".Indices", data.Indices),
-            Math.Max(data.JointCount, 1));
+            Math.Max(data.JointCount, 1), data.InverseBind);
         _meshes.Add(mesh);
         return _meshes.Count - 1;
     }
@@ -172,6 +174,24 @@ public sealed class SkinnedMeshes : IDisposable
         var span = _palette.Slot.Slice(_paletteUsed, m.JointCount);
         _paletteUsed += m.JointCount;
         return span;
+    }
+
+    /// <summary>
+    /// Экземпляр скинированного меша в позе: <paramref name="model"/> — модельные матрицы суставов (вектор слева, порядок
+    /// суставов меша), <paramref name="world"/> — мир экземпляра; палитра — InverseBind·Model·World
+    /// (<c>SkinnedCharacters.AddInstance</c> SWORD). Обратные bind-матрицы знает только рендер. false — места в кадре нет.
+    /// </summary>
+    /// <exception cref="ArgumentException">Суставов в позе не столько, сколько в меше.</exception>
+    public bool AddPosed(int mesh, ReadOnlySpan<Matrix4x4> model, in Matrix4x4 world, Vector3 colour, uint owner = 0, float glow = 0, uint flags = 0)
+    {
+        var m = _meshes[mesh];
+        if (model.Length != m.InverseBind.Length)
+            throw new ArgumentException($"{m.Name}: суставов в позе {model.Length}, в меше {m.InverseBind.Length}", nameof(model));
+        var palette = Add(mesh, colour, owner, glow, flags);
+        if (palette.IsEmpty) return false;
+        var inv = m.InverseBind;
+        for (int j = 0; j < inv.Length; j++) palette[j] = GpuMat34.From(inv[j] * model[j] * world);
+        return true;
     }
 
     /// <summary>Нарисовать всё добавленное конвейером <paramref name="pipeline"/> (вершинный шейдер — через skin.hlsli).</summary>

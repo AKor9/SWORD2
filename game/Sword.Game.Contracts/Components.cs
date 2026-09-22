@@ -44,6 +44,29 @@ public struct GazeTarget
     public bool Has;
 }
 
+/// <summary>
+/// Поза бойца в пуле поз подсистемы Animation (раздел 6 плана: данные позы — в пуле, в ECS — хэндл): номер слота и
+/// поколение. Итоговая поза тика — модельные матрицы суставов в пространстве персонажа (+Z вперёд, +X влево, Y вверх);
+/// ядро заводит её вместе с бойцом и освобождает, когда компонент снят.
+/// </summary>
+public struct PoseRef
+{
+    public int Index;
+    public int Generation;
+}
+
+/// <summary>
+/// Движение бойца для слоя локомоции аниматора (<c>FighterAnimator</c> SWORD: <c>_vel</c>, <c>_moving</c>,
+/// <c>LocoInput</c>): сглаженная скорость в системе бойца (x — вправо, z — вперёд), «идёт» с гистерезисом и можно ли
+/// искать новый кадр (false — действие ведёт всё тело). Пишет ядро в Gameplay, читает модуль локомоции в Animation.
+/// </summary>
+public struct AnimatorMotion
+{
+    public Vector3 Velocity;
+    public bool Moving;
+    public bool Search;
+}
+
 /// <summary>Боец (тег).</summary>
 public struct Fighter;
 

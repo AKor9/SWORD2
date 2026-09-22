@@ -24,6 +24,23 @@ public static class GameLabels
 {
     public static readonly SystemLabel PrevTransform = new("core.prev-transform");
     public static readonly SystemLabel PlayerCommand = new("core.player-command");
+
+    /// <summary>Gameplay: курс и разгон корня (<c>KinematicSteer</c>) — до аниматора, который видит новую скорость.</summary>
+    public static readonly SystemLabel RootSteer = new("core.root-steer");
+
+    /// <summary>Gameplay, после <see cref="RootSteer"/>: сглаженная скорость и «идёт» (компонент <c>AnimatorMotion</c>).</summary>
+    public static readonly SystemLabel AnimatorInput = new("core.animator-input");
+
+    /// <summary>
+    /// Animation: итоговая поза бойца — прямая кинематика его <see cref="PoseRef"/>. Слои позы (локомоция, позже
+    /// действия) ставят свои задания до этой метки.
+    /// </summary>
+    public static readonly SystemLabel AnimatorPose = new("core.animator-pose");
+
+    /// <summary>Animation, после <see cref="AnimatorPose"/>: пул поз исполняет задания тика пачкой.</summary>
+    public static readonly SystemLabel AnimationTick = new("core.animation-tick");
+
+    /// <summary>Movement: перенос корня на скорость тика (<c>KinematicBegin</c>).</summary>
     public static readonly SystemLabel RootControl = new("core.root-control");
     public static readonly SystemLabel RootCollision = new("core.root-collision");
 }

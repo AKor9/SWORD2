@@ -137,7 +137,7 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
 2. Попросить агента: «через sword-headless: покажи состояние сеанса, дай игроку команду бежать по +X 120 тиков, сделай
    120 тиков и скажи, где игрок» — игрок около x = 3,94, скорость 4,2 м/с.
 3. «Объясни систему PlayerCommand» — стадия Intent, читает Transform, пишет FighterCommand и GazeTarget, вход —
-   команды тика, выход — core.root-control; место регистрации `game/Sword.Game/GameCore.cs`.
+   команды тика, выход — core.root-steer; место регистрации `game/Sword.Game/GameCore.cs`.
 4. `Sword.exe --agent`, затем через sword-app: пауза (Manny замирает, HUD — «тиков сим. 0»), команда движения на
    120 тиков, `time.step` 120 — Manny пробегает и останавливается; `capture.bundle` — картинка кадра, глубина и рамка
    игрока в `artifacts/agent/…`; `time.resume` — игра снова идёт, WASD работает.

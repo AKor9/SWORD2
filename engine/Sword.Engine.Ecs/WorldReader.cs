@@ -1,6 +1,13 @@
 namespace Sword.Engine.Ecs;
 
 /// <summary>
+/// Вид только для чтения (<see cref="WorldBuilder.ReadView{TView}"/>, <see cref="WorldReader.View{TView}"/>): интерфейс,
+/// все члены которого только читают — значения, строки, <c>ReadOnlySpan</c> чистых данных; без сеттеров, массивов,
+/// <c>Span</c>, <c>ref</c> и ссылок на объекты. Проверка — <c>PublicSurfaceTests.ReadViews_OnlyRead</c>.
+/// </summary>
+public interface IReadView;
+
+/// <summary>
 /// Мир только для чтения — для тех, кто симуляцию наблюдает, но не исполняет (клиентская часть игры: Extract, камера;
 /// инструменты). Ни одного пути изменить мир: нет немедленных операций, тика, включения систем, записи колонок,
 /// журналов с курсорами; ресурсы — только значения. Меняют симуляцию команды тика у её владельца.
@@ -40,6 +47,21 @@ public readonly partial struct WorldReader
     /// (например, на общий список) через чтение не отдаются — иначе копия давала бы изменить симуляцию.
     /// </summary>
     public T Resource<T>() where T : unmanaged => _world.Resource<T>();
+
+    /// <summary>
+    /// Вид только для чтения, который владелец мира зарегистрировал (<see cref="WorldBuilder.ReadView{TView}"/>): данные
+    /// подсистем вне ECS — например, позы. Нет такого вида — исключение.
+    /// </summary>
+    public TView View<TView>() where TView : class, IReadView =>
+        _world.ViewOf(typeof(TView)) as TView
+        ?? throw new InvalidOperationException($"вид {typeof(TView).FullName} не зарегистрирован (WorldBuilder.ReadView)");
+
+    /// <summary>Вид только для чтения, если он зарегистрирован (его регистрирует модуль — без модуля вида нет).</summary>
+    public bool TryView<TView>([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out TView? view) where TView : class, IReadView
+    {
+        view = _world.ViewOf(typeof(TView)) as TView;
+        return view is not null;
+    }
 
     /// <summary>Новый запрос на чтение.</summary>
     public ReadQueryBuilder Query() => new(_world.Query());

@@ -36,6 +36,15 @@
 3. `time.step {"ticks":120}`; `entity.get {"entity":"player","components":["Transform","RootVelocity"]}` — ждём
    x ≈ 3,94, скорость 4,2 м/с (разгон `MovementRules`).
 
+**Проверить анимацию бойца (этап 2).**
+1. `entity.get {"entity":"player","components":["LegacyLocomotionState","AnimatorMotion"]}` — какой клип играет
+   (номер), время клипа, доля кроссфейда; сглаженная скорость и «идёт».
+2. `anim.clips {"index":N}` — имя клипа по номеру (или `{"filter":"Run"}` — клипы по подстроке ID): длительность, цикл,
+   скорость корневого движения. Список — страницами по 50: дальше — `skip` из `continuationToken` квитанции.
+3. `anim.pose {"entity":"player"}` — суставы (таз, голова, кисти, стопы) в пространстве персонажа и в мире; `pool` —
+   живые позы и задания последнего тика (`staleLastTick` должен быть 0).
+4. Побитовая сверка с SWORD — тест `ReferenceTraceTests` (`dotnet test tests/Sword.Game.Tests --filter ReferenceTrace`).
+
 **Понять, почему поле такое.** `ecs.componentUsage {"name":"Transform"}` — кто пишет; `ecs.explainSystem` писателя —
 его входы (`upstream`, с пометкой «в этом тике» или «с прошлого тика» и причиной `why`: команды той же стадии —
 только в следующем тике) и место регистрации (`source`).

@@ -11,4 +11,12 @@
     <ProjectReference Include="..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- Модули симуляции. Сборка без модуля (-p:Without<Модуль>=true, раздел 7) — без ссылки на него. -->
+  <ItemGroup Condition="'$(WithoutLocomotion)' != 'true'">
+    <ProjectReference Include="..\modules\Sword.Game.Locomotion\Sword.Game.Locomotion.csproj" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(WithoutLocomotion)' == 'true'">
+    <DefineConstants>$(DefineConstants);WITHOUT_LOCOMOTION</DefineConstants>
+  </PropertyGroup>
+
 </Project>

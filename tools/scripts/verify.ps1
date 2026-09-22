@@ -11,6 +11,10 @@
       forbidden-references  заготовки tests/fixtures/forbidden-references/SWORD00N-*: каждая обязана упасть со своим
                             кодом — иначе проверка ссылок в сборке сломана;
       without-agent         App и Headless с -p:WithoutAgent=true собираются и не содержат сборок агента;
+      without-modules       Headless с -p:Without<Модуль>=true для каждого модуля game/modules по очереди: собирается
+                            без ссылки на модуль, DLL модуля нет в выходе, 10 с игрового времени без ошибок, модуля нет
+                            в составе; своё поведение без модуля — по таблице $expect (Locomotion: корень ушёл по +X,
+                            поза игрока — поза привязки);
       headless-smoke        Sword.Headless: 600 тиков с командой «бег по +X» — итог JSON в порядке, игрок ушёл
                             по +X со скоростью бега, тик после прогрева не выделяет памяти (симуляция игры без
                             окна, та же композиция, что у Sword.exe); каждый модуль по очереди выключен — 10 с
@@ -28,12 +32,14 @@
                             пак контента; -SkipGpu — пропустить);
       agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
                             (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
-                            time.step, игрок ушёл по +X, ecs.explainSystem, session.stop — выход 0; Sword.exe --agent
+                            time.step, игрок ушёл по +X, ecs.explainSystem, играет клип бега (anim.clips по номеру
+                            из LegacyLocomotionState), anim.pose, session.stop — выход 0; Sword.exe --agent
                             (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
                             рамкой), render.graph, session.stop — выход closed-by-tool (с -SkipGpu — только Headless);
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
-                            плана); итог — artifacts/bench/ecs.json;
+                            плана); сэмплинг поз (1 и 33 бойца, кроссфейд) — 0 байт на тик; итог —
+                            artifacts/bench/ecs.json;
       line-endings          все текстовые файлы — CRLF (соглашение AGENTS.md);
       reference             SHA-256 эталонного пака совпадает с tests/reference/reference.json.
 
@@ -145,6 +151,40 @@ Add-Step 'without-agent' {
     else { @{ ok = $false; detail = $failures -join '; ' } }
 }
 
+Add-Step 'without-modules' {
+    # Сборка без модуля (раздел 7 плана, -p:Without<Модуль>=true): Headless собирается без ссылки на сборку модуля
+    # и 10 с игрового времени проходят без ошибок — игры без модуля это не ломает (решение 9).
+    $modules = @(Get-ChildItem (Join-Path $root 'game\modules') -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^Sword\.Game\.\w+$' } | ForEach-Object { $_.Name.Substring('Sword.Game.'.Length) })
+    if ($modules.Count -eq 0) { return @{ ok = $true; detail = 'модулей нет' } }
+    # Что должно быть видно без модуля — по итогу Headless (1200 тиков бега по +X). Модуль без записи здесь — только
+    # общие проверки; новый модуль добавляет свою строку.
+    $expect = @{
+        'Locomotion' = {
+            param($r)
+            if ($r.player.x -lt 30) { "корень не ушёл: x = $($r.player.x)" }
+            elseif (-not $r.pose -or -not $r.pose.bindPose) { "поза не поза привязки (отклонение $($r.pose.maxBindDeviation) м) — слой локомоции остался?" }
+        }
+    }
+    $failures = @()
+    $project = Join-Path $root 'game\Sword.Game.Headless\Sword.Game.Headless.csproj'
+    foreach ($m in $modules) {
+        $output = Join-Path $root "artifacts\verify\without-modules\$m"
+        if (Test-Path $output) { Remove-Item $output -Recurse -Force }
+        $out = & dotnet build $project -c $Configuration -nologo -v:minimal "-p:Without$m=true" -o $output | Out-String
+        if ($LASTEXITCODE -ne 0) { $failures += "без ${m} не собрался: $(Get-Lines $out ': error ' 3)"; continue }
+        if (Test-Path (Join-Path $output "Sword.Game.$m.dll")) { $failures += "без ${m}: в выходе есть Sword.Game.$m.dll" ; continue }
+        $ErrorActionPreference = 'Continue'
+        $r = (& (Join-Path $output 'Sword.Headless.exe') --ticks 1200 --move 1,0 --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or -not $r.ok) { $failures += "без ${m}: прогон — код $LASTEXITCODE, $($r.error)" }
+        elseif (@($r.modules) -contains $m.ToLowerInvariant()) { $failures += "без ${m}: модуль всё равно в составе" }
+        elseif ($expect.ContainsKey($m) -and ($problem = & $expect[$m] $r)) { $failures += "без ${m}: $problem" }
+    }
+    $checked = @($modules | Where-Object { $expect.ContainsKey($_) })
+    if ($failures.Count -eq 0) { @{ ok = $true; detail = "Headless без модуля ($($modules -join ', ')) собрался без его сборки, 10 с без ошибок; своё поведение без модуля проверено у: $($checked -join ', ')" } }
+    else { @{ ok = $false; detail = $failures -join '; ' } }
+}
+
 Add-Step 'headless-smoke' {
     # Точка 1в: ECS, Runtime, ядро игры и Bootstrap вместе; 600 тиков — 5 с при 120 тиках/с.
     $exe = Get-ChildItem (Join-Path $root "game\Sword.Game.Headless\bin\$Configuration") -Recurse -Filter 'Sword.Headless.exe' | Select-Object -First 1
@@ -160,6 +200,7 @@ Add-Step 'headless-smoke' {
     elseif ([math]::Abs($r.player.speed - 4.2) -gt 0.01) { $problems += "скорость $($r.player.speed), ждали 4.2 (бег)" }
     elseif ($r.player.x -lt 19 -or [math]::Abs($r.player.z) -gt 1e-3) { $problems += "игрок в ($($r.player.x), $($r.player.z)), ждали x ≈ 20, z = 0" }
     elseif ($r.allocatedBytesPerTick -ne 0) { $problems += "тик выделяет $($r.allocatedBytesPerTick) Б после прогрева, ждали 0 (раздел 12 плана)" }
+    elseif (-not $r.pose -or $r.pose.bindPose) { $problems += "игрок бежит, а поза — поза привязки: локомоция не работает" }
     # Решение 9 и раздел 12: каждый модуль по очереди выключен — 10 с игрового времени без исключений.
     $modules = @($r.modules)
     $ticks10s = 10 * $r.tickRate
@@ -169,6 +210,7 @@ Add-Step 'headless-smoke' {
         $b = $bare | ConvertFrom-Json
         if (-not $b.ok) { $problems += "без модуля ${m}: $($b.error)" }
         elseif ($b.ticks -ne $ticks10s -or @($b.inactiveModules) -notcontains $m) { $problems += "без модуля ${m}: тиков $($b.ticks), выключены $($b.inactiveModules)" }
+        elseif ($m -eq 'locomotion' -and -not $b.pose.bindPose) { $problems += "модуль locomotion выключен конфигом, а поза не поза привязки" }
     }
     # Клиентская секция общего конфига (привязки клавиш) Headless не мешает.
     $withInput = (& $exe.FullName --ticks 1 --set input.move_forward=Up --json 2>$null | Out-String).Trim() | ConvertFrom-Json
@@ -366,7 +408,7 @@ Add-Step 'agent-smoke' {
         if ($init.result.protocolVersion -ne '2025-06-18') { $problems += "Headless: протокол $($init.result.protocolVersion)" }
         Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
         $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
-        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects')) {
+        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips')) {
             if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
         }
         $player = Call-Stdio 'entity.get' @{ entity = 'player' }
@@ -379,13 +421,21 @@ Add-Step 'agent-smoke' {
         if (-not ($x -gt 3.5)) { $problems += "Headless: игрок не ушёл по +X за 120 тиков: x = $x" }
         $explain = Call-Stdio 'ecs.explainSystem' @{ name = 'PlayerCommand' }
         if ($explain.stage -ne 'Intent' -or -not $explain.source) { $problems += "Headless: ecs.explainSystem — стадия $($explain.stage), источник $($explain.source)" }
+        # Этап 2: бегущий игрок играет клип бега (номер клипа в состоянии локомоции → имя через anim.clips), поза — живая.
+        $loco = Call-Stdio 'entity.get' @{ entity = 'player'; components = @('LegacyLocomotionState') }
+        $clip = Call-Stdio 'anim.clips' @{ index = [int]$loco.components.LegacyLocomotionState.Clip }
+        $clipName = "$(@($clip.clips)[0].name)"
+        if ($clipName -notmatch 'Run') { $problems += "Headless: после бега играет клип «$clipName», ждали бег" }
+        $pose = Call-Stdio 'anim.pose' @{ entity = 'player'; joints = @('pelvis', 'head') }
+        $pelvisY = @($pose.joints)[0].model[1]
+        if (-not ($pelvisY -gt 0.5) -or $pose.pool.poses -lt 3) { $problems += "Headless: anim.pose — таз на $pelvisY м, поз в пуле $($pose.pool.poses)" }
         $null = Call-Stdio 'session.stop' @{}
         if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
         elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
     }
     catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
     finally { if (-not $proc.HasExited) { $proc.Kill() } }
-    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента"
+    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName"
 
     $appNote = 'живая игра — пропущено (-SkipGpu)'
     if (-not $SkipGpu) {
@@ -458,7 +508,8 @@ if ($Bench) {
         if (-not (Test-Path $out)) { return @{ ok = $false; detail = "нет итога бенчмарков: $(Get-Lines $log 'error|Exception' 3)" } }
         $r = Get-Content $out -Raw -Encoding UTF8 | ConvertFrom-Json
         $ratios = ($r.iteration | ForEach-Object { "чанк $($_.chunkBytes / 1024) КБ: ×$($_.ratio)" }) -join ', '
-        $detail = "обход ECS / сырой цикл — $ratios (не больше ×$($r.maxRatio)); тик команд и журналов $([math]::Round($r.commandsAndJournals.tickNs / 1000, 1)) мкс, $($r.commandsAndJournals.bytesPerTick) Б"
+        $poses = (@($r.poseSampling) | ForEach-Object { "$($_.fighters) бойц. — $([math]::Round($_.tickNs / 1000, 1)) мкс, $($_.bytesPerTick) Б" }) -join ', '
+        $detail = "обход ECS / сырой цикл — $ratios (не больше ×$($r.maxRatio)); тик команд и журналов $([math]::Round($r.commandsAndJournals.tickNs / 1000, 1)) мкс, $($r.commandsAndJournals.bytesPerTick) Б; сэмплинг поз (кроссфейд): $poses"
         @{ ok = [bool]$r.ok; detail = $detail }
     }
 }

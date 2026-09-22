@@ -1,0 +1,9 @@
+[mcp_servers.sword-app]
+url = "http://127.0.0.1:47813/mcp"
+
+[mcp_servers.sword-headless]
+command = "cmd"
+args = [
+    "/c",
+    'tools\scripts\agent-headless.cmd',
+]

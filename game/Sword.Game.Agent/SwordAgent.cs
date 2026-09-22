@@ -12,7 +12,11 @@ namespace Sword.Game.Agent;
 /// </summary>
 public static class SwordAgent
 {
-    public static void Register(AgentHost host) => host.Names = new ArenaNames();
+    public static void Register(AgentHost host)
+    {
+        host.Names = new ArenaNames();
+        AnimationTools.Register(host);
+    }
 
     /// <summary>Имена бойцов арены.</summary>
     public sealed class ArenaNames : IEntityNames

@@ -1,6 +1,6 @@
 # SWORD2: архитектурная реорганизация — план
 
-Редакция 9 от 2026-09-21. Этап 0 сделан, следующий — этап 1 (прототип).
+Редакция 10 от 2026-09-22. Этапы 0 и 1 сделаны; этап 2 (анимация) — ждёт подтверждения в игре.
 - Р2: перенос логики, прототип первым, приёмка фич; виды модульности, контракты игры, Runtime/Client, семантика
   ECS, реплеи, приёмка пекарни.
 - Р3: реактивные системы (решение 11); симуляция и клиент разделены **по сборкам**; журналы событий с курсорами;
@@ -23,6 +23,14 @@
 - Р9: **этап 0 сделан**. Уточнения по ходу: `IInvariant` — в Runtime (его реализуют игра и модули); `Engine.Core`
   разрешён всем неявно; `Sword.Game.Client` видит ещё Geometry, Ecs, Diagnostics; Vortice — с `PrivateAssets=compile`;
   проверки ссылок — SWORD001–003 в сборке и `ArchitectureRules` в тестах.
+- Р10: **этап 1 сделан** (точки 1а–1е, 1е принял пользователь). Этап 2 по точкам 2а–2в; уточнения по ходу: данные
+  подсистем вне ECS (пул поз) наблюдателям — только **видом только для чтения** (`IReadView` в ECS,
+  `WorldReader.View`; `IAnimationView` в `Game.Contracts` — не стратегия, ядро его не спрашивает); курс и разгон
+  (`KinematicSteer`) — в Gameplay до аниматора, перенос корня — в Movement: порядок `KinematicBegin` SWORD; пул поз
+  исполняет задания пачкой в Animation, у каждой симуляции свой; ассеты бойца грузит exe (`CharacterAssets`) и отдаёт
+  в `Sword.Game.Bootstrap` готовыми — Bootstrap контент не видит; заведён `Game.Data` (таблица действий); сверка
+  с SWORD — трассой настоящего кода SWORD на эталонном паке (`tests/reference/sword-trace`), побитово; сборка без
+  модуля — шаг `without-modules` в `verify.ps1`.
 
 Исходник — `D:\Work\Visual Studio\SWORD` (ветка `master`, коммит `2eab13b`, до системы частиц песка) — замороженный
 образец: из него берётся логика и снимаются контрольные числа, сам он не меняется. SWORD2 — та же игра на новой
@@ -1107,6 +1115,7 @@ lod      = [hero, hybrid, crowd]
 | 3 | реплеи, `state.hash`, `time.seek`, `replay.diff`; `ObservationPredicate`, условия в `runUntil`/`break`; `ObservationHistory`, `watch.*`, история, `replay.observe`; реестр инвариантов и базовые инварианты движка, `time.breakOnInvariant`; `world.snapshot`/`diff`; `FeatureManifest` и `feature.verify` (задним числом — для прототипа и анимации); `experiment.fork`/`compare`, `experiment.sweep` по конфигу |
 | 5 | инварианты физики, в т. ч. внутри шага; оверлеи капсул и контактов; ID-буфер в `capture.bundle` |
 | 6 | журнал причинности и `state.why` — бой даёт первые длинные причинные цепочки |
+| 2 | вид `IAnimationView`; `anim.pose` (поза по суставам, счётчики пула поз), `anim.clips` (номер клипа ↔ ID); сверка с трассой SWORD — тест `ReferenceTraceTests` (манифест — задним числом на этапе 3) |
 | 2–14 | каждая фича — свой `FeatureManifest`: сценарии, инварианты, метрики, виды, бюджеты, чек-лист |
 | 14 | инспектор сущностей для человека — на той же интроспекции |
 | дальше | `replay.minimize`; `differential.run` (с первой оптимизацией подсистемы); переборы масштабирования (после параллельного планировщика и LOD); `Sword.Agent.Evals` и модули-неисправности; нормали и векторы движения в `capture.bundle` |
@@ -1147,9 +1156,9 @@ lod      = [hero, hybrid, crowd]
 | Gameplay | `DeathToRagdollSystem@Gameplay` | реактивная: `Added<Dead>` — смерти до физики (сценарии, команды); `NextTickOk<Added<Dead>>` для смертей из Resolve и Aftermath | `SettleDeaths()` в начале тика |
 | Gameplay | `FighterSetupSystem` | реактивная: `Added<Fighter>` — поза, сочленение, аниматор, первое оружие; боец создан сразу с полным набором компонентов | `Spawn`, `Build`, `PlaceBuilt`, `AttachRig` |
 | Gameplay | `WeaponEquipSystem` | реактивная: `Changed<WeaponSlot>` (из Intent) — клинок, окна ударов; функция экипировки общая с `FighterSetupSystem` | `EquipPlayerWeapon`, `NextPlayerWeapon` |
-| Gameplay | `CombatDecisionSystem`, `FighterAnimatorSystem` | непрерывные (без `Dead`) | `PlayerAttackPicker`, `StrikeWindows`, `FighterAnimator` |
-| Animation | Push/Pull анимации | непрерывные | `KinematicBegin` |
-| Movement | `RootControlSystem`, `RootCollisionSystem` | непрерывные | `KinematicBegin` (корень), `ResolveRoots` |
+| Gameplay | `RootSteerSystem` (этап 2), `CombatDecisionSystem`, `AnimatorInputSystem` (этап 2: вход слоя движения), слой действий аниматора | непрерывные (без `Dead`) | `KinematicSteer`, `PlayerAttackPicker`, `StrikeWindows`, `FighterAnimator` |
+| Animation | слои позы (модуль Locomotion — `LegacyLocomotionSystem`), `AnimatorPoseSystem` (прямая кинематика), `AnimationTickSystem` (пул поз исполняет задания пачкой) | непрерывные | `KinematicBegin` (`anim.Tick`) |
+| Movement | `RootControlSystem` (перенос корня), `RootCollisionSystem` | непрерывные | `KinematicBegin` (корень), `ResolveRoots` |
 | PrePhysics | `KinematicPlacementSystem` | непрерывная | `PlaceBodies`, `PrepareKinematicContacts` |
 | Physics | Push/Pull физики | непрерывные | подшаги `DuelArena.Tick` |
 | Combat | `StrikeDetectionSystem` | непрерывная → `StrikeContact` | `KinematicStrikes` |
@@ -1337,7 +1346,7 @@ Blood и Innards — представление: на игру не влияют
 - **Готово, когда:** решение собирается, тесты зелёные, заведомо запрещённая ссылка роняет сборку и тест,
   `reference.json` заполнен.
 
-### Этап 1. Прототип без механик — M, как можно быстрее
+### Этап 1. Прототип без механик — M · сделан
 
 **Цель:** арена и персонаж на экране на целевой архитектуре. Всё дальнейшее наращивается на нём. Этап разбит на
 контрольные точки; **каждая собирается и запускается**.
@@ -1349,7 +1358,7 @@ Blood и Innards — представление: на игру не влияют
 | 1в. Симуляция · сделана | ECS v0 (с журналами, реактивными системами и их граничными тестами), Runtime v0 (тик, стадии, барьеры, команды тика, статические модули, конфиг: json + ключи); `Game.Contracts` v0, `Sword.Game`: игрок, контроллер корня (разгон к желаемой скорости — логика `KinematicBegin`), граница арены; `Sword.Game.Bootstrap` | персонаж двигается по заданной команде |
 | 1г. Клиент · сделана | Client v0: ввод → команды (правила раздела 7), Extract и `RenderWorld` с интерполяцией (v0 — мир представления клиента игры `ArenaView`); `Sword.Game.Client`: RTS-камера (цикл кадра с накопителем — уже в 1в: `SimulationClock`) | WASD относительно камеры, колесо — зум, плавное движение при любой частоте кадров |
 | 1д. Инструменты прототипа · сделана | Ui (рантайм без GPU: списки квадов, шрифты и shaping; виджеты `UiContext` — с панелями DevTools) и UI-проход, HUD (FPS, подсказка), снимок F4, простой бенч кадра (`Game.Headless` на том же `Sword.Game.Bootstrap` — уже в 1в) | FPS на экране, F4 — снимок; `Headless` проходит 600 тиков без окна |
-| 1е. Агентский доступ | Introspection, Engine.Agent (MCP, stdio, квитанции, инструкции сервера), Engine.Agent.Client (`capture.bundle` v0), Game.Agent; карта архитектуры; инструменты этапа 1е из раздела 8; `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `docs/agent-playbook.md` | Claude Code подключается к `Game.Headless --agent` и к живому `Game.App --agent`: шагает время, читает игрока, отправляет команду движения, снимает пакет наблюдения, объясняет систему через `ecs.explainSystem` |
+| 1е. Агентский доступ · сделана | Introspection, Engine.Agent (MCP, stdio, квитанции, инструкции сервера), Engine.Agent.Client (`capture.bundle` v0), Game.Agent; карта архитектуры; инструменты этапа 1е из раздела 8; `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `docs/agent-playbook.md` | Claude Code подключается к `Game.Headless --agent` и к живому `Game.App --agent`: шагает время, читает игрока, отправляет команду движения, снимает пакет наблюдения, объясняет систему через `ecs.explainSystem` |
 
 **Не входит:** клипы, враги, физика, бой, модули, пекарня, панели DevTools, реплеи, параллельность, проверка доступа
 ECS, хуки, GPU-симуляции, отдельная compute-очередь.
@@ -1365,7 +1374,7 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 
 | этап | фича | логика из SWORD | что видно в игре |
 |---|---|---|---|
-| 2 | Анимация и локомоция клипами: подсистема Animation (клипы, пул поз, сэмплинг), скиннинг на GPU, аниматор бойца (слой локомоции); модуль Locomotion, часть 1 — `LegacyLocomotion` | `Sword.Anim`, `FighterAnimator`, `LegacyLocomotion`, `SkinnedRenderer` | персонаж ходит и бегает клипами |
+| 2 · ждёт подтверждения | Анимация и локомоция клипами: подсистема Animation (клипы, пул поз, сэмплинг), скиннинг на GPU, аниматор бойца (слой локомоции); модуль Locomotion, часть 1 — `LegacyLocomotion`; точки 2а–2в — `game/Sword.Game/Features/Animation/README.md` | `Sword.Anim`, `FighterAnimator`, `LegacyLocomotion`, `SkinnedRenderer` | персонаж ходит и бегает клипами |
 | 3 | Детерминизм и реплеи: счётчиковый ГСЧ, хеш состояния с участниками `IStateContributor` (правила раздела 7), запись и воспроизведение команд всех видов (игрок, арена, ручки, модули); `Headless` воспроизводит запись `Game.App` с теми же хешами; агенту — реплеи, язык условий, история, реестр инвариантов, снимки мира и их сравнение, `FeatureManifest` и `feature.verify` (задним числом — для прототипа и анимации), `experiment.fork`/`compare`/`sweep` по конфигу (раздел 8, «По этапам») | новое | ничего: проверяется автоматически |
 | 4 | Враги и ИИ: спавн, `EnemyAi`, столкновения корней бойцов между собой (колонны и край арены — уже в 1в), PageUp/PageDown, R | `EnemyAi`, `ResolveRoots`, `ArenaLayout`, `ArenaWorld` | враги подходят и окружают |
 | 5 | Физика и тела: подсистема Physics, хуки ECS, капсулы по позе, debug draw капсул, панель ручек F3; инварианты физики, оверлеи и ID-буфер в `capture.bundle` | `Sword.Physics`, `PlaceBodies`, `KinematicContacts`, `Tuning` | капсулы тел поверх персонажей |

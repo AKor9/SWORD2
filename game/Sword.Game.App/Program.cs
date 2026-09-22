@@ -116,7 +116,7 @@ public static partial class Program
         try
         {
             var config = ConfigSet.Load(AppContext.BaseDirectory, options.Sets);
-            var simulation = SwordSimulation.Create(config);
+            var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud);
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions], config);
             arena.UseBindings(bindings.Keys);
