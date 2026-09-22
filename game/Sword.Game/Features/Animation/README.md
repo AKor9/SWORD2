@@ -80,6 +80,8 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 
 ## Что проверить в игре
 
+Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет).
+
 1. `Sword.exe` — Manny стоит в боевой стойке одноручного хвата (клип `1HM_Idle_Standing`; меча в руке ещё нет — этап 6),
    слегка покачивается, а не стоит в T-позе.
 2. W (курсор перед Manny) — разгоняется: пара шагов ходьбой, затем бег вперёд; ноги не скользят по полу.
@@ -90,6 +92,11 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 6. Бег по кругу вокруг курсора — ноги переключаются между направлениями без дёрганья (гистерезис сторон).
 
 ## Агентский доступ
+
+Приёмка (этап 3д) — [feature.json](feature.json): сценарий трассы SWORD (900 тиков командами) — корень и курс тик за
+тиком против трассы SWORD с допуском 0, проверки клипов (стойка, бег, стороны); эталон анимации; инварианты
+`animation.*`, `locomotion.poses`; виды — стойка, бег, бег назад; бюджет стадии Animation. `Sword.Headless --feature
+animation` или `feature.verify {"id":"animation"}`.
 
 Анализ по чек-листу раздела 8:
 

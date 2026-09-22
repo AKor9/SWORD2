@@ -17,7 +17,9 @@
 - Симуляция сеанса Headless — `AgentSimulation` (этап 3б): запись с тика 0, смену симуляции (`session.start`,
   `time.seek` назад) исполняет только поток симуляции в `SimulationLoop` между точками обслуживания (`Post`); после
   смены цикл обновляет контекст обслуживания, `AgentHost.Catalog` и время (`TimeControl.Reset`). Живая игра
-  (`host.Simulation` = null) пересборки не умеет — такие инструменты отвечают ошибкой.
+  (`host.Simulation` = null) пересборки не умеет — такие инструменты отвечают ошибкой. Транспорт Headless запускается
+  в `started` у `SimulationLoop.Run`, когда сеанс уже подключён: иначе первый вызов после `initialize` мог застать
+  `host.Simulation` = null и получить ошибку «живая игра» (тест `FeatureToolsTests.SessionAttachedBeforeTransportStarts`).
 - Наблюдение (этап 3в) — `AgentHost.Observation` (`ObservationHub`): подключает хозяин цикла (`host.Observe`) —
   `SimulationLoop` к каждой симуляции сеанса до её первого тика (`AgentSimulation.Preparing`: и повтор перемотки назад
   попадает в историю), живая игра — exe при старте. Останов посреди тика (`time.break`) — точка обслуживания внутри
@@ -26,5 +28,10 @@
 - Инварианты (этап 3г) — `InvariantTools`: реестр и проверка — в Runtime (`ServiceContext.Invariants` в точке
   обслуживания), свои инварианты агента, включения и остановка на нарушении — через `AgentHost.Observation` (переносит
   их в каждую новую симуляцию сеанса). Ожидание остановки — общее с `runUntil`/`break` (`ObservationTools.Await`).
+- Приёмка и эксперименты (этап 3д) — `FeatureTools` (`feature.list`, `feature.verify`) и `ExperimentTools`
+  (`experiment.fork/compare/sweep`): логика — в Introspection (`FeatureVerifier`, `Experiments`), здесь — аргументы,
+  артефакты и отдельные симуляции построителем сеанса (`AgentSimulation.Build`, как `replay.check`; сеанс не
+  трогается). Где манифесты и чем снимать виды, задаёт exe игры — `AgentHost.Features` (`FeatureSetup`); движок путей
+  игры не знает.
 
 Проверка: `tests/Sword.Engine.Agent.Tests`, `verify.ps1` шаг `agent-smoke`.

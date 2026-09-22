@@ -22,8 +22,12 @@ public static class SimulationLoop
     public static void Run(Simulation sim, AgentHost host, CancellationToken stop) =>
         Run(new AgentSimulation(sim, ReplayInfo.Current(host.ContentHash)), host, stop);
 
-    /// <summary>Крутить симуляцию сеанса до отмены <paramref name="stop"/>; ожидающие запросы и ожидания тиков в конце отменяются.</summary>
-    public static void Run(AgentSimulation session, AgentHost host, CancellationToken stop)
+    /// <summary>
+    /// Крутить симуляцию сеанса до отмены <paramref name="stop"/>; ожидающие запросы и ожидания тиков в конце отменяются.
+    /// <paramref name="started"/> — на потоке симуляции, когда сеанс уже подключён к <paramref name="host"/> (до первого
+    /// тика): транспорт агента запускают здесь, иначе первый вызов после <c>initialize</c> может не застать симуляцию сеанса.
+    /// </summary>
+    public static void Run(AgentSimulation session, AgentHost host, CancellationToken stop, Action? started = null)
     {
         var context = new ServiceContext(session.Current);
         void Prepare(Simulation sim) => host.Observe(sim);
@@ -56,6 +60,7 @@ public static class SimulationLoop
         host.Observe(session.Current);
         try
         {
+            started?.Invoke();
             host.Time.Ran(session.Current.Tick);
             while (!stop.IsCancellationRequested)
             {

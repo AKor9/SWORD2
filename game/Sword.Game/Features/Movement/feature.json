@@ -1,0 +1,137 @@
+{
+  // Приёмка фичи «Движение игрока» (точка 1в) — задним числом, этап 3д. Формат — FeatureManifest (Sword.Engine.Introspection),
+  // исполняет feature.verify (Sword.Headless --feature movement). Ослабить ожидания — только правкой с сообщением пользователю.
+  "format": "sword-feature",
+  "version": 1,
+  "id": "movement",
+  "title": "Движение игрока (точка 1в)",
+  "doc": "README.md",
+  "sourceRoots": ["game/Sword.Game/Movement", "game/Sword.Game/GameCore.cs", "game/Sword.Game/Arena"],
+  "scenarios": [
+    {
+      "id": "run-edge",
+      "title": "бег по +X до края арены (Sword.exe --move 1,0)",
+      "ticks": 2160,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 2160 }],
+      "checks": [
+        {
+          "id": "reaches-edge", "title": "добегает до края", "expect": "eventually",
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "greaterOrEqual": 61.399 }] }
+        },
+        {
+          "id": "stays-inside", "title": "за край не выходит", "expect": "always",
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "lessOrEqual": 61.4001 }] }
+        },
+        {
+          "id": "runs", "title": "разгоняется до бега", "expect": "eventually",
+          "condition": { "all": [{ "entity": "player" }, { "field": "RootVelocity.Value.X", "between": [4.1999, 4.2001] }] }
+        }
+      ]
+    },
+    {
+      "id": "walk",
+      "title": "шаг по +Z (Sword.exe --move 0,1 --walk)",
+      "ticks": 600,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 }, "Walk": true }, "from": 0, "to": 600 }],
+      "checks": [
+        {
+          "id": "not-faster", "title": "не быстрее шага", "expect": "always",
+          "condition": { "all": [{ "entity": "player" }, { "field": "RootVelocity.Value.Z", "lessOrEqual": 1.6001 }] }
+        }
+      ]
+    },
+    {
+      "id": "column",
+      "title": "бег на колонну (Sword.exe --move 27.7,11.4)",
+      "ticks": 1440,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 27.7, "Y": 11.4 } }, "from": 0, "to": 1440 }],
+      "checks": [
+        {
+          "id": "not-through", "title": "в колонну не входит (квадрат внутри круга колонны 1,2 + корень 0,35 м)", "expect": "never",
+          "condition": {
+            "all": [
+              { "entity": "player" },
+              { "field": "Transform.Position.X", "between": [26.747, 28.747] },
+              { "field": "Transform.Position.Z", "between": [10.405, 12.405] }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "gaze",
+      "title": "бег по диагонали со взглядом на (30, 0) (Sword.exe --move 1,1 --gaze 30,0)",
+      "ticks": 600,
+      "commands": [
+        {
+          "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 1 }, "HasGaze": true, "Gaze": { "X": 30, "Y": 0, "Z": 0 } },
+          "from": 0, "to": 600
+        }
+      ]
+    },
+    {
+      "id": "stand",
+      "title": "без команд — стоит в центре",
+      "ticks": 600,
+      "checks": [
+        {
+          "id": "at-center", "title": "стоит в (0, 0)", "expect": "always",
+          "condition": {
+            "all": [
+              { "entity": "player" },
+              { "field": "Transform.Position.X", "equals": 0 },
+              { "field": "Transform.Position.Z", "equals": 0 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "prototype",
+      "title": "эталон SWORD2 прототипа: запись Sword.exe с клавиатуры (хеши каждого тика)",
+      "replay": "tests/reference/replays/prototype.swreplay"
+    }
+  ],
+  "invariants": ["ecs.finite", "ecs.entityRefs"],
+  "metrics": [
+    {
+      "id": "run-speed", "scenario": "run-edge", "source": "sword", "reference": "SWORD 2eab13b PlayerController.RunSpeed = 4.2f",
+      "entity": "player", "field": "RootVelocity.Value", "at": 600, "expected": 4.2, "tolerance": 0.0001
+    },
+    {
+      "id": "walk-speed", "scenario": "walk", "source": "sword", "reference": "SWORD 2eab13b PlayerController.WalkSpeed = 1.6f",
+      "entity": "player", "field": "RootVelocity.Value", "at": 300, "expected": 1.6, "tolerance": 0.0001
+    },
+    {
+      "id": "edge-x", "scenario": "run-edge", "source": "sword",
+      "reference": "SWORD 2eab13b ArenaLayout.ArenaRadius 62 − 0,6 (DuelArena.ResolveRoots: край арены)",
+      "entity": "player", "field": "Transform.Position.X", "expected": 61.4, "tolerance": 0.0001
+    },
+    {
+      "id": "column-x", "scenario": "column", "source": "sword2", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
+      "entity": "player", "field": "Transform.Position.X", "expected": 38.376617, "tolerance": 0.0001
+    },
+    {
+      "id": "column-z", "scenario": "column", "source": "sword2", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
+      "entity": "player", "field": "Transform.Position.Z", "expected": 17.478165, "tolerance": 0.0001
+    },
+    {
+      "id": "gaze-facing", "scenario": "gaze", "source": "sword2", "reference": "SWORD2 3д: курс на точку взгляда (30, 0) после 600 тиков",
+      "entity": "player", "field": "Transform.Facing", "expected": 2.332009, "tolerance": 0.0001
+    }
+  ],
+  "views": [
+    { "id": "run", "title": "бег по +X, камера SWORD за игроком", "scenario": "run-edge", "tick": 240 },
+    { "id": "column", "title": "у колонны: упёрся и уходит вдоль неё", "scenario": "column", "tick": 900, "camera": "0.6,1.0,16,27.7,11.4" }
+  ],
+  "budgets": [
+    { "id": "run", "scenario": "run-edge", "msPerTick": 0.1, "allocatedBytesPerTick": 0, "repeats": 5 }
+  ],
+  "checklist": [
+    "`Sword.exe --move 1,0` — Manny бежит вправо (по +X), камера за ним, кольцо и тень под ним; секунд через 15 упирается в край арены и дальше не выходит.",
+    "`Sword.exe --move 27.7,11.4` — секунд через 7 добегает до ближайшей колонны, упирается и уходит вдоль неё, сквозь неё не проходит.",
+    "`Sword.exe --move 1,1 --gaze 30,0` — бежит по диагонали, лицом доворачивает к точке (30, 0) и следит за ней, пока бежит.",
+    "`Sword.exe --move 0,1 --walk` — заметно медленнее: шаг, а не бег.",
+    "Без ключей — Manny стоит в центре, как в точке 1б."
+  ]
+}

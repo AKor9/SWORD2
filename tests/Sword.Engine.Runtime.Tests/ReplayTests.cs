@@ -278,4 +278,52 @@ public class ReplayTests
         Assert.Null(same.FirstHashTick);
         Assert.Equal(201, same.CommonHashes);
     }
+
+    /// <summary>
+    /// Этап 3д: начало реплея — команды до тика и хеши не дальше него; без хешей — только команды. Ветка с началом играет
+    /// те же тики бит в бит и дальше идёт без команд реплея.
+    /// </summary>
+    [Fact]
+    public void Head_KeepsCommandsAndHashesBeforeTick()
+    {
+        var a = RecordRun();
+        var head = a.Head(40);
+        Assert.Equal(40ul, head.Ticks);
+        Assert.All(head.Runs, r => Assert.True(r.End <= 40));
+        Assert.Equal(20L, head.CommandCount);                                // Nudge на 20…39
+        Assert.Equal(41, head.Hashes.Count);
+        Assert.Equal(a.Hashes.Take(41).Select(h => h.Parts[0]), head.Hashes.Select(h => h.Parts[0]));
+        var bare = a.Head(a.Ticks, hashes: false);
+        Assert.Empty(bare.Hashes);
+        Assert.Equal(0, bare.HashEvery);
+        Assert.Equal(a.CommandCount, bare.CommandCount);
+        var player = PlayAll(head);
+        Assert.Null(player.Divergence);
+        Assert.Equal(41, player.HashesChecked);
+    }
+
+    /// <summary>
+    /// Этап 3д (бюджеты фич нашли): воспроизведение реплея не выделяет памяти на тик — команды тика выдаются по индексу, а
+    /// не перечислителем через интерфейс (32 байта на тик).
+    /// </summary>
+    [Fact]
+    public void Playback_SteadyTick_DoesNotAllocate()
+    {
+        // Команда каждый тик — чередуясь, чтобы отрезки не сливались: выдача идёт в каждом тике замера.
+        var rec = Wanderers();
+        var recorder = rec.Record(Info);
+        for (int t = 0; t < 400; t++)
+        {
+            rec.Enqueue(new Nudge { X = t % 2 == 0 ? 0.25f : -0.25f });
+            rec.Step();
+        }
+        var replay = recorder.ToReplay().Head(400, hashes: false);
+        Assert.Equal(400L, replay.CommandCount);
+        var sim = Wanderers(replay.CreateConfig());
+        sim.Play(replay);
+        while (sim.Tick < 100) sim.Step();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        while (sim.Tick < 400) sim.Step();
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
 }

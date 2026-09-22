@@ -166,6 +166,28 @@ public sealed class Replay
         };
     }
 
+    /// <summary>
+    /// Начало реплея — первые <paramref name="at"/> тиков: команды тиков до <paramref name="at"/>, хеши после не больше
+    /// <paramref name="at"/> тиков (<paramref name="hashes"/> false — без хешей: замеры времени, где сверка хешей каждого тика
+    /// мерила бы хеш, а не игру), заголовок и конфиг — те же (ветка эксперимента, которая дальше идёт своими командами).
+    /// </summary>
+    public Replay Head(ulong at, bool hashes = true)
+    {
+        var runs = new List<ReplayRun>();
+        foreach (var r in Runs)
+        {
+            if (r.First >= at) break;
+            runs.Add(r.End <= at ? r : r with { Count = (int)(at - r.First) });
+        }
+        return new Replay
+        {
+            Build = Build, RecordedBy = RecordedBy, Content = Content, RecordedUtc = RecordedUtc, TickRate = TickRate, Seed = Seed,
+            Ticks = Math.Min(Ticks, at), Modules = Modules, InactiveModules = InactiveModules, Parts = Parts,
+            CommandTypes = CommandTypes, Config = (JsonObject)Config.DeepClone(), Runs = runs,
+            Hashes = hashes ? [.. Hashes.Where(h => h.Tick <= at)] : [], HashEvery = hashes ? HashEvery : 0,
+        };
+    }
+
     // ── файл ────────────────────────────────────────────────────────────────
 
     public void Save(string path)
@@ -643,8 +665,11 @@ public sealed class ReplayPlayer : IReplaySource
         var runs = Replay.Runs;
         while (_run < runs.Count && runs[_run].End <= tick) _run++;
         if (_run >= runs.Count || runs[_run].First > tick) return;
-        foreach (var c in runs[_run].Commands)
+        // По индексу: перечислитель списка через интерфейс упаковывался бы — 32 байта на тик воспроизведения.
+        var list = runs[_run].Commands;
+        for (int k = 0; k < list.Count; k++)
         {
+            var c = list[k];
             var (simType, leaves, layout, scratch) = _bind[c.Type];
             Array.Clear(scratch);
             for (int i = 0; i < leaves.Length; i++) layout.SetBits(scratch, leaves[i], c.Leaves[i]);

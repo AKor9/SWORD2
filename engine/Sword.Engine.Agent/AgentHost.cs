@@ -69,6 +69,8 @@ public sealed class AgentHost
         ReplayTools.Register(this);
         ObservationTools.Register(this);
         InvariantTools.Register(this);
+        FeatureTools.Register(this);
+        ExperimentTools.Register(this);
     }
 
     public string Mode => _options.Mode;
@@ -143,6 +145,9 @@ public sealed class AgentHost
 
     /// <summary>Имена сущностей игры (Game.Agent); null — только номера.</summary>
     public IEntityNames? Names { get; set; }
+
+    /// <summary>Где манифесты фич и чем снимать виды (<c>feature.*</c>, этап 3д) — задаёт exe игры; null — фич нет.</summary>
+    public FeatureSetup? Features { get; set; }
 
     /// <summary>Последний кадр клиента (App); у Headless — null. Пишет поток кадра, читает поток агента.</summary>
     public ulong? LastFrame
@@ -226,6 +231,8 @@ public sealed class AgentHost
         world.query с where и aggregate; replay.observe — то же на прогоне реплея.
         Инварианты: invariant.list — что проверяется и что нарушено; time.breakOnInvariant — встать на нарушении;
         invariant.run — проверить сейчас; invariant.define — свой инвариант условием; нарушения — events.history (InvariantViolation).
+        Приёмка и эксперименты: feature.list, feature.verify (id) — вердикт фичи по манифесту (сценарии, инварианты, метрики, бюджеты,
+        виды); experiment.fork — реплей до тика и ветками дальше, experiment.compare — чем разошлись, experiment.sweep — перебор конфига.
         {(Mode == "app" ? "Живая игра: время идёт само, time.pause останавливает симуляцию (кадры рисуются); capture.bundle — снимок кадра с глубиной, видимыми сущностями и камерой." : "Headless стартует на паузе: время двигают time.step и time.runUntil; time.seek — назад и вперёд, session.start {replay} — воспроизвести реплей (свои команды ветвят его); time.break {stage, condition} — встать посреди тика после стадии.")}
         """;
 

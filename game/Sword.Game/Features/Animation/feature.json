@@ -1,0 +1,92 @@
+{
+  // Приёмка фичи «Анимация и локомоция клипами» (этап 2) — задним числом, этап 3д. Формат — FeatureManifest
+  // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature animation). Ослабить ожидания — только
+  // правкой с сообщением пользователю.
+  "format": "sword-feature",
+  "version": 1,
+  "id": "animation",
+  "title": "Анимация и локомоция клипами (этап 2)",
+  "doc": "README.md",
+  "sourceRoots": [
+    "engine/Sword.Engine.Animation",
+    "game/Sword.Game/Animation",
+    "game/modules/Sword.Game.Locomotion",
+    "game/Sword.Game.Client/Scene"
+  ],
+  "requiredModules": ["locomotion"],
+  "scenarios": [
+    {
+      "id": "sword-trace",
+      "title": "сценарий трассы SWORD: стойка, бег вперёд, шаг вбок, бег назад-влево, стойка, бег к −Z (900 тиков)",
+      "ticks": 900,
+      "commands": [
+        { "command": "PlayerCommand", "from": 0, "to": 60 },
+        {
+          "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 30 } },
+          "from": 60, "to": 300
+        },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 }, "Walk": true }, "from": 300, "to": 420 },
+        {
+          "command": "PlayerCommand", "fields": { "Move": { "X": -1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 30, "Y": 0, "Z": 0 } },
+          "from": 420, "to": 600
+        },
+        { "command": "PlayerCommand", "from": 600, "to": 720 },
+        {
+          "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": -30 } },
+          "from": 720, "to": 900
+        }
+      ],
+      "checks": [
+        {
+          "id": "idle-first", "title": "первую секунду — стойка, не бег", "expect": "always", "from": 1, "to": 60,
+          "condition": { "all": [{ "entity": "player" }, { "field": "LegacyLocomotionState.Run", "equals": false }] }
+        },
+        {
+          "id": "runs", "title": "бежит клипом бега", "expect": "eventually",
+          "condition": { "all": [{ "entity": "player" }, { "field": "LegacyLocomotionState.Run", "equals": true }] }
+        },
+        {
+          "id": "sideways", "title": "бежит или идёт не только вперёд (сторона ≠ 0)", "expect": "eventually",
+          "condition": { "all": [{ "entity": "player" }, { "field": "LegacyLocomotionState.Dir", "notEquals": 0 }] }
+        },
+        {
+          "id": "clip-chosen", "title": "клип выбран с первого тика", "expect": "always",
+          "condition": { "all": [{ "entity": "player" }, { "field": "LegacyLocomotionState.Clip", "greaterOrEqual": 0 }] }
+        }
+      ]
+    },
+    {
+      "id": "reference",
+      "title": "эталон SWORD2 анимации: бег, шаг, стрейф (хеши каждого тика)",
+      "replay": "tests/reference/replays/animation.swreplay"
+    }
+  ],
+  "invariants": ["animation.*", "locomotion.poses", "ecs.finite"],
+  "metrics": [
+    {
+      "id": "sword-trace", "scenario": "sword-trace", "source": "sword",
+      "reference": "трасса настоящего кода SWORD 2eab13b на эталонном паке (tests/reference/sword-trace): корень и курс тик за тиком, побитово; клип и поза — ReferenceTraceTests",
+      "entity": "player", "trace": "tests/reference/anim-locomotion.trace.json",
+      "series": { "root[0]": "Transform.Position.X", "root[1]": "Transform.Position.Z", "facing": "Transform.Facing" },
+      "tolerance": 0
+    }
+  ],
+  "views": [
+    { "id": "idle", "title": "стойка одноручного хвата", "scenario": "sword-trace", "tick": 60, "camera": "0.6,0.9,6,0,0" },
+    { "id": "run", "title": "бег вперёд", "scenario": "sword-trace", "tick": 250, "camera": "0.6,0.9,6,0,6.4" },
+    { "id": "back", "title": "бег назад-влево со взглядом на (30, 0)", "scenario": "sword-trace", "tick": 500, "camera": "0.6,0.9,6,-0.2,6.6" }
+  ],
+  "budgets": [
+    {
+      "id": "reference", "scenario": "reference", "msPerTick": 0.1, "stages": { "Animation": 0.08 }, "allocatedBytesPerTick": 0, "repeats": 5
+    }
+  ],
+  "checklist": [
+    "`Sword.exe` — Manny стоит в боевой стойке одноручного хвата (клип `1HM_Idle_Standing`; меча в руке ещё нет — этап 6), слегка покачивается, а не стоит в T-позе.",
+    "W (курсор перед Manny) — разгоняется: пара шагов ходьбой, затем бег вперёд; ноги не скользят по полу.",
+    "С зажатым Shift — шагом, заметно медленнее, шаги соответствуют скорости.",
+    "Курсор держать перед Manny и бежать A или D — бег боком (стрейф), S — бег спиной вперёд; смена направления — плавная, без рывков позы.",
+    "Отпустить клавиши — за полсекунды возвращается в стойку, переход мягкий.",
+    "Бег по кругу вокруг курсора — ноги переключаются между направлениями без дёрганья (гистерезис сторон)."
+  ]
+}

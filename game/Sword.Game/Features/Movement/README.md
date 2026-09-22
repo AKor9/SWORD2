@@ -51,6 +51,8 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 
 ## Что проверить в игре
 
+Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет).
+
 Управление с клавиатуры — в `Features/Control`; здесь — заданной командой: `--move`/`--walk`/`--gaze` заменяют ввод
 игрока, камера управляется как обычно.
 
@@ -63,6 +65,11 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 5. Без ключей — Manny стоит в центре, как в точке 1б.
 
 ## Агентский доступ
+
+Приёмка (этап 3д) — [feature.json](feature.json): сценарии командами (бег до края, шаг, на колонну, со взглядом,
+стоит) и эталон прототипа; метрики — скорости бега и шага и край арены против констант SWORD, корень у колонны и курс
+взгляда — эталон SWORD2; виды — бег и колонна; бюджет бега. `Sword.Headless --feature movement` или `feature.verify
+{"id":"movement"}`.
 
 - `Sword.Headless --ticks N --move X,Z [--gaze X,Z] [--walk] [--set …] --json` — итог: где игрок, курс, скорость,
   траектория (`--sample`), мс на тик, выделенные байты на тик после прогрева (`allocatedBytesPerTick`, ждём 0), список

@@ -35,6 +35,9 @@ public static partial class Program
           --json              итог — одной строкой JSON в stdout (для агента)
           --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
                               двигает агент; stdout — только протокол, журнал — в stderr
+          --feature ID|all    приёмка фичи по манифесту feature.json (feature.verify): сценарии, инварианты,
+                              метрики, бюджеты, виды (кадры Sword.exe --replay); артефакты — artifacts/features/ID;
+                              код выхода 4 — провал. --no-views — без видов, --no-budgets — без бюджетов
         """;
 
     /// <summary>
@@ -42,6 +45,10 @@ public static partial class Program
     /// <paramref name="build"/> — симуляция из конфига той же композицией (<c>session.start</c>, <c>time.seek</c> назад).
     /// </summary>
     static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, ref int? exit);
+
+    /// <summary>Приёмка фич (<c>--feature</c>, AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
+    static partial void RunFeatures(string which, Func<ConfigSet, Simulation> build, string content, bool views, bool budgets, bool json,
+        ref int? exit);
 
     /// <summary>Тиков прогрева перед замером выделений: ёмкости журналов, буферов и очередей выросли.</summary>
     private const int WarmupTicks = 120;
@@ -53,7 +60,8 @@ public static partial class Program
         bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
         bool json = false, agent = false;
-        string? record = null, replayPath = null;
+        string? record = null, replayPath = null, feature = null;
+        bool views = true, budgets = true;
         var sets = new List<string>();
         try
         {
@@ -88,12 +96,18 @@ public static partial class Program
                     case "--set": sets.Add(Next()); break;
                     case "--json": json = true; break;
                     case "--agent": agent = true; break;
+                    case "--feature": feature = Next(); break;
+                    case "--no-views": views = false; break;
+                    case "--no-budgets": budgets = false; break;
                     default: throw new ArgumentException($"неизвестный ключ {a}");
                 }
             }
             if (replayPath is not null && commandSet) throw new ArgumentException("--replay: команды — из реплея; --move, --walk, --gaze нельзя");
             if (agent && (replayPath is not null || record is not null))
                 throw new ArgumentException("--agent: реплеи — инструментами агента (session.start, replay.save), не ключами");
+            if (feature is not null && (agent || replayPath is not null || record is not null || commandSet || sets.Count > 0))
+                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set нельзя");
+            if (feature is null && (!views || !budgets)) throw new ArgumentException("--no-views и --no-budgets — только с --feature");
         }
         catch (ArgumentException ex)
         {
@@ -120,6 +134,14 @@ public static partial class Program
                 c.SkipClientSections();   // клиента нет: привязки клавиш из общего sword.json не читаются
                 c.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
                 return s;
+            }
+            if (feature is not null)
+            {
+                int? done = null;
+                RunFeatures(feature, Build, content, views, budgets, json, ref done);
+                if (done is { } code) return code;
+                Log.Error("headless", "--feature: сборка без агента (-p:WithoutAgent=true) — приёмка фич — инструмент агента");
+                return 2;
             }
             var sim = Build(config);
             var playback = replay is null ? null : sim.Play(replay);

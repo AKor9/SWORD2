@@ -36,12 +36,19 @@
                             тике; испорченный реплей (команда одного тика в середине) называет тик и участника,
                             код выхода 3; эталоны tests/reference/replays воспроизводятся из командной строки
                             (-SkipGpu — запись Headless вместо Sword.exe; -SkipReference — без эталонов);
+      features              приёмка фич (этап 3д): Sword.Headless --feature all — манифест feature.json каждой фичи:
+                            сценарии, их проверки и хеши реплеев, инварианты, метрики против эталонов SWORD и SWORD2,
+                            бюджеты (время — только с -Configuration Release, байты — всегда), виды — кадры
+                            Sword.exe --replay по записи сценария с теми же хешами; итоги — artifacts/features/<id>
+                            (-SkipGpu — без видов; -SkipReference — пропустить: эталоны на эталонном паке);
       agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
                             (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
                             time.step, игрок ушёл по +X, ecs.explainSystem, играет клип бега (anim.clips по номеру
                             из LegacyLocomotionState), anim.pose, state.hash, state.describe; реплеи (этап 3б) —
                             replay.save, time.seek назад и вперёд к тому же хешу, session.start с реплеем — совпал,
-                            replay.check; session.stop — выход 0; Sword.exe --agent
+                            replay.check; этап 3д — feature.list, feature.verify, experiment.fork (ветка с другой
+                            командой расходится на тике после неё), experiment.compare; session.stop — выход 0;
+                            Sword.exe --agent
                             (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
                             рамкой), render.graph, replay.status (запись с тика 0), session.stop — выход
                             closed-by-tool (с -SkipGpu — только Headless);
@@ -446,6 +453,35 @@ Add-Step 'replay-smoke' {
     else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
+if ($SkipReference) {
+    $steps.Add([ordered]@{ name = 'features'; ok = $true; seconds = 0; detail = 'пропущено (-SkipReference): сценарии фич — на эталонном паке' })
+    if (-not $Json) { Write-Host 'SKIP features                     пропущено (-SkipReference)' }
+}
+else {
+    Add-Step 'features' {
+        # Этап 3д: приёмка каждой фичи по её манифесту одним вызовом; вердикт — по манифесту и эталонам.
+        $ErrorActionPreference = 'Continue'
+        $headless = Get-ChildItem (Join-Path $root "game\Sword.Game.Headless\bin\$Configuration") -Recurse -Filter 'Sword.Headless.exe' | Select-Object -First 1
+        if (-not $headless) { return @{ ok = $false; detail = 'не найден Sword.Headless.exe' } }
+        $arguments = @('--feature', 'all', '--json')
+        if ($SkipGpu) { $arguments += '--no-views' }
+        $r = (& $headless.FullName @arguments 2>$null | Out-String).Trim() | ConvertFrom-Json
+        $code = $LASTEXITCODE
+        if (-not $r -or -not $r.features) { return @{ ok = $false; detail = "Sword.Headless --feature all: код $code, $($r.error)" } }
+        $failed = @($r.features | Where-Object { -not $_.ok })
+        if ($code -ne 0 -or $failed.Count -gt 0) {
+            return @{ ok = $false; detail = ($failed | ForEach-Object { "$($_.feature): $(@($_.failures | Select-Object -First 3) -join '; ')" }) -join ' | ' }
+        }
+        $summary = $r.features | ForEach-Object {
+            $views = if ($_.views -is [array]) { @($_.views).Count } else { 0 }
+            "$($_.feature) (сценариев $(@($_.scenarios).Count), метрик $(@($_.metrics).Count), видов $views, бюджетов $(if ($_.budgets -is [array]) { @($_.budgets).Count } else { 0 }))"
+        }
+        $time = if ($Configuration -eq 'Release') { 'бюджеты времени проверены' } else { 'время бюджетов только замерено (Debug)' }
+        $viewNote = if ($SkipGpu) { 'виды пропущены (-SkipGpu)' } else { 'хеши App во всех видах совпали с Headless' }
+        @{ ok = $true; detail = "зелёные: $($summary -join ', '); $time; $viewNote" }
+    }
+}
+
 Add-Step 'agent-smoke' {
     # Сеанс MCP как у Claude Code: запрос — строка JSON-RPC, ответ — строка (stdio) или тело POST (HTTP).
     $problems = @()
@@ -492,7 +528,8 @@ Add-Step 'agent-smoke' {
         foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'state.hash', 'state.describe',
                 'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek',
                 'time.break', 'watch.add', 'watch.list', 'watch.remove', 'entity.history', 'events.history', 'world.snapshot', 'world.diff', 'replay.observe',
-                'invariant.list', 'invariant.enable', 'invariant.run', 'invariant.define', 'time.breakOnInvariant')) {
+                'invariant.list', 'invariant.enable', 'invariant.run', 'invariant.define', 'time.breakOnInvariant',
+                'feature.list', 'feature.verify', 'experiment.fork', 'experiment.compare', 'experiment.sweep')) {
             if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
         }
         $player = Call-Stdio 'entity.get' @{ entity = 'player' }
@@ -568,13 +605,29 @@ Add-Step 'agent-smoke' {
         if (-not $broke.met -or $broke.receipt.stage -ne 'runtime.export' -or $v.id -ne 'agent.playerNear' -or -not $v.entity -or [int]$recorded3g.total -lt 1) {
             $problems += "Headless: time.breakOnInvariant — $($broke | ConvertTo-Json -Compress -Depth 5), история $($recorded3g.total)"
         }
+        # Этап 3д: манифесты фич, приёмка одной фичи, развилка записи сеанса и сравнение веток.
+        $features = @((Call-Stdio 'feature.list' @{}).features | ForEach-Object { $_.id })
+        foreach ($id in @('animation', 'control', 'determinism', 'movement', 'tools')) {
+            if ($features -notcontains $id) { $problems += "Headless: feature.list — нет $id" }
+        }
+        $verified = Call-Stdio 'feature.verify' @{ id = 'movement'; views = $false; budgets = $false }
+        if (-not $verified.ok) { $problems += "Headless: feature.verify movement — $(@($verified.failures) -join '; ')" }
+        $fork = Call-Stdio 'experiment.fork' @{ replay = 'smoke.swreplay'; at = 60; variants = @(@{ name = 'back'; commands = @(@{ command = 'PlayerCommand'; fields = @{ Move = @{ X = -1; Y = 0 } }; from = 60; to = 61 }) }); measure = @(@{ entity = 'player'; field = 'Transform.Position.X' }) }
+        $branches = @($fork.branches)
+        if ($branches.Count -ne 2 -or [int]$branches[1].vsBase.firstHashTick -ne 61 -or [int]$branches[1].vsBase.lastCommon -ne 60) {
+            $problems += "Headless: experiment.fork — $($fork | ConvertTo-Json -Compress -Depth 6)"
+        }
+        else {
+            $compare = Call-Stdio 'experiment.compare' @{ a = $branches[0].file; b = $branches[1].file }
+            if ([int]$compare.describedAt -ne 61 -or @($compare.describe).Count -lt 1) { $problems += "Headless: experiment.compare — $($compare | ConvertTo-Json -Compress -Depth 4)" }
+        }
         $null = Call-Stdio 'session.stop' @{}
         if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
         elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
     }
     catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
     finally { if (-not $proc.HasExited) { $proc.Kill() } }
-    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают; инварианты не нарушены, свой инвариант агента встал на нарушении посреди тика"
+    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают; инварианты не нарушены, свой инвариант агента встал на нарушении посреди тика; feature.verify movement зелёный, ветка experiment.fork разошлась после 61 тика, experiment.compare назвал участника"
 
     $appNote = 'живая игра — пропущено (-SkipGpu)'
     if (-not $SkipGpu) {

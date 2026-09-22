@@ -1,0 +1,54 @@
+{
+  // Приёмка фичи «Управление, камера и плавность кадра» (точка 1г) — задним числом, этап 3д. Ввод и камера — клиент: без
+  // окна проверяется то, что ввод дал симуляции (команды записи Sword.exe с клавиатуры), и кадры App по этой записи.
+  "format": "sword-feature",
+  "version": 1,
+  "id": "control",
+  "title": "Управление, камера и плавность кадра (точка 1г)",
+  "doc": "README.md",
+  "sourceRoots": ["game/Sword.Game.Client", "engine/Sword.Engine.Client"],
+  "scenarios": [
+    {
+      "id": "prototype",
+      "title": "эталон SWORD2 прототипа: запись Sword.exe с клавиатуры и мыши (хеши каждого тика)",
+      "replay": "tests/reference/replays/prototype.swreplay",
+      "checks": [
+        {
+          "id": "keyboard-run", "title": "WASD дал бег", "expect": "eventually",
+          "condition": { "event": "PlayerCommand", "where": { "field": "Walk", "equals": false } }
+        },
+        {
+          "id": "shift-walk", "title": "Shift дал шаг", "expect": "eventually",
+          "condition": { "event": "PlayerCommand", "where": { "field": "Walk", "equals": true } }
+        },
+        {
+          "id": "cursor-gaze", "title": "курсор над землёй дал точку взгляда", "expect": "eventually",
+          "condition": { "event": "PlayerCommand", "where": { "field": "HasGaze", "equals": true } }
+        },
+        {
+          "id": "moved", "title": "игрок ушёл из центра", "expect": "eventually",
+          "condition": {
+            "any": [
+              { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "greaterThan": 1 }] },
+              { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "lessThan": -1 }] },
+              { "all": [{ "entity": "player" }, { "field": "Transform.Position.Z", "greaterThan": 1 }] },
+              { "all": [{ "entity": "player" }, { "field": "Transform.Position.Z", "lessThan": -1 }] }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "invariants": ["ecs.finite"],
+  "views": [
+    { "id": "follow", "title": "камера SWORD за игроком посреди записи", "scenario": "prototype", "tick": 300 },
+    { "id": "end", "title": "конец записи", "scenario": "prototype", "tick": 570 }
+  ],
+  "checklist": [
+    "`Sword.exe` — WASD: Manny бежит относительно камеры (W — от камеры), Shift с WASD — шагом.",
+    "Курсор над землёй — Manny поворачивается к нему и следит, пока бежит; курсор ушёл с окна — смотрит на прежнюю точку.",
+    "Колесо — плавный зум ближе/дальше (+/− — то же клавишами; с зажатым Ctrl колесо не зумит); Z/C — поворот камеры, WASD идёт за новым поворотом; зажатая средняя кнопка — поворот и наклон мышью.",
+    "F — камера отпускает игрока, стрелки двигают её; F ещё раз — камера плавно возвращается к игроку.",
+    "Плавность при любой частоте кадров: `Sword.exe`, `Sword.exe --vsync`, `Sword.exe --max-fps 30`, `Sword.exe --max-fps 45` — Manny, кольцо и тень идут ровно, без рывков (при 30 кадрах картинка реже, но не дёргается)."
+  ]
+}

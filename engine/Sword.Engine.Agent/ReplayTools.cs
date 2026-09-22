@@ -317,7 +317,7 @@ internal static class ReplayTools
         });
     }
 
-    private static AgentSimulation RequireRebuild(AgentHost host) =>
+    internal static AgentSimulation RequireRebuild(AgentHost host) =>
         host.Simulation is { CanRebuild: true } s ? s
             : throw new InvalidOperationException("в этом процессе симуляция не собирается заново (живая игра) — нужен Sword.Headless --agent");
 
@@ -331,7 +331,7 @@ internal static class ReplayTools
     }
 
     /// <summary>Реплей по пути, имени в артефактах или «session» (копия записи — в точке обслуживания).</summary>
-    private static async Task<(Replay Replay, string Path)> Load(AgentHost host, string which, CancellationToken cancel)
+    internal static async Task<(Replay Replay, string Path)> Load(AgentHost host, string which, CancellationToken cancel)
     {
         if (which == SessionWord)
         {
@@ -344,14 +344,14 @@ internal static class ReplayTools
         return (Replay.Load(path), path);
     }
 
-    private static void CheckContent(AgentHost host, Replay replay)
+    internal static void CheckContent(AgentHost host, Replay replay)
     {
         if (replay.Content != "none" && host.ContentHash != "none" && replay.Content != host.ContentHash)
             throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а здесь {host.ContentHash}: хеши сравнивать бессмысленно");
     }
 
     /// <summary>Имя файла в каталоге артефактов — без каталогов, с расширением реплея.</summary>
-    private static string ArtifactName(string name)
+    internal static string ArtifactName(string name)
     {
         if (name.Length == 0 || name != Path.GetFileName(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new ArgumentException($"name: «{name}» — только имя файла, без каталогов");

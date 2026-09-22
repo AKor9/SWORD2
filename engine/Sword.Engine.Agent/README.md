@@ -91,6 +91,8 @@
 | мир | `world.types` (компоненты, события, ресурсы, команды и их поля), `world.query(with, without, where, fields, aggregate, skip, take)` — `where` — условие на сущность, `aggregate` — count/min/max/mean/sum числовых полей, `entity.get(entity, components)`; `world.snapshot(id)` — наблюдательный снимок (и файл), `world.diff(a, b, filter, tolerance)` — разница по полям (`now` — снять сейчас) |
 | история | `watch.add(entities, where, fields, every, capacity)`, `watch.list`, `watch.remove(id | all)` — наблюдения после каждого тика; `entity.history(entity, fields, from, to, changes)` — значения по `tickId`; `events.history(types, entity, where, from, to)` — события, команды и срабатывания последних 1200 тиков (тик, стадия, поля); `replay.observe(path, from, to, events, watch, condition)` — то же на прогоне реплея в отдельной симуляции, в `.jsonl` (Headless) |
 | инварианты | `invariant.list(filter, recent)` — id, чей, когда проверяется, включён, проверок, нарушений, средняя стоимость (мкс), последнее нарушение; `invariant.enable(ids, enabled)` — id, «префикс.*», all (переживает `session.start` и перемотку); `invariant.run(ids)` — проверить сейчас, в том числе посреди тика, выключенные и «по запросу»; `invariant.define(id, condition | must + where, after, every, remove)` — свой инвариант условием; `time.breakOnInvariant(ids, maxTicks)` — встать на нарушении (Headless — посреди тика после нарушившего барьера, живая игра — после тика); нарушения — в `events.history` (тип `InvariantViolation`) |
+| приёмка | `feature.list(id)` — манифесты фич (`feature.json`), с `id` — манифест целиком; `feature.verify(id, views, budgets)` — вердикт фичи по манифесту: сценарии, проверки, хеши, инварианты, метрики против эталонов SWORD и SWORD2, бюджеты, виды App; артефакты — `report.json`, записи сценариев, PNG (Headless) |
+| эксперименты | `experiment.fork(replay, at, variants, ticks, measure)` — реплей до тика и ветками дальше (параллельно): `set` — конфиг с тика 0, `commands` — с развилки, `cut`; по ветке — первое расхождение с базой, измерения, запись; `experiment.compare(a, b, describe)` — чем разошлись: заголовки, команды, хеши и листья описаний участников на первом разошедшемся хеше; `experiment.sweep(params, replay, ticks, repeats, warmup)` — перебор конфига: мс на тик и стадий, байты, хеш и детерминизм повторов, масштабирование (Headless) |
 | состояние | `state.hash` — хеш состояния, итог и по участникам (`ecs`, `animation`…); `state.describe(part, filter, skip, take)` — ровно то, что участник хеширует (у `ecs` — сущности, ресурсы, `slots`, `journal:…`, `system:…`); ответ больше 60 тыс. знаков — в файл артефакта (`artifactId`) |
 | команды | `command.send(command, fields, tick | delay, repeat)` — не дальше 1 000 000 тиков вперёд, в очереди агента — не больше 1 000 000 команд одного типа |
 | журнал | `log.tail(after, limit, level, category)` — без `after` последние `limit` записей, прошедших фильтр (среди всего кольца, 2048 записей), `last` — номер последней записи кольца; с `after` — вперёд страницами |
@@ -119,7 +121,9 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
 
 ## Ограничения (до своих этапов)
 
-- Причинности (`state.why`, этап 6) и экспериментов (точка 3д) нет (раздел 8, «По этапам»).
+- Причинности (`state.why`, этап 6), минимизатора (`replay.minimize`) и дифференциального прогона нет (раздел 8, «По
+  этапам»). Ветки `experiment.fork` — потоки одного процесса, а не отдельные процессы (симуляции независимы, общие
+  только неизменяемые ассеты); время веток мерится параллельно — для замеров `experiment.sweep` (по очереди).
 - Живая игра реплей только пишет: `session.start`, `time.seek` (в обе стороны) и `replay.check` — только Headless.
 - Останов посреди тика (`time.break`) — только Headless: в живой игре тик идёт внутри кадра рендера, а кадр не ждёт
   агента. Условие `time.runUntil` в живой игре встаёт на своём тике (кадр прерывает тики), но между тиками.
@@ -128,7 +132,9 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
   дальше). Кадр на ходу показывает интерполяцию между тиками (`alpha` < 1): `tickId` — последний сыгранный тик, точное
   состояние — на паузе (`alpha` 1). Глубина — та, что записала сцена в этом кадре.
 - `gpu.passes` (время проходов GPU) нет: нет профайлера GPU.
-- `IStateContributor.Describe` и манифест фичи `feature.json` — этап 3 (реестр манифестов, `feature.verify`).
+- Виды `feature.verify` снимает Sword.exe той же конфигурации сборки, что Headless (`game/Sword.Game.App/bin/<Debug|Release>`),
+  по одному процессу на вид; сборка Headless в свой каталог (`agent-headless.cmd`) App рядом не видит — виды там
+  проваливаются с причиной (`views: false` — без них).
 - Бюджет точки обслуживания в App соблюдается между запросами, не внутри: один тяжёлый запрос может удлинить кадр.
   Тяжёлых запросов в точке обслуживания в 1е нет (самый тяжёлый — `world.query` на 100 сущностей); `capture.bundle`
   (ожидание GPU и PNG) исполняется на границе кадра и удлиняет свой кадр — он служебный.
@@ -172,6 +178,9 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
   ошибка, `fixed`-буфер — массив, необъявленное значение перечисления — числом;
 - `tests/Sword.Engine.Agent.Tests/InvariantToolsTests` — `invariant.*`, `time.breakOnInvariant` посреди тика с
   квитанцией стадии, нарушение в `events.history`;
+- `tests/Sword.Engine.Agent.Tests/FeatureToolsTests` — `feature.list/verify` (зелёный, виды без App — провал с
+  причиной), `experiment.fork` над записью сеанса (команда тика 20 — расхождение после 21 тика, зерно — с тика 0),
+  `experiment.compare` (листья описания `ecs`), `experiment.sweep` (детерминизм повторов);
 - `tests/Sword.Engine.Agent.Tests/FifthReviewTests` — `log.tail` с фильтром по всему кольцу, квитанция `time.step`
   из одной точки обслуживания, предел `timeoutSeconds` от транспорта, отвергнутый `initialize` без сеанса, `HEAD` без
   тела, отмена раньше вызова, предел очереди команд;

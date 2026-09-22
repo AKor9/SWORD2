@@ -66,6 +66,8 @@ SWORD 2eab13b; формулы, константы, цвета и размеры 
 
 ## Что проверить в игре
 
+Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет).
+
 1. `Sword.exe` — слева вверху панель: крупный FPS (зелёный от 59, голубой от 45, красный ниже), справа от него шаг
    кадра и «макс»; ниже полоса бюджета, «КАДР» (CPU, ожидание, тиков сим., vsync), «GPU» (draw calls, UI квадов),
    имя видеокарты. Справа вверху — справка с клавишами. Текст чёткий, без «ступенек» и дыр в буквах.
@@ -78,6 +80,9 @@ SWORD 2eab13b; формулы, константы, цвета и размеры 
 8. `Sword.exe --set input.screenshot=F12` — снимок по F12, в справке «F12 — снимок».
 
 ## Агентский доступ
+
+Приёмка (этап 3д) — [feature.json](feature.json): 600 тиков Headless (0 байт на тик, бюджет времени), кадр Sword.exe с
+HUD. `Sword.Headless --feature tools` или `feature.verify {"id":"tools"}`.
 
 - `Sword.exe --json`: `report.stats` (FPS, шаг, худший, CPU, ожидание, тики, vsync), `report.screenshots` и
   `report.screenshot` (снимков и последний путь), `report.bench` (с `--bench`), `report.passes` — проход `hud` с числом

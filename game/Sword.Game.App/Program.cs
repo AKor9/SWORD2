@@ -49,6 +49,7 @@ public static partial class Program
         public bool Agent;
         public int AgentPort = 47813;
         public string? Record;
+        public string? Replay;
         public int HashEvery = 1;
         public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
@@ -95,6 +96,9 @@ public static partial class Program
           --record FILE     записать реплей (.swreplay) — команды по тикам и хеши состояния; воспроизводит его
                             Sword.Headless --replay FILE (с агентом реплей пишется всегда — replay.save)
           --hash-every K    хеш состояния в реплее каждые K тиков (по умолчанию 1)
+          --replay FILE     воспроизвести реплей (.swreplay): его конфиг (--set — поверх) и его команды игрока — клавиатура
+                            и мышь игроком не управляют, камера — как обычно; хеши сверяются по участникам (итог --json —
+                            replay); после конца реплея игрок стоит. Так снимаются виды фичи (feature.verify)
           --json            итог — одной строкой JSON в stdout (для агента)
         """;
 
@@ -122,16 +126,22 @@ public static partial class Program
         {
             // Бенч кадра — без инвариантов (раздел 8 плана: их стоимость меряется отдельно); --set перекрывает.
             List<string> sets = options.Bench > 0 ? ["sim.invariants=false", .. options.Sets] : options.Sets;
-            var config = ConfigSet.Load(AppContext.BaseDirectory, sets);
+            // Реплей: только его конфиг (ни файлов, ни переменных) и --set поверх — как у Sword.Headless --replay.
+            string content = ContentHash();
+            Replay? replay = options.Replay is null ? null : Replay.Load(options.Replay);
+            if (replay is not null && replay.Content != "none" && content != "none" && replay.Content != content)
+                throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а пак здесь — {content}: хеши сравнивать бессмысленно");
+            var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
             var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
-            var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud);
+            var playback = replay is null ? null : simulation.Play(replay);
+            var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null);
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions], config);
             arena.UseBindings(bindings.Keys);
             if (options.Bench > 0) arena.Hud.ShowHelp = false;   // SWORD: ShowHelp = !bench
             config.Complete();   // композиция закончена (симуляция, клиент, ввод): неизвестная секция конфига — ошибка
             // Реплей — с тика 0: по ключу --record и всегда с агентом (replay.save).
             var recorder = options.Record is not null || options.Agent
-                ? simulation.Record(ReplayInfo.Current(ContentHash()), options.HashEvery) : null;
+                ? simulation.Record(ReplayInfo.Current(content), options.HashEvery) : null;
             using var window = new Win32Window(new WindowOptions(
                 Title: "SWORD",
                 Width: options.Width,
@@ -205,11 +215,23 @@ public static partial class Program
                         runs = recorded.Runs.Count, commands = recorded.CommandCount,
                         stateHash = recorded.Hashes.Count > 0 ? string.Join(' ', recorded.Hashes[^1].Parts.Select(p => p.ToString("X16"))) : null,
                     },
+                    // Воспроизведение (--replay): совпали ли хеши App с записанными — тот же реплей, что у Headless.
+                    replay = playback is null ? null : new
+                    {
+                        file = Path.GetFullPath(options.Replay!), ticks = playback.Length, match = playback.Divergence is null,
+                        hashesChecked = playback.HashesChecked, lastMatch = playback.LastMatch,
+                        divergence = playback.Divergence?.ToString(), warnings = playback.Warnings,
+                    },
                 }, JsonOptions));
             else
+            {
                 Log.Info("sword", $"выход: {report.ExitReason}; кадров {report.Frames}, изменений размера {report.Resizes}, " +
                     $"кадр в среднем {report.AverageFrameMs:0.###} мс, худший {report.MaxFrameMs:0.###} мс" +
                     (report.Bench is { } b ? $"; бенч: {b}" : ""));
+                if (playback is not null)
+                    Log.Info("replay", playback.Divergence is { } d ? d.ToString()
+                        : $"реплей: сверено хешей {playback.HashesChecked}, последний — после {playback.LastMatch?.ToString() ?? "—"} тиков");
+            }
             return 0;
         }
         catch (Exception ex)
@@ -302,6 +324,7 @@ public static partial class Program
                     break;
                 case "--set": o.Sets.Add(Next()); break;
                 case "--record": o.Record = Next(); break;
+                case "--replay": o.Replay = Next(); break;
                 case "--hash-every":
                     if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.HashEvery) || o.HashEvery < 1)
                         throw new ArgumentException($"{a}: ожидается целое число тиков ≥ 1");
@@ -323,6 +346,8 @@ public static partial class Program
         if (o.Bench > 0 && o.Frames > 0) throw new ArgumentException("--bench и --frames вместе не задаются: бенч кончается сам");
         if (o.Bench > 0 && o.MaxFps > 0) throw new ArgumentException("--bench и --max-fps вместе не задаются: ограничитель исказил бы замер");
         if (o.Bench > 0 && o.Agent) throw new ArgumentException("--bench и --agent вместе не задаются: пауза и снимки агента исказили бы замер");
+        if (o.Replay is not null && (o.Command is not null || o.Hold.Count > 0))
+            throw new ArgumentException("--replay: команды игрока — из реплея; --move, --walk, --gaze, --hold нельзя");
         return o;
     }
 

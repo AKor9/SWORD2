@@ -56,6 +56,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private int _manny = -1;
     private SimulationLink? _simulation;
     private readonly PlayerCommand? _scripted;
+    private readonly bool _playerCommands;
     private readonly bool _fixedCamera;
     private PlayerCommand _frameCommand;
     private readonly Hud _hud = new();
@@ -67,9 +68,15 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <param name="camera">Неподвижный ракурс вместо камеры SWORD (проверочные снимки); null — камера за игроком.</param>
     /// <param name="scripted">Команда игрока на каждый тик вместо ввода (проверочные прогоны); null — клавиатура и мышь.</param>
     /// <param name="hud">HUD поверх сцены; false — кадр без интерфейса (снимки, сравнимые между прогонами).</param>
-    public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true)
+    /// <param name="playerCommands">
+    /// Ставить команду игрока каждый тик; false — не ставить (реплей, <c>Sword.exe --replay</c>: команды игрока — его, а своя
+    /// команда клиента того же тика перебила бы их и увела бы реплей в сторону). Камера управляется в обоих случаях.
+    /// </param>
+    public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true)
     {
+        if (!playerCommands && scripted is not null) throw new ArgumentException("заданная команда игрока без команд игрока", nameof(scripted));
         _showHud = hud;
+        _playerCommands = playerCommands;
         _drawOpaque = DrawOpaque;
         _view = new ArenaView(ArenaTerrain.Height);
         _scripted = scripted;
@@ -187,7 +194,10 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     // Фронтов у действий 1г нет (WASD, Shift, курсор — уровни; F — камера): первым их возьмёт удар/уклонение.
-    public void BeforeTick(SimulationLink simulation, in TickInput input) => simulation.Enqueue(_frameCommand);
+    public void BeforeTick(SimulationLink simulation, in TickInput input)
+    {
+        if (_playerCommands) simulation.Enqueue(_frameCommand);
+    }
 
     public void Extract(in FrameView view)
     {

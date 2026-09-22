@@ -104,6 +104,34 @@
    `replay.observe {"path":…, "events":["InvariantViolation"]}` (сводка `violations.first`).
 Новый инвариант в коде — `IInvariant` у подсистемы или модуля и `SimulationBuilder.Invariant` (`AGENTS.md` Runtime).
 
+**Принять фичу (этап 3д, раздел 12 плана).** Приёмка описана манифестом `feature.json` рядом с md фичи: сценарии
+(реплей или команды по тикам) с проверками-условиями, инварианты, метрики с допуском и источником (`sword` — SWORD
+2eab13b, `sword2` — эталон SWORD2), виды в App, бюджеты, чек-лист «что проверить в игре».
+1. `feature.list` — фичи; `feature.list {"id":"animation"}` — манифест целиком.
+2. `feature.verify {"id":"animation"}` — вердикт `ok` и `failures` словами; по разделам — сценарии (проверки, хеши
+   реплея, нарушения), инварианты (проверок, нарушений), метрики (`value`, `expected`, `detail`; ряд против трассы SWORD —
+   `firstMismatch`), бюджеты (медиана мс на тик, стадии, байты; время — только в Release), виды (PNG кадров
+   `Sword.exe --replay` по записи сценария, хеши App сверены с Headless). Всё — в каталоге артефактов (`report.json`,
+   `scenario-*.swreplay`, `view-*.png`). `views:false` — без App. Без агента — `Sword.Headless --feature ID|all [--json]`
+   (код 4 — провал), `verify.ps1` шаг `features`.
+3. Провал — не мнение: метрика, проверка или инвариант называют тик и значение; запись сценария —
+   `session.start {"replay":"…/scenario-X.swreplay"}` и дальше как с любым реплеем. Ослабить манифест (допуск,
+   инвариант) — только правкой файла с сообщением пользователю.
+4. Новая фича — `feature.json` рядом с её md (тест `FeatureManifestsTests`: у каждой фичи есть манифест, чек-лист = пункты
+   «Что проверить в игре» md, на эталонном паке он зелёный).
+
+**Эксперимент «что если» (этап 3д).**
+1. `experiment.fork {"replay":"my.swreplay","at":300,"variants":[{"name":"back","commands":[{"command":"PlayerCommand","fields":{"Move":{"X":-1,"Y":0}},"from":300,"to":301}]},{"name":"nolo","set":["modules.locomotion.enabled=false"]}],"measure":[{"entity":"player","field":"Transform.Position"}]}`
+   — база и ветки параллельно; у ветки `vsBase.firstHashTick` — после скольких тиков состояние впервые другое (команда
+   тика T — это T+1; ключ конфига — с тика 0, симуляцию собирает конфиг), `measure` в конце, `file` — запись ветки.
+   `cut: true` — команды реплея после развилки не идут.
+2. `experiment.compare {"a":<file базы>,"b":<file ветки>}` — чем разошлись: заголовки и конфиг по ключам, первый тик с
+   разными командами, первый хеш с разными участниками, и `describe` — листья описаний участников (`путь`, `a`, `b`) на
+   этом тике.
+3. `experiment.sweep {"params":{"sim.tickRate":[60,120]},"replay":"my.swreplay","repeats":3}` — по комбинации: мс на тик
+   (медиана, разброс), мс стадий, байты на тик, хеш итога и `deterministic` (повторы совпали); `scaling` — где время
+   растёт резко быстрее значения ключа. Время — в Release (`tools/scripts/agent-headless.cmd` собирает Debug).
+
 **Понять, почему поле такое.** `ecs.componentUsage {"name":"Transform"}` — кто пишет; `ecs.explainSystem` писателя —
 его входы (`upstream`, с пометкой «в этом тике» или «с прошлого тика» и причиной `why`: команды той же стадии —
 только в следующем тике) и место регистрации (`source`).
