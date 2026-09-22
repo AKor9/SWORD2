@@ -1,3 +1,4 @@
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
 
@@ -8,7 +9,9 @@ namespace Sword.Engine.Agent;
 /// после каждого тика и на паузе — точка обслуживания очереди агента, затем операции над симуляцией сеанса
 /// (<see cref="AgentSimulation"/>: смена симуляции, перемотка); тики — сколько разрешает управление временем
 /// (<see cref="TimeControl"/>); на паузе без запросов поток спит до запроса или команды времени. Клиента нет — очередь
-/// кадра экспорта тика живёт один тик.
+/// кадра экспорта тика живёт один тик. Наблюдение агента (<see cref="AgentHost.Observation"/>) подключено к каждой
+/// симуляции сеанса до её первого тика; останов посреди тика (<c>time.break</c>) — точка обслуживания прямо внутри
+/// тика, после барьера стадии, пока время не разрешит идти дальше.
 /// </summary>
 public static class SimulationLoop
 {
@@ -23,15 +26,34 @@ public static class SimulationLoop
     public static void Run(AgentSimulation session, AgentHost host, CancellationToken stop)
     {
         var context = new ServiceContext(session.Current);
+        void Prepare(Simulation sim) => host.Observe(sim);
         void Changed(Simulation sim)
         {
             context = new ServiceContext(sim);
             host.Catalog = new Catalog(sim.World, sim.CommandTypes);
+            if (host.Observation.Simulation != sim) host.Observe(sim);
             host.Time.Reset(sim.Tick);
         }
+        // Останов посреди тика: мир согласован после барьера стадии — обслуживаем агента здесь, пока время стоит.
+        void Break(Simulation sim, string stage)
+        {
+            Log.Info("agent", $"останов посреди тика {sim.Tick} после барьера стадии {stage}");
+            var inTick = new ServiceContext(sim);
+            while (!stop.IsCancellationRequested)
+            {
+                host.Service.Serve(inTick, ServiceBudget);
+                // Дальше — когда время разрешит тики (step, runUntil, resume, новый break) или сеанс меняют (seek, start):
+                // их операции исполняются между тиками — тик доигрывается.
+                if (session.HasPending || !host.Time.Paused || host.Time.Allow(1) > 0) return;
+                host.Service.WaitForWork(TimeSpan.FromMilliseconds(250), stop);
+            }
+        }
+        session.Preparing += Prepare;
         session.Changed += Changed;
         host.Simulation = session;
         host.Time.Changed += host.Service.Wake;
+        host.Observation.BreakHandler = Break;
+        host.Observe(session.Current);
         try
         {
             host.Time.Ran(session.Current.Tick);
@@ -52,6 +74,8 @@ public static class SimulationLoop
         }
         finally
         {
+            host.Observation.BreakHandler = null;
+            session.Preparing -= Prepare;
             session.Changed -= Changed;
             host.Time.Changed -= host.Service.Wake;
             session.CancelAll();

@@ -40,6 +40,9 @@ public sealed record AgentHostOptions
     /// игры — <see cref="HttpTransport.MaxWait"/>.
     /// </summary>
     public TimeSpan MaxWait { get; init; } = TimeSpan.FromSeconds(600);
+
+    /// <summary>Сколько тиков держит история событий (<c>events.history</c>).</summary>
+    public int HistoryTicks { get; init; } = ObservationHistory.DefaultTicks;
 }
 
 /// <summary>
@@ -60,9 +63,11 @@ public sealed class AgentHost
         BuildId = BuildIdOf(Assembly.GetEntryAssembly() ?? typeof(AgentHost).Assembly);
         Artifacts = Path.Combine(options.ArtifactsRoot, SessionId);
         _catalog = options.Catalog;
+        Observation = new ObservationHub(options.Time, options.HistoryTicks);
         Server = new McpServer(this);
         CoreTools.Register(this);
         ReplayTools.Register(this);
+        ObservationTools.Register(this);
     }
 
     public string Mode => _options.Mode;
@@ -85,6 +90,47 @@ public sealed class AgentHost
     public AgentSimulation? Simulation { get; internal set; }
     public TimeControl Time => _options.Time;
     public ServiceQueue Service => _options.Service;
+
+    /// <summary>
+    /// Наблюдение агента (этап 3в): история событий, наблюдения <c>watch.*</c>, условие остановки. Подключает к симуляции
+    /// хозяин цикла (<see cref="Observe"/>): Headless — <see cref="SimulationLoop"/> (к каждой симуляции сеанса), живая игра —
+    /// exe при старте агента.
+    /// </summary>
+    public ObservationHub Observation { get; }
+
+    // Снимки мира (world.snapshot) — на потоке агента, под своей блокировкой; старейшие вытесняются.
+    private readonly Dictionary<string, WorldSnapshot> _snapshots = [];
+    private readonly Queue<string> _snapshotOrder = new();
+    private int _nextSnapshot = 1;
+
+    /// <summary>Снимков хранится не больше (старейший вытесняется; файлы в артефактах остаются).</summary>
+    public const int MaxSnapshots = 32;
+
+    internal string NextSnapshotId()
+    {
+        lock (_snapshots) return $"s{_nextSnapshot++}";
+    }
+
+    internal void PutSnapshot(WorldSnapshot snapshot)
+    {
+        lock (_snapshots)
+        {
+            if (!_snapshots.ContainsKey(snapshot.Id)) _snapshotOrder.Enqueue(snapshot.Id);
+            _snapshots[snapshot.Id] = snapshot;
+            while (_snapshotOrder.Count > MaxSnapshots) _snapshots.Remove(_snapshotOrder.Dequeue());
+        }
+    }
+
+    internal WorldSnapshot GetSnapshot(string id)
+    {
+        lock (_snapshots)
+            return _snapshots.TryGetValue(id, out var s) ? s
+                : throw new ArgumentException($"нет снимка «{id}»; есть: {string.Join(", ", _snapshotOrder)} (или now)");
+    }
+
+    /// <summary>Наблюдать за симуляцией <paramref name="simulation"/> (поток симуляции, до её тиков или между ними).</summary>
+    public void Observe(Runtime.Simulation simulation) =>
+        Observation.Attach(simulation, new Catalog(simulation.World, simulation.CommandTypes), Names);
     public LogRing LogRing => _options.Log;
 
     /// <summary>Предел <c>timeoutSeconds</c> инструментов, с (<see cref="AgentHostOptions.MaxWait"/>).</summary>
@@ -174,7 +220,10 @@ public sealed class AgentHost
         тиков, frameId — кадр клиента). Большие ответы постраничны (skip/take, continuationToken), артефакты — файлы в
         {Artifacts}. Произвольного кода нет, память ECS напрямую не читается.
         Сеанс пишет реплей с тика 0: replay.save — файл, replay.check и replay.diff — сверка и сравнение прогонов.
-        {(Mode == "app" ? "Живая игра: время идёт само, time.pause останавливает симуляцию (кадры рисуются); capture.bundle — снимок кадра с глубиной, видимыми сущностями и камерой." : "Headless стартует на паузе: время двигают time.step и time.runUntil; time.seek — назад и вперёд, session.start {replay} — воспроизвести реплей (свои команды ветвят его).")}
+        Условия (один JSON-язык): time.runUntil с condition — встать на тике, где выполнилось; watch.add → entity.history —
+        значения полей по тикам; events.history — события последних тиков; world.snapshot / world.diff — что изменилось;
+        world.query с where и aggregate; replay.observe — то же на прогоне реплея.
+        {(Mode == "app" ? "Живая игра: время идёт само, time.pause останавливает симуляцию (кадры рисуются); capture.bundle — снимок кадра с глубиной, видимыми сущностями и камерой." : "Headless стартует на паузе: время двигают time.step и time.runUntil; time.seek — назад и вперёд, session.start {replay} — воспроизвести реплей (свои команды ветвят его); time.break {stage, condition} — встать посреди тика после стадии.")}
         """;
 
     /// <summary>Сборка: информационная версия и MVID главного модуля (меняется с каждой пересборкой).</summary>

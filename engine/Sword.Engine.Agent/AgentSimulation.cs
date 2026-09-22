@@ -49,6 +49,21 @@ public sealed class AgentSimulation
     /// <summary>Симуляция сменилась (поток симуляции): цикл обновляет контекст обслуживания, каталог и время.</summary>
     public event Action<Simulation>? Changed;
 
+    /// <summary>
+    /// За какой симуляцией наблюдать (поток симуляции): новая — до её первого тика, ещё до смены (история и наблюдения
+    /// агента видят и повтор таймлайна при перемотке назад); смена не удалась — снова текущая.
+    /// </summary>
+    public event Action<Simulation>? Preparing;
+
+    /// <summary>Есть поставленные операции (цикл доигрывает тик, прерванный остановом, и исполняет их).</summary>
+    internal bool HasPending
+    {
+        get
+        {
+            lock (_gate) return _ops.Count > 0;
+        }
+    }
+
     /// <summary>Собрать отдельную симуляцию (например, для <c>replay.check</c>): с любого потока — ассеты общие и неизменяемые.</summary>
     public Simulation Build(ConfigSet config) =>
         (_build ?? throw new InvalidOperationException("этот процесс не собирает симуляции заново — нужен Sword.Headless --agent"))(config);
@@ -117,8 +132,17 @@ public sealed class AgentSimulation
     public Simulation Start(ConfigSet config, Replay? replay, string? file)
     {
         var sim = Build(config);
-        if (replay is not null) sim.Play(replay);
-        sim.Record(Info);
+        Preparing?.Invoke(sim);
+        try
+        {
+            if (replay is not null) sim.Play(replay);
+            sim.Record(Info);
+        }
+        catch
+        {
+            Preparing?.Invoke(Current);
+            throw;
+        }
         Swap(sim, replay is null ? null : file);
         return sim;
     }
@@ -141,9 +165,18 @@ public sealed class AgentSimulation
         var timeline = sim.Recorder.ToReplay();
         if (sim.Player is { } player && player.Length > sim.Tick) timeline = Replay.Splice(timeline, player.Replay, sim.Tick);
         var fresh = Build(timeline.CreateConfig());
-        fresh.Play(timeline);
-        fresh.Record(Info);
-        RunTo(fresh, tick, cancel);
+        Preparing?.Invoke(fresh);
+        try
+        {
+            fresh.Play(timeline);
+            fresh.Record(Info);
+            RunTo(fresh, tick, cancel);
+        }
+        catch
+        {
+            Preparing?.Invoke(Current);   // наблюдение — снова за прежней симуляцией (её история начинается заново)
+            throw;
+        }
         Swap(fresh, SourceFile);
         return true;
     }

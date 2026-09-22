@@ -58,6 +58,9 @@ public sealed class ClientAgent : IClientTool, ITickGate
 
     public void Ran(ulong tick) => _host.Time.Ran(tick);
 
+    /// <summary>Пауза или условие наблюдения встали на этом тике — остальные тики кадра не играются.</summary>
+    public bool StopAfterTick(ulong tick) => _host.Time.Stopping(tick);
+
     // ── кадр ───────────────────────────────────────────────────────────────
 
     public void Serve(Simulation simulation, ulong frame)

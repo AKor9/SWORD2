@@ -18,6 +18,12 @@ public interface ITickGate
 
     /// <summary>Тики кадра сыграны: всего сыграно <paramref name="tick"/>.</summary>
     void Ran(ulong tick);
+
+    /// <summary>
+    /// После каждого тика кадра: true — остальные тики кадра не играть (пауза или условие инструмента встали на этом
+    /// тике, а не в конце кадра). Накопитель часов при этом обнуляется.
+    /// </summary>
+    bool StopAfterTick(ulong tick) => false;
 }
 
 /// <summary>

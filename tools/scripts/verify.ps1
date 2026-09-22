@@ -487,7 +487,8 @@ Add-Step 'agent-smoke' {
         Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
         $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
         foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'state.hash', 'state.describe',
-                'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek')) {
+                'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek',
+                'time.break', 'watch.add', 'watch.list', 'watch.remove', 'entity.history', 'events.history', 'world.snapshot', 'world.diff', 'replay.observe')) {
             if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
         }
         $player = Call-Stdio 'entity.get' @{ entity = 'player' }
@@ -526,13 +527,34 @@ Add-Step 'agent-smoke' {
         if (-not $status.playback.match -or $status.playback.hashesChecked -ne 121) { $problems += "Headless: session.start с реплеем — $($status.playback | ConvertTo-Json -Compress -Depth 5)" }
         $check = Call-Stdio 'replay.check' @{ path = 'smoke.swreplay' }
         if (-not $check.match) { $problems += "Headless: replay.check — $($check.divergence | ConvertTo-Json -Compress -Depth 5)" }
+        # Этап 3в: условие в runUntil, наблюдение и история, останов посреди тика, события, снимки.
+        $null = Call-Stdio 'session.start' @{ replay = 'smoke.swreplay' }
+        $null = Call-Stdio 'watch.add' @{ entities = @('player'); fields = @('Transform.Position.X') }
+        $until = Call-Stdio 'time.runUntil' @{ condition = @{ all = @(@{ entity = 'player' }, @{ field = 'Transform.Position.X'; greaterThan = 1 }) } }
+        $at = [int]$until.tick
+        $rows = @((Call-Stdio 'entity.history' @{ entity = 'player'; from = $at - 1; to = $at }).rows)
+        $before = if ($rows.Count -eq 2) { [double]$rows[0].values.'Transform.Position.X' } else { $null }
+        $after = if ($rows.Count -eq 2) { [double]$rows[1].values.'Transform.Position.X' } else { $null }
+        if (-not $until.met -or $at -le 0 -or $at -ge 120 -or $rows.Count -ne 2 -or -not ($before -le 1) -or -not ($after -gt 1)) {
+            $problems += "Headless: time.runUntil {condition} — $($until | ConvertTo-Json -Compress -Depth 5), история $($rows | ConvertTo-Json -Compress -Depth 5)"
+        }
+        $break = Call-Stdio 'time.break' @{ stage = 'Animation' }
+        $pose = Call-Stdio 'entity.get' @{ entity = 'player' }
+        if (-not $break.met -or $break.receipt.stage -ne 'Animation' -or $pose.receipt.stage -ne 'Animation' -or [int]$pose.receipt.tickId -ne $at) {
+            $problems += "Headless: time.break Animation — $($break | ConvertTo-Json -Compress -Depth 5)"
+        }
+        $snap = Call-Stdio 'world.snapshot' @{}
+        $null = Call-Stdio 'time.step' @{ ticks = 2 }
+        $diff = Call-Stdio 'world.diff' @{ a = $snap.id; b = 'now'; filter = 'Transform/Position.X' }
+        $events = Call-Stdio 'events.history' @{ types = @('PlayerCommand') }
+        if ([int]$diff.changed -lt 1 -or [int]$events.total -lt 1) { $problems += "Headless: world.diff — изменено $($diff.changed), events.history — $($events.total)" }
         $null = Call-Stdio 'session.stop' @{}
         if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
         elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
     }
     catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
     finally { if (-not $proc.HasExited) { $proc.Kill() } }
-    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали"
+    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают"
 
     $appNote = 'живая игра — пропущено (-SkipGpu)'
     if (-not $SkipGpu) {
@@ -576,6 +598,13 @@ Add-Step 'agent-smoke' {
             elseif (-not ($bundle.depthCoverage -gt 0.5)) { $problems += "App: глубина почти пуста: $($bundle.depthCoverage)" }
             $recording = (Call-Http 'replay.status' @{}).recording
             if (-not $recording -or $recording.ticks -lt 60) { $problems += "App: replay.status — запись $($recording | ConvertTo-Json -Compress)" }
+            # Этап 3в: условие встаёт ровно на своём тике, даже посреди кадра (8 тиков на кадр на паузе).
+            $goal = [int]$recording.ticks + 37
+            $until = Call-Http 'time.runUntil' @{ condition = @{ sim = 'ticks'; greaterOrEqual = $goal } }
+            $after = Call-Http 'session.status' @{}
+            if (-not $until.met -or [int]$until.tick -ne $goal -or [int]$after.tick -ne $goal -or -not $after.paused) {
+                $problems += "App: time.runUntil {condition} — встали на $($after.tick), ждали $goal ($($until | ConvertTo-Json -Compress -Depth 4))"
+            }
             $graph = Call-Http 'render.graph' @{}
             $passes = @($graph.passes | ForEach-Object { $_.name })
             if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
@@ -588,7 +617,7 @@ Add-Step 'agent-smoke' {
             # Снимок глубины и цвета — под GPU-валидацией: сообщения слоя и предупреждения шейдеров — отказ.
             $d3d12 = @(Get-Content $err -Encoding UTF8 | Where-Object { ($_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:') -or $_ -match '^\[shader\]' })
             if ($d3d12.Count -gt 0) { $problems += "App: сообщения D3D12 или шейдеров: $($d3d12 | Select-Object -First 3)" }
-            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]"
+            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; условие runUntil встало на своём тике"
         }
         catch { $problems += "App: $($_.Exception.Message) — журнал $err" }
         finally { if (-not $app.HasExited) { $app.Kill() } }

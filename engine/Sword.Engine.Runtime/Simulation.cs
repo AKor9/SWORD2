@@ -200,14 +200,55 @@ public sealed class Simulation
     /// </summary>
     public bool Accepts<T>() where T : unmanaged => _commands.Accepts<T>();
 
-    /// <summary>Команда на следующий тик (<see cref="Tick"/>).</summary>
-    public void Enqueue<T>(in T command) where T : unmanaged => _commands.Enqueue(Tick, command);
+    /// <summary>Команда на следующий тик (<see cref="NextCommandTick"/>).</summary>
+    public void Enqueue<T>(in T command) where T : unmanaged => _commands.Enqueue(NextCommandTick, command);
 
-    /// <summary>Команда на тик <paramref name="tick"/> (не раньше следующего).</summary>
+    /// <summary>Команда на тик <paramref name="tick"/> (не раньше <see cref="NextCommandTick"/>).</summary>
     public void Enqueue<T>(ulong tick, in T command) where T : unmanaged
     {
-        if (tick < Tick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл (следующий — {Tick})");
+        if (tick < NextCommandTick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл или идёт (ближайший — {NextCommandTick})");
         _commands.Enqueue(tick, command);
+    }
+
+    /// <summary>
+    /// Ближайший тик, на который ещё можно поставить команду: между тиками — <see cref="Tick"/>; посреди тика (наблюдатель
+    /// после барьера стадии, останов агента) — следующий: команды идущего тика уже выданы.
+    /// </summary>
+    public ulong NextCommandTick => Stage is null ? Tick : Tick + 1;
+
+    /// <summary>
+    /// Стадия, после барьера которой сейчас вызван наблюдатель (<see cref="ISimulationObserver.AfterStage"/>); null — между
+    /// тиками. Посреди тика <see cref="Tick"/> — номер идущего тика (сыграно тиков до него).
+    /// </summary>
+    public string? Stage { get; private set; }
+
+    private readonly List<ISimulationObserver> _observers = [];
+    private Action<int>? _afterBarrier;
+
+    /// <summary>
+    /// Наблюдатель тиков (агент, инструменты): после барьера каждой стадии и после тика — только читает мир (<see cref="World"/>)
+    /// и ставит команды на будущие тики. Подключает владелец симуляции; в хеш состояния и реплей наблюдатель не входит.
+    /// </summary>
+    public void Observe(ISimulationObserver observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        if (!_observers.Contains(observer)) _observers.Add(observer);
+        _afterBarrier ??= AfterBarrier;
+    }
+
+    public void Unobserve(ISimulationObserver observer) => _observers.Remove(observer);
+
+    private void AfterBarrier(int stage)
+    {
+        Stage = _world.Stages[stage];
+        try
+        {
+            for (int i = 0; i < _observers.Count; i++) _observers[i].AfterStage(this, stage);
+        }
+        finally
+        {
+            Stage = null;
+        }
     }
 
     /// <summary>Типы команд тика (их регистрируют ядро и модули) — для инструментов и агента.</summary>
@@ -224,7 +265,7 @@ public sealed class Simulation
     /// </summary>
     public void EnqueueRaw(Type type, ulong tick, ReadOnlySpan<byte> command, int repeat = 1)
     {
-        if (tick < Tick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл (следующий — {Tick})");
+        if (tick < NextCommandTick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл или идёт (ближайший — {NextCommandTick})");
         if (repeat < 1 || ulong.MaxValue - tick < (ulong)(repeat - 1))
             throw new ArgumentOutOfRangeException(nameof(repeat), repeat, "повторов — от 1, последний тик — в пределах ulong");
         _commands.EnqueueRaw(type, tick, command, repeat);
@@ -318,16 +359,35 @@ public sealed class Simulation
     {
         _time += Dt;
         _world.SetResourceImmediate(new SimTime(Tick, Dt, _time));
-        _world.RunTick(Tick);
+        _world.RunTick(Tick, _observers.Count > 0 ? _afterBarrier : null);
         Tick++;
-        if (Recorder is null && Player is null) return;
-        Recorder?.EndTick(Tick - 1);
-        bool record = Recorder?.HashDue(Tick) ?? false, play = Player?.HashDue(Tick) ?? false;
-        if (!record && !play) return;
-        HashState(_hashParts);
-        if (record) Recorder!.AddHash(Tick, _hashParts);
-        if (play) Player!.Check(Tick, _hashParts);
+        if (Recorder is not null || Player is not null)
+        {
+            Recorder?.EndTick(Tick - 1);
+            bool record = Recorder?.HashDue(Tick) ?? false, play = Player?.HashDue(Tick) ?? false;
+            if (record || play)
+            {
+                HashState(_hashParts);
+                if (record) Recorder!.AddHash(Tick, _hashParts);
+                if (play) Player!.Check(Tick, _hashParts);
+            }
+        }
+        for (int i = 0; i < _observers.Count; i++) _observers[i].AfterTick(this);
     }
+}
+
+/// <summary>
+/// Наблюдатель симуляции (<see cref="Simulation.Observe"/>): агентский слой — история наблюдений, условия, останов посреди
+/// тика. Вызывается на потоке симуляции: после барьера каждой стадии (<see cref="Simulation.Stage"/> — её имя, мир
+/// согласован) и после тика (между тиками). Мир — только для чтения; менять симуляцию — только командами на будущий тик.
+/// </summary>
+public interface ISimulationObserver
+{
+    /// <summary>После барьера стадии <paramref name="stage"/> (номер в <see cref="WorldReader.Stages"/>) идущего тика.</summary>
+    void AfterStage(Simulation simulation, int stage);
+
+    /// <summary>После тика: сыграно <see cref="Simulation.Tick"/> тиков.</summary>
+    void AfterTick(Simulation simulation);
 }
 
 /// <summary>

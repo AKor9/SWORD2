@@ -331,7 +331,14 @@ public sealed partial class World
     // ── тик ────────────────────────────────────────────────────────────────
 
     /// <summary>Тик: стадии по порядку, после каждой — барьер.</summary>
-    public void RunTick(ulong tick)
+    public void RunTick(ulong tick) => RunTick(tick, null);
+
+    /// <summary>
+    /// Тик с наблюдателем барьеров: <paramref name="afterBarrier"/> получает номер стадии после её барьера — мир
+    /// согласован, записи стадии в журналах (останов посреди тика у агента). Наблюдатель только читает: немедленные
+    /// операции во время тика — исключение, как и всегда.
+    /// </summary>
+    public void RunTick(ulong tick, Action<int>? afterBarrier)
     {
         NotInTick(nameof(RunTick));
         _inTick = true;
@@ -350,6 +357,7 @@ public sealed partial class World
                 PlayBuffers(order);
                 _barrier++;
                 TrimJournals();
+                afterBarrier?.Invoke(s);
             }
         }
         catch

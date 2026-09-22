@@ -46,6 +46,14 @@ public static class WorldQuery
         return new QueryCopy(total, ctx.Tick, rows);
     }
 
+    /// <summary>Страница уже отобранных сущностей (например, условием): <paramref name="total"/> — сколько подошло всего.</summary>
+    public static QueryCopy CopyMany(in ServiceContext ctx, IReadOnlyList<Entity> page, int total, IReadOnlyList<int>? project, IEntityNames? names)
+    {
+        var rows = new List<EntityCopy>(page.Count);
+        foreach (var e in page) rows.Add(CopyEntity(ctx, e, project, names));
+        return new QueryCopy(total, ctx.Tick, rows);
+    }
+
     /// <summary>Одна сущность (null — мертва) с байтами её компонентов (или только <paramref name="project"/>).</summary>
     public static EntityCopy? CopyOne(in ServiceContext ctx, Entity e, IReadOnlyList<int>? project, IEntityNames? names) =>
         ctx.World.IsAlive(e) ? CopyEntity(ctx, e, project, names) : null;

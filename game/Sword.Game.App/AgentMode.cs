@@ -37,6 +37,7 @@ public static partial class Program
             MaxWait = HttpTransport.MaxWait,
         });
         SwordAgent.Register(host);
+        host.Observe(sim);   // история событий, наблюдения, условия — с первого тика игры
         ClientAgent.Attach(host, client);
         var http = new HttpTransport(host.Server, port);
         Log.Info("agent", $"MCP: {http.Url} — сеанс {host.SessionId}, {host.Tools.Count} инструментов");

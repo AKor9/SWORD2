@@ -197,6 +197,54 @@ public sealed class ReplayToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task ReplayObserve_EventsWatchCondition_ToFile()
+    {
+        await PlayScript(40);
+        await Tool("replay.save", new JsonObject { ["name"] = "obs" });
+        var r = await Tool("replay.observe", new JsonObject
+        {
+            ["path"] = "obs.swreplay",
+            ["events"] = new JsonArray("Push"),
+            ["watch"] = new JsonObject { ["entities"] = new JsonArray("2v1"), ["fields"] = new JsonArray("Body.Position.X") },
+            // Тело 2v1: X = 2 + 0,5 на тиках 5…14, −2 на тике 30 → X > 5 после тиков 12…30.
+            ["condition"] = JsonNode.Parse("""{"field":"Body.Position.X","greaterThan":5}"""),
+        });
+        Assert.Equal(40ul, r["ticks"]!.GetValue<ulong>());
+        Assert.Equal(11, r["events"]!["Event<Push>"]!.GetValue<int>());
+        Assert.Equal(40, r["watchRows"]!.GetValue<int>());
+        Assert.Equal(12ul, r["condition"]!["firstTickId"]!.GetValue<ulong>());
+        Assert.Equal(30ul, r["condition"]!["lastTickId"]!.GetValue<ulong>());
+        Assert.Equal(19, r["condition"]!["ticks"]!.GetValue<int>());
+        Assert.True(r["playback"]!["match"]!.GetValue<bool>());
+        var lines = File.ReadAllLines(r["file"]!.GetValue<string>());
+        Assert.Equal(r["lines"]!.GetValue<int>(), lines.Length);
+        Assert.Contains(lines, l => l.Contains("\"condition\":true") && l.Contains("\"tickId\":12"));
+        Assert.Equal(0, (await Tool("session.status"))["tick"]!.GetValue<int>() - 40);   // сеанс не тронут
+
+        var window = await Tool("replay.observe", new JsonObject { ["path"] = "obs.swreplay", ["events"] = new JsonArray("Push"), ["from"] = 10, ["to"] = 20 });
+        Assert.Equal(5, window["events"]!["Event<Push>"]!.GetValue<int>());   // тики 10…14
+        // Окно for считает тики и до from: X > 5 держится с tickId 12 — к первому записанному tickId 16 уже 5 тиков подряд.
+        var held = await Tool("replay.observe", new JsonObject
+        {
+            ["path"] = "obs.swreplay", ["from"] = 15, ["to"] = 20,
+            ["condition"] = JsonNode.Parse("""{"for":5,"that":{"field":"Body.Position.X","greaterThan":5}}"""),
+        });
+        Assert.Equal(16ul, held["condition"]!["firstTickId"]!.GetValue<ulong>());
+        await Tool("replay.observe", new JsonObject { ["path"] = "obs.swreplay" }, error: true);   // нечего наблюдать
+    }
+
+    [Fact]
+    public async Task Seek_Back_RebuildsHistory_ByReplay()
+    {
+        await PlayScript(40);
+        await Tool("time.seek", new JsonObject { ["tick"] = 20 });
+        // История снята и при повторе таймлайна: толчки тиков 5…14 видны после перемотки назад.
+        var events = await Tool("events.history", new JsonObject { ["types"] = new JsonArray("Push") });
+        Assert.Equal(10, events["total"]!.GetValue<int>());
+        Assert.Equal(19ul, events["window"]!["newest"]!.GetValue<ulong>());
+    }
+
+    [Fact]
     public async Task Seek_Back_DuringPlayback_KeepsFileFuture()
     {
         var hashes = await PlayScript(40);

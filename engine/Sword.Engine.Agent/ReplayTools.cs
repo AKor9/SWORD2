@@ -132,6 +132,73 @@ internal static class ReplayTools
 
         host.Add(new AgentTool
         {
+            Name = "replay.observe", Title = "Наблюдать прогон реплея",
+            Description = "Прогнать реплей в отдельной симуляции (сеанс не трогается) и записать наблюдение глубже кольца истории: " +
+                "события типов events («*» — все; tick — номер тика), строки наблюдения watch (как watch.add; tickId), переходы " +
+                "условия condition (tickId, true/false) и сводка — первый и последний tickId, когда условие выполнялось. Строки — " +
+                "в файл .jsonl в артефактах, в ответе — сводка и первые строки. " + ObservationPredicate.Syntax + " Только Headless.",
+            Arguments = Props(
+                ("path", Str("реплей: путь, имя в каталоге артефактов или «session»")),
+                ("from", Int("писать с тика (по умолчанию 0)", 0, long.MaxValue)),
+                ("to", Int("до скольких тиков (по умолчанию — длина реплея)", 0, long.MaxValue)),
+                ("events", StrArray("типы событий: PlayerCommand, Added<Fighter>, * — все")),
+                ("watch", new JsonObject { ["type"] = "object", ["description"] = "наблюдение: {entities, where, fields, every} как у watch.add" }),
+                ("condition", new JsonObject { ["type"] = "object", ["description"] = "условие мира (язык — в описании)" }),
+                ("set", StrArray("ключи конфига секция.ключ=значение поверх конфига реплея")),
+                ("timeoutSeconds", Num("сколько ждать, с (по умолчанию 120)", 1, 3600))),
+            Required = ["path"],
+            Cost = ToolCost.Heavy,
+            Run = async call =>
+            {
+                var session = RequireRebuild(host);
+                var sets = call.Strings("set");
+                double seconds = call.Number("timeoutSeconds", 120, 1, 3600);
+                var (replay, path) = await Load(host, call.RequiredString("path"), call.Cancel);
+                CheckContent(host, replay);
+                var options = new ReplayObserveOptions
+                {
+                    From = (ulong)call.Integer("from", 0, 0, long.MaxValue),
+                    To = (ulong)call.Integer("to", (long)Math.Min(replay.Ticks, long.MaxValue), 0, long.MaxValue),
+                    Events = call.Strings("events"),
+                    Watch = call.Node("watch") is { } w ? w as JsonObject ?? throw new ArgumentException("watch: объект {fields, entities, where}") : null,
+                    Condition = call.Node("condition"),
+                };
+                if (options.Events.Count == 0 && options.Watch is null && options.Condition is null)
+                    throw new ArgumentException("нечего наблюдать: events, watch или condition");
+                if (options.To - Math.Min(options.To, options.From) > 10_000_000) throw new ArgumentException("не больше 10 000 000 тиков");
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(call.Cancel);
+                timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
+                var result = await Task.Run(() =>
+                {
+                    var sim = session.Build(replay.CreateConfig(sets));
+                    return ReplayObservation.Run(sim, replay, host.Names, options, timeout.Token);
+                }, timeout.Token).ConfigureAwait(false);
+
+                string file = ArtifactName($"observe-{Path.GetFileNameWithoutExtension(path)}-{options.From}-{options.To}").Replace(Replay.Extension, ".jsonl");
+                using (var writer = new StreamWriter(host.ArtifactPath(file), false, new System.Text.UTF8Encoding(false)) { NewLine = "\r\n" })
+                    foreach (var line in result.Lines) writer.WriteLine(line.ToJsonString());
+                var data = new JsonObject
+                {
+                    ["file"] = host.ArtifactPath(file),
+                    ["ticks"] = result.Ticks,
+                    ["lines"] = result.Lines.Count,
+                    ["truncated"] = result.Truncated,
+                    ["events"] = new JsonObject([.. result.EventCounts.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))]),
+                    ["watchRows"] = result.WatchRows,
+                    ["condition"] = result.Condition is { } c ? new JsonObject
+                    {
+                        ["firstTickId"] = c.First, ["lastTickId"] = c.Last, ["ticks"] = c.Ticks, ["cost"] = result.ConditionCost,
+                    } : null,
+                    ["playback"] = Playback(result.Player, result.Ticks),
+                    ["head"] = new JsonArray([.. result.Lines.Take(20).Select(l => (JsonNode?)l.DeepClone())]),
+                };
+                if (sets.Count > 0) data["set"] = new JsonArray([.. sets.Select(s => (JsonNode?)s)]);
+                return new ToolOutput(data) { ArtifactId = file, Truncated = result.Truncated };
+            },
+        });
+
+        host.Add(new AgentTool
+        {
             Name = "session.start", Title = "Новая симуляция",
             Description = "Начать симуляцию заново с тика 0 (на паузе): из конфига запуска (файлы и set) или из реплея — тогда его " +
                 "команды идут в каждом тике первыми, хеши сверяются (replay.status), а свои команды (command.send) ветвят его. " +

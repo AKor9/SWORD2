@@ -189,4 +189,26 @@ public class SimulationClockTests
         Assert.Equal(8, Frame(clock.Link).Count);
         Assert.True(clock.RunFrame(0) <= 1, "после упора остаток не больше одного тика");
     }
+    private sealed class StoppingGate(int? ticks, ulong stopAt) : ITickGate
+    {
+        public int? Override(int maxPerFrame) => ticks is { } t ? Math.Min(t, maxPerFrame) : null;
+        public void Ran(ulong tick) { }
+        public bool StopAfterTick(ulong tick) => tick >= stopAt;
+    }
+
+    [Fact]
+    public void Gate_StopAfterTick_EndsFrameOnThatTick()
+    {
+        // Условие наблюдения или пауза агента встают на своём тике, а не в конце кадра (этап 3в).
+        var (clock, _) = Create();
+        double dt = clock.Link.Dt;
+        clock.Gate = new StoppingGate(5, stopAt: 2);
+        Assert.Equal(2, clock.RunFrame(0));                  // шагов 5, встали на тике 2
+        Assert.Equal(2, Frame(clock.Link).Count);
+        clock.Gate = new StoppingGate(null, stopAt: 4);
+        Assert.Equal(2, clock.RunFrame(8 * dt));             // по часам 8 тиков, встали на тике 4
+        Assert.Equal(0f, clock.Alpha);                       // несыгранное время кадра не догоняется
+        clock.Gate = null;
+        Assert.Equal(1, clock.RunFrame(dt));
+    }
 }

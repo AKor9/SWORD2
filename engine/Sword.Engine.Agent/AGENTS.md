@@ -18,5 +18,10 @@
   `time.seek` назад) исполняет только поток симуляции в `SimulationLoop` между точками обслуживания (`Post`); после
   смены цикл обновляет контекст обслуживания, `AgentHost.Catalog` и время (`TimeControl.Reset`). Живая игра
   (`host.Simulation` = null) пересборки не умеет — такие инструменты отвечают ошибкой.
+- Наблюдение (этап 3в) — `AgentHost.Observation` (`ObservationHub`): подключает хозяин цикла (`host.Observe`) —
+  `SimulationLoop` к каждой симуляции сеанса до её первого тика (`AgentSimulation.Preparing`: и повтор перемотки назад
+  попадает в историю), живая игра — exe при старте. Останов посреди тика (`time.break`) — точка обслуживания внутри
+  тика в `SimulationLoop`: ждёт, пока время разрешит тики или сеанс поставит операцию (тик доигрывается). Инструменты —
+  `ObservationTools`, `replay.observe` — в `ReplayTools`.
 
 Проверка: `tests/Sword.Engine.Agent.Tests`, `verify.ps1` шаг `agent-smoke`.

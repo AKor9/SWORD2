@@ -113,6 +113,30 @@ public sealed class TimeControl
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Условие наблюдения выполнилось (поток симуляции): встать на паузу, сыграно <paramref name="tick"/> тиков — запас
+    /// до этого тика. Хозяин цикла не играет дальше: Headless — по <see cref="Allow"/>, живая игра — по
+    /// <see cref="Stopping"/> после каждого тика кадра.
+    /// </summary>
+    public void Halt(ulong tick)
+    {
+        lock (_gate)
+        {
+            _paused = true;
+            _target = tick;
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Хозяин цикла после тика: сыграно <paramref name="tick"/> — остановить тики кадра сейчас (пауза, запас исчерпан).
+    /// Живая игра спрашивает после каждого тика: пауза и условие встают на своём тике, а не в конце кадра.
+    /// </summary>
+    public bool Stopping(ulong tick)
+    {
+        lock (_gate) return _paused && tick >= _target;
+    }
+
     /// <summary>Хозяин цикла: сколько тиков можно сыграть сейчас, если хочется <paramref name="wanted"/>.</summary>
     public int Allow(int wanted) => Gate(wanted) ?? wanted;
 

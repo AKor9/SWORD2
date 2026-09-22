@@ -176,6 +176,7 @@ public sealed record ToolOutput(JsonObject Data)
         {
             Tick = value.Tick;
             Frame = value.Frame;
+            Stage = value.Stage;
         }
     }
     public string? Stage { get; init; }

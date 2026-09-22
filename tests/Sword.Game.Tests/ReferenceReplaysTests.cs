@@ -1,4 +1,5 @@
 using Sword.Engine.Content;
+using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
 using Sword.Game.Animation;
 using Sword.Game.Bootstrap;
@@ -43,6 +44,57 @@ public sealed class ReferenceReplaysTests
             $"{file}: {player.Divergence} — поведение изменилось. Намеренно — перезапишите эталон " +
             $"(Sword.Headless --replay tests/reference/replays/{file} --record tests/reference/replays/{file}) и запишите причину в md фичи");
         Assert.Equal(replay.Hashes.Count, player.HashesChecked);
+    }
+
+    /// <summary>
+    /// Условия на эталонном реплее (этап 3в): условие на события совпадает с командами реплея, условие на поле игрока —
+    /// с прямым чтением мира тик за тиком; наблюдение даёт те же значения.
+    /// </summary>
+    [Fact]
+    public void Conditions_OnReferenceReplay_MatchReplayAndWorld()
+    {
+        var replay = Replay.Load(Path.Combine(RepoRoot(), "tests", "reference", "replays", "prototype.swreplay"));
+        var (assets, _) = Reference.Value;
+        var names = new Sword.Game.Agent.SwordAgent.ArenaNames();
+
+        // Шаг: удерживается в тиках, где у команды реплея Walk (номер тика команды t — tickId t + 1).
+        var walkTicks = new List<ulong>();
+        for (ulong t = 0; t < replay.Ticks; t++)
+            if (replay.CommandsAt(t) is [var c] && c.Leaves[replay.CommandTypes[c.Type].Fields.ToList().FindIndex(f => f.StartsWith("Walk:"))] != 0)
+                walkTicks.Add(t + 1);
+        var walk = ReplayObservation.Run(SwordSimulation.Create(replay.CreateConfig(), assets), replay, names, new ReplayObserveOptions
+        {
+            To = replay.Ticks, Events = ["PlayerCommand"],
+            Condition = System.Text.Json.Nodes.JsonNode.Parse("""{"event":"PlayerCommand","where":{"field":"Walk","equals":true}}"""),
+        });
+        Assert.True(walk.Player.Divergence is null);
+        Assert.Equal(replay.CommandCount, walk.EventCounts["Event<PlayerCommand>"]);
+        Assert.Equal((walkTicks[0], walkTicks[^1], walkTicks.Count), walk.Condition!.Value);
+
+        // Поле игрока: первый tickId, когда X > 1, — тот же, что при прямом чтении Transform тик за тиком.
+        var direct = SwordSimulation.Create(replay.CreateConfig(), assets);
+        direct.Play(replay);
+        var player = GameCore.Player(direct.World);
+        ulong? firstDirect = null;
+        var xs = new List<float>();
+        while (direct.Tick < replay.Ticks)
+        {
+            direct.Step();
+            float x = direct.World.Get<Contracts.Transform>(player).Position.X;
+            xs.Add(x);
+            if (x > 1 && firstDirect is null) firstDirect = direct.Tick;
+        }
+        var field = ReplayObservation.Run(SwordSimulation.Create(replay.CreateConfig(), assets), replay, names, new ReplayObserveOptions
+        {
+            To = replay.Ticks,
+            Condition = System.Text.Json.Nodes.JsonNode.Parse("""{"all":[{"entity":"player"},{"field":"Transform.Position.X","greaterThan":1}]}"""),
+            Watch = new System.Text.Json.Nodes.JsonObject { ["entities"] = new System.Text.Json.Nodes.JsonArray("player"), ["fields"] = new System.Text.Json.Nodes.JsonArray("Transform.Position.X") },
+        });
+        Assert.NotNull(firstDirect);
+        Assert.Equal(firstDirect, field.Condition!.Value.First);
+        Assert.Equal(xs.Count, (int)field.WatchRows);
+        var watched = field.Lines.Where(l => l["values"] is not null).Select(l => l["values"]!["Transform.Position.X"]!.GetValue<float>()).ToList();
+        Assert.Equal(xs, watched);
     }
 
     [Fact]

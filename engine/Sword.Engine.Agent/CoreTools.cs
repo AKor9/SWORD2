@@ -98,15 +98,24 @@ internal static class CoreTools
         });
         host.Add(new AgentTool
         {
-            Name = "time.runUntil", Title = "Играть до тика",
-            Description = "Играть, пока не сыграно tick тиков (на паузе — и остановиться), и дождаться. Прошедший тик — сразу ответ.",
+            Name = "time.runUntil", Title = "Играть до тика или условия",
+            Description = "Играть, пока не сыграно tick тиков (на паузе — и остановиться), и дождаться. Прошедший тик — сразу ответ. " +
+                "С condition — пока условие не выполнится после очередного тика (не дольше maxTicks): симуляция встаёт на паузу " +
+                "ровно на этом тике (и в живой игре); ответ — met, tick. " + ObservationPredicate.Syntax,
             Arguments = Props(
                 ("tick", Int("сыграно тиков — цель", 0, long.MaxValue)),
+                ("condition", new JsonObject { ["type"] = "object", ["description"] = "условие вместо тика (язык — в описании)" }),
+                ("maxTicks", Int("с condition: не больше стольких тиков (по умолчанию 100 000)", 1, 10_000_000)),
                 ("timeoutSeconds", Timeout(host))),
-            Required = ["tick"],
             ReadOnly = false, Idempotent = true, Cost = ToolCost.Moderate,
             Run = async call =>
             {
+                if (call.Node("condition") is { } condition)
+                {
+                    if (call.Node("tick") is not null) throw new ArgumentException("tick или condition — что-то одно");
+                    return await ObservationTools.RunUntil(host, call, null, condition).ConfigureAwait(false);
+                }
+                if (call.Node("tick") is null) throw new ArgumentException("нужен tick или condition");
                 ulong tick = (ulong)call.Integer("tick", 0, 0, long.MaxValue);
                 double seconds = TimeoutSeconds(host, call);
                 if (tick - Math.Min(tick, host.Time.Tick) > 10_000_000) throw new ArgumentException("tick: не дальше 10 000 000 тиков вперёд");
@@ -126,12 +135,16 @@ internal static class CoreTools
         host.Add(new AgentTool
         {
             Name = "world.query", Title = "Запрос к миру",
-            Description = "Сущности со всеми компонентами with и без without, по возрастанию номера, страницей (skip/take). " +
-                "fields — только эти компоненты или поля («Transform», «Transform.Position»). take 0 — только число.",
+            Description = "Сущности со всеми компонентами with, без without и (where) с условием на сущность, по возрастанию " +
+                "номера, страницей (skip/take). fields — только эти компоненты или поля («Transform», «Transform.Position»). " +
+                "take 0 — только число. aggregate — по всем подходящим: count, min, max, mean, sum числовых полей " +
+                "(«Transform.Position.X»). " + ObservationPredicate.Syntax,
             Arguments = Props(
                 ("with", StrArray("компоненты, которые должны быть (короткие или полные имена)")),
                 ("without", StrArray("компоненты, которых быть не должно")),
+                ("where", new JsonObject { ["type"] = "object", ["description"] = "условие на сущность (язык — в описании)" }),
                 ("fields", StrArray("проекция: компоненты или пути полей")),
+                ("aggregate", StrArray("числовые поля-листья: count, min, max, mean, sum по всем подходящим")),
                 ("skip", Int("пропустить (по умолчанию 0)", 0, int.MaxValue)),
                 ("take", Int($"сколько вернуть (по умолчанию 20, не больше {MaxTake})", 0, MaxTake))),
             Run = async call =>
@@ -143,15 +156,29 @@ internal static class CoreTools
                     : fields.Select(f => ComponentOfPath(host.Catalog, f).Id).Distinct().ToList();
                 // Пути — к отображаемому имени компонента (короткое или полное) и точным именам полей, как в ответе.
                 fields = [.. fields.Select(f => NormalizePath(host.Catalog, f))];
+                var where = call.Node("where");
+                var aggregates = call.Strings("aggregate");
                 int skip = (int)call.Integer("skip", 0, 0, int.MaxValue), take = (int)call.Integer("take", 20, 0, MaxTake);
-                var (page, point) = await host.Serve(ctx => (WorldQuery.Copy(ctx, with, without, project, skip, take, host.Names), ctx.Point), call.Cancel);
+                var (page, stats, point) = await host.Serve(ctx =>
+                {
+                    var predicate = where is null ? null : ObservationPredicate.Compile(where, ctx, host.Catalog, host.Names, PredicateScope.Entity);
+                    if (predicate is null && aggregates.Count == 0)
+                        return (WorldQuery.Copy(ctx, with, without, project, skip, take, host.Names), (JsonObject?)null, ctx.Point);
+                    var all = new List<Entity>();
+                    ctx.World.Select([.. with], [.. without], 0, int.MaxValue, all);
+                    if (predicate is not null) all = [.. all.Where(e => predicate.Matches(ctx, e, host.Observation.History))];
+                    var copy = WorldQuery.CopyMany(ctx, all.Skip(skip).Take(take).ToList(), all.Count, project, host.Names);
+                    return (copy, aggregates.Count == 0 ? null : Aggregate(ctx, host.Catalog, all, aggregates), ctx.Point);
+                }, call.Cancel);
                 var rows = new JsonArray([.. page.Rows.Select(r => (JsonNode?)WorldQuery.ToJson(r, host.Catalog, fields.Count == 0 ? null : fields))]);
                 // take 0 — только число: ответ полный, продолжения нет (иначе обход по страницам зациклился бы на skip).
                 bool truncated = take > 0 && skip + page.Rows.Count < page.Total;
-                return new ToolOutput(new JsonObject
+                var data = new JsonObject
                 {
                     ["total"] = page.Total, ["skip"] = skip, ["count"] = page.Rows.Count, ["entities"] = rows,
-                })
+                };
+                if (stats is not null) data["aggregate"] = stats;
+                return new ToolOutput(data)
                 { Point = point, Truncated = truncated, Continuation = truncated ? $"skip={skip + page.Rows.Count}" : null };
             },
         });
@@ -182,7 +209,8 @@ internal static class CoreTools
         host.Add(new AgentTool
         {
             Name = "state.hash", Title = "Хеш состояния",
-            Description = "Хеш состояния мира после последнего тика: итог и хеш каждого участника (ecs — сущности, компоненты, " +
+            Description = "Хеш состояния мира после последнего тика (посреди тика, time.break, — после стадии из квитанции; с " +
+                "хешами реплея такой не сравнивается): итог и хеш каждого участника (ecs — сущности, компоненты, " +
                 "ресурсы-значения, слоты, журналы, системы; animation — пул поз; другие — подсистемы). Два прогона с одинаковыми командами дают " +
                 "одинаковые хеши; разный хеш участника называет подсистему, её состояние — state.describe.",
             Run = async call =>
@@ -259,13 +287,15 @@ internal static class CoreTools
                 ulong delay = (ulong)call.Integer("delay", 0, 0, 1_000_000), repeat = (ulong)call.Integer("repeat", 1, 1, 100_000);
                 var scheduled = await host.Serve(ctx =>
                 {
-                    ulong first = at is { } t ? (ulong)t : ctx.Tick + delay;
-                    if (first < ctx.Tick) throw new ArgumentException($"tick {first}: тик уже прошёл (ближайший — {ctx.Tick})");
+                    // Ближайший — посреди тика (останов time.break) следующий: команды идущего тика уже выданы.
+                    ulong nearest = ctx.NextTick;
+                    ulong first = at is { } t ? (ulong)t : nearest + delay;
+                    if (first < nearest) throw new ArgumentException($"tick {first}: тик уже прошёл или идёт (ближайший — {nearest})");
                     // Далёкое будущее — почти наверняка ошибка, а очередь команд просматривается каждый тик. Весь диапазон,
                     // до первой постановки: last = first + repeat − 1 (repeat ≤ 100 000 < MaxAhead — вычитание без переполнения).
-                    if (first - ctx.Tick > MaxAhead - (repeat - 1))
+                    if (first - nearest > MaxAhead - (repeat - 1))
                         throw new ArgumentException($"тики {first}…{first + (repeat - 1)}: последний — не дальше " +
-                            $"{MaxAhead} тиков от ближайшего ({ctx.Tick})");
+                            $"{MaxAhead} тиков от ближайшего ({nearest})");
                     ctx.Enqueue(type, first, bytes, (int)repeat);   // диапазон — одной постановкой
                     return (First: first, ctx.Point);
                 }, call.Cancel);
@@ -420,6 +450,43 @@ internal static class CoreTools
         return new ToolOutput(new JsonObject { ["tick"] = point.Tick, ["paused"] = host.Time.Paused, ["remainingTicks"] = host.Time.Remaining })
         { Point = point };
     }
+
+    /// <summary>Агрегаты числовых листьев по сущностям (точка обслуживания): count, min, max, mean, sum по тем, у кого поле есть.</summary>
+    private static JsonObject Aggregate(in ServiceContext ctx, Catalog catalog, List<Entity> entities, IReadOnlyList<string> paths)
+    {
+        var result = new JsonObject();
+        foreach (string path in paths)
+        {
+            var (component, rest) = ObservationPredicate.SplitComponent(catalog, path, "aggregate");
+            if (component.IsTag) throw new ArgumentException($"aggregate: {component.Name} — метка без полей");
+            var layout = FieldLayout.Of(component.Type);
+            var leaves = ObservationPredicate.LeavesOf(layout, rest, $"aggregate ({path})");
+            if (leaves.Length != 1 || layout.Leaves[leaves[0]].Kind == FieldLayout.Kind.Entity)
+                throw new ArgumentException($"aggregate: «{path}» — не числовой лист ({string.Join(", ", leaves.Take(6).Select(l => layout.Leaves[l].Path))})");
+            int leaf = leaves[0], count = 0;
+            double min = double.PositiveInfinity, max = double.NegativeInfinity, sum = 0;
+            foreach (var e in entities)
+            {
+                if (!ctx.World.TryRead(e, component.Id, out var bytes)) continue;
+                double v = ObservationPredicate.Number(layout.Leaves[leaf].Kind, layout.Bits(bytes, leaf));
+                min = Math.Min(min, v);
+                max = Math.Max(max, v);
+                sum += v;
+                count++;
+            }
+            result[path] = new JsonObject
+            {
+                ["count"] = count,
+                ["min"] = count > 0 ? Finite(min) : null,
+                ["max"] = count > 0 ? Finite(max) : null,
+                ["mean"] = count > 0 ? Finite(sum / count) : null,
+                ["sum"] = Finite(sum),
+            };
+        }
+        return result;
+    }
+
+    private static JsonNode Finite(double v) => double.IsFinite(v) ? JsonValue.Create(v) : JsonValue.Create(v.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>Команда — не дальше стольких тиков вперёд (≈ 2,3 ч при 120 Гц).</summary>
     private const ulong MaxAhead = 1_000_000;

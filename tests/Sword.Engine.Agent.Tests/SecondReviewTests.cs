@@ -19,7 +19,7 @@ public class SecondReviewTests
         Assert.Contains("ticks = null", step["error"]!.GetValue<string>());
         var (until, untilErr) = await f.Tool("time.runUntil", []);
         Assert.True(untilErr);
-        Assert.Contains("нет обязательного аргумента tick", until["error"]!.GetValue<string>());
+        Assert.Contains("нужен tick или condition", until["error"]!.GetValue<string>());   // tick или условие (этап 3в)
         await Task.Delay(50);
         Assert.Equal(0ul, f.Sim.Tick);                          // ни один ошибочный вызов не сыграл тиков
     }

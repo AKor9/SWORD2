@@ -77,11 +77,17 @@ public sealed class SimulationClock
         if (Gate?.Override(_simulation.Settings.MaxTicksPerFrame) is { } forced)
         {
             // Пауза или шаги инструмента: часы стоят, кадр показывает последний тик.
-            for (int i = 0; i < forced; i++) Tick();
+            int played = 0;
+            while (played < forced)
+            {
+                Tick();
+                played++;
+                if (Gate.StopAfterTick(_simulation.Tick)) break;
+            }
             _accumulator = 0;
             _gated = true;
             Gate.Ran(_simulation.Tick);
-            return forced;
+            return played;
         }
         _gated = false;
         int done = RunByClock(frameSeconds);
@@ -93,7 +99,11 @@ public sealed class SimulationClock
     {
         if (_ticksPerFrame > 0)
         {
-            for (int i = 0; i < _ticksPerFrame; i++) Tick();
+            for (int i = 0; i < _ticksPerFrame; i++)
+            {
+                Tick();
+                if (Gate?.StopAfterTick(_simulation.Tick) == true) return i + 1;
+            }
             return _ticksPerFrame;
         }
         double dt = TickSeconds;
@@ -104,6 +114,11 @@ public sealed class SimulationClock
             Tick();
             _accumulator = Math.Max(_accumulator - dt, 0);
             ticks++;
+            if (Gate?.StopAfterTick(_simulation.Tick) == true)
+            {
+                _accumulator = 0;   // встали посреди кадра: несыгранное время кадра не догоняется после паузы
+                return ticks;
+            }
         }
         if (ticks == max) _accumulator = Math.Min(_accumulator, dt);
         return ticks;

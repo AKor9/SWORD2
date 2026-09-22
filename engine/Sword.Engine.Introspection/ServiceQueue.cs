@@ -20,8 +20,17 @@ public readonly struct ServiceContext
     /// <summary>Мир на конце последнего тика.</summary>
     public WorldReader World => _simulation.World;
 
-    /// <summary>Номер следующего тика (сыграно тиков).</summary>
+    /// <summary>Номер следующего тика (сыграно тиков); посреди тика (<see cref="Stage"/>) — номер идущего тика.</summary>
     public ulong Tick => _simulation.Tick;
+
+    /// <summary>Стадия, после барьера которой идёт обслуживание (останов посреди тика, <c>time.break</c>); null — между тиками.</summary>
+    public string? Stage => _simulation.Stage;
+
+    /// <summary>Ближайший тик, на который можно поставить команду (посреди тика — следующий).</summary>
+    public ulong NextTick => _simulation.NextCommandTick;
+
+    /// <summary>Симуляция точки — для наблюдения (<see cref="ObservationHub"/>) и снимков; менять её отсюда нельзя.</summary>
+    internal Simulation Simulation => _simulation;
 
     /// <summary>Шаг тика, с.</summary>
     public float Dt => _simulation.Dt;
@@ -36,7 +45,7 @@ public readonly struct ServiceContext
     public IReadOnlyList<Type> CommandTypes => _simulation.CommandTypes;
 
     /// <summary>
-    /// Команда тика байтами на тик <paramref name="tick"/> — не раньше следующего (<see cref="Tick"/>) — и на
+    /// Команда тика байтами на тик <paramref name="tick"/> — не раньше ближайшего (<see cref="NextTick"/>) — и на
     /// <paramref name="repeat"/> тиков подряд.
     /// </summary>
     public void Enqueue(Type command, ulong tick, ReadOnlySpan<byte> bytes, int repeat = 1) =>
@@ -57,12 +66,15 @@ public readonly struct ServiceContext
     /// <summary>Воспроизводимый реплей; null — нет.</summary>
     public ReplayPlayer? Player => _simulation.Player;
 
-    /// <summary>Момент этой точки обслуживания: тик и кадр одного состояния (для квитанции).</summary>
-    public ServicePoint Point => new(Tick, Frame);
+    /// <summary>Момент этой точки обслуживания: тик, кадр и стадия одного состояния (для квитанции).</summary>
+    public ServicePoint Point => new(Tick, Frame, Stage);
 }
 
-/// <summary>Момент точки обслуживания: сыграно тиков и кадр клиента (null — без окна) — одного и того же состояния.</summary>
-public readonly record struct ServicePoint(ulong Tick, ulong? Frame);
+/// <summary>
+/// Момент точки обслуживания: сыграно тиков, кадр клиента (null — без окна) и стадия (null — между тиками; иначе
+/// останов посреди тика <see cref="Tick"/> после барьера стадии) — одного и того же состояния.
+/// </summary>
+public readonly record struct ServicePoint(ulong Tick, ulong? Frame, string? Stage = null);
 
 /// <summary>
 /// Очередь запросов к симуляции: поток агента ставит запрос (<see cref="Post{T}"/>) и ждёт ответ, поток симуляции
