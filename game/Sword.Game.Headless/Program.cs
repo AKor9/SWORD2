@@ -26,13 +26,22 @@ public static partial class Program
           --gaze X,Z          точка взгляда на земле
           --sample N          точка траектории каждые N тиков (по умолчанию 60)
           --set секция.ключ=значение   конфиг (перекрывает sword.json и переменные SWORD_*)
+          --record FILE       записать реплей (.swreplay): конфиг, модули, команды по тикам, хеши состояния
+          --hash-every K      хеш состояния в реплее каждые K тиков (по умолчанию 1)
+          --replay FILE       воспроизвести реплей (свой конфиг, свои команды; --move, --walk, --gaze нельзя): тиков —
+                              сколько в реплее (или --ticks), хеши сверяются по участникам; первое расхождение —
+                              тик и участник, код выхода 3. С --record — перезапись (новые хеши тех же команд: эталон
+                              после намеренного изменения, хеши сценария без хешей); --set поверх — эксперимент
           --json              итог — одной строкой JSON в stdout (для агента)
           --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
                               двигает агент; stdout — только протокол, журнал — в stderr
         """;
 
-    /// <summary>Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
-    static partial void RunAgent(Simulation sim, ref int? exit);
+    /// <summary>
+    /// Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.
+    /// <paramref name="build"/> — симуляция из конфига той же композицией (<c>session.start</c>, <c>time.seek</c> назад).
+    /// </summary>
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, ref int? exit);
 
     /// <summary>Тиков прогрева перед замером выделений: ёмкости журналов, буферов и очередей выросли.</summary>
     private const int WarmupTicks = 120;
@@ -40,9 +49,11 @@ public static partial class Program
     public static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
-        int ticks = 600, sample = 60;
+        int ticks = 600, sample = 60, hashEvery = 1;
+        bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
         bool json = false, agent = false;
+        string? record = null, replayPath = null;
         var sets = new List<string>();
         try
         {
@@ -52,21 +63,37 @@ public static partial class Program
                 string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{a}: нет значения");
                 switch (a)
                 {
-                    case "--ticks": ticks = Count(a, Next(), min: 0); break;
+                    case "--ticks":
+                        ticks = Count(a, Next(), min: 0);
+                        ticksSet = true;
+                        break;
                     case "--sample": sample = Count(a, Next(), min: 1); break;
-                    case "--move": command.Move = Pair(a, Next()); break;
-                    case "--walk": command.Walk = true; break;
+                    case "--move":
+                        command.Move = Pair(a, Next());
+                        commandSet = true;
+                        break;
+                    case "--walk":
+                        command.Walk = true;
+                        commandSet = true;
+                        break;
                     case "--gaze":
                         var g = Pair(a, Next());
                         command.HasGaze = true;
                         command.Gaze = new Vector3(g.X, 0, g.Y);
+                        commandSet = true;
                         break;
+                    case "--record": record = Next(); break;
+                    case "--hash-every": hashEvery = Count(a, Next(), min: 1); break;
+                    case "--replay": replayPath = Next(); break;
                     case "--set": sets.Add(Next()); break;
                     case "--json": json = true; break;
                     case "--agent": agent = true; break;
                     default: throw new ArgumentException($"неизвестный ключ {a}");
                 }
             }
+            if (replayPath is not null && commandSet) throw new ArgumentException("--replay: команды — из реплея; --move, --walk, --gaze нельзя");
+            if (agent && (replayPath is not null || record is not null))
+                throw new ArgumentException("--agent: реплеи — инструментами агента (session.start, replay.save), не ключами");
         }
         catch (ArgumentException ex)
         {
@@ -79,14 +106,31 @@ public static partial class Program
         if (json || agent) Log.SetSinks(new ConsoleLogSink(allToStandardError: true));
         try
         {
-            var config = ConfigSet.Load(AppContext.BaseDirectory, sets);
-            var sim = SwordSimulation.Create(config, Animation.CharacterAssets.LoadFromPak());
-            config.SkipClientSections();   // клиента нет: привязки клавиш из общего sword.json не читаются
-            config.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
+            string content = ContentHash();
+            Replay? replay = replayPath is null ? null : Replay.Load(replayPath);
+            var warnings = new List<string>();
+            if (replay is not null) CheckReplay(replay, content, warnings);
+            var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
+            if (replay is not null && sets.Count > 0) warnings.Add($"конфиг реплея изменён: {string.Join(", ", sets)} — эксперимент, хеши могут разойтись");
+            var assets = Animation.CharacterAssets.LoadFromPak();
+            // Та же композиция для каждой симуляции процесса: ассеты общие и неизменяемые.
+            Simulation Build(ConfigSet c)
+            {
+                var s = SwordSimulation.Create(c, assets);
+                c.SkipClientSections();   // клиента нет: привязки клавиш из общего sword.json не читаются
+                c.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
+                return s;
+            }
+            var sim = Build(config);
+            var playback = replay is null ? null : sim.Play(replay);
+            if (playback is not null) warnings.AddRange(playback.Warnings);
+            foreach (var w in warnings) Log.Warning("replay", w);
+            var recorder = record is null ? null : sim.Record(ReplayInfo.Current(content), hashEvery);
+            if (replay is not null && !ticksSet) ticks = checked((int)replay.Ticks);
             if (agent)
             {
                 int? exit = null;
-                RunAgent(sim, ref exit);
+                RunAgent(sim, Build, ref exit);
                 if (exit is { } code) return code;
                 Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
                 return 2;
@@ -102,12 +146,14 @@ public static partial class Program
                 long before = GC.GetAllocatedBytesForCurrentThread();
                 // Клиента нет — очередь кадра экспорта тика живёт один тик и не растёт.
                 sim.Export.BeginFrame();
-                sim.Enqueue(command);
+                if (playback is null) sim.Enqueue(command);
                 sim.Step();
                 if (t >= warmup) allocated += GC.GetAllocatedBytesForCurrentThread() - before;
                 if ((t + 1) % sample == 0 || t + 1 == ticks) trajectory.Add(State(sim, player));
             }
             double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            Replay? recorded = recorder?.ToReplay();
+            recorded?.Save(record!);
 
             var report = new
             {
@@ -121,6 +167,13 @@ public static partial class Program
                 player = State(sim, player),
                 pose = Pose(sim, player),
                 stateHash = StateHashJson(sim),
+                replay = playback is null ? null : ReplayJson(replayPath!, playback),
+                recorded = recorded is null ? null : new
+                {
+                    file = Path.GetFullPath(record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count, runs = recorded.Runs.Count,
+                    commands = recorded.CommandCount,
+                },
+                warnings,
                 trajectory,
                 modules = sim.ActiveModules,
                 inactiveModules = sim.InactiveModules,
@@ -131,15 +184,72 @@ public static partial class Program
             };
             if (json) Console.WriteLine(JsonSerializer.Serialize(report, JsonOptions));
             else
+            {
                 Log.Info("headless", $"{sim.Tick} тиков ({report.seconds} с): игрок в ({Fmt(report.player.x)}, {Fmt(report.player.z)}), " +
                     $"курс {Fmt(report.player.facing)} рад, скорость {Fmt(report.player.speed)} м/с; {report.msPerTick} мс/тик");
-            return 0;
+                if (playback is not null)
+                    Log.Info("replay", playback.Divergence is { } d ? d.ToString()
+                        : playback.Replay.Hashes.Count == 0 ? "в реплее нет хешей (сценарий) — сверять нечего; хеши даёт --record"
+                        : $"реплей совпал: сверено хешей {playback.HashesChecked}, последний — после {playback.LastMatch?.ToString() ?? "—"} тиков");
+                if (recorded is not null) Log.Info("replay", $"записан {Path.GetFullPath(record!)}: {recorded.Ticks} тиков, хешей {recorded.Hashes.Count}");
+            }
+            return playback?.Divergence is null ? 0 : 3;
         }
         catch (Exception ex)
         {
             Log.Error("headless", ex.ToString());
             if (json) Console.WriteLine(JsonSerializer.Serialize(new { ok = false, error = ex.Message }, JsonOptions));
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// Реплей подходит этой сборке: модули реплея в ней есть (иначе команды и конфиг не привяжутся), контент тот же
+    /// (иначе хеши не значат ничего); другая сборка — предупреждение (хеши скажут, изменилась ли логика).
+    /// </summary>
+    private static void CheckReplay(Replay replay, string content, List<string> warnings)
+    {
+        var known = SwordSimulation.Modules().Select(m => m.Id).ToList();
+        var missing = (replay.Modules ?? []).Concat(replay.InactiveModules ?? []).Where(m => !known.Contains(m)).ToList();
+        if (missing.Count > 0)
+            throw new InvalidDataException($"реплей записан с модулями {string.Join(", ", missing)}, а в этой сборке их нет (есть: {string.Join(", ", known)})");
+        if (replay.Content != "none" && content != "none" && replay.Content != content)
+            throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а пак здесь — {content}: хеши сравнивать бессмысленно");
+        var current = ReplayInfo.Current(content).Build;
+        string commit = Replay.CommitOf(replay.Build);
+        if (commit.Length > 0 && commit != Replay.CommitOf(current)) warnings.Add($"реплей записан сборкой {replay.Build}, это — {current}");
+    }
+
+    private static object ReplayJson(string path, ReplayPlayer player) => new
+    {
+        file = Path.GetFullPath(path),
+        ticks = player.Length,
+        recordedBy = player.Replay.RecordedBy,
+        build = player.Replay.Build,
+        match = player.Divergence is null,
+        hashesChecked = player.HashesChecked,
+        hashesLeft = player.HashesLeft,
+        lastMatch = player.LastMatch,
+        divergence = player.Divergence is { } d ? new
+        {
+            tick = d.Tick,
+            lastMatch = d.LastMatch,
+            parts = d.Parts.Select(p => new { part = p.Part, expected = $"{p.Expected:X16}", actual = $"{p.Actual:X16}" }),
+        } : null,
+    };
+
+    /// <summary>Отпечаток пака, если он есть (симуляции контент не нужен, реплей и квитанции называют его всё равно).</summary>
+    internal static string ContentHash()
+    {
+        try
+        {
+            if (Sword.Engine.Content.ContentLocator.Find() is not { } path) return "none";
+            using var pak = Sword.Engine.Content.PakSource.Open(path);
+            return pak.ContentHash;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+        {
+            return "none";
         }
     }
 

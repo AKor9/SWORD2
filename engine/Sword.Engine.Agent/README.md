@@ -84,8 +84,9 @@
 
 | группа | инструменты |
 |---|---|
-| сеанс | `session.status`, `session.stop` |
-| время | `time.pause`, `time.resume`, `time.step(ticks)`, `time.runUntil(tick)` |
+| сеанс | `session.status`, `session.stop`; `session.start(replay, set)` — новая симуляция на тике 0 из конфига запуска или реплея (только Headless; запись прежней — в артефакты) |
+| время | `time.pause`, `time.resume`, `time.step(ticks)`, `time.runUntil(tick)`; `time.seek(tick)` — вперёд тиками, назад пересборкой и повтором таймлайна (прежнее будущее повторяется, команды агента на несыгранные тики сбрасываются; таймаут — ошибка с достигнутым тиком; только Headless) |
+| реплеи | `replay.status` — запись сеанса (с тика 0) и воспроизведение (сверено, первое расхождение с участниками); `replay.save(name)` — запись в артефакты; `replay.check(path, set)` — реплей целиком в отдельной симуляции (Headless); `replay.diff(a, b)` — заголовки, первый тик с разными командами, первый разный хеш; вместо пути — `session` |
 | мир | `world.types` (компоненты, события, ресурсы, команды и их поля), `world.query(with, without, fields, skip, take)`, `entity.get(entity, components)` |
 | состояние | `state.hash` — хеш состояния, итог и по участникам (`ecs`, `animation`…); `state.describe(part, filter, skip, take)` — ровно то, что участник хеширует (у `ecs` — сущности, ресурсы, `slots`, `journal:…`, `system:…`); ответ больше 60 тыс. знаков — в файл артефакта (`artifactId`) |
 | команды | `command.send(command, fields, tick | delay, repeat)` — не дальше 1 000 000 тиков вперёд, в очереди агента — не больше 1 000 000 команд одного типа |
@@ -115,8 +116,9 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
 
 ## Ограничения (до своих этапов)
 
-- Условий (`ObservationPredicate`), истории, `watch.*`, инвариантов, реплеев, `state.hash`, `time.seek`, снимков и
-  сравнения мира, экспериментов нет — этап 3 (раздел 8, «По этапам»). `time.runUntil` — только до тика.
+- Условий (`ObservationPredicate`), истории, `watch.*`, инвариантов, снимков и сравнения мира, экспериментов нет —
+  этап 3, точки 3в–3д (раздел 8, «По этапам»). `time.runUntil` — только до тика.
+- Живая игра реплей только пишет: `session.start`, `time.seek` (в обе стороны) и `replay.check` — только Headless.
 - `stage` в квитанции всегда null: останова посреди тика (`time.break`) нет.
 - `capture.bundle` v0: цвет, глубина (8 бит, ближе — светлее, растянуто на диапазон кадра), бойцы с рамками и именами,
   камера, `paused` и `alpha` (доля тика кадра). Нет ID-буфера, нормалей, векторов движения, оверлеев (этапы 5 и

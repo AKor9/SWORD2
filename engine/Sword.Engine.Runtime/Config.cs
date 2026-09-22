@@ -91,6 +91,19 @@ public sealed class ConfigSet
         return c;
     }
 
+    /// <summary>
+    /// Конфиг из реплея: итоговый конфиг записи (<see cref="Effective"/>) — единственный слой поверх значений в коде; ни
+    /// файлов, ни переменных окружения этой машины. <paramref name="sets"/> — поверх (эксперимент с другим значением).
+    /// </summary>
+    public static ConfigSet FromReplay(JsonObject effective, IEnumerable<string> sets)
+    {
+        var c = new ConfigSet(_ => null);
+        Merge(c._files, effective);
+        c.AddSource("реплей");
+        foreach (var s in sets) c.ApplySet(s);
+        return c;
+    }
+
     /// <summary>Только значения в коде (тесты); <paramref name="sets"/> — ключи <c>--set</c>.</summary>
     public static ConfigSet Empty(params string[] sets)
     {

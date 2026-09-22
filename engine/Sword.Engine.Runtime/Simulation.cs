@@ -66,6 +66,7 @@ public sealed class Simulation
     private readonly TickCommands _commands;
     private readonly World _world;
     private readonly IStateContributor[] _state;
+    private readonly ulong[] _hashParts;
     private float _time;
 
     private Simulation(World world, SimSettings settings, TickCommands commands, TickExport export,
@@ -73,6 +74,7 @@ public sealed class Simulation
     {
         _state = state;
         StateParts = [.. state.Select(c => c.Id)];
+        _hashParts = new ulong[state.Length];
         _world = world;
         Settings = settings;
         Dt = 1f / settings.TickRate;
@@ -268,6 +270,49 @@ public sealed class Simulation
         return w.ToJson();
     }
 
+    /// <summary>Запись реплея (<see cref="Record"/>); null — не пишется.</summary>
+    public ReplayRecorder? Recorder { get; private set; }
+
+    /// <summary>Воспроизводимый реплей (<see cref="Play"/>); null — нет.</summary>
+    public ReplayPlayer? Player { get; private set; }
+
+    /// <summary>
+    /// Писать реплей с начала (раздел 7 плана): все выданные команды тиков и хеш по участникам на тике 0 и каждые
+    /// <paramref name="hashEvery"/> тиков. Только до первого тика: реплей начинается с мира, собранного из конфига.
+    /// </summary>
+    public ReplayRecorder Record(ReplayInfo info, int hashEvery = 1)
+    {
+        if (Tick != 0) throw new InvalidOperationException($"реплей пишется с начала, а сыграно {Tick} тиков");
+        if (Recorder is not null) throw new InvalidOperationException("реплей уже пишется");
+        if (hashEvery < 1) throw new ArgumentOutOfRangeException(nameof(hashEvery), hashEvery, "хеш — не реже чем через ≥ 1 тик");
+        Recorder = new ReplayRecorder(this, info, hashEvery);
+        _commands.Sink = Recorder;
+        HashState(_hashParts);
+        Recorder.AddHash(0, _hashParts);
+        return Recorder;
+    }
+
+    /// <summary>
+    /// Воспроизводить реплей с начала: его команды — первыми в каждом тике (команды клиента и инструментов — после:
+    /// ветвление), хеши сверяются по участникам (<see cref="ReplayPlayer.Divergence"/>). Симуляция должна быть собрана
+    /// из конфига реплея (<see cref="Replay.CreateConfig"/>). Только до первого тика.
+    /// </summary>
+    /// <exception cref="InvalidDataException">Команды реплея не привязываются к командам симуляции.</exception>
+    public ReplayPlayer Play(Replay replay)
+    {
+        if (Tick != 0) throw new InvalidOperationException($"реплей воспроизводится с начала, а сыграно {Tick} тиков");
+        if (Player is not null) throw new InvalidOperationException("реплей уже воспроизводится");
+        Player = new ReplayPlayer(this, replay);
+        _commands.Source = Player;
+        foreach (var w in Player.Warnings) Log.Warning("replay", w);
+        if (Player.HashDue(0))
+        {
+            HashState(_hashParts);
+            Player.Check(0, _hashParts);
+        }
+        return Player;
+    }
+
     /// <summary>Один тик: время (<c>DuelArena.Tick</c>: <c>Time += dt</c> первым делом), стадии с барьерами, экспорт.</summary>
     public void Step()
     {
@@ -275,6 +320,13 @@ public sealed class Simulation
         _world.SetResourceImmediate(new SimTime(Tick, Dt, _time));
         _world.RunTick(Tick);
         Tick++;
+        if (Recorder is null && Player is null) return;
+        Recorder?.EndTick(Tick - 1);
+        bool record = Recorder?.HashDue(Tick) ?? false, play = Player?.HashDue(Tick) ?? false;
+        if (!record && !play) return;
+        HashState(_hashParts);
+        if (record) Recorder!.AddHash(Tick, _hashParts);
+        if (play) Player!.Check(Tick, _hashParts);
     }
 }
 

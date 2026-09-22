@@ -51,6 +51,12 @@ public readonly struct ServiceContext
     /// <summary>Участники хеша состояния по Id.</summary>
     public IReadOnlyList<string> StateParts => _simulation.StateParts;
 
+    /// <summary>Запись реплея этой симуляции (с тика 0); null — не пишется. Копию берут здесь (<see cref="ReplayRecorder.ToReplay"/>).</summary>
+    public ReplayRecorder? Recorder => _simulation.Recorder;
+
+    /// <summary>Воспроизводимый реплей; null — нет.</summary>
+    public ReplayPlayer? Player => _simulation.Player;
+
     /// <summary>Момент этой точки обслуживания: тик и кадр одного состояния (для квитанции).</summary>
     public ServicePoint Point => new(Tick, Frame);
 }

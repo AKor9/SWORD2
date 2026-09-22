@@ -31,12 +31,20 @@
                             справка скрыта; --no-hud — HUD не показан, прохода hud нет;
                             --bench 5 — выход «bench» с итогом замера и снимком последнего кадра (нужны видеокарта и
                             пак контента; -SkipGpu — пропустить);
+      replay-smoke          реплеи (этап 3б): Sword.exe --record (удержание move_forward и walk, --fps 45) —
+                            Sword.Headless --replay воспроизводит запись с теми же хешами по участникам на каждом
+                            тике; испорченный реплей (команда одного тика в середине) называет тик и участника,
+                            код выхода 3; эталоны tests/reference/replays воспроизводятся из командной строки
+                            (-SkipGpu — запись Headless вместо Sword.exe; -SkipReference — без эталонов);
       agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
                             (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
                             time.step, игрок ушёл по +X, ecs.explainSystem, играет клип бега (anim.clips по номеру
-                            из LegacyLocomotionState), anim.pose, session.stop — выход 0; Sword.exe --agent
+                            из LegacyLocomotionState), anim.pose, state.hash, state.describe; реплеи (этап 3б) —
+                            replay.save, time.seek назад и вперёд к тому же хешу, session.start с реплеем — совпал,
+                            replay.check; session.stop — выход 0; Sword.exe --agent
                             (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
-                            рамкой), render.graph, session.stop — выход closed-by-tool (с -SkipGpu — только Headless);
+                            рамкой), render.graph, replay.status (запись с тика 0), session.stop — выход
+                            closed-by-tool (с -SkipGpu — только Headless);
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
                             плана); сэмплинг поз (1 и 33 бойца, кроссфейд) — 0 байт на тик; итог —
@@ -374,6 +382,67 @@ else {
     }
 }
 
+Add-Step 'replay-smoke' {
+    # Этап 3б: запись живой игры воспроизводится симуляцией без окна бит в бит; порча называет тик и участника.
+    $ErrorActionPreference = 'Continue'
+    $headless = Get-ChildItem (Join-Path $root "game\Sword.Game.Headless\bin\$Configuration") -Recurse -Filter 'Sword.Headless.exe' | Select-Object -First 1
+    if (-not $headless) { return @{ ok = $false; detail = 'не найден Sword.Headless.exe' } }
+    $dir = Join-Path $root 'artifacts\verify\replay-smoke'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $file = Join-Path $dir 'record.swreplay'
+    if (Test-Path $file) { Remove-Item $file }
+    $problems = @()
+    if ($SkipGpu) {
+        $by = 'Sword.Headless'
+        $rec = (& $headless.FullName --ticks 360 --move 1,1 --walk --record $file --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        if (-not $rec.ok) { return @{ ok = $false; detail = "запись Headless: $($rec.error)" } }
+    }
+    else {
+        $by = 'Sword.exe'
+        $exe = Get-ChildItem (Join-Path $root "game\Sword.Game.App\bin\$Configuration") -Recurse -Filter 'Sword.exe' | Select-Object -First 1
+        $stdout = Join-Path $dir 'app.json'
+        $process = Start-Process -FilePath $exe.FullName -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError (Join-Path $dir 'app.log') `
+            -ArgumentList @('--windowed', '640x480', '--no-activate', '--frames', '135', '--fps', '45', '--hold', 'move_forward,walk', '--record', "`"$file`"", '--json')
+        $rec = [System.IO.File]::ReadAllText($stdout).Trim() | ConvertFrom-Json
+        if ($process.ExitCode -ne 0 -or -not $rec.ok -or -not $rec.recorded) { return @{ ok = $false; detail = "запись Sword.exe: код $($process.ExitCode), $($rec.error)" } }
+    }
+    $recorded = if ($rec.recorded) { $rec.recorded } else { $null }
+    $play = (& $headless.FullName --replay $file --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+    $code = $LASTEXITCODE
+    if ($code -ne 0 -or -not $play.ok -or -not $play.replay.match) { $problems += "воспроизведение: код $code, $($play.replay.divergence | ConvertTo-Json -Compress -Depth 5) $($play.error)" }
+    elseif ($play.replay.hashesChecked -ne $recorded.hashes -or $play.replay.hashesChecked -lt 300) { $problems += "сверено хешей $($play.replay.hashesChecked), записано $($recorded.hashes)" }
+    # Порча: команда одного тика в середине отрезка — отрезок [0, N, cmd] делится, в тике 150 другое направление.
+    $text = [System.IO.File]::ReadAllText($file)
+    $m = [regex]::Match($text, '\[0, (\d+), (\[0, [^\]]+\])\]')
+    if (-not $m.Success -or [int]$m.Groups[1].Value -lt 200) { $problems += "в записи нет отрезка команд с тика 0 длиной ≥ 200: $($m.Value)" }
+    else {
+        $n = [int]$m.Groups[1].Value
+        $cmd = $m.Groups[2].Value
+        $bad = [regex]::Replace($cmd, '^\[0, [^,]+,', '[0, 0.25,')
+        $split = "[0, 150, $cmd],`r`n    [150, 1, $bad],`r`n    [151, $($n - 151), $cmd]"
+        $corrupt = Join-Path $dir 'corrupt.swreplay'
+        [System.IO.File]::WriteAllText($corrupt, $text.Replace($m.Value, $split), (New-Object System.Text.UTF8Encoding $false))
+        $broken = (& $headless.FullName --replay $corrupt --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        $bcode = $LASTEXITCODE
+        $parts = @($broken.replay.divergence.parts | ForEach-Object { $_.part })
+        if ($bcode -ne 3 -or $broken.replay.match) { $problems += "испорченный реплей: код $bcode (ждали 3), совпал = $($broken.replay.match)" }
+        elseif ($broken.replay.divergence.tick -ne 151 -or $broken.replay.divergence.lastMatch -ne 150 -or $parts -notcontains 'ecs') {
+            $problems += "испорченный реплей: расхождение $($broken.replay.divergence | ConvertTo-Json -Compress -Depth 5), ждали после 151 тика (последнее совпадение 150), участник ecs"
+        }
+    }
+    $refNote = 'эталоны — пропущено (-SkipReference)'
+    if (-not $SkipReference) {
+        $refs = @(Get-ChildItem (Join-Path $root 'tests\reference\replays') -Filter '*.swreplay')
+        foreach ($ref in $refs) {
+            $r = (& $headless.FullName --replay $ref.FullName --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $r.replay.match) { $problems += "эталон $($ref.Name): $($r.replay.divergence | ConvertTo-Json -Compress -Depth 5) $($r.error)" }
+        }
+        $refNote = "эталоны ($(($refs | ForEach-Object { $_.BaseName }) -join ', ')) совпали"
+    }
+    if ($problems.Count -eq 0) { @{ ok = $true; detail = "запись $by — $($recorded.ticks) тиков, Headless повторил все $($play.replay.hashesChecked) хешей; порча в тике 150 — расхождение после 151 тика, участники $($parts -join ', '), код 3; $refNote" } }
+    else { @{ ok = $false; detail = $problems -join '; ' } }
+}
+
 Add-Step 'agent-smoke' {
     # Сеанс MCP как у Claude Code: запрос — строка JSON-RPC, ответ — строка (stdio) или тело POST (HTTP).
     $problems = @()
@@ -417,7 +486,8 @@ Add-Step 'agent-smoke' {
         if ($init.result.protocolVersion -ne '2025-06-18') { $problems += "Headless: протокол $($init.result.protocolVersion)" }
         Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
         $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
-        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'state.hash', 'state.describe')) {
+        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'state.hash', 'state.describe',
+                'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek')) {
             if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
         }
         $player = Call-Stdio 'entity.get' @{ entity = 'player' }
@@ -443,13 +513,26 @@ Add-Step 'agent-smoke' {
         if ([int]$described.matched -lt 3 -or -not @($described.items)[0].pelvis) { $problems += "Headless: state.describe animation — поз $($described.matched)" }
         $pelvisY = @($pose.joints)[0].model[1]
         if (-not ($pelvisY -gt 0.5) -or $pose.pool.poses -lt 3) { $problems += "Headless: anim.pose — таз на $pelvisY м, поз в пуле $($pose.pool.poses)" }
+        # Этап 3б: запись сеанса, перемотка назад и вперёд к тому же хешу, новая симуляция из реплея, сверка реплея.
+        $saved = Call-Stdio 'replay.save' @{ name = 'smoke' }
+        if ($saved.ticks -ne 120 -or $saved.hashes -ne 121) { $problems += "Headless: replay.save — тиков $($saved.ticks), хешей $($saved.hashes)" }
+        $back = Call-Stdio 'time.seek' @{ tick = 60 }
+        $null = Call-Stdio 'time.step' @{ ticks = 60 }
+        $again = Call-Stdio 'state.hash' @{}
+        if (-not $back.rebuilt -or $again.total -ne $hash.total) { $problems += "Headless: time.seek 60 и 60 тиков вперёд — хеш $($again.total), был $($hash.total)" }
+        $null = Call-Stdio 'session.start' @{ replay = 'smoke.swreplay' }
+        $null = Call-Stdio 'time.step' @{ ticks = 120 }
+        $status = Call-Stdio 'replay.status' @{}
+        if (-not $status.playback.match -or $status.playback.hashesChecked -ne 121) { $problems += "Headless: session.start с реплеем — $($status.playback | ConvertTo-Json -Compress -Depth 5)" }
+        $check = Call-Stdio 'replay.check' @{ path = 'smoke.swreplay' }
+        if (-not $check.match) { $problems += "Headless: replay.check — $($check.divergence | ConvertTo-Json -Compress -Depth 5)" }
         $null = Call-Stdio 'session.stop' @{}
         if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
         elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
     }
     catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
     finally { if (-not $proc.HasExited) { $proc.Kill() } }
-    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName"
+    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали"
 
     $appNote = 'живая игра — пропущено (-SkipGpu)'
     if (-not $SkipGpu) {
@@ -491,6 +574,8 @@ Add-Step 'agent-smoke' {
             elseif ($player.Count -ne 1) { $problems += "App: capture.bundle — игрока в кадре нет ($(@($bundle.entities).Count) сущностей)" }
             elseif ($bundle.tickId -ne $step.tick) { $problems += "App: снимок на тике $($bundle.tickId), ждали $($step.tick) (пауза)" }
             elseif (-not ($bundle.depthCoverage -gt 0.5)) { $problems += "App: глубина почти пуста: $($bundle.depthCoverage)" }
+            $recording = (Call-Http 'replay.status' @{}).recording
+            if (-not $recording -or $recording.ticks -lt 60) { $problems += "App: replay.status — запись $($recording | ConvertTo-Json -Compress)" }
             $graph = Call-Http 'render.graph' @{}
             $passes = @($graph.passes | ForEach-Object { $_.name })
             if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
@@ -533,7 +618,7 @@ else {
 }
 
 Add-Step 'line-endings' {
-    $extensions = @('.cs', '.csproj', '.props', '.targets', '.slnx', '.md', '.json', '.ps1', '.xml', '.hlsl', '.hlsli',
+    $extensions = @('.cs', '.csproj', '.props', '.targets', '.slnx', '.md', '.json', '.ps1', '.xml', '.hlsl', '.hlsli', '.swreplay',
         '.editorconfig', '.gitattributes', '.gitignore', '.txt', '.yml', '.yaml', '.cmd')
     $skip = '\\(bin|obj|\.git|\.vs|artifacts|TestResults)\\'
     $bad = @(Get-ChildItem $root -Recurse -File -Force | Where-Object {

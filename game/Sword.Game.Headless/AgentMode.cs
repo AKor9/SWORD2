@@ -1,5 +1,4 @@
 using Sword.Engine.Agent;
-using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
@@ -16,7 +15,7 @@ namespace Sword.Game.Headless;
 /// </summary>
 public static partial class Program
 {
-    static partial void RunAgent(Simulation sim, ref int? exit)
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, ref int? exit)
     {
         var ring = new LogRing();
         Log.SetSinks(new ConsoleLogSink(allToStandardError: true), ring);
@@ -54,25 +53,19 @@ public static partial class Program
         });
         Log.Info("agent", $"MCP на stdio: сеанс {host.SessionId}, {host.Tools.Count} инструментов, симуляция на паузе (тик {sim.Tick})");
 
-        SimulationLoop.Run(sim, host, stop.Token);
+        var session = new AgentSimulation(sim, ReplayInfo.Current(host.ContentHash), build,
+            sets => ConfigSet.Load(AppContext.BaseDirectory, sets));
+        SimulationLoop.Run(session, host, stop.Token);
         protocol.Wait(TimeSpan.FromSeconds(2));
-        Log.Info("agent", $"сеанс {host.SessionId} закончен на тике {sim.Tick}");
+        // Сеанс агента воспроизводим и проверяем человеком: запись последней симуляции — в артефакты.
+        if (session.Current is { Recorder: { } recorder, Tick: > 0 } last)
+        {
+            string path = host.ArtifactPath($"session-r{session.Run}-t{last.Tick}{Replay.Extension}");
+            recorder.ToReplay().Save(path);
+            Log.Info("agent", $"реплей сеанса: {path}");
+        }
+        Log.Info("agent", $"сеанс {host.SessionId} закончен на тике {session.Current.Tick} (симуляция №{session.Run})");
         exit = 0;
-    }
-
-    /// <summary>Отпечаток пака, если он есть (симуляции контент не нужен, квитанции называют его всё равно).</summary>
-    private static string ContentHash()
-    {
-        try
-        {
-            if (ContentLocator.Find() is not { } path) return "none";
-            using var pak = PakSource.Open(path);
-            return pak.ContentHash;
-        }
-        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
-        {
-            return "none";
-        }
     }
 
     /// <summary><c>artifacts/agent</c> в корне репозитория (папка с SWORD.slnx выше exe), иначе рядом с exe.</summary>

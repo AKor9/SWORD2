@@ -48,6 +48,8 @@ public static partial class Program
         public string? Screenshots;
         public bool Agent;
         public int AgentPort = 47813;
+        public string? Record;
+        public int HashEvery = 1;
         public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
     }
@@ -90,6 +92,9 @@ public static partial class Program
           --fps N           шаг кадра для симуляции — как при N кадрах в секунду, а не по часам: тики и доля тика
                             (интерполяция) повторяются от прогона к прогону
           --set секция.ключ=значение  конфиг (перекрывает sword.json и переменные SWORD_*)
+          --record FILE     записать реплей (.swreplay) — команды по тикам и хеши состояния; воспроизводит его
+                            Sword.Headless --replay FILE (с агентом реплей пишется всегда — replay.save)
+          --hash-every K    хеш состояния в реплее каждые K тиков (по умолчанию 1)
           --json            итог — одной строкой JSON в stdout (для агента)
         """;
 
@@ -122,6 +127,9 @@ public static partial class Program
             arena.UseBindings(bindings.Keys);
             if (options.Bench > 0) arena.Hud.ShowHelp = false;   // SWORD: ShowHelp = !bench
             config.Complete();   // композиция закончена (симуляция, клиент, ввод): неизвестная секция конфига — ошибка
+            // Реплей — с тика 0: по ключу --record и всегда с агентом (replay.save).
+            var recorder = options.Record is not null || options.Agent
+                ? simulation.Record(ReplayInfo.Current(ContentHash()), options.HashEvery) : null;
             using var window = new Win32Window(new WindowOptions(
                 Title: "SWORD",
                 Width: options.Width,
@@ -164,6 +172,14 @@ public static partial class Program
                 }
             }
 
+            Replay? recorded = null;
+            if (options.Record is not null)
+            {
+                recorded = recorder!.ToReplay();
+                recorded.Save(options.Record);
+                if (!options.Json) Log.Info("replay", $"записан {Path.GetFullPath(options.Record)}: {recorded.Ticks} тиков, хешей {recorded.Hashes.Count}");
+            }
+
             // Корень игрока последнего кадра — для сверки с Headless на том же числе тиков (verify.ps1, app-smoke).
             // Показанный кадром игрок (интерполированный) и камера — что видел пользователь.
             var player = arena.LastPlayer;
@@ -181,6 +197,12 @@ public static partial class Program
                     },
                     input = bindings.Keys,
                     hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, quads = arena.HudQuads, lines = arena.HelpLines },
+                    recorded = recorded is null ? null : new
+                    {
+                        file = Path.GetFullPath(options.Record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count,
+                        runs = recorded.Runs.Count, commands = recorded.CommandCount,
+                        stateHash = recorded.Hashes.Count > 0 ? string.Join(' ', recorded.Hashes[^1].Parts.Select(p => p.ToString("X16"))) : null,
+                    },
                 }, JsonOptions));
             else
                 Log.Info("sword", $"выход: {report.ExitReason}; кадров {report.Frames}, изменений размера {report.Resizes}, " +
@@ -277,6 +299,11 @@ public static partial class Program
                     o.FrameSeconds = 1 / fps;
                     break;
                 case "--set": o.Sets.Add(Next()); break;
+                case "--record": o.Record = Next(); break;
+                case "--hash-every":
+                    if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.HashEvery) || o.HashEvery < 1)
+                        throw new ArgumentException($"{a}: ожидается целое число тиков ≥ 1");
+                    break;
                 case "--camera":
                 {
                     var parts = Next().Split(',');
@@ -295,6 +322,21 @@ public static partial class Program
         if (o.Bench > 0 && o.MaxFps > 0) throw new ArgumentException("--bench и --max-fps вместе не задаются: ограничитель исказил бы замер");
         if (o.Bench > 0 && o.Agent) throw new ArgumentException("--bench и --agent вместе не задаются: пауза и снимки агента исказили бы замер");
         return o;
+    }
+
+    /// <summary>Отпечаток пака (реплей и квитанции агента называют его).</summary>
+    internal static string ContentHash()
+    {
+        try
+        {
+            if (Sword.Engine.Content.ContentLocator.Find() is not { } path) return "none";
+            using var pak = Sword.Engine.Content.PakSource.Open(path);
+            return pak.ContentHash;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+        {
+            return "none";
+        }
     }
 
     private static System.Numerics.Vector2 Pair(string key, string text)

@@ -59,15 +59,30 @@ public sealed class AgentHost
         SessionId = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}";
         BuildId = BuildIdOf(Assembly.GetEntryAssembly() ?? typeof(AgentHost).Assembly);
         Artifacts = Path.Combine(options.ArtifactsRoot, SessionId);
+        _catalog = options.Catalog;
         Server = new McpServer(this);
         CoreTools.Register(this);
+        ReplayTools.Register(this);
     }
 
     public string Mode => _options.Mode;
     public string SessionId { get; }
     public string BuildId { get; }
     public string ContentHash => _options.ContentHash;
-    public Catalog Catalog => _options.Catalog;
+    /// <summary>Имена данных мира текущей симуляции: сменилась симуляция (<c>session.start</c>) — сменился и каталог.</summary>
+    public Catalog Catalog
+    {
+        get => Volatile.Read(ref _catalog);
+        set => Volatile.Write(ref _catalog, value);
+    }
+
+    private Catalog _catalog = null!;
+
+    /// <summary>
+    /// Симуляция сеанса (Headless: <see cref="SimulationLoop"/>) — пересборка для <c>session.start</c>, <c>time.seek</c>
+    /// назад и <c>replay.check</c>; у живой игры — null.
+    /// </summary>
+    public AgentSimulation? Simulation { get; internal set; }
     public TimeControl Time => _options.Time;
     public ServiceQueue Service => _options.Service;
     public LogRing LogRing => _options.Log;
@@ -158,7 +173,8 @@ public sealed class AgentHost
         того же тика) → log.tail. Мир агент видит только между тиками: каждый ответ несёт квитанцию (tickId — сыграно
         тиков, frameId — кадр клиента). Большие ответы постраничны (skip/take, continuationToken), артефакты — файлы в
         {Artifacts}. Произвольного кода нет, память ECS напрямую не читается.
-        {(Mode == "app" ? "Живая игра: время идёт само, time.pause останавливает симуляцию (кадры рисуются); capture.bundle — снимок кадра с глубиной, видимыми сущностями и камерой." : "Headless стартует на паузе: время двигают time.step и time.runUntil.")}
+        Сеанс пишет реплей с тика 0: replay.save — файл, replay.check и replay.diff — сверка и сравнение прогонов.
+        {(Mode == "app" ? "Живая игра: время идёт само, time.pause останавливает симуляцию (кадры рисуются); capture.bundle — снимок кадра с глубиной, видимыми сущностями и камерой." : "Headless стартует на паузе: время двигают time.step и time.runUntil; time.seek — назад и вперёд, session.start {replay} — воспроизвести реплей (свои команды ветвят его).")}
         """;
 
     /// <summary>Сборка: информационная версия и MVID главного модуля (меняется с каждой пересборкой).</summary>

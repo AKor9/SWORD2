@@ -98,6 +98,21 @@ public sealed class TimeControl
         return tick;
     }
 
+    /// <summary>
+    /// Симуляцию сменили (<c>session.start</c>, <c>time.seek</c> назад): сыграно <paramref name="tick"/> тиков, пауза, запаса
+    /// нет. Ожидания тика остаются: дождутся, когда новая симуляция до него дойдёт.
+    /// </summary>
+    public void Reset(ulong tick)
+    {
+        lock (_gate)
+        {
+            _tick = _target = tick;
+            _paused = true;
+        }
+        Ran(tick);
+        Changed?.Invoke();
+    }
+
     /// <summary>Хозяин цикла: сколько тиков можно сыграть сейчас, если хочется <paramref name="wanted"/>.</summary>
     public int Allow(int wanted) => Gate(wanted) ?? wanted;
 

@@ -47,6 +47,37 @@ public sealed class DeterminismTests
     }
 
     [Fact]
+    public void Game_RecordThenReplay_SameHashes_CorruptionNamesTickAndParts()
+    {
+        var a = TestAssets.Simulation();
+        var recorder = a.Record(new ReplayInfo("test", "tests", "none"));
+        for (int t = 0; t < 400; t++)
+        {
+            a.Enqueue(CommandAt(t));
+            a.Step();
+        }
+        var replay = Replay.Parse(recorder.ToReplay().ToJson());
+        Assert.Equal(["animation", "ecs"], replay.Parts);
+        Assert.Equal(5, replay.Runs.Count);   // сценарий — пять отрезков одинаковых команд
+
+        var b = TestAssets.Simulation(replay.CreateConfig());
+        var player = b.Play(replay);
+        while (b.Tick < replay.Ticks) b.Step();
+        Assert.Null(player.Divergence);
+        Assert.Equal(401, player.HashesChecked);
+        Assert.Equal(a.HashState().Total, b.HashState().Total);
+
+        // испорченный реплей: в тике 200 шаг вместо бега (отрезок 150…219 — шагом вбок; делаем бег) — тик и участники
+        var corrupted = Replay.Parse(replay.ToJson().Replace("[150, 70, [0, 1, 0, true,", "[150, 70, [0, 1, 0, false,"));
+        var c = TestAssets.Simulation(corrupted.CreateConfig());
+        var broken = c.Play(corrupted);
+        while (c.Tick < corrupted.Ticks) c.Step();
+        Assert.Equal(151ul, broken.Divergence!.Tick);
+        Assert.Equal(150ul, broken.Divergence.LastMatch);
+        Assert.Contains(broken.Divergence.Parts, p => p.Part == "ecs");
+    }
+
+    [Fact]
     public void AnimationPart_SeesPose_NotOnlyEntities()
     {
         var a = TestAssets.Simulation();

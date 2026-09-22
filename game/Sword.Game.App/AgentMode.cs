@@ -1,7 +1,6 @@
 using Sword.Engine.Agent;
 using Sword.Engine.Agent.Client;
 using Sword.Engine.Client;
-using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
@@ -55,20 +54,6 @@ public static partial class Program
             host.Service.CancelAll();
             host.Time.Stop();
             http.Dispose();
-        }
-    }
-
-    private static string ContentHash()
-    {
-        try
-        {
-            if (ContentLocator.Find() is not { } path) return "none";
-            using var pak = PakSource.Open(path);
-            return pak.ContentHash;
-        }
-        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
-        {
-            return "none";
         }
     }
 

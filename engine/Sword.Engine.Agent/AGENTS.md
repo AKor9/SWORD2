@@ -14,5 +14,9 @@
 - Новый инструмент — только если существующие не покрывают задачу (раздел 8); у него тест и строка в
   `docs/agent-playbook.md` и `README.md`.
 - stdout Headless под агентом — только протокол; журнал — в stderr и кольцо `log.tail`.
+- Симуляция сеанса Headless — `AgentSimulation` (этап 3б): запись с тика 0, смену симуляции (`session.start`,
+  `time.seek` назад) исполняет только поток симуляции в `SimulationLoop` между точками обслуживания (`Post`); после
+  смены цикл обновляет контекст обслуживания, `AgentHost.Catalog` и время (`TimeControl.Reset`). Живая игра
+  (`host.Simulation` = null) пересборки не умеет — такие инструменты отвечают ошибкой.
 
 Проверка: `tests/Sword.Engine.Agent.Tests`, `verify.ps1` шаг `agent-smoke`.

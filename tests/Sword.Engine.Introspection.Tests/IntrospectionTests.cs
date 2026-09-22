@@ -200,12 +200,13 @@ public class ServiceAndTimeTests
         var b = queue.Post<int>(_ => throw new InvalidOperationException("boom"));
         var slow = queue.Post(_ =>
         {
-            Thread.Sleep(30);
+            Thread.Sleep(150);
             return 1;
         });
         var late = queue.Post(_ => 2);
         Assert.Equal(4, queue.Pending);
-        Assert.Equal(3, queue.Serve(new ServiceContext(sim), TimeSpan.FromMilliseconds(5)));   // после медленного бюджет кончился
+        // Бюджет с запасом: первое исключение в процессе (b) бывает медленным — бюджет должен кончиться на медленном, а не раньше.
+        Assert.Equal(3, queue.Serve(new ServiceContext(sim), TimeSpan.FromMilliseconds(75)));   // после медленного бюджет кончился
         Assert.Equal((servingThread, 0ul), await a);
         await Assert.ThrowsAsync<InvalidOperationException>(() => b);
         Assert.Equal(1, await slow);

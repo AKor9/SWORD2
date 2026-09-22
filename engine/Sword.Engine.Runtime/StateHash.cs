@@ -241,6 +241,54 @@ public sealed class FieldLayout
         return new FieldLayout(type, size, [.. leaves]);
     }
 
+    /// <summary>Имя вида листа — в заголовке реплея (<c>Move.X:f32</c>).</summary>
+    public static string KindName(Kind kind) => kind switch
+    {
+        Kind.Bool => "bool", Kind.I8 => "i8", Kind.U8 => "u8", Kind.I16 => "i16", Kind.U16 => "u16", Kind.Char => "char",
+        Kind.I32 => "i32", Kind.U32 => "u32", Kind.I64 => "i64", Kind.U64 => "u64", Kind.F32 => "f32", Kind.F64 => "f64",
+        _ => "entity",
+    };
+
+    /// <summary>Вид листа по имени (<see cref="KindName"/>); неизвестное — null.</summary>
+    public static Kind? KindOf(string name) =>
+        Enum.GetValues<Kind>().Cast<Kind?>().FirstOrDefault(k => KindName(k!.Value) == name);
+
+    /// <summary>
+    /// Лист <paramref name="leaf"/> значения — 64 битами: знаковые — с расширением знака, bool — 0/1, float и double — их
+    /// биты, <see cref="Entity"/> — индекс в младших 32 битах, поколение в старших. Обратное — <see cref="SetBits"/>.
+    /// </summary>
+    public ulong Bits(ReadOnlySpan<byte> bytes, int leaf)
+    {
+        var l = _leaves[leaf];
+        var b = bytes[l.Offset..];
+        return l.Kind switch
+        {
+            Kind.Bool => b[0] != 0 ? 1UL : 0UL,
+            Kind.I8 => unchecked((ulong)(sbyte)b[0]),
+            Kind.U8 => b[0],
+            Kind.I16 => unchecked((ulong)MemoryMarshal.Read<short>(b)),
+            Kind.U16 or Kind.Char => MemoryMarshal.Read<ushort>(b),
+            Kind.I32 => unchecked((ulong)MemoryMarshal.Read<int>(b)),
+            Kind.U32 or Kind.F32 => MemoryMarshal.Read<uint>(b),
+            _ => MemoryMarshal.Read<ulong>(b),   // I64, U64, F64, Entity (индекс, поколение — два int подряд)
+        };
+    }
+
+    /// <summary>Записать лист из 64 бит (<see cref="Bits"/>).</summary>
+    public void SetBits(Span<byte> bytes, int leaf, ulong bits)
+    {
+        var l = _leaves[leaf];
+        var b = bytes[l.Offset..];
+        switch (l.Kind)
+        {
+            case Kind.Bool: b[0] = bits != 0 ? (byte)1 : (byte)0; break;
+            case Kind.I8 or Kind.U8: b[0] = unchecked((byte)bits); break;
+            case Kind.I16 or Kind.U16 or Kind.Char: MemoryMarshal.Write(b, unchecked((ushort)bits)); break;
+            case Kind.I32 or Kind.U32 or Kind.F32: MemoryMarshal.Write(b, unchecked((uint)bits)); break;
+            default: MemoryMarshal.Write(b, bits); break;
+        }
+    }
+
     public void Hash(ReadOnlySpan<byte> bytes, ref StateHasher h)
     {
         foreach (ref readonly var leaf in _leaves.AsSpan())

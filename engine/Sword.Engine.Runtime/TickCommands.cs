@@ -3,6 +3,18 @@ using Sword.Engine.Ecs;
 
 namespace Sword.Engine.Runtime;
 
+/// <summary>Получатель выданных команд тика — запись реплея.</summary>
+internal interface ICommandSink
+{
+    void Command(ulong tick, int type, ReadOnlySpan<byte> command);
+}
+
+/// <summary>Источник команд тика помимо очередей — воспроизведение реплея.</summary>
+internal interface IReplaySource
+{
+    void EmitTick(ulong tick, TickCommands commands, CommandBuffer buffer);
+}
+
 /// <summary>
 /// Команды тика: очередь по номерам тиков; в служебной стадии <see cref="Simulation.CommandStage"/> — до первой стадии
 /// игры — команды этого тика становятся событиями (<see cref="Event{E}"/>). После её барьера их видят системы всех
@@ -16,9 +28,16 @@ internal sealed class TickCommands : IContinuousSystem
     {
         Type Type { get; }
         void Declare(SystemSetup s);
-        void EmitDue(ulong tick, CommandBuffer commands);
+        void EmitDue(ulong tick, CommandBuffer commands, ICommandSink? sink, int type);
+        void EmitRaw(ulong tick, ReadOnlySpan<byte> command, CommandBuffer commands, ICommandSink? sink, int type);
         void AddRaw(ulong tick, ReadOnlySpan<byte> command, int repeat);
     }
+
+    /// <summary>Запись реплея (<see cref="ReplayRecorder"/>): каждая выданная команда тика — номер типа и байты.</summary>
+    internal ICommandSink? Sink;
+
+    /// <summary>Воспроизведение реплея (<see cref="ReplayPlayer"/>): его команды тика выдаются первыми.</summary>
+    internal IReplaySource? Source;
 
     /// <summary>
     /// Ожидающие команды одного источника — по возрастанию тика (равные — в порядке постановки), голова — курсор: тик
@@ -51,12 +70,14 @@ internal sealed class TickCommands : IContinuousSystem
         }
 
         /// <summary>Выдать команды тика <paramref name="tick"/>; прошедшие (раньше него) — отбросить.</summary>
-        public void EmitDue(ulong tick, CommandBuffer commands)
+        public void EmitDue(ulong tick, CommandBuffer commands, ICommandSink? sink, int type)
         {
             while (_head < _items.Count && _items[_head].Tick <= tick)
             {
                 var (t, c) = _items[_head++];
-                if (t == tick) commands.Emit(c);
+                if (t != tick) continue;
+                commands.Emit(c);
+                sink?.Command(tick, type, MemoryMarshal.AsBytes(new ReadOnlySpan<T>(in c)));
             }
             // Сжатие — когда отработанная голова не меньше хвоста: в среднем O(1) на команду.
             if (_head > 0 && _head * 2 >= _items.Count)
@@ -97,10 +118,17 @@ internal sealed class TickCommands : IContinuousSystem
 
         public void Declare(SystemSetup s) => s.Emits<T>();
 
-        public void EmitDue(ulong tick, CommandBuffer commands)
+        public void EmitDue(ulong tick, CommandBuffer commands, ICommandSink? sink, int type)
         {
-            _pending.EmitDue(tick, commands);
-            _tools.EmitDue(tick, commands);
+            _pending.EmitDue(tick, commands, sink, type);
+            _tools.EmitDue(tick, commands, sink, type);
+        }
+
+        public void EmitRaw(ulong tick, ReadOnlySpan<byte> command, CommandBuffer commands, ICommandSink? sink, int type)
+        {
+            var c = MemoryMarshal.Read<T>(command);
+            commands.Emit(c);
+            sink?.Command(tick, type, command);
         }
     }
 
@@ -140,9 +168,16 @@ internal sealed class TickCommands : IContinuousSystem
         foreach (var q in _order) q.Declare(s);
     }
 
+    /// <summary>Выдать команду реплея: <paramref name="type"/> — номер в <see cref="Types"/>, размер байтов проверен при привязке.</summary>
+    internal void EmitRaw(ulong tick, int type, ReadOnlySpan<byte> command, CommandBuffer commands) =>
+        _order[type].EmitRaw(tick, command, commands, Sink, type);
+
     public void Run(in SystemContext ctx)
     {
-        foreach (var q in _order) q.EmitDue(ctx.Tick, ctx.Commands);
+        // Реплей — первым: команды клиента и инструментов того же тика идут после и, где действует последняя команда
+        // тика своего типа, перебивают его (ветвление от реплея).
+        Source?.EmitTick(ctx.Tick, this, ctx.Commands);
+        for (int i = 0; i < _order.Count; i++) _order[i].EmitDue(ctx.Tick, ctx.Commands, Sink, i);
     }
 }
 

@@ -24,7 +24,7 @@
 ## Порядок
 
 `session.status` → устройство (`ecs.plan`, `architecture.projects`, `module.graph`) → состояние (`world.query`,
-`entity.get`, `state.hash`, `state.describe`) → время (`time.step`, `time.runUntil`) → воздействие (`command.send`) → проверка состояния → `log.tail`.
+`entity.get`, `state.hash`, `state.describe`) → время (`time.step`, `time.runUntil`, `time.seek`) → воздействие (`command.send`) → проверка состояния → `log.tail`; реплеи — `replay.*`, `session.start`.
 Каждый ответ несёт квитанцию: `tickId` — сыграно тиков к моменту ответа, `frameId` — кадр живой игры.
 
 ## Рецепты
@@ -55,6 +55,23 @@
    поза по суставам.
    Описания двух прогонов сравниваются поле в поле.
 3. Без агента: `Sword.Headless --ticks N --move X,Y --json` — `stateHash` в итоге; `verify.ps1` гоняет его дважды.
+
+**Воспроизвести реплей и найти расхождение (этап 3б).**
+1. Сеанс пишется с тика 0 сам: `replay.save {"name":"my"}` — файл `.swreplay` в артефактах; `replay.status` — сколько
+   записано. Живая игра: `Sword.exe --record FILE` (или `replay.save` при `--agent`).
+2. `replay.check {"path":"my.swreplay"}` — реплей целиком в отдельной симуляции: `match`, `divergence.tick` (после
+   скольких тиков), `lastMatch` (расхождение — в тиках lastMatch…tick−1), `parts` — участники. Без агента —
+   `Sword.Headless --replay FILE --json` (код 3 при расхождении).
+3. Встать перед расхождением: `session.start {"replay":"my.swreplay"}` → `time.runUntil {"tick":lastMatch}` →
+   `state.describe` участника; `time.step {"ticks":1}` → снова `state.describe` — что изменилось не так.
+   `time.seek {"tick":N}` — назад (пересборка и повтор, то же состояние) и вперёд. После перемотки назад прежнее
+   будущее повторяется (свои команды его ветвят), а команды на ещё не сыгранные тики сброшены — поставить заново.
+   Таймаут — ошибка с достигнутым тиком: сеанс стоит там, повторить `time.seek` или дать больше `timeoutSeconds`.
+4. «Что если»: после `session.start` с реплеем `command.send` на тик T перебивает команду реплея — ветвление;
+   `replay.diff {"a":"my.swreplay","b":"session"}` — первый тик с разными командами и первый разный хеш. Другой конфиг —
+   `replay.check {"path":…,"set":["sim.seed=2"]}`.
+5. Эталоны SWORD2 — `tests/reference/replays/*.swreplay` (тест `ReferenceReplaysTests`). Намеренное изменение поведения —
+   перезапись: `Sword.Headless --replay F --record F`, причина — в md фичи.
 
 **Понять, почему поле такое.** `ecs.componentUsage {"name":"Transform"}` — кто пишет; `ecs.explainSystem` писателя —
 его входы (`upstream`, с пометкой «в этом тике» или «с прошлого тика» и причиной `why`: команды той же стадии —
