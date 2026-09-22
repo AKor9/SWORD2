@@ -1,3 +1,6 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
 namespace Sword.Engine.Ecs;
 
 /// <summary>Журнал без типа записи — для обслуживания на барьере и описания.</summary>
@@ -11,6 +14,18 @@ public abstract class JournalBase
 
     /// <summary>Записей в журнале сейчас.</summary>
     public abstract int Count { get; }
+
+    /// <summary>Номер первой записи в журнале.</summary>
+    public abstract long First { get; }
+
+    /// <summary>Байт записи <c>T</c> — 0, если в ней есть ссылки (байтами не отдаётся).</summary>
+    public abstract int EntrySize { get; }
+
+    /// <summary>
+    /// Запись <paramref name="i"/> (с 0 от <see cref="First"/>) байтами на месте и барьер, на котором она сделана; у записи
+    /// со ссылками — пусто. Вид годен до следующего изменения журнала.
+    /// </summary>
+    internal abstract ReadOnlySpan<byte> EntryBytes(int i, out long barrier);
 
     /// <summary>Убрать записи, сделанные на барьере <paramref name="barrier"/> или раньше.</summary>
     internal abstract void TrimUpTo(long barrier);
@@ -29,9 +44,20 @@ public sealed class Journal<T> : JournalBase where T : struct
     private int _start, _count;
     private long _firstSequence;
 
+    private static readonly bool Data = !RuntimeHelpers.IsReferenceOrContainsReferences<T>();
+
     public override Type EntryType => typeof(T);
     public override long End => _firstSequence + _count;
     public override int Count => _count;
+    public override long First => _firstSequence;
+    public override int EntrySize => Data ? Unsafe.SizeOf<T>() : 0;
+
+    internal override ReadOnlySpan<byte> EntryBytes(int i, out long barrier)
+    {
+        if ((uint)i >= (uint)_count) throw new ArgumentOutOfRangeException(nameof(i));
+        barrier = _barriers[_start + i];
+        return Data ? MemoryMarshal.CreateReadOnlySpan(ref Unsafe.As<T, byte>(ref _entries[_start + i]), Unsafe.SizeOf<T>()) : default;
+    }
 
     internal void Append(in T entry, long barrier)
     {

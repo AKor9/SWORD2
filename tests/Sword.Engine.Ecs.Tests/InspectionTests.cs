@@ -99,4 +99,90 @@ public class InspectionTests
         var bytes = reader.CopyResource(plain.Id)!;
         Assert.Equal(Vector3.One, MemoryMarshal.Read<Position>(bytes).Value);
     }
+
+    [Fact]
+    public void SlotsAndInPlaceReads_WalkLiveEntitiesByIndex()
+    {
+        var world = Worlds.Builder().Resource(new Health { Value = 7 }).Resource<List<int>>([]).Build();
+        var a = world.CreateImmediate();
+        var b = world.CreateImmediate();
+        var c = world.CreateImmediate();
+        world.AddImmediate(a, new Position { Value = new Vector3(1, 2, 3) });
+        world.AddImmediate(c, new Frozen());
+        world.DestroyImmediate(b);
+        var reader = world.Reader;
+
+        var live = Enumerable.Range(0, reader.EntitySlots).Select(reader.EntityAt).Where(e => !e.IsNull).ToList();
+        Assert.Equal([a, c], live);   // по индексу, мёртвый слот пропущен
+        Assert.Equal(Entity.Null, reader.EntityAt(b.Index));
+        Assert.Equal(Entity.Null, reader.EntityAt(reader.EntitySlots));
+
+        int position = reader.Components.Single(t => t.Type == typeof(Position)).Id;
+        int frozen = reader.Components.Single(t => t.Type == typeof(Frozen)).Id;
+        Assert.True(reader.TryRead(a, position, out var bytes));
+        Assert.Equal(new Vector3(1, 2, 3), MemoryMarshal.Read<Position>(bytes).Value);
+        Assert.True(reader.TryRead(c, frozen, out var tag));
+        Assert.True(tag.IsEmpty);                                    // тег есть, байтов нет
+        Assert.False(reader.TryRead(c, position, out _));
+        Assert.False(reader.TryRead(b, position, out _));            // мёртвая
+        Assert.Equal([position], reader.ComponentIds(a).ToArray());
+        Assert.True(reader.ComponentIds(b).IsEmpty);
+
+        int health = reader.Resources.Single(r => r.Type == typeof(Health)).Id;
+        int list = reader.Resources.Single(r => r.Type == typeof(List<int>)).Id;
+        Assert.True(reader.TryReadResource(health, out var hb));
+        Assert.Equal(7f, MemoryMarshal.Read<Health>(hb).Value);
+        Assert.False(reader.TryReadResource(list, out _));
+    }
+
+    [Fact]
+    public void FreeIndices_Journals_Cursors_BetweenTicks()
+    {
+        var world = Worlds.Builder().System("Late", new Healer(), "heal").System("Late", new Mover()).Build();
+        var reader = world.Reader;
+
+        // свободные номера: выдаются с конца, у свободного слота — поколение следующей сущности
+        var e0 = world.CreateImmediate();
+        world.CreateImmediate();
+        var e2 = world.CreateImmediate();
+        world.DestroyImmediate(e0);
+        world.DestroyImmediate(e2);
+        Assert.Equal([0, 2], reader.FreeIndices.ToArray());
+        Assert.Equal(2, reader.GenerationAt(0));
+        Assert.Equal(new Entity(2, 2), world.CreateImmediate());
+        Assert.Equal([0], reader.FreeIndices.ToArray());
+
+        // журналы — по имени; запись немедленной операции — возраст 0, у срабатывания healer — одна непрочитанная
+        Assert.Equal(["Added<" + typeof(Frozen).FullName + ">", "Removed<" + typeof(Position).FullName + ">"], reader.Journals.Select(j => j.Name));
+        int added = 0, removed = 1;
+        var e = world.CreateImmediate();
+        world.AddImmediate(e, new Position { Value = new Vector3(4, 5, 6) });
+        world.AddImmediate(e, new Frozen());
+        world.RemoveImmediate<Position>(e);
+        Assert.Equal(1, reader.JournalLength(added));
+        Assert.Equal(e, MemoryMarshal.Read<Added<Frozen>>(reader.JournalEntry(added, 0, out long age)).Entity);
+        Assert.Equal(0, age);
+        Assert.Equal(new Vector3(4, 5, 6), MemoryMarshal.Read<Removed<Position>>(reader.JournalEntry(removed, 0, out _)).Value.Value);
+
+        int healer = reader.Systems.Single(s => s.Label == "healer").Order;
+        int mover = reader.Systems.Single(s => s.Label == "mover").Order;
+        Assert.Equal(2, reader.SystemCount);
+        Assert.Equal(0, reader.CursorCount(mover));
+        Assert.Equal(2, reader.CursorCount(healer));   // срабатывание первым, затем ReadsJournal
+        Assert.Equal(1, reader.CursorUnread(healer, 0, out int journal));
+        Assert.Equal(added, journal);
+
+        // тик: healer прочёл, записи ещё живут (оборот тика) и стали старше; следующий тик их убирает
+        world.RunTick(0);
+        Assert.Equal(0, reader.CursorUnread(healer, 0, out _));
+        Assert.Equal(1, reader.JournalLength(added));
+        reader.JournalEntry(added, 0, out age);
+        Assert.Equal(Worlds.Stages.Length, age);
+        world.RunTick(1);
+        Assert.Equal(0, reader.JournalLength(added));
+
+        Assert.True(reader.SystemActive(healer));
+        world.SetActive("healer@Late", false);
+        Assert.False(reader.SystemActive(healer));
+    }
 }

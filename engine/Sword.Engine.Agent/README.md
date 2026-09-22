@@ -87,6 +87,7 @@
 | сеанс | `session.status`, `session.stop` |
 | время | `time.pause`, `time.resume`, `time.step(ticks)`, `time.runUntil(tick)` |
 | мир | `world.types` (компоненты, события, ресурсы, команды и их поля), `world.query(with, without, fields, skip, take)`, `entity.get(entity, components)` |
+| состояние | `state.hash` — хеш состояния, итог и по участникам (`ecs`, `animation`…); `state.describe(part, filter, skip, take)` — ровно то, что участник хеширует (у `ecs` — сущности, ресурсы, `slots`, `journal:…`, `system:…`); ответ больше 60 тыс. знаков — в файл артефакта (`artifactId`) |
 | команды | `command.send(command, fields, tick | delay, repeat)` — не дальше 1 000 000 тиков вперёд, в очереди агента — не больше 1 000 000 команд одного типа |
 | журнал | `log.tail(after, limit, level, category)` — без `after` последние `limit` записей, прошедших фильтр (среди всего кольца, 2048 записей), `last` — номер последней записи кольца; с `after` — вперёд страницами |
 | устройство | `architecture.projects`, `ecs.plan`, `ecs.explainSystem(name)`, `ecs.componentUsage(name)`, `module.graph` |

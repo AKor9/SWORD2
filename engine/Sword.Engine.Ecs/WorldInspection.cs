@@ -14,6 +14,12 @@ public sealed record DataTypeInfo(int Id, string Name, Type Type, int Size, bool
 /// <summary>Ресурс мира наружу: номер, тип; <see cref="Size"/> 0 — ресурс со ссылками, байтами не читается.</summary>
 public sealed record ResourceInfo(int Id, string Name, Type Type, int Size);
 
+/// <summary>
+/// Журнал мира наружу: номер — место в порядке по имени <see cref="Name"/> (<c>Added&lt;полное имя компонента&gt;</c>,
+/// <c>Event&lt;…&gt;</c>…), тип записи и её размер (0 — запись со ссылками, байтами не читается).
+/// </summary>
+public sealed record JournalInfo(int Id, string Name, Type EntryType, int EntrySize);
+
 public readonly partial struct WorldReader
 {
     /// <summary>Компоненты мира по номерам.</summary>
@@ -47,6 +53,78 @@ public readonly partial struct WorldReader
     /// </summary>
     public int Select(ReadOnlySpan<int> with, ReadOnlySpan<int> without, int skip, int take, List<Entity> page) =>
         _world.Select(with, without, skip, take, page);
+
+    /// <summary>Слотов индексов сущностей: живые сущности — среди <see cref="EntityAt"/>(0 … <see cref="EntitySlots"/> − 1).</summary>
+    public int EntitySlots => _world.EntitySlots;
+
+    /// <summary>
+    /// Живая сущность в слоте индекса <paramref name="index"/>; нет — <see cref="Entity.Null"/>. Обход слотов по
+    /// возрастанию — стабильный порядок сущностей (хеш состояния, описание), без выделения памяти.
+    /// </summary>
+    public Entity EntityAt(int index) => _world.EntityAt(index);
+
+    /// <summary>Номера компонентов живой сущности по возрастанию, без копии; мёртвая — пусто.</summary>
+    public ReadOnlySpan<int> ComponentIds(Entity e) => _world.ComponentIds(e);
+
+    /// <summary>
+    /// Байты компонента <paramref name="component"/> сущности — вид в хранилище без копии (у тега пусто); false —
+    /// сущность мертва или компонента нет. Вид годен до следующего изменения мира: только чтение на месте.
+    /// </summary>
+    public bool TryRead(Entity e, int component, out ReadOnlySpan<byte> bytes) => _world.TryRead(e, component, out bytes);
+
+    /// <summary>Байты ресурса-значения без копии; false — ресурс со ссылками (байтами не отдаётся).</summary>
+    public bool TryReadResource(int resource, out ReadOnlySpan<byte> bytes) => _world.TryReadResource(resource, out bytes);
+
+    /// <summary>
+    /// Свободные номера сущностей в порядке выдачи с конца: следующая созданная сущность берёт последний. От этого
+    /// порядка зависят номера будущих сущностей — он часть состояния мира.
+    /// </summary>
+    public ReadOnlySpan<int> FreeIndices => _world.FreeIndices;
+
+    /// <summary>
+    /// Поколение слота <paramref name="index"/> (0 … <see cref="EntitySlots"/> − 1): у живой сущности — её поколение, у
+    /// свободного слота — поколение, которое получит следующая сущность в нём.
+    /// </summary>
+    public int GenerationAt(int index) => _world.GenerationAt(index);
+
+    /// <summary>Журналы мира в порядке имён; номер журнала — индекс здесь.</summary>
+    public IReadOnlyList<JournalInfo> Journals => _world.JournalInfos;
+
+    /// <summary>Записей в журнале сейчас (между тиками — записи последнего оборота тика: их ещё прочтут системы).</summary>
+    public int JournalLength(int journal) => _world.JournalAt(journal).Count;
+
+    /// <summary>
+    /// Запись <paramref name="i"/> журнала (с 0 — старейшая) байтами на месте, у записи со ссылками — пусто; в
+    /// <paramref name="age"/> — сколько барьеров назад она сделана (0 — немедленной операцией после последнего барьера).
+    /// Возраст, а не номер барьера: состояние не зависит от того, сколько тиков сыграно. Только чтение, годна до
+    /// следующего изменения мира.
+    /// </summary>
+    public ReadOnlySpan<byte> JournalEntry(int journal, int i, out long age)
+    {
+        var bytes = _world.JournalAt(journal).EntryBytes(i, out long barrier);
+        age = _world.Barrier - barrier;
+        return bytes;
+    }
+
+    /// <summary>Регистраций систем — в порядке исполнения, как <see cref="Systems"/>.</summary>
+    public int SystemCount => _world.ExecutionOrder.Length;
+
+    /// <summary>Включена ли регистрация <paramref name="system"/> (номер — место в <see cref="Systems"/>).</summary>
+    public bool SystemActive(int system) => _world.ExecutionOrder[system].Active;
+
+    /// <summary>Курсоров журналов у регистрации (срабатывание реактивной — первым).</summary>
+    public int CursorCount(int system) => _world.ExecutionOrder[system].Cursors.Count;
+
+    /// <summary>
+    /// Курсор <paramref name="i"/> регистрации: сколько записей журнала (номер — <paramref name="journal"/> в
+    /// <see cref="Journals"/>) она ещё не прочла. Число, а не номер записи: состояние не зависит от истории журнала.
+    /// </summary>
+    public int CursorUnread(int system, int i, out int journal)
+    {
+        journal = _world.CursorJournals[system][i];
+        var c = _world.ExecutionOrder[system].Cursors[i];
+        return (int)(c.Journal.End - Math.Max(c.Cursor, c.Journal.First));
+    }
 
     /// <summary>Копия байтов ресурса (<see cref="ResourceInfo.Size"/>); null — ресурс со ссылками.</summary>
     public byte[]? CopyResource(int resource)
@@ -111,6 +189,72 @@ public sealed partial class World
         return true;
     }
 
+    internal int EntitySlots => _entityHigh;
+
+    internal ReadOnlySpan<int> FreeIndices => _free.AsSpan(0, _freeCount);
+
+    internal int GenerationAt(int index) =>
+        (uint)index < (uint)_entityHigh ? _generations[index] : throw new ArgumentOutOfRangeException(nameof(index));
+
+    // Журналы и регистрации заводит только сборка мира — порядок для обхода строится один раз, при первом запросе.
+    private JournalBase[]? _journalOrder;
+    private JournalInfo[]? _journalInfos;
+    private Registration[]? _executionOrder;
+    private int[][]? _cursorJournals;
+
+    internal IReadOnlyList<JournalInfo> JournalInfos
+    {
+        get
+        {
+            if (_journalInfos is not null) return _journalInfos;
+            var named = _journals.Select(p => (Name: $"{p.Key.Kind}<{p.Key.Data.FullName ?? p.Key.Data.Name}>", Journal: p.Value))
+                .OrderBy(p => p.Name, StringComparer.Ordinal).ToArray();
+            _journalOrder = [.. named.Select(p => p.Journal)];
+            return _journalInfos = [.. named.Select((p, i) => new JournalInfo(i, p.Name, p.Journal.EntryType, p.Journal.EntrySize))];
+        }
+    }
+
+    internal JournalBase JournalAt(int journal)
+    {
+        if (_journalOrder is null) _ = JournalInfos;
+        return _journalOrder![journal];
+    }
+
+    internal Registration[] ExecutionOrder => _executionOrder ??= [.. _order.SelectMany(o => o)];
+
+    internal int[][] CursorJournals => _cursorJournals ?? BuildCursorJournals();
+
+    // Отдельный метод: объект замыкания лямбды создаётся на входе в метод — в горячем геттере он выделялся бы каждый раз.
+    private int[][] BuildCursorJournals()
+    {
+        if (_journalOrder is null) _ = JournalInfos;
+        var ids = _journalOrder!.Select((j, i) => (j, i)).ToDictionary(p => p.j, p => p.i);
+        return _cursorJournals = [.. ExecutionOrder.Select(r => r.Cursors.Select(c => ids[c.Journal]).ToArray())];
+    }
+
+    internal Entity EntityAt(int index) =>
+        (uint)index < (uint)_entityHigh && _archetypeOf[index] is not null ? new Entity(index, _generations[index]) : Entity.Null;
+
+    internal ReadOnlySpan<int> ComponentIds(Entity e) => IsAlive(e) ? _archetypeOf[e.Index]!.Components : default;
+
+    internal bool TryRead(Entity e, int component, out ReadOnlySpan<byte> bytes)
+    {
+        bytes = default;
+        if ((uint)component >= (uint)_types.Length) throw new ArgumentOutOfRangeException(nameof(component));
+        if (!IsAlive(e)) return false;
+        var a = _archetypeOf[e.Index]!;
+        if (!a.Has[component]) return false;
+        if (!_types[component].IsTag) bytes = a.Cell(_chunkOf[e.Index], _rowOf[e.Index], a.ColumnOf[component]);
+        return true;
+    }
+
+    internal bool TryReadResource(int resource, out ReadOnlySpan<byte> bytes)
+    {
+        if ((uint)resource >= (uint)_resources.Count) throw new ArgumentOutOfRangeException(nameof(resource));
+        bytes = _resources[resource].Bytes;
+        return _resources[resource].DataSize > 0;
+    }
+
     internal bool TryCopyResource(int resource, Span<byte> destination)
     {
         if ((uint)resource >= (uint)_resources.Count) throw new ArgumentOutOfRangeException(nameof(resource));
@@ -124,6 +268,9 @@ internal abstract partial class ResourceSlot
     public abstract int DataSize { get; }
 
     public abstract bool TryCopy(Span<byte> destination);
+
+    /// <summary>Байты значения без копии; у типа со ссылками — пусто.</summary>
+    public abstract ReadOnlySpan<byte> Bytes { get; }
 }
 
 internal sealed partial class ResourceSlot<T>
@@ -131,6 +278,9 @@ internal sealed partial class ResourceSlot<T>
     private static readonly bool Data = !RuntimeHelpers.IsReferenceOrContainsReferences<T>();
 
     public override int DataSize => Data ? Unsafe.SizeOf<T>() : 0;
+
+    public override ReadOnlySpan<byte> Bytes =>
+        Data ? MemoryMarshal.CreateReadOnlySpan(ref Unsafe.As<T, byte>(ref Value), Unsafe.SizeOf<T>()) : default;
 
     public override bool TryCopy(Span<byte> destination)
     {

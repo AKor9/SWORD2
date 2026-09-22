@@ -29,6 +29,7 @@ public static class GameCore
             .Command<PlayerCommand>()
             .Resource(poses).Resource(assets.Actions)
             .ReadView<IAnimationView>(new AnimationView(poses))
+            .StateContributor(new AnimationState(poses))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>();
 

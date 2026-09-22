@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 using Sword.Engine.Introspection;
+using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Agent;
 
@@ -174,6 +175,64 @@ internal static class CoreTools
                 }, call.Cancel);
                 if (result.Copy is null) throw new ArgumentException($"сущность {result.Entity} не жива");
                 return new ToolOutput(WorldQuery.ToJson(result.Copy, host.Catalog)) { Point = result.Point };
+            },
+        });
+
+        // ── состояние ──────────────────────────────────────────────────────
+        host.Add(new AgentTool
+        {
+            Name = "state.hash", Title = "Хеш состояния",
+            Description = "Хеш состояния мира после последнего тика: итог и хеш каждого участника (ecs — сущности, компоненты, " +
+                "ресурсы-значения, слоты, журналы, системы; animation — пул поз; другие — подсистемы). Два прогона с одинаковыми командами дают " +
+                "одинаковые хеши; разный хеш участника называет подсистему, её состояние — state.describe.",
+            Run = async call =>
+            {
+                var result = await host.Serve(ctx => (Hash: ctx.HashState(), ctx.Point), call.Cancel);
+                var parts = new JsonObject();
+                foreach (var (id, value) in result.Hash.Parts) parts[id] = $"{value:X16}";
+                return new ToolOutput(new JsonObject { ["total"] = $"{result.Hash.Total:X16}", ["parts"] = parts }) { Point = result.Point };
+            },
+        });
+        host.Add(new AgentTool
+        {
+            Name = "state.describe", Title = "Состояние участника",
+            Description = "Ровно то, что участник хеша (state.hash → parts) хеширует, по частям: у ecs — сущности (компоненты " +
+                "полями) и ресурсы, slots, journal:… (непрочитанные записи), system:… (включена ли, сколько не прочла); filter — сущность «12v3», " +
+                "часть имени компонента или id части (slots, journal:, system:); у animation — позы пула, filter — поза " +
+                "«2v1», часть имени сустава или «2v1:foot». Страницей: skip, take. Больше " + MaxDescribeChars / 1000 + " тыс. знаков — " +
+                "в файл артефакта.",
+            Arguments = Props(
+                ("part", Str("участник: ecs, animation, …")),
+                ("filter", Str("отбор (смысл — у участника)")),
+                ("skip", Int("пропустить частей", 0, int.MaxValue)),
+                ("take", Int("частей на странице (по умолчанию 20)", 1, 500))),
+            Required = ["part"],
+            Run = async call =>
+            {
+                string part = call.RequiredString("part");
+                var query = new DescribeQuery(call.String("filter"), (int)call.Integer("skip", 0, 0, int.MaxValue),
+                    (int)call.Integer("take", 20, 1, 500));
+                var result = await host.Serve(ctx => (Json: ctx.DescribeState(part, query), ctx.Point), call.Cancel);
+                var data = (JsonObject)JsonNode.Parse(result.Json)!;
+                int matched = (int)data["matched"]!, written = ((JsonArray)data["items"]!).Count;
+                bool truncated = query.Skip + written < matched;
+                data["part"] = part;
+                string? artifact = null;
+                if (result.Json.Length > MaxDescribeChars)
+                {
+                    artifact = $"state-{part}-t{result.Point.Tick}-{query.Skip}.json";
+                    File.WriteAllText(host.ArtifactPath(artifact), data.ToJsonString());
+                    data = new JsonObject
+                    {
+                        ["part"] = part, ["matched"] = matched, ["written"] = written,
+                        ["artifact"] = host.ArtifactPath(artifact), ["hint"] = "ответ велик — он в файле; сузьте filter или take",
+                    };
+                }
+                return new ToolOutput(data)
+                {
+                    Point = result.Point, Truncated = truncated, Continuation = truncated ? $"skip={query.Skip + written}" : null,
+                    ArtifactId = artifact,
+                };
             },
         });
 
@@ -445,6 +504,9 @@ internal static class CoreTools
         }
         return new JsonObject { ["types"] = new JsonArray([.. all.Select(m => (JsonNode?)Entry(m.Type, m.Kind, false))]) };
     }
+
+    /// <summary>Потолок ответа state.describe в знаках — больше уходит в файл артефакта.</summary>
+    internal const int MaxDescribeChars = 60_000;
 
     // ── схема аргументов ───────────────────────────────────────────────────
 

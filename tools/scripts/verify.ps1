@@ -17,7 +17,8 @@
                             поза игрока — поза привязки);
       headless-smoke        Sword.Headless: 600 тиков с командой «бег по +X» — итог JSON в порядке, игрок ушёл
                             по +X со скоростью бега, тик после прогрева не выделяет памяти (симуляция игры без
-                            окна, та же композиция, что у Sword.exe); каждый модуль по очереди выключен — 10 с
+                            окна, та же композиция, что у Sword.exe); второй такой же прогон — тот же хеш
+                            состояния по всем участникам (детерминизм, этап 3); каждый модуль по очереди выключен — 10 с
                             игрового времени без ошибок; опечатка в секции конфига и выключение ядра — ошибки;
       app-smoke             Sword.exe без фокуса: 90 кадров по 2 тика с командой «бег по +X», смена размера по
                             кругу, слой отладки D3D12 с GPU-валидацией, снимок последнего кадра — итог JSON в
@@ -201,6 +202,14 @@ Add-Step 'headless-smoke' {
     elseif ($r.player.x -lt 19 -or [math]::Abs($r.player.z) -gt 1e-3) { $problems += "игрок в ($($r.player.x), $($r.player.z)), ждали x ≈ 20, z = 0" }
     elseif ($r.allocatedBytesPerTick -ne 0) { $problems += "тик выделяет $($r.allocatedBytesPerTick) Б после прогрева, ждали 0 (раздел 12 плана)" }
     elseif (-not $r.pose -or $r.pose.bindPose) { $problems += "игрок бежит, а поза — поза привязки: локомоция не работает" }
+    elseif (-not $r.stateHash -or @($r.stateHash.parts.PSObject.Properties.Name) -notcontains 'animation') { $problems += "нет хеша состояния с участником animation: $($r.stateHash | ConvertTo-Json -Compress)" }
+    # Детерминизм (этап 3): тот же прогон ещё раз — тот же хеш каждого участника.
+    if ($problems.Count -eq 0) {
+        $again = (& $exe.FullName --ticks 600 --move 1,0 --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        if (($again.stateHash | ConvertTo-Json -Compress) -ne ($r.stateHash | ConvertTo-Json -Compress)) {
+            $problems += "два одинаковых прогона — разные хеши: $($r.stateHash | ConvertTo-Json -Compress) и $($again.stateHash | ConvertTo-Json -Compress)"
+        }
+    }
     # Решение 9 и раздел 12: каждый модуль по очереди выключен — 10 с игрового времени без исключений.
     $modules = @($r.modules)
     $ticks10s = 10 * $r.tickRate
@@ -223,7 +232,7 @@ Add-Step 'headless-smoke' {
         if ($code -eq 0 -or -not $b -or $b.ok -or "$($b.error)" -notmatch [regex]::Escape($case[1])) { $problems += "--set $($case[0]) прошёл или дал не ту ошибку: $bad" }
     }
     $moduleNote = if ($modules.Count -gt 0) { "по очереди без модуля ($($modules -join ', ')) — 10 с без ошибок" } else { 'модулей нет' }
-    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; $moduleNote; привязки клавиш не мешают; опечатка в конфиге и выключение ядра — ошибки" } }
+    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; хеш состояния $($r.stateHash.total) повторился; $moduleNote; привязки клавиш не мешают; опечатка в конфиге и выключение ядра — ошибки" } }
     else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
@@ -408,7 +417,7 @@ Add-Step 'agent-smoke' {
         if ($init.result.protocolVersion -ne '2025-06-18') { $problems += "Headless: протокол $($init.result.protocolVersion)" }
         Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
         $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
-        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips')) {
+        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'state.hash', 'state.describe')) {
             if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
         }
         $player = Call-Stdio 'entity.get' @{ entity = 'player' }
@@ -427,6 +436,11 @@ Add-Step 'agent-smoke' {
         $clipName = "$(@($clip.clips)[0].name)"
         if ($clipName -notmatch 'Run') { $problems += "Headless: после бега играет клип «$clipName», ждали бег" }
         $pose = Call-Stdio 'anim.pose' @{ entity = 'player'; joints = @('pelvis', 'head') }
+        # Этап 3: хеш состояния по участникам и описание участника animation по суставу.
+        $hash = Call-Stdio 'state.hash' @{}
+        if ("$($hash.total)" -notmatch '^[0-9A-F]{16}$' -or -not $hash.parts.animation) { $problems += "Headless: state.hash — $($hash | ConvertTo-Json -Compress)" }
+        $described = Call-Stdio 'state.describe' @{ part = 'animation'; filter = 'pelvis'; take = 1 }
+        if ([int]$described.matched -lt 3 -or -not @($described.items)[0].pelvis) { $problems += "Headless: state.describe animation — поз $($described.matched)" }
         $pelvisY = @($pose.joints)[0].model[1]
         if (-not ($pelvisY -gt 0.5) -or $pose.pool.poses -lt 3) { $problems += "Headless: anim.pose — таз на $pelvisY м, поз в пуле $($pose.pool.poses)" }
         $null = Call-Stdio 'session.stop' @{}

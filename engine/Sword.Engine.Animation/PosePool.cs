@@ -74,6 +74,22 @@ public sealed class PosePool
     /// <summary>Итог последнего <see cref="Tick"/>.</summary>
     public PoseTickStats LastTick { get; private set; }
 
+    /// <summary>Слотов в пуле (живых и свободных).</summary>
+    public int Capacity => _capacity;
+
+    /// <summary>Живая поза в слоте <paramref name="index"/>; слот свободен — <see cref="PoseHandle.None"/> (обход по слотам — стабильный порядок).</summary>
+    public PoseHandle HandleAt(int index) =>
+        (uint)index < (uint)_capacity && _generation[index] > 0 ? new PoseHandle(index, _generation[index]) : PoseHandle.None;
+
+    /// <summary>
+    /// Свободные слоты в порядке выдачи с конца: следующий <see cref="Alloc"/> берёт последний. От этого порядка зависят
+    /// номера будущих поз — он часть состояния пула.
+    /// </summary>
+    public ReadOnlySpan<int> FreeSlots => _free.AsSpan(0, _freeCount);
+
+    /// <summary>Поколение слота: у живого — поколение позы, у свободного — со знаком минус, у ни разу не выданного — 0.</summary>
+    public int GenerationAt(int index) => _generation[index];
+
     private void Grow(int capacity)
     {
         int old = _capacity;

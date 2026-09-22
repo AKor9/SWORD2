@@ -207,6 +207,85 @@ public class CoreToolsTests
     }
 
     [Fact]
+    public async Task StateHash_MatchesSimulation_DescribeByParts()
+    {
+        using var f = new AgentFixture();
+        await f.Tool("command.send", new JsonObject { ["command"] = "Push", ["fields"] = new JsonObject { ["X"] = 0.25 } });
+        await f.Tool("time.step", new JsonObject { ["ticks"] = 2 });
+        var (hash, _) = await f.Tool("state.hash");
+        Assert.Equal(2ul, hash["receipt"]!["tickId"]!.GetValue<ulong>());
+        Assert.Equal(["ecs"], hash["parts"]!.AsObject().Select(p => p.Key));
+        Assert.Matches("^[0-9A-F]{16}$", hash["total"]!.GetValue<string>());
+
+        var (one, _) = await f.Tool("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "0v1" });
+        Assert.Equal(0.25, one["items"]![0]![typeof(Body).FullName!]!["Position.X"]!.GetValue<double>());
+
+        var (page, _) = await f.Tool("state.describe", new JsonObject { ["part"] = "ecs", ["take"] = 2 });
+        Assert.True(page["receipt"]!["truncated"]!.GetValue<bool>());
+        Assert.Equal("skip=2", page["receipt"]!["continuationToken"]!.GetValue<string>());
+
+        var (bad, err) = await f.Tool("state.describe", new JsonObject { ["part"] = "physics" });
+        Assert.True(err);
+        Assert.Contains("ecs", bad["error"]!.GetValue<string>());   // ошибка перечисляет участников
+    }
+
+    [Fact]
+    public async Task StateDescribe_LargeAnswer_GoesToArtifact()
+    {
+        var sim = Simulation.Build(ConfigSet.Empty(), ["S"], [new CrowdModule()]);
+        var host = new AgentHost(new AgentHostOptions
+        {
+            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
+            Service = new ServiceQueue(), Log = new LogRing(8), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-agent-tests"),
+            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
+        });
+        using var stop = new CancellationTokenSource();
+        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
+        loop.Start();
+        try
+        {
+            var request = new JsonObject
+            {
+                ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
+                ["params"] = new JsonObject { ["name"] = "state.describe", ["arguments"] = new JsonObject { ["part"] = "ecs", ["take"] = 500 } },
+            };
+            var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!["structuredContent"]!;
+            string path = r["artifact"]!.GetValue<string>();
+            Assert.True(File.Exists(path));
+            Assert.Equal(500, JsonNode.Parse(File.ReadAllText(path))!["items"]!.AsArray().Count);
+            Assert.Equal(Path.GetFileName(path), r["receipt"]!["artifactId"]!.GetValue<string>());
+        }
+        finally
+        {
+            stop.Cancel();
+            host.Service.Wake();
+            loop.Join(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    /// <summary>Поза тела матрицей — широкий компонент.</summary>
+    public struct Wide
+    {
+        public Matrix4x4 Pose;
+    }
+
+    /// <summary>Толпа: 600 тел с матрицами — описание 500 из них не помещается в ответ.</summary>
+    private sealed class CrowdModule : IModule
+    {
+        public string Id => "crowd";
+
+        public void Configure(SimulationBuilder b) => b.Component<Body>().Component<Wide>().OnWorldBuilt(w =>
+        {
+            for (int i = 0; i < 600; i++)
+            {
+                var e = w.CreateImmediate();
+                w.AddImmediate(e, new Body { Position = new Vector3(i * 1.25f, -i * 0.5f, i * 3.75f) });
+                w.AddImmediate(e, new Wide { Pose = Matrix4x4.CreateRotationY(i * 0.1f) });
+            }
+        });
+    }
+
+    [Fact]
     public async Task RunUntil_Pause_Resume()
     {
         using var f = new AgentFixture();

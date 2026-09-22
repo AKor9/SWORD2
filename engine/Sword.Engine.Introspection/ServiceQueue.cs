@@ -42,6 +42,15 @@ public readonly struct ServiceContext
     public void Enqueue(Type command, ulong tick, ReadOnlySpan<byte> bytes, int repeat = 1) =>
         _simulation.EnqueueRaw(command, tick, bytes, repeat);
 
+    /// <summary>Хеш состояния по участникам (раздел 7 плана) — между тиками, согласованного мира.</summary>
+    public StateHash HashState() => _simulation.HashState();
+
+    /// <summary>Описание участника хеша — ровно то, что он хеширует (JSON).</summary>
+    public string DescribeState(string part, in DescribeQuery query) => _simulation.DescribeState(part, query);
+
+    /// <summary>Участники хеша состояния по Id.</summary>
+    public IReadOnlyList<string> StateParts => _simulation.StateParts;
+
     /// <summary>Момент этой точки обслуживания: тик и кадр одного состояния (для квитанции).</summary>
     public ServicePoint Point => new(Tick, Frame);
 }

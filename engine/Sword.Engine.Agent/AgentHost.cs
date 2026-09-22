@@ -152,7 +152,8 @@ public sealed class AgentHost
     private string InstructionsText =>
         $"""
         SWORD — симуляция игры ({Mode}). Порядок: session.status → architecture.projects / ecs.plan (устройство) →
-        world.query / entity.get (состояние; сущность — номер «12v3» или имя, например player) → time.step / time.runUntil
+        world.query / entity.get (состояние; сущность — номер «12v3» или имя, например player; state.hash — хеш по
+        участникам, state.describe — что участник хеширует) → time.step / time.runUntil
         (время) → command.send (воздействие; всегда на будущий тик, в живой игре команда агента перебивает ввод клавиатуры
         того же тика) → log.tail. Мир агент видит только между тиками: каждый ответ несёт квитанцию (tickId — сыграно
         тиков, frameId — кадр клиента). Большие ответы постраничны (skip/take, continuationToken), артефакты — файлы в

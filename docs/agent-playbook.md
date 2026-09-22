@@ -24,7 +24,7 @@
 ## Порядок
 
 `session.status` → устройство (`ecs.plan`, `architecture.projects`, `module.graph`) → состояние (`world.query`,
-`entity.get`) → время (`time.step`, `time.runUntil`) → воздействие (`command.send`) → проверка состояния → `log.tail`.
+`entity.get`, `state.hash`, `state.describe`) → время (`time.step`, `time.runUntil`) → воздействие (`command.send`) → проверка состояния → `log.tail`.
 Каждый ответ несёт квитанцию: `tickId` — сыграно тиков к моменту ответа, `frameId` — кадр живой игры.
 
 ## Рецепты
@@ -44,6 +44,17 @@
 3. `anim.pose {"entity":"player"}` — суставы (таз, голова, кисти, стопы) в пространстве персонажа и в мире; `pool` —
    живые позы и задания последнего тика (`staleLastTick` должен быть 0).
 4. Побитовая сверка с SWORD — тест `ReferenceTraceTests` (`dotnet test tests/Sword.Game.Tests --filter ReferenceTrace`).
+
+**Проверить детерминизм и найти расхождение (этап 3).**
+1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;
+   `animation` — пул поз).
+   Два прогона с одними командами обязаны совпасть тик в тик; разный хеш участника называет подсистему.
+2. `state.describe {"part":"ecs","filter":"0v1"}` — компоненты сущности полями ровно так, как они хешируются
+   (`filter` — сущность или часть имени компонента); `"filter":"slots"` — свободные номера, `"journal:"` — непрочитанные
+   записи журналов, `"system:"` — включена ли система и что не прочла; `{"part":"animation","filter":"0v1:foot"}` —
+   поза по суставам.
+   Описания двух прогонов сравниваются поле в поле.
+3. Без агента: `Sword.Headless --ticks N --move X,Y --json` — `stateHash` в итоге; `verify.ps1` гоняет его дважды.
 
 **Понять, почему поле такое.** `ecs.componentUsage {"name":"Transform"}` — кто пишет; `ecs.explainSystem` писателя —
 его входы (`upstream`, с пометкой «в этом тике» или «с прошлого тика» и причиной `why`: команды той же стадии —

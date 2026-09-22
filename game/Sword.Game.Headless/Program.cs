@@ -120,6 +120,7 @@ public static partial class Program
                 command = new { move = new[] { command.Move.X, command.Move.Y }, command.Walk, gaze = command.HasGaze ? new[] { command.Gaze.X, command.Gaze.Z } : null },
                 player = State(sim, player),
                 pose = Pose(sim, player),
+                stateHash = StateHashJson(sim),
                 trajectory,
                 modules = sim.ActiveModules,
                 inactiveModules = sim.InactiveModules,
@@ -184,6 +185,13 @@ public static partial class Program
     }
 
     private sealed record PoseState(int joints, float maxBindDeviation, bool bindPose);
+
+    /// <summary>Хеш состояния после прогона (этап 3): итог и участники — шестнадцатеричными строками.</summary>
+    private static object StateHashJson(Simulation sim)
+    {
+        var hash = sim.HashState();
+        return new { total = $"{hash.Total:X16}", parts = hash.Parts.ToDictionary(p => p.Key, p => $"{p.Value:X16}") };
+    }
 
     private static string Fmt(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 

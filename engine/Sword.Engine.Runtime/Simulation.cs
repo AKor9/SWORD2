@@ -18,6 +18,9 @@ public sealed record SimSettings
 
     /// <summary>Потолок тиков за кадр клиента (<c>Program.MaxTicksPerFrame</c> SWORD): дальше симуляция отстаёт от часов.</summary>
     public int MaxTicksPerFrame { get; init; } = 8;
+
+    /// <summary>Главное зерно счётчикового ГСЧ (<see cref="SimRandom"/>); пишется в реплей.</summary>
+    public ulong Seed { get; init; } = 1;
 }
 
 /// <summary>Настройки модуля (секция групп <c>modules.&lt;id&gt;</c>).</summary>
@@ -62,11 +65,14 @@ public sealed class Simulation
 {
     private readonly TickCommands _commands;
     private readonly World _world;
+    private readonly IStateContributor[] _state;
     private float _time;
 
     private Simulation(World world, SimSettings settings, TickCommands commands, TickExport export,
-        IReadOnlyList<string> active, IReadOnlyList<string> inactive, ConfigSet config)
+        IReadOnlyList<string> active, IReadOnlyList<string> inactive, ConfigSet config, IStateContributor[] state)
     {
+        _state = state;
+        StateParts = [.. state.Select(c => c.Id)];
         _world = world;
         Settings = settings;
         Dt = 1f / settings.TickRate;
@@ -150,6 +156,7 @@ public sealed class Simulation
 
         var world = new WorldBuilder { Options = worldOptions }.Stages([CommandStage, .. stages, ExportStage]);
         world.Resource(new SimTime(0, 1f / settings.TickRate, 0));
+        world.Resource(new SimRandom(settings.Seed));
         var commands = new TickCommands();
         var export = new TickExport();
         var b = new SimulationBuilder(config, world, commands, export, stages);
@@ -179,9 +186,11 @@ public sealed class Simulation
         // Мир собран: поздняя регистрация (например, из OnWorldBuilt) молча потерялась бы — построитель закрыт.
         b.Sealed = true;
         foreach (var init in b.WorldInits) init(built);
+        // Участники хеша — по Id (раздел 7 плана): порядок не зависит от порядка регистрации.
+        IStateContributor[] state = [.. b.Contributors.Append(new EcsStateContributor(built.Reader)).OrderBy(c => c.Id, StringComparer.Ordinal)];
         Log.Info("runtime", $"симуляция: {settings.TickRate} тиков/с, модули: {string.Join(", ", active)}" +
             (inactive.Count > 0 ? $"; выключены: {string.Join(", ", inactive)}" : ""));
-        return new Simulation(built, settings, commands, export, active, inactive, config);
+        return new Simulation(built, settings, commands, export, active, inactive, config, state);
     }
 
     /// <summary>
@@ -219,6 +228,46 @@ public sealed class Simulation
         _commands.EnqueueRaw(type, tick, command, repeat);
     }
 
+    /// <summary>Участники хеша состояния по Id (<c>ecs</c> и зарегистрированные <see cref="SimulationBuilder.StateContributor"/>).</summary>
+    public IReadOnlyList<string> StateParts { get; }
+
+    /// <summary>
+    /// Хеш состояния между тиками (раздел 7 плана): в <paramref name="parts"/> — хеш каждого участника в порядке
+    /// <see cref="StateParts"/>, итог — хеш хешей участников. Память не выделяет.
+    /// </summary>
+    public ulong HashState(Span<ulong> parts)
+    {
+        if (parts.Length < _state.Length) throw new ArgumentException($"участников {_state.Length}, места {parts.Length}", nameof(parts));
+        var total = new StateHasher(0);
+        for (int i = 0; i < _state.Length; i++)
+        {
+            var h = new StateHasher(StateHasher.Of(_state[i].Id));
+            _state[i].AppendHash(ref h);
+            parts[i] = h.Value;
+            total.Add(parts[i]);
+        }
+        return total.Value;
+    }
+
+    /// <summary>Хеш состояния с участниками по Id — для инструментов и тестов (выделяет память).</summary>
+    public StateHash HashState()
+    {
+        var parts = new ulong[_state.Length];
+        ulong total = HashState(parts);
+        return new StateHash(Tick, total, StateParts.Select((id, i) => (id, parts[i])).ToDictionary(p => p.id, p => p.Item2));
+    }
+
+    /// <summary>Описание состояния участника <paramref name="part"/> — то, что он хеширует (JSON).</summary>
+    /// <exception cref="ArgumentException">Нет такого участника.</exception>
+    public string DescribeState(string part, in DescribeQuery query)
+    {
+        var contributor = _state.FirstOrDefault(c => c.Id == part)
+            ?? throw new ArgumentException($"нет участника хеша «{part}»: {string.Join(", ", StateParts)}", nameof(part));
+        var w = new StateWriter();
+        contributor.Describe(w, query);
+        return w.ToJson();
+    }
+
     /// <summary>Один тик: время (<c>DuelArena.Tick</c>: <c>Time += dt</c> первым делом), стадии с барьерами, экспорт.</summary>
     public void Step()
     {
@@ -242,6 +291,8 @@ public sealed class SimulationBuilder
 
     /// <summary>Мир собран — регистрировать поздно.</summary>
     internal bool Sealed;
+
+    internal readonly List<IStateContributor> Contributors = [];
 
     internal SimulationBuilder(ConfigSet config, WorldBuilder world, TickCommands commands, TickExport export, IReadOnlyList<string> stages)
     {
@@ -270,6 +321,21 @@ public sealed class SimulationBuilder
     /// </summary>
     public T Settings<T>() where T : new() =>
         Open().Module is { } id ? Config.Section<T>(id) : throw new InvalidOperationException("Settings<T>() — только в Configure модуля");
+
+    /// <summary>
+    /// Участник хеша состояния (раздел 7 плана): подсистема, чьё состояние лежит вне ECS. Id — как у модуля
+    /// (<see cref="IModule.IsValidId"/>), не <c>ecs</c> (его заводит Runtime) и не повторяется.
+    /// </summary>
+    public SimulationBuilder StateContributor(IStateContributor contributor)
+    {
+        Open();
+        ArgumentNullException.ThrowIfNull(contributor);
+        if (!IModule.IsValidId(contributor.Id) || contributor.Id == "ecs")
+            throw new InvalidOperationException($"участник хеша «{contributor.Id}»: нужно {IModule.IdRule}, не «ecs»");
+        if (Contributors.Any(c => c.Id == contributor.Id)) throw new InvalidOperationException($"участник хеша «{contributor.Id}» дважды");
+        Contributors.Add(contributor);
+        return this;
+    }
 
     public SimulationBuilder Component<T>() where T : unmanaged
     {

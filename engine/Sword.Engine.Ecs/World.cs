@@ -48,7 +48,9 @@ public sealed partial class World
     private Archetype?[] _archetypeOf = new Archetype?[64];
     private int[] _chunkOf = new int[64], _rowOf = new int[64];
     private int _entityHigh;
-    private readonly Stack<int> _free = new();
+    // Свободные номера: следующий AllocateEntity берёт последний (порядок — часть состояния: от него зависят номера).
+    private int[] _free = new int[64];
+    private int _freeCount;
 
     // ── стадии, системы, журналы ───────────────────────────────────────────
     private readonly string[] _stages;
@@ -514,7 +516,7 @@ public sealed partial class World
     private Entity AllocateEntity()
     {
         int index;
-        if (_free.Count > 0) index = _free.Pop();
+        if (_freeCount > 0) index = _free[--_freeCount];
         else
         {
             index = _entityHigh++;
@@ -654,7 +656,8 @@ public sealed partial class World
                 else
                 {
                     _generations[e.Index]++;
-                    _free.Push(e.Index);
+                    if (_freeCount == _free.Length) Array.Resize(ref _free, _free.Length * 2);
+                    _free[_freeCount++] = e.Index;
                 }
                 EntityCount--;
                 break;
