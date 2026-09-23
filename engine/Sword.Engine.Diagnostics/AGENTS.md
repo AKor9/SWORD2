@@ -79,7 +79,7 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
     (`CpuProfiler.DisplayHz` задаёт владелец кадров — клиент по монитору окна; 0 — `ProfileAnomalies.DefaultDisplayIntervalMs`,
     60 Гц); порог — поле `ProfileAnomalies.NoticeableTicks` (путь аномалии читает поля, а не свойства), тик без кадров и кадр
     инструментов — не заметные; **лимиты файлов по классам** — `AnomalyOptions.MaxFiles` (код, JIT, GC; 20), `MaxFilesGpuWait` (5),
-    `MaxFilesMachine` (5), запас заметных `NoticeableFiles` (10: заметная сверх лимита класса или без жетона); выбор — `Admit`
+    `MaxFilesMachine` (5), запас заметных `NoticeableFiles` (10: заметная сверх лимита класса, но с жетоном ведра — Пд); выбор — `Admit`
     (место лимита — `bucket`), счёт — `Submit` (только отданное писателю), исчерпанный лимит — `NoteLimit` (бит; писатель говорит
     в журнал один раз); без файла по лимиту класса — `AnomalyFile.ClassLimit`; **кадр инструментов** — `EndFrame(alpha, service,
     tools)`: служебный с пометкой `ProfileHeader.Tools` (`ToolFrames`), как кадр не судится и в окно медианы не идёт, аномальный

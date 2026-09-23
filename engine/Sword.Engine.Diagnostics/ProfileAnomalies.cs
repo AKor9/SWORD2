@@ -93,8 +93,8 @@ public readonly record struct AnomalyCauses(double ExcessMs, double JitMs, doubl
 /// по медиане последних <see cref="Window"/> периодов своего вида: <c>медиана + max(MinExcess, RelativeExcess·медиана)</c>.
 /// Первые <see cref="MinSamples"/> периодов не судятся. Файлов за прогон — по классам (после Пв, решение пользователя): «ожидание
 /// GPU» — не больше <see cref="MaxFilesGpuWait"/>, «машина» — <see cref="MaxFilesMachine"/> (чужая нагрузка), остальные классы —
-/// <see cref="MaxFiles"/>; заметной аномалии, которой не хватило лимита или жетона, — запас <see cref="NoticeableFiles"/>. Частота —
-/// ведро жетонов (<see cref="Burst"/> сразу, дальше <see cref="FilesPerSecond"/>).
+/// <see cref="MaxFiles"/>; заметной аномалии, которой не хватило лимита своего класса, — запас <see cref="NoticeableFiles"/> (тоже
+/// с жетоном — Пд). Частота — ведро жетонов (<see cref="Burst"/> сразу, дальше <see cref="FilesPerSecond"/>).
 /// </summary>
 public sealed record AnomalyOptions
 {
@@ -144,8 +144,9 @@ public sealed record AnomalyOptions
     public int MaxFilesMachine { get; init; } = 5;
 
     /// <summary>
-    /// Запас файлов заметных аномалий за прогон (после Пв): заметная, которой не хватило лимита своего класса или жетона ведра, всё
-    /// же пишется — из этого запаса. Он мал и один на прогон: лавины нет (всего файлов не больше
+    /// Запас файлов заметных аномалий за прогон (после Пв): заметная, которой не хватило лимита своего класса, всё же пишется — из
+    /// этого запаса, но только с жетоном ведра (Пд: без него поток заметных «ожиданий GPU» тратил запас за доли секунды). Он мал и
+    /// один на прогон: лавины нет (всего файлов не больше
     /// <c>MaxFiles + MaxFilesGpuWait + MaxFilesMachine + NoticeableFiles</c> = 40 по умолчанию).
     /// </summary>
     public int NoticeableFiles { get; init; } = 10;
@@ -500,7 +501,7 @@ public sealed class ProfileAnomalies : IDisposable
             ["noticeable"] = new JsonObject
             {
                 ["max"] = o.NoticeableFiles, ["files"] = files[BucketNoticeable],
-                ["note"] = "запас заметных: заметная аномалия, которой не хватило лимита своего класса или жетона ведра",
+                ["note"] = "запас заметных: заметная аномалия, которой не хватило лимита своего класса (с жетоном ведра)",
             },
             ["total"] = o.MaxFiles + o.MaxFilesGpuWait + o.MaxFilesMachine + o.NoticeableFiles,
             ["burst"] = o.Burst, ["filesPerSecond"] = o.FilesPerSecond,
@@ -599,7 +600,7 @@ public sealed class ProfileAnomalies : IDisposable
 
     /// <summary>
     /// Можно ли писать файл: лимит своего класса за прогон (после Пв: «ожидание GPU», «машина» — свои, остальные — общий), ведро
-    /// жетонов. Заметной, которой не хватило лимита или жетона, — запас заметных (жетон — если есть). Queued — пускают:
+    /// жетонов. Заметной, которой не хватило лимита класса, — запас заметных, но тоже с жетоном (Пд). Queued — пускают:
     /// <paramref name="bucket"/> — чей лимит, в него файл засчитывает <see cref="Submit"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]   // путь аномалии: см. CpuProfiler.WarmCapture
@@ -616,14 +617,20 @@ public sealed class ProfileAnomalies : IDisposable
             _tokens -= 1;
             return AnomalyFile.Queued;
         }
-        // Заметная — приоритет: сверх лимита класса и без жетона, но из малого запаса на прогон (лавины нет).
-        if (noticeable && _bucketFiles[BucketNoticeable] < o.NoticeableFiles)
+        // Заметная — приоритет: сверх лимита класса, из малого запаса на прогон, но не сверх частоты (Пд): без жетона поток
+        // заметных «ожиданий GPU» (~60/с при кадре ≥ интервала показа) тратил весь запас за доли секунды — рывкам кода не оставалось.
+        if (noticeable && !room && _bucketFiles[BucketNoticeable] < o.NoticeableFiles)
         {
-            if (_tokens >= 1) _tokens -= 1;
+            if (_tokens < 1)
+            {
+                Interlocked.Increment(ref _rateSkipped);
+                return AnomalyFile.Rate;
+            }
+            _tokens -= 1;
             bucket = BucketNoticeable;
             return AnomalyFile.Queued;
         }
-        if (noticeable && o.NoticeableFiles > 0) NoteLimit(BucketNoticeable);
+        if (noticeable && !room && o.NoticeableFiles > 0) NoteLimit(BucketNoticeable);
         if (!room)
         {
             NoteLimit(bucket);

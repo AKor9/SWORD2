@@ -414,6 +414,62 @@ public sealed class ProfilerAnomalyTests : IDisposable
     }
 
     /// <summary>
+    /// Пд (исправление доводки после Пв): запас заметных — сверх лимита класса, но не сверх частоты. Поток заметных «ожиданий GPU»
+    /// (при кадре ≥ интервала показа — каждое, ~60/с на бенче под чужой нагрузкой GPU) раньше писался и без жетона и тратил весь
+    /// запас за доли секунды; теперь — не быстрее ведра, и заметная аномалия кода после потока (её класс без лимита — только запас)
+    /// ещё пишется.
+    /// </summary>
+    [Fact]
+    public void NoticeableReserve_NotFasterThanRate_CodeAfterGpuStreamStillWritten()
+    {
+        var p = Profiler(out var a, new AnomalyOptions
+        {
+            // Лимиты кода и «машины» — 0: заметная любого класса, кроме «ожидания GPU» (1 файл), пишется только из запаса.
+            Directory = _dir, MaxFiles = 0, MaxFilesGpuWait = 1, MaxFilesMachine = 0, NoticeableFiles = 6, Burst = 2,
+            FilesPerSecond = 2, Trace = false,
+        });
+        p.DisplayHz = 1000;   // интервал 1 мс: каждая аномалия (лишнее ≥ 2 мс) — заметная
+        int work = p.Zone("work"), fence = p.Zone("fence", ProfileZoneKind.GpuWait);
+        ulong f = 0;
+        for (int i = 0; i < 100; i++) Frame(p, ++f, work);
+        long start = Stopwatch.GetTimestamp();
+        var stream = new List<ulong>();
+        for (int k = 0; k < 30; k++)   // поток «ожиданий GPU» — быстрее ведра (30 за ~0,15 с при 2 жетонах сразу и 2 в секунду)
+        {
+            Frame(p, ++f, fence, () => SpinCpu(4));
+            stream.Add(f);
+            for (int i = 0; i < 4; i++) Frame(p, ++f, work);
+        }
+        double streamSec = Stopwatch.GetElapsedTime(start).TotalSeconds;
+        Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
+        var list = a.List();
+        string all = string.Join(" | ", list.Select(x => $"{x.Number} {x.Class} {x.File} {x.Noticeable}"));
+        var fromStream = list.Where(x => stream.Contains(x.Number)).ToList();
+        Assert.True(fromStream.Count >= 25, all);   // «машина» под нагрузкой тестов тоже заметная — судьба та же
+        Assert.All(fromStream, x => Assert.True(x.Noticeable, all));
+        // Файлов потока — не больше жетонов: 2 сразу и 2 в секунду (+1 — округление), а не 1 + весь запас (6), как до Пд.
+        int streamFiles = fromStream.Count(x => x.File == AnomalyFile.Written);
+        int tokens = 2 + (int)Math.Ceiling(streamSec * 2) + 1;
+        Assert.True(streamFiles <= tokens, $"файлов потока {streamFiles} > жетонов {tokens} за {streamSec:0.###} с: {all}");
+        Assert.True(fromStream.Count(x => x.File == AnomalyFile.Rate) >= fromStream.Count - tokens, all);
+        int reserveUsed = a.LimitsJson()["noticeable"]!["files"]!.GetValue<int>();
+        Assert.True(reserveUsed < 6, $"запас потрачен потоком: {reserveUsed}; {all}");
+
+        // Ведро наполнилось — заметная аномалия кода (лимит кода 0) пишется из оставшегося запаса.
+        Thread.Sleep(700);
+        Frame(p, ++f, work, () => SpinCpu(4));
+        ulong code = f;
+        for (int i = 0; i < 4; i++) Frame(p, ++f, work);
+        Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
+        var seen = Assert.Single(a.List(), x => x.Number == code);
+        Assert.True(seen.Noticeable, all);
+        Assert.True(seen.Class is AnomalyClass.Code or AnomalyClass.Machine, $"{seen.Class}");
+        Assert.Equal(AnomalyFile.Written, seen.File);
+        Assert.Equal(reserveUsed + 1, a.LimitsJson()["noticeable"]!["files"]!.GetValue<int>());
+        a.Dispose();
+    }
+
+    /// <summary>
     /// После Пв (решение пользователя): кадр инструментов (точка обслуживания выполняла запросы агента) — служебный: в кольце с
     /// пометкой <see cref="ProfileHeader.Tools"/>, не в средних и максимумах, как кадр не судится (10 мс работы агента — не
     /// аномалия «код»); аномальный тик такого кадра — аномалия (тики — до точки обслуживания); обычный медленный кадр — аномалия,
