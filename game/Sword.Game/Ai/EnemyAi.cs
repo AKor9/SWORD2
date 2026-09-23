@@ -188,3 +188,45 @@ public sealed class EnemyAiSystem : IContinuousSystem
         }
     }
 }
+
+/// <summary>
+/// Gameplay, до курса и разгона: команды врагу тика (<see cref="EnemyCommand"/>) — намерение врага места вместо ИИ. Стоит
+/// после барьера Intent, чтобы лечь поверх и ИИ, и команды арены (в её тике ИИ по новой арене ставится на барьере).
+/// Составляющие ИИ (<see cref="EnemyAiTerms"/>) и точка взгляда остаются от ИИ — что он хотел бы. Несколько команд
+/// одному месту — последняя; нечисловая скорость — стоять, нечисловой курс — курс-цель ИИ.
+/// </summary>
+public sealed class EnemyCommandSystem : IContinuousSystem
+{
+    private Query _enemies = null!;
+
+    public void Setup(SystemSetup s)
+    {
+        s.Label(GameLabels.EnemyCommand).Before(GameLabels.RootSteer).ReadsJournal<Event<EnemyCommand>>().Reads<FighterSlot>()
+            .Writes<FighterCommand>();
+        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Read<FighterSlot>().Write<FighterCommand>();
+    }
+
+    public void Run(in SystemContext ctx)
+    {
+        var commands = ctx.Journal<Event<EnemyCommand>>();
+        if (commands.IsEmpty) return;
+        foreach (var chunk in ctx.Iterate(_enemies))
+        {
+            var intent = chunk.Write<FighterCommand>();
+            var slots = chunk.Read<FighterSlot>()[..intent.Length];
+            for (int i = 0; i < intent.Length; i++)
+                for (int c = commands.Length - 1; c >= 0; c--)
+                {
+                    if (commands[c].Value.Slot != slots[i].Index) continue;
+                    Apply(commands[c].Value, ref intent[i]);
+                    break;
+                }
+        }
+    }
+
+    public static void Apply(in EnemyCommand c, ref FighterCommand intent)
+    {
+        intent.DesiredVelocity = float.IsFinite(c.Velocity.X) && float.IsFinite(c.Velocity.Y) ? new Vector3(c.Velocity.X, 0, c.Velocity.Y) : Vector3.Zero;
+        if (float.IsFinite(c.FacingGoal)) intent.FacingGoal = c.FacingGoal;
+    }
+}

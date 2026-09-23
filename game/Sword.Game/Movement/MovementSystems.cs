@@ -1,8 +1,11 @@
 using System.Numerics;
+using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
+using Sword.Game.Animation;
 using Sword.Game.Arena;
 using Sword.Game.Contracts;
+using Sword.Game.Data;
 
 namespace Sword.Game.Movement;
 
@@ -17,6 +20,18 @@ public static class MovementRules
 
     /// <summary>Поворот курса к цели, рад/с, и разгон к желаемой скорости, 1/с (<c>KinTurnRate</c>, <c>KinAccel</c>).</summary>
     public const float TurnRate = 12f, Accel = 14f;
+
+    /// <summary>
+    /// Боец не-<c>Agile</c> (враг) стоя: курс догоняет цель со скоростью 2,5 рад/с (<c>KinIdleTurnRate</c>), а отстал больше
+    /// 45° — поворот на месте клипом (<c>KinTurnAnimMin</c>).
+    /// </summary>
+    public const float IdleTurnRate = 2.5f, TurnAnimMin = 45 * MathF.PI / 180;
+
+    /// <summary>
+    /// «Стоит» для поворота на месте (<c>KinematicSteer</c>): желаемая скорость по земле меньше 0,3 м/с (квадрат 0,09) и
+    /// скорость корня меньше 0,5 м/с (квадрат 0,25).
+    /// </summary>
+    public const float StandingDesiredSq = 0.09f, StandingSpeedSq = 0.25f;
 
     /// <summary>Курс меняется, только если точка взгляда дальше 0,3 м от корня (0,09 м² в SWORD).</summary>
     public const float GazeMinDistanceSq = 0.09f;
@@ -108,40 +123,83 @@ public sealed class PlayerCommandSystem : IContinuousSystem
 }
 
 /// <summary>
-/// Gameplay: курс и разгон корня (<c>KinematicSteer</c>, начало <c>KinematicBegin</c>): курс догоняет цель не быстрее
-/// <see cref="MovementRules.TurnRate"/>, скорость — желаемую с разгоном <see cref="MovementRules.Accel"/>. Стоит до
-/// аниматора: в SWORD <c>anim.Tick</c> идёт между разгоном и переносом корня и видит новую скорость. Действий ещё нет
-/// (этап 6): масштаб хода и поворота — 1. Враги пока поворачивают тем же контроллером, что игрок (<c>Agile</c>): у
-/// не-<c>Agile</c> SWORD стоя — 2,5 рад/с и поворот на месте клипом, если отстал больше 45° (точка 4г).
+/// Gameplay: курс и разгон корня (<c>KinematicSteer</c>, начало <c>KinematicBegin</c>): курс догоняет цель, скорость —
+/// желаемую с разгоном <see cref="MovementRules.Accel"/>. Стоит до аниматора: в SWORD <c>anim.Tick</c> идёт между разгоном
+/// и переносом корня и видит новую скорость. <c>Agile</c> SWORD (<c>Agile = f.IsPlayer</c>) — боец с
+/// <see cref="PlayerTag"/>: курс — сразу контроллером, 12 рад/с. Боец не-<c>Agile</c> (враг, со слоем действий
+/// <see cref="AnimatorAction"/>; 4г): стоя курс догоняет цель со скоростью 2,5 рад/с, а отстал больше 45° — поворот на
+/// месте клипом (<see cref="ActionLayer.StartTurn"/>), и курс, пока он стоит, ведёт yaw клипа (<c>RootControlSystem</c>);
+/// на ходу — 12 рад/с. Масштаб хода и поворота действия (<c>MoveScale</c>, <c>TurnScale</c>) при покое и повороте — 1;
+/// удары, блок и реакции, которые их меняют, — этап 6.
 /// </summary>
 public sealed class RootSteerSystem : IContinuousSystem
 {
-    private Query _query = null!;
+    private Query _agile = null!, _steady = null!;
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.RootSteer).Reads<FighterCommand>().Writes<Transform>().Writes<RootVelocity>();
-        _query = s.Query().With<Fighter>().Read<FighterCommand>().Write<Transform>().Write<RootVelocity>();
+        s.Label(GameLabels.RootSteer).Reads<FighterCommand>().Reads<AnimatorMotion>().Writes<Transform>().Writes<RootVelocity>()
+            .Writes<AnimatorAction>();
+        _agile = s.Query().With<Fighter>().With<PlayerTag>().Read<FighterCommand>().Write<Transform>().Write<RootVelocity>();
+        _steady = s.Query().With<Fighter>().Without<PlayerTag>().Read<FighterCommand>().Read<AnimatorMotion>().Write<Transform>()
+            .Write<RootVelocity>().Write<AnimatorAction>();
     }
 
     public void Run(in SystemContext ctx)
     {
         float dt = ctx.World.Resource<SimTime>().Dt;
-        foreach (var chunk in ctx.Iterate(_query))
+        foreach (var chunk in ctx.Iterate(_agile))
         {
             var t = chunk.Write<Transform>();
             var intent = chunk.Read<FighterCommand>()[..t.Length];
             var v = chunk.Write<RootVelocity>()[..t.Length];
             for (int i = 0; i < t.Length; i++) Steer(intent[i], ref t[i], ref v[i].Value, dt);
         }
+        var clips = ctx.World.Resource<PosePool>().Clips;
+        var actions = ctx.World.Resource<ActionTable>();
+        foreach (var chunk in ctx.Iterate(_steady))
+        {
+            var t = chunk.Write<Transform>();
+            var intent = chunk.Read<FighterCommand>()[..t.Length];
+            var motion = chunk.Read<AnimatorMotion>()[..t.Length];
+            var v = chunk.Write<RootVelocity>()[..t.Length];
+            var a = chunk.Write<AnimatorAction>()[..t.Length];
+            for (int i = 0; i < t.Length; i++) SteerSteady(intent[i], motion[i].Moving, ref t[i], ref v[i].Value, ref a[i], dt, clips, actions);
+        }
     }
 
-    /// <summary>Курс, затем скорость — порядок SWORD.</summary>
+    /// <summary><c>Agile</c> без действий: курс не быстрее <see cref="MovementRules.TurnRate"/>, затем скорость — порядок SWORD.</summary>
     public static void Steer(in FighterCommand intent, ref Transform t, ref Vector3 velocity, float dt)
     {
         float df = MathF.IEEERemainder(intent.FacingGoal - t.Facing, MathF.Tau);
         t.Facing += Math.Clamp(df, -MovementRules.TurnRate * dt, MovementRules.TurnRate * dt);
+        Accelerate(intent, ref velocity, dt);
+    }
 
+    /// <summary>
+    /// Не-<c>Agile</c> (<c>KinematicSteer</c> SWORD): «стоит» — желаемая скорость и скорость корня малы; стоит без
+    /// действия и отстал больше 45° — поворот клипом; курс, если его не ведёт клип (<paramref name="moving"/> — «идёт»
+    /// прошлого тика), — 2,5 рад/с стоя без действия, иначе 12 рад/с; затем скорость.
+    /// </summary>
+    public static void SteerSteady(in FighterCommand intent, bool moving, ref Transform t, ref Vector3 velocity, ref AnimatorAction action,
+        float dt, ClipLibrary clips, ActionTable actions)
+    {
+        float df = MathF.IEEERemainder(intent.FacingGoal - t.Facing, MathF.Tau);
+        bool standing = new Vector2(intent.DesiredVelocity.X, intent.DesiredVelocity.Z).LengthSquared() < MovementRules.StandingDesiredSq
+                        && new Vector2(velocity.X, velocity.Z).LengthSquared() < MovementRules.StandingSpeedSq;
+        bool idleTurn = standing && action.Kind == ActionKind.None;
+        if (idleTurn && MathF.Abs(df) > MovementRules.TurnAnimMin) ActionLayer.StartTurn(ref action, df, clips, actions);
+        // пошёл во время поворота на месте — клип гаснет уже без yaw, курс снова доворачивает контроллер
+        if (!action.TurnDrivesYaw(moving))
+        {
+            float turn = idleTurn ? MovementRules.IdleTurnRate : MovementRules.TurnRate;
+            t.Facing += Math.Clamp(df, -turn * dt, turn * dt);
+        }
+        Accelerate(intent, ref velocity, dt);
+    }
+
+    private static void Accelerate(in FighterCommand intent, ref Vector3 velocity, float dt)
+    {
         var desired = new Vector3(intent.DesiredVelocity.X, 0, intent.DesiredVelocity.Z);
         velocity += (desired - velocity) * MathF.Min(1, MovementRules.Accel * dt);
         velocity.Y = 0;
@@ -149,33 +207,53 @@ public sealed class RootSteerSystem : IContinuousSystem
 }
 
 /// <summary>
-/// Movement: перенос корня на скорость·dt по земле (<c>KinematicBegin</c> после <c>anim.Tick</c>). Корневого движения
-/// действий (выпад, уклонение) и поворота клипом ещё нет — они придут с действиями (этап 6).
+/// Movement: перенос корня (<c>KinematicBegin</c> после <c>anim.Tick</c>): у бойца со слоем действий сначала курс —
+/// поворот клипом (<see cref="AnimatorAction.YawDelta"/>), затем у всех корень на скорость·dt по земле, затем сдвиг клипом
+/// действия (<see cref="AnimatorAction.RootDelta"/>) по новому курсу. Рывок уклонения, где корень ведёт клип, а не
+/// скорость, — этап 6.
 /// </summary>
 public sealed class RootControlSystem : IContinuousSystem
 {
-    private Query _query = null!;
+    private Query _plain = null!, _acting = null!;
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.RootControl).Reads<RootVelocity>().Writes<Transform>();
-        _query = s.Query().With<Fighter>().Read<RootVelocity>().Write<Transform>();
+        s.Label(GameLabels.RootControl).Reads<RootVelocity>().Reads<AnimatorAction>().Writes<Transform>();
+        _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<RootVelocity>().Write<Transform>();
+        _acting = s.Query().With<Fighter>().Read<RootVelocity>().Read<AnimatorAction>().Write<Transform>();
     }
 
     public void Run(in SystemContext ctx)
     {
         float dt = ctx.World.Resource<SimTime>().Dt;
-        foreach (var chunk in ctx.Iterate(_query))
+        foreach (var chunk in ctx.Iterate(_plain))
         {
             var t = chunk.Write<Transform>();
             var v = chunk.Read<RootVelocity>()[..t.Length];
             for (int i = 0; i < t.Length; i++) Move(ref t[i], v[i].Value, dt);
+        }
+        foreach (var chunk in ctx.Iterate(_acting))
+        {
+            var t = chunk.Write<Transform>();
+            var v = chunk.Read<RootVelocity>()[..t.Length];
+            var a = chunk.Read<AnimatorAction>()[..t.Length];
+            for (int i = 0; i < t.Length; i++) Move(ref t[i], v[i].Value, a[i], dt);
         }
     }
 
     public static void Move(ref Transform t, Vector3 velocity, float dt)
     {
         t.Position += velocity * dt;
+        t.Position.Y = 0;
+    }
+
+    /// <summary>Со слоем действий: <c>Facing += YawDelta</c>, корень на скорость, сдвиг клипом по курсу — порядок SWORD.</summary>
+    public static void Move(ref Transform t, Vector3 velocity, in AnimatorAction action, float dt)
+    {
+        t.Facing += action.YawDelta;
+        t.Position += velocity * dt;
+        if (action.RootDelta != Vector3.Zero)
+            t.Position += Vector3.Transform(action.RootDelta, Quaternion.CreateFromAxisAngle(Vector3.UnitY, t.Facing));
         t.Position.Y = 0;
     }
 }

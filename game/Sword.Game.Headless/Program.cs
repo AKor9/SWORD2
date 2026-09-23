@@ -6,6 +6,7 @@ using Sword.Engine.Diagnostics;
 using Sword.Engine.Runtime;
 using Sword.Game;
 using Sword.Game.Ai;
+using Sword.Game.Animation;
 using Sword.Game.Bootstrap;
 using Sword.Game.Contracts;
 using Sword.Game.Movement;
@@ -326,7 +327,8 @@ public static partial class Program
     /// до игрока (кольцо спауна 5–9 м); с 4б — скорость корня и ИИ последнего тика: подход и покачивание, м/с, соседей
     /// ближе 1,4 м (<see cref="EnemyAiTerms"/>); с 4в — толчки столкновений последнего тика (<see cref="RootContacts"/>:
     /// пар, сдвиг корня парами и от игрока, м, наибольшее перекрытие и с кем) и ближайшая пара бойцов на арене
-    /// (<c>closestPair</c>: расстояние корней, м, и места; ближе 0,7 м — перекрытие, инвариант <c>movement.rootOverlap</c>).
+    /// (<c>closestPair</c>: расстояние корней, м, и места; ближе 0,7 м — перекрытие, инвариант <c>movement.rootOverlap</c>);
+    /// с 4г — слой действий последнего тика (<see cref="AnimatorAction"/>: действие, вес, поворот курса клипом за тик).
     /// </summary>
     private static object ArenaJson(Simulation sim)
     {
@@ -345,6 +347,7 @@ public static partial class Program
                 if (!world.Has<EnemyTag>(e)) continue;
                 var ai = world.TryGet<EnemyAiTerms>(e, out var terms) ? terms : default;
                 var push = world.TryGet<RootContacts>(e, out var contacts) ? contacts : RootContacts.None;
+                var action = world.TryGet<AnimatorAction>(e, out var act) ? act : AnimatorAction.None;
                 enemies.Add((slot.Index, new
                 {
                     slot = slot.Index, entity = e.ToString(), x = t.Position.X, z = t.Position.Z, facing = t.Facing,
@@ -352,6 +355,7 @@ public static partial class Program
                     speed = world.Get<RootVelocity>(e).Value.Length(), approach = ai.ApproachSpeed, sway = ai.SwaySpeed,
                     neighbours = ai.Neighbours, contacts = push.Contacts, push = push.Push.Length(), fromPlayer = push.FromPlayer.Length(),
                     deepest = push.Deepest, deepestWith = push.DeepestWith,
+                    action = action.Kind.ToString(), actionWeight = action.Weight, yawDelta = action.YawDelta,
                 }));
             }
         (float Distance, int A, int B)? closest = null;

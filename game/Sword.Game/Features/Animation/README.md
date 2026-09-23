@@ -40,7 +40,11 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 
 **Намеренных изменений семантики нет.** Не перенесено до своих этапов: слой действий, маски верха, вздрагивание, рука
 и IK кисти (этап 6), фиксация и постановка стоп, `FootDown` (этап 9), Motion Matching и визуальное смещение (этап 8),
-поворот на месте клипом у врагов (этап 4), капсулы тела по позе (этап 5), оружие в руке (этап 6).
+капсулы тела по позе (этап 5), оружие в руке (этап 6). Поворот на месте клипом у врагов — **сделан на точке 4г** (фича
+[«Враги»](../Enemies/README.md)): первый кусок слоя действий — компонент `AnimatorAction` (действие `Turn`), поза слоя —
+`ActionPoses`, логика — `ActionLayer` (`game/Sword.Game/Animation/AnimatorAction.cs`), шаг действия — в
+`AnimatorInputSystem`, смешивание всем телом — в `AnimatorPoseSystem`; снимок позы и прерывание действия — этап 6.
+Сверка с SWORD — вторая трасса `anim-turn.trace.json` (`ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick`).
 
 ## Устройство
 
@@ -104,6 +108,7 @@ animation` или `feature.verify {"id":"animation"}`.
 |---|---|
 | компоненты `PoseRef`, `AnimatorMotion`, `LegacyLocomotionState` | `entity.get` / `world.query` по имени (поля, хэндлы поз — номер и поколение) |
 | клип — номер в библиотеке | **добавлен** `anim.clips` (номер ↔ ID, длительность, цикл, скорость корня) |
+| слой действий врага (4г) | `anim.pose` — поле `action` (действие, клип с именем, время, вес, `yawDelta`, `rootDelta`); `entity.get` → `AnimatorAction`; инвариант `animation.actions` |
 | поза — данные подсистемы, не ECS | **добавлен** `anim.pose` (суставы в пространстве персонажа и в мире, счётчики пула) |
 | новое видимое — поза Manny | `capture.bundle` (картинка кадра; оверлея скелета нет — этап 5) |
 | порядок систем | `ecs.plan`, `ecs.explainSystem` (`core.root-steer` → `core.animator-input` → `locomotion.legacy` → `core.animator-pose` → `core.animation-tick`) |

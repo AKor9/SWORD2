@@ -24,65 +24,99 @@ public static class AnimatorRules
 
     /// <summary>
     /// Слой движения аниматора на тик (начало <c>FighterAnimator.Tick</c>): сглаженная скорость и «идёт» с гистерезисом;
-    /// поиск кадра локомоции разрешён, пока действие не ведёт всё тело (действий ещё нет — всегда).
+    /// поиск кадра локомоции разрешён (<paramref name="search"/>), пока действие не ведёт всё тело.
     /// </summary>
-    public static void Step(ref AnimatorMotion m, Vector3 localVel, float dt)
+    public static void Step(ref AnimatorMotion m, Vector3 localVel, float dt, bool search = true)
     {
         m.Velocity += (new Vector3(localVel.X, 0, localVel.Z) - m.Velocity) * (1 - MathF.Exp(-dt * 0.693f / VelHalflife));
         float speed = new Vector2(m.Velocity.X, m.Velocity.Z).Length();
         m.Moving = m.Moving ? speed > IdleEnter : speed > IdleExit;
-        m.Search = true;
+        m.Search = search;
     }
 }
 
 /// <summary>
-/// Gameplay, после курса и разгона: вход слоя локомоции — скорость корня в системе бойца (по новому курсу), сглаженная,
-/// и «идёт» (<see cref="AnimatorMotion"/>). В SWORD — первая часть <c>FighterAnimator.Tick(dt, f.DirToLocal(f.RootVel))</c>.
+/// Gameplay, после курса и разгона: аниматор бойца на тик без поз (<c>FighterAnimator.Tick(dt, f.DirToLocal(f.RootVel))</c>
+/// SWORD) — вход слоя локомоции: скорость корня в системе бойца (по новому курсу), сглаженная, и «идёт»
+/// (<see cref="AnimatorMotion"/>); у бойца со слоем действий (<see cref="AnimatorAction"/>, с 4г — враги) затем шаг действия
+/// (<see cref="ActionLayer.Tick"/>): время, вес, поворот курса и сдвиг корня клипом. Позу по ним ставит
+/// <see cref="AnimatorPoseSystem"/>, курс и корень двигает <c>RootControlSystem</c>.
 /// </summary>
 public sealed class AnimatorInputSystem : IContinuousSystem
 {
-    private Query _query = null!;
+    private Query _plain = null!, _acting = null!;
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.AnimatorInput).After(GameLabels.RootSteer).Reads<Transform>().Reads<RootVelocity>().Writes<AnimatorMotion>();
-        _query = s.Query().With<Fighter>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>();
+        s.Label(GameLabels.AnimatorInput).After(GameLabels.RootSteer).Reads<Transform>().Reads<RootVelocity>().Writes<AnimatorMotion>()
+            .Writes<AnimatorAction>();
+        _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>();
+        _acting = s.Query().With<Fighter>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>().Write<AnimatorAction>();
     }
 
     public void Run(in SystemContext ctx)
     {
         float dt = ctx.World.Resource<SimTime>().Dt;
-        foreach (var chunk in ctx.Iterate(_query))
+        foreach (var chunk in ctx.Iterate(_plain))
         {
             var m = chunk.Write<AnimatorMotion>();
             var t = chunk.Read<Transform>()[..m.Length];
             var v = chunk.Read<RootVelocity>()[..m.Length];
             for (int i = 0; i < m.Length; i++) AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt);
         }
+        var clips = ctx.World.Resource<PosePool>().Clips;
+        foreach (var chunk in ctx.Iterate(_acting))
+        {
+            var m = chunk.Write<AnimatorMotion>();
+            var t = chunk.Read<Transform>()[..m.Length];
+            var v = chunk.Read<RootVelocity>()[..m.Length];
+            var a = chunk.Write<AnimatorAction>()[..m.Length];
+            for (int i = 0; i < m.Length; i++)
+            {
+                // локомоция ищет кадр, пока действие не ведёт всё тело (FullBodyAction до шага действия — как в SWORD)
+                AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt, !a[i].FullBody);
+                ActionLayer.Tick(ref a[i], m[i].Moving, dt, clips);
+            }
+        }
     }
 }
 
 /// <summary>
-/// Animation: итоговая поза бойца — задание прямой кинематики его позы (<c>clips.ToComponent</c> в конце
-/// <c>FighterAnimator.TickActions</c>). Слои позы (локомоция модуля Locomotion, позже действия) ставят свои задания раньше
-/// (<see cref="GameLabels.AnimatorPose"/>); без них поза остаётся позой привязки.
+/// Animation: итоговая поза бойца (конец <c>FighterAnimator.TickActions</c>): у бойца со слоем действий — задания слоя
+/// поверх локомоции (<see cref="ActionLayer.Pose"/>: сэмпл клипа действия и смешивание всем телом; снимка позы нет — этап 6), затем у всех —
+/// прямая кинематика (<c>clips.ToComponent</c>). Слой локомоции (модуль Locomotion) ставит свои задания раньше
+/// (<see cref="GameLabels.AnimatorPose"/>); без слоёв поза остаётся позой привязки.
 /// </summary>
 public sealed class AnimatorPoseSystem : IContinuousSystem
 {
-    private Query _query = null!;
+    private Query _plain = null!, _acting = null!;
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.AnimatorPose).Reads<PoseRef>();
-        _query = s.Query().With<Fighter>().Read<PoseRef>();
+        s.Label(GameLabels.AnimatorPose).Reads<PoseRef>().Reads<AnimatorAction>().Writes<ActionPoses>();
+        _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<PoseRef>();
+        _acting = s.Query().With<Fighter>().Read<PoseRef>().Read<AnimatorAction>().Write<ActionPoses>();
     }
 
     public void Run(in SystemContext ctx)
     {
         var pool = ctx.World.Resource<PosePool>();
-        foreach (var chunk in ctx.Iterate(_query))
+        foreach (var chunk in ctx.Iterate(_plain))
             foreach (var p in chunk.Read<PoseRef>())
                 if (p.Generation != 0) pool.ToModel(new PoseHandle(p.Index, p.Generation));   // пустой — позу ещё не завели
+        foreach (var chunk in ctx.Iterate(_acting))
+        {
+            var poses = chunk.Write<ActionPoses>();
+            var refs = chunk.Read<PoseRef>()[..poses.Length];
+            var a = chunk.Read<AnimatorAction>()[..poses.Length];
+            for (int i = 0; i < poses.Length; i++)
+            {
+                if (refs[i].Generation == 0) continue;
+                var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
+                ActionLayer.Pose(a[i], ref poses[i], pose, pool);
+                pool.ToModel(pose);
+            }
+        }
     }
 }
 

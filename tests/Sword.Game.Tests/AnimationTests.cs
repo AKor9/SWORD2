@@ -235,15 +235,15 @@ public sealed class AnimationTests
             var run = Assert.Single(clips["clips"]!.AsArray(), c => c!["name"]!.GetValue<string>() == "sword_1h/1HM_RunForward")!;
             Assert.Equal(TestAssets.RunSpeed, run["rootSpeed"]!.GetValue<double>(), 3);
             Assert.True(run["loop"]!.GetValue<bool>());
-            Assert.Equal(17, clips["total"]!.GetValue<int>());
+            Assert.Equal(20, clips["total"]!.GetValue<int>());
 
-            // Страницы: 17 клипов по 10 — вторая страница с skip=10, продолжение только у первой.
+            // Страницы: 20 клипов (локомоция и поворот на месте) по 10 — вторая страница с skip=10, продолжение только у первой.
             var first = await Call("anim.clips", new JsonObject { ["take"] = 10 });
             Assert.Equal(10, first["clips"]!.AsArray().Count);
             Assert.True(first["receipt"]!["truncated"]!.GetValue<bool>());
             Assert.Equal("skip=10", first["receipt"]!["continuationToken"]!.GetValue<string>());
             var second = await Call("anim.clips", new JsonObject { ["skip"] = 10, ["take"] = 10 });
-            Assert.Equal(7, second["clips"]!.AsArray().Count);
+            Assert.Equal(10, second["clips"]!.AsArray().Count);
             Assert.Equal(10, second["clips"]![0]!["index"]!.GetValue<int>());
             Assert.False(second["receipt"]!["truncated"]!.GetValue<bool>());
             Assert.Null(second["receipt"]!["continuationToken"]);

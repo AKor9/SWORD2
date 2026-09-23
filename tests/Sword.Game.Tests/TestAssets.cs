@@ -9,9 +9,9 @@ namespace Sword.Game.Tests;
 
 /// <summary>
 /// Контент тестов игры в памяти: скелет «ue5_manny» из синтетических суставов (<c>SynthSkeleton</c> тестов SWORD), меш с
-/// его bind-матрицами и клипы локомоции по именам пака по умолчанию — стойка, ходьба и бег в 8 сторон с корневым
-/// движением <see cref="WalkSpeed"/> и <see cref="RunSpeed"/> м/с. У каждого клипа своя поза (номер клипа — в наклоне
-/// бедра), чтобы по позе было видно, какой клип играет.
+/// его bind-матрицами и клипы по именам пака по умолчанию: локомоция — стойка, ходьба и бег в 8 сторон с корневым
+/// движением <see cref="WalkSpeed"/> и <see cref="RunSpeed"/> м/с, и поворот на месте (90° влево, вправо, разворот; 4г).
+/// У каждого клипа своя поза (номер клипа — в наклоне бедра), чтобы по позе было видно, какой клип играет.
 /// </summary>
 public static class TestAssets
 {
@@ -37,6 +37,27 @@ public static class TestAssets
 
     /// <summary>Наклон бедра клипа — его «подпись» в позе.</summary>
     public static float Signature(int clipNumber) => 0.05f * (clipNumber + 1);
+
+    /// <summary>
+    /// Поворот клипов поворота на месте за весь клип, рад (+ — влево): 90° влево, вправо и разворот (точка 4г), и их сдвиг
+    /// корня вперёд, м (у клипов пака поворот тоже чуть смещает корень).
+    /// </summary>
+    public const float TurnLeftYaw = MathF.PI / 2, TurnRightYaw = -MathF.PI / 2, Turn180Yaw = MathF.PI, TurnDrift = 0.1f;
+
+    /// <summary>Клип поворота на месте: не цикл, yaw корня растёт сглаженной ступенью до <paramref name="yaw"/>, корень чуть вперёд.</summary>
+    private static ClipFile TurnClip(int number, float yaw)
+    {
+        var clip = Clip(number, Vector3.Zero);
+        clip.Loop = false;
+        for (int f = 0; f < Frames; f++)
+        {
+            float k = f / (float)(Frames - 1);
+            k = k * k * (3 - 2 * k);
+            clip.RootYaw[f] = yaw * k;
+            clip.RootMotion[f] = new Vector3(0, 0, TurnDrift * k);
+        }
+        return clip;
+    }
 
     private static ClipFile Clip(int number, Vector3 velocity)
     {
@@ -79,6 +100,9 @@ public static class TestAssets
         string[] dirs = ["Forward", "ForwardRight", "Right", "BackRight", "Back", "BackLeft", "Left", "ForwardLeft"];
         for (int d = 0; d < 8; d++) content.Add($"anim/sword_1h/1HM_Walk{dirs[d]}.swclip", Clip(n++, Dir(d) * WalkSpeed).Write);
         for (int d = 0; d < 8; d++) content.Add($"anim/sword_1h/1HM_Run{dirs[d]}.swclip", Clip(n++, Dir(d) * RunSpeed).Write);
+        content.Add("anim/sword_1h/1HM_TurnLeft90.swclip", TurnClip(n++, TurnLeftYaw).Write);
+        content.Add("anim/sword_1h/1HM_TurnRight90.swclip", TurnClip(n++, TurnRightYaw).Write);
+        content.Add("anim/sword_1h/1HM_Turn180.swclip", TurnClip(n++, Turn180Yaw).Write);
         if (actionsJson is not null) content.Add("combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
         return content;
     }

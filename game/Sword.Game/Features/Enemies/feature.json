@@ -1,18 +1,20 @@
 {
   // Приёмка фичи «Враги и ИИ» (этап 4) — начата на точке 4а (спаун и команды арены), дополнена на 4б (ИИ: подход,
-  // окружение, погоня) и 4в (столкновения бойцов: толпа, игрок расталкивает её, инвариант movement.rootOverlap); полный
-  // манифест (поворот клипом, сверка толпы с SWORD, эталон enemies.swreplay) — на 4д. Формат — FeatureManifest
+  // окружение, погоня), 4в (столкновения бойцов: толпа, игрок расталкивает её, инвариант movement.rootOverlap) и 4г
+  // (поворот врага на месте клипом командой врагу, сверка с трассой SWORD); полный манифест (сверка толпы с SWORD, эталон
+  // enemies.swreplay) — на 4д. Формат — FeatureManifest
   // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies). Ослабить ожидания — только
   // правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "enemies",
-  "title": "Враги и ИИ (этап 4; точки 4а — спаун и команды арены, 4б — ИИ врагов, 4в — столкновения бойцов)",
+  "title": "Враги и ИИ (этап 4; точки 4а — спаун и команды арены, 4б — ИИ врагов, 4в — столкновения бойцов, 4г — поворот на месте)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Arena",
     "game/Sword.Game/Ai",
     "game/Sword.Game/Movement",
+    "game/Sword.Game/Animation/AnimatorAction.cs",
     "game/Sword.Game/GameCore.cs",
     "game/Sword.Game.Contracts/Components.cs",
     "game/Sword.Game.Client/ArenaInput.cs",
@@ -264,10 +266,78 @@
           "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "EnemyAiTerms.Distance", "lessThan": 0.68 }] } }
         }
       ]
+    },
+    {
+      "id": "turn",
+      "title": "поворот врага на месте (4г): сценарий трассы SWORD — курс-цель врага 1 скачет командой врагу (EnemyCommand): стоя на 90° влево, вправо, разворот, меньше 45°, поворот прерван ходьбой, поворот на ходу, остановка с отставшим курсом (1440 тиков)",
+      "set": ["arena.enemies=1"],
+      "ticks": 1440,
+      "commands": [
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 0.8123 }, "from": 0, "to": 60 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 2.4 }, "from": 60, "to": 240 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 1.1 }, "from": 240, "to": 420 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 4.2 }, "from": 420, "to": 660 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 4.7 }, "from": 660, "to": 720 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 6.4 }, "from": 720, "to": 750 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "Velocity": { "X": -1.1, "Y": -1.1 }, "FacingGoal": 6.4 }, "from": 750, "to": 900 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "Velocity": { "X": -1.1, "Y": -1.1 }, "FacingGoal": 5.4 }, "from": 900, "to": 1000 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 8 }, "from": 1000, "to": 1150 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 7.2 }, "from": 1150, "to": 1300 },
+        { "command": "EnemyCommand", "fields": { "Slot": 1, "Velocity": { "X": 0.2, "Y": 0.1 }, "FacingGoal": 9.5 }, "from": 1300, "to": 1440 }
+      ],
+      "checks": [
+        {
+          "id": "turn-clip", "title": "курс-цель +1,6 рад стоя — поворот на месте клипом, курс ведёт yaw клипа", "expect": "eventually", "from": 61, "to": 240,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "AnimatorAction.Kind", "equals": "Turn" }, { "field": "AnimatorAction.YawDelta", "greaterThan": 0 }] }
+        },
+        {
+          "id": "turn-left-done", "title": "поворот влево дошёл до цели 2,4 рад", "expect": "eventually", "from": 200, "to": 240,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Transform.Facing", "greaterThan": 2.39 }, { "field": "Transform.Facing", "lessThan": 2.41 }] }
+        },
+        {
+          "id": "turn-right", "title": "−1,3 рад — поворот клипом вправо (yaw клипа ведёт курс вниз)", "expect": "eventually", "from": 241, "to": 420,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "AnimatorAction.Kind", "equals": "Turn" }, { "field": "AnimatorAction.YawDelta", "lessThan": 0 }] }
+        },
+        {
+          "id": "turn-180-done", "title": "+3,1 рад — разворот клипом дошёл до цели 4,2 рад", "expect": "eventually", "from": 600, "to": 660,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Transform.Facing", "greaterThan": 4.19 }, { "field": "Transform.Facing", "lessThan": 4.21 }] }
+        },
+        {
+          "id": "idle-rate", "title": "+0,5 рад (меньше 45°) — без клипа, контроллером 2,5 рад/с", "expect": "always", "from": 661, "to": 720,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "AnimatorAction.Kind", "equals": "None" }] }
+        },
+        {
+          "id": "walk-cancels", "title": "пошёл во время поворота — клип гаснет без yaw (курс доворачивает контроллер)", "expect": "eventually", "from": 750, "to": 800,
+          "condition": {
+            "all": [
+              { "entity": "enemy 1" }, { "field": "AnimatorAction.Kind", "equals": "Turn" }, { "field": "AnimatorMotion.Moving", "equals": true },
+              { "field": "AnimatorAction.YawDelta", "equals": 0 }
+            ]
+          }
+        },
+        {
+          "id": "walking-no-clip", "title": "на ходу — поворот без клипа", "expect": "always", "from": 800, "to": 1000,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "AnimatorAction.Kind", "equals": "None" }] }
+        },
+        {
+          "id": "player-agile", "title": "у игрока (Agile) слоя действий нет", "expect": "always",
+          "condition": { "none": { "all": [{ "component": "PlayerTag" }, { "component": "AnimatorAction" }] } }
+        }
+      ]
     }
   ],
   "invariants": ["arena.slots", "movement.rootOverlap", "animation.*", "locomotion.poses", "ecs.finite", "ecs.entityRefs"],
   "metrics": [
+    {
+      "id": "sword-turn-trace", "scenario": "turn", "source": "sword",
+      "reference": "трасса настоящего FighterAnimator SWORD 2eab13b на эталонном паке, боец не-Agile (tests/reference/sword-trace, сценарий turn): корень, курс, вес действия и поворот курса клипом тик за тиком, побитово; клипы и поза — ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick",
+      "entity": "enemy 1", "trace": "tests/reference/anim-turn.trace.json",
+      "series": {
+        "root[0]": "Transform.Position.X", "root[1]": "Transform.Position.Z", "facing": "Transform.Facing",
+        "actionWeight": "AnimatorAction.Weight", "yawDelta": "AnimatorAction.YawDelta"
+      },
+      "tolerance": 0
+    },
     {
       "id": "keep-distance", "scenario": "surround", "source": "sword",
       "reference": "SWORD 2eab13b EnemyAi.KeepDistance = 1.8f (расхождение соседей ближе Personal 1,4 м отодвигает кольцо из 10 врагов до ~1,9 м)",
@@ -278,6 +348,7 @@
     { "id": "ring", "title": "10 врагов разного цвета сходятся к игроку из кольца спауна", "scenario": "ring", "tick": 60, "camera": "0.6,0.8,26,0,0" },
     { "id": "surround", "title": "10 врагов окружили игрока на ~1,8 м, лицом к нему", "scenario": "surround", "tick": 900, "camera": "0.6,0.9,9,0,0" },
     { "id": "crowd", "title": "32 врага (--units 32): кольцо плотнее, толпа сходится к бегущему игроку", "scenario": "crowd", "tick": 60, "camera": "0.6,0.9,30,0,0" },
+    { "id": "turn", "title": "враг 1 разворачивается на месте клипом разворота (командой врагу), игрок стоит в центре", "scenario": "turn", "tick": 480, "camera": "0.6,0.9,5,-4.95,-4.69" },
     { "id": "push", "title": "игрок упёрся в толпу из 32 врагов и расталкивает её; враги стоят плечом к плечу, не друг в друге", "scenario": "push", "tick": 640, "camera": "0.6,0.9,9,1,0" }
   ],
   "budgets": [
@@ -286,11 +357,12 @@
   "checklist": [
     "`Sword.exe` — вокруг Manny кольцом 5–9 м появляются 10 врагов разного цвета, лицом к нему, и сразу бегут к нему клипом бега; за 2–3 с встают вокруг примерно в 2 м (чуть дальше вытянутого меча), лицом к Manny.",
     "Постоять 10–20 с: враги в кольце медленно покачиваются вбок — каждый в своём ритме, кто влево, кто вправо, — шагом или в стойке, не бегут и не слипаются (держатся не ближе полуметра друг к другу; вплотную — касаются, но друг в друга не заходят).",
-    "Отбежать WASD — враги бегут следом и отстают (они медленнее: 3,2 м/с против 4,2); остановиться — догоняют и снова встают кольцом; бегать вокруг них — они всё время разворачиваются к Manny (пока быстро, как игрок: поворот на месте клипом — точка 4г); сквозь врагов не пробежать — Manny упирается, его отводит вбок, и он протискивается между ними.",
+    "Отбежать WASD — враги бегут следом и отстают (они медленнее: 3,2 м/с против 4,2); остановиться — догоняют и снова встают кольцом; бегать вокруг них — они всё время разворачиваются к Manny: на ходу быстро, стоя — плавно, без рывков и прокручивания на месте (поворот на месте клипом в обычной игре почти не бывает — так и в SWORD, см. пункт 9); сквозь врагов не пробежать — Manny упирается, его отводит вбок, и он протискивается между ними.",
     "PageUp — в кольце 5–9 м вокруг Manny (там, где он сейчас) появляется ещё один враг и сразу идёт к нему; PageDown — исчезает последний добавленный; больше 32 и меньше 0 не бывает.",
     "Отбежать от центра и нажать R — Manny мгновенно в центре арены и стоит, враги заново кольцом 5–9 м вокруг центра, их столько же, и снова сходятся к нему.",
     "`Sword.exe --units 32` — 32 врага толпой сходятся к Manny и обступают его в 2–3 ряда плечом к плечу, но никто не стоит внутри другого и внутри Manny (руки и плечи могут заходить друг в друга: сталкиваются только круги корней 0,35 м, тела — этап 5), кадр плавный (FPS в HUD как без врагов или близко); `Sword.exe --units 0` — Manny один.",
     "`Sword.exe --units 32`, подождать, пока толпа обступит Manny, и бежать в неё (D): Manny с разбега упирается (заметно тормозит), толкает врагов перед собой, скользит вдоль них и протискивается сквозь толпу; враги впереди расступаются, сзади снова сходятся; никто не проходит сквозь Manny и друг сквозь друга.",
-    "`Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется само: враги бегут, появляются и исчезают, как было."
+    "`Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется само: враги бегут, появляются и исчезают, как было.",
+    "Поворот на месте клипом (4г): после `verify.ps1` (или `Sword.Headless --feature enemies`) — `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay`, смотреть на врага 1 слева-сзади от Manny (камеру подвести к нему). Враг стоит лицом к Manny, затем поворачивается на месте на четверть круга влево — переступая ногами клипом поворота, а не вращаясь статуей; через 1,5 с — вправо, ещё через 1,5 с — разворот кругом, тоже шагами; потом чуть доворачивает плавно без шагов; начинает поворот и сразу уходит шагом — поворот мягко гаснет, без рывка позы; на ходу поворачивает быстро без клипа; остановился — снова поворачивается на месте шагами. Ноги не проскальзывают заметно, поза не прыгает."
   ]
 }

@@ -40,10 +40,22 @@ public static class GameLabels
     /// <summary>Gameplay: новому бойцу (<c>Added&lt;Fighter&gt;</c>) — поза в пуле поз (<c>PoseRef</c>).</summary>
     public static readonly SystemLabel FighterSetup = new("core.fighter-setup");
 
-    /// <summary>Gameplay: курс и разгон корня (<c>KinematicSteer</c>) — до аниматора, который видит новую скорость.</summary>
+    /// <summary>
+    /// Gameplay, до <see cref="RootSteer"/>: команды врагу тика (<c>EnemyCommand</c>) — намерение врага вместо ИИ поверх всего,
+    /// что записал Intent (ИИ и команда арены).
+    /// </summary>
+    public static readonly SystemLabel EnemyCommand = new("core.enemy-command");
+
+    /// <summary>
+    /// Gameplay: курс и разгон корня (<c>KinematicSteer</c>) — до аниматора, который видит новую скорость; у врага (не-<c>Agile</c>)
+    /// здесь же начинается поворот на месте клипом.
+    /// </summary>
     public static readonly SystemLabel RootSteer = new("core.root-steer");
 
-    /// <summary>Gameplay, после <see cref="RootSteer"/>: сглаженная скорость и «идёт» (компонент <c>AnimatorMotion</c>).</summary>
+    /// <summary>
+    /// Gameplay, после <see cref="RootSteer"/>: аниматор бойца без поз — сглаженная скорость и «идёт» (компонент
+    /// <c>AnimatorMotion</c>), у врага — шаг слоя действий (время, вес, поворот курса клипом).
+    /// </summary>
     public static readonly SystemLabel AnimatorInput = new("core.animator-input");
 
     /// <summary>
@@ -58,4 +70,7 @@ public static class GameLabels
     /// <summary>Movement: перенос корня на скорость тика (<c>KinematicBegin</c>).</summary>
     public static readonly SystemLabel RootControl = new("core.root-control");
     public static readonly SystemLabel RootCollision = new("core.root-collision");
+
+    /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
+    public static readonly SystemLabel ActionRelease = new("core.action-release");
 }

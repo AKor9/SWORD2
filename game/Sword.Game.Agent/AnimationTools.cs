@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Sword.Engine.Agent;
 using Sword.Engine.Ecs;
 using Sword.Engine.Introspection;
+using Sword.Game.Animation;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Agent;
@@ -24,7 +25,9 @@ public static class AnimationTools
             Name = "anim.pose", Title = "Поза бойца",
             Description = "Поза бойца последнего тика: суставы в пространстве персонажа (+Z вперёд, +X влево, Y вверх, м) и в мире " +
                 "(поворот на курс и перенос в корень, без высоты рельефа), корень и курс; счётчики пула поз (живые позы, задания " +
-                "последнего тика, пропущенные). joints — имена суставов (по умолчанию таз, позвоночник, голова, кисти, стопы).",
+                "последнего тика, пропущенные); у бойца со слоем действий (враг) — action: действие (None, Turn — поворот на месте), " +
+                "клип с именем, время и длительность, вес слоя и его доля в позе, растяжение yaw клипа, поворот курса и сдвиг корня " +
+                "клипом за тик. joints — имена суставов (по умолчанию таз, позвоночник, голова, кисти, стопы).",
             Arguments = new JsonObject
             {
                 ["entity"] = new JsonObject { ["type"] = "string", ["description"] = "номер «12v3» или имя (по умолчанию player)" },
@@ -101,7 +104,30 @@ public static class AnimationTools
             ["joints"] = list,
             ["pool"] = new JsonObject { ["poses"] = view.PoseCount, ["jobsLastTick"] = view.LastTickJobs, ["staleLastTick"] = view.LastTickStale },
         };
+        if (world.Knows<AnimatorAction>() && world.TryGet<AnimatorAction>(e, out var action)) data["action"] = Action(view, action);
         return (data, ctx.Point);
+    }
+
+    /// <summary>
+    /// Слой действий бойца (4г, <see cref="AnimatorAction"/>): действие, клип с именем, время и длительность, вес слоя и его
+    /// сглаженная доля в позе, растяжение yaw клипа поворота и выход тика — поворот курса и сдвиг корня клипом.
+    /// </summary>
+    private static JsonObject Action(IAnimationView view, in AnimatorAction a)
+    {
+        bool acting = a.Kind != ActionKind.None && (uint)a.Clip < (uint)view.ClipCount;
+        return new JsonObject
+        {
+            ["kind"] = a.Kind.ToString(),
+            ["clip"] = a.Clip,
+            ["clipName"] = acting ? view.ClipName(a.Clip) : null,
+            ["time"] = acting ? Round(a.Time) : null,
+            ["duration"] = acting ? Round(a.Duration) : null,
+            ["weight"] = Round(a.Weight),
+            ["blend"] = Round(ActionLayer.Smooth(a.Weight)),
+            ["turnScale"] = acting ? Round(a.TurnScale) : null,
+            ["yawDelta"] = Math.Round(a.YawDelta, 6),
+            ["rootDelta"] = new JsonArray(Math.Round(a.RootDelta.X, 6), Math.Round(a.RootDelta.Y, 6), Math.Round(a.RootDelta.Z, 6)),
+        };
     }
 
     private static JsonObject Clips(WorldReader world, long? index, string? filter, int skip, int take)

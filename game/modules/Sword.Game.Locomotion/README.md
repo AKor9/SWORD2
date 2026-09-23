@@ -75,7 +75,8 @@ walk_*, run_*), `Sword.Engine.Animation` (пул поз, клипы), `Sword.Eng
 
 - `locomotion.setup` реагирует на `Added<Fighter>` в Gameplay: бойцы, созданные в стадиях позже Gameplay (возрождение в
   Aftermath — этап 7), потребуют `NextTickOk<Added<Fighter>>` или переноса настройки — сборка мира на это укажет.
-- Действий нет (этап 6): поиск кадра (`AnimatorMotion.Search`) локомоция клипами не использует и в SWORD.
+- Поиск кадра (`AnimatorMotion.Search`, с 4г — false, пока поворот на месте ведёт всё тело врага) локомоция клипами не
+  использует и в SWORD: под действием она идёт как шла, слой действий смешивается поверх (`core.animator-pose`).
 - Motion Matching игрока — этап 8.
 
 ## Агентский доступ

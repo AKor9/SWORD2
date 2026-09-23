@@ -6,6 +6,7 @@ using Sword.Engine.Ecs;
 using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
 using Sword.Game.Agent;
+using Sword.Game.Animation;
 using Sword.Game.Arena;
 using Sword.Game.Contracts;
 using Sword.Game.Movement;
@@ -271,7 +272,8 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
                         int s = w.Get<FighterSlot>(e).Index;
                         var t = w.Get<Transform>(e);
                         var v = w.Get<RootVelocity>(e).Value;
-                        RootControlSystem.Move(ref t, v, sim.Dt);
+                        if (w.TryGet<AnimatorAction>(e, out var action)) RootControlSystem.Move(ref t, v, action, sim.Dt);   // враг: поворот и сдвиг клипом (4г)
+                        else RootControlSystem.Move(ref t, v, sim.Dt);
                         (_roots[s], _velocities[s], _present[s], _owner[s]) = (t.Position, v, true, e);
                         // Постройка — новая сущность места или прыжок корня (сброс строит на той же сущности).
                         if (_last[s] != e || Vector3.Distance(_lastRoot[s], t.Position) > 0.5f) _built[s] = sim.Tick;

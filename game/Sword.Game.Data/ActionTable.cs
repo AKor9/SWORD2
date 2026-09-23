@@ -37,6 +37,11 @@ public static class ActionSlots
     public static int Walk(int dir) => 1 + dir;
     public static int Run(int dir) => 9 + dir;
 
+    /// <summary>Слоты поворота на месте (<c>CharacterRig.TurnLeft/TurnRight/Turn180</c> SWORD): 90° влево, вправо, разворот.</summary>
+    public static int TurnLeft { get; }
+    public static int TurnRight { get; }
+    public static int Turn180 { get; }
+
     static ActionSlots()
     {
         var names = new List<string> { "idle" };
@@ -59,6 +64,9 @@ public static class ActionSlots
         AllDefaults = [.. defaults];
         AllLayerable = AllNames.Select(n => n.StartsWith("slash") || n.StartsWith("stab") || n.StartsWith("block_") || n.StartsWith("hit_")).ToArray();
         AllDefaultUpper = AllNames.Select(n => n.StartsWith("slash") || n.StartsWith("stab") || n.StartsWith("block_")).ToArray();
+        TurnLeft = Index("turn_left");
+        TurnRight = Index("turn_right");
+        Turn180 = Index("turn_180");
     }
 
     /// <summary>Номер слота по ключу; нет — −1.</summary>
@@ -91,6 +99,11 @@ public sealed class ActionTable
     public int Idle => Clip[ActionSlots.Idle];
     public int Walk(int dir) => Clip[ActionSlots.Walk(dir)];
     public int Run(int dir) => Clip[ActionSlots.Run(dir)];
+
+    /// <summary>Клипы поворота на месте: 90° влево, вправо и разворот (из них выбирает <c>FighterAnimator.StartTurn</c>).</summary>
+    public int TurnLeft => Clip[ActionSlots.TurnLeft];
+    public int TurnRight => Clip[ActionSlots.TurnRight];
+    public int Turn180 => Clip[ActionSlots.Turn180];
 
     /// <param name="findClip">Клип по ID («источник/имя» или имя, если оно одно); −1 — нет.</param>
     /// <param name="clipName">Имя клипа по номеру — для предупреждений.</param>

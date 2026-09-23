@@ -42,7 +42,7 @@
 2. `anim.clips {"index":N}` — имя клипа по номеру (или `{"filter":"Run"}` — клипы по подстроке ID): длительность, цикл,
    скорость корневого движения. Список — страницами по 50: дальше — `skip` из `continuationToken` квитанции.
 3. `anim.pose {"entity":"player"}` — суставы (таз, голова, кисти, стопы) в пространстве персонажа и в мире; `pool` —
-   живые позы и задания последнего тика (`staleLastTick` должен быть 0).
+   живые позы и задания последнего тика (`staleLastTick` должен быть 0); у врага — ещё `action` (слой действий, 4г).
 4. Побитовая сверка с SWORD — тест `ReferenceTraceTests` (`dotnet test tests/Sword.Game.Tests --filter ReferenceTrace`).
 
 **Враги и команды арены (этап 4, точка 4а).**
@@ -74,8 +74,8 @@
 4. Намерение считается по корням до движения тика: посреди тика — `time.break {"stage":"Intent"}` и `entity.get` врагов
    (корни ещё прошлого тика, намерение — уже этого). В тике команды арены враги думают по арене после команды (новые
    враги, центр после R). Время арены — `{"resource":"SimTime.Time"}`.
-5. Поворот врага пока как у игрока (12 рад/с; поворот на месте клипом — точка 4г). Сверка с SWORD побитово — тест
-   `EnemyAiTests` (`dotnet test tests/Sword.Game.Tests --filter EnemyAi`).
+5. Поворот врага — не как у игрока (точка 4г, рецепт ниже). Сверка ИИ с SWORD побитово — тест `EnemyAiTests`
+   (`dotnet test tests/Sword.Game.Tests --filter EnemyAi`).
 
 **Столкновения бойцов: кто кого толкнул и где перекрытие (точка 4в).**
 1. Толчки тика у врага — `entity.get {"entity":"enemy 3","components":["RootContacts","Transform","RootVelocity"]}`:
@@ -98,6 +98,27 @@
 5. Без агента: `Sword.Headless --ticks N --units 32 --move 1,0 --json` — `arena.closestPair` (ближайшая пара корней:
    расстояние и места; ближе 0,7 м — перекрытие) и у мест `contacts`, `push`, `fromPlayer`, `deepest`, `deepestWith`;
    приёмка — сценарий `push` манифеста `enemies`.
+
+**Поворот врага на месте клипом (точка 4г).**
+1. Враг (не-`Agile`) поворачивает на ходу 12 рад/с, стоя — 2,5 рад/с, а отстал стоя больше 45° — клипом (90° влево,
+   вправо, разворот). ИИ почти никогда не даёт стоячему врагу отстать на 45° — поворот клипом вызывают командой врагу:
+   `command.send {"command":"EnemyCommand","fields":{"Slot":1,"FacingGoal":3.9},"repeat":150}` (намерение врага места на
+   тик вместо ИИ: `Velocity` — желаемая скорость x, z, м/с, без неё — стоять; `FacingGoal` — курс-цель, рад; курс врага
+   сейчас — `entity.get {"entity":"enemy 1","components":["Transform"]}`). Команда пишется в реплей.
+2. Идёт ли поворот — `entity.get {"entity":"enemy 1","components":["AnimatorAction","AnimatorMotion"]}`: `Kind`
+   (`None`/`Turn`), `Clip`, `Time`/`Duration`, `Weight` (вход 0,15 с, выход 0,2 с), `TurnScale` (растяжение yaw клипа),
+   `YawDelta` (поворот курса клипом за тик — пока `AnimatorMotion.Moving` false), `RootDelta`; с именем клипа —
+   `anim.pose {"entity":"enemy 1","joints":["pelvis"]}` → `action`. Встать на начале:
+   `time.runUntil {"condition":{"all":[{"entity":"enemy 1"},{"field":"AnimatorAction.Kind","equals":"Turn"}]},"maxTicks":120}`;
+   по тикам — `watch.add {"entities":["enemy 1"],"fields":["AnimatorAction","Transform"]}` → `entity.history`.
+3. Слой действий держит инвариант `animation.actions` (после End): у врага слой есть, вес 0…1, клип ⇔ действие, клип
+   поворота с растяжением 0,5…1,6, поза слоя своя. Поза слоя — `ActionPoses.Layer` → `state.describe {"part":"animation"}`.
+4. Порядок `KinematicSteer` → `anim.Tick` → `Facing += YawDelta` → перенос: `core.root-steer` (начало поворота) →
+   `core.animator-input` (шаг действия, `YawDelta`) → `core.animator-pose` (клип поверх локомоции) → `core.root-control`
+   (курс и корень); посреди тика — `time.break {"stage":"Gameplay"}`. Побитово с SWORD — `dotnet test tests/Sword.Game.Tests
+   --filter EnemyTurn` (трасса `anim-turn.trace.json`) и метрика `sword-turn-trace` сценария `turn` манифеста `enemies`.
+5. Без агента: `Sword.Headless --units N --json` — у мест `action`, `actionWeight`, `yawDelta`; посмотреть глазами —
+   `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay` (запись сценария `turn` после `feature.verify`).
 
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;

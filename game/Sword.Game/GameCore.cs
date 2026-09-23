@@ -15,11 +15,13 @@ namespace Sword.Game;
 /// локомоции), начальный мир — игрок в центре арены курсом 0 (<c>DuelArena.Reset</c> SWORD: <c>Build(Player, 0, 0)</c>)
 /// и <c>arena.enemies</c> врагов кольцом вокруг него; команды арены (<see cref="ArenaCommand"/>: число врагов, сброс —
 /// этап 4а); ИИ врагов (<see cref="EnemyAiSystem"/> — этап 4б); столкновения корней бойцов между собой
-/// (<see cref="RootCollisionSystem"/>, инвариант <see cref="RootOverlapInvariant"/> — этап 4в). Регистрации ядра — без токена модуля.
+/// (<see cref="RootCollisionSystem"/>, инвариант <see cref="RootOverlapInvariant"/> — этап 4в); слой действий аниматора — поворот
+/// врага на месте клипом (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>) и команда врагу (<see cref="EnemyCommand"/>)
+/// — этап 4г. Регистрации ядра — без токена модуля.
 ///
-/// Порядок <c>KinematicBegin</c> SWORD — по стадиям: курс и разгон (Gameplay) → вход аниматора по новой скорости
-/// (Gameplay) → слои позы и прямая кинематика, пул поз исполняет задания (Animation) → перенос корня и столкновения
-/// (Movement).
+/// Порядок <c>KinematicBegin</c> SWORD — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
+/// без поз по новой скорости: слой движения и шаг действия (Gameplay) → слои позы (локомоция, действие) и прямая
+/// кинематика, пул поз исполняет задания (Animation) → поворот курса клипом, перенос корня и столкновения (Movement).
 /// </summary>
 public static class GameCore
 {
@@ -33,12 +35,12 @@ public static class GameCore
         b.Component<Transform>().Component<PrevTransform>().Component<RootVelocity>().Component<FighterCommand>()
             .Component<GazeTarget>().Component<Fighter>().Component<PlayerTag>().Component<EnemyTag>()
             .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>().Component<RootContacts>()
-            .Component<PoseRef>().Component<AnimatorMotion>()
-            .Command<PlayerCommand>().Command<ArenaCommand>()
+            .Component<PoseRef>().Component<AnimatorMotion>().Component<AnimatorAction>().Component<ActionPoses>()
+            .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
             .ReadView<IAnimationView>(new AnimationView(poses))
             .StateContributor(new AnimationState(poses))
-            .Invariants(AnimationInvariants.For(poses))
+            .Invariants(AnimationInvariants.For(poses, assets.Actions))
             .Invariant(new ArenaSlotsInvariant())
             .Invariant(new RootOverlapInvariant())
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
@@ -49,13 +51,15 @@ public static class GameCore
             .System(GameStages.Intent, new PlayerCommandSystem())
             .System(GameStages.Intent, new EnemyAiSystem())
             .System(GameStages.Gameplay, new FighterSetupSystem())
+            .System(GameStages.Gameplay, new EnemyCommandSystem())
             .System(GameStages.Gameplay, new RootSteerSystem())
             .System(GameStages.Gameplay, new AnimatorInputSystem())
             .System(GameStages.Animation, new AnimatorPoseSystem())
             .System(GameStages.Animation, new AnimationTickSystem())
             .System(GameStages.Movement, new RootControlSystem())
             .System(GameStages.Movement, new RootCollisionSystem())
-            .System(GameStages.End, new PoseReleaseSystem());
+            .System(GameStages.End, new PoseReleaseSystem())
+            .System(GameStages.End, new ActionPoseReleaseSystem());
 
         b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies));
     }
