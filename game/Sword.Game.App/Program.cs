@@ -59,7 +59,8 @@ public static partial class Program
         Управление (привязки — секция конфига input, например --set input.move_forward=Up):
           WASD — ход относительно камеры, Shift — шагом, курсор на земле — куда смотреть;
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
-          F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F4 — снимок; Esc — выход.
+          F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F4 — снимок; Esc — выход;
+          PageUp/PageDown — врагов ±1, R — сброс арены (команды арены — в реплее).
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
@@ -92,6 +93,8 @@ public static partial class Program
           --max-fps N       не больше N кадров в секунду — проверить плавность при низкой частоте кадров вживую
           --fps N           шаг кадра для симуляции — как при N кадрах в секунду, а не по часам: тики и доля тика
                             (интерполяция) повторяются от прогона к прогону
+          --units N         врагов при старте (0…32, больше и меньше — упирается в предел, как --units SWORD): то же,
+                            что --set arena.enemies=N (в sword.json — 10)
           --set секция.ключ=значение  конфиг (перекрывает sword.json и переменные SWORD_*)
           --record FILE     записать реплей (.swreplay) — команды по тикам и хеши состояния; воспроизводит его
                             Sword.Headless --replay FILE (с агентом реплей пишется всегда — replay.save)
@@ -208,6 +211,13 @@ public static partial class Program
                         distance = arena.Camera.Distance, target = new[] { arena.Camera.Target.X, arena.Camera.Target.Z },
                     },
                     input = bindings.Keys,
+                    // Арена последнего тика (этап 4а): заданное число врагов, бойцов в мире и отданных скиннингу в кадре.
+                    arena = new
+                    {
+                        enemies = simulation.World.Resource<ArenaState>().Enemies,
+                        fighters = arena.View.Fighters.Count,
+                        skinned = arena.SkinnedFighters,
+                    },
                     hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, quads = arena.HudQuads, lines = arena.HelpLines },
                     recorded = recorded is null ? null : new
                     {
@@ -323,6 +333,10 @@ public static partial class Program
                     o.FrameSeconds = 1 / fps;
                     break;
                 case "--set": o.Sets.Add(Next()); break;
+                case "--units":
+                    o.Sets.Add(int.TryParse(Next(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int units)
+                        ? $"arena.enemies={Math.Clamp(units, 0, ArenaState.MaxEnemies)}" : throw new ArgumentException($"{a}: ожидается целое число"));
+                    break;
                 case "--record": o.Record = Next(); break;
                 case "--replay": o.Replay = Next(); break;
                 case "--hash-every":

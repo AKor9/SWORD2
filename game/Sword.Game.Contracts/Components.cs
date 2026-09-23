@@ -67,11 +67,78 @@ public struct AnimatorMotion
     public bool Search;
 }
 
-/// <summary>Боец (тег).</summary>
+/// <summary>
+/// Боец (тег). <c>Added&lt;Fighter&gt;</c> — боец построен: новая сущность или та же, у которой метку сняли и поставили на
+/// одном барьере (постройка заново — <c>Fighter.Build</c> SWORD над бойцом того же места, например при сбросе арены).
+/// Модули заводят по нему своё состояние бойца с нуля.
+/// </summary>
 public struct Fighter;
 
 /// <summary>Боец игрока (тег).</summary>
 public struct PlayerTag;
+
+/// <summary>Боец-враг (тег): место 1…32 (<see cref="FighterSlot"/>), намерение ему пишет ИИ (этап 4б).</summary>
+public struct EnemyTag;
+
+/// <summary>
+/// Место бойца на арене — номер бойца SWORD (<c>DuelArena._fighters[i]</c>, <c>Fighter.Index</c>): игрок — 0, враги —
+/// 1…<see cref="ArenaState.MaxEnemies"/> без дыр. Порядок мест — порядок обхода SWORD (мозги, пары столкновений корней):
+/// от него зависит порядок сложения float, поэтому системы, которым он важен, идут по местам, а не по сущностям.
+/// </summary>
+public struct FighterSlot
+{
+    public int Index;
+}
+
+/// <summary>
+/// Зерно бойца (<c>Fighter.Seed</c> SWORD): равномерно в [0, 1), берётся при постройке бойца; его читает ИИ врага
+/// (покачивание <c>sin(time·0,7 + seed·10)</c>, этап 4б).
+/// </summary>
+public struct FighterSeed
+{
+    public float Value;
+}
+
+/// <summary>
+/// Состояние арены — ресурс-значение (хешируется): заданное число врагов (<c>DuelArena.EnemyCount</c> SWORD). Бойцов на
+/// арене — 1 + <see cref="Enemies"/>, места 0…<see cref="Enemies"/> (инвариант <c>arena.slots</c>).
+/// </summary>
+public struct ArenaState
+{
+    /// <summary>Врагов не больше: <c>DuelArena.MaxFighters</c> 33 минус игрок.</summary>
+    public const int MaxEnemies = 32;
+
+    public int Enemies;
+}
+
+/// <summary>Что делает команда арены.</summary>
+public enum ArenaAction : byte
+{
+    /// <summary>Ничего (пустая команда — пропускается).</summary>
+    None = 0,
+
+    /// <summary>Число врагов на <see cref="ArenaCommand.Enemies"/> больше (меньше — отрицательным): PageUp/PageDown SWORD.</summary>
+    ChangeEnemies = 1,
+
+    /// <summary>Число врагов — ровно <see cref="ArenaCommand.Enemies"/> (<c>DuelArena.SetEnemyCount</c>).</summary>
+    SetEnemies = 2,
+
+    /// <summary>Сброс арены (R, <c>DuelArena.Reset(EnemyCount)</c>): игрок заново в центре, все враги заново.</summary>
+    Reset = 3,
+}
+
+/// <summary>
+/// Команда арены на тик (раздел 7 плана): клиент порождает её из клавиш PageUp/PageDown/R (фронт — ровно одним тиком),
+/// агент — <c>command.send</c>; реплей хранит её готовой. Число врагов — в пределах 0…<see cref="ArenaState.MaxEnemies"/>
+/// (больше или меньше — упирается в предел, как <c>SetEnemyCount</c>). Несколько команд тика применяются по порядку.
+/// </summary>
+public struct ArenaCommand
+{
+    public ArenaAction Action;
+
+    /// <summary>Сколько врагов добавить (<see cref="ArenaAction.ChangeEnemies"/>) или сколько их будет (<see cref="ArenaAction.SetEnemies"/>).</summary>
+    public int Enemies;
+}
 
 /// <summary>
 /// Команда игрока на тик (из клиента или реплея). Направление движения уже в мировых координатах — клиент считает его

@@ -99,7 +99,7 @@
 | устройство | `architecture.projects`, `ecs.plan`, `ecs.explainSystem(name)`, `ecs.componentUsage(name)`, `module.graph` |
 | клиент (App) | `capture.bundle(name)`, `render.graph` |
 
-Сущность — номером `12v3` или именем игры (`player`, `fighter N` — `Game.Agent`). Компоненты и команды — коротким
+Сущность — номером `12v3` или именем игры (`player`, `enemy N` — враг на месте N, `fighter N` — `Game.Agent`). Компоненты и команды — коротким
 (`Transform`) или полным именем. Поля — JSON по стабильным именам полей (`world.types` даёт схему).
 
 ## Откуда логика

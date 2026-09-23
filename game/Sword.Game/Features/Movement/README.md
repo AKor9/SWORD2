@@ -16,7 +16,7 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 | `DuelArena.KinematicSteer`: курс ≤ `KinTurnRate` 12 рад/с, разгон `KinAccel` 14 1/с | `RootSteerSystem` (Gameplay — до аниматора, этап 2) |
 | `KinematicBegin`: `Root += RootVel·dt`, `Root.Y = 0`; `KinPrevRoot/KinPrevFacing` | `RootControlSystem` (Movement), `PrevTransformSystem` (Begin) |
 | `ResolveRoots`: два прохода; колонны — корень на радиус колонны + 0,35 м, скорость внутрь гасится; край арены `ArenaRadius − 0,6`, скорость наружу гасится | `RootCollisionSystem` (Movement, после RootControl) |
-| `DuelArena.Reset`: игрок в (0, 0), курс 0 | `GameCore.SpawnPlayer` |
+| `DuelArena.Reset`: игрок в (0, 0), курс 0 | `GameCore.SpawnPlayer`; сброс на ходу (R) — команда арены, фича [«Враги»](../Enemies/README.md) |
 | `DuelArena.Tick`: `Time += dt` (float) первым делом; тик 120 Гц (`Fighter.FastTick`), не больше 8 тиков за кадр | `SimTime.Time`; `sim.tickRate`, `sim.maxTicksPerFrame` |
 
 ## Устройство

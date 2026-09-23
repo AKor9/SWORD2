@@ -36,7 +36,7 @@ SWORD 2eab13b, `Sword.Combat/LegacyLocomotion.cs` — без изменений 
 
 | стадия | система | вид |
 |---|---|---|
-| Gameplay | `locomotion.setup` (`LegacyLocomotionSetupSystem`) | реактивная `Added<Fighter>`: состояние (командой, без поз) |
+| Gameplay | `locomotion.setup` (`LegacyLocomotionSetupSystem`) | реактивная `Added<Fighter>`: состояние (командой, без поз); боец построен заново на той же сущности (сброс арены, точка 4а) — состояние с нуля (`Set`, как `FighterAnimator.Reset` SWORD), позы слоя и снимка прежние |
 | Animation | `locomotion.legacy` (`LegacyLocomotionSystem`), до `core.animator-pose` | непрерывная: на первом тике бойца — две позы из пула (слой и снимок), дальше выбор клипа, задания пулу |
 | End | `locomotion.release` (`LegacyLocomotionReleaseSystem`) | реактивная `Removed<LegacyLocomotionState>`: позы — в пул |
 

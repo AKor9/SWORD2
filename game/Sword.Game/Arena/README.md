@@ -12,6 +12,10 @@
   Второй копии функции в шейдере (как `sim_common.hlsli` в SWORD) нет.
 - `ArenaTerrain.ZoneAt` — зона точки для метрик локомоции (перенесена заранее: ей нужны те же константы).
 - `ArenaLayout` — радиус арены 62 м и 8 колонн (радиусы 30/44 м, сдвиг угла 0,39, r = 1,2 м, h = 6,5 м).
+- Точка 4а (`DuelArena` SWORD): `ArenaSpawn.cs` — секция конфига `arena`, правила спауна (`ArenaRules`: кольцо 5–9 м,
+  предел радиуса арены − 3 м, поток ГСЧ `arena.spawn`) и постройка бойца (`Fighters`); `ArenaCommandSystem.cs` —
+  команды арены (число врагов, сброс); `ArenaInvariants.cs` — инвариант `arena.slots`. Описание — фича
+  [«Враги»](../Features/Enemies/README.md).
 
 ## Зависимости
 

@@ -45,6 +45,22 @@
    живые позы и задания последнего тика (`staleLastTick` должен быть 0).
 4. Побитовая сверка с SWORD — тест `ReferenceTraceTests` (`dotnet test tests/Sword.Game.Tests --filter ReferenceTrace`).
 
+**Враги и команды арены (этап 4, точка 4а).**
+1. Headless со `sword.json` стартует с 10 врагами (`arena.enemies`; `--units N` или `--set arena.enemies=N` — другое
+   число, 0…32; тесты и сценарии фич без `sword.json` — 0). Сколько задано — ресурс `ArenaState.Enemies`
+   (`state.describe {"part":"ecs","filter":"resource:"}`); враги —
+   `world.query {"with":["EnemyTag"],"fields":["FighterSlot","Transform"]}`; враг по месту — `entity.get {"entity":"enemy 3"}`.
+2. PageUp/PageDown/R агентом: `command.send {"command":"ArenaCommand","fields":{"Action":"ChangeEnemies","Enemies":1}}`
+   (`-1` — PageDown), `{"Action":"SetEnemies","Enemies":32}`, `{"Action":"Reset"}`; затем `time.step {"ticks":1}` —
+   изменения видны после тика (барьер Intent). Команда арены записывается в реплей.
+3. Места без дыр и число бойцов держит инвариант `arena.slots` (`invariant.list`, `time.breakOnInvariant
+   {"ids":["arena.slots"]}`).
+4. Сброс строит бойцов заново на тех же сущностях: `player` и `enemy N` в условиях и `watch.add` его переживают. После
+   PageDown и PageUp того же места враг — новая сущность: имя в условии разрешается один раз, поэтому место — полем:
+   `{"exists":{"all":[{"component":"EnemyTag"},{"field":"FighterSlot.Index","equals":5},{"field":"Transform.Position.X","greaterThan":0}]}}`.
+5. Без агента: `Sword.Headless --ticks N --units 32 --json` — `arena` в итоге (задано, бойцов, враги по местам с
+   расстоянием до игрока); приёмка — `Sword.Headless --feature enemies` / `feature.verify {"id":"enemies"}`.
+
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;
    `animation` — пул поз).

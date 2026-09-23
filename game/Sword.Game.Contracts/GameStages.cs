@@ -25,6 +25,15 @@ public static class GameLabels
     public static readonly SystemLabel PrevTransform = new("core.prev-transform");
     public static readonly SystemLabel PlayerCommand = new("core.player-command");
 
+    /// <summary>
+    /// Intent: команды арены (<c>ArenaCommand</c>) — спаун и удаление врагов, сброс. Новые бойцы появляются на барьере
+    /// Intent со всеми компонентами бойца; позу им заводит <see cref="FighterSetup"/>.
+    /// </summary>
+    public static readonly SystemLabel ArenaCommand = new("core.arena-command");
+
+    /// <summary>Gameplay: новому бойцу (<c>Added&lt;Fighter&gt;</c>) — поза в пуле поз (<c>PoseRef</c>).</summary>
+    public static readonly SystemLabel FighterSetup = new("core.fighter-setup");
+
     /// <summary>Gameplay: курс и разгон корня (<c>KinematicSteer</c>) — до аниматора, который видит новую скорость.</summary>
     public static readonly SystemLabel RootSteer = new("core.root-steer");
 

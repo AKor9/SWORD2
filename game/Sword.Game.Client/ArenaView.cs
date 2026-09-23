@@ -6,12 +6,13 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Client;
 
 /// <summary>
-/// Боец в кадре: корень, курс и высота тела на рельефе — уже интерполированные по доле тика; поза последнего тика —
+/// Боец в кадре: место на арене (<see cref="Slot"/>: игрок — 0, враги — 1…32; от него — цвет врага), корень, курс и
+/// высота тела на рельефе — уже интерполированные по доле тика; поза последнего тика —
 /// <see cref="PoseCount"/> модельных матриц с <see cref="PoseStart"/> в снимке кадра (<see cref="ArenaView.Pose"/>),
 /// 0 — позы нет (рисуется поза привязки).
 /// </summary>
 public readonly record struct FighterView(Entity Entity, bool IsPlayer, Vector3 Root, float Facing, float Height,
-    int PoseStart = 0, int PoseCount = 0)
+    int PoseStart = 0, int PoseCount = 0, int Slot = 0)
 {
     /// <summary>Мировая система скелета (<c>DuelArena.KinWorld</c> SWORD): поворот на курс, перенос в корень на высоте.</summary>
     public Matrix4x4 World
@@ -100,6 +101,7 @@ public sealed class ArenaView
                 continue;
             }
             var view = Interpolate(e, world.Has<PlayerTag>(e), prev, cur, alpha, _height);
+            if (world.TryGet<FighterSlot>(e, out var slot)) view = view with { Slot = slot.Index };
             // Поза — последнего тика, без интерполяции между тиками (как SkinnedCharacters SWORD): плавно идёт корень.
             if (poses is not null && world.TryGet<PoseRef>(e, out var poseRef) && poses.Model(poseRef) is { Length: > 0 } model)
             {

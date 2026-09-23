@@ -1,0 +1,168 @@
+{
+  // Приёмка фичи «Враги и ИИ» (этап 4) — начата на точке 4а (спаун и команды арены); полный манифест (ИИ, столкновения,
+  // поворот клипом, сверка толпы с SWORD, эталон enemies.swreplay) — на 4д. Формат — FeatureManifest
+  // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies). Ослабить ожидания — только
+  // правкой с сообщением пользователю.
+  "format": "sword-feature",
+  "version": 1,
+  "id": "enemies",
+  "title": "Враги и ИИ (этап 4; точка 4а — спаун и команды арены)",
+  "doc": "README.md",
+  "sourceRoots": [
+    "game/Sword.Game/Arena",
+    "game/Sword.Game/GameCore.cs",
+    "game/Sword.Game.Contracts/Components.cs",
+    "game/Sword.Game.Client/ArenaInput.cs",
+    "game/Sword.Game.Agent/SwordAgent.cs"
+  ],
+  "requiredModules": ["locomotion"],
+  "scenarios": [
+    {
+      "id": "ring",
+      "title": "10 врагов кольцом вокруг игрока, стоят в стойке (Sword.exe без ключей)",
+      "set": ["arena.enemies=10"],
+      "ticks": 600,
+      "checks": [
+        {
+          "id": "ten", "title": "врагов 10, бойцов 11", "expect": "always",
+          "condition": {
+            "all": [
+              { "count": { "component": "EnemyTag" }, "equals": 10 },
+              { "count": { "component": "Fighter" }, "equals": 11 },
+              { "resource": "ArenaState.Enemies", "equals": 10 }
+            ]
+          }
+        },
+        {
+          "id": "stand", "title": "враги стоят (ИИ — 4б)", "expect": "always",
+          "condition": {
+            "none": {
+              "all": [
+                { "component": "EnemyTag" },
+                { "any": [{ "field": "RootVelocity.Value.X", "notEquals": 0 }, { "field": "RootVelocity.Value.Z", "notEquals": 0 }] }
+              ]
+            }
+          }
+        },
+        {
+          "id": "ring", "title": "в кольце не дальше 9 м от игрока в центре", "expect": "always",
+          "condition": {
+            "none": {
+              "all": [
+                { "component": "EnemyTag" },
+                {
+                  "any": [
+                    { "field": "Transform.Position.X", "greaterThan": 9 }, { "field": "Transform.Position.X", "lessThan": -9 },
+                    { "field": "Transform.Position.Z", "greaterThan": 9 }, { "field": "Transform.Position.Z", "lessThan": -9 }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "idle-clip", "title": "у врагов идёт локомоция клипами — стойка, не бег", "expect": "always",
+          "condition": {
+            "none": {
+              "all": [
+                { "component": "EnemyTag" },
+                { "any": [{ "field": "LegacyLocomotionState.Clip", "lessThan": 0 }, { "field": "LegacyLocomotionState.Run", "equals": true }] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "commands",
+      "title": "команды арены по ходу: PageUp, до 32, PageDown ×10, R (игрок отбежал), до 0",
+      "set": ["arena.enemies=10"],
+      "ticks": 420,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0.5 } }, "from": 0, "to": 240 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 60, "to": 61 },
+        { "command": "ArenaCommand", "fields": { "Action": "SetEnemies", "Enemies": 40 }, "from": 120, "to": 121 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": -1 }, "from": 180, "to": 190 },
+        { "command": "ArenaCommand", "fields": { "Action": "Reset" }, "from": 300, "to": 301 },
+        { "command": "ArenaCommand", "fields": { "Action": "SetEnemies", "Enemies": 0 }, "from": 360, "to": 361 }
+      ],
+      "checks": [
+        {
+          "id": "page-up", "title": "PageUp — 11 врагов", "expect": "always", "from": 62, "to": 120,
+          "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 11 }, { "resource": "ArenaState.Enemies", "equals": 11 }] }
+        },
+        {
+          "id": "clamp-32", "title": "40 — упирается в 32", "expect": "always", "from": 122, "to": 180,
+          "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 32 }, { "count": { "component": "Fighter" }, "equals": 33 }] }
+        },
+        {
+          "id": "page-down", "title": "PageDown ×10 — 22 врага, ушли последние места", "expect": "always", "from": 191, "to": 300,
+          "condition": {
+            "all": [
+              { "count": { "component": "EnemyTag" }, "equals": 22 },
+              { "none": { "all": [{ "component": "EnemyTag" }, { "field": "FighterSlot.Index", "greaterThan": 22 }] } }
+            ]
+          }
+        },
+        {
+          "id": "ran-away", "title": "перед сбросом игрок далеко от центра", "expect": "eventually", "to": 300,
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "greaterThan": 5 }] }
+        },
+        {
+          "id": "reset", "title": "R — игрок в центре, врагов по-прежнему 22, кольцом вокруг центра", "expect": "always", "from": 302, "to": 360,
+          "condition": {
+            "all": [
+              { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "equals": 0 }, { "field": "Transform.Position.Z", "equals": 0 }] },
+              { "count": { "component": "EnemyTag" }, "equals": 22 },
+              {
+                "none": {
+                  "all": [
+                    { "component": "EnemyTag" },
+                    {
+                      "any": [
+                        { "field": "Transform.Position.X", "greaterThan": 9 }, { "field": "Transform.Position.X", "lessThan": -9 },
+                        { "field": "Transform.Position.Z", "greaterThan": 9 }, { "field": "Transform.Position.Z", "lessThan": -9 }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "empty", "title": "0 — остался один игрок", "expect": "always", "from": 362,
+          "condition": { "all": [{ "count": { "component": "Fighter" }, "equals": 1 }, { "count": { "component": "EnemyTag" }, "equals": 0 }] }
+        }
+      ]
+    },
+    {
+      "id": "crowd",
+      "title": "32 врага, игрок бежит сквозь кольцо (Sword.exe --units 32 --move 1,0)",
+      "set": ["arena.enemies=32"],
+      "ticks": 900,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 900 }],
+      "checks": [
+        {
+          "id": "thirty-two", "title": "32 врага на местах 1…32", "expect": "always",
+          "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 32 }, { "max": "FighterSlot.Index", "equals": 32 }] }
+        }
+      ]
+    }
+  ],
+  "invariants": ["arena.slots", "animation.*", "locomotion.poses", "ecs.finite", "ecs.entityRefs"],
+  "views": [
+    { "id": "ring", "title": "10 врагов кольцом вокруг игрока, в стойке, разного цвета", "scenario": "ring", "tick": 120, "camera": "0.6,0.8,26,0,0" },
+    { "id": "crowd", "title": "32 врага (--units 32): кольцо плотнее, игрок бежит сквозь него", "scenario": "crowd", "tick": 60, "camera": "0.6,0.9,30,0,0" }
+  ],
+  "budgets": [
+    { "id": "crowd", "scenario": "crowd", "msPerTick": 0.3, "stages": { "Animation": 0.25 }, "allocatedBytesPerTick": 0, "repeats": 5 }
+  ],
+  "checklist": [
+    "`Sword.exe` — вокруг Manny кольцом 5–9 м стоят 10 врагов разного цвета, лицом к нему, в боевой стойке (слегка покачиваются клипом стойки, не T-поза); к игроку не идут (ИИ — точка 4б).",
+    "PageUp — в кольце вокруг игрока (там, где он сейчас) появляется ещё один враг; PageDown — исчезает последний добавленный; больше 32 и меньше 0 не бывает.",
+    "Отбежать от центра и нажать R — Manny мгновенно в центре арены и стоит, враги заново кольцом вокруг центра, их столько же.",
+    "`Sword.exe --units 32` — 32 врага, кадр плавный (FPS в HUD как без врагов или близко); `Sword.exe --units 0` — Manny один.",
+    "`Sword.exe --record my.swreplay` — побегать, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — враги появляются и исчезают сами, как было."
+  ]
+}

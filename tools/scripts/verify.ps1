@@ -219,6 +219,18 @@ Add-Step 'headless-smoke' {
     elseif (-not $r.pose -or $r.pose.bindPose) { $problems += "игрок бежит, а поза — поза привязки: локомоция не работает" }
     elseif (-not $r.stateHash -or @($r.stateHash.parts.PSObject.Properties.Name) -notcontains 'animation') { $problems += "нет хеша состояния с участником animation: $($r.stateHash | ConvertTo-Json -Compress)" }
     elseif ($r.invariants.enabled -lt 6 -or $r.invariants.violations -ne 0) { $problems += "инварианты: включено $($r.invariants.enabled), нарушений $($r.invariants.violations): $(@($r.invariants.first) -join '; ')" }
+    # Точка 4а: арена из sword.json — 10 врагов (Units SWORD), бойцов 11; 32 врага (--units 32) — 0 байт на тик, мест без дыр.
+    elseif (-not $r.arena -or $r.arena.enemies -ne 10 -or $r.arena.fighters -ne 11 -or @($r.arena.places).Count -ne 10) {
+        $problems += "арена: врагов $($r.arena.enemies), бойцов $($r.arena.fighters), мест $(@($r.arena.places).Count); ждали 10, 11, 10 (sword.json)"
+    }
+    $crowdNote = ''
+    if ($problems.Count -eq 0) {
+        $crowd = (& $exe.FullName --ticks 600 --units 40 --move 1,0 --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        if (-not $crowd.ok -or $crowd.arena.enemies -ne 32 -or $crowd.arena.fighters -ne 33) { $problems += "--units 40: врагов $($crowd.arena.enemies), бойцов $($crowd.arena.fighters); ждали предел 32 и 33 ($($crowd.error))" }
+        elseif ($crowd.allocatedBytesPerTick -ne 0) { $problems += "32 врага: тик выделяет $($crowd.allocatedBytesPerTick) Б, ждали 0" }
+        elseif ($crowd.invariants.violations -ne 0) { $problems += "32 врага: нарушения инвариантов $(@($crowd.invariants.first) -join '; ')" }
+        else { $crowdNote = "; 10 врагов из sword.json, --units 40 → 32 врага: $($crowd.msPerTick) мс/тик, 0 Б/тик" }
+    }
     # Детерминизм (этап 3): тот же прогон ещё раз — тот же хеш каждого участника.
     if ($problems.Count -eq 0) {
         $again = (& $exe.FullName --ticks 600 --move 1,0 --json 2>$null | Out-String).Trim() | ConvertFrom-Json
@@ -248,7 +260,7 @@ Add-Step 'headless-smoke' {
         if ($code -eq 0 -or -not $b -or $b.ok -or "$($b.error)" -notmatch [regex]::Escape($case[1])) { $problems += "--set $($case[0]) прошёл или дал не ту ошибку: $bad" }
     }
     $moduleNote = if ($modules.Count -gt 0) { "по очереди без модуля ($($modules -join ', ')) — 10 с без ошибок" } else { 'модулей нет' }
-    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; хеш состояния $($r.stateHash.total) повторился; инвариантов $($r.invariants.enabled), нарушений 0 (с ними — 0 Б/тик); $moduleNote; привязки клавиш не мешают; опечатка в конфиге и выключение ядра — ошибки" } }
+    if ($problems.Count -eq 0) { @{ ok = $true; detail = "600 тиков: игрок в x = $([math]::Round($r.player.x, 3)), скорость $([math]::Round($r.player.speed, 3)) м/с, $($r.msPerTick) мс/тик, 0 Б/тик; хеш состояния $($r.stateHash.total) повторился; инвариантов $($r.invariants.enabled), нарушений 0 (с ними — 0 Б/тик)$crowdNote; $moduleNote; привязки клавиш не мешают; опечатка в конфиге и выключение ядра — ошибки" } }
     else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
@@ -298,6 +310,10 @@ else {
                 $problems += "корень игрока в Sword.exe ($($result.player.x), $($result.player.z), $($result.player.facing)) не совпал с Headless ($($h.player.x), $($h.player.z), $($h.player.facing))"
             }
             elseif ($result.report.alpha -ne 1) { $problems += "при заданных тиках доля тика $($result.report.alpha), ждали 1" }
+            # Точка 4а: 10 врагов из sword.json — кадр отдаёт скиннингу всех 11 бойцов.
+            elseif (-not $result.arena -or $result.arena.enemies -ne 10 -or $result.arena.skinned -ne 11) {
+                $problems += "арена в кадре: врагов $($result.arena.enemies), отдано скиннингу $($result.arena.skinned); ждали 10 и 11"
+            }
             else {
                 # Дополнительные прогоны: вывод — в artifacts/verify/app-smoke, код выхода и итог проверяются.
                 function Invoke-App([string]$Name, [string[]]$Arguments) {
@@ -350,10 +366,26 @@ else {
                 $bare = Invoke-App 'no-hud' @('--frames', '3', '--no-hud')
                 if (-not $bare.ok) { $problems += "прогон с --no-hud: $($bare.error)" }
                 elseif ($bare.hud.shown -ne $false -or @($bare.report.passes | Where-Object { $_.name -eq 'hud' }).Count -ne 0) { $problems += "--no-hud: HUD показан ($($bare.hud.shown)) или проход hud есть" }
+                # Точка 4а: PageUp и R (удержание нажимает их в первом кадре) — команды арены в записи Sword.exe; Headless
+                # повторяет запись с теми же хешами; врагов 11, кадр рисует 12 бойцов.
+                $arenaFile = Join-Path $dir 'arena.swreplay'
+                if (Test-Path $arenaFile) { Remove-Item $arenaFile }
+                $arenaRun = Invoke-App 'arena' @('--frames', '30', '--ticks-per-frame', '2', '--hold', 'enemies_more,arena_reset', '--record', "`"$arenaFile`"")
+                if (-not $arenaRun.ok) { $problems += "прогон с --hold enemies_more,arena_reset: $($arenaRun.error)" }
+                elseif ($arenaRun.arena.enemies -ne 11 -or $arenaRun.arena.skinned -ne 12) { $problems += "PageUp: врагов $($arenaRun.arena.enemies), отдано скиннингу $($arenaRun.arena.skinned); ждали 11 и 12" }
+                elseif (-not ([System.IO.File]::ReadAllText($arenaFile)).Contains('Sword.Game.Contracts.ArenaCommand')) { $problems += 'в записи Sword.exe нет команд арены' }
+                else {
+                    $ErrorActionPreference = 'Continue'
+                    $arenaPlay = (& $headless.FullName --replay $arenaFile --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+                    if ($LASTEXITCODE -ne 0 -or -not $arenaPlay.replay.match -or $arenaPlay.replay.hashesChecked -ne 61 -or $arenaPlay.arena.enemies -ne 11) {
+                        $problems += "запись с командами арены: Headless — код $LASTEXITCODE, совпал $($arenaPlay.replay.match), хешей $($arenaPlay.replay.hashesChecked) из 61, врагов $($arenaPlay.arena.enemies)"
+                    }
+                }
                 # Точка 1д: бенч кадра — 5 с игрового времени, из них 4 — прогрев; выход сам, итог и снимок последнего кадра.
+                # Точка 4а: с толпой — 32 врага (--units 32), кадр рисует всех 33 бойцов.
                 $benchShot = Join-Path $dir 'bench.png'
                 if (Test-Path $benchShot) { Remove-Item $benchShot }
-                $bench = Invoke-App 'bench' @('--bench', '5', '--shot', "`"$benchShot`"")
+                $bench = Invoke-App 'bench' @('--bench', '5', '--units', '32', '--shot', "`"$benchShot`"")
                 if (-not $bench.ok) { $problems += "прогон с --bench 5: $($bench.error)" }
                 else {
                     $b = $bench.report.bench
@@ -361,7 +393,8 @@ else {
                     elseif (-not ($b.p50Ms -le $b.p99Ms -and $b.p99Ms -le $b.maxMs -and $b.averageMs -gt 0)) { $problems += "--bench 5: перцентили не по порядку: p50 $($b.p50Ms), p99 $($b.p99Ms), макс $($b.maxMs)" }
                     elseif ($bench.report.simTicks -lt 600) { $problems += "--bench 5: тиков $($bench.report.simTicks), замер кончился раньше 5 с" }
                     elseif (-not (Test-Path $benchShot)) { $problems += '--bench 5: нет снимка последнего кадра замера' }
-                    else { $script:benchNote = "бенч: $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс" }
+                    elseif ($bench.arena.enemies -ne 32 -or $bench.arena.skinned -ne 33) { $problems += "--bench 5 --units 32: врагов $($bench.arena.enemies), отдано скиннингу $($bench.arena.skinned); ждали 32 и 33" }
+                    else { $script:benchNote = "команды арены (PageUp, R) в записи Sword.exe — Headless повторил её хеши; бенч с 32 врагами (33 бойца в кадре): $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс" }
                 }
             }
         }

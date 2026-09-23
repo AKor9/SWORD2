@@ -111,20 +111,39 @@ public static class LegacyLocomotion
 
 /// <summary>
 /// Gameplay: новому бойцу — состояние локомоции. Позы слоя и снимка здесь не берутся: компонент добавляет команда, и если
-/// она не сыграет (боец снят на том же барьере, тик прерван), позы некому было бы вернуть.
+/// она не сыграет (боец снят на том же барьере, тик прерван), позы некому было бы вернуть. Боец, построенный заново на
+/// той же сущности (<c>Added&lt;Fighter&gt;</c> у бойца, у которого состояние уже есть, — сброс арены), начинает локомоцию с
+/// нуля, как после <c>FighterAnimator.Reset</c> SWORD; его позы слоя и снимка остаются его.
 /// </summary>
 public sealed class LegacyLocomotionSetupSystem : IReactiveSystem<Added<Fighter>>
 {
-    public void Setup(SystemSetup s) => s.Label(new SystemLabel("locomotion.setup")).Adds<LegacyLocomotionState>();
+    public void Setup(SystemSetup s) => s.Label(new SystemLabel("locomotion.setup")).Adds<LegacyLocomotionState>().Sets<LegacyLocomotionState>();
 
     public void React(in SystemContext ctx, ReadOnlySpan<Added<Fighter>> added)
     {
         var actions = ctx.World.Resource<ActionTable>();
-        foreach (var a in added)
+        for (int i = 0; i < added.Length; i++)
         {
-            if (!ctx.World.IsAlive(a.Entity) || ctx.World.Has<LegacyLocomotionState>(a.Entity)) continue;
-            ctx.Commands.Add(a.Entity, LegacyLocomotion.Start(actions));
+            var a = added[i];
+            // Боец построен дважды за срабатывание (создан при сборке мира и сразу построен заново сбросом в тике 0) —
+            // одна команда, по последней записи: состояния ещё нет, второе Add было бы ошибкой.
+            if (!ctx.World.IsAlive(a.Entity) || Later(added, i)) continue;
+            if (ctx.World.TryGet<LegacyLocomotionState>(a.Entity, out var old))
+            {
+                var fresh = LegacyLocomotion.Start(actions);
+                fresh.Layer = old.Layer;
+                fresh.From = old.From;
+                ctx.Commands.Set(a.Entity, fresh);
+            }
+            else ctx.Commands.Add(a.Entity, LegacyLocomotion.Start(actions));
         }
+    }
+
+    private static bool Later(ReadOnlySpan<Added<Fighter>> added, int i)
+    {
+        for (int j = i + 1; j < added.Length; j++)
+            if (added[j].Entity == added[i].Entity) return true;
+        return false;
     }
 }
 

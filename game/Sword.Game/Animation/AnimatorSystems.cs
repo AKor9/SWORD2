@@ -82,7 +82,7 @@ public sealed class AnimatorPoseSystem : IContinuousSystem
         var pool = ctx.World.Resource<PosePool>();
         foreach (var chunk in ctx.Iterate(_query))
             foreach (var p in chunk.Read<PoseRef>())
-                pool.ToModel(new PoseHandle(p.Index, p.Generation));
+                if (p.Generation != 0) pool.ToModel(new PoseHandle(p.Index, p.Generation));   // пустой — позу ещё не завели
     }
 }
 
@@ -92,6 +92,39 @@ public sealed class AnimationTickSystem : IContinuousSystem
     public void Setup(SystemSetup s) => s.Label(GameLabels.AnimationTick).After(GameLabels.AnimatorPose);
 
     public void Run(in SystemContext ctx) => ctx.World.Resource<PosePool>().Tick();
+}
+
+/// <summary>
+/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>: бойцу, построенному командами тика (команда арены), — поза в пуле
+/// (<c>FighterSetupSystem</c> раздела 9 плана; сочленение, аниматор действий и оружие придут со своими этапами). Боец
+/// появляется с пустым <see cref="PoseRef"/>, поза берётся здесь, когда он уже в мире, и пишется в колонку на месте:
+/// поза из пула, взятая командой, не вернулась бы, если бы команда не сыграла. У бойца со своей живой позой (сборка мира,
+/// снятый и заново добавленный <see cref="Fighter"/>) — ничего.
+/// </summary>
+public sealed class FighterSetupSystem : IReactiveSystem<Added<Fighter>>
+{
+    private Query _query = null!;
+
+    public void Setup(SystemSetup s)
+    {
+        // Боец, добавленный после Gameplay (сейчас так никто не делает: команды арены — в Intent), получит позу в
+        // следующем тике; до того у него пустой хэндл, и итоговую позу ему не считают (AnimatorPoseSystem).
+        s.Label(GameLabels.FighterSetup).Writes<PoseRef>().NextTickOk<Added<Fighter>>();
+        _query = s.Query().With<Fighter>().Write<PoseRef>();
+    }
+
+    public void React(in SystemContext ctx, ReadOnlySpan<Added<Fighter>> added)
+    {
+        var pool = ctx.World.Resource<PosePool>();
+        foreach (var chunk in ctx.Iterate(_query))
+            foreach (ref var p in chunk.Write<PoseRef>())
+            {
+                // Только пустой хэндл: испорченный (не живой) не чинится молча — его ловит animation.owners.
+                if (!new PoseHandle(p.Index, p.Generation).IsNone) continue;
+                var pose = pool.Alloc();
+                p = new PoseRef { Index = pose.Index, Generation = pose.Generation };
+            }
+    }
 }
 
 /// <summary>End: снятая поза (боец удалён или компонент снят) возвращается в пул.</summary>

@@ -35,6 +35,19 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Цвет игрока (<c>SkinnedCharacters.Colour</c> SWORD).</summary>
     public static readonly Vector3 PlayerColour = new(0.3f, 0.4f, 0.65f);
 
+    /// <summary>Цвет врага на месте <paramref name="slot"/> (<c>SkinnedCharacters.EnemyColour</c> SWORD): оттенок по золотому сечению.</summary>
+    public static Vector3 EnemyColour(int slot)
+    {
+        float h = slot * 0.618f % 1;
+        return new Vector3(0.45f + 0.25f * MathF.Cos(MathF.Tau * h), 0.3f + 0.1f * MathF.Cos(MathF.Tau * (h + 0.33f)), 0.25f);
+    }
+
+    /// <summary>Цвет бойца кадра: игрок — свой, враг — по месту (мёртвых ещё нет — этап 6).</summary>
+    public static Vector3 Colour(in FighterView f) => f.IsPlayer ? PlayerColour : EnemyColour(f.Slot);
+
+    /// <summary>Бойцов, отданных скиннингу в последнем кадре (итог Sword.exe: рендер рисует всех).</summary>
+    public int SkinnedFighters { get; private set; }
+
     /// <summary>Цвет очистки кадра (как <c>SceneRenderer.Record</c> SWORD).</summary>
     public static readonly Vector4 ClearColour = new(0.33f, 0.29f, 0.27f, 1f);
 
@@ -69,8 +82,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <param name="scripted">Команда игрока на каждый тик вместо ввода (проверочные прогоны); null — клавиатура и мышь.</param>
     /// <param name="hud">HUD поверх сцены; false — кадр без интерфейса (снимки, сравнимые между прогонами).</param>
     /// <param name="playerCommands">
-    /// Ставить команду игрока каждый тик; false — не ставить (реплей, <c>Sword.exe --replay</c>: команды игрока — его, а своя
-    /// команда клиента того же тика перебила бы их и увела бы реплей в сторону). Камера управляется в обоих случаях.
+    /// Ставить команду игрока каждый тик и команды арены по клавишам; false — не ставить (реплей, <c>Sword.exe --replay</c>:
+    /// команды — его, а своя команда клиента того же тика перебила бы их и увела бы реплей в сторону). Камера управляется
+    /// в обоих случаях.
     /// </param>
     public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true)
     {
@@ -123,7 +137,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         foreach (var f in _view.Fighters)
         {
             var base_ = new Vector3(f.Root.X, f.Height, f.Root.Z);
-            into.Add(new VisibleEntity(f.Entity, f.IsPlayer ? "player" : "fighter",
+            into.Add(new VisibleEntity(f.Entity, f.IsPlayer ? "player" : f.Slot > 0 ? "enemy" : "fighter",
                 base_ - new Vector3(FighterHalfWidth, 0, FighterHalfWidth), base_ + new Vector3(FighterHalfWidth, FighterHeight, FighterHalfWidth)));
         }
     }
@@ -193,10 +207,18 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _frameCommand = PlayerIntent.Command(ArenaInput.Player(input), _camera, hit && input.MouseInside, ground);
     }
 
-    // Фронтов у действий 1г нет (WASD, Shift, курсор — уровни; F — камера): первым их возьмёт удар/уклонение.
+    /// <summary>
+    /// Команды тика: команда игрока кадра (удерживаемое — в каждом тике кадра) и команды арены из фронтов PageUp/PageDown/R
+    /// (ровно одним тиком — <see cref="TickInput"/>). При воспроизведении реплея (<c>playerCommands: false</c>) — ни тех ни
+    /// других: команды — реплея, своя команда того же тика увела бы его в сторону.
+    /// </summary>
     public void BeforeTick(SimulationLink simulation, in TickInput input)
     {
-        if (_playerCommands) simulation.Enqueue(_frameCommand);
+        if (!_playerCommands) return;
+        simulation.Enqueue(_frameCommand);
+        Span<ArenaCommand> arena = stackalloc ArenaCommand[ArenaIntent.Max];
+        int n = ArenaIntent.Commands(input, arena);
+        for (int i = 0; i < n; i++) simulation.Enqueue(arena[i]);
     }
 
     public void Extract(in FrameView view)
@@ -211,12 +233,20 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         frame.SetFrameConstants(Constants());
 
         // Manny в позе тика (аниматор); позы нет — поза привязки: палитра InverseBind·Component·World = World.
+        int skinned = 0;
         foreach (var fighter in _view.Fighters)
         {
             var pose = _view.Pose(fighter);
-            if (pose.IsEmpty) _renderer!.Skinned.Add(_manny, PlayerColour).Fill(GpuMat34.From(fighter.World));
-            else _renderer!.Skinned.AddPosed(_manny, pose, fighter.World, PlayerColour);
+            var colour = Colour(fighter);
+            if (pose.IsEmpty)
+            {
+                var palette = _renderer!.Skinned.Add(_manny, colour);
+                palette.Fill(GpuMat34.From(fighter.World));
+                if (!palette.IsEmpty) skinned++;
+            }
+            else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.World, colour)) skinned++;
         }
+        SkinnedFighters = skinned;
 
         frame.Graph.AddPass("scene.opaque")
             .Color(frame.Graph.BackBuffer, ClearColour)

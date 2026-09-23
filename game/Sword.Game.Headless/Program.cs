@@ -25,6 +25,8 @@ public static partial class Program
           --walk              шагом, а не бегом
           --gaze X,Z          точка взгляда на земле
           --sample N          точка траектории каждые N тиков (по умолчанию 60)
+          --units N           врагов при старте (0…32, больше и меньше — упирается в предел, как --units SWORD):
+                              то же, что --set arena.enemies=N (в sword.json — 10)
           --set секция.ключ=значение   конфиг (перекрывает sword.json и переменные SWORD_*)
           --record FILE       записать реплей (.swreplay): конфиг, модули, команды по тикам, хеши состояния
           --hash-every K      хеш состояния в реплее каждые K тиков (по умолчанию 1)
@@ -94,6 +96,7 @@ public static partial class Program
                     case "--hash-every": hashEvery = Count(a, Next(), min: 1); break;
                     case "--replay": replayPath = Next(); break;
                     case "--set": sets.Add(Next()); break;
+                    case "--units": sets.Add(UnitsSet(a, Next())); break;
                     case "--json": json = true; break;
                     case "--agent": agent = true; break;
                     case "--feature": feature = Next(); break;
@@ -106,7 +109,7 @@ public static partial class Program
             if (agent && (replayPath is not null || record is not null))
                 throw new ArgumentException("--agent: реплеи — инструментами агента (session.start, replay.save), не ключами");
             if (feature is not null && (agent || replayPath is not null || record is not null || commandSet || sets.Count > 0))
-                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set нельзя");
+                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set, --units нельзя");
             if (feature is null && (!views || !budgets)) throw new ArgumentException("--no-views и --no-budgets — только с --feature");
         }
         catch (ArgumentException ex)
@@ -157,7 +160,6 @@ public static partial class Program
                 Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
                 return 2;
             }
-            var player = GameCore.Player(sim.World);
             var trajectory = new List<object>();
             // Выделения — только тиков (без записи траектории) и после прогрева: раздел 12 плана — 0 байт на тик.
             int warmup = Math.Min(WarmupTicks, ticks / 2);
@@ -171,7 +173,7 @@ public static partial class Program
                 if (playback is null) sim.Enqueue(command);
                 sim.Step();
                 if (t >= warmup) allocated += GC.GetAllocatedBytesForCurrentThread() - before;
-                if ((t + 1) % sample == 0 || t + 1 == ticks) trajectory.Add(State(sim, player));
+                if ((t + 1) % sample == 0 || t + 1 == ticks) trajectory.Add(State(sim));
             }
             double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             Replay? recorded = recorder?.ToReplay();
@@ -186,8 +188,9 @@ public static partial class Program
                 msPerTick = ticks > 0 ? Math.Round(ms / ticks, 4) : 0,
                 allocatedBytesPerTick = ticks > warmup ? Math.Round(allocated / (double)(ticks - warmup), 3) : 0,
                 command = new { move = new[] { command.Move.X, command.Move.Y }, command.Walk, gaze = command.HasGaze ? new[] { command.Gaze.X, command.Gaze.Z } : null },
-                player = State(sim, player),
-                pose = Pose(sim, player),
+                player = State(sim),
+                pose = Pose(sim, GameCore.Player(sim.World)),
+                arena = ArenaJson(sim),
                 stateHash = StateHashJson(sim),
                 replay = playback is null ? null : ReplayJson(replayPath!, playback),
                 // Инварианты (этап 3г): сколько проверялось и нарушений за прогон; первые — строками.
@@ -302,14 +305,53 @@ public static partial class Program
         int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int n) && n >= min
             ? n : throw new ArgumentException($"{key}: ожидается целое число не меньше {min}");
 
-    private static PlayerState State(Simulation sim, Sword.Engine.Ecs.Entity player)
+    /// <summary>
+    /// Корень игрока после тика. Игрока ищем каждый раз, а не держим сущность с начала прогона (сброс арены — команда R
+    /// в реплее — строит его заново, сейчас на той же сущности).
+    /// </summary>
+    private static PlayerState State(Simulation sim)
     {
+        var player = GameCore.Player(sim.World);
         var t = sim.World.Get<Transform>(player);
         var v = sim.World.Get<RootVelocity>(player).Value;
         return new PlayerState(sim.Tick, t.Position.X, t.Position.Z, t.Facing, v.Length());
     }
 
     private sealed record PlayerState(ulong tick, float x, float z, float facing, float speed);
+
+    /// <summary>
+    /// Арена после прогона (этап 4а): заданное число врагов, бойцов в мире и враги по местам — корень, курс, расстояние
+    /// до игрока (кольцо спауна 5–9 м).
+    /// </summary>
+    private static object ArenaJson(Simulation sim)
+    {
+        var world = sim.World;
+        var player = world.Get<Transform>(GameCore.Player(world)).Position;
+        var enemies = new List<(int Slot, object Row)>();
+        int fighters = 0;
+        foreach (var chunk in world.Iterate(world.Query().With<Fighter>()))
+            foreach (var e in chunk.Entities)
+            {
+                fighters++;
+                if (!world.Has<EnemyTag>(e) || !world.TryGet<FighterSlot>(e, out var slot)) continue;
+                var t = world.Get<Transform>(e);
+                enemies.Add((slot.Index, new
+                {
+                    slot = slot.Index, entity = e.ToString(), x = t.Position.X, z = t.Position.Z, facing = t.Facing,
+                    distance = Vector3.Distance(t.Position with { Y = 0 }, player with { Y = 0 }),
+                }));
+            }
+        return new
+        {
+            enemies = world.Resource<ArenaState>().Enemies, fighters,
+            places = enemies.OrderBy(p => p.Slot).Select(p => p.Row),
+        };
+    }
+
+    /// <summary><c>--units N</c> SWORD: врагов при старте, в пределах 0…32 (<c>Math.Clamp</c>, как <c>Program.cs</c> SWORD).</summary>
+    internal static string UnitsSet(string key, string text) =>
+        int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int n)
+            ? $"arena.enemies={Math.Clamp(n, 0, ArenaState.MaxEnemies)}" : throw new ArgumentException($"{key}: ожидается целое число");
 
     /// <summary>
     /// Поза игрока на последнем тике: суставов, наибольшее отклонение сустава от позы привязки (м) и признак «поза

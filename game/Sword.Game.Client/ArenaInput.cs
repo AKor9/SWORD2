@@ -8,7 +8,8 @@ namespace Sword.Game.Client;
 /// <summary>
 /// Действия ввода арены и их клавиши по умолчанию — как в SWORD 2eab13b (<c>PlayerController</c>, <c>RtsCamera</c>):
 /// WASD — ход относительно камеры, Shift — шагом, F — камера за игроком / свободная, Z/C — поворот, +/− — зум, средняя
-/// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD. Колесо и курсор — не
+/// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD; PageUp/PageDown —
+/// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
 /// </summary>
@@ -36,11 +37,18 @@ public static class ArenaInput
     /// <summary>Справка HUD: показать / скрыть (SWORD: F1).</summary>
     public static readonly InputAction HudHelp = new("hud_help", "F1");
 
+    /// <summary>Врагов на одного больше / меньше (SWORD: PageUp / PageDown).</summary>
+    public static readonly InputAction EnemiesMore = new("enemies_more", "PageUp");
+    public static readonly InputAction EnemiesFewer = new("enemies_fewer", "PageDown");
+
+    /// <summary>Сброс арены: игрок в центре, враги заново (SWORD: R).</summary>
+    public static readonly InputAction ArenaReset = new("arena_reset", "R");
+
     public static readonly IReadOnlyList<InputAction> All =
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
-        HudHelp,
+        HudHelp, EnemiesMore, EnemiesFewer, ArenaReset,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>
@@ -64,6 +72,25 @@ public static class ArenaInput
     /// <summary>Удерживаемое управление игроком за кадр.</summary>
     public static PlayerKeys Player(in FrameInput input) => new(
         input.IsDown(MoveForward), input.IsDown(MoveBack), input.IsDown(MoveLeft), input.IsDown(MoveRight), input.IsDown(Walk));
+}
+
+/// <summary>
+/// Команды арены тика из фронтов ввода (раздел 7 плана: нажатие — ровно одним тиком, первым после кадра, где оно было) в
+/// порядке <c>Program.cs</c> SWORD: PageUp, PageDown, R. Возвращает, сколько команд записано в <paramref name="into"/>
+/// (не больше <see cref="Max"/>).
+/// </summary>
+public static class ArenaIntent
+{
+    public const int Max = 3;
+
+    public static int Commands(in TickInput input, Span<ArenaCommand> into)
+    {
+        int n = 0;
+        if (input.WasPressed(ArenaInput.EnemiesMore)) into[n++] = new ArenaCommand { Action = ArenaAction.ChangeEnemies, Enemies = 1 };
+        if (input.WasPressed(ArenaInput.EnemiesFewer)) into[n++] = new ArenaCommand { Action = ArenaAction.ChangeEnemies, Enemies = -1 };
+        if (input.WasPressed(ArenaInput.ArenaReset)) into[n++] = new ArenaCommand { Action = ArenaAction.Reset };
+        return n;
+    }
 }
 
 /// <summary>Клавиши игрока за кадр: ход и шаг.</summary>

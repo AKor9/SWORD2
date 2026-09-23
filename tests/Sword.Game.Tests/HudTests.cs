@@ -31,12 +31,13 @@ public class HudTests
     [Fact]
     public void Help_ShowsActualBindings()
     {
-        var config = ConfigSet.Empty("input.move_forward=Up", "input.hud_help=F2");
+        var config = ConfigSet.Empty("input.move_forward=Up", "input.hud_help=F2", "input.arena_reset=Home");
         var bindings = InputBindings.Resolve([.. ArenaInput.All, .. ClientHost.Actions], config);
         var lines = Hud.HelpLines(bindings.Keys);
         Assert.Contains("Up A S D — движение (Shift — шагом)", lines[0]);
         Assert.Contains("СКМ — камера", lines[1]);
         Assert.StartsWith("F2 — справка    F4 — снимок", lines[2]);
+        Assert.Equal("PgUp / PgDn — врагов ±1    Home — сброс арены", lines[3]);   // клавиши арены (этап 4а)
     }
 }
 
