@@ -11,6 +11,8 @@ using Sword.Game.Gameplay;
 //   клипом, KinematicBegin с YawDelta и RootDelta;
 // crowd (точка 4д) — толпа: игрок (Agile) и враги (не-Agile), копии EnemyAi.Think (без удара) и ResolveRoots, порядок
 //   DuelArena.Tick, команды арены по ходу; сценарий и расстановка — четвёртым аргументом (crowd.input.json из SWORD2).
+//   С точки 5б — ещё капсулы тела: копии формы при постройке (Fighter.Build: Radii, полудлины из ComputeTargets и
+//   IdealFoot) и PlaceBodies (без клинка, BodyPlacer, фиксации стоп) с настоящими RigidBody, Xpbd.RotationVector, Terrain.
 string pakPath = args[0], outPath = args[1];
 string scenarioName = args.Length > 2 ? args[2] : "player";
 using var pak = PakSource.Open(pakPath);
@@ -281,6 +283,14 @@ static class CrowdTrace
         public readonly FighterAnimator Animator = anim;
         public Vector3 Root, RootVel, DesiredVel;
         public float Facing, FacingGoal, Seed;
+
+        // 5б: тела бойца (Fighter.Bodies — 14 RigidBody, клинок 11 не ставится) и KinPlaced; визуального смещения
+        // (VisualOffset, VisualYaw — Motion Matching, этап 8) и BodyY (FootPlacement, этап 9) нет — нули и null, как после
+        // ResetAnimator.
+        public readonly Sword.Physics.RigidBody[] Bodies = [.. Enumerable.Range(0, BodySegs.Count).Select(_ => new Sword.Physics.RigidBody())];
+        public bool KinPlaced;
+        public Vector2 VisualOffset;
+        public float VisualYaw;
     }
 
     private sealed record Segment(int End, float MoveX, float MoveZ, bool Walk, Vector2? Gaze);
@@ -307,9 +317,13 @@ static class CrowdTrace
         var spawns = inp.GetProperty("spawns").EnumerateArray().Select(s => new Spawn(s.GetProperty("Tick").GetInt32(), s.GetProperty("Slot").GetInt32(),
             s.GetProperty("root")[0].GetSingle(), s.GetProperty("root")[1].GetSingle(), s.GetProperty("Facing").GetSingle(), s.GetProperty("Seed").GetSingle()))
             .ToDictionary(s => (s.Tick, s.Slot));
-        int usedSpawns = 0;
+        int usedSpawns = 0, buildTick = 0;
+        var shapes = new List<object>();
 
-        // Fighter.Build (поля движения; тело, оружие, мышцы — не у кинематического бойца) и ResetAnimator.
+        // Fighter.Build (поля движения; оружие и мышцы — не у кинематического бойца) и ResetAnimator; с 5б — форма тела
+        // (SetShape: Radii и полудлины процедурной позы постройки) и PlaceBuilt (PlaceBodies(f, 0) — первая постановка без
+        // скорости). Постановка тел в процедурную позу внутри Build (b.Place(…, TargetRot)) не копируется: PlaceBuilt сразу
+        // ставит те же тела заново (RigidBody.Place переписывает все поля постановки и скорости).
         void Build(F f, Vector3 pos, float facing, float seed)
         {
             f.Facing = f.FacingGoal = facing;
@@ -318,6 +332,12 @@ static class CrowdTrace
             f.Root = new Vector3(pos.X, 0, pos.Z);
             f.RootVel = Vector3.Zero;
             f.Animator.Reset();
+            f.KinPlaced = false;
+            f.VisualOffset = Vector2.Zero;
+            f.VisualYaw = 0;
+            BuildShape.Apply(f.Bodies, pos, facing, f.Root);
+            shapes.Add(new { tick = buildTick, slot = f.Index, radius = BodyOrder.Select(s => f.Bodies[s].Radius).ToArray(), halfLength = BodyOrder.Select(s => f.Bodies[s].HalfLen).ToArray() });
+            PlaceBodies(f, 0);   // DuelArena.PlaceBuilt
         }
 
         // DuelArena.Spawn: корень, курс и зерно — расстановка SWORD2 этого тика и места.
@@ -325,6 +345,7 @@ static class CrowdTrace
         {
             if (!spawns.TryGetValue((tick, f.Index), out var s)) throw new InvalidDataException($"нет расстановки: тик {tick}, место {f.Index}");
             usedSpawns++;
+            buildTick = tick;
             Build(f, new Vector3(s.X, 0, s.Z), s.Facing, s.Seed);
         }
 
@@ -336,6 +357,7 @@ static class CrowdTrace
             if (!spawns.TryGetValue((tick, 0), out var p)) throw new InvalidDataException($"нет постройки игрока: тик {tick}");
             if (p.X != 0 || p.Z != 0 || p.Facing != 0) throw new InvalidDataException($"игрок построен не в центре: {p}");
             usedSpawns++;
+            buildTick = tick;
             Build(_f[0], Vector3.Zero, 0, p.Seed);
             for (int i = 1; i < MaxFighters; i++)
                 if (i <= EnemyCount) SpawnAt(tick, _f[i]);
@@ -350,11 +372,15 @@ static class CrowdTrace
             for (int i = old + 1; i <= EnemyCount; i++) SpawnAt(tick, _f[i]);
         }
 
-        // AttachRig: аниматор каждому месту, затем Reset(EnemyCount).
-        for (int i = 0; i < MaxFighters; i++) _f[i] = new F(i, new FighterAnimator(rig) { Agile = i == 0 });
+        // AttachRig: аниматор каждому месту (фиксации стоп нет — путь SWORD_FOOTLOCK=off: FootPinningEnabled = false, PinFeet
+        // только сбрасывает FootLock; фиксация и постановка стоп — этап 9), затем Reset(EnemyCount).
+        _rig = rig;
+        for (int i = 0; i < MaxFighters; i++) _f[i] = new F(i, new FighterAnimator(rig) { Agile = i == 0, FootPinningEnabled = false });
         Reset(0, inp.GetProperty("enemies").GetInt32());
 
         var ticks = new List<object>();
+        var samples = new List<object>();
+        float maxSpeed = 0;
         int total = segments[^1].End, turns = 0, arenaCommands = 0, maxActive = 0;
         var actionClipField = typeof(FighterAnimator).GetField("_actionClip", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         for (int t = 0; t < total; t++)
@@ -378,6 +404,7 @@ static class CrowdTrace
             for (int i = 0; i < ActiveCount; i++)
                 if (KinematicBegin(_f[i])) turns++;
             ResolveRoots();
+            for (int i = 0; i < ActiveCount; i++) PlaceBodies(_f[i], dt);   // Kinematic(f): все живые
             maxActive = Math.Max(maxActive, ActiveCount);
 
             int n = ActiveCount;
@@ -388,6 +415,9 @@ static class CrowdTrace
             var action = new string[n];
             var actionClip = new int[n];
             var poseHash = new string[n];
+            var bodyHash = new string[n];
+            bool sample = SampleTicks.Contains(t + 1);
+            var sampled = sample ? new List<object>() : null;
             for (int i = 0; i < n; i++)
             {
                 var f = _f[i];
@@ -404,8 +434,13 @@ static class CrowdTrace
                     foreach (float v in new[] { m.M11, m.M12, m.M13, m.M14, m.M21, m.M22, m.M23, m.M24, m.M31, m.M32, m.M33, m.M34, m.M41, m.M42, m.M43, m.M44 })
                         h = (h ^ (uint)BitConverter.SingleToInt32Bits(v)) * 1099511628211;
                 poseHash[i] = h.ToString("X16");
+                bodyHash[i] = BodyHash(f.Bodies).ToString("X16");
+                foreach (var b in f.Bodies) maxSpeed = MathF.Max(maxSpeed, b.Vel.Length());
+                sampled?.Add(BodyOrder.Select(s => Full(f.Bodies[s])).ToArray());
             }
-            ticks.Add(new { tick = t + 1, x, z, facing, clip, action, actionClip, poseHash });
+            float[] Pelvis(int slot) => [_f[slot].Bodies[BodySegs.Pelvis].Pos.X, _f[slot].Bodies[BodySegs.Pelvis].Pos.Y, _f[slot].Bodies[BodySegs.Pelvis].Pos.Z];
+            ticks.Add(new { tick = t + 1, x, z, facing, clip, action, actionClip, poseHash, bodyHash, pelvis0 = Pelvis(0), pelvis1 = Pelvis(1), pelvis12 = Pelvis(12) });
+            if (sampled is not null) samples.Add(new { tick = t + 1, bodies = sampled });
         }
         if (usedSpawns != spawns.Count) throw new InvalidDataException($"расстановок во входе {spawns.Count}, использовано {usedSpawns}");
 
@@ -414,7 +449,12 @@ static class CrowdTrace
             purpose = "Трасса толпы SWORD 2eab13b для сверки точки 4д SWORD2: игрок (Agile) и враги (не-Agile) с настоящим FighterAnimator, " +
                       "копии EnemyAi.Think (без удара), PlayerController.Think, KinematicSteer/KinematicBegin и ResolveRoots в порядке DuelArena.Tick, " +
                       "команды арены по ходу; расстановка — SWORD2 (input). На тик — по местам 0…EnemyCount: корень (x, z), курс, клип локомоции " +
-                      "(номер в clipNames), действие и его клип, хеш позы (FNV-1a по битам всех 16 чисел модельных матриц суставов).",
+                      "(номер в clipNames), действие и его клип, хеш позы (FNV-1a по битам всех 16 чисел модельных матриц суставов). " +
+                      "Точка 5б: копии формы тела при постройке (Fighter.Build) и PlaceBodies (без клинка, BodyPlacer, фиксации стоп) с настоящими " +
+                      "RigidBody, Xpbd.RotationVector и Terrain; на тик по местам — bodyHash (FNV-1a по битам 13 капсул в порядке тел SWORD2: " +
+                      "Pos, Rot, PrevPos, PrevRot, Vel, AngVel, Radius, HalfLen), центр капсулы таза мест 0, 1 и 12 (pelvis0, pelvis1, pelvis12 — " +
+                      "ряды метрик манифеста bodies); shapes — форма каждой " +
+                      "постройки (радиусы и полудлины 13 капсул); samples — все значения капсул на тиках выборки.",
             sourceCommit = "2eab13b2262f6b336c3fc9bdcd71fb3dfc5a51a4",
             pakSha256 = "0c6f717303ac76b91ef0a1bc1b0b3a692827e79aa8513a6c701a41fcab92efd0",
             tickRate = 120,
@@ -422,12 +462,126 @@ static class CrowdTrace
             clips = rig.Clips.Clips.Length,
             clipNames = rig.Clips.Clips.Select(c => c.Name),
             input = inp,
-            summary = new { ticks = total, maxFighters = maxActive, arenaCommands, spawns = usedSpawns, pairs = _pairs, pillars = _pillars, edges = _edges, turns },
+            summary = new { ticks = total, maxFighters = maxActive, arenaCommands, spawns = usedSpawns, pairs = _pairs, pillars = _pillars, edges = _edges, turns, placements = _placements, maxSpeed },
+            bodyOrder = BodyOrder,
+            shapes,
+            samples,
             ticks,
         };
         File.WriteAllText(outPath, JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = false }));
         Console.WriteLine($"ok: {total} тиков, бойцов до {maxActive}, команд арены {arenaCommands}, построек {usedSpawns}, пар {_pairs}, " +
-                          $"колонн {_pillars}, края {_edges}, поворотов клипом {turns} → {outPath}");
+                          $"колонн {_pillars}, края {_edges}, поворотов клипом {turns}, постановок тел {_placements}, скорость капсул до {maxSpeed} м/с → {outPath}");
+    }
+
+    private static CharacterRig _rig = null!;
+    private static long _placements;
+
+    /// <summary>Тела бойца SWORD2 (сочленение из 13) — сегменты SWORD по возрастанию без клинка 11.</summary>
+    private static readonly int[] BodyOrder = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13];
+
+    /// <summary>Тики с полными значениями капсул: первые, после команд арены (постройки) и конец.</summary>
+    private static readonly HashSet<int> SampleTicks = [1, 2, 481, 601, 1241, 1401, 1402, 2701, 3000];
+
+    /// <summary>Хеш тела бойца на тик: FNV-1a по битам 13 капсул в порядке <see cref="BodyOrder"/>.</summary>
+    private static ulong BodyHash(Sword.Physics.RigidBody[] bodies)
+    {
+        ulong h = 14695981039346656037;
+        void Add(float x) => h = (h ^ (uint)BitConverter.SingleToInt32Bits(x)) * 1099511628211;
+        foreach (int s in BodyOrder)
+        {
+            var b = bodies[s];
+            Add(b.Pos.X); Add(b.Pos.Y); Add(b.Pos.Z);
+            Add(b.Rot.X); Add(b.Rot.Y); Add(b.Rot.Z); Add(b.Rot.W);
+            Add(b.PrevPos.X); Add(b.PrevPos.Y); Add(b.PrevPos.Z);
+            Add(b.PrevRot.X); Add(b.PrevRot.Y); Add(b.PrevRot.Z); Add(b.PrevRot.W);
+            Add(b.Vel.X); Add(b.Vel.Y); Add(b.Vel.Z);
+            Add(b.AngVel.X); Add(b.AngVel.Y); Add(b.AngVel.Z);
+            Add(b.Radius); Add(b.HalfLen);
+        }
+        return h;
+    }
+
+    private static float[] Full(Sword.Physics.RigidBody b) =>
+    [
+        b.Pos.X, b.Pos.Y, b.Pos.Z, b.Rot.X, b.Rot.Y, b.Rot.Z, b.Rot.W, b.PrevPos.X, b.PrevPos.Y, b.PrevPos.Z,
+        b.PrevRot.X, b.PrevRot.Y, b.PrevRot.Z, b.PrevRot.W, b.Vel.X, b.Vel.Y, b.Vel.Z, b.AngVel.X, b.AngVel.Y, b.AngVel.Z,
+        b.Radius, b.HalfLen,
+    ];
+
+    // Fighter.PoseRoot / PoseFacing / PoseWorld (VisualOffset = 0, VisualYaw = 0, BodyY = null) и DuelArena.KinWorld.
+    private static Vector3 PoseRoot(F f)
+    {
+        var o = Sword.Anim.Loco.Pose2.Rotate(f.VisualOffset, f.Facing);
+        return f.Root + new Vector3(o.X, 0, o.Y);
+    }
+
+    private static float PoseFacing(F f) => f.Facing + f.VisualYaw;
+
+    private static Matrix4x4 KinWorld(Vector3 root, float facing, float y)
+    {
+        var m = Matrix4x4.CreateFromQuaternion(Quaternion.CreateFromAxisAngle(Vector3.UnitY, facing));
+        m.Translation = new Vector3(root.X, y, root.Z);
+        return m;
+    }
+
+    private static Matrix4x4 PoseWorld(F f)
+    {
+        var root = PoseRoot(f);
+        float? bodyY = null;
+        return KinWorld(root, PoseFacing(f), bodyY ?? Terrain.Height(root.X, root.Z));
+    }
+
+    // DuelArena.PlaceBodies (BodyPlacer = null: мир — PoseWorld, PinFeet — сброс FootLock; клинок — этап 6, JerkTrace и
+    // PoseHash, BodiesPlaced — не переносятся; Detached и Severed — нет, этап 11). Сверено построчно с 2eab13b.
+    private static void PlaceBodies(F f, float dt)
+    {
+        var rig = _rig;
+        var anim = f.Animator;
+        var comp = anim.Component;
+        Matrix4x4 world;
+        world = PoseWorld(f);
+        anim.PinFeet(world, dt);
+        var right = Vector3.Transform(new Vector3(-1, 0, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitY, PoseFacing(f)));
+        bool first = !f.KinPlaced;
+        Vector3 P(int j) => Vector3.Transform(comp[j].Translation, world);
+
+        var head = P(rig.Head);
+        var neck = P(rig.Neck);
+        Place(BodySegs.Pelvis, P(rig.Pelvis), P(rig.Spine));
+        Place(BodySegs.Torso, P(rig.Spine), neck);
+        Place(BodySegs.Head, head, head + Vector3.Normalize(head - neck) * 0.22f);
+        Place(BodySegs.UArmL, P(rig.UArmL), P(rig.LArmL));
+        Place(BodySegs.FArmL, P(rig.LArmL), P(rig.HandL));
+        Place(BodySegs.UArmR, P(rig.UArmR), P(rig.LArmR));
+        Place(BodySegs.FArmR, P(rig.LArmR), P(rig.Hand));
+        Place(BodySegs.ThighL, P(rig.ThighL), P(rig.CalfL));
+        Place(BodySegs.ShinL, P(rig.CalfL), P(rig.FootL));
+        Place(BodySegs.FootL, P(rig.FootL), P(rig.BallL));
+        Place(BodySegs.ThighR, P(rig.ThighR), P(rig.CalfR));
+        Place(BodySegs.ShinR, P(rig.CalfR), P(rig.FootR));
+        Place(BodySegs.FootR, P(rig.FootR), P(rig.BallR));
+        f.KinPlaced = true;
+        _placements++;
+
+        void Place(int s, Vector3 a, Vector3 b)
+        {
+            var body = f.Bodies[s];
+            var dir = b - a;
+            if (dir.LengthSquared() < 1e-8f) dir = Vector3.UnitY;
+            var pos = (a + b) * 0.5f;
+            var rot = Sword.Anim.AnimMath.FromBasis(dir, right);
+            if (first)
+            {
+                body.Place(pos, rot);
+                return;
+            }
+            body.PrevPos = body.Pos;
+            body.PrevRot = body.Rot;
+            body.Vel = (pos - body.Pos) / dt;
+            body.AngVel = Sword.Physics.Xpbd.RotationVector(body.Rot, rot) / dt;
+            body.Pos = pos;
+            body.Rot = rot;
+        }
     }
 
     // PlayerController.Think: движение (WASD — направление сегмента), взгляд на курсор; блок не держат (SetBlock(false)).
@@ -561,6 +715,138 @@ static class CrowdTrace
                     float v = Vector3.Dot(a.RootVel, n);
                     if (v > 0) a.RootVel -= n * v;
                 }
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Форма тела при постройке (точка 5б) — копия части <c>Fighter.Build</c> SWORD 2eab13b: радиусы <c>Radii</c>, полудлины —
+/// половина расстояния между концами сегмента процедурной позы (<c>ComputeTargets(new Vector3(pos.X, _groundY, pos.Z))</c>
+/// после <c>_foot[leg] = IdealFoot(leg, 0)</c>), <c>SetShape(Masses[s], Radii[s], half)</c>. Состояние бойца — как сразу
+/// после <c>Build</c> у кинематического бойца (живой рэгдолл у него не тикает, <c>AttachRig</c> — до первого тика):
+/// <c>_torsoYaw</c>, наклоны, <c>_upperLead</c>, <c>PlanVel</c>, <c>RootVel</c>, <c>_captureShift</c> — 0; <c>HandLocal</c>,
+/// <c>BladeDir</c> — значения <c>Build</c>; <c>TwoHanded</c> — true; стопы в опоре с курсом постройки. Сверено построчно
+/// с <c>Fighter.cs</c> (<c>Build</c>, <c>Radii</c>, <c>Masses</c>), <c>Fighter.Pose.cs</c> (<c>ComputeTargets</c> — только
+/// <c>_a/_b</c>), <c>Fighter.Locomotion.cs</c> (<c>IdealFoot</c>, константы) 2eab13b. Настоящие — <c>AnimMath.Ik2Bone</c>,
+/// <c>SwordBody</c>, <c>Terrain</c>, <c>RigidBody.SetShape</c>.
+/// </summary>
+static class BuildShape
+{
+    private static readonly float[] Masses = [12, 20, 5, 2.5f, 2, 2.5f, 2, 8, 4.5f, 8, 4.5f, 1.4f, 1.2f, 1.2f];
+    private static readonly float[] Radii = [.15f, .17f, .13f, .065f, .055f, .065f, .055f, .09f, .07f, .09f, .07f, .03f, .045f, .045f];
+    private const float StandHeight = 0.95f, BladeLength = 1.0f, GripOffset = 0.15f;
+    private const float AnkleY = 0.09f, FootLength = 0.2f, ToeOut = 0.12f;
+    private const float MaxLead = 0.3f, StrideGrowth = 0.08f, LateralLead = 0.6f, StepReach = 0.55f;
+    private const int Segs = BodySegs.Count;
+
+    private static Vector3 Mirror(Vector3 v) => new(-v.X, v.Y, v.Z);
+
+    public static void Apply(Sword.Physics.RigidBody[] bodies, Vector3 pos, float facing, Vector3 root)
+    {
+        // Fighter.Build: состояние после сброса
+        float Facing = facing;
+        float _torsoYaw = 0, _leanSide = 0, _leanFwd = 0, _upperLead = 0;
+        var HandLocal = new Vector3(0.25f, 1.3f, 0.35f);
+        var BladeDir = Vector3.Normalize(new Vector3(0.1f, 0.9f, 0.4f));
+        bool TwoHanded = true;
+        var Root = root;
+        var RootVel = Vector3.Zero;
+        var PlanVel = Vector3.Zero;
+        var _captureShift = Vector3.Zero;
+        float _groundY = Terrain.Height(pos.X, pos.Z);
+        var _foot = new Vector3[2];
+        var _footYaw = new float[2];
+        for (int leg = 0; leg < 2; leg++)
+        {
+            _footYaw[leg] = facing;
+            _foot[leg] = IdealFoot(leg, 0);
+        }
+        var _a = new Vector3[Segs];
+        var _b = new Vector3[Segs];
+        var _x = new Vector3[Segs];
+        ComputeTargets(new Vector3(pos.X, _groundY, pos.Z));
+        for (int s = 0; s < Segs; s++)
+        {
+            if (s == BodySegs.Weapon) continue;   // клинок — этап 6
+            float half = s == BodySegs.Weapon ? (GripOffset + BladeLength) * 0.5f : Vector3.Distance(_a[s], _b[s]) * 0.5f;
+            bodies[s].SetShape(Masses[s], Radii[s], half);
+        }
+
+        Vector3 IdealFoot(int leg, float lead)
+        {
+            var yaw = Quaternion.CreateFromAxisAngle(Vector3.UnitY, Facing);
+            var offset = PlanVel * lead;
+            float ol = offset.Length();
+            float maxLead = MaxLead + StrideGrowth * RootVel.Length();
+            if (ol > maxLead) offset *= maxLead / ol;
+            var fwd = new Vector3(MathF.Sin(Facing), 0, MathF.Cos(Facing));
+            float fwdPart = Vector3.Dot(offset, fwd);
+            var sidePart = offset - fwd * fwdPart;
+            float sideLen = sidePart.Length(), sideMax = maxLead * LateralLead;
+            if (sideLen > sideMax) offset = fwd * fwdPart + sidePart * (sideMax / sideLen);
+            offset += _captureShift;
+            float reach = offset.Length();
+            if (reach > StepReach) offset *= StepReach / reach;
+            var p = Root + Vector3.Transform(Mirror(new Vector3(leg == 0 ? -0.12f : 0.12f, 0, 0)), yaw) + offset;
+            return new Vector3(p.X, Terrain.Height(p.X, p.Z) + AnkleY, p.Z);
+        }
+
+        // Fighter.ComputeTargets — концы сегментов (_a, _b; оси _x — для полноты копии), без TargetRot, HandWorld, головы
+        void ComputeTargets(Vector3 origin)
+        {
+            var yaw = Quaternion.CreateFromAxisAngle(Vector3.UnitY, Facing);
+            var ty = Quaternion.CreateFromAxisAngle(Vector3.UnitY, _torsoYaw);
+            Vector3 T(Vector3 v) => Vector3.Transform(v, ty);
+
+            float pelvisY = StandHeight;
+            float _pelvisHeight = pelvisY - 0.01f;
+
+            _a[BodySegs.Pelvis] = new(0, pelvisY - 0.06f, 0); _b[BodySegs.Pelvis] = new(0, pelvisY + 0.1f, 0); _x[BodySegs.Pelvis] = Vector3.UnitX;
+            var chest = new Vector3(_leanSide * 0.55f, pelvisY + 0.55f, _leanFwd * 0.55f);
+            _a[BodySegs.Torso] = new(0, pelvisY + 0.16f, 0); _b[BodySegs.Torso] = chest; _x[BodySegs.Torso] = T(Vector3.UnitX);
+            _a[BodySegs.Head] = chest + T(new(0, 0.2f, 0.02f)); _b[BodySegs.Head] = chest + T(new(0, 0.3f, 0.03f)); _x[BodySegs.Head] = T(Vector3.UnitX);
+
+            var shR = chest + T(new(0.24f, -0.04f, 0));
+            var shL = chest + T(new(-0.24f, -0.04f, 0));
+            var (eR, hR) = Sword.Anim.AnimMath.Ik2Bone(shR, HandLocal, shR + T(new(0.35f, -0.6f, -0.25f)), 0.3f, 0.28f);
+            _a[BodySegs.UArmR] = shR; _b[BodySegs.UArmR] = eR;
+            _a[BodySegs.FArmR] = eR; _b[BodySegs.FArmR] = hR;
+
+            _a[BodySegs.Weapon] = hR - BladeDir * GripOffset; _b[BodySegs.Weapon] = hR + BladeDir * BladeLength;
+
+            var offTarget = TwoHanded ? hR - BladeDir * 0.13f : shL + T(new(-0.12f, -0.45f, 0.12f));
+            var (eL, hL) = Sword.Anim.AnimMath.Ik2Bone(shL, offTarget, shL + T(new(-0.35f, -0.6f, -0.25f)), 0.3f, 0.28f);
+            _a[BodySegs.UArmL] = shL; _b[BodySegs.UArmL] = eL;
+            _a[BodySegs.FArmL] = eL; _b[BodySegs.FArmL] = hL;
+
+            var yawUpper = Quaternion.CreateFromAxisAngle(Vector3.UnitY, Facing + _upperLead);
+            for (int i = 0; i < Segs; i++)
+            {
+                if (i is >= BodySegs.ThighL and <= BodySegs.ShinR or BodySegs.FootL or BodySegs.FootR) continue;
+                var q = i == BodySegs.Pelvis ? yaw : yawUpper;
+                _a[i] = origin + Vector3.Transform(Mirror(_a[i]), q);
+                _b[i] = origin + Vector3.Transform(Mirror(_b[i]), q);
+            }
+
+            var fwdW = new Vector3(MathF.Sin(Facing), 0, MathF.Cos(Facing));
+            for (int leg = 0; leg < 2; leg++)
+            {
+                int th = leg == 0 ? BodySegs.ThighL : BodySegs.ThighR;
+                var hip = origin + Vector3.Transform(Mirror(new Vector3(leg == 0 ? -0.1f : 0.1f, _pelvisHeight - 0.05f, 0)), yaw);
+                var (knee, ankle) = Sword.Anim.AnimMath.Ik2Bone(hip, _foot[leg], hip + fwdW * 0.6f - Vector3.UnitY * 0.3f, Sword.Anim.SwordBody.ThighLength, Sword.Anim.SwordBody.ShinLength);
+                _a[th] = hip; _b[th] = knee;
+                _a[th + 1] = knee; _b[th + 1] = ankle;
+
+                int foot = leg == 0 ? BodySegs.FootL : BodySegs.FootR;
+                bool swing = false;   // _phase[leg] = Stance после Build
+                var n = Terrain.Normal(ankle.X, ankle.Z);
+                float fy = _footYaw[leg] + (leg == 0 ? ToeOut : -ToeOut);
+                var ff = new Vector3(MathF.Sin(fy), 0, MathF.Cos(fy));
+                var along = Vector3.Normalize(ff - n * Vector3.Dot(ff, n));
+                float heelLift = MathF.Max(0, ankle.Y - Terrain.Height(ankle.X, ankle.Z) - AnkleY);
+                _a[foot] = ankle;
+                _b[foot] = ankle + along * FootLength + n * (swing ? 0.05f : Radii[foot] - AnkleY - heelLift);
             }
         }
     }

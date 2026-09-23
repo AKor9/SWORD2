@@ -52,3 +52,36 @@ public interface IAnimationView : IReadView
     int LastTickJobs { get; }
     int LastTickStale { get; }
 }
+
+/// <summary>
+/// Тела для наблюдателей симуляции (агент — 5б, клиент — капсулы на экране, 5в): вид только для чтения
+/// (<c>WorldReader.View&lt;IBodyView&gt;()</c>) на тела подсистемы Physics по хэндлу сочленения из <see cref="BodyRef"/>.
+/// Тело <c>i</c> сочленения бойца — сегмент <see cref="BodySegs.Segment"/>(i). Меняют тела только системы тика.
+/// </summary>
+public interface IBodyView : IReadView
+{
+    /// <summary>Тел в сочленении; сочленения нет (пустой или освобождённый хэндл) — 0.</summary>
+    int BodyCount(BodyRef body);
+
+    /// <summary>Тело <paramref name="index"/> сочленения (0 … <see cref="BodyCount"/> − 1) — копия состояния.</summary>
+    BodySnapshot Body(BodyRef body, int index);
+
+    /// <summary>Живых сочленений и тел.</summary>
+    int Articulations { get; }
+    int Bodies { get; }
+}
+
+/// <summary>
+/// Капсула тела после тика: постановка (центр, поворот; ось капсулы — локальная Y), прошлая постановка (для скорости и
+/// интерполяции), скорость, м/с, угловая скорость, рад/с (мир), радиус и полудлина оси, м.
+/// </summary>
+public readonly record struct BodySnapshot(Vector3 Position, Quaternion Rotation, Vector3 PrevPosition, Quaternion PrevRotation,
+    Vector3 Velocity, Vector3 AngularVelocity, float Radius, float HalfLength)
+{
+    /// <summary>Ось капсулы в мире.</summary>
+    public Vector3 Axis => Vector3.Transform(Vector3.UnitY, Rotation);
+
+    /// <summary>Концы оси капсулы: нижний (A) и верхний (B).</summary>
+    public Vector3 EndA => Position - Axis * HalfLength;
+    public Vector3 EndB => Position + Axis * HalfLength;
+}

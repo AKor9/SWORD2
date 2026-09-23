@@ -1,13 +1,15 @@
 {
-  // Приёмка фичи «Физика и тела» (этап 5) — начата на точке 5а (подсистема Physics, хуки ECS, тело бойца — сочленение из
-  // 13 кинематических капсул за BodyRef, участник хеша physics, инварианты physics.*): сценарии и инварианты. Метрики
-  // против трассы SWORD, виды с оверлеем капсул и бюджеты — с постановкой по позе (5б) и капсулами на экране (5в); полный
-  // манифест — на 5г. Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify
-  // (Sword.Headless --feature bodies). Ослабить ожидания — только правкой с сообщением пользователю.
+  // Приёмка фичи «Физика и тела» (этап 5) — точки 5а (подсистема Physics, хуки ECS, тело бойца — сочленение из 13
+  // кинематических капсул за BodyRef, участник хеша physics, инварианты physics.finite/bodyRefs) и 5б (капсулы по позе:
+  // форма и постановка при постройке, постановка по позе тика в PrePhysics, инварианты physics.kinematicPose/kinematicSpeed,
+  // метрики против трассы SWORD по вычисляемым полям тела Body.* — Game.Agent.BodyFields). Виды с оверлеем капсул — 5в,
+  // бюджеты — у фичи enemies (crowd, стадия PrePhysics); полный манифест — на 5г. Формат — FeatureManifest
+  // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature bodies). Ослабить ожидания — только
+  // правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "bodies",
-  "title": "Физика и тела (этап 5; точка 5а — Physics, хуки ECS, тела бойцов за BodyRef)",
+  "title": "Физика и тела (этап 5; 5а — Physics, хуки ECS, тела бойцов за BodyRef; 5б — капсулы по позе)",
   "doc": "README.md",
   "sourceRoots": [
     "engine/Sword.Engine.Physics",
@@ -16,14 +18,17 @@
     "game/Sword.Game/Bodies",
     "game/Sword.Game.Contracts/BodySegs.cs",
     "game/Sword.Game.Contracts/Components.cs",
+    "game/Sword.Game.Contracts/Views.cs",
     "game/Sword.Game/Arena/ArenaSpawn.cs",
-    "game/Sword.Game/GameCore.cs"
+    "game/Sword.Game/Arena/ArenaTerrain.cs",
+    "game/Sword.Game/GameCore.cs",
+    "game/Sword.Game.Agent/PhysicsTools.cs"
   ],
   "requiredModules": ["locomotion"],
   "scenarios": [
     {
       "id": "arena",
-      "title": "тела при командах арены: PageUp, до 32, PageDown ×10, R, до 0, PageUp — у каждого бойца своё тело, лишних нет (physics.bodyRefs)",
+      "title": "тела при командах арены: PageUp, до 32, PageDown ×10, R, до 0, PageUp — у каждого бойца своё тело, лишних нет (physics.bodyRefs); построенные и построенные заново бойцы встают по позе постройки без скачка капсул (physics.kinematicSpeed), капсулы на суставах (physics.kinematicPose)",
       "set": ["arena.enemies=10"],
       "ticks": 480,
       "commands": [
@@ -72,8 +77,28 @@
       ]
     },
     {
+      "id": "terrain",
+      "title": "рельеф: игрок бежит на склон (0, 18) до вершины 1,6 м, затем через ступенчатую пирамиду (−16, 0: пять ярусов по 12 см) и стоит на её верхнем ярусе — капсулы идут за позой и рельефом под корнем, на суставах (physics.kinematicPose), без скачков на кромках ступеней (physics.kinematicSpeed)",
+      "set": ["arena.enemies=0"],
+      "ticks": 1400,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 } }, "from": 0, "to": 520 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": -0.62, "Y": -0.78 } }, "from": 520, "to": 1240 }
+      ],
+      "checks": [
+        {
+          "id": "on-slope", "title": "игрок поднялся на склон — ближе 2 м к вершине (0, 18)", "expect": "eventually", "to": 600,
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.Z", "greaterThan": 16 }, { "field": "Transform.Position.Z", "lessThan": 20 }, { "field": "Transform.Position.X", "greaterThan": -2 }, { "field": "Transform.Position.X", "lessThan": 2 }] }
+        },
+        {
+          "id": "on-steps", "title": "игрок на верхнем ярусе пирамиды: max(|x + 16|, |z|) < 2", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "greaterThan": -18 }, { "field": "Transform.Position.X", "lessThan": -14 }, { "field": "Transform.Position.Z", "greaterThan": -2 }, { "field": "Transform.Position.Z", "lessThan": 2 }] }
+        }
+      ]
+    },
+    {
       "id": "reference",
-      "title": "эталон SWORD2 enemies (толпа, команды арены по ходу): хеши участника physics каждого тика",
+      "title": "эталон SWORD2 enemies (сценарий трассы толпы SWORD sword-crowd: толпа, команды арены по ходу, рельеф холмов по пути к колонне): хеши участника physics каждого тика; тела — против трассы SWORD",
       "replay": "tests/reference/replays/enemies.swreplay",
       "checks": [
         {
@@ -88,6 +113,39 @@
     }
   ],
   "invariants": ["ecs.finite", "physics.*"],
+  "metrics": [
+    {
+      "id": "sword-crowd-pelvis-player", "scenario": "reference", "source": "sword",
+      "reference": "трасса толпы SWORD 2eab13b на эталонном паке (tests/reference/sword-trace, сценарий crowd; 5б — копии PlaceBodies и формы при постройке Fighter.Build): центр капсулы таза игрока тик за тиком, побитово; все 13 капсул всех бойцов каждого тика (центр, поворот, прошлая постановка, скорости, форма: 53 400 бойце-тиков) — ReferenceTraceTests.Crowd_MatchesSwordTickByTick",
+      "entity": "player", "trace": "tests/reference/anim-crowd.trace.json",
+      "series": { "pelvis0[0]": "Body.pelvis.Position.X", "pelvis0[1]": "Body.pelvis.Position.Y", "pelvis0[2]": "Body.pelvis.Position.Z" },
+      "tolerance": 0
+    },
+    {
+      "id": "sword-crowd-pelvis-enemy-1", "scenario": "reference", "source": "sword",
+      "reference": "трасса толпы SWORD (5б): центр капсулы таза врага места 1 тик за тиком, побитово",
+      "entity": "enemy 1", "trace": "tests/reference/anim-crowd.trace.json",
+      "series": { "pelvis1[0]": "Body.pelvis.Position.X", "pelvis1[1]": "Body.pelvis.Position.Y", "pelvis1[2]": "Body.pelvis.Position.Z" },
+      "tolerance": 0
+    },
+    {
+      "id": "sword-crowd-pelvis-enemy-12", "scenario": "reference", "source": "sword",
+      "reference": "трасса толпы SWORD (5б): центр капсулы таза врага места 12 (строится заново сбросом R) тик за тиком, побитово",
+      "entity": "enemy 12", "trace": "tests/reference/anim-crowd.trace.json",
+      "series": { "pelvis12[0]": "Body.pelvis.Position.X", "pelvis12[1]": "Body.pelvis.Position.Y", "pelvis12[2]": "Body.pelvis.Position.Z" },
+      "tolerance": 0
+    },
+    {
+      "id": "run-capsule-speed", "scenario": "terrain", "source": "sword2",
+      "reference": "самая быстрая капсула игрока на бегу 4,2 м/с по ровному и в гору (тики 60…500) — стопа в махе, около 2,2× скорости бега: замер 5б 9,40 м/с; в трассе толпы SWORD за 3000 тиков — до 12,6 м/с (summary.maxSpeed). Больше 11,9 — капсулы дёргаются, меньше 6,9 — стоят на месте или отстают от позы",
+      "entity": "player", "field": "Body.MaxSpeed", "stat": "max", "from": 60, "to": 500, "expected": 9.4, "tolerance": 2.5
+    },
+    {
+      "id": "slope-pelvis-height", "scenario": "terrain", "source": "sword2",
+      "reference": "таз игрока на вершине склона (0, 18; рельеф 1,6 м) — капсулы стоят на высоте рельефа под корнем (KinWorld SWORD): наибольшая высота центра таза за тики 0…600 — вершина склона плюс высота таза в клипе бега: замер 5б 2,504 м (без высоты рельефа было бы около 0,95)",
+      "entity": "player", "field": "Body.pelvis.Position.Y", "stat": "max", "from": 1, "to": 600, "expected": 2.5, "tolerance": 0.1
+    }
+  ],
   "checklist": [
     "`Sword.exe`, `Sword.exe --units 32` — игра выглядит и ведёт себя как на этапе 4: враги сходятся, PageUp/PageDown/R работают, кадр плавный; капсул тел на экране ещё нет (появятся на 5в). В журнале нет строк `[invariant] нарушен physics.…`."
   ]

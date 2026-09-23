@@ -76,6 +76,18 @@ public static class ArenaTerrain
     public static float SmoothHeightAt(float x, float z) => Hills(x, z) + Slope(x, z) + Bumps(x, z);
 
     /// <summary>
+    /// Нормаль по конечным разностям высоты (<c>Terrain.Normal</c> SWORD 2eab13b без изменений); на ребре ступени резко
+    /// наклоняется в полосе ±5 см. Нужна форме тела при постройке (ступня по склону, 5б).
+    /// </summary>
+    public static Vector3 Normal(float x, float z)
+    {
+        const float e = 0.05f;
+        float dx = Height(x + e, z) - Height(x - e, z);
+        float dz = Height(x, z + e) - Height(x, z - e);
+        return Vector3.Normalize(new Vector3(-dx / (2 * e), 1, -dz / (2 * e)));
+    }
+
+    /// <summary>
     /// Зона рельефа точки для метрик — по границам составляющих высоты, а не по ближайшему центру: индекс в
     /// <see cref="Zones"/> внутри зоны (холмы и склон — ближе 8.5 м к центру, ухабы — 7.5 м, ярусы — max(|x+16|,|z|) &lt; 6.5,
     /// кромка первого яруса в зоне); −1 — ровно (дальше 0.5 м от границ всех зон, все составляющие нулевые);

@@ -13,9 +13,9 @@ namespace Sword.Game.Bodies;
 ///
 /// Боец появляется с пустым <see cref="BodyRef"/> (<c>Fighters.Create</c>); постройка заново на той же сущности (сброс R,
 /// <c>Fighters.Rebuild</c>) компонент не трогает — тело то же, как тела <c>Fighter.Bodies</c> SWORD, которые
-/// <c>Build</c> переставляет, а не создаёт (новую форму и постановку при постройке даёт 5б по <c>Added&lt;Fighter&gt;</c>).
-/// До 5б тела без формы и стоят в начале координат (<see cref="BodyState.New"/> — как тело SWORD между конструктором
-/// бойца и <c>Build</c>): формы «на время» нет — её задаёт постройка (5б).
+/// <c>Build</c> переставляет, а не создаёт. Форму и постановку при постройке задаёт <see cref="BodySetupSystem"/> по
+/// <c>Added&lt;Fighter&gt;</c> (5б); до того новое тело без формы в начале координат (<see cref="BodyState.New"/> — как
+/// тело SWORD между конструктором бойца и <c>Build</c>).
 /// </summary>
 public static class FighterBodies
 {

@@ -227,7 +227,7 @@ public static partial class Program
         var env = new FeatureEnvironment
         {
             RepoRoot = setup.RepoRoot, Build = build, Info = ReplayInfo.Current(content), Names = new SwordAgent.ArenaNames(),
-            CaptureView = setup.CaptureView, Optimized = setup.Optimized, MeasureFrame = setup.MeasureFrame,
+            Fields = new BodyFields(), CaptureView = setup.CaptureView, Optimized = setup.Optimized, MeasureFrame = setup.MeasureFrame,
         };
         var reports = new List<FeatureReport>();
         foreach (var m in chosen)

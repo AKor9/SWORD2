@@ -15,14 +15,23 @@ namespace Sword.Game.Tests;
 /// </summary>
 public static class TestAssets
 {
+    /// <summary>
+    /// Суставы: ноги, позвоночник и ключицы (этапы 2–4) и в конце — суставы капсул тела (5б: <c>spine_01</c>, шея, голова,
+    /// руки; номера прежних суставов не сдвинуты).
+    /// </summary>
     public static readonly string[] Joints =
-        ["root", "pelvis", "thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r", "spine_05", "clavicle_l", "clavicle_r"];
-    public static readonly int[] Parents = [-1, 0, 1, 2, 3, 4, 1, 6, 7, 8, 1, 10, 10];
+    [
+        "root", "pelvis", "thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r", "spine_05", "clavicle_l", "clavicle_r",
+        "spine_01", "neck_01", "head", "upperarm_l", "lowerarm_l", "hand_l", "upperarm_r", "lowerarm_r", "hand_r",
+    ];
+    public static readonly int[] Parents = [-1, 0, 1, 2, 3, 4, 1, 6, 7, 8, 1, 10, 10, 1, 10, 14, 11, 16, 17, 12, 19, 20];
     public static readonly Vector3[] Offsets =
     [
         Vector3.Zero, new(0, 0.95f, 0), new(0.1f, -0.05f, 0), new(0, -0.43f, 0), new(0, -0.42f, 0), new(0, -0.05f, 0.12f),
         new(-0.1f, -0.05f, 0), new(0, -0.43f, 0), new(0, -0.42f, 0), new(0, -0.05f, 0.12f), new(0, 0.45f, 0), new(0.15f, 0.1f, 0),
         new(-0.15f, 0.1f, 0),
+        new(0, 0.1f, 0), new(0, 0.2f, 0), new(0, 0.1f, 0.02f), new(0.05f, -0.05f, 0), new(0.05f, -0.28f, 0), new(0, -0.26f, 0.02f),
+        new(-0.05f, -0.05f, 0), new(-0.05f, -0.28f, 0), new(0, -0.26f, 0.02f),
     ];
 
     public const float WalkSpeed = 1.5f, RunSpeed = 4f, Rate = 30;

@@ -17,6 +17,11 @@ Diagnostics, Geometry (матрица раздела 4); ни ECS, ни игры
 - `BodyMode.Kinematic` — единственный режим этапа 5 (тело ставят снаружи, шаг его не двигает).
 - `PhysicsMath.RotationVector` — вектор поворота от одного поворота к другому (из него — угловая скорость).
 
+Потребители (5б, игра — `game/Sword.Game/Bodies`): постройка бойца — `SetShape` (форма `Fighter.Build`) и `Place` (капсулы
+без скорости по позе постройки), каждый тик — `SetKinematicTarget` (капсулы по позе тика, `KinematicPlacementSystem` в
+PrePhysics); наблюдателям — вид игры `IBodyView` поверх `Get`. Побитово сверено с трассой SWORD толпы (13 капсул каждого
+бойца каждого тика). Замер: 33 × 13 капсул — 0,027 мс на тик (Release), 0 байт.
+
 ## Откуда логика
 
 SWORD 2eab13b, `Sword.Physics`:

@@ -137,6 +137,50 @@ public sealed class FeatureTests : IDisposable
         Assert.Contains(expected, e.Message);
     }
 
+    /// <summary>Вычисляемое поле игры (5б): <c>Twice.X</c> — удвоенный X тела; остальные пути — не его.</summary>
+    private sealed class TwiceFields : IEntityFields
+    {
+        public IReadOnlyList<string> Known { get; } = ["Twice.X"];
+
+        public EntityFieldReader? Compile(string path, string at) => path switch
+        {
+            "Twice.X" => (in ServiceContext ctx, Ecs.Entity e) => ctx.World.IsAlive(e) ? ctx.World.Get<Body>(e).Position.X * 2 : double.NaN,
+            _ when path.StartsWith("Twice.", StringComparison.Ordinal) => throw new ArgumentException($"{at}: {path} — только Twice.X"),
+            _ => null,
+        };
+    }
+
+    [Fact]
+    public void Verify_Metric_ReadsComputedFieldOfTheGame()
+    {
+        // Метрика читает вычисляемое поле игры (IEntityFields: тела бойца вне ECS — Body.pelvis.Position.Y) как поле компонента;
+        // путь, который поля игры не понимают, — по-прежнему компонент.
+        string json = $$"""
+            {
+              "format": "sword-feature", "version": 1, "id": "twice", "title": "поля", "doc": "README.md", "sourceRoots": ["feat"],
+              "scenarios": [{ "id": "push", "ticks": 5, "commands": [{{Push}}] }],
+              "metrics": [
+                { "id": "twice", "scenario": "push", "source": "sword2", "reference": "тест", "entity": "{{First}}", "field": "Twice.X", "expected": 10 },
+                { "id": "plain", "scenario": "push", "source": "sword2", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X", "expected": 5 }
+              ],
+              "checklist": ["посмотреть"]
+            }
+            """;
+        var m = FeatureManifest.Load(Manifest(json));
+        var env = new FeatureEnvironment { RepoRoot = _root, Build = Build, Info = Info, Optimized = false, Fields = new TwiceFields() };
+        var report = FeatureVerifier.Verify(m, env, new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Views = false, Budgets = false });
+        Assert.True(report.Ok, string.Join('|', report.Failures));
+        Assert.Equal((10.0, 5.0), (report.Json["metrics"]![0]!["value"]!.GetValue<double>(), report.Json["metrics"]![1]!["value"]!.GetValue<double>()));
+
+        // С ошибкой в пути поля игры — её текст; без полей игры путь Twice.X — неизвестный компонент.
+        var bad = FeatureManifest.Load(Manifest(json.Replace("\"field\": \"Twice.X\"", "\"field\": \"Twice.Y\"")));
+        var failed = FeatureVerifier.Verify(bad, env, new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out3"), Views = false, Budgets = false });
+        Assert.Contains(failed.Failures, f => f.Contains("только Twice.X"));
+        var none = FeatureVerifier.Verify(m, new FeatureEnvironment { RepoRoot = _root, Build = Build, Info = Info, Optimized = false },
+            new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out4"), Views = false, Budgets = false });
+        Assert.False(none.Ok);
+    }
+
     [Fact]
     public void Verify_GoodFeature_AllGreen_ViewPlaysRecordedScenario()
     {

@@ -250,8 +250,45 @@ public sealed class ReferenceTraceTests
         new(2700, ArenaAction.SetEnemies, 32),
     ];
 
-    /// <summary>Боец толпы после тика в SWORD2 — то же, что пишет трасса.</summary>
-    public readonly record struct CrowdFighter(float X, float Z, float Facing, string Clip, string Action, string ActionClip, string PoseHash);
+    /// <summary>
+    /// Боец толпы после тика в SWORD2 — то же, что пишет трасса: корень, курс, клипы, хеш позы; с 5б — хеш тела
+    /// (<see cref="BodyHash"/>), центр капсулы таза и на тиках выборки (<see cref="CrowdSampleTicks"/>) все капсулы.
+    /// </summary>
+    public readonly record struct CrowdFighter(float X, float Z, float Facing, string Clip, string Action, string ActionClip, string PoseHash,
+        string BodyHash, Vector3 Pelvis, BodySnapshot[]? Bodies);
+
+    /// <summary>Тики трассы толпы с полными значениями капсул (<c>samples</c>; <c>SampleTicks</c> программы трассы).</summary>
+    public static readonly int[] CrowdSampleTicks = [1, 2, 481, 601, 1241, 1401, 1402, 2701, 3000];
+
+    /// <summary>
+    /// Хеш тела бойца на тик — как в программе трассы (5б): FNV-1a по битам 13 капсул по порядку тел сочленения — центр,
+    /// поворот, прошлые центр и поворот, скорость, угловая скорость, радиус, полудлина.
+    /// </summary>
+    public static ulong BodyHash(IBodyView view, BodyRef body)
+    {
+        ulong h = 14695981039346656037;
+        void Add(float x) => h = (h ^ (uint)BitConverter.SingleToInt32Bits(x)) * 1099511628211;
+        for (int k = 0; k < BodySegs.Bodies; k++)
+        {
+            var b = view.Body(body, k);
+            Add(b.Position.X); Add(b.Position.Y); Add(b.Position.Z);
+            Add(b.Rotation.X); Add(b.Rotation.Y); Add(b.Rotation.Z); Add(b.Rotation.W);
+            Add(b.PrevPosition.X); Add(b.PrevPosition.Y); Add(b.PrevPosition.Z);
+            Add(b.PrevRotation.X); Add(b.PrevRotation.Y); Add(b.PrevRotation.Z); Add(b.PrevRotation.W);
+            Add(b.Velocity.X); Add(b.Velocity.Y); Add(b.Velocity.Z);
+            Add(b.AngularVelocity.X); Add(b.AngularVelocity.Y); Add(b.AngularVelocity.Z);
+            Add(b.Radius); Add(b.HalfLength);
+        }
+        return h;
+    }
+
+    /// <summary>Капсула как в <c>samples</c> трассы: центр, поворот, прошлые центр и поворот, скорость, угловая скорость, радиус, полудлина.</summary>
+    public static float[] Full(in BodySnapshot b) =>
+    [
+        b.Position.X, b.Position.Y, b.Position.Z, b.Rotation.X, b.Rotation.Y, b.Rotation.Z, b.Rotation.W,
+        b.PrevPosition.X, b.PrevPosition.Y, b.PrevPosition.Z, b.PrevRotation.X, b.PrevRotation.Y, b.PrevRotation.Z, b.PrevRotation.W,
+        b.Velocity.X, b.Velocity.Y, b.Velocity.Z, b.AngularVelocity.X, b.AngularVelocity.Y, b.AngularVelocity.Z, b.Radius, b.HalfLength,
+    ];
 
     /// <summary>Прогон сценария толпы в SWORD2: расстановка (постройки по тикам) и бойцы по местам после каждого тика.</summary>
     public static (List<CrowdSpawn> Spawns, List<CrowdFighter[]> Ticks, int Violations) RunCrowd(CharacterAssets assets)
@@ -259,6 +296,7 @@ public sealed class ReferenceTraceTests
         var sim = SwordSimulation.Create(ConfigSet.Empty($"arena.enemies={CrowdEnemies}", $"sim.seed={CrowdSeed}"), assets);
         var w = sim.World;
         var poses = w.View<IAnimationView>();
+        var bodies = w.View<IBodyView>();
         var spawns = new List<CrowdSpawn>();
         var ticks = new List<CrowdFighter[]>();
         var last = new (Engine.Ecs.Entity Entity, float Seed)[33];
@@ -315,8 +353,11 @@ public sealed class ReferenceTraceTests
                 var tr = w.Get<Transform>(e);
                 string clip = assets.Clips.Clips[w.Get<LegacyLocomotionState>(e).Clip].Name;
                 var a = w.TryGet<AnimatorAction>(e, out var act) ? act : AnimatorAction.None;
+                var body = w.Get<BodyRef>(e);
+                var capsules = CrowdSampleTicks.Contains(t + 1) ? Enumerable.Range(0, BodySegs.Bodies).Select(k => bodies.Body(body, k)).ToArray() : null;
                 row[s] = new CrowdFighter(tr.Position.X, tr.Position.Z, tr.Facing, clip, a.Kind == ActionKind.None ? "" : a.Kind.ToString(),
-                    a.Kind == ActionKind.None ? "" : assets.Clips.Clips[a.Clip].Name, PoseHash(poses.Model(w.Get<PoseRef>(e))).ToString("X16"));
+                    a.Kind == ActionKind.None ? "" : assets.Clips.Clips[a.Clip].Name, PoseHash(poses.Model(w.Get<PoseRef>(e))).ToString("X16"),
+                    BodyHash(bodies, body).ToString("X16"), bodies.Body(body, BodySegs.Body(BodySegs.Pelvis)).Position, capsules);
             }
             ticks.Add(row);
         }
@@ -340,8 +381,11 @@ public sealed class ReferenceTraceTests
     /// Точка 4д: трасса <c>tests/reference/anim-crowd.trace.json</c> — толпа SWORD: игрок (<c>Agile</c>) и враги (не-<c>Agile</c>)
     /// с настоящим <c>FighterAnimator</c>, копии <c>EnemyAi.Think</c> (без удара) и <c>ResolveRoots</c>, порядок
     /// <c>DuelArena.Tick</c>, команды арены по ходу. Здесь тот же сценарий в SWORD2 — ИИ, столкновения и команды арены
-    /// настоящие. Тик за тиком у каждого бойца побитово: корень, курс, клип локомоции, действие и его клип, поза. Прогон пишет
-    /// вход программы трассы — <c>artifacts/reference/crowd.input.json</c> (как снять заново — README трассы).
+    /// настоящие. Тик за тиком у каждого бойца побитово: корень, курс, клип локомоции, действие и его клип, поза; с точки 5б —
+    /// тело: хеш 13 капсул (центр, поворот, прошлая постановка, скорости, форма — копии <c>PlaceBodies</c> и формы при постройке
+    /// <c>Fighter.Build</c> в программе трассы), центр таза мест 0, 1, 12 каждый тик, все капсулы на тиках выборки и форма каждой
+    /// постройки. Прогон пишет вход программы трассы — <c>artifacts/reference/crowd.input.json</c> (как снять заново — README
+    /// трассы).
     /// </summary>
     [Fact]
     public void Crowd_MatchesSwordTickByTick()
@@ -368,7 +412,7 @@ public sealed class ReferenceTraceTests
         var clipNames = doc.GetProperty("clipNames").EnumerateArray().Select(c => c.GetString()!).ToArray();
         var ticks = doc.GetProperty("ticks");
         Assert.Equal(run.Count, ticks.GetArrayLength());
-        long compared = 0;
+        long compared = 0, pelvises = 0, sampledValues = 0, shapeValues = 0;
         int maxFighters = 0;
         foreach (var expected in ticks.EnumerateArray())
         {
@@ -391,7 +435,58 @@ public sealed class ReferenceTraceTests
                 Assert.True(ex == f.X && ez == f.Z, "корень: " + where);
                 Assert.True(ef == f.Facing, "курс: " + where);
                 Assert.True(expected.GetProperty("poseHash")[s].GetString() == f.PoseHash, "поза: " + where);
+                Assert.True(expected.GetProperty("bodyHash")[s].GetString() == f.BodyHash,
+                    $"тело (13 капсул; поле — по samples ближайшего тика выборки): тик {tick}, место {s}, SWORD2 таз {f.Pelvis}");
                 compared++;
+                if (s is 0 or 1 or 12)
+                {
+                    var p = expected.GetProperty($"pelvis{s}");
+                    Assert.True(p[0].GetSingle() == f.Pelvis.X && p[1].GetSingle() == f.Pelvis.Y && p[2].GetSingle() == f.Pelvis.Z,
+                        $"таз: тик {tick}, место {s}: SWORD ({p[0].GetSingle()}, {p[1].GetSingle()}, {p[2].GetSingle()}), SWORD2 {f.Pelvis}");
+                    pelvises++;
+                }
+            }
+        }
+
+        // Все капсулы на тиках выборки — побитово по каждому числу (при расхождении хеша — здесь видно, какое поле).
+        var samples = doc.GetProperty("samples");
+        Assert.Equal(CrowdSampleTicks, samples.EnumerateArray().Select(x => x.GetProperty("tick").GetInt32()));
+        foreach (var sample in samples.EnumerateArray())
+        {
+            int tick = sample.GetProperty("tick").GetInt32();
+            var row = run[tick - 1];
+            var fighters = sample.GetProperty("bodies");
+            Assert.Equal(row.Length, fighters.GetArrayLength());
+            for (int s = 0; s < row.Length; s++)
+                for (int k = 0; k < BodySegs.Bodies; k++)
+                {
+                    var expected = fighters[s][k];
+                    var actual = Full(row[s].Bodies![k]);
+                    for (int v = 0; v < actual.Length; v++)
+                    {
+                        float e = expected[v].GetSingle();
+                        Assert.True(BitConverter.SingleToInt32Bits(e) == BitConverter.SingleToInt32Bits(actual[v]),
+                            $"капсула {BodySegs.Name(BodySegs.Segment(k))}, тик {tick}, место {s}, число {v} ({SampleFields[v]}): SWORD {e:R}, SWORD2 {actual[v]:R}");
+                        sampledValues++;
+                    }
+                }
+        }
+
+        // Форма каждой постройки — в тиках постройки (после тика она у тела та же, что при постройке).
+        var shapes = doc.GetProperty("shapes");
+        Assert.Equal(spawns.Count, shapes.GetArrayLength());
+        foreach (var shape in shapes.EnumerateArray())
+        {
+            int tick = shape.GetProperty("tick").GetInt32(), slot = shape.GetProperty("slot").GetInt32();
+            var bodiesAtBuild = run[Math.Max(tick, 1) - 1][slot];
+            string hash = bodiesAtBuild.BodyHash;   // форма — в хеше тела; здесь явная сверка по числам, если есть выборка
+            Assert.False(string.IsNullOrEmpty(hash));
+            if (bodiesAtBuild.Bodies is not { } caps) continue;
+            for (int k = 0; k < BodySegs.Bodies; k++)
+            {
+                Assert.Equal(shape.GetProperty("radius")[k].GetSingle(), caps[k].Radius);
+                Assert.Equal(shape.GetProperty("halfLength")[k].GetSingle(), caps[k].HalfLength);
+                shapeValues += 2;
             }
         }
         // Сценарий покрывает то, ради чего снят: толпа до 32 врагов, пары корней, колонна, команды арены.
@@ -400,7 +495,17 @@ public sealed class ReferenceTraceTests
         Assert.True(summary.GetProperty("pairs").GetInt64() > 0 && summary.GetProperty("pillars").GetInt64() > 0);
         Assert.Equal(CrowdArenaCommands.Length, summary.GetProperty("arenaCommands").GetInt32());
         Assert.True(compared > 0);
+        // Тела: каждый боец каждого тика (хеш), таз трёх мест каждого тика, выборка и формы построек — сверены.
+        Assert.Equal(summary.GetProperty("placements").GetInt64(), compared + spawns.Count);
+        Assert.Equal(3 * run.Count, pelvises);
+        Assert.True(sampledValues > 0 && shapeValues > 0);
     }
+
+    private static readonly string[] SampleFields =
+    [
+        "Pos.X", "Pos.Y", "Pos.Z", "Rot.X", "Rot.Y", "Rot.Z", "Rot.W", "PrevPos.X", "PrevPos.Y", "PrevPos.Z",
+        "PrevRot.X", "PrevRot.Y", "PrevRot.Z", "PrevRot.W", "Vel.X", "Vel.Y", "Vel.Z", "AngVel.X", "AngVel.Y", "AngVel.Z", "Radius", "HalfLen",
+    ];
 
     /// <summary>Сегмент сценария трассы поворота: до тика, желаемая скорость (x, z), курс-цель.</summary>
     public sealed record TurnSegment(int End, Vector2 Velocity, float FacingGoal);

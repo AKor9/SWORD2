@@ -1,4 +1,4 @@
-# Трассы SWORD для сверки анимации и толпы (этап 2, точки 4г и 4д)
+# Трассы SWORD для сверки анимации, толпы и тел (этап 2, точки 4г, 4д и 5б)
 
 `../anim-locomotion.trace.json` снят этой программой с **настоящего кода SWORD 2eab13b** на эталонном паке
 `Content.reference.swpak`: игрок (`Agile`) без Motion Matching — встроенный `KinematicSteer`, `FighterAnimator`
@@ -34,6 +34,31 @@ yaw, `YawDelta`, `RootDelta` (x, z), переход от снимка и хеш 
 сверяет его с SWORD2. Сверяет `tests/Sword.Game.Tests/ReferenceTraceTests.Crowd_MatchesSwordTickByTick` (каждый боец
 каждого тика) и метрики `sword-crowd-*` сценария `sword-crowd` манифеста `enemies`. Файл — одна строка JSON без перевода
 строки в конце, как и прежние трассы (3,4 МБ).
+
+**Тела толпы (точка 5б).** В трассу толпы добавлены капсулы тела каждого бойца: форма при постройке и постановка по позе.
+Постройка (`Build` программы) после сброса аниматора задаёт форму (`BuildShape` — копия части `Fighter.Build`: радиусы
+`Radii`, полудлины — половина расстояния между концами сегмента процедурной позы `ComputeTargets` от корня на высоте земли
+после `IdealFoot(leg, 0)`, `SetShape(Masses, Radii, half)`; состояние живого рэгдолла — как сразу после `Build` у
+кинематического бойца: наклоны, `_torsoYaw`, `_upperLead`, `PlanVel` — 0) и ставит тела `PlaceBodies(f, 0)` — `PlaceBuilt`
+SWORD (первая постановка без скорости по позе после `FighterAnimator.Reset`). Тик — после `ResolveRoots` `PlaceBodies(f, dt)`
+у всех бойцов (копия `DuelArena.PlaceBodies`: мир — `PoseWorld` = `KinWorld(PoseRoot, PoseFacing, Terrain.Height)`, визуального
+смещения и `BodyY` нет; `PinFeet` по пути `SWORD_FOOTLOCK=off` — аниматоры с `FootPinningEnabled = false`, фиксация стоп —
+этап 9; клинок `anim.Blade`, `JerkTrace`, `PoseHash`, `BodiesPlaced` не копируются; тела 13 — без клинка 11; `Detached` и
+`Severed` нет). Настоящие — `RigidBody` (`SetShape`, `Place`, поля), `Xpbd.RotationVector`, `Terrain` (`Height`, `Normal`),
+`AnimMath` (`FromBasis`, `Ik2Bone`), `SwordBody`, `Pose2.Rotate`, `CharacterRig` (суставы). Постановка тел в процедурную позу
+внутри `Build` (`b.Place(…, TargetRot)`) не копируется: `PlaceBuilt` тут же ставит те же тела заново, а `RigidBody.Place`
+переписывает все поля постановки и скорости.
+
+Формат (компактный: полные значения всех капсул всех тиков — около 15 млн чисел, ~160 МБ): на тик по местам
+`bodyHash` — FNV-1a по битам 13 капсул в порядке тел SWORD2 (`bodyOrder`: сегменты 0…10, 12, 13; у капсулы — `Pos`, `Rot`,
+`PrevPos`, `PrevRot`, `Vel`, `AngVel`, `Radius`, `HalfLen`), `pelvis0`, `pelvis1`, `pelvis12` — центр капсулы таза мест 0, 1 и 12
+(ряды метрик `sword-crowd-pelvis-*` манифеста `bodies`); `shapes` — форма каждой постройки (тик, место, радиусы и полудлины
+13 капсул); `samples` — все 22 числа каждой капсулы каждого бойца на тиках выборки 1, 2, 481, 601, 1241, 1401, 1402, 2701,
+3000 (постройки и конец: при расхождении хеша по ним видно поле); `summary.placements` (53 453 = 53 400 постановок тика + 53
+при постройке), `summary.maxSpeed` (12,6 м/с). Трасса выросла с 3,4 до 5,4 МБ; прежние поля не изменились (сверено по всем
+376 800 значениям тиков и полям верхнего уровня; изменён только текст `purpose`). Сверяет
+`ReferenceTraceTests.Crowd_MatchesSwordTickByTick` — хеш тела каждого бойца каждого тика, таз трёх мест, выборку по числам
+и формы построек; расхождение называет тик, место и (по выборке) капсулу и число.
 
 **Что здесь настоящий SWORD, а что — копия.** Настоящий код SWORD (подключён исходниками): `CharacterRig`,
 `FighterAnimator`, `LegacyLocomotion`, `SkeletalClips`, `AnimLibrary`, чтение пака. Переписаны в `Program.cs` вручную,
@@ -88,6 +113,8 @@ yaw, `YawDelta`, `RootDelta` (x, z), переход от снимка и хеш 
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Game\Gameplay\ArenaLayout.cs" Link="SWORD\Game\ArenaLayout.cs" />
+    <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Game\Gameplay\Terrain.cs" Link="SWORD\Game\Terrain.cs" />
+    <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Physics\**\*.cs" Exclude="D:\Work\Visual Studio\SWORD\src\Sword.Physics\obj\**;D:\Work\Visual Studio\SWORD\src\Sword.Physics\bin\**" LinkBase="SWORD\Physics" />
     <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Anim\**\*.cs" Exclude="D:\Work\Visual Studio\SWORD\src\Sword.Anim\obj\**;D:\Work\Visual Studio\SWORD\src\Sword.Anim\bin\**" LinkBase="SWORD\Anim" />
     <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Combat\**\*.cs" Exclude="D:\Work\Visual Studio\SWORD\src\Sword.Combat\obj\**;D:\Work\Visual Studio\SWORD\src\Sword.Combat\bin\**" LinkBase="SWORD\Combat" />
     <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Content\**\*.cs" Exclude="D:\Work\Visual Studio\SWORD\src\Sword.Content\obj\**;D:\Work\Visual Studio\SWORD\src\Sword.Content\bin\**" LinkBase="SWORD\Content" />
@@ -116,3 +143,6 @@ dotnet test tests/Sword.Game.Tests --filter Crowd_MatchesSwordTickByTick      # 
 `turn`) повторяет его командами — правя `TurnTrace.Segments`, поправить и манифест. На 4г программа пересобрана и трасса
 игрока снята заново — побайтно та же. На 4д программа пересобрана (с `ArenaLayout.cs` SWORD) и обе прежние трассы сняты заново
 — побайтно те же. Правя сценарий толпы в тесте, поправить и сценарий `sword-crowd` манифеста `enemies` (те же команды).
+На 5б программа пересобрана (ещё `Terrain.cs` и `Sword.Physics` SWORD ссылками): `anim-locomotion` и `anim-turn` сняты
+заново — побайтно те же; `anim-crowd` снята заново с телами. Манифест `bodies` сверяет таз по трассе на эталоне SWORD2
+`enemies.swreplay` (запись сценария `sword-crowd`): правя сценарий толпы, эталон `enemies` записать заново.

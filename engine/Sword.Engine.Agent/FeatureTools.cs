@@ -103,7 +103,7 @@ internal static class FeatureTools
     /// <summary>Окружение проверки: построитель сеанса, имена, сборка и контент сеанса.</summary>
     internal static FeatureEnvironment Environment(AgentHost host, AgentSimulation session, FeatureSetup setup) => new()
     {
-        RepoRoot = setup.RepoRoot, Build = session.Build, Info = session.Info, Names = host.Names, CaptureView = setup.CaptureView,
+        RepoRoot = setup.RepoRoot, Build = session.Build, Info = session.Info, Names = host.Names, Fields = host.Fields, CaptureView = setup.CaptureView,
         Optimized = setup.Optimized, MeasureFrame = setup.MeasureFrame,
     };
 

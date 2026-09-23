@@ -134,20 +134,35 @@
 5. Без агента: `Sword.Headless --units N --json` — у мест `action`, `actionWeight`, `yawDelta`; посмотреть глазами —
    `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay` (запись сценария `turn` после `feature.verify`).
 
-**Тела бойцов (этап 5а).** Тело бойца — сочленение из 13 кинематических капсул в подсистеме Physics; у бойца в ECS — хэндл
-`BodyRef`. До 5б тела без формы и стоят в начале координат, на экране их нет (5в).
-1. Хэндл: `entity.get {"entity":"enemy 3","components":["BodyRef"]}` → `Index`, `Generation`; тела — `state.describe
-   {"part":"physics","filter":"3v1"}` (сочленение `Index`v`Generation`: тела 0…12 — хэндл, режим, форма, постановка, прошлая
-   постановка, скорости; тело `i` — сегмент `BodySegs.Segment(i)`: 0…10 — pelvis…shin.r, 11 — foot.l, 12 — foot.r);
-   сводка и свободные слоты — `{"part":"physics","filter":"slots"}`. Хеш тел — участник `physics` в `state.hash`.
-2. Кто заводит и освобождает тело: `ecs.componentUsage {"name":"BodyRef"}` — `hooks` (OnAdd и OnRemove ядра: на барьере,
-   где `BodyRef` появился или пропал) и системы, которые добавляют `BodyRef` (постройка бойца).
-3. Согласованность держит `physics.bodyRefs` (после End: у каждого бойца тело из 13 капсул, у тела ровно один владелец,
-   ничьих тел нет), конечность — `physics.finite` (после Physics): `time.breakOnInvariant {"ids":["physics.bodyRefs"]}`,
-   `invariant.run {"ids":["physics.finite","physics.bodyRefs"]}`. Сколько тел — `world.query {"with":["BodyRef"],"take":0}`
-   (должно быть бойцов) и `articulations` в описании `physics`.
-4. Команды арены: PageDown — тело ушедшего освобождено (сочленение из описания пропало), PageUp — новое (тот же слот, новое
-   поколение), R — те же тела на тех же сущностях. Приёмка — `feature.verify {"id":"bodies"}` (`Sword.Headless --feature bodies`).
+**Тела бойцов (этап 5: 5а — тела, 5б — капсулы по позе).** Тело бойца — сочленение из 13 кинематических капсул в подсистеме
+Physics; у бойца в ECS — хэндл `BodyRef`. С 5б капсулы стоят на суставах позы тика (PrePhysics) с формой постройки; на
+экране их нет до 5в. До первого тика (сборка мира) тела без формы в начале координат — постройку сборки мира ставит тик 1.
+1. Тело бойца по сегментам: `physics.bodies {"entity":"enemy 3"}` — 13 капсул с именами (`forearm.l` — «левое предплечье»),
+   центр, концы оси A и B, поворот, скорость и её модуль, угловая скорость, прошлая постановка, радиус, полудлина; `fastest` —
+   самая быстрая капсула; `"segments":["foot.l","foot.r"]` — только эти. Слоты, поколения и хэндлы тел — `state.describe
+   {"part":"physics","filter":"3v1"}` (сочленение `Index`v`Generation` из `BodyRef`; тело `i` — сегмент `BodySegs.Segment(i)`:
+   0…10 — pelvis…shin.r, 11 — foot.l, 12 — foot.r); свободные слоты — `{"part":"physics","filter":"slots"}`. Хеш тел — участник
+   `physics` в `state.hash`.
+2. Кто заводит и освобождает тело: `ecs.componentUsage {"name":"BodyRef"}` — `hooks` (OnAdd и OnRemove ядра). Кто ставит:
+   `ecs.explainSystem {"name":"core.body-setup"}` (Gameplay, по `Added<Fighter>`: форма и постановка без скорости по позе
+   постройки — ресурс `StartPose` в `state.describe {"part":"ecs"}`), `core.kinematic-placement` (PrePhysics: капсулы по позе
+   тика, скорость — разность за тик).
+3. Что держится всегда: `physics.kinematicPose` (после PrePhysics: центр капсулы — середина её суставов в мире бойца, ось —
+   вдоль них; ловит пропущенную постановку и тело, сдвинутое после неё), `physics.kinematicSpeed` (после PrePhysics: скорость
+   капсулы относительно бойца — до 30 м/с, угловая — до 150 рад/с; ловит постройку без постановки и обменявшиеся тела),
+   `physics.bodyRefs` (после End: у каждого бойца тело из 13 капсул, ровно один владелец, ничьих нет), `physics.finite`
+   (после Physics). Встать на нарушении — `time.breakOnInvariant {"ids":["physics.kinematicSpeed"]}`, затем `physics.bodies`.
+   `invariant.run` до первого тика и посреди тика до PrePhysics (`time.break` на Begin…Movement) `physics.kinematicPose` не
+   сверяет: постановки этого тика ещё не было (тела сборки мира ставит тик 1).
+4. Числа тела в метриках манифеста (`feature.verify`) — вычисляемые поля `Body.<сегмент>.<поле>[.X|.Y|.Z|.W]` (`Position`,
+   `Rotation`, `PrevPosition`, `Velocity`, `AngularVelocity`, `EndA`, `EndB`, `Radius`, `HalfLength`) и `Body.MaxSpeed`,
+   `Body.MaxAngularSpeed` (Game.Agent `BodyFields`; компонента — только `X`, `Y`, `Z`, `W`, опечатка — ошибка). В условиях
+   проверок и `watch.add` их нет — там только компоненты.
+5. Сверка с SWORD: трасса толпы (`tests/reference/anim-crowd.trace.json`, README трассы) — хеш 13 капсул каждого бойца
+   каждого тика; при расхождении `ReferenceTraceTests.Crowd_MatchesSwordTickByTick` называет тик и место, число капсулы —
+   по `samples` (тики выборки). Метрики `sword-crowd-pelvis-*` манифеста `bodies` — таз игрока и врагов 1 и 12.
+6. Команды арены: PageDown — тело ушедшего освобождено, PageUp — новое (тот же слот, новое поколение), R — те же тела на тех
+   же сущностях, форма и постановка — заново. Приёмка — `feature.verify {"id":"bodies"}` (`Sword.Headless --feature bodies`).
 
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;

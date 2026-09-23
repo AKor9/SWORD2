@@ -464,9 +464,11 @@
     // 4д: пределы — около 2× к медиане замера на этой машине (Ryzen 7 7800X3D, RTX 5070, Release; README.md, «Бюджеты»):
     // тик 0,077 мс (23 прогона: 0,0766…0,0782), Animation 0,068, Movement 0,0040, Intent 0,0025, Gameplay 0,0014; кадр App
     // на записи сценария 640×480 — средний 0,37 мс, p99 0,81 (6 прогонов). Было на 4а–4г: 0,3 мс/тик и Animation 0,25.
+    // 5б (капсулы по позе — 33 × 13 тел): тик 0,104 мс (3 прогона: 0,1037…0,1048), PrePhysics 0,027 — предел 0,055 (~2×);
+    // тик по-прежнему в пределе 0,16. Фича «Физика и тела» — README, «Бюджеты и замеры».
     {
       "id": "crowd", "scenario": "crowd", "msPerTick": 0.16,
-      "stages": { "Animation": 0.14, "Movement": 0.01, "Intent": 0.006, "Gameplay": 0.004 },
+      "stages": { "Animation": 0.14, "Movement": 0.01, "Intent": 0.006, "Gameplay": 0.004, "PrePhysics": 0.055 },
       "allocatedBytesPerTick": 0, "repeats": 5,
       "frame": { "averageMs": 1.0, "p99Ms": 2.5, "seconds": 5 }
     }

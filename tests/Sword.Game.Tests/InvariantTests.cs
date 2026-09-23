@@ -14,7 +14,8 @@ namespace Sword.Game.Tests;
 public enum GameFault
 {
     NaNRoot, NaNPose, LatePoseJob, BrokenPoseRef, SharedLocomotionPose, RootInsideNeighbour, RootsPressed,
-    NaNBody, BrokenBodyRef, SharedBodyRef, OrphanArticulation, FighterWithoutBody,
+    NaNBody, BrokenBodyRef, SharedBodyRef, OrphanArticulation, FighterWithoutBody, BodyMovedAfterPlacement, BodyJumpBeforePlacement,
+    SwappedBodyRefs,
 }
 
 /// <summary>
@@ -48,6 +49,11 @@ public sealed class GameFaultModule(GameFault fault) : IModule
             case GameFault.SharedBodyRef: b.System(GameStages.End, new BodyRefFault(shared: true)); break;
             case GameFault.OrphanArticulation: b.System(GameStages.End, new OrphanArticulation()); break;
             case GameFault.FighterWithoutBody: b.System(GameStages.End, new FighterWithoutBody()); break;
+            case GameFault.BodyMovedAfterPlacement:
+                b.System(GameStages.PrePhysics, new ShiftPlayerBody(new Vector3(0, 0.1f, 0), after: GameLabels.KinematicPlacement, onlyPelvis: true)); break;
+            case GameFault.BodyJumpBeforePlacement:
+                b.System(GameStages.Gameplay, new ShiftPlayerBody(new Vector3(5, 0, 0), after: GameLabels.BodySetup, onlyPelvis: false)); break;
+            case GameFault.SwappedBodyRefs: b.System(GameStages.End, new SwapBodyRefs()); break;
         }
     }
 
@@ -185,6 +191,71 @@ public sealed class GameFaultModule(GameFault fault) : IModule
         }
     }
 
+    /// <summary>
+    /// Тело игрока сдвинуто на <paramref name="offset"/> без скорости (<see cref="IPhysicsWorld.Place"/>) на тике
+    /// <see cref="Tick"/> после <paramref name="after"/>: в PrePhysics после постановки — капсула таза не на суставах
+    /// (<c>physics.kinematicPose</c>); в Gameplay до постановки — все капсулы «прилетают» из стороны (как постройка без постановки,
+    /// <c>physics.kinematicSpeed</c>).
+    /// </summary>
+    private sealed class ShiftPlayerBody(Vector3 offset, SystemLabel after, bool onlyPelvis) : IContinuousSystem
+    {
+        private Query _query = null!;
+
+        public void Setup(SystemSetup s)
+        {
+            s.Label(new SystemLabel("fault.shift-player-body")).After(after).Reads<BodyRef>();
+            _query = s.Query().With<PlayerTag>().Read<BodyRef>();
+        }
+
+        public void Run(in SystemContext ctx)
+        {
+            if (!Now(ctx)) return;
+            var physics = ctx.World.Resource<IPhysicsWorld>();
+            foreach (var chunk in ctx.Iterate(_query))
+                foreach (var r in chunk.Read<BodyRef>())
+                    for (int k = 0; k < (onlyPelvis ? 1 : BodySegs.Bodies); k++)
+                    {
+                        var b = physics.Body(new ArticulationHandle(r.Index, r.Generation), k);
+                        var st = physics.Get(b);
+                        physics.Place(b, st.Position + offset, st.Rotation);
+                    }
+        }
+    }
+
+    /// <summary>End: хэндлы тел игрока и врага 1 обменялись — у каждого по одному телу, но чужому (<c>physics.bodyRefs</c> не видит).</summary>
+    private sealed class SwapBodyRefs : IContinuousSystem
+    {
+        private Query _query = null!;
+
+        public void Setup(SystemSetup s)
+        {
+            s.Label(new SystemLabel("fault.swap-body-refs")).Writes<BodyRef>().Reads<FighterSlot>();
+            _query = s.Query().Read<FighterSlot>().Write<BodyRef>();
+        }
+
+        public void Run(in SystemContext ctx)
+        {
+            if (ctx.World.Resource<SimTime>().Tick != Tick - 1) return;   // обмен в конце тика 24 — постановка тика 25 его увидит
+            BodyRef player = default, enemy = default;
+            foreach (var chunk in ctx.Iterate(_query))
+            {
+                var slots = chunk.Read<FighterSlot>();
+                var refs = chunk.Write<BodyRef>();
+                for (int i = 0; i < refs.Length; i++)
+                    if (slots[i].Index == 0) player = refs[i];
+                    else if (slots[i].Index == 1) enemy = refs[i];
+            }
+            foreach (var chunk in ctx.Iterate(_query))
+            {
+                var slots = chunk.Read<FighterSlot>();
+                var refs = chunk.Write<BodyRef>();
+                for (int i = 0; i < refs.Length; i++)
+                    if (slots[i].Index == 0) refs[i] = enemy;
+                    else if (slots[i].Index == 1) refs[i] = player;
+            }
+        }
+    }
+
     /// <summary>End: хэндл тела игрока испорчен (поколение +100) или указывает на тело врага 1.</summary>
     private sealed class BodyRefFault(bool shared) : IContinuousSystem
     {
@@ -271,7 +342,8 @@ public sealed class GameFaultModule(GameFault fault) : IModule
 public sealed class GameInvariantTests
 {
     private static Simulation Build(GameFault fault) =>
-        Simulation.Build(fault is GameFault.RootInsideNeighbour or GameFault.RootsPressed or GameFault.SharedBodyRef ? ConfigSet.Empty("arena.enemies=2") : ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
+        Simulation.Build(fault is GameFault.RootInsideNeighbour or GameFault.RootsPressed or GameFault.SharedBodyRef or GameFault.SwappedBodyRefs
+                ? ConfigSet.Empty("arena.enemies=2") : ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
             [.. SwordSimulation.Modules(), new GameFaultModule(fault)]);
 
     [Theory]
@@ -287,6 +359,9 @@ public sealed class GameInvariantTests
     [InlineData(GameFault.SharedBodyRef, "physics.bodyRefs", GameStages.End, "— ещё и у")]
     [InlineData(GameFault.OrphanArticulation, "physics.bodyRefs", GameStages.End, "(2 тел) без владельца")]
     [InlineData(GameFault.FighterWithoutBody, "physics.bodyRefs", GameStages.End, "боец без тела (BodyRef)")]
+    [InlineData(GameFault.BodyMovedAfterPlacement, "physics.kinematicPose", GameStages.PrePhysics, "капсула pelvis (таз) не на суставах позы: центр в 0.1 м")]
+    [InlineData(GameFault.BodyJumpBeforePlacement, "physics.kinematicSpeed", GameStages.PrePhysics, "капсула pelvis (таз): скорость относительно бойца 600")]
+    [InlineData(GameFault.SwappedBodyRefs, "physics.kinematicSpeed", GameStages.PrePhysics, "скорость относительно бойца")]
     public void Fault_CaughtOnItsTick_AfterItsStage(GameFault fault, string id, string stage, string details)
     {
         var sim = Build(fault);
@@ -299,7 +374,9 @@ public sealed class GameInvariantTests
         Assert.Equal(0, sim.Invariants.Total);                           // до неисправности — чисто
         sim.Enqueue(new PlayerCommand { Move = new Vector2(0, 1) });
         sim.Step();
-        var first = sim.Invariants.Recent()[0];
+        // Нарушение этого инварианта — на тике неисправности после своей стадии (раньше него в том же тике может сработать
+        // другой: NaN корня с 5б доходит до капсул и physics.finite видит его после Physics, до ecs.finite в конце тика).
+        var first = sim.Invariants.Recent().First(v => v.Id == id);
         Assert.Equal((id, GameFaultModule.Tick, stage), (first.Id, first.Tick, first.Stage));
         Assert.Contains(details, first.Details);
     }
@@ -327,7 +404,7 @@ public sealed class GameInvariantTests
     public void FairGame_NoViolations_AllCoreInvariantsChecked()
     {
         var sim = TestAssets.Simulation();
-        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.bodyRefs", "locomotion.poses"],
+        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "locomotion.poses"],
             sim.Invariants.List().Select(i => i.Id));
         for (int t = 0; t < 400; t++)
         {
@@ -337,5 +414,50 @@ public sealed class GameInvariantTests
         Assert.True(sim.Invariants.Total == 0, string.Join("\n", sim.Invariants.Recent()));
         Assert.All(sim.Invariants.List().Where(i => i.Enabled), i => Assert.Equal(400, i.Evaluations));
         Assert.DoesNotContain(sim.Invariants.Run(["ecs.entityRefs"], sim.Tick, "между тиками", sim.Dt), r => r.Violations > 0);
+    }
+
+    /// <summary>
+    /// Проверка «сейчас» (<c>invariant.run</c> агента) до первого тика (свежий сеанс, <c>time.seek 0</c>) и посреди тика после
+    /// каждой стадии (<c>time.break</c>) — все инварианты чисты: тела бойцов сборки мира ставит тик 1 (5б), а
+    /// <c>physics.kinematicPose</c> до первого тика и посреди тика до PrePhysics (корень, курс и поза уже новые, капсулы —
+    /// ещё прошлого тика) не сверяет капсулы с позой.
+    /// </summary>
+    [Fact]
+    public void RunNow_BeforeFirstTickAndMidTick_NoViolations()
+    {
+        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=12"));
+        var results = sim.Invariants.Run(null, sim.Tick, "между тиками", sim.Dt);
+        Assert.Contains(results, r => r.Id == "physics.kinematicPose");
+        Assert.True(results.All(r => r.Violations == 0), string.Join("\n", results.SelectMany(r => r.Details)));
+        var probe = new RunNowProbe();
+        sim.Observe(probe);
+        for (int t = 0; t < 30; t++)
+        {
+            sim.Enqueue(new PlayerCommand { Move = new Vector2(1, 0.5f) });
+            sim.Step();
+            results = sim.Invariants.Run(null, sim.Tick, "между тиками", sim.Dt);
+            Assert.True(results.All(r => r.Violations == 0), string.Join("\n", results.SelectMany(r => r.Details)));
+        }
+        Assert.Equal(30 * GameStages.All.Count, probe.Runs);
+        Assert.True(probe.Violations.Count == 0, string.Join("\n", probe.Violations));
+    }
+
+    /// <summary>После барьера каждой стадии — все инварианты «сейчас», как <c>invariant.run</c> после <c>time.break</c>.</summary>
+    private sealed class RunNowProbe : ISimulationObserver
+    {
+        public int Runs;
+        public readonly List<InvariantViolation> Violations = [];
+
+        public void AfterStage(Simulation simulation, int stage)
+        {
+            string name = simulation.World.Stages[stage];
+            if (!GameStages.All.Contains(name)) return;
+            Runs++;
+            foreach (var r in simulation.Invariants.Run(null, simulation.Tick, name, simulation.Dt)) Violations.AddRange(r.Details);
+        }
+
+        public void AfterTick(Simulation simulation)
+        {
+        }
     }
 }

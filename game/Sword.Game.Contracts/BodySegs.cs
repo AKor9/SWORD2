@@ -49,4 +49,31 @@ public static class BodySegs
         FootR => "foot.r",
         _ => segment.ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
+
+    /// <summary>Сегмент по имени <see cref="Name"/> (без учёта регистра); нет такого — −1.</summary>
+    public static int Find(string name)
+    {
+        for (int body = 0; body < Bodies; body++)
+            if (string.Equals(Name(Segment(body)), name, StringComparison.OrdinalIgnoreCase)) return Segment(body);
+        return -1;
+    }
+
+    /// <summary>Название сегмента по-русски для людей (агент, ID-буфер: «левое предплечье врага 3»); нет такого — номер.</summary>
+    public static string Title(int segment) => segment switch
+    {
+        Pelvis => "таз",
+        Torso => "торс",
+        Head => "голова",
+        UArmL => "левое плечо",
+        FArmL => "левое предплечье",
+        UArmR => "правое плечо",
+        FArmR => "правое предплечье",
+        ThighL => "левое бедро",
+        ShinL => "левая голень",
+        ThighR => "правое бедро",
+        ShinR => "правая голень",
+        FootL => "левая стопа",
+        FootR => "правая стопа",
+        _ => segment.ToString(System.Globalization.CultureInfo.InvariantCulture),
+    };
 }

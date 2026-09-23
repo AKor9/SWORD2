@@ -27,6 +27,7 @@ SWORD 2eab13b, `Sword.Combat/LegacyLocomotion.cs` — без изменений 
 | при смене клипа снимок — пересэмплирование текущей позы (`Sample` → `_fromRot`) | задание `Copy(From ← Layer)`: слой ещё держит итог прошлого тика — это та же поза побитово |
 | `ILocomotionSource`, `FighterAnimator.SetLocomotion` | нет: модуль пишет позу системой в стадии Animation (раздел 7 плана — без стратегий) |
 | `FighterAnimator.Reset` → `Tick(0)` | `LegacyLocomotion.Start`: стойка с нулевого момента без кроссфейда — то же состояние; `LegacyLocomotion.Reset` не трогает `_dir` — боец, построенный заново на той же сущности (сброс R), сохраняет сторону `Dir` (найдено трассой толпы 4д) |
+| поза после `Reset` → `Tick(0)` — по ней `PlaceBuilt` ставит тело (5б) | модуль при сборке мира задаёт ресурс ядра `StartPose` (клип и момент `Start`: стойка с нуля); ядро ставит по нему капсулы тела при постройке. Без модуля — поза привязки |
 | `FootDown` (касание стоп по разметке клипа) | не перенесено: нужно фиксации стоп и следам крови (этапы 9, 12) |
 
 Сверка — `tests/Sword.Game.Tests/ReferenceTraceTests`: 900 тиков сценария игрока против трассы настоящего кода SWORD на
@@ -39,6 +40,10 @@ SWORD 2eab13b, `Sword.Combat/LegacyLocomotion.cs` — без изменений 
 | Gameplay | `locomotion.setup` (`LegacyLocomotionSetupSystem`) | реактивная `Added<Fighter>`: состояние (командой, без поз); боец построен заново на той же сущности (сброс арены, точка 4а) — состояние с нуля (`Set`, как `FighterAnimator.Reset` SWORD), кроме стороны `Dir` (её SWORD не сбрасывает, 4д), позы слоя и снимка прежние |
 | Animation | `locomotion.legacy` (`LegacyLocomotionSystem`), до `core.animator-pose` | непрерывная: на первом тике бойца — две позы из пула (слой и снимок), дальше выбор клипа, задания пулу |
 | End | `locomotion.release` (`LegacyLocomotionReleaseSystem`) | реактивная `Removed<LegacyLocomotionState>`: позы — в пул |
+
+Поза постройки (5б): при сборке мира модуль ставит ресурс `StartPose` (`Game.Contracts`) — клип и момент, с которых
+начинает слой локомоции (`LegacyLocomotion.Start`: стойка с нулевого момента). По нему ядро ставит капсулы тела бойца при
+постройке (`PlaceBuilt` SWORD, фича [«Физика и тела»](../../Sword.Game/Features/Bodies/README.md)); сверено трассой толпы SWORD.
 
 Инвариант модуля `locomotion.poses` (`LocomotionPosesInvariant`, после End, каждый тик): позы слоя и снимка живые,
 свои у каждого бойца и не совпадают с его итоговой позой. Пул модуль видит только видом `IAnimationView` (живая поза —

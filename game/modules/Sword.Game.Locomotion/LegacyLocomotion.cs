@@ -214,6 +214,13 @@ public sealed class LocomotionModule : IModule
             .System(GameStages.Gameplay, new LegacyLocomotionSetupSystem())
             .System(GameStages.Animation, new LegacyLocomotionSystem())
             .System(GameStages.End, new LegacyLocomotionReleaseSystem())
-            .Invariant(new LocomotionPosesInvariant());
+            .Invariant(new LocomotionPosesInvariant())
+            // Поза постройки бойца (FighterAnimator.Reset → Tick(0) SWORD) — начало слоя локомоции: стойка с нулевого момента
+            // (Start). По ней ядро ставит тело при постройке (5б); без модуля — поза привязки.
+            .OnWorldBuilt(w =>
+            {
+                var start = LegacyLocomotion.Start(w.Resource<ActionTable>());
+                w.SetResourceImmediate(new StartPose { Clip = start.Clip, Time = start.Time });
+            });
     }
 }

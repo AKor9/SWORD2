@@ -21,6 +21,9 @@ public sealed class FeatureEnvironment
 
     public IEntityNames? Names { get; init; }
 
+    /// <summary>Вычисляемые поля игры (капсулы тела и т. п.) — метрики читают их как поля компонентов; null — только компоненты.</summary>
+    public IEntityFields? Fields { get; init; }
+
     /// <summary>Снять вид в App; null — App нет (виды не снимаются, это провал, если их просили).</summary>
     public Func<ViewRequest, CancellationToken, ViewResult>? CaptureView { get; init; }
 
@@ -294,7 +297,7 @@ public static class FeatureVerifier
                     if (_series.ContainsKey((m.Entity, field))) continue;
                     var values = new double[ticks + 1];
                     _series[(m.Entity, field)] = values;
-                    probes.Add((new FieldProbe(catalog, env.Names, m.Entity, field, $"метрика {m.Id}"), values));
+                    probes.Add((new FieldProbe(catalog, env.Names, m.Entity, field, $"метрика {m.Id}", env.Fields), values));
                 }
             foreach (var (p, values) in probes) values[0] = p.Read(ctx);
 
@@ -665,14 +668,23 @@ public sealed class FieldProbe
     private readonly IEntityNames? _names;
     private readonly string _entityText;
     private readonly int _component;
-    private readonly FieldLayout _layout;
-    private readonly int[] _leaves;
+    private readonly FieldLayout _layout = null!;
+    private readonly int[] _leaves = [];
+    private readonly EntityFieldReader? _computed;
     private Entity? _entity;
 
-    public FieldProbe(Catalog catalog, IEntityNames? names, string entity, string field, string at)
+    /// <param name="fields">Вычисляемые поля игры: путь, который они понимают, читается ими (не компонентом).</param>
+    public FieldProbe(Catalog catalog, IEntityNames? names, string entity, string field, string at, IEntityFields? fields = null)
     {
         _names = names;
         _entityText = entity;
+        EntityName = entity;
+        FieldPath = field;
+        if (fields?.Compile(field, at) is { } computed)
+        {
+            _computed = computed;
+            return;
+        }
         var (component, rest) = ObservationPredicate.SplitComponent(catalog, field, at);
         if (component.IsTag) throw new ArgumentException($"{at}: {component.Name} — метка без полей");
         _component = component.Id;
@@ -681,8 +693,6 @@ public sealed class FieldProbe
         foreach (int leaf in _leaves)
             if (_layout.Leaves[leaf].Kind is FieldLayout.Kind.Entity or FieldLayout.Kind.Bool or FieldLayout.Kind.Char)
                 throw new ArgumentException($"{at}: {field} — не число");
-        EntityName = entity;
-        FieldPath = field;
     }
 
     public string EntityName { get; }
@@ -697,6 +707,7 @@ public sealed class FieldProbe
             if (_entity is not { } found || !world.IsAlive(found)) return double.NaN;
             e = found;
         }
+        if (_computed is not null) return _computed(ctx, e);
         if (!world.TryRead(e, _component, out var bytes)) return double.NaN;
         if (_leaves.Length == 1) return ObservationPredicate.Number(_layout.Leaves[_leaves[0]].Kind, _layout.Bits(bytes, _leaves[0]));
         double sum = 0;

@@ -19,6 +19,27 @@ public interface IEntityNames
     IReadOnlyList<string> Known { get; }
 }
 
+/// <summary>
+/// Вычисляемые поля сущностей игры (раздел 8): числа, которых нет в компонентах, — например, капсулы тела бойца в подсистеме
+/// физики (<c>Body.forearm.l.Position.X</c>). Их знает игра (Game.Agent), движок — нет. Метрики манифеста фичи
+/// (<see cref="FieldProbe"/>) читают их как поля компонентов; исполняется в точке обслуживания — только чтение мира.
+/// </summary>
+public interface IEntityFields
+{
+    /// <summary>
+    /// Читатель поля <paramref name="path"/>: число сущности (несколько листьев — длина вектора); сущности нет или поле у
+    /// неё не определено — <see cref="double.NaN"/>. Путь — не поле этой игры (другой первый сегмент) — null; ошибка в пути
+    /// поля игры — <see cref="ArgumentException"/> (с <paramref name="at"/>).
+    /// </summary>
+    EntityFieldReader? Compile(string path, string at);
+
+    /// <summary>Какие поля понимает <see cref="Compile"/> (для подсказок).</summary>
+    IReadOnlyList<string> Known { get; }
+}
+
+/// <summary>Значение вычисляемого поля сущности <paramref name="entity"/> (<see cref="IEntityFields"/>).</summary>
+public delegate double EntityFieldReader(in ServiceContext context, Entity entity);
+
 /// <summary>Сущность с копиями байтов её компонентов — ответ точки обслуживания (разбирается уже на потоке агента).</summary>
 public sealed record EntityCopy(Entity Entity, string? Name, IReadOnlyList<(int Component, byte[] Bytes)> Values);
 

@@ -71,6 +71,18 @@ public static class GameLabels
     public static readonly SystemLabel RootControl = new("core.root-control");
     public static readonly SystemLabel RootCollision = new("core.root-collision");
 
+    /// <summary>
+    /// Gameplay, до <see cref="RootSteer"/>: построенному бойцу (<c>Added&lt;Fighter&gt;</c>) — форма тела и постановка капсул
+    /// без скорости по позе постройки в корне постройки (<c>Fighter.Build</c>, <c>PlaceBuilt</c> SWORD; 5б).
+    /// </summary>
+    public static readonly SystemLabel BodySetup = new("core.body-setup");
+
+    /// <summary>
+    /// PrePhysics: капсулы тела живого бойца — на суставы позы этого тика в корне после Movement (<c>PlaceBodies</c> SWORD;
+    /// 5б), скорости — разностью с прошлой постановкой.
+    /// </summary>
+    public static readonly SystemLabel KinematicPlacement = new("core.kinematic-placement");
+
     /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
     public static readonly SystemLabel ActionRelease = new("core.action-release");
 }

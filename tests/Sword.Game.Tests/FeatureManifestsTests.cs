@@ -88,7 +88,7 @@ public sealed class FeatureManifestsTests
         var report = FeatureVerifier.Verify(manifest, new FeatureEnvironment
         {
             RepoRoot = RepoRoot(), Build = Build, Info = new ReplayInfo("1.0.0+test", "tests", Reference.Value.Content),
-            Names = new Agent.SwordAgent.ArenaNames(), Optimized = false,
+            Names = new Agent.SwordAgent.ArenaNames(), Fields = new Agent.BodyFields(), Optimized = false,
         }, new FeatureVerifyOptions { OutputDirectory = dir, Views = false });
         Assert.True(report.Ok, $"{id}: {string.Join("\n", report.Failures)}");
     }

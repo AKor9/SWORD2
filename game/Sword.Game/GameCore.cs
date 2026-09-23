@@ -20,11 +20,14 @@ namespace Sword.Game;
 /// (<see cref="RootCollisionSystem"/>, инвариант <see cref="RootOverlapInvariant"/> — этап 4в); слой действий аниматора — поворот
 /// врага на месте клипом (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>) и команда врагу (<see cref="EnemyCommand"/>)
 /// — этап 4г; тело бойца — сочленение капсул в подсистеме Physics за <see cref="BodyRef"/>, время жизни — хуками ECS
-/// (<see cref="FighterBodies"/>, участник хеша <c>physics</c>, инварианты <c>physics.*</c> — этап 5а). Регистрации ядра — без токена модуля.
+/// (<see cref="FighterBodies"/>, участник хеша <c>physics</c>, инварианты <c>physics.*</c> — этап 5а); форма тела и постановка
+/// при постройке (<see cref="BodySetupSystem"/>), капсулы по позе тика (<see cref="KinematicPlacementSystem"/>, PrePhysics),
+/// поза постройки (<see cref="StartPose"/>), вид тел <see cref="IBodyView"/> — 5б. Регистрации ядра — без токена модуля.
 ///
 /// Порядок <c>KinematicBegin</c> SWORD — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
 /// без поз по новой скорости: слой движения и шаг действия (Gameplay) → слои позы (локомоция, действие) и прямая
-/// кинематика, пул поз исполняет задания (Animation) → поворот курса клипом, перенос корня и столкновения (Movement).
+/// кинематика, пул поз исполняет задания (Animation) → поворот курса клипом, перенос корня и столкновения (Movement); затем
+/// <c>PlaceBodies</c> — капсулы тела по позе тика (PrePhysics).
 /// </summary>
 public static class GameCore
 {
@@ -34,6 +37,7 @@ public static class GameCore
         var poses = new PosePool(assets.Clips);   // пул поз — у каждой симуляции свой: ассеты только читаются
         // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 13 тел), дальше растёт удвоением.
         var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies);
+        var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
@@ -43,14 +47,14 @@ public static class GameCore
             .Component<PoseRef>().Component<AnimatorMotion>().Component<AnimatorAction>().Component<ActionPoses>().Component<BodyRef>()
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
-            .Resource<IPhysicsWorld>(physics)
-            .ReadView<IAnimationView>(new AnimationView(poses))
+            .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 })
+            .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics))
             .StateContributor(new AnimationState(poses))
             .StateContributor(new PhysicsState(physics))
             .Invariants(AnimationInvariants.For(poses, assets.Actions))
             .Invariant(new ArenaSlotsInvariant())
             .Invariant(new RootOverlapInvariant())
-            .Invariants(PhysicsInvariants.For(physics))
+            .Invariants(PhysicsInvariants.For(physics, poses, joints))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>();
         FighterBodies.Register(b, physics);
@@ -60,6 +64,7 @@ public static class GameCore
             .System(GameStages.Intent, new PlayerCommandSystem())
             .System(GameStages.Intent, new EnemyAiSystem())
             .System(GameStages.Gameplay, new FighterSetupSystem())
+            .System(GameStages.Gameplay, new BodySetupSystem(physics, joints))
             .System(GameStages.Gameplay, new EnemyCommandSystem())
             .System(GameStages.Gameplay, new RootSteerSystem())
             .System(GameStages.Gameplay, new AnimatorInputSystem())
@@ -67,6 +72,7 @@ public static class GameCore
             .System(GameStages.Animation, new AnimationTickSystem())
             .System(GameStages.Movement, new RootControlSystem())
             .System(GameStages.Movement, new RootCollisionSystem())
+            .System(GameStages.PrePhysics, new KinematicPlacementSystem(physics, joints))
             .System(GameStages.End, new PoseReleaseSystem())
             .System(GameStages.End, new ActionPoseReleaseSystem());
 

@@ -15,7 +15,9 @@ public static class SwordAgent
     public static void Register(AgentHost host)
     {
         host.Names = new ArenaNames();
+        host.Fields = new BodyFields();
         AnimationTools.Register(host);
+        PhysicsTools.Register(host);
     }
 
     /// <summary>

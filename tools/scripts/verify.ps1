@@ -45,7 +45,7 @@
       agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
                             (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
                             time.step, игрок ушёл по +X, ecs.explainSystem, играет клип бега (anim.clips по номеру
-                            из LegacyLocomotionState), anim.pose, state.hash, state.describe; реплеи (этап 3б) —
+                            из LegacyLocomotionState), anim.pose, physics.bodies (5б), state.hash, state.describe; реплеи (этап 3б) —
                             replay.save, time.seek назад и вперёд к тому же хешу, session.start с реплеем — совпал,
                             replay.check; этап 3д — feature.list, feature.verify, experiment.fork (ветка с другой
                             командой расходится на тике после неё), experiment.compare; session.stop — выход 0;
@@ -561,7 +561,7 @@ Add-Step 'agent-smoke' {
         if ($init.result.protocolVersion -ne '2025-06-18') { $problems += "Headless: протокол $($init.result.protocolVersion)" }
         Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
         $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
-        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'state.hash', 'state.describe',
+        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'physics.bodies', 'state.hash', 'state.describe',
                 'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek',
                 'time.break', 'watch.add', 'watch.list', 'watch.remove', 'entity.history', 'events.history', 'world.snapshot', 'world.diff', 'replay.observe',
                 'invariant.list', 'invariant.enable', 'invariant.run', 'invariant.define', 'time.breakOnInvariant',
@@ -591,6 +591,12 @@ Add-Step 'agent-smoke' {
         if ([int]$described.matched -lt 3 -or -not @($described.items)[0].pelvis) { $problems += "Headless: state.describe animation — поз $($described.matched)" }
         $pelvisY = @($pose.joints)[0].model[1]
         if (-not ($pelvisY -gt 0.5) -or $pose.pool.poses -lt 3) { $problems += "Headless: anim.pose — таз на $pelvisY м, поз в пуле $($pose.pool.poses)" }
+        # Этап 5б: капсулы тела бегущего игрока — на позе (таз над землёй), 13 штук, самая быстрая — не стоит.
+        $bodies = Call-Stdio 'physics.bodies' @{ entity = 'player'; segments = @('pelvis') }
+        $capsuleY = @($bodies.capsules)[0].position[1]
+        if ($bodies.bodyCount -ne 13 -or -not ($capsuleY -gt 0.5) -or -not ($bodies.fastest.speed -gt 1)) {
+            $problems += "Headless: physics.bodies — тел $($bodies.bodyCount), таз на $capsuleY м, быстрее всех $($bodies.fastest | ConvertTo-Json -Compress)"
+        }
         # Этап 3б: запись сеанса, перемотка назад и вперёд к тому же хешу, новая симуляция из реплея, сверка реплея.
         $saved = Call-Stdio 'replay.save' @{ name = 'smoke' }
         if ($saved.ticks -ne 120 -or $saved.hashes -ne 121) { $problems += "Headless: replay.save — тиков $($saved.ticks), хешей $($saved.hashes)" }
