@@ -1,4 +1,4 @@
-# Трассы SWORD для сверки анимации, толпы и тел (этап 2, точки 4г, 4д и 5б)
+# Трассы SWORD для сверки анимации, толпы и тел (этап 2, точки 4г, 4д, 5б и 5г)
 
 `../anim-locomotion.trace.json` снят этой программой с **настоящего кода SWORD 2eab13b** на эталонном паке
 `Content.reference.swpak`: игрок (`Agile`) без Motion Matching — встроенный `KinematicSteer`, `FighterAnimator`
@@ -59,6 +59,19 @@ SWORD (первая постановка без скорости по позе �
 376 800 значениям тиков и полям верхнего уровня; изменён только текст `purpose`). Сверяет
 `ReferenceTraceTests.Crowd_MatchesSwordTickByTick` — хеш тела каждого бойца каждого тика, таз трёх мест, выборку по числам
 и формы построек; расхождение называет тик, место и (по выборке) капсулу и число.
+
+**Рельеф (точка 5г).** `../anim-terrain.trace.json` снята той же программой в режиме `crowd` — без изменений кода: вход
+(`terrain.input.json`, его пишет `ReferenceTraceTests.Terrain_MatchesSwordTickByTick`, сценарий `ReferenceTraceTests.Terrain`)
+— ноль врагов, зерно 1, без команд арены, команды игрока: бег на склон (0, 18) до вершины 1,6 м, бег на ступенчатую пирамиду
+(−16, 0) и стойка на верхнем ярусе, спуск шагом по ступеням на запад до земли, бег через угол пирамиды на ухабы (0, −18) и
+стойка на них (2800 тиков). Тела игрока — в мире бойца на высоте `Terrain.Height` под корнем (`KinWorld`): склон, кромки
+ступеней вверх и вниз (скачок мира бойца на 12 см за тик — так SWORD без модуля постановки стоп, `SWORD_FOOTIK=off`, как и весь путь трассы; по
+умолчанию SWORD сглаживает высоту тела модулем FootPlacement — `BodyY`/`BodyPlacer`, этап 9), ухабы.
+Итог прогона: бойцов 1, построек 1, постановок тел 2801, скорость капсул до 17,9 м/с (кромки ступеней). Формат — как у трассы
+толпы (поле `purpose` — текст трассы толпы: программа одна); `pelvis1`, `pelvis12` — места, которых в сценарии нет (тела без
+постройки), тест их не читает; выборка — тики 1, 2, 481, 601, 1241, 1401, 1402, 2701 (тики выборки толпы, не больше длины сценария). 0,76 МБ.
+Сверяет `ReferenceTraceTests.Terrain_MatchesSwordTickByTick` (корень, курс, клип, поза, хеш тела каждого тика, таз, выборка,
+форма) и метрика `sword-terrain-pelvis` сценария `terrain` манифеста `bodies`. Совпала с SWORD2 побитово с первого снятия.
 
 **Что здесь настоящий SWORD, а что — копия.** Настоящий код SWORD (подключён исходниками): `CharacterRig`,
 `FighterAnimator`, `LegacyLocomotion`, `SkeletalClips`, `AnimLibrary`, чтение пака. Переписаны в `Program.cs` вручную,
@@ -129,13 +142,21 @@ dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\refe
 dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\anim-turn.trace.json" turn
 ```
 
-Толпа (4д) — в два шага: сначала тест SWORD2 пишет вход (сценарий `ReferenceTraceTests.CrowdSegments`/`CrowdArenaCommands` и
+Толпа (4д) и рельеф (5г) — в два шага: сначала тест SWORD2 пишет вход (сценарий `ReferenceTraceTests.CrowdSegments`/`CrowdArenaCommands` и
 расстановку SWORD2 по тикам) — он пишет его при каждом прогоне, даже когда трассы ещё нет или она разошлась; затем программа:
 
 ```
 dotnet test tests/Sword.Game.Tests --filter Crowd_MatchesSwordTickByTick      # пишет artifacts/reference/crowd.input.json
 dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\anim-crowd.trace.json" crowd "<SWORD2>\artifacts\reference\crowd.input.json"
 dotnet test tests/Sword.Game.Tests --filter Crowd_MatchesSwordTickByTick      # сверка
+```
+
+Рельеф — так же, с другим входом и выходом:
+
+```
+dotnet test tests/Sword.Game.Tests --filter Terrain_MatchesSwordTickByTick    # пишет artifacts/reference/terrain.input.json
+dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\anim-terrain.trace.json" crowd "<SWORD2>\artifacts\reference\terrain.input.json"
+dotnet test tests/Sword.Game.Tests --filter Terrain_MatchesSwordTickByTick    # сверка
 ```
 
 Третий аргумент — сценарий: `player` (по умолчанию), `turn` или `crowd` (четвёртый — вход). Сценарий игрока (`Scenario.Segments`) должен совпадать с
@@ -145,4 +166,7 @@ dotnet test tests/Sword.Game.Tests --filter Crowd_MatchesSwordTickByTick      # 
 — побайтно те же. Правя сценарий толпы в тесте, поправить и сценарий `sword-crowd` манифеста `enemies` (те же команды).
 На 5б программа пересобрана (ещё `Terrain.cs` и `Sword.Physics` SWORD ссылками): `anim-locomotion` и `anim-turn` сняты
 заново — побайтно те же; `anim-crowd` снята заново с телами. Манифест `bodies` сверяет таз по трассе на эталоне SWORD2
-`enemies.swreplay` (запись сценария `sword-crowd`): правя сценарий толпы, эталон `enemies` записать заново.
+`enemies.swreplay` (запись сценария `sword-crowd`): правя сценарий толпы, эталон `enemies` записать заново. На 5г программа
+пересобрана (те же ссылки): `anim-locomotion`, `anim-turn`, `anim-crowd` сняты заново — побайтно те же; снята `anim-terrain`.
+Правя сценарий рельефа (`ReferenceTraceTests.TerrainSegments`), поправить и сценарий `terrain` манифеста `bodies` (те же
+команды).

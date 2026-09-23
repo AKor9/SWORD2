@@ -56,13 +56,14 @@ public sealed class ReplayObserveResult
 public static class ReplayObservation
 {
     /// <param name="simulation">Симуляция, собранная из конфига реплея (<see cref="Replay.CreateConfig"/>), на тике 0.</param>
+    /// <param name="fields">Вычисляемые поля игры для наблюдения (<c>Body.*</c>, 5г); null — только компоненты.</param>
     public static ReplayObserveResult Run(Simulation simulation, Replay replay, IEntityNames? names, ReplayObserveOptions options,
-        CancellationToken cancel = default)
+        CancellationToken cancel = default, IEntityFields? fields = null)
     {
         if (options.To < options.From) throw new ArgumentException($"to {options.To} меньше from {options.From}");
         var player = simulation.Play(replay);
         var catalog = new Catalog(simulation.World, simulation.CommandTypes);
-        var hub = new ObservationHub(new TimeControl(paused: false), historyTicks: 1024);
+        var hub = new ObservationHub(new TimeControl(paused: false), historyTicks: 1024) { Fields = fields };
         hub.Attach(simulation, catalog, names);
         var ctx = new ServiceContext(simulation);
         var result = new ReplayObserveResult { Player = player };

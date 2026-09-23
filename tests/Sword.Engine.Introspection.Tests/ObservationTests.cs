@@ -261,6 +261,58 @@ public class ObservationTests
         Assert.Throws<ArgumentException>(() => hub.AddWatch(new ServiceContext(fresh), (JsonObject)JsonNode.Parse("""{"fields":["Body.Nope"]}""")!));
     }
 
+    /// <summary>Вычисляемое поле игры (5г): <c>Twice.X</c> — удвоенный X тела, у сущности без тела — нет значения (NaN).</summary>
+    private sealed class TwiceFields : IEntityFields
+    {
+        public IReadOnlyList<string> Known { get; } = ["Twice.X"];
+
+        public EntityFieldReader? Compile(string path, string at) => path switch
+        {
+            "Twice.X" => (in ServiceContext ctx, Entity e) => ctx.World.IsAlive(e) && ctx.World.Has<Body>(e) ? ctx.World.Get<Body>(e).Position.X * 2 : double.NaN,
+            _ when path.StartsWith("Twice.", StringComparison.Ordinal) => throw new ArgumentException($"{at}: {path} — только Twice.X"),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// 5г: наблюдение пишет вычисляемые поля игры (<see cref="IEntityFields"/>: капсулы тела <c>Body.*</c> в SWORD) по тикам рядом
+    /// с листьями компонентов — лист F64; поля узел берёт при привязке, в том числе к новой симуляции; опечатка в поле игры — ошибка.
+    /// </summary>
+    [Fact]
+    public void Watch_ComputedFieldsOfTheGame_SampledPerTick()
+    {
+        var (sim, c) = World();
+        var hub = new ObservationHub(new TimeControl(paused: false)) { Fields = new TwiceFields() };
+        hub.Attach(sim, c, null);
+        var w = hub.AddWatch(new ServiceContext(sim), (JsonObject)JsonNode.Parse("""{"entities":["2v1"],"fields":["Twice.X","Body.Position.X","Twice.X"]}""")!);
+        Assert.Equal(["Twice.X", "Body.Position.X"], w.Fields.Select(f => f.Path));
+        Assert.Equal((-1, FieldLayout.Kind.F64), (w.Fields[0].Component, w.Fields[0].Kind));
+        for (int t = 0; t < 3; t++)
+        {
+            sim.Enqueue(new Order { Move = new Vector2(1, 0) });
+            sim.Step();
+        }
+        var rows = w.Read(new Entity(2, 1), 0, ulong.MaxValue).ToList();
+        Assert.Equal([1ul, 2ul, 3ul], rows.Select(r => r.TickId));
+        Assert.Equal(10.0, BitConverter.UInt64BitsToDouble(rows[2].Values[0]!.Value));             // (2 + 3) · 2
+        Assert.Equal(5f, BitConverter.UInt32BitsToSingle((uint)rows[2].Values[1]!.Value));
+        Assert.Equal(10.0, ObservationPredicate.LeafJson(FieldLayout.Kind.F64, rows[2].Values[0]!.Value)!.GetValue<double>());
+
+        // Все сущности (без entities): строка — у той, у которой есть хоть одно значение (вычисляемое — не NaN).
+        var all = hub.AddWatch(new ServiceContext(sim), (JsonObject)JsonNode.Parse("""{"fields":["Twice.X"]}""")!);
+        sim.Step();
+        Assert.Equal(5, all.Rows);
+
+        var (fresh, fc) = World();
+        hub.Attach(fresh, fc, null);
+        Assert.Equal(0, w.Rows);                                                                     // привязано заново, с полями игры
+        Assert.Contains("только Twice.X", Assert.Throws<ArgumentException>(() =>
+            hub.AddWatch(new ServiceContext(fresh), (JsonObject)JsonNode.Parse("""{"fields":["Twice.Y"]}""")!)).Message);
+        var plain = new ObservationHub(new TimeControl(paused: false));                              // без полей игры — только компоненты
+        plain.Attach(fresh, fc, null);
+        Assert.Throws<ArgumentException>(() => plain.AddWatch(new ServiceContext(fresh), (JsonObject)JsonNode.Parse("""{"fields":["Twice.X"]}""")!));
+    }
+
     [Fact]
     public void Observers_DoNotChangeStateHash()
     {

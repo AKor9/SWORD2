@@ -100,6 +100,43 @@ public sealed class ReferenceReplaysTests
         Assert.Equal(xs, watched);
     }
 
+    /// <summary>
+    /// Точка 5г: <c>replay.observe</c> пишет вычисляемые поля тела (<c>Body.*</c>, <see cref="Sword.Game.Agent.BodyFields"/>) —
+    /// те же числа, что вид тел <see cref="Contracts.IBodyView"/> тик за тиком; опечатка в поле тела — ошибка.
+    /// </summary>
+    [Fact]
+    public void Observe_OnReferenceReplay_WritesBodyFields()
+    {
+        var replay = Replay.Load(Path.Combine(RepoRoot(), "tests", "reference", "replays", "prototype.swreplay"));
+        var (assets, _) = Reference.Value;
+        var names = new Sword.Game.Agent.SwordAgent.ArenaNames();
+
+        var direct = SwordSimulation.Create(replay.CreateConfig(), assets);
+        direct.Play(replay);
+        var player = GameCore.Player(direct.World);
+        var view = direct.World.View<Contracts.IBodyView>();
+        int pelvis = Contracts.BodySegs.Body(Contracts.BodySegs.Pelvis);
+        var ys = new List<float>();
+        while (direct.Tick < replay.Ticks)
+        {
+            direct.Step();
+            ys.Add(view.Body(direct.World.Get<Contracts.BodyRef>(player), pelvis).Position.Y);
+        }
+
+        ReplayObserveResult Observe(string field) => ReplayObservation.Run(SwordSimulation.Create(replay.CreateConfig(), assets), replay, names,
+            new ReplayObserveOptions
+            {
+                To = replay.Ticks,
+                Watch = new System.Text.Json.Nodes.JsonObject { ["entities"] = new System.Text.Json.Nodes.JsonArray("player"), ["fields"] = new System.Text.Json.Nodes.JsonArray(field) },
+            }, fields: new Sword.Game.Agent.BodyFields());
+        var observed = Observe("Body.pelvis.Position.Y");
+        Assert.True(observed.Player.Divergence is null);
+        Assert.Equal(ys.Count, (int)observed.WatchRows);
+        var watched = observed.Lines.Where(l => l["values"] is not null).Select(l => (float)l["values"]!["Body.pelvis.Position.Y"]!.GetValue<double>()).ToList();
+        Assert.Equal(ys, watched);
+        Assert.Contains("нет сегмента", Assert.Throws<ArgumentException>(() => Observe("Body.tail.Position.Y")).Message);
+    }
+
     [Fact]
     public void References_Exist_ForPrototypeAndAnimation()
     {

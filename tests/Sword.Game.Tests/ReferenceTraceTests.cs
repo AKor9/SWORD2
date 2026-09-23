@@ -251,6 +251,33 @@ public sealed class ReferenceTraceTests
     ];
 
     /// <summary>
+    /// Сценарий трассы по образцу толпы (программа трассы, сценарий <c>crowd</c> — вход <c>&lt;Name&gt;.input.json</c>, трасса
+    /// <c>anim-&lt;Name&gt;.trace.json</c>): врагов при сборке мира, зерно, команды игрока по сегментам, команды арены.
+    /// </summary>
+    public sealed record CrowdScenario(string Name, int Enemies, ulong Seed, CrowdSegment[] Segments, CrowdArena[] Arena);
+
+    /// <summary>Толпа (4д, тела — 5б): сценарий <c>sword-crowd</c> манифеста <c>enemies</c>, эталон SWORD2 <c>enemies.swreplay</c>.</summary>
+    public static readonly CrowdScenario Crowd = new("crowd", CrowdEnemies, CrowdSeed, CrowdSegments, CrowdArenaCommands);
+
+    /// <summary>
+    /// Рельеф (5г) — тот же, что сценарий <c>terrain</c> манифеста <c>bodies</c>: игрок один бежит на склон к вершине (0, 18),
+    /// оттуда — на ступенчатую пирамиду (−16, 0) и стоит на её верхнем ярусе; шагом спускается по ступеням на запад до земли;
+    /// бежит через ухабы (0, −18) и встаёт на них. Капсулы тела — в мире бойца на высоте рельефа под корнем (<c>KinWorld</c>):
+    /// склон, кромки ступеней вверх и вниз, ухабы — против SWORD побитово.
+    /// </summary>
+    public static readonly CrowdSegment[] TerrainSegments =
+    [
+        new(520, 0, 1, false, null),
+        new(1240, -0.62f, -0.78f, false, null),
+        new(1400, 0, 0, false, null),
+        new(1900, -1, 0, true, null),
+        new(2680, 0.784f, -0.621f, false, null),
+        new(2800, 0, 0, false, null),
+    ];
+
+    public static readonly CrowdScenario Terrain = new("terrain", 0, 1, TerrainSegments, []);
+
+    /// <summary>
     /// Боец толпы после тика в SWORD2 — то же, что пишет трасса: корень, курс, клипы, хеш позы; с 5б — хеш тела
     /// (<see cref="BodyHash"/>), центр капсулы таза и на тиках выборки (<see cref="CrowdSampleTicks"/>) все капсулы.
     /// </summary>
@@ -291,9 +318,9 @@ public sealed class ReferenceTraceTests
     ];
 
     /// <summary>Прогон сценария толпы в SWORD2: расстановка (постройки по тикам) и бойцы по местам после каждого тика.</summary>
-    public static (List<CrowdSpawn> Spawns, List<CrowdFighter[]> Ticks, int Violations) RunCrowd(CharacterAssets assets)
+    public static (List<CrowdSpawn> Spawns, List<CrowdFighter[]> Ticks, int Violations) RunCrowd(CharacterAssets assets, CrowdScenario scenario)
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty($"arena.enemies={CrowdEnemies}", $"sim.seed={CrowdSeed}"), assets);
+        var sim = SwordSimulation.Create(ConfigSet.Empty($"arena.enemies={scenario.Enemies}", $"sim.seed={scenario.Seed}"), assets);
         var w = sim.World;
         var poses = w.View<IAnimationView>();
         var bodies = w.View<IBodyView>();
@@ -332,16 +359,16 @@ public sealed class ReferenceTraceTests
         }
 
         Built(0, Gather());
-        int total = CrowdSegments[^1].End;
+        int total = scenario.Segments[^1].End;
         for (int t = 0; t < total; t++)
         {
-            var seg = CrowdSegments.First(s => t < s.End);
+            var seg = scenario.Segments.First(s => t < s.End);
             sim.Enqueue(new PlayerCommand
             {
                 Move = new Vector2(seg.MoveX, seg.MoveZ), Walk = seg.Walk,
                 HasGaze = seg.Gaze is not null, Gaze = seg.Gaze is { } g ? new Vector3(g.X, 0, g.Y) : default,
             });
-            foreach (var a in CrowdArenaCommands.Where(a => a.At == t)) sim.Enqueue(new ArenaCommand { Action = a.Action, Enemies = a.Enemies });
+            foreach (var a in scenario.Arena.Where(a => a.At == t)) sim.Enqueue(new ArenaCommand { Action = a.Action, Enemies = a.Enemies });
             sim.Step();
 
             int count = Gather();
@@ -368,12 +395,12 @@ public sealed class ReferenceTraceTests
     /// Вход программы трассы толпы (<c>tests/reference/sword-trace</c>, сценарий <c>crowd</c>): сценарий и расстановка SWORD2 —
     /// SWORD <c>Random(7)</c> не воспроизводится, поэтому трасса строит бойцов там же, где SWORD2.
     /// </summary>
-    public static string CrowdInputJson(IEnumerable<CrowdSpawn> spawns) => JsonSerializer.Serialize(new
+    public static string CrowdInputJson(CrowdScenario scenario, IEnumerable<CrowdSpawn> spawns) => JsonSerializer.Serialize(new
     {
-        enemies = CrowdEnemies,
-        seed = CrowdSeed,
-        segments = CrowdSegments.Select(s => new { s.End, move = new[] { s.MoveX, s.MoveZ }, s.Walk, gaze = s.Gaze is { } g ? new[] { g.X, g.Y } : null }),
-        arena = CrowdArenaCommands.Select(a => new { a.At, action = a.Action.ToString(), a.Enemies }),
+        enemies = scenario.Enemies,
+        seed = scenario.Seed,
+        segments = scenario.Segments.Select(s => new { s.End, move = new[] { s.MoveX, s.MoveZ }, s.Walk, gaze = s.Gaze is { } g ? new[] { g.X, g.Y } : null }),
+        arena = scenario.Arena.Select(a => new { a.At, action = a.Action.ToString(), a.Enemies }),
         spawns = spawns.Select(s => new { s.Tick, s.Slot, root = new[] { s.X, s.Z }, s.Facing, s.Seed }),
     });
 
@@ -384,27 +411,68 @@ public sealed class ReferenceTraceTests
     /// настоящие. Тик за тиком у каждого бойца побитово: корень, курс, клип локомоции, действие и его клип, поза; с точки 5б —
     /// тело: хеш 13 капсул (центр, поворот, прошлая постановка, скорости, форма — копии <c>PlaceBodies</c> и формы при постройке
     /// <c>Fighter.Build</c> в программе трассы), центр таза мест 0, 1, 12 каждый тик, все капсулы на тиках выборки и форма каждой
-    /// постройки. Прогон пишет вход программы трассы — <c>artifacts/reference/crowd.input.json</c> (как снять заново — README
-    /// трассы).
+    /// постройки. Сверка — <see cref="VerifyAgainstTrace"/>; вход программы трассы — <c>artifacts/reference/crowd.input.json</c>.
     /// </summary>
     [Fact]
     public void Crowd_MatchesSwordTickByTick()
     {
+        var (spawns, run, summary, compared, pelvises, maxFighters) = VerifyAgainstTrace(Crowd);
+        // Сценарий покрывает то, ради чего снят: толпа до 32 врагов, пары корней, колонна, команды арены.
+        Assert.Equal(33, maxFighters);
+        Assert.True(summary.GetProperty("pairs").GetInt64() > 0 && summary.GetProperty("pillars").GetInt64() > 0);
+        Assert.Equal(CrowdArenaCommands.Length, summary.GetProperty("arenaCommands").GetInt32());
+        // Тела: каждый боец каждого тика (хеш), таз трёх мест каждого тика, выборка и формы построек — сверены.
+        Assert.Equal(summary.GetProperty("placements").GetInt64(), compared + spawns.Count);
+        Assert.Equal(3 * run.Count, pelvises);
+    }
+
+    /// <summary>
+    /// Точка 5г: трасса <c>tests/reference/anim-terrain.trace.json</c> — та же программа (сценарий <c>crowd</c>, вход
+    /// <c>artifacts/reference/terrain.input.json</c>), игрок один на рельефе (<see cref="Terrain"/>): склон, ступени вверх (бегом)
+    /// и вниз (шагом), ухабы. Капсулы тела — в мире бойца на высоте рельефа под корнем (<c>KinWorld</c> SWORD) — тик за тиком
+    /// побитово (хеш 13 капсул, таз, выборка, форма); корень, курс, клип и поза — тоже.
+    /// </summary>
+    [Fact]
+    public void Terrain_MatchesSwordTickByTick()
+    {
+        var (spawns, run, summary, compared, pelvises, maxFighters) = VerifyAgainstTrace(Terrain);
+        Assert.Equal(1, maxFighters);
+        Assert.Equal(run.Count, pelvises);
+        Assert.Equal(summary.GetProperty("placements").GetInt64(), compared + spawns.Count);
+        // Сценарий покрывает то, ради чего снят: вершина склона (1,6 м), верхний ярус пирамиды (5 × 12 см), земля за ней, ухабы.
+        Assert.True(run.Max(r => r[0].Pelvis.Y) > 2.4f, "игрок не поднялся на вершину склона");
+        var top = run[1399][0];
+        Assert.True(MathF.Max(MathF.Abs(top.X + 16), MathF.Abs(top.Z)) < 2 && top.Pelvis.Y > 1.4f, $"на тике 1400 игрок не на верхнем ярусе: {top.X}, {top.Z}, таз {top.Pelvis}");
+        var down = run[1899][0];
+        Assert.True(MathF.Max(MathF.Abs(down.X + 16), MathF.Abs(down.Z)) > 6, $"на тике 1900 игрок ещё на пирамиде: {down.X}, {down.Z}");
+        var bumps = run[^1][0];
+        Assert.True(Vector2.Distance(new Vector2(bumps.X, bumps.Z), new Vector2(0, -18)) < 6, $"в конце игрок не на ухабах: {bumps.X}, {bumps.Z}");
+    }
+
+    /// <summary>
+    /// Прогон сценария в SWORD2 и сверка с его трассой SWORD (<c>anim-&lt;Name&gt;.trace.json</c>): каждый боец каждого тика —
+    /// корень, курс, клипы, действие, поза, хеш тела; таз мест 0, 1, 12; все капсулы на тиках выборки; форма построек. Прогон
+    /// пишет вход программы трассы — <c>artifacts/reference/&lt;Name&gt;.input.json</c> (как снять заново — README трассы), даже
+    /// когда трассы ещё нет или она разошлась.
+    /// </summary>
+    private static (List<CrowdSpawn> Spawns, List<CrowdFighter[]> Run, JsonElement Summary, long Compared, long Pelvises, int MaxFighters)
+        VerifyAgainstTrace(CrowdScenario scenario)
+    {
         CharacterAssets assets;
         using (var pak = PakSource.Open(ReferencePak())) assets = CharacterAssets.Load(pak);
-        var (spawns, run, violations) = RunCrowd(assets);
-        string input = Path.Combine(RepoRoot(), "artifacts", "reference", "crowd.input.json");
+        var (spawns, run, violations) = RunCrowd(assets, scenario);
+        string input = Path.Combine(RepoRoot(), "artifacts", "reference", $"{scenario.Name}.input.json");
         Directory.CreateDirectory(Path.GetDirectoryName(input)!);
-        File.WriteAllText(input, CrowdInputJson(spawns));
+        File.WriteAllText(input, CrowdInputJson(scenario, spawns));
         Assert.Equal(0, violations);
 
-        string path = Path.Combine(RepoRoot(), "tests", "reference", "anim-crowd.trace.json");
+        string path = Path.Combine(RepoRoot(), "tests", "reference", $"anim-{scenario.Name}.trace.json");
         Assert.True(File.Exists(path), $"нет трассы {path} — снять программой tests/reference/sword-trace по {input} (README трассы)");
         using var trace = JsonDocument.Parse(File.ReadAllText(path));
         var doc = trace.RootElement;
         Assert.Equal(doc.GetProperty("clips").GetInt32(), assets.Clips.ClipCount);
         // Сценарий и расстановка трассы — те же, что здесь: иначе снять трассу заново (README трассы).
-        using (var expectedInput = JsonDocument.Parse(CrowdInputJson(spawns)))
+        using (var expectedInput = JsonDocument.Parse(CrowdInputJson(scenario, spawns)))
             foreach (string key in new[] { "enemies", "seed", "segments", "arena", "spawns" })
                 Assert.True(expectedInput.RootElement.GetProperty(key).GetRawText() == doc.GetProperty("input").GetProperty(key).GetRawText(),
                     $"в трассе другой «{key}», чем у SWORD2 сейчас (расстановка или сценарий изменились) — снять трассу заново по {input}");
@@ -450,7 +518,7 @@ public sealed class ReferenceTraceTests
 
         // Все капсулы на тиках выборки — побитово по каждому числу (при расхождении хеша — здесь видно, какое поле).
         var samples = doc.GetProperty("samples");
-        Assert.Equal(CrowdSampleTicks, samples.EnumerateArray().Select(x => x.GetProperty("tick").GetInt32()));
+        Assert.Equal(CrowdSampleTicks.Where(t => t <= run.Count), samples.EnumerateArray().Select(x => x.GetProperty("tick").GetInt32()));
         foreach (var sample in samples.EnumerateArray())
         {
             int tick = sample.GetProperty("tick").GetInt32();
@@ -489,16 +557,8 @@ public sealed class ReferenceTraceTests
                 shapeValues += 2;
             }
         }
-        // Сценарий покрывает то, ради чего снят: толпа до 32 врагов, пары корней, колонна, команды арены.
-        var summary = doc.GetProperty("summary");
-        Assert.Equal(33, maxFighters);
-        Assert.True(summary.GetProperty("pairs").GetInt64() > 0 && summary.GetProperty("pillars").GetInt64() > 0);
-        Assert.Equal(CrowdArenaCommands.Length, summary.GetProperty("arenaCommands").GetInt32());
-        Assert.True(compared > 0);
-        // Тела: каждый боец каждого тика (хеш), таз трёх мест каждого тика, выборка и формы построек — сверены.
-        Assert.Equal(summary.GetProperty("placements").GetInt64(), compared + spawns.Count);
-        Assert.Equal(3 * run.Count, pelvises);
-        Assert.True(sampledValues > 0 && shapeValues > 0);
+        Assert.True(compared > 0 && sampledValues > 0 && shapeValues > 0);
+        return (spawns, run, doc.GetProperty("summary").Clone(), compared, pelvises, maxFighters);
     }
 
     private static readonly string[] SampleFields =

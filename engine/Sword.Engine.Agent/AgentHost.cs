@@ -146,8 +146,15 @@ public sealed class AgentHost
     /// <summary>Имена сущностей игры (Game.Agent); null — только номера.</summary>
     public IEntityNames? Names { get; set; }
 
-    /// <summary>Вычисляемые поля сущностей игры (<see cref="IEntityFields"/>): метрики <c>feature.verify</c> читают их как поля.</summary>
-    public IEntityFields? Fields { get; set; }
+    /// <summary>
+    /// Вычисляемые поля сущностей игры (<see cref="IEntityFields"/>): метрики <c>feature.verify</c> читают их как поля, наблюдения
+    /// (<c>watch.add</c>, <c>replay.observe</c>, 5г) пишут их по тикам.
+    /// </summary>
+    public IEntityFields? Fields
+    {
+        get => Observation.Fields;
+        set => Observation.Fields = value;
+    }
 
     /// <summary>Где манифесты фич и чем снимать виды (<c>feature.*</c>, этап 3д) — задаёт exe игры; null — фич нет.</summary>
     public FeatureSetup? Features { get; set; }

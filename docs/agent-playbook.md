@@ -134,9 +134,10 @@
 5. Без агента: `Sword.Headless --units N --json` — у мест `action`, `actionWeight`, `yawDelta`; посмотреть глазами —
    `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay` (запись сценария `turn` после `feature.verify`).
 
-**Тела бойцов (этап 5: 5а — тела, 5б — капсулы по позе).** Тело бойца — сочленение из 13 кинематических капсул в подсистеме
-Physics; у бойца в ECS — хэндл `BodyRef`. С 5б капсулы стоят на суставах позы тика (PrePhysics) с формой постройки; на
-экране их нет до 5в. До первого тика (сборка мира) тела без формы в начале координат — постройку сборки мира ставит тик 1.
+**Тела бойцов (этап 5: 5а — тела, 5б — капсулы по позе, 5в — на экране, 5г — приёмка).** Тело бойца — сочленение из 13
+кинематических капсул в подсистеме Physics; у бойца в ECS — хэндл `BodyRef`. Капсулы стоят на суставах позы тика (PrePhysics)
+с формой постройки; на экране — F7 и оверлей `capture.bundle` (рецепт «ID-буфер и оверлей капсул»). Тела бойцов сборки мира
+стоят уже до первого тика — по позе постройки (5в: их ставит сборка мира, тик 1 ставит их ещё раз теми же значениями).
 1. Тело бойца по сегментам: `physics.bodies {"entity":"enemy 3"}` — 13 капсул с именами (`forearm.l` — «левое предплечье»),
    центр, концы оси A и B, поворот, скорость и её модуль, угловая скорость, прошлая постановка, радиус, полудлина; `fastest` —
    самая быстрая капсула; `"segments":["foot.l","foot.r"]` — только эти. Слоты, поколения и хэндлы тел — `state.describe
@@ -152,17 +153,26 @@ Physics; у бойца в ECS — хэндл `BodyRef`. С 5б капсулы с
    капсулы относительно бойца — до 30 м/с, угловая — до 150 рад/с; ловит постройку без постановки и обменявшиеся тела),
    `physics.bodyRefs` (после End: у каждого бойца тело из 13 капсул, ровно один владелец, ничьих нет), `physics.finite`
    (после Physics). Встать на нарушении — `time.breakOnInvariant {"ids":["physics.kinematicSpeed"]}`, затем `physics.bodies`.
-   `invariant.run` до первого тика и посреди тика до PrePhysics (`time.break` на Begin…Movement) `physics.kinematicPose` не
-   сверяет: постановки этого тика ещё не было (тела сборки мира ставит тик 1).
+   `invariant.run` посреди тика до PrePhysics (`time.break` на Begin…Movement) `physics.kinematicPose` не сверяет: постановки
+   этого тика ещё не было; до первого тика — сверяет с позой постройки (5в).
 4. Числа тела в метриках манифеста (`feature.verify`) — вычисляемые поля `Body.<сегмент>.<поле>[.X|.Y|.Z|.W]` (`Position`,
    `Rotation`, `PrevPosition`, `Velocity`, `AngularVelocity`, `EndA`, `EndB`, `Radius`, `HalfLength`) и `Body.MaxSpeed`,
-   `Body.MaxAngularSpeed` (Game.Agent `BodyFields`; компонента — только `X`, `Y`, `Z`, `W`, опечатка — ошибка). В условиях
-   проверок и `watch.add` их нет — там только компоненты.
+   `Body.MaxAngularSpeed` (Game.Agent `BodyFields`; компонента — только `X`, `Y`, `Z`, `W`, опечатка — ошибка). С 5г те же поля —
+   в наблюдениях: история капсул по тикам — `watch.add {"entities":["player"],"fields":["Body.MaxSpeed","Body.foot.l.Position.Y"]}`,
+   `time.step`, `entity.history` (лист F64, нет тела — null); по записи сценария глубже кольца —
+   `replay.observe {"path":"<артефакты фичи>/scenario-terrain.swreplay","watch":{"entities":["player"],"fields":["Body.MaxSpeed"]}}`
+   → `.jsonl` (так найдены окна метрик 5г: скачки на кромках ступеней, наибольшая угловая скорость на развороте). В условиях
+   проверок (`time.runUntil`, проверки манифеста) их нет — там только компоненты; остановиться на скачке капсулы — инвариант
+   `physics.kinematicSpeed` или `invariant.define` по компонентам.
 5. Сверка с SWORD: трасса толпы (`tests/reference/anim-crowd.trace.json`, README трассы) — хеш 13 капсул каждого бойца
    каждого тика; при расхождении `ReferenceTraceTests.Crowd_MatchesSwordTickByTick` называет тик и место, число капсулы —
-   по `samples` (тики выборки). Метрики `sword-crowd-pelvis-*` манифеста `bodies` — таз игрока и врагов 1 и 12.
+   по `samples` (тики выборки). Метрики `sword-crowd-pelvis-*` манифеста `bodies` — таз игрока и врагов 1 и 12. Рельеф (5г) —
+   трасса `tests/reference/anim-terrain.trace.json` (склон, ступени вверх и вниз, ухабы; та же программа, свой вход),
+   `ReferenceTraceTests.Terrain_MatchesSwordTickByTick` и метрика `sword-terrain-pelvis` сценария `terrain`.
 6. Команды арены: PageDown — тело ушедшего освобождено, PageUp — новое (тот же слот, новое поколение), R — те же тела на тех
-   же сущностях, форма и постановка — заново. Приёмка — `feature.verify {"id":"bodies"}` (`Sword.Headless --feature bodies`).
+   же сущностях, форма и постановка — заново. Приёмка — `feature.verify {"id":"bodies"}` (`Sword.Headless --feature bodies`):
+   сценарии `arena`, `terrain`, `crowd`, `turn`, `reference`; бюджеты — тик и PrePhysics с 32 врагами, кадр App без капсул и с
+   капсулами (`budgets[].frame.overlays`).
 
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;
@@ -230,7 +240,8 @@ Physics; у бойца в ECS — хэндл `BodyRef`. С 5б капсулы с
 2. `feature.verify {"id":"animation"}` — вердикт `ok` и `failures` словами; по разделам — сценарии (проверки, хеши
    реплея, нарушения), инварианты (проверок, нарушений), метрики (`value`, `expected`, `detail`; ряд против трассы SWORD —
    `firstMismatch`), бюджеты (медиана мс на тик, стадии, байты; кадр App — `frame`: средний и p99 на записи сценария,
-   хеши App сверены; время и кадр проверяются только в Release, без видов кадр не меряется), виды (PNG кадров
+   хеши App сверены; `frame.overlays` — оверлеи игры на весь замер, например кадр с капсулами тел, 5г; `detail` называет
+   проходы последнего кадра; время и кадр проверяются только в Release, без видов кадр не меряется), виды (PNG кадров
    `Sword.exe --replay` по записи сценария, хеши App сверены с Headless). Всё — в каталоге артефактов (`report.json`,
    `scenario-*.swreplay`, `view-*.png`). `views:false` — без App. Без агента — `Sword.Headless --feature ID|all [--json]`
    (код 4 — провал), `verify.ps1` шаг `features`.
@@ -252,7 +263,9 @@ Physics; у бойца в ECS — хэндл `BodyRef`. С 5б капсулы с
    (медиана, разброс), мс стадий, байты на тик, хеш итога и `deterministic` (повторы совпали); `scaling` — где время
    растёт резко быстрее значения ключа. Время — в Release (`tools/scripts/agent-headless.cmd` собирает Debug). Толпа:
    `{"params":{"arena.enemies":[0,8,16,32]},"replay":"<артефакты enemies>/scenario-crowd.swreplay","repeats":7}` (таблица
-   этапа 4 — README фичи `enemies`). Перебор сначала прогоняет каждую комбинацию по разу без замера, затем повторы по
+   этапа 4 — README фичи `enemies`; с телами и стадией PrePhysics, с инвариантами и без —
+   `{"params":{"arena.enemies":[0,8,16,32],"sim.invariants":[true,false]},"replay":"<артефакты bodies>/scenario-crowd.swreplay","repeats":7}`,
+   таблица 5г — README фичи `bodies`). Перебор сначала прогоняет каждую комбинацию по разу без замера, затем повторы по
    кругу комбинаций: без этого первые комбинации свежего процесса мерились на неоптимизированном JIT (в 3–15 раз
    медленнее, 4д); `msPerTick.max` (первый круг повторов) ещё бывает выше — смотреть медиану. Сеанс агента меряет с
    инвариантами (`sim.invariants=false` в `params` — как бюджет манифеста).

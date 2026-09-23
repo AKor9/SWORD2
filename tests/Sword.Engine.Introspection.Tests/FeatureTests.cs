@@ -133,6 +133,7 @@ public sealed class FeatureTests : IDisposable
     [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"averageMs\": 1, \"seconds\": 4 }", "frame.seconds: больше 4")]
     [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"p99Ms\": 0 }", "frame: пределы — положительные")]
     [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"p99Ms\": 1, \"fps\": 60 }", "fps: неизвестный ключ")]
+    [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"p99Ms\": 1, \"overlays\": [\"Capsules\"] }", "frame.overlays[0]: имя оверлея")]
     public void Manifest_Errors_NamePlace(string from, string to, string expected)
     {
         string json = Good();
@@ -274,7 +275,7 @@ public sealed class FeatureTests : IDisposable
     {
         RecordReplay("rec.swreplay", 30);
         string json = Good()
-            .Replace("\"budgets\": [", "\"budgets\": [{ \"id\": \"frame\", \"scenario\": \"slow\", \"frame\": { \"averageMs\": 2, \"p99Ms\": 4 } }, ")
+            .Replace("\"budgets\": [", "\"budgets\": [{ \"id\": \"frame\", \"scenario\": \"slow\", \"frame\": { \"averageMs\": 2, \"p99Ms\": 4, \"overlays\": [\"capsules\"] } }, ")
             .Replace("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }",
                 "{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }, { \"id\": \"slow\", \"set\": [\"sim.tickRate=10\"], \"ticks\": 60 }");
         var m = FeatureManifest.Load(Manifest(json));
@@ -304,10 +305,12 @@ public sealed class FeatureTests : IDisposable
         var debug = Run(m, optimized: false);
         Assert.True(debug.Ok, string.Join("\n", debug.Failures));
         Assert.Equal(("push", "frame", 5.0), (seen!.Feature, seen.Budget, seen.Seconds));
+        Assert.Equal(["capsules"], seen.Overlays);   // 5г: оверлеи бюджета кадра — App рисует их весь замер (--overlay)
         Assert.Equal(60ul, Replay.Load(seen.Replay).Ticks);
         var frame = debug.Json["budgets"]![0]!["frame"]!;
         Assert.Equal((3.0, 3.5, 100L), (frame["averageMs"]!.GetValue<double>(), frame["p99Ms"]!.GetValue<double>(), frame["frames"]!.GetValue<long>()));
         Assert.Contains("Debug", frame["time"]!.GetValue<string>());
+        Assert.Equal("capsules", frame["overlays"]![0]!.GetValue<string>());
         Assert.Null(debug.Json["budgets"]![0]!["msPerTick"]);   // только кадр: симуляция бюджета не гонялась
 
         // Release: средний 3 мс больше предела 2 — провал; p99 3,5 ≤ 4 — нет.
@@ -329,7 +332,7 @@ public sealed class FeatureTests : IDisposable
         Assert.Contains("не мерялся", noViews.Json["budgets"]![0]!["frame"]!["measured"]!.GetValue<string>());
 
         // Бенч длиннее записи сценария — провал, App не запускается.
-        var longer = FeatureManifest.Load(Manifest(json.Replace("\"p99Ms\": 4 }", "\"p99Ms\": 4, \"seconds\": 7 }")));
+        var longer = FeatureManifest.Load(Manifest(json.Replace("\"p99Ms\": 4,", "\"p99Ms\": 4, \"seconds\": 7,")));
         Assert.Contains("бюджет frame: кадр: сценарий (60 тиков) короче бенча (7 с — 70 тиков)", Run(longer, optimized: true).Failures);
         Assert.Null(seen);
     }

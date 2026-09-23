@@ -171,7 +171,7 @@ internal static class ReplayTools
                 var result = await Task.Run(() =>
                 {
                     var sim = session.Build(replay.CreateConfig(sets));
-                    return ReplayObservation.Run(sim, replay, host.Names, options, timeout.Token);
+                    return ReplayObservation.Run(sim, replay, host.Names, options, timeout.Token, host.Fields);
                 }, timeout.Token).ConfigureAwait(false);
 
                 string file = ArtifactName($"observe-{Path.GetFileNameWithoutExtension(path)}-{options.From}-{options.To}").Replace(Replay.Extension, ".jsonl");

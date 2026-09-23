@@ -404,6 +404,21 @@ public sealed class BodiesTests
             var bad = await Call("physics.bodies", new JsonObject { ["segments"] = new JsonArray("tail") });
             Assert.True(bad["isError"]!.GetValue<bool>());
             Assert.Contains("нет сегмента «tail»", bad.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+
+            // 5г: история капсул по тикам — watch.add с вычисляемыми полями тела, entity.history; последняя строка — те же числа,
+            // что physics.bodies на этом тике.
+            var watch = await Call("watch.add", new JsonObject { ["entities"] = new JsonArray("player"), ["fields"] = new JsonArray("Body.MaxSpeed", "Body.pelvis.Position.Y", "Transform.Position.X") });
+            Assert.False(watch["isError"]?.GetValue<bool>() ?? false, watch.ToJsonString());
+            await Call("command.send", new JsonObject { ["command"] = "PlayerCommand", ["fields"] = new JsonObject { ["Move"] = new JsonObject { ["X"] = 1, ["Y"] = 0 } }, ["repeat"] = 3 });
+            await Call("time.step", new JsonObject { ["ticks"] = 3 });
+            var history = (await Call("entity.history", new JsonObject { ["entity"] = "player" }))["structuredContent"]!;
+            var rows = history["rows"]!.AsArray();
+            Assert.Equal(3, rows.Count);
+            var last = rows[^1]!["values"]!;
+            var now = (await Call("physics.bodies", new JsonObject { ["entity"] = "player", ["segments"] = new JsonArray("pelvis") }))["structuredContent"]!;
+            Assert.Equal(now["capsules"]![0]!["position"]![1]!.GetValue<double>(), last["Body.pelvis.Position.Y"]!.GetValue<double>(), 4);
+            Assert.Equal(now["fastest"]!["speed"]!.GetValue<double>(), last["Body.MaxSpeed"]!.GetValue<double>(), 4);
+            Assert.True(last["Transform.Position.X"]!.GetValue<double>() > 0);
         }
         finally
         {

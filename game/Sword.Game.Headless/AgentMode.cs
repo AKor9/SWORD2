@@ -143,16 +143,18 @@ public static partial class Program
     /// <summary>
     /// Бюджет кадра (точка 4д): Sword.exe играет записанный сценарий бенчем (<c>--replay … --bench N</c>: первые 4 с — прогрев,
     /// vsync выключен, справка скрыта), окно 640×480 без фокуса — как бенч <c>verify.ps1</c> app-smoke. Хеши App сверяются с
-    /// записью Headless: замер — ровно той игры, что сценарий.
+    /// записью Headless: замер — ровно той игры, что сценарий. Оверлеи бюджета (5г) — <c>--overlay</c> на весь замер, как у вида.
     /// </summary>
     private static FrameResult MeasureFrame(FrameRequest request, CancellationToken cancel)
     {
         if (AppExe() is not { } exe) return new FrameResult(false, "Sword.exe не собран (dotnet build SWORD.slnx)");
-        var (report, error) = RunApp(exe,
-        [
+        var args = new List<string>
+        {
             "--replay", request.Replay, "--windowed", "640x480", "--no-activate", "--json",
             "--bench", request.Seconds.ToString(CultureInfo.InvariantCulture),
-        ], cancel);
+        };
+        foreach (string overlay in request.Overlays) args.AddRange(["--overlay", overlay]);
+        var (report, error) = RunApp(exe, args, cancel);
         if (report is null) return new FrameResult(false, error!);
         var bench = report["report"]?["bench"];
         var replay = report["replay"];
@@ -164,8 +166,10 @@ public static partial class Program
         if (replay?["match"]?.GetValue<bool>() != true)
             return new FrameResult(false, $"хеши App разошлись с записью Headless: {replay?["divergence"]}", frames, avg, p99, max);
         if (frames <= 0) return new FrameResult(false, "кадров замера нет", frames, avg, p99, max);
+        // Проходы последнего кадра — видно, что оверлеи бюджета нарисованы (капсулы тел — debug.bodies).
+        string passes = report["report"]?["passes"] is JsonArray list ? string.Join(", ", list.Select(p => p?["name"]?.GetValue<string>())) : "?";
         return new FrameResult(true, $"кадров замера {frames}: ср {avg} мс, p99 {p99} мс, макс {max} мс; хеши App совпали с записью " +
-            $"(сверено {replay["hashesChecked"]}); {report["report"]?["adapter"]}", frames, avg, p99, max);
+            $"(сверено {replay["hashesChecked"]}); проходы: {passes}; {report["report"]?["adapter"]}", frames, avg, p99, max);
     }
 
     /// <summary>Запустить Sword.exe и прочитать итог JSON (последняя строка stdout); ошибка — словами.</summary>

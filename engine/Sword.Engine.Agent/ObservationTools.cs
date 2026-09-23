@@ -46,7 +46,7 @@ internal static class ObservationTools
                 ("id", CoreTools.Str("имя наблюдения (по умолчанию w1, w2…)")),
                 ("entities", CoreTools.StrArray("сущности: номера «12v3» или имена (player)")),
                 ("where", Condition("условие на сущность (field, component, entity…)")),
-                ("fields", CoreTools.StrArray("поля: «Transform.Position», «Transform» (все листья), «RootVelocity.Linear.X»")),
+                ("fields", CoreTools.StrArray("поля: «Transform.Position», «Transform» (все листья), «RootVelocity.Linear.X»; вычисляемые поля игры — «Body.MaxSpeed», «Body.foot.l.Position.Y»")),
                 ("every", CoreTools.Int("каждые столько тиков (по умолчанию 1)", 1, 1_000_000)),
                 ("capacity", CoreTools.Int($"строк в кольце (по умолчанию {Watch.DefaultCapacity})", 1, Watch.MaxCapacity))),
             Required = ["fields"],

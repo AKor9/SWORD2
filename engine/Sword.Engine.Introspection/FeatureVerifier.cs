@@ -51,8 +51,14 @@ public sealed record ViewRequest(string Feature, string View, string Replay, ulo
 /// <summary>Итог вида: снят ли кадр, совпали ли хеши App с реплеем, подробности для людей.</summary>
 public sealed record ViewResult(bool Ok, string Detail);
 
-/// <summary>Замер кадра для App (бюджет кадра): реплей сценария (записанный Headless), секунды бенча (первые 4 — прогрев).</summary>
-public sealed record FrameRequest(string Feature, string Budget, string Replay, double Seconds);
+/// <summary>
+/// Замер кадра для App (бюджет кадра): реплей сценария (записанный Headless), секунды бенча (первые 4 — прогрев), оверлеи игры
+/// поверх каждого кадра (5г).
+/// </summary>
+public sealed record FrameRequest(string Feature, string Budget, string Replay, double Seconds)
+{
+    public IReadOnlyList<string> Overlays { get; init; } = [];
+}
 
 /// <summary>
 /// Итог замера кадра: App отработал и его хеши совпали с записью (<see cref="Ok"/>), кадров замера, средний кадр, 99-й
@@ -578,6 +584,7 @@ public static class FeatureVerifier
         FeatureVerifyOptions options, JsonObject json, List<string> failures, CancellationToken cancel)
     {
         var fj = new JsonObject { ["seconds"] = frame.Seconds, ["limitAverageMs"] = frame.AverageMs, ["limitP99Ms"] = frame.P99Ms };
+        if (frame.Overlays.Count > 0) fj["overlays"] = new JsonArray([.. frame.Overlays.Select(o => (JsonNode?)o)]);
         json["frame"] = fj;
         if (!options.Views)
         {
@@ -600,7 +607,7 @@ public static class FeatureVerifier
             failures.Add($"кадр: сценарий ({run.Ticks} тиков) короче бенча ({frame.Seconds} с — {need} тиков)");
             return;
         }
-        var r = env.MeasureFrame(new FrameRequest(feature, budget.Id, run.RecordedFile, frame.Seconds), cancel);
+        var r = env.MeasureFrame(new FrameRequest(feature, budget.Id, run.RecordedFile, frame.Seconds) { Overlays = frame.Overlays }, cancel);
         fj["ok"] = r.Ok;
         fj["detail"] = r.Detail;
         fj["frames"] = r.Frames;

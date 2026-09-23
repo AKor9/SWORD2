@@ -373,6 +373,14 @@ public sealed record FeatureView(string Id, string Scenario, ulong Tick, string?
     internal static FeatureView Parse(FeatureManifest.Reader r)
     {
         r.Only("id", "title", "scenario", "tick", "camera", "hud", "overlays");
+        var overlays = ParseOverlays(r);
+        return new FeatureView(r.String("id"), r.String("scenario"), (ulong)r.Integer("tick", 1, 1_000_000), r.OptionalString("camera"),
+            r.Bool("hud", false), r.OptionalString("title")) { Overlays = overlays };
+    }
+
+    /// <summary>Поле <c>overlays</c> (вида и бюджета кадра): имена оверлеев игры — строчные латинские буквы, цифры и «-», без повторов.</summary>
+    internal static IReadOnlyList<string> ParseOverlays(FeatureManifest.Reader r)
+    {
         var overlays = r.Strings("overlays", optional: true);
         for (int i = 0; i < overlays.Count; i++)
         {
@@ -380,8 +388,7 @@ public sealed record FeatureView(string Id, string Scenario, ulong Tick, string?
                 throw new ArgumentException($"{r.At}.overlays[{i}]: имя оверлея — строчные латинские буквы, цифры и «-», а не «{overlays[i]}»");
             if (overlays.Take(i).Contains(overlays[i])) throw new ArgumentException($"{r.At}.overlays[{i}]: {overlays[i]} дважды");
         }
-        return new FeatureView(r.String("id"), r.String("scenario"), (ulong)r.Integer("tick", 1, 1_000_000), r.OptionalString("camera"),
-            r.Bool("hud", false), r.OptionalString("title")) { Overlays = overlays };
+        return overlays;
     }
 }
 
@@ -431,7 +438,8 @@ public sealed record FeatureBudget
 /// <summary>
 /// Бюджет кадра (точка 4д): App играет запись сценария бенчем (<c>Sword.exe --replay … --bench <see cref="Seconds"/></c>:
 /// первые 4 с игрового времени — прогрев, vsync выключен, хеши сверяются с записью Headless) — средний кадр и 99-й
-/// перцентиль, мс. Как время бюджета — проверяется только в Release; нужен App (виды включены).
+/// перцентиль, мс. Как время бюджета — проверяется только в Release; нужен App (виды включены). С точки 5г — оверлеи игры
+/// поверх кадра на всё время замера (<see cref="Overlays"/>, <c>Sword.exe --overlay</c>, как у вида): кадр с капсулами тел.
 /// </summary>
 public sealed record FeatureFrameBudget
 {
@@ -441,10 +449,17 @@ public sealed record FeatureFrameBudget
     /// <summary>Секунды игрового времени бенча (больше 4 — прогрев): запись сценария должна быть не короче.</summary>
     public double Seconds { get; init; } = 5;
 
+    /// <summary>Оверлеи игры поверх каждого кадра замера (имя, которого игра не знает, — провал замера); пусто — без них.</summary>
+    public IReadOnlyList<string> Overlays { get; init; } = [];
+
     internal static FeatureFrameBudget Parse(FeatureManifest.Reader r)
     {
-        r.Only("averageMs", "p99Ms", "seconds");
-        var f = new FeatureFrameBudget { AverageMs = r.OptionalNumber("averageMs"), P99Ms = r.OptionalNumber("p99Ms"), Seconds = r.OptionalNumber("seconds") ?? 5 };
+        r.Only("averageMs", "p99Ms", "seconds", "overlays");
+        var f = new FeatureFrameBudget
+        {
+            AverageMs = r.OptionalNumber("averageMs"), P99Ms = r.OptionalNumber("p99Ms"), Seconds = r.OptionalNumber("seconds") ?? 5,
+            Overlays = FeatureView.ParseOverlays(r),
+        };
         if (f.AverageMs is null && f.P99Ms is null) throw new ArgumentException($"{r.At}: нечего проверять — averageMs или p99Ms");
         if (f.AverageMs <= 0 || f.P99Ms <= 0) throw new ArgumentException($"{r.At}: пределы — положительные");
         if (!(f.Seconds > 4 && f.Seconds <= 60)) throw new ArgumentException($"{r.At}.seconds: больше 4 (прогрев бенча) и не больше 60");

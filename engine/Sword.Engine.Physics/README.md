@@ -19,8 +19,11 @@ Diagnostics, Geometry (матрица раздела 4); ни ECS, ни игры
 
 Потребители (5б, игра — `game/Sword.Game/Bodies`): постройка бойца — `SetShape` (форма `Fighter.Build`) и `Place` (капсулы
 без скорости по позе постройки), каждый тик — `SetKinematicTarget` (капсулы по позе тика, `KinematicPlacementSystem` в
-PrePhysics); наблюдателям — вид игры `IBodyView` поверх `Get`. Побитово сверено с трассой SWORD толпы (13 капсул каждого
-бойца каждого тика). Замер: 33 × 13 капсул — 0,027 мс на тик (Release), 0 байт.
+PrePhysics); наблюдателям — вид игры `IBodyView` поверх `Get`. Побитово сверено с трассами SWORD толпы (13 капсул каждого
+бойца каждого тика, 5б) и рельефа (склон, ступени вверх и вниз, ухабы — 5г). Замер (5г, Release, `experiment.sweep` по
+`arena.enemies`, без инвариантов): стадия PrePhysics — 0,0009 / 0,0074 / 0,0138 / 0,0270 мс на тик при 1 / 9 / 17 / 33 бойцах
+(линейно, ~63 нс на капсулу — 13 вызовов `SetKinematicTarget` через интерфейс и `FromBasis` на капсулу), 0 байт. Приёмка —
+фича [«Физика и тела»](../../game/Sword.Game/Features/Bodies/README.md) (этап 5 ждёт подтверждения пользователя).
 
 ## Откуда логика
 
@@ -57,7 +60,8 @@ SWORD 2eab13b, `Sword.Physics`:
 ## Ограничения
 
 - Только кинематические тела: шага, режима `Simulated`, импульсов, контактов и запросов нет (этапы 6–7).
-- Хеш и инварианты подсистемы — у игры (`Sword.Game/Bodies`: участник `physics`, `physics.finite`, `physics.bodyRefs`):
+- Хеш и инварианты подсистемы — у игры (`Sword.Game/Bodies`: участник `physics`, `physics.finite`, `physics.bodyRefs`,
+  `physics.kinematicPose`, `physics.kinematicSpeed`):
   контракты `IStateContributor` и `IInvariant` — в Runtime, а физика его не видит.
 - Проверок внутри шага нет (шага нет).
 
