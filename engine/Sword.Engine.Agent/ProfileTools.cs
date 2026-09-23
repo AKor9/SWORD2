@@ -23,7 +23,11 @@ internal static class ProfileTools
                 "байты, вызовы, доля периодов; history — последние периоды (кадр — тики кадра и доля тика). Выключен по умолчанию: " +
                 "enable=true включает (App — с начала следующего кадра, Headless — следующего тика; включённый — 0 Б на тик и кадр), " +
                 "затем time.step или просто время игры; reset — забыть итоги (после прогрева), write — profile.json в артефакты. " +
-                "Меняет только профайлер, не симуляцию.",
+                "runtime — среда за период (точка Пб): CPU главного потока против настенного (onCpuPct), сборки и пауза GC, методы и мс JIT " +
+                "(главный поток и процесс), выделения процесса; machine — машина с включения или reset: загрузка системы другими процессами, " +
+                "частота CPU, GC и JIT, вердикт код/среда/машина с причинами. events=true — диагностический режим: события среды " +
+                "(EventListener: выделения по типам, сборки и паузы, JIT с уровнями tier0/tier1/osr, фоновый ли) с кадром, тиком и зоной; " +
+                "дорогой (JIT медленнее), events=false — выключить. Меняет только профайлер, не симуляцию.",
             Arguments = CoreTools.Props(
                 ("enable", new JsonObject { ["type"] = "boolean", ["description"] = "включить (true) или выключить (false) профайлер" }),
                 ("reset", new JsonObject { ["type"] = "boolean", ["description"] = "забыть итоги и кольцо (после прогрева)" }),
@@ -35,11 +39,17 @@ internal static class ProfileTools
                 ("prefix", CoreTools.Str("только зоны с именем с этого начала: stage., render., invariant., frame., arena.; системы — метка@")),
                 ("top", CoreTools.Int("сколько зон по среднему (по умолчанию 40)", 1, 1000)),
                 ("history", CoreTools.Int("последних периодов кольца в ответе (по умолчанию 0)", 0, CpuProfiler.DefaultHistory)),
-                ("write", new JsonObject { ["type"] = "boolean", ["description"] = "записать полный отчёт profile.json в артефакты сеанса" })),
+                ("write", new JsonObject { ["type"] = "boolean", ["description"] = "записать полный отчёт profile.json в артефакты сеанса" }),
+                ("events", new JsonObject
+                {
+                    ["type"] = "boolean",
+                    ["description"] = "диагностический режим: события среды (выделения по типам, GC, JIT) с местом — кадр, тик, зона; включает и профайлер",
+                })),
             ReadOnly = false,
             Run = async call =>
             {
                 bool? enable = call.Node("enable") is null ? null : call.Bool("enable", false);
+                bool? events = call.Node("events") is null ? null : call.Bool("events", false);
                 bool reset = call.Bool("reset", false), write = call.Bool("write", false);
                 string? per = call.String("per");
                 if (per is not null and not ("frame" or "tick")) throw new ArgumentException($"per: frame или tick, а не {per}");
@@ -51,7 +61,10 @@ internal static class ProfileTools
                 {
                     var p = host.Profiler;
                     if (enable is { } on) p.SetEnabled(on);
+                    if (events is { } diag) p.SetEvents(diag);
                     if (reset) p.Reset();
+                    // События приходят с задержкой (~15 мс): итог — после хвоста (метка компилируется здесь, на потоке владельца).
+                    if (p.Events is not null) p.FlushEvents(TimeSpan.FromSeconds(1));
                     var period = per switch
                     {
                         "frame" => ProfilePeriod.Frame,
@@ -61,7 +74,7 @@ internal static class ProfileTools
                     var report = p.Report(history, top, prefix);
                     int zones = prefix is null ? p.Stats(period).Count : p.Stats(period).Count(z => z.Name.StartsWith(prefix, StringComparison.Ordinal));
                     if (file is not null) p.Write(file, new JsonObject { ["process"] = host.Mode, ["build"] = host.BuildId, ["session"] = host.SessionId });
-                    return (Report: report, Period: period, Zones: zones, ctx.Point);
+                    return (Report: report, Period: period, Zones: zones, Events: p.Events?.Summary(types: 10, recent: 8), ctx.Point);
                 }, call.Cancel);
                 var report = r.Report;
                 string key = r.Period == ProfilePeriod.Frame ? "frames" : "ticks";
@@ -80,6 +93,10 @@ internal static class ProfileTools
                 data["frames"] = report["frames"]?["count"]?.DeepClone() ?? 0;
                 data["ticks"] = report["ticks"]?["count"]?.DeepClone() ?? 0;
                 data["zonesTotal"] = r.Zones;
+                // Точка Пб: среда за период и машина с включения или сброса (вердикт «код или машина»); события — в диагностическом режиме.
+                if (section?["runtime"] is { } runtime) data["runtime"] = runtime.DeepClone();
+                if (report["machine"] is { } machine) data["machine"] = machine.DeepClone();
+                data["events"] = r.Events is { } ev ? ev : "выключены (events: true — диагностический режим)";
                 data["zones"] = section?["zones"]?.DeepClone() ?? new JsonArray();
                 if (history > 0) data["history"] = section?["history"]?.DeepClone() ?? new JsonArray();
                 data["mismatches"] = report["mismatches"]?.DeepClone();

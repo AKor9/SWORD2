@@ -1,3 +1,5 @@
+using Sword.Engine.Diagnostics;
+
 namespace Sword.Engine.Client;
 
 /// <summary>
@@ -10,7 +12,9 @@ namespace Sword.Engine.Client;
 /// <param name="WaitMs">Ожидание GPU в начале прошлого кадра (забор кадра в полёте), мс.</param>
 /// <param name="Ticks">Тиков симуляции в этом кадре.</param>
 /// <param name="Vsync">Вертикальная синхронизация.</param>
-public readonly record struct FrameStats(double Fps, double FrameMs, double FrameMsMax, double CpuMs, double WaitMs, int Ticks, bool Vsync);
+/// <param name="Runtime">Среда за прошлую секунду (точка Пб, <see cref="RuntimeMeter"/>): JIT, GC, загрузка системы другими процессами.</param>
+public readonly record struct FrameStats(double Fps, double FrameMs, double FrameMsMax, double CpuMs, double WaitMs, int Ticks, bool Vsync,
+    RuntimeLine Runtime = default);
 
 /// <summary>
 /// Счётчик <see cref="FrameStats"/> по шагам кадров (<c>Program.cs</c> SWORD: сглаживание FPS 0,08 с начальных 60,
@@ -39,6 +43,7 @@ public sealed class FrameStatsMeter
         CpuMs = cpuMs;
         WaitMs = waitMs;
         _frame++;
+        Runtime.Frame(System.Diagnostics.Stopwatch.GetTimestamp());
     }
 
     public double Fps => _fps;
@@ -47,7 +52,10 @@ public sealed class FrameStatsMeter
     public double CpuMs { get; private set; }
     public double WaitMs { get; private set; }
 
-    public FrameStats Stats(int ticks, bool vsync) => new(_fps, FrameMs, _max, CpuMs, WaitMs, ticks, vsync);
+    public FrameStats Stats(int ticks, bool vsync) => new(_fps, FrameMs, _max, CpuMs, WaitMs, ticks, vsync, Runtime.Line);
+
+    /// <summary>Строка среды для HUD (точка Пб): опрос раз в секунду, и без профайлера (<see cref="RuntimeMeter"/>).</summary>
+    public RuntimeMeter Runtime { get; } = new();
 }
 
 /// <summary>

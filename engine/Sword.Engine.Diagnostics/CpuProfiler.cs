@@ -12,11 +12,12 @@ public enum ProfilePeriod
 
 /// <summary>
 /// Заголовок периода в кольце профайлера: номер кадра или тика, тики кадра (первый и сколько), доля тика кадра, время и
-/// выделенные байты периода, служебный ли кадр; у тика — кадр, в котором он сыгран (<see cref="ulong.MaxValue"/> — вне кадра).
-/// Время — в отсчётах <see cref="Stopwatch"/>.
+/// выделенные байты периода, служебный ли кадр; у тика — кадр, в котором он сыгран (<see cref="ulong.MaxValue"/> — вне кадра);
+/// счётчики среды за период (точка Пб: такты потока, сборки и пауза GC, выделения процесса, JIT). Время — в отсчётах
+/// <see cref="Stopwatch"/>.
 /// </summary>
 public readonly record struct ProfileHeader(ulong Number, ulong FirstTick, int Ticks, float Alpha, long Time, long Bytes, bool Service,
-    ulong Frame);
+    ulong Frame, ProfileCounters Counters);
 
 /// <summary>
 /// Профайлер CPU (раздел 3 плана, точка Па): зоны с номерами, заведёнными заранее (<see cref="Zone"/> — при сборке мира,
@@ -128,7 +129,7 @@ public sealed partial class CpuProfiler
         if (_off) return 0;
         if (_ids.TryGetValue(name, out int id)) return id;
         id = _names.Count;
-        _names.Add(name);
+        lock (_names) _names.Add(name);   // имена читает и поток слушателя событий среды (SharedName)
         _ids.Add(name, id);
         if (id >= _capacity) Grow(Math.Max(64, _capacity * 2));
         _parent[id] = Unseen;
@@ -149,7 +150,7 @@ public sealed partial class CpuProfiler
         _wanted = enabled;
         // Кадр или тик идёт (и у выключенного: он помнит, что период начат) — включение ждёт его конца.
         if (_depth == 0 && !_inFrame && !_inTick) Apply();
-        else _pending = _wanted != _enabled;
+        else _pending = Changed;
     }
 
     /// <summary>
@@ -167,15 +168,22 @@ public sealed partial class CpuProfiler
             _frames.Allocate(_history, _capacity);
             _ticks.Allocate(_history, _capacity);
         }
+        if (_wanted && !_enabled) StartWindow();
         _enabled = _wanted;
+        _timeline = _enabled ? _wantedTimeline : null;
     }
 
-    /// <summary>Забыть итоги и кольца (после прогрева); открытый период досчитывается и попадает в новые итоги.</summary>
+    /// <summary>
+    /// Забыть итоги и кольца (после прогрева); открытый период досчитывается и попадает в новые итоги. Включённый — ещё начало
+    /// окна машины (<see cref="Machine"/>) и итогов событий среды.
+    /// </summary>
     public void Reset()
     {
         _frames.Reset();
         _ticks.Reset();
         Mismatches = Overflows = Abandoned = 0;
+        if (_enabled) StartWindow();
+        _events?.Reset();
     }
 
     // ── зоны ───────────────────────────────────────────────────────────────
@@ -205,8 +213,10 @@ public sealed partial class CpuProfiler
         }
         _stackZone[d] = zone;
         _stackBytes[d] = GC.GetAllocatedBytesForCurrentThread();
-        _stackTime[d] = Stopwatch.GetTimestamp();
+        long now = Stopwatch.GetTimestamp();
+        _stackTime[d] = now;
         _depth = d + 1;
+        _timeline?.Write(now, zone, d + 1, ProfileTimeline.Kind.Begin);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -221,6 +231,7 @@ public sealed partial class CpuProfiler
             d = _depth - 1;
         }
         Close(d, now - _stackTime[d], bytes - _stackBytes[d]);
+        _timeline?.Write(now, zone, d, ProfileTimeline.Kind.End);
     }
 
     /// <summary>Зона на месте <paramref name="d"/> стека закрыта: в период(ы), родитель — зона под ней.</summary>
@@ -250,6 +261,7 @@ public sealed partial class CpuProfiler
             {
                 if (i <= Math.Max(_frameAt, _tickAt)) return false;   // зону периода закрывает только его конец
                 _depth = i + 1;
+                MarkDepth();
                 return true;
             }
         return false;
@@ -264,7 +276,11 @@ public sealed partial class CpuProfiler
     {
         int floor = Math.Max(_frameAt, _tickAt) + 1;
         if (depth < floor) depth = floor;
-        if (depth < _depth) _depth = depth;
+        if (depth < _depth)
+        {
+            _depth = depth;
+            MarkDepth();
+        }
     }
 
     // ── периоды ────────────────────────────────────────────────────────────
@@ -295,6 +311,8 @@ public sealed partial class CpuProfiler
         if (!_enabled) return;
         _frames.Open(number);
         _frameAt = 0;
+        _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, 0, ProfileTimeline.Kind.FrameOpen, (long)number);
+        _frames.Start = ReadCounters();
         Push(FrameZone);
     }
 
@@ -318,7 +336,9 @@ public sealed partial class CpuProfiler
         }
         if (_depth != _frameAt + 1) Unbalanced(FrameZone);
         Pop(FrameZone);
-        _frames.Record(alpha, service, ulong.MaxValue);
+        var counters = ReadCounters().Since(_frames.Start);
+        _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
+        _frames.Record(alpha, service, ulong.MaxValue, counters);
         _frameAt = -1;
     }
 
@@ -333,7 +353,11 @@ public sealed partial class CpuProfiler
     private void DropFrame()
     {
         if (_tickAt >= 0) DropTick();
-        if (_frameAt >= 0) _depth = _frameAt;
+        if (_frameAt >= 0)
+        {
+            _depth = _frameAt;
+            _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
+        }
         _frameAt = -1;
         _frames.Clear();
     }
@@ -364,6 +388,8 @@ public sealed partial class CpuProfiler
         if (_frameAt >= 0) _frames.NoteTick(tick);
         _ticks.Open(tick);
         _tickAt = _depth;
+        _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickOpen, (long)tick);
+        _ticks.Start = ReadCounters();
         Push(TickZone);
     }
 
@@ -382,7 +408,9 @@ public sealed partial class CpuProfiler
         if (_tickAt < 0) return;
         if (_depth != _tickAt + 1) Unbalanced(TickZone);
         Pop(TickZone);
-        _ticks.Record(1, service: false, _frameAt >= 0 ? _frames.Number : ulong.MaxValue);
+        var counters = ReadCounters().Since(_ticks.Start);
+        _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
+        _ticks.Record(1, service: false, _frameAt >= 0 ? _frames.Number : ulong.MaxValue, counters);
         _tickAt = -1;
     }
 
@@ -391,6 +419,7 @@ public sealed partial class CpuProfiler
         _depth = _tickAt;
         _tickAt = -1;
         _ticks.Clear();
+        _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
     }
 
     /// <summary>В периоде остались открытые зоны: Debug — исключение, Release — счётчик и раскрутка до зоны периода.</summary>
@@ -500,6 +529,11 @@ public sealed partial class CpuProfiler
         public int[] Hits = [];
         public int Count, Service;
 
+        /// <summary>Счётчики среды на начале открытого периода и итоги с последнего сброса (без служебных; точка Пб).</summary>
+        public ProfileCounters Start, Totals;
+        public int GcPeriods, JitPeriods, JitMainPeriods;
+        public long MaxPauseTicks, MaxJitTicks;
+
         public int Capacity, Stride, Next, Filled;
         public ProfileHeader[]? Headers;
         public long[]? RingTime, RingBytes;
@@ -567,14 +601,23 @@ public sealed partial class CpuProfiler
             Calls[zone]++;
         }
 
-        public void Record(float alpha, bool service, ulong frame)
+        public void Record(float alpha, bool service, ulong frame, in ProfileCounters counters)
         {
             int zones = owner._names.Count;
             int root = ReferenceEquals(this, owner._frames) ? FrameZone : TickZone;
+            if (!service)
+            {
+                Totals = Totals.Plus(counters);
+                if (counters.Collections > 0) GcPeriods++;
+                if (counters.JitProcess > 0) JitPeriods++;
+                if (counters.JitMethods > 0) JitMainPeriods++;
+                if (counters.PauseTicks > MaxPauseTicks) MaxPauseTicks = counters.PauseTicks;
+                if (counters.JitProcessTicks > MaxJitTicks) MaxJitTicks = counters.JitProcessTicks;
+            }
             if (Headers is not null)
             {
                 int slot = Next;
-                Headers[slot] = new ProfileHeader(Number, FirstTick, Ticks, alpha, Time[root], Bytes[root], service, frame);
+                Headers[slot] = new ProfileHeader(Number, FirstTick, Ticks, alpha, Time[root], Bytes[root], service, frame, counters);
                 Array.Copy(Time, 0, RingTime!, slot * Stride, zones);
                 Array.Copy(Bytes, 0, RingBytes!, slot * Stride, zones);
                 Array.Copy(Calls, 0, RingCalls!, slot * Stride, zones);
@@ -616,6 +659,9 @@ public sealed partial class CpuProfiler
             Array.Clear(Hits);
             Count = Service = 0;
             Next = Filled = 0;
+            Totals = default;
+            GcPeriods = JitPeriods = JitMainPeriods = 0;
+            MaxPauseTicks = MaxJitTicks = 0;
         }
     }
 }

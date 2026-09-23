@@ -1,18 +1,21 @@
 {
   // Приёмка фичи «Диагностический профайлер» (этап П) — начата на точке Па (зоны CPU и выделения): толпа 32 врагов,
   // бюджет — медиана тика без профайлера (предел — как у бюджета crowd фичи bodies) и отдельный прогон с профайлером: время
-  // систем (budgets[].systems в отчёте) и 0 Б на тик с ним. Дальше — Пб (GC, JIT, машина), Пв (аномалии, F2), Пг (GPU-время
-  // проходов), Пд (разбор открытых вопросов). Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify
+  // систем (budgets[].systems в отчёте) и 0 Б на тик с ним. Пб (GC, JIT, машина): отчёт бюджета несёт budgets[].machine —
+  // вердикт «код или машина»; пределы не менялись. Дальше — Пв (аномалии, F2), Пг (GPU-время проходов), Пд (разбор открытых
+  // вопросов). Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify
   // (Sword.Headless --feature profiler). Ослабить ожидания — только правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "profiler",
-  "title": "Диагностический профайлер (этап П; точка Па — зоны CPU и выделения)",
+  "title": "Диагностический профайлер (этап П; точки Па — зоны CPU и выделения, Пб — GC, JIT и машина)",
   "doc": "README.md",
   "sourceRoots": [
     "engine/Sword.Engine.Diagnostics",
     "engine/Sword.Engine.Agent/ProfileTools.cs",
     "engine/Sword.Engine.Client/ClientHost.cs",
+    "engine/Sword.Engine.Client/FrameTools.cs",
+    "game/Sword.Game.Client/Hud/Hud.cs",
     "engine/Sword.Engine.Render/RenderGraph.cs",
     "game/Sword.Game.Client/ArenaView.cs"
   ],
@@ -43,6 +46,10 @@
     "В этом `profile.json`: `frames.count` — число сыгранных кадров без первого (он служебный); первая зона `frames.zones` — `frame`, рядом `frame.render`, `frame.simulate`, `tick`, `frame.fenceWait`; в `ticks.zones` — `stage.Animation`, `core.animation-tick@Animation`, `invariant.…`; `mismatches` — 0.",
     "`Sword.exe --units 32 --bench 10` и `Sword.exe --units 32 --bench 10 --profile` — оба закрываются сами; в журнале `[bench] … кадр ср …` у них близко (профайлер в кадре — доли процента); у второго ещё строка `[profile]`, в его файле `frames.count` — около числа кадров замера.",
     "`Sword.exe` без `--profile` — FPS и плавность как до этапа П (выключенный профайлер не заметен).",
-    "`Sword.Headless --ticks 600 --units 32 --profile` — строка `[profile] профайлер: …headless…\\profile.json`; в файле `ticks.count` — 480 (после прогрева 120 тиков), первая зона — `tick`."
+    "`Sword.Headless --ticks 600 --units 32 --profile` — строка `[profile] профайлер: …headless…\\profile.json`; в файле `ticks.count` — 480 (после прогрева 120 тиков), первая зона — `tick`.",
+    "`Sword.exe` — в HUD под «тиков сим.» строка `JIT n · GC n/Y мс · фон CPU X %`: в первую секунду — прочерки, потом числа за прошлую секунду; в первые секунды JIT больше нуля, дальше обычно 0; GC — 0. Запустите что-нибудь тяжёлое (сборку, игру) — «фон CPU» растёт, от 25 % строка красная.",
+    "`Sword.exe --units 32 --bench 10` — в журнале после `[bench] кадров …` строка `[bench] машина: …` — вердикт `код`, `среда` (JIT во время замера) или `машина` (загрузка других процессов, частота). Тот же бенч под нагрузкой (запущена тяжёлая программа) — вердикт `машина: машина занята: загрузка системы другими процессами N %`.",
+    "`Sword.Headless --ticks 3600 --units 32 --move 1,0 --profile runtime` — в журнале итог с `; среда: JIT во время замера …` или `; код: машина спокойна …`; в `profile.json` — `machine` (вердикт), `ticks.runtime` (`onCpuPct` около 100), `events` (`calibrated` true, `late` 0, в `recent.jitMain` — компиляции OSR с тиком и зоной).",
+    "`Sword.exe --profile runtime` — игра как обычно (в первые секунды возможны подёргивания — диагностический режим удорожает JIT); после Esc в `profile.json` — `events.alloc.types` с типами и зонами (`frame.record`, `render.…`)."
   ]
 }

@@ -1,8 +1,9 @@
 # Sword.Engine.Diagnostics — правила
 
 Основа диагностики (раздел 3 ARCHITECTURE_PLAN.md: «Log, профайлер CPU, счётчики, ручки (Tuning), каналы трасс»),
-Neutral, зависит только от Core. Сейчас: журнал (`Log`, `LogRing` — `log.tail`) и профайлер CPU (`CpuProfiler`, этап П,
-точка Па). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
+Neutral, зависит только от Core. Сейчас: журнал (`Log`, `LogRing` — `log.tail`), профайлер CPU (`CpuProfiler`, этап П,
+точка Па) и счётчики среды и машины (точка Пб: `ProfileCounters`, `MachineSample`/`MachineReport`, `RuntimeMeter`,
+`RuntimeEvents`). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
 
 - `Log` не без выделений (строки, запись): из горячего пути (тик, кадр) в него не писать — только события и ошибки.
 - Профайлер CPU — `CpuProfiler`: однопоточный, у владельца потока (главный поток App — `ClientHost.Profiler`; Headless —
@@ -34,9 +35,28 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
   `Report()`/`Write(path)` (формат `sword-profile`, `profile.json`), кратко — `Summary()`.
 - Симуляцию профайлер не трогает: только читает часы и счётчик выделений; в хеш и реплей не входит (тесты — те же хеши
   с ним и без).
+- GC, JIT и машина (точка Пб):
+  - счётчики среды на кадр и тик — `ProfileCounters` (такты потока `QueryThreadCycleTime`, сборки по поколениям, пауза GC,
+    выделения процесса, JIT потока и процесса) читаются только в невстраиваемых `OpenFrame/CloseFrame/OpenTick/CloseTick`
+    включённого (`ReadCounters`, счёт — `CounterReads`): выключенный не опрашивает ничего; ~0,2 мкс на опрос, 0 байт;
+    лежат в заголовке периода (`ProfileHeader.Counters`) и итогах (`RuntimeStats`);
+  - время потока — такты TSC (`ThreadClock`: частота калибруется один раз на процесс, ~8 мс; занижена нагрузкой больше чем на 3 % — берётся номинальная `~MHz` из реестра), не `GetThreadTimes` (шаг
+    ~15,6 мс); вызовы kernel32/powrprof — только в `Machine.cs` (`MachineNative`), блиттабельные, без выделений;
+  - машина — только на границах замера (`MachineSample.Take` на потоке замера: включение и сброс профайлера, начало и конец
+    замера бюджета, перебора, бенча, прогона Headless), не каждый кадр; вердикт — `MachineReport` (критерии — константы
+    класса; пределы бюджетов вердикт не меняет, он объясняет провал); проба частоты — только в Release (`Machine.ProbeValid`);
+  - строка HUD — `RuntimeMeter` (опрос раз в секунду и без профайлера; в остальных кадрах — сравнение времени);
+  - диагностический режим — `SetEvents(true)`: `RuntimeEvents` (EventListener на `Microsoft-Windows-DotNETRuntime`, GC и JIT
+    уровня Verbose) и лента зон `ProfileTimeline` (пишет только владелец — 24 байта на начало и конец зоны в заранее выделенный
+    массив, читает поток слушателя). Выделения слушателя — на его потоке; главный поток не выделяет (тест). Места событий —
+    по времени: часы сеанса EventPipe калибруются метками (свои динамические методы, фоновый поток); отчёт перед записью ждёт
+    хвост (`FlushEvents`, `Write` — сам). Имена зон слушатель читает под замком (`SharedName`), не из горячего пути.
 
 Проверка: `tests/Sword.Engine.Runtime.Tests/ProfilerTests` (вложенность, дочерние не дольше родителя, периоды и кольцо,
 включение на границе, несогласованный конец, 0 байт, тик симуляции — те же хеши, исключение в системе),
+`ProfilerRuntimeTests` (точка Пб: выключенный не опрашивает, 0 байт с лентой и слушателем, сон и счётный цикл, сборка и JIT
+своего кадра, события в своём кадре и зоне, хеши с событиями, вердикт, строка HUD),
+`tests/Sword.Engine.Introspection.Tests/MachineVerdictTests` (перебор и бюджет — «JIT во время замера»),
 `tests/Sword.Game.Tests/ArenaTests` (толпа 32 врагов с профайлером — 0 Б/тик, те же хеши, зоны всех систем и
 инвариантов), `tests/Sword.Engine.Agent.Tests/ProfileToolsTests` (`profile.stages`), `tests/Sword.Benchmarks`
 (`ProfilerZone`, `artifacts/bench/profiler.json`), `verify.ps1` (`headless-smoke`, `app-smoke`, `agent-smoke`, `-Bench`).

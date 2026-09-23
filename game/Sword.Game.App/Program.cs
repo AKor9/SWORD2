@@ -48,6 +48,7 @@ public static partial class Program
         public string? Screenshots;
         public bool Agent;
         public bool Profile;
+        public bool ProfileEvents;
         public int AgentPort = 47813;
         public string? Record;
         public string? Replay;
@@ -108,9 +109,11 @@ public static partial class Program
                             replay); после конца реплея игрок стоит. Так снимаются виды фичи (feature.verify)
           --json            итог — одной строкой JSON в stdout (для агента)
           --profile         профайлер CPU с первого кадра: время и выделения фаз кадра, тиков, стадий, систем,
-                            инвариантов, проходов графа, зон игры; отчёт — artifacts/profile/<прогон>/profile.json,
-                            в --json — секция profile; с --bench — только кадры замера. Агент включает его и без
-                            ключа (profile.stages)
+                            инвариантов, проходов графа, зон игры; на кадр и тик — CPU потока, GC, JIT; машина и
+                            вердикт «код или машина»; отчёт — artifacts/profile/<прогон>/profile.json, в --json — секция
+                            profile; с --bench — только кадры замера. Агент включает его и без ключа (profile.stages)
+          --profile runtime то же и диагностический режим: события среды (выделения по типам, сборки, JIT с уровнями)
+                            с кадром, тиком и зоной — секция events отчёта; дорогой (JIT медленнее)
         """;
 
     public static int Main(string[] args)
@@ -182,6 +185,7 @@ public static partial class Program
                 Bindings = bindings,
                 HeldActions = options.Hold,
                 Profile = options.Profile,
+                ProfileEvents = options.ProfileEvents,
             }, arena, simulation))
             {
                 profiler = client.Profiler;
@@ -270,11 +274,12 @@ public static partial class Program
             {
                 Log.Info("sword", $"выход: {report.ExitReason}; кадров {report.Frames}, изменений размера {report.Resizes}, " +
                     $"кадр в среднем {report.AverageFrameMs:0.###} мс, худший {report.MaxFrameMs:0.###} мс" +
-                    (report.Bench is { } b ? $"; бенч: {b}" : ""));
+                    (report.Bench is { } b ? $"; бенч: {b}" : "") + (report.Machine is { } m ? $"; {m.Text}" : ""));
                 if (playback is not null)
                     Log.Info("replay", playback.Divergence is { } d ? d.ToString()
                         : $"реплей: сверено хешей {playback.HashesChecked}, последний — после {playback.LastMatch?.ToString() ?? "—"} тиков");
             }
+            profiler.SetEvents(false);   // диагностический режим (--profile runtime): слушатель событий среды закрыт после итога
             return 0;
         }
         catch (Exception ex)
@@ -330,7 +335,14 @@ public static partial class Program
                 case "--no-hud": o.NoHud = true; break;
                 case "--overlay": o.Overlays.Add(Next()); break;
                 case "--agent": o.Agent = true; break;
-                case "--profile": o.Profile = true; break;
+                case "--profile":
+                    o.Profile = true;
+                    if (i + 1 < args.Length && args[i + 1] == "runtime")
+                    {
+                        o.ProfileEvents = true;
+                        i++;
+                    }
+                    break;
                 case "--agent-port":
                     if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.AgentPort) || o.AgentPort is < 1 or > 65535)
                         throw new ArgumentException($"{a}: ожидается порт 1…65535");

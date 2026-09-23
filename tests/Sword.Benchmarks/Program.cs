@@ -117,13 +117,20 @@ public static class Program
         }
         double loop = Ns(nameof(ProfilerZone.Loop)), disabled = Ns(nameof(ProfilerZone.Disabled)), enabled = Ns(nameof(ProfilerZone.Enabled));
         long disabledBytes = Bytes(nameof(ProfilerZone.Disabled)), enabledBytes = Bytes(nameof(ProfilerZone.Enabled));
-        bool ok = disabled - loop <= MaxDisabledPairNs && disabledBytes == 0 && enabledBytes == 0;
+        // Точка Пб: счётчики среды, период, снимок машины, строка HUD — время и 0 байт.
+        var counters = BenchmarkRunner.Run<ProfilerCounters>(config);
+        var counterResults = counters.Reports.ToDictionary(r => r.BenchmarkCase.Descriptor.WorkloadMethod.Name, r => new
+        {
+            ns = Math.Round(r.ResultStatistics!.Median, 1), bytes = r.GcStats.GetBytesAllocatedPerOperation(r.BenchmarkCase) ?? -1,
+        });
+        bool ok = disabled - loop <= MaxDisabledPairNs && disabledBytes == 0 && enabledBytes == 0 && counterResults.Values.All(c => c.bytes == 0);
         var result = new
         {
             ok, quick, maxDisabledPairNs = MaxDisabledPairNs,
             loopNs = Math.Round(loop, 3), disabledNs = Math.Round(disabled, 3), enabledNs = Math.Round(enabled, 3),
             disabledPairNs = Math.Round(disabled - loop, 3), enabledPairNs = Math.Round(enabled - loop, 3),
             disabledBytes, enabledBytes,
+            counters = counterResults,
             timer = new { frequency = System.Diagnostics.Stopwatch.Frequency },
             runtime = Environment.Version.ToString(), machine = Environment.MachineName, date = DateTime.UtcNow.ToString("u"),
         };

@@ -39,8 +39,13 @@ public static partial class Program
                               после намеренного изменения, хеши сценария без хешей); --set поверх — эксперимент
           --json              итог — одной строкой JSON в stdout (для агента)
           --profile           профайлер CPU: время и выделения тика, стадий, систем, барьеров, инвариантов (после
-                              прогрева — 120 тиков); отчёт — artifacts/profile/<прогон>/profile.json, в --json — секция
-                              profile; с --agent — включён с начала сеанса (profile.stages), отчёт — при выходе
+                              прогрева — 120 тиков); на тик — CPU потока, GC, JIT; отчёт — artifacts/profile/<прогон>/
+                              profile.json, в --json — секция profile; с --agent — включён с начала сеанса
+                              (profile.stages), отчёт — при выходе
+          --profile runtime   то же и диагностический режим: события среды (выделения по типам, сборки, JIT с
+                              уровнями) с тиком и зоной — секция events отчёта; дорогой (JIT медленнее)
+                              Без ключа итог --json всё равно несёт machine: машина за тики после прогрева (поток на
+                              CPU, загрузка системы другими процессами, частота, GC, JIT) и вердикт «код или машина»
           --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
                               двигает агент; stdout — только протокол, журнал — в stderr
           --feature ID|all    приёмка фичи по манифесту feature.json (feature.verify): сценарии, инварианты,
@@ -52,7 +57,7 @@ public static partial class Program
     /// Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.
     /// <paramref name="build"/> — симуляция из конфига той же композицией (<c>session.start</c>, <c>time.seek</c> назад).
     /// </summary>
-    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, ref int? exit);
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, ref int? exit);
 
     /// <summary>Приёмка фич (<c>--feature</c>, AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
     static partial void RunFeatures(string which, Func<ConfigSet, Simulation> build, string content, bool views, bool budgets, bool json,
@@ -67,7 +72,7 @@ public static partial class Program
         int ticks = 600, sample = 60, hashEvery = 1;
         bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
-        bool json = false, agent = false, profile = false;
+        bool json = false, agent = false, profile = false, profileEvents = false;
         string? record = null, replayPath = null, feature = null;
         bool views = true, budgets = true;
         var sets = new List<string>();
@@ -105,7 +110,14 @@ public static partial class Program
                     case "--units": sets.Add(UnitsSet(a, Next())); break;
                     case "--json": json = true; break;
                     case "--agent": agent = true; break;
-                    case "--profile": profile = true; break;
+                    case "--profile":
+                        profile = true;
+                        if (i + 1 < args.Length && args[i + 1] == "runtime")
+                        {
+                            profileEvents = true;
+                            i++;
+                        }
+                        break;
                     case "--feature": feature = Next(); break;
                     case "--no-views": views = false; break;
                     case "--no-budgets": budgets = false; break;
@@ -163,7 +175,7 @@ public static partial class Program
             if (agent)
             {
                 int? exit = null;
-                RunAgent(sim, Build, profile, ref exit);
+                RunAgent(sim, Build, profile, profileEvents, ref exit);
                 if (exit is { } code) return code;
                 Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
                 return 2;
@@ -177,12 +189,19 @@ public static partial class Program
             {
                 sim.AttachProfiler(profiler);
                 profiler.SetEnabled(true);
+                if (profileEvents) profiler.SetEvents(true);
             }
             long allocated = 0;
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            // Машина за тики после прогрева (точка Пб): снимки — на границах, вне байтов тиков.
+            MachineSample? machineStart = null;
             for (int t = 0; t < ticks; t++)
             {
-                if (t == warmup) profiler?.Reset();
+                if (t == warmup)
+                {
+                    profiler?.Reset();
+                    machineStart = MachineSample.Take();
+                }
                 long before = GC.GetAllocatedBytesForCurrentThread();
                 // Клиента нет — очередь кадра экспорта тика живёт один тик и не растёт.
                 sim.Export.BeginFrame();
@@ -192,6 +211,7 @@ public static partial class Program
                 if ((t + 1) % sample == 0 || t + 1 == ticks) trajectory.Add(State(sim));
             }
             double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            var machine = machineStart is { } m0 ? MachineReport.Between(m0, MachineSample.Take(), computeBound: true) : null;
             Replay? recorded = recorder?.ToReplay();
             recorded?.Save(record!);
             string? profileFile = profiler?.Write(ProfilePath("headless"), ProfileHeader("headless", args));
@@ -229,6 +249,8 @@ public static partial class Program
                 warnings,
                 // Профайлер (--profile, точка Па): файл отчёта и главные зоны тика; без ключа — null.
                 profile = profiler is null ? null : ProfileJson(profiler, profileFile!),
+                // Машина за тики после прогрева (точка Пб): поток на CPU, загрузка системы, частота, GC, JIT и вердикт.
+                machine,
                 trajectory,
                 modules = sim.ActiveModules,
                 inactiveModules = sim.InactiveModules,
@@ -241,7 +263,8 @@ public static partial class Program
             else
             {
                 Log.Info("headless", $"{sim.Tick} тиков ({report.seconds} с): игрок в ({Fmt(report.player.x)}, {Fmt(report.player.z)}), " +
-                    $"курс {Fmt(report.player.facing)} рад, скорость {Fmt(report.player.speed)} м/с; {report.msPerTick} мс/тик");
+                    $"курс {Fmt(report.player.facing)} рад, скорость {Fmt(report.player.speed)} м/с; {report.msPerTick} мс/тик" +
+                    (machine is not null ? $"; {machine.Text}" : ""));
                 if (playback is not null)
                     Log.Info("replay", playback.Divergence is { } d ? d.ToString()
                         : playback.Replay.Hashes.Count == 0 ? "в реплее нет хешей (сценарий) — сверять нечего; хеши даёт --record"

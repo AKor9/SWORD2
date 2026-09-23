@@ -21,6 +21,8 @@
                             состояния по всем участникам (детерминизм, этап 3); каждый модуль по очереди выключен — 10 с
                             игрового времени без ошибок; опечатка в секции конфига и выключение ядра — ошибки; этап П —
                             толпа с --profile: 0 Б/тик, тот же хеш, profile.json с зонами тика, стадий, систем, инвариантов;
+                            точка Пб — machine в итоге (вердикт «код или машина»), среда тика и машина в отчёте;
+                            --profile runtime — события среды с калибровкой часов, 0 Б/тик, тот же хеш;
       app-smoke             Sword.exe без фокуса: 90 кадров по 2 тика с командой «бег по +X», смена размера по
                             кругу, слой отладки D3D12 с GPU-валидацией, снимок последнего кадра — итог JSON в
                             порядке, предупреждений и ошибок D3D12 и предупреждений шейдеров нет, проход
@@ -31,7 +33,8 @@
                             посчитан; действия screenshot и hud_help (F4, F1, --hold) — один снимок в --screenshots и
                             справка скрыта; debug_bodies (F7, 5в) — капсулы тел 11 бойцов проходом debug.bodies;
                             --no-hud — HUD не показан, прохода hud нет; этап П — --profile: те же байты на кадр, что без него,
-                            profile.json с фазами кадра, тиками, проходами графа и зонами игры;
+                            profile.json с фазами кадра, тиками, проходами графа и зонами игры; точка Пб — среда кадра и тика,
+                            машина в отчёте, report.machine в итоге и бенче;
                             --bench 5 — выход «bench» с итогом замера и снимком последнего кадра (нужны видеокарта и
                             пак контента; -SkipGpu — пропустить);
       replay-smoke          реплеи (этап 3б): Sword.exe --record (удержание move_forward и walk, --fps 45) —
@@ -52,7 +55,7 @@
                             replay.save, time.seek назад и вперёд к тому же хешу, session.start с реплеем — совпал,
                             replay.check; этап 3д — feature.list, feature.verify, experiment.fork (ветка с другой
                             командой расходится на тике после неё), experiment.compare; этап П — profile.stages (включить,
-                            30 тиков, зоны, выключить); session.stop — выход 0;
+                            30 тиков, зоны, среда тика и машина — точка Пб, выключить); session.stop — выход 0;
                             Sword.exe --agent
                             (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
                             рамкой; 5в — ID-буфер: сегменты игрока в его рамке с легендой, оверлей капсул), render.graph,
@@ -62,7 +65,8 @@
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
                             плана); сэмплинг поз (1 и 33 бойца, кроссфейд) — 0 байт на тик; итог —
                             artifacts/bench/ecs.json; пара Begin/End профайлера CPU (этап П) — выключенного не дороже
-                            1,5 нс, 0 байт с ним и без — artifacts/bench/profiler.json;
+                            1,5 нс, 0 байт с ним и без; счётчики среды, период, снимок машины, строка HUD (точка Пб) —
+                            0 байт — artifacts/bench/profiler.json;
       line-endings          все текстовые файлы — CRLF (соглашение AGENTS.md);
       reference             SHA-256 эталонного пака совпадает с tests/reference/reference.json.
 
@@ -254,7 +258,20 @@ Add-Step 'headless-smoke' {
         elseif (-not $report -or $report.format -ne 'sword-profile' -or $report.ticks.count -ne 480) { $problems += "--profile: отчёт $($prof.profile.file) — формат $($report.format), тиков $($report.ticks.count) (ждали 480 после прогрева)" }
         elseif ($top[0] -ne 'tick' -or $missing.Count -gt 0) { $problems += "--profile: нет зон [$($missing -join ', ')] или первая не tick: [$($zones -join ', ')]" }
         elseif ($prof.profile.mismatches -ne 0) { $problems += "--profile: несогласованных зон $($prof.profile.mismatches)" }
-        else { $crowdNote += "; --profile — 0 Б/тик, тот же хеш, зон $($zones.Count), отчёт $($prof.profile.file)" }
+        # Точка Пб: машина за тики после прогрева в итоге --json (и без профайлера), среда на тик и машина — в отчёте.
+        elseif (-not $crowd.machine -or $crowd.machine.verdict -notin @('код', 'среда', 'машина') -or -not $crowd.machine.text) { $problems += "итог --json без machine (вердикт «код или машина»): $($crowd.machine | ConvertTo-Json -Compress)" }
+        elseif (-not $report.ticks.runtime -or -not ($report.ticks.runtime.cpuMs -gt 0) -or -not $report.machine.verdict) { $problems += "--profile: в отчёте нет среды тика (ticks.runtime) или машины (machine)" }
+        else { $crowdNote += "; --profile — 0 Б/тик, тот же хеш, зон $($zones.Count), тик на CPU $($report.ticks.runtime.onCpuPct) %, отчёт $($prof.profile.file); машина: $($crowd.machine.text)" }
+    }
+    # Точка Пб: диагностический режим (--profile runtime) — события среды с местами, 0 Б/тик, тот же хеш.
+    if ($problems.Count -eq 0) {
+        $diag = (& $exe.FullName --ticks 600 --units 40 --move 1,0 --profile runtime --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        $diagReport = if ($diag.profile.file -and (Test-Path $diag.profile.file)) { Get-Content $diag.profile.file -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
+        if (-not $diag.ok -or -not $diagReport) { $problems += "--profile runtime: итог или отчёт — $($diag.error)" }
+        elseif ($diag.allocatedBytesPerTick -ne 0) { $problems += "--profile runtime: тик выделяет $($diag.allocatedBytesPerTick) Б, ждали 0 (слушатель выделяет на своём потоке)" }
+        elseif (($diag.stateHash | ConvertTo-Json -Compress) -ne ($crowd.stateHash | ConvertTo-Json -Compress)) { $problems += "--profile runtime: хеш $($diag.stateHash.total), без профайлера — $($crowd.stateHash.total)" }
+        elseif (-not $diagReport.events -or -not $diagReport.events.calibrated -or $diagReport.events.received -lt 1) { $problems += "--profile runtime: события — калибровка $($diagReport.events.calibrated), принято $($diagReport.events.received)" }
+        else { $crowdNote += "; --profile runtime — событий $($diagReport.events.received), JIT $($diagReport.events.jit.methods), 0 Б/тик, тот же хеш" }
     }
     # Детерминизм (этап 3): тот же прогон ещё раз — тот же хеш каждого участника.
     if ($problems.Count -eq 0) {
@@ -431,7 +448,10 @@ else {
                     }
                     elseif ($missingZones.Count -gt 0) { $problems += "--profile: в кадре нет зон [$($missingZones -join ', ')]" }
                     elseif ($profReport.mismatches -ne 0 -or $profReport.abandoned -ne 0) { $problems += "--profile: несогласованных зон $($profReport.mismatches), брошенных периодов $($profReport.abandoned)" }
-                    else { $script:profileNote = "--profile — $($profRun.report.allocatedBytesPerFrame) Б/кадр, как без него, зон кадра $($frameZones.Count)" }
+                    # Точка Пб: среда на кадр и тик, машина в отчёте и в итоге прогона (и без профайлера).
+                    elseif (-not $profReport.frames.runtime -or -not $profReport.ticks.runtime -or -not $profReport.machine.verdict) { $problems += '--profile: в отчёте нет frames.runtime, ticks.runtime или machine' }
+                    elseif (-not $plainRun.report.machine -or -not $plainRun.report.machine.text) { $problems += 'итог Sword.exe без report.machine (вердикт «код или машина»)' }
+                    else { $script:profileNote = "--profile — $($profRun.report.allocatedBytesPerFrame) Б/кадр, как без него, зон кадра $($frameZones.Count), кадр на CPU $($profReport.frames.runtime.onCpuPct) %" }
                 }
                 # Точка 1д: бенч кадра — 5 с игрового времени, из них 4 — прогрев; выход сам, итог и снимок последнего кадра.
                 # Точка 4а: с толпой — 32 врага (--units 32), кадр рисует всех 33 бойцов.
@@ -446,7 +466,8 @@ else {
                     elseif ($bench.report.simTicks -lt 600) { $problems += "--bench 5: тиков $($bench.report.simTicks), замер кончился раньше 5 с" }
                     elseif (-not (Test-Path $benchShot)) { $problems += '--bench 5: нет снимка последнего кадра замера' }
                     elseif ($bench.arena.enemies -ne 32 -or $bench.arena.skinned -ne 33) { $problems += "--bench 5 --units 32: врагов $($bench.arena.enemies), отдано скиннингу $($bench.arena.skinned); ждали 32 и 33" }
-                    else { $script:benchNote = "команды арены (PageUp, R) в записи Sword.exe — Headless повторил её хеши; бенч с 32 врагами (33 бойца в кадре): $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс" }
+                    elseif (-not $bench.report.machine -or -not $bench.report.machine.text) { $problems += '--bench 5: нет report.machine (машина за замер, точка Пб)' }
+                    else { $script:benchNote = "команды арены (PageUp, R) в записи Sword.exe — Headless повторил её хеши; бенч с 32 врагами (33 бойца в кадре): $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс; $($bench.report.machine.text)" }
                 }
             }
         }
@@ -726,6 +747,10 @@ Add-Step 'agent-smoke' {
         if (-not $profOn.requested -or -not $prof.enabled -or [int]$prof.periods -ne 30 -or $prof.per -ne 'tick' -or $profMissing.Count -gt 0 -or [int]$prof.mismatches -ne 0 -or $profOff.enabled) {
             $problems += "Headless: profile.stages — заказан $($profOn.requested), включён $($prof.enabled), тиков $($prof.periods), нет зон [$($profMissing -join ', ')], выключен $(-not $profOff.enabled)"
         }
+        # Точка Пб: среда за тик и машина с вердиктом в ответе profile.stages.
+        elseif (-not $prof.runtime -or -not ($prof.runtime.cpuMs -gt 0) -or -not $prof.machine -or $prof.machine.verdict -notin @('код', 'среда', 'машина')) {
+            $problems += "Headless: profile.stages без runtime или machine: $($prof.runtime | ConvertTo-Json -Compress) $($prof.machine.verdict)"
+        }
         $null = Call-Stdio 'session.stop' @{}
         if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
         elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
@@ -816,6 +841,7 @@ Add-Step 'agent-smoke' {
             if (-not $appProf.enabled -or [int]$appProf.frames -lt 2 -or [int]$appProf.ticks -lt 16 -or $appMissing.Count -gt 0 -or [int]$appProf.mismatches -ne 0) {
                 $problems += "App: profile.stages — включён $($appProf.enabled), кадров $($appProf.frames), тиков $($appProf.ticks), нет зон [$($appMissing -join ', ')], несогласованных $($appProf.mismatches)"
             }
+            elseif (-not $appProf.runtime -or -not $appProf.machine) { $problems += 'App: profile.stages без runtime или machine (точка Пб)' }
             $graph = Call-Http 'render.graph' @{}
             $passes = @($graph.passes | ForEach-Object { $_.name })
             if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
@@ -852,7 +878,10 @@ if ($Bench) {
         $poses = (@($r.poseSampling) | ForEach-Object { "$($_.fighters) бойц. — $([math]::Round($_.tickNs / 1000, 1)) мкс, $($_.bytesPerTick) Б" }) -join ', '
         $profilerFile = Join-Path $root 'artifacts\bench\profiler.json'
         $p = if (Test-Path $profilerFile) { Get-Content $profilerFile -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
-        $profilerNote = if ($p) { "пара Begin/End профайлера: выключенного $($p.disabledPairNs) нс (не больше $($p.maxDisabledPairNs)), включённого $($p.enabledPairNs) нс, $($p.disabledBytes) и $($p.enabledBytes) Б" } else { 'нет итога профайлера' }
+        $profilerNote = if ($p) {
+            "пара Begin/End профайлера: выключенного $($p.disabledPairNs) нс (не больше $($p.maxDisabledPairNs)), включённого $($p.enabledPairNs) нс, $($p.disabledBytes) и $($p.enabledBytes) Б" +
+            "; период включённого (два опроса счётчиков) $($p.counters.PeriodEnabled.ns) нс, выключенного $($p.counters.PeriodDisabled.ns) нс; снимок машины $($p.counters.MachineSampleNoProbe.ns) нс, с пробой частоты $($p.counters.MachineSampleWithProbe.ns) нс; строка HUD $($p.counters.HudMeterFrame.ns) нс на кадр"
+        } else { 'нет итога профайлера' }
         $detail = "обход ECS / сырой цикл — $ratios (не больше ×$($r.maxRatio)); тик команд и журналов $([math]::Round($r.commandsAndJournals.tickNs / 1000, 1)) мкс, $($r.commandsAndJournals.bytesPerTick) Б; сэмплинг поз (кроссфейд): $poses; $profilerNote"
         @{ ok = [bool]$r.ok -and $p -and [bool]$p.ok; detail = $detail }
     }

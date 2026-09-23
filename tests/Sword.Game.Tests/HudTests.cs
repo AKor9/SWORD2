@@ -111,6 +111,42 @@ public sealed class HudDrawTests : IDisposable
                 Assert.True(g.GlyphId != 0, $"нет glyph'а для «{line[(int)g.Cluster]}» в «{line}»");
     }
 
+    /// <summary>
+    /// Строка среды (точка Пб): «JIT n · GC n/Y мс · фон CPU X %» — все буквы в шрифте (и «·», и «—» до первой секунды);
+    /// цвет — по загрузке и JIT/GC; кадр HUD со строкой не выделяет.
+    /// </summary>
+    [Fact]
+    public void RuntimeLine_Glyphs_Colour_NoAllocations()
+    {
+        Span<char> buf = stackalloc char[96];
+        var busy = new Sword.Engine.Diagnostics.RuntimeLine(3, 1, 0.42, 0.37, true);
+        Assert.Equal("JIT 3 · GC 1/0.4 мс · фон CPU 37 %", Hud.RuntimeText(new Line(buf), busy).ToString());
+        Assert.Equal("JIT — · GC — · фон CPU —", Hud.RuntimeText(new Line(buf), default).ToString());
+        foreach (string text in (string[])[Hud.RuntimeText(new Line(buf), busy).ToString(), Hud.RuntimeText(new Line(buf), default).ToString()])
+            foreach (var g in _fonts.Shape(UiFace.Body, text).ToArray())
+                Assert.True(g.GlyphId != 0, $"нет glyph'а для «{text[(int)g.Cluster]}» в «{text}»");
+        var t = UiTheme.Default;
+        Assert.Equal(t.Bad, Hud.RuntimeColour(busy));                                  // другие процессы от 25 % — машина занята
+        Assert.Equal(t.Accent, Hud.RuntimeColour(busy with { OthersBusy = 0.05 }));    // JIT и GC были
+        Assert.Equal(t.TextDim, Hud.RuntimeColour(new(0, 0, 0, 0.05, true)));
+
+        var hud = new Hud();
+        var d = new UiDrawList(_fonts);
+        var data = Data with { Frame = Data.Frame with { Runtime = busy } };
+        for (int i = 0; i < 5; i++)
+        {
+            d.Clear();
+            hud.Draw(d, 1600, 900, data, []);
+        }
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 50; i++)
+        {
+            d.Clear();
+            hud.Draw(d, 1600, 900, data with { Frame = data.Frame with { Runtime = busy with { Jit = i } } }, []);
+        }
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
     [Fact]
     public void HudFrame_AllocatesNothing()
     {

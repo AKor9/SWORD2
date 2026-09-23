@@ -56,3 +56,55 @@ public class ProfilerZone
         return _sink = s;
     }
 }
+
+/// <summary>
+/// Цена счётчиков точки Пб: опрос счётчиков среды без тактов потока и с ними (<see cref="ProfileCounters.Read"/>: сборки,
+/// пауза, выделения процесса, JIT; такты — <c>QueryThreadCycleTime</c>), период профайлера (кадр без зон) выключенного и
+/// включённого — два опроса на период, снимок машины на границе замера без пробы частоты и с ней, кадр строки HUD
+/// (<see cref="RuntimeMeter.Frame"/> — сравнение времени, опрос раз в секунду). Цель — 0 байт у всех.
+/// </summary>
+[MemoryDiagnoser]
+public class ProfilerCounters
+{
+    private CpuProfiler _off = null!, _on = null!;
+    private readonly RuntimeMeter _meter = new();
+    private long _sink;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _off = new CpuProfiler();
+        _on = new CpuProfiler();
+        _on.SetEnabled(true);
+        _meter.Frame(System.Diagnostics.Stopwatch.GetTimestamp());
+    }
+
+    [Benchmark]
+    public long CountersManaged() => _sink += ProfileCounters.Read(cycles: false).Gen0;
+
+    [Benchmark]
+    public long CountersWithCycles() => _sink += ProfileCounters.Read().ThreadCycles;
+
+    [Benchmark]
+    public void PeriodDisabled()
+    {
+        _off.BeginFrame(1);
+        _off.EndFrame(1, service: false);
+    }
+
+    [Benchmark]
+    public void PeriodEnabled()
+    {
+        _on.BeginFrame(1);
+        _on.EndFrame(1, service: false);
+    }
+
+    [Benchmark]
+    public long MachineSampleNoProbe() => _sink += MachineSample.Take(probe: false).Time;
+
+    [Benchmark]
+    public long MachineSampleWithProbe() => _sink += MachineSample.Take().Time;
+
+    [Benchmark]
+    public void HudMeterFrame() => _meter.Frame(System.Diagnostics.Stopwatch.GetTimestamp());
+}

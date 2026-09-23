@@ -93,6 +93,12 @@ public sealed record ClientOptions
     /// итоги профайлера — только кадры замера (после прогрева). Выключенный стоит проверку флага на зону.
     /// </summary>
     public bool Profile { get; init; }
+
+    /// <summary>
+    /// Диагностический режим профайлера (<c>--profile runtime</c>, точка Пб): события среды — выделения по типам, сборки,
+    /// JIT — с кадром, тиком и зоной (<see cref="CpuProfiler.SetEvents"/>); включает и профайлер. Дорогой: JIT медленнее.
+    /// </summary>
+    public bool ProfileEvents { get; init; }
 }
 
 /// <summary>
@@ -104,7 +110,9 @@ public sealed record ClientOptions
 /// <see cref="AllocatedBytesPerFrame"/> и <see cref="Gen0Collections"/> не входят. Кадр — от конца прошлого до конца
 /// этого, вместе с прокачкой сообщений. <see cref="AllocatedBytesPerFrame"/> — выделения главного потока (другие потоки
 /// процесса не в счёт); <see cref="Gen0Collections"/> — сборки поколения 0, пришедшиеся на обычные кадры (сборка
-/// останавливает весь процесс, поэтому считается любая).
+/// останавливает весь процесс, поэтому считается любая). <see cref="Machine"/> — машина за замер (точка Пб): с бенчем — кадры
+/// замера, без него — с конца первого кадра до выхода; загрузка системы другими процессами, частота, GC, JIT и вердикт
+/// «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт).
 /// </summary>
 public sealed record ClientRunReport(
     string ExitReason,
@@ -129,7 +137,8 @@ public sealed record ClientRunReport(
     int Screenshots,
     FrameStats Stats,
     FrameBenchReport? Bench,
-    IReadOnlyList<RenderPassReport> Passes);
+    IReadOnlyList<RenderPassReport> Passes,
+    MachineReport? Machine = null);
 
 /// <summary>
 /// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
@@ -221,6 +230,8 @@ public sealed class ClientHost : IDisposable
         _renderer.Profiler = Profiler;
         simulation?.AttachProfiler(Profiler);
         if (options.Profile) Profiler.SetEnabled(true);
+        if (options.ProfileEvents) Profiler.SetEvents(true);
+        MachineSample.Take();   // первый снимок машины — здесь: его разовая компиляция и статика — не в кадрах Run
         try
         {
             game.Initialize(_renderer, _clock?.Link);
@@ -262,6 +273,9 @@ public sealed class ClientHost : IDisposable
         var bench = _options.BenchSeconds > 0 ? new FrameBench(_options.BenchSeconds) : null;
         var profiler = Profiler;
         bool profileMeasuring = false;
+        // Окно машины (точка Пб): границы замера — не каждый кадр. С бенчем — с первого кадра замера, без него — с конца первого.
+        MachineSample? machineStart = null;
+        bool takeMachine = false;
 
         while (true)
         {
@@ -358,7 +372,9 @@ public sealed class ClientHost : IDisposable
             {
                 profiler.Reset();
                 profileMeasuring = true;
+                takeMachine = true;
             }
+            if (bench is null && frames == 0) takeMachine = true;
             profiler.EndFrame(_view.Alpha, service || lastBenchFrame);
             _meter.Frame(ms, cpuMs, _renderer.LastFenceWaitMs);
             // Последний кадр замера (со снимком — ожидание GPU и PNG) в замер не входит: SWORD копит шаг кадра, измеренный
@@ -379,6 +395,14 @@ public sealed class ClientHost : IDisposable
             lastGen0 = gen0;
             lastResizes = _resizes;
             frames++;
+            if (takeMachine)
+            {
+                // Снимок — после отметок кадра и вне кадров: его ~50 мкс (проба частоты) не идут ни в шаг, ни в байты кадра.
+                machineStart = MachineSample.Take();
+                takeMachine = false;
+                last = Stopwatch.GetTimestamp();
+                lastAllocated = GC.GetAllocatedBytesForCurrentThread();
+            }
 
             if (lastBenchFrame)
             {
@@ -392,8 +416,10 @@ public sealed class ClientHost : IDisposable
             }
         }
         profiler.AbandonFrame();   // выход посреди кадра (окно закрыто, Escape, инструмент): кадр не доделан — не в итогах
+        var machine = machineStart is { } ms0 ? MachineReport.Between(ms0, MachineSample.Take(), computeBound: false) : null;
         var benchReport = bench?.Result();
         if (benchReport is not null) Log.Info("bench", benchReport.ToString());
+        if (benchReport is not null && machine is not null) Log.Info("bench", "машина: " + machine.Text);
 
         _liveResizeError?.Throw();
         int steady = frames - serviceFrames;
@@ -420,7 +446,8 @@ public sealed class ClientHost : IDisposable
             Screenshots: _screenshots,
             Stats: _meter.Stats(_view.Ticks, _vsync),
             Bench: benchReport,
-            Passes: _renderer.Graph.LastFrame);
+            Passes: _renderer.Graph.LastFrame,
+            Machine: machine);
     }
 
     private int _resizes;

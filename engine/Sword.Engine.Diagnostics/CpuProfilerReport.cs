@@ -22,20 +22,25 @@ public sealed partial class CpuProfiler
         var json = new JsonObject
         {
             ["format"] = ReportFormat,
-            ["version"] = 1,
+            ["version"] = 2,
             ["enabled"] = Enabled,
             ["requested"] = Requested,
             ["timer"] = new JsonObject
             {
                 ["frequency"] = Stopwatch.Frequency, ["resolutionUs"] = Round(1e6 / Stopwatch.Frequency, 4),
+                ["tscMhz"] = Round(ThreadClock.CyclesPerSecond / 1e6, 1),
             },
             ["zones"] = _names.Count,
             ["mismatches"] = Mismatches,
             ["overflows"] = Overflows,
             ["abandoned"] = Abandoned,
+            ["counterReads"] = CounterReads,
         };
+        // Машина с начала окна (включение или сброс) — снимается здесь, на потоке владельца (точка Пб).
+        if (Machine() is { } machine) json["machine"] = machine.ToJson();
         if (PeriodJson(ProfilePeriod.Frame, history, top, prefix) is { } frames) json["frames"] = frames;
         if (PeriodJson(ProfilePeriod.Tick, history, top, prefix) is { } ticks) json["ticks"] = ticks;
+        if (_events is { } events) json["events"] = events.Summary(types: 40, recent: 100);
         return json;
     }
 
@@ -47,7 +52,7 @@ public sealed partial class CpuProfiler
     {
         var period = Count(ProfilePeriod.Frame).Periods > 0 ? ProfilePeriod.Frame : ProfilePeriod.Tick;
         var (frames, service) = Count(ProfilePeriod.Frame);
-        return new JsonObject
+        var json = new JsonObject
         {
             ["enabled"] = Enabled,
             ["frames"] = frames,
@@ -60,7 +65,19 @@ public sealed partial class CpuProfiler
                 ["name"] = z.Name, ["meanMs"] = Round(z.MeanMs, 5), ["p99Ms"] = Round(z.P99Ms, 5), ["selfMs"] = Round(z.SelfMs, 5),
                 ["bytes"] = Round(z.Bytes, 1),
             })]),
+            // Точка Пб: среда за период (CPU потока против настенного, GC, JIT) — коротко.
+            ["runtime"] = RuntimeJson(RuntimeStats(period)),
         };
+        if (_events is { } events)
+        {
+            var summary = events.Summary(types: 5, recent: 3);
+            json["events"] = new JsonObject
+            {
+                ["received"] = summary["received"]?.DeepClone(), ["late"] = summary["late"]?.DeepClone(),
+                ["alloc"] = summary["alloc"]?["types"]?.DeepClone(), ["jit"] = summary["jit"]?.DeepClone(), ["gc"] = summary["gc"]?.DeepClone(),
+            };
+        }
+        return json;
     }
 
     private JsonObject? PeriodJson(ProfilePeriod period, int history, int top, string? prefix)
@@ -74,20 +91,34 @@ public sealed partial class CpuProfiler
         {
             ["count"] = count,
             ["window"] = window,
+            ["runtime"] = RuntimeJson(RuntimeStats(period)),
             ["zones"] = new JsonArray([.. zones.Select(z => (JsonNode?)ZoneJson(z))]),
         };
         if (period == ProfilePeriod.Frame) json.Insert(1, "service", service);
-        json["history"] = new JsonArray([.. recent.Select(h => (JsonNode?)(period == ProfilePeriod.Frame
-            ? new JsonObject
-            {
-                ["frame"] = h.Number,
-                ["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks),
-                ["alpha"] = Round(h.Alpha, 4), ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes, ["service"] = h.Service,
-            }
-            : new JsonObject
-            {
-                ["tick"] = h.Number, ["frame"] = h.Frame == ulong.MaxValue ? null : h.Frame, ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes,
-            }))]);
+        json["history"] = new JsonArray([.. recent.Select(h =>
+        {
+            var entry = period == ProfilePeriod.Frame
+                ? new JsonObject
+                {
+                    ["frame"] = h.Number,
+                    ["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks),
+                    ["alpha"] = Round(h.Alpha, 4), ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes, ["service"] = h.Service,
+                }
+                : new JsonObject
+                {
+                    ["tick"] = h.Number, ["frame"] = h.Frame == ulong.MaxValue ? null : h.Frame, ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes,
+                };
+            // Точка Пб: время потока на CPU, выделения процесса, сборки, пауза, JIT периода.
+            var c = h.Counters;
+            entry["cpuMs"] = Round(c.CpuMs, 5);
+            entry["processBytes"] = c.ProcessBytes;
+            entry["gc"] = c.Collections;
+            entry["pauseMs"] = Round(c.PauseMs, 4);
+            entry["jit"] = c.JitMethods;
+            entry["jitProcess"] = c.JitProcess;
+            if (c.JitProcessTicks > 0) entry["jitMs"] = Round(c.JitProcessMs, 4);
+            return (JsonNode?)entry;
+        })]);
         return json;
     }
 
@@ -115,6 +146,7 @@ public sealed partial class CpuProfiler
     /// </summary>
     public string Write(string path, JsonObject? header = null)
     {
+        FlushEvents();   // события среды приходят с задержкой: отчёт — после хвоста
         var report = Report();
         if (header is not null)
         {

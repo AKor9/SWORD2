@@ -40,8 +40,8 @@ public sealed class Skeleton
         Id = id;
         _jointNames = jointNames.ToArray();
         _jointParents = jointParents.ToArray();
-        Hash = SkeletonFile.ComputeHash(_jointNames, _jointParents);
         _order = BuildOrder(id, _jointParents);
+        Hash = SkeletonFile.ComputeHash(_jointNames, _jointParents);
         _referenceRot = new Quaternion[_jointNames.Length];
         _referencePos = new Vector3[_jointNames.Length];
         Array.Fill(_referenceRot, Quaternion.Identity);
@@ -80,8 +80,8 @@ public sealed class Skeleton
             int m = 0;
             for (int k = j; k >= 0 && state[k] != 2; k = parents[k])
             {
-                if (parents[k] < -1 || parents[k] >= n) throw new InvalidDataException($"скелет {id}: родитель сустава {k} вне скелета");
                 if (state[k] == 1) throw new InvalidDataException($"скелет {id}: цикл в родителях у сустава {k}");
+                if (parents[k] < -1 || parents[k] >= n) throw new InvalidDataException($"скелет {id}: родитель сустава {k} вне скелета");
                 state[k] = 1;
                 path[m++] = k;
             }

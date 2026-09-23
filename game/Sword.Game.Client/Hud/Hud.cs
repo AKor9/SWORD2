@@ -1,5 +1,6 @@
 using System.Globalization;
 using Sword.Engine.Client;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Ui;
 
 namespace Sword.Game.Client;
@@ -110,9 +111,9 @@ public sealed class Hud
         var f = data.Frame;
         float s = Scale(h);
         float x = (8 + PerfPad) * s, lh = RowH * s;
-        // SWORD: PerfPad + 30 + 16 + 3·TitleH + (4 + строк секции арены)·RowH + 20 + PerfPad — у нас две секции и три
-        // строки ячеек («КАДР» — две, «GPU» — одна: времён GPU ещё нет).
-        const float height = PerfPad + 30 + 16 + 2 * TitleH + 3 * RowH + 20 + PerfPad;
+        // SWORD: PerfPad + 30 + 16 + 3·TitleH + (4 + строк секции арены)·RowH + 20 + PerfPad — у нас две секции и четыре
+        // строки («КАДР» — две ячеек и строка среды, точка Пб; «GPU» — одна: времён GPU ещё нет).
+        const float height = PerfPad + 30 + 16 + 2 * TitleH + 4 * RowH + 20 + PerfPad;
         d.Rect(8 * s, 8 * s, (8 + PerfW) * s, (8 + height) * s, Panel, 8 * s);
         float y = (8 + PerfPad) * s;
         float right = (PerfW - PerfPad + 8) * s;
@@ -139,6 +140,9 @@ public sealed class Hud
         Cell(d, s, x, y, 0, "тиков сим.", new Line(buf).I(f.Ticks).Text, TextC);
         Cell(d, s, x, y, 1, "vsync", f.Vsync ? "вкл" : "выкл", f.Vsync ? Accent : TextC);
         y += lh;
+        // Среда за прошлую секунду (точка Пб): методов JIT, сборок GC и их пауза, загрузка CPU другими процессами.
+        d.Text(UiFace.Body, 13 * s, new(x, y + 1 * s), RuntimeColour(f.Runtime), RuntimeText(new Line(buf), f.Runtime));
+        y += lh;
 
         y = Section(d, s, x, y, "GPU");
         Cell(d, s, x, y, 0, "draw calls", new Line(buf).I(data.DrawCalls).Text, TextC);
@@ -149,6 +153,24 @@ public sealed class Hud
         y += 20 * s;
         return y;
     }
+
+    /// <summary>Разделитель строки среды.</summary>
+    public const string RuntimeSeparator = " · ";
+
+    /// <summary>
+    /// Строка среды HUD (точка Пб): <c>JIT n · GC n/Y мс · фон CPU X %</c> — за прошлую секунду: методов JIT процесса,
+    /// сборок GC и их пауза, загрузка CPU другими процессами (доля всех логических процессоров). До первой секунды — прочерки.
+    /// </summary>
+    public static ReadOnlySpan<char> RuntimeText(Line line, in RuntimeLine r)
+    {
+        if (!r.Ready) return line.S("JIT —").S(RuntimeSeparator).S("GC —").S(RuntimeSeparator).S("фон CPU —").Text;
+        return line.S("JIT ").I(r.Jit).S(RuntimeSeparator).S("GC ").I(r.Gc).S("/").F(r.PauseMs, "F1").S(" мс")
+            .S(RuntimeSeparator).S("фон CPU ").F(r.OthersBusy * 100, "F0").S(" %").Text;
+    }
+
+    /// <summary>Цвет строки среды: машина занята (другие процессы от 25 %) — плохо, были JIT или GC — акцент, иначе — тускло.</summary>
+    public static uint RuntimeColour(in RuntimeLine r) =>
+        !r.Ready ? Dim : r.OthersBusy >= MachineReport.OthersBusyLimit ? Bad : r.Jit > 0 || r.Gc > 0 ? Accent : Dim;
 
     /// <summary>Справка справа сверху (<c>Hud.DrawHelp</c> SWORD): строки выровнены вправо на общей панели.</summary>
     private static void DrawHelp(UiDrawList d, int w, int h, IReadOnlyList<string> help)

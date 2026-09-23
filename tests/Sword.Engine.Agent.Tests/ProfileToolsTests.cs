@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Sword.Engine.Diagnostics;
 
@@ -53,6 +54,39 @@ public class ProfileToolsTests
 
         var (bad, isError) = await f.Tool("profile.stages", new JsonObject { ["per"] = "week" });
         Assert.True(isError, bad.ToJsonString());
+    }
+
+    /// <summary>
+    /// Точка Пб: <c>profile.stages</c> несёт среду за тик (CPU потока против настенного, GC, JIT), машину с включения (вердикт
+    /// «код или машина») и — в диагностическом режиме (<c>events: true</c>) — события среды с местами; выключение режима.
+    /// </summary>
+    [Fact]
+    public async Task ProfileStages_RuntimeMachineAndEvents()
+    {
+        using var f = new AgentFixture();
+        var (on, error) = await f.Tool("profile.stages", new JsonObject { ["enable"] = true, ["events"] = true });
+        Assert.False(error, on.ToJsonString());
+        Assert.True(on["enabled"]!.GetValue<bool>());
+        await f.Tool("time.step", new JsonObject { ["ticks"] = 20 });
+
+        var (r, _) = await f.Tool("profile.stages");
+        var runtime = r["runtime"]!;
+        Assert.InRange(runtime["onCpuPct"]!.GetValue<double>(), 0, 100);
+        Assert.True(runtime["cpuMs"]!.GetValue<double>() > 0);
+        Assert.NotNull(runtime["gc"]!["collections"]);
+        Assert.NotNull(runtime["jit"]!["mainThread"]);
+        var machine = r["machine"]!;
+        Assert.Contains(machine["verdict"]!.GetValue<string>(), (string[])["код", "среда", "машина"]);
+        Assert.False(string.IsNullOrEmpty(machine["text"]!.GetValue<string>()));
+        Assert.NotNull(machine["ticksOnCpuPct"]);   // доля CPU для вердикта — тиков (счётная работа), не окна с паузами агента
+        var events = Assert.IsType<JsonObject>(r["events"]);
+        Assert.True(events["calibrated"]!.GetValue<bool>());
+        Assert.NotNull(events["alloc"]!["types"]);
+        Assert.NotNull(events["recent"]!["jit"]);
+
+        var (off, _) = await f.Tool("profile.stages", new JsonObject { ["events"] = false });
+        Assert.Equal(JsonValueKind.String, off["events"]!.GetValueKind());
+        Assert.True(off["enabled"]!.GetValue<bool>());   // профайлер остаётся включённым
     }
 
     [Fact]

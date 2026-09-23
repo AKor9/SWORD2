@@ -19,7 +19,7 @@ namespace Sword.Game.Headless;
 /// </summary>
 public static partial class Program
 {
-    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, ref int? exit)
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, ref int? exit)
     {
         var ring = new LogRing();
         Log.SetSinks(new ConsoleLogSink(allToStandardError: true), ring);
@@ -45,6 +45,7 @@ public static partial class Program
         host.Features = Features();
         // --profile: профайлер сеанса включён с начала (profile.stages включает и без ключа); отчёт — при выходе.
         if (profile) host.Profiler.SetEnabled(true);
+        if (profileEvents) host.Profiler.SetEvents(true);   // --profile runtime: диагностический режим (точка Пб)
 
         var session = new AgentSimulation(sim, ReplayInfo.Current(host.ContentHash), build,
             sets => ConfigSet.Load(AppContext.BaseDirectory, sets));
@@ -163,8 +164,14 @@ public static partial class Program
         if (frames <= 0) return new FrameResult(false, "кадров замера нет", frames, avg, p99, max);
         // Проходы последнего кадра — видно, что оверлеи бюджета нарисованы (капсулы тел — debug.bodies).
         string passes = report["report"]?["passes"] is JsonArray list ? string.Join(", ", list.Select(p => p?["name"]?.GetValue<string>())) : "?";
+        // Машина за замер App (точка Пб): вердикт «код или машина» — в подробностях и в отчёте бюджета.
+        var machine = report["report"]?["machine"] as JsonObject;
         return new FrameResult(true, $"кадров замера {frames}: ср {avg} мс, p99 {p99} мс, макс {max} мс; хеши App совпали с записью " +
-            $"(сверено {replay["hashesChecked"]}); проходы: {passes}; {report["report"]?["adapter"]}", frames, avg, p99, max);
+            $"(сверено {replay["hashesChecked"]}); проходы: {passes}; {report["report"]?["adapter"]}" +
+            (machine?["text"] is { } text ? $"; {text}" : ""), frames, avg, p99, max)
+        {
+            Machine = machine?.DeepClone().AsObject(),
+        };
     }
 
     /// <summary>Запустить Sword.exe и прочитать итог JSON (последняя строка stdout); ошибка — словами.</summary>

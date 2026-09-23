@@ -65,7 +65,11 @@ public sealed record FrameRequest(string Feature, string Budget, string Replay, 
 /// Итог замера кадра: App отработал и его хеши совпали с записью (<see cref="Ok"/>), кадров замера, средний кадр, 99-й
 /// перцентиль и худший, мс; подробности для людей.
 /// </summary>
-public sealed record FrameResult(bool Ok, string Detail, long Frames = 0, double AverageMs = double.NaN, double P99Ms = double.NaN, double MaxMs = double.NaN);
+public sealed record FrameResult(bool Ok, string Detail, long Frames = 0, double AverageMs = double.NaN, double P99Ms = double.NaN, double MaxMs = double.NaN)
+{
+    /// <summary>Машина за замер App (точка Пб: <c>report.machine</c> итога Sword.exe) — JSON как есть; null — нет.</summary>
+    public JsonObject? Machine { get; init; }
+}
 
 /// <summary>Итог <c>feature.verify</c>: вердикт, провалы словами, полный отчёт JSON (он же — <c>report.json</c> в артефактах).</summary>
 public sealed record FeatureReport(string Feature, bool Ok, IReadOnlyList<string> Failures, JsonObject Json, string Directory);
@@ -557,6 +561,25 @@ public static class FeatureVerifier
         double bytes = runs.Max(x => x.AllocatedBytesPerTick);
         json["allocatedBytesPerTick"] = Math.Round(bytes, 3);
 
+        // Машина за замеры повторов (точка Пб): поток на CPU, загрузка системы, частота, GC и JIT — и вердикт «код или машина».
+        // Пределы не меняются: вердикт только объясняет провал времени (машина занята — так и сказано в провале).
+        var machine = MachineReport.Combine(runs.Select(x => x.Machine));
+        if (machine is not null)
+        {
+            var mj = machine.ToJson();
+            mj["runs"] = new JsonArray([.. runs.Select(x => (JsonNode?)new JsonObject
+            {
+                ["msPerTick"] = Math.Round(x.MsPerTick, 5),
+                ["verdict"] = x.Machine is { } m ? MachineReport.VerdictWord(m.Verdict) : null,
+                ["threadOnCpuPct"] = x.Machine is { } m1 ? Math.Round(m1.ThreadOnCpu * 100, 1) : null,
+                ["othersBusyPct"] = x.Machine is { } m2 ? Math.Round(m2.OthersBusyShare * 100, 1) : null,
+                ["mhz"] = x.Machine is { } m3 ? Math.Round(m3.ProbeMhz) : null,
+                ["gc"] = x.Machine?.Runtime.Collections, ["jit"] = x.Machine?.Runtime.JitProcess,
+            })]);
+            json["machine"] = mj;
+        }
+        string why = machine is { Verdict: not MachineVerdict.Code } ? $" — {machine.Text}" : "";
+
         if (budget.AllocatedBytesPerTick is { } maxBytes && bytes > maxBytes)
             failures.Add($"выделено {Fmt(bytes)} Б/тик, предел {Fmt(maxBytes)}");
 
@@ -571,6 +594,7 @@ public static class FeatureVerifier
                 ["note"] = "отдельный прогон с профайлером CPU — время систем; медиана и пределы бюджета — прогоны без него",
                 ["msPerTick"] = Math.Round(profiled.MsPerTick, 5),
                 ["allocatedBytesPerTick"] = Math.Round(profiled.AllocatedBytesPerTick, 3),
+                ["runtime"] = profiled.Runtime is { } rt ? CpuProfiler.RuntimeJson(rt) : null,
             };
             json["systems"] = new JsonObject([.. profiled.Systems!.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)Math.Round(p.Value, 5)))]);
             if (budget.AllocatedBytesPerTick is { } maxProfiled && profiled.AllocatedBytesPerTick > maxProfiled)
@@ -580,11 +604,11 @@ public static class FeatureVerifier
             json["time"] = "не проверяется: сборка Debug (время — только в Release, verify.ps1 -Configuration Release)";
         else
         {
-            if (budget.MsPerTick is { } limit && median > limit) failures.Add($"{Fmt(median)} мс/тик (медиана), предел {Fmt(limit)}");
+            if (budget.MsPerTick is { } limit && median > limit) failures.Add($"{Fmt(median)} мс/тик (медиана), предел {Fmt(limit)}{why}");
             foreach (var (stage, limit2) in budget.Stages)
             {
                 if (!runs[0].Stages.TryGetValue(stage, out _)) failures.Add($"нет стадии {stage}; есть: {string.Join(", ", runs[0].Stages.Keys)}");
-                else if ((double)stages[stage]! > limit2) failures.Add($"стадия {stage} — {stages[stage]} мс/тик, предел {Fmt(limit2)}");
+                else if ((double)stages[stage]! > limit2) failures.Add($"стадия {stage} — {stages[stage]} мс/тик, предел {Fmt(limit2)}{why}");
             }
         }
         json["stageLimits"] = new JsonObject([.. budget.Stages.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))]);
@@ -632,6 +656,7 @@ public static class FeatureVerifier
         if (double.IsFinite(r.AverageMs)) fj["averageMs"] = r.AverageMs;
         if (double.IsFinite(r.P99Ms)) fj["p99Ms"] = r.P99Ms;
         if (double.IsFinite(r.MaxMs)) fj["maxMs"] = r.MaxMs;
+        if (r.Machine is not null) fj["machine"] = r.Machine.DeepClone();
         if (!r.Ok)
         {
             failures.Add($"кадр: {r.Detail}");
@@ -642,8 +667,10 @@ public static class FeatureVerifier
             fj["time"] = "не проверяется: сборка Debug (время — только в Release, verify.ps1 -Configuration Release)";
             return;
         }
-        if (frame.AverageMs is { } avg && !(r.AverageMs <= avg)) failures.Add($"кадр {Fmt(r.AverageMs)} мс в среднем, предел {Fmt(avg)}");
-        if (frame.P99Ms is { } p99 && !(r.P99Ms <= p99)) failures.Add($"кадр {Fmt(r.P99Ms)} мс (99-й перцентиль), предел {Fmt(p99)}");
+        // Вердикт машины App (точка Пб) — в текст провала времени: «машина занята» видно сразу.
+        string why = r.Machine?["kind"]?.GetValue<string>() is { } kind && kind != "code" ? $" — {r.Machine["text"]}" : "";
+        if (frame.AverageMs is { } avg && !(r.AverageMs <= avg)) failures.Add($"кадр {Fmt(r.AverageMs)} мс в среднем, предел {Fmt(avg)}{why}");
+        if (frame.P99Ms is { } p99 && !(r.P99Ms <= p99)) failures.Add($"кадр {Fmt(r.P99Ms)} мс (99-й перцентиль), предел {Fmt(p99)}{why}");
     }
 
     internal static double Median(IReadOnlyList<double> sorted) =>
@@ -662,6 +689,15 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
     /// <summary>Мс систем на тик (по убыванию) — только у прогона с профайлером, иначе null.</summary>
     public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; init; }
 
+    /// <summary>
+    /// Машина за замер (точка Пб): от первого тика после прогрева до конца — поток на CPU, загрузка системы, частота, GC и JIT
+    /// во время замера, вердикт «код или машина». Снимки — на границах замера, вне тиков (в мс на тик не входят).
+    /// </summary>
+    public MachineReport? Machine { get; init; }
+
+    /// <summary>Среда тиков прогона с профайлером (CPU потока, GC, JIT за тик); без профайлера — null.</summary>
+    public ProfileRuntimeStats? Runtime { get; init; }
+
     /// <summary>Сыграть симуляцию до <paramref name="ticks"/> тиков; первые <paramref name="warmup"/> — прогрев, не меряются.</summary>
     /// <param name="profile">С профайлером CPU (время систем); симуляции он не меняет.</param>
     public static SimulationMeasure Run(Simulation sim, ulong ticks, int warmup, CancellationToken cancel = default, bool profile = false)
@@ -676,6 +712,7 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
         }
         long allocated = 0, elapsed = 0;
         ulong measured = 0;
+        MachineSample? machineStart = null;
         while (sim.Tick < ticks)
         {
             if ((sim.Tick & 1023) == 0) cancel.ThrowIfCancellationRequested();
@@ -686,6 +723,7 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
                 if (sim.Tick == (ulong)warmup) profiler?.Reset();
                 continue;
             }
+            machineStart ??= MachineSample.Take();   // граница замера (точка Пб): вне времени и байтов тиков
             long bytes = GC.GetAllocatedBytesForCurrentThread();
             long start = Stopwatch.GetTimestamp();
             timer.Begin();
@@ -694,11 +732,14 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
             allocated += GC.GetAllocatedBytesForCurrentThread() - bytes;
             measured++;
         }
+        var machine = machineStart is { } first ? MachineReport.Between(first, MachineSample.Take(), computeBound: true) : null;
         sim.Unobserve(timer);
         IReadOnlyList<KeyValuePair<string, double>>? systems = null;
+        ProfileRuntimeStats? runtime = null;
         if (profiler is not null)
         {
             systems = [.. profiler.Stats(ProfilePeriod.Tick).Where(z => z.Name.Contains('@')).Select(z => KeyValuePair.Create(z.Name, z.MeanMs))];
+            runtime = profiler.RuntimeStats(ProfilePeriod.Tick);
             sim.AttachProfiler(CpuProfiler.Off);
         }
         return new SimulationMeasure(
@@ -706,6 +747,8 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
             measured == 0 ? 0 : allocated / (double)measured)
         {
             Systems = systems,
+            Machine = machine,
+            Runtime = runtime,
         };
     }
 }

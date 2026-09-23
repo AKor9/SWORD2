@@ -35,6 +35,12 @@ public sealed record SweepRow(IReadOnlyList<string> Sets, int Repeats, double Ms
     /// null — не мерялось.
     /// </summary>
     public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; init; }
+
+    /// <summary>
+    /// Машина за замеры повторов (точка Пб; круг прогрева и прогон с профайлером — не в счёт): поток на CPU, загрузка
+    /// системы, частота, GC и JIT во время замера, вердикт; null — замеров нет.
+    /// </summary>
+    public Sword.Engine.Diagnostics.MachineReport? Machine { get; init; }
 }
 
 /// <summary>
@@ -271,6 +277,7 @@ public static class Experiments
                 run.Entities, run.Hashes.Count == 1 ? run.Hashes.First() : string.Join(" ≠ ", run.Hashes), run.Hashes.Count == 1, run.Violations, run.Error)
             {
                 Systems = run.Systems,
+                Machine = Sword.Engine.Diagnostics.MachineReport.Combine(measures.Select(m => m.Machine)),
             });
         }
         return (rows, Scaling(parameters, rows));

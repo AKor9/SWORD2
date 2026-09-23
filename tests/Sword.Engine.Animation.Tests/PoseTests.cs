@@ -77,9 +77,16 @@ public sealed class PoseTests
         Assert.Equal(expected, actual);
     }
 
-    [Fact]
-    public void Skeleton_CycleIsRejected() =>
-        Assert.Throws<InvalidDataException>(() => new Skeleton("s", ["a", "b", "c"], [-1, 2, 1]));
+    [Theory]
+    [InlineData(new[] { -1, 2, 1 })]   // цикл
+    [InlineData(new[] { 0 })]          // сам себе родитель
+    [InlineData(new[] { -1, -2 })]     // родитель вне скелета
+    [InlineData(new[] { -1, 5 })]
+    public void Skeleton_BadParentsAreRejected(int[] parents)
+    {
+        var names = parents.Select((_, j) => $"j{j}").ToArray();
+        Assert.Throws<InvalidDataException>(() => new Skeleton("s", names, parents));
+    }
 
     [Fact]
     public void Handles_GenerationsAndStaleJobs()

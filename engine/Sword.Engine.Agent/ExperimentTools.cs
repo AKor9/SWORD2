@@ -128,7 +128,8 @@ internal static class ExperimentTools
                 "без замера (прогрев JIT), затем repeats повторов по кругу комбинаций: реплей replay (без него — мир без команд) до ticks тиков, первые warmup — прогрев. Строка — ключи, мс на " +
                 "тик (медиана, мин, макс), мс стадий, байты на тик, сущностей, хеш итога и одинаков ли он у повторов " +
                 "(детерминизм), нарушения инвариантов; systems — мс систем на тик (метка@стадия) из отдельного прогона с профайлером CPU " +
-                "после повторов (медиана — без него). scaling — первое резкое ухудшение масштабирования по числовому ключу. " +
+                "после повторов (медиана — без него); machine — машина за замеры (поток на CPU, загрузка системы другими процессами, " +
+                "частота, GC и JIT во время замера) и вердикт код/среда/машина с причинами. scaling — первое резкое ухудшение масштабирования по числовому ключу. " +
                 "Время осмысленно в Release. Только Headless.",
             Arguments = CoreTools.Props(
                 ("params", new JsonObject { ["type"] = "object", ["description"] = "ключ конфига → массив значений: {\"sim.tickRate\":[60,120]}" }),
@@ -173,6 +174,7 @@ internal static class ExperimentTools
                         ["stages"] = new JsonObject([.. r.Stages.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)Math.Round(p.Value, 5)))]),
                         ["allocatedBytesPerTick"] = Math.Round(r.AllocatedBytesPerTick, 3),
                         ["systems"] = r.Systems is null ? null : new JsonObject([.. r.Systems.Take(systems).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)Math.Round(p.Value, 5)))]),
+                        ["machine"] = r.Machine?.ToShortJson(),
                         ["entities"] = r.Entities, ["hash"] = r.Hash, ["deterministic"] = r.Deterministic, ["violations"] = r.Violations,
                         ["error"] = r.Error,
                     })]),
