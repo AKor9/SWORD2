@@ -112,7 +112,9 @@ public sealed record ClientOptions
 /// процесса не в счёт); <see cref="Gen0Collections"/> — сборки поколения 0, пришедшиеся на обычные кадры (сборка
 /// останавливает весь процесс, поэтому считается любая). <see cref="Machine"/> — машина за замер (точка Пб): с бенчем — кадры
 /// замера, без него — с конца первого кадра до выхода; загрузка системы другими процессами, частота, GC, JIT и вердикт
-/// «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт).
+/// «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт). Точка Пг: <see cref="Passes"/> — проходы последнего
+/// кадра с GPU-временем того же кадра (после ожидания простоя GPU в конце прогона), <see cref="Gpu"/> — GPU-время этого кадра
+/// целиком и сумма проходов.
 /// </summary>
 public sealed record ClientRunReport(
     string ExitReason,
@@ -137,8 +139,9 @@ public sealed record ClientRunReport(
     int Screenshots,
     FrameStats Stats,
     FrameBenchReport? Bench,
-    IReadOnlyList<RenderPassReport> Passes,
-    MachineReport? Machine = null);
+    IReadOnlyList<RenderPassSummary> Passes,
+    MachineReport? Machine = null,
+    GpuFrameReport? Gpu = null);
 
 /// <summary>
 /// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
@@ -376,10 +379,15 @@ public sealed class ClientHost : IDisposable
             }
             if (bench is null && frames == 0) takeMachine = true;
             profiler.EndFrame(_view.Alpha, service || lastBenchFrame);
-            _meter.Frame(ms, cpuMs, _renderer.LastFenceWaitMs);
+            var gpu = _renderer.Gpu;   // точка Пг: GPU-время последнего разобранного кадра (на 3 раньше этого)
+            _meter.Frame(ms, cpuMs, _renderer.LastFenceWaitMs, gpu.Valid ? gpu.FrameMs : 0, gpu.Valid ? gpu.PassesMs : 0);
             // Последний кадр замера (со снимком — ожидание GPU и PNG) в замер не входит: SWORD копит шаг кадра, измеренный
             // в начале следующего, и после последнего кадра выходит — его шаг не попадает в итог.
-            if (!lastBenchFrame) bench?.Frame(simTime, ms, cpuMs, _renderer.LastFenceWaitMs);
+            if (!lastBenchFrame && bench is not null)
+            {
+                bench.Frame(simTime, ms, cpuMs, _renderer.LastFenceWaitMs);
+                BenchGpu(bench, simTime);
+            }
             if (frames == 0) firstFrameMs = ms;
             if (service)
                 serviceFrames++;
@@ -418,11 +426,19 @@ public sealed class ClientHost : IDisposable
         profiler.AbandonFrame();   // выход посреди кадра (окно закрыто, Escape, инструмент): кадр не доделан — не в итогах
         var machine = machineStart is { } ms0 ? MachineReport.Between(ms0, MachineSample.Take(), computeBound: false) : null;
         var benchReport = bench?.Result();
-        if (benchReport is not null) Log.Info("bench", benchReport.ToString());
+        if (benchReport is not null)
+        {
+            Log.Info("bench", benchReport.ToString());
+            // Точка Пг: проходы GPU — мс на кадр, как «[bench]   проход  мс/кадр» BenchRecorder SWORD.
+            foreach (var pass in benchReport.Passes ?? [])
+                Log.Info("bench", $"  {pass.Name,-22} {pass.Ms.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} мс/кадр GPU");
+        }
         // «вердикт: машина: …» / «вердикт: код: …» — без повтора слова «машина» (было «машина: машина: …», доводка Пб на Пв).
         if (benchReport is not null && machine is not null) Log.Info("bench", "вердикт: " + machine.Text);
 
         _liveResizeError?.Throw();
+        // Точка Пг: GPU доделал отправленное — времена последнего кадра разобраны, проходы итога — с GPU-временем того же кадра.
+        _renderer.WaitForIdle();
         int steady = frames - serviceFrames;
         return new ClientRunReport(
             ExitReason: reason,
@@ -447,8 +463,21 @@ public sealed class ClientHost : IDisposable
             Screenshots: _screenshots,
             Stats: _meter.Stats(_view.Ticks, _vsync),
             Bench: benchReport,
-            Passes: _renderer.Graph.LastFrame,
-            Machine: machine);
+            Passes: _renderer.Gpu.Join(_renderer.Graph.LastFrame),
+            Machine: machine,
+            Gpu: _renderer.Gpu.Report());
+    }
+
+    private long _benchGpu;
+
+    /// <summary>Новые GPU-времена (раз на разобранный кадр, точка Пг) — в бенч: кадр целиком и проходы. 0 байт в установившемся режиме.</summary>
+    private void BenchGpu(FrameBench bench, double simTime)
+    {
+        var gpu = _renderer.Gpu;
+        if (!gpu.Valid || gpu.Sequence == _benchGpu) return;
+        _benchGpu = gpu.Sequence;
+        bench.GpuFrame(simTime, gpu.FrameMs);
+        for (int i = 0; i < gpu.Count; i++) bench.GpuPass(gpu.NameOf(i), gpu.MillisecondsOf(i));
     }
 
     private int _resizes;

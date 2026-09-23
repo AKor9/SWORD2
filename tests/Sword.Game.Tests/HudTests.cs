@@ -152,7 +152,7 @@ public sealed class HudDrawTests : IDisposable
     /// <summary>
     /// F2 (точка Пв): секция профайлера — главные зоны кадра, строка среды, последняя аномалия; буквы имён зон (шрифт Num) и
     /// строк секции (Body, Label) — в шрифте; секция внутри панели и окна; кадр HUD с ней не выделяет; без F2 панель — как в SWORD
-    /// (строки среды в ней нет).
+    /// (строки среды в ней нет). Точка Пг: под зонами CPU — «GPU кадр» и проходы GPU (их имена — в шрифте Num), всё внутри панели.
     /// </summary>
     [Fact]
     public void ProfilerSection_F2_ZonesAnomaly_Glyphs_InsidePanel_NoAllocations()
@@ -166,6 +166,10 @@ public sealed class HudDrawTests : IDisposable
             string[] names = ["core.animation-tick@Animation", "invariant.animation.finite", "frame.fenceWait", "arena.build.skin",
                 "invariant.movement.rootOverlap", "core.kinematic-placement@PrePhysics", "render.scene.opaque", "frame.record", "stage.Animation"];
             int[] zones = [.. names.Select(p.Zone)];
+            // Точка Пг: GPU-время кадра и проходов (зоны вида Gpu) — строки «GPU кадр» и проходов под зонами CPU.
+            string[] gpuNames = ["scene.opaque", "hud", "debug.bodies"];
+            int gpuFrame = p.Zone(Sword.Engine.Diagnostics.CpuProfiler.GpuFrameName, Sword.Engine.Diagnostics.ProfileZoneKind.Gpu);
+            int[] gpuZones = [.. gpuNames.Select(n => p.Zone("gpu." + n, Sword.Engine.Diagnostics.ProfileZoneKind.Gpu))];
             var digest = new Sword.Engine.Diagnostics.ProfileDigest(p);
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             void Frames(int n)
@@ -180,6 +184,9 @@ public sealed class HudDrawTests : IDisposable
                         while (System.Diagnostics.Stopwatch.GetTimestamp() < until) { }
                         p.End(z);
                     }
+                    p.NoteGpuFrame(3);
+                    p.RecordGpu(gpuFrame, 1.2);
+                    for (int i = 0; i < gpuZones.Length; i++) p.RecordGpu(gpuZones[i], 0.3 * (i + 1));
                     p.EndFrame(1, false);
                 }
             }
@@ -189,20 +196,22 @@ public sealed class HudDrawTests : IDisposable
             digest.Update(now + System.Diagnostics.Stopwatch.Frequency);
             Assert.True(digest.Ready);
             Assert.True(anomalies.TryGetLast(out var last));
+            Assert.Equal(3, digest.GpuCount);
+            Assert.Equal("debug.bodies", digest.GpuName(0).ToString());
 
             // Буквы: имена зон — шрифт Num, строки секции — Body, заголовок — Label.
             Span<char> buf = stackalloc char[96];
-            foreach (string name in names.Append(Hud.FrameSelfName))
+            foreach (string name in names.Append(Hud.FrameSelfName).Concat(gpuNames))
                 foreach (var g in _fonts.Shape(UiFace.Num, name).ToArray())
                     Assert.True(g.GlyphId != 0, $"нет glyph'а для «{name[(int)g.Cluster]}» в «{name}» (Num)");
             foreach (string text in (string[])[Hud.AnomalyText(new Line(buf), last).ToString(), "профайлер: собираю кадры…", "профайлер включается…",
-                "аномалий нет", "аномалии не ловятся", "профайлера нет", "аномалия: тик 383 в кадре 1234 · 8.61 мс · ожидание GPU", "машина", "код"])
+                "аномалий нет", "GPU кадр", "кадр", "проходы", "аномалии не ловятся", "профайлера нет", "аномалия: тик 383 в кадре 1234 · 8.61 мс · ожидание GPU", "машина", "код"])
                 foreach (var g in _fonts.Shape(UiFace.Body, text).ToArray())
                     Assert.True(g.GlyphId != 0, $"нет glyph'а для «{text[(int)g.Cluster]}» в «{text}» (Body)");
             foreach (var g in _fonts.Shape(UiFace.Label, "ПРОФАЙЛЕР, мс").ToArray()) Assert.True(g.GlyphId != 0);
             Assert.StartsWith("аномалия: кадр ", Hud.AnomalyText(new Line(buf), last).ToString());
 
-            var data = Data with { Profile = digest };
+            var data = Data with { Profile = digest, Frame = Data.Frame with { GpuMs = 1.25, GpuPassesMs = 1.1 } };
             var hud = new Hud { ShowHelp = false };
             var d = new UiDrawList(_fonts);
             hud.Draw(d, 1600, 900, data, []);

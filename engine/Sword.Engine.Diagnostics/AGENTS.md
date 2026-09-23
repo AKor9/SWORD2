@@ -4,7 +4,7 @@
 Neutral, зависит только от Core. Сейчас: журнал (`Log`, `LogRing` — `log.tail`), профайлер CPU (`CpuProfiler`, этап П,
 точка Па), счётчики среды и машины (точка Пб: `ProfileCounters`, `MachineSample`/`MachineReport`, `RuntimeMeter`,
 `RuntimeEvents`), захват аномалий, Chrome Trace и сводка HUD (точка Пв: `ProfileAnomalies`, `AnomalyReport`, `ChromeTrace`,
-`ProfileDigest`). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
+`ProfileDigest`), GPU-время проходов в профайлере кадра (точка Пг: зоны вида `Gpu`, `CpuProfilerGpu.cs`). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
 
 - `Log` не без выделений (строки, запись): из горячего пути (тик, кадр) в него не писать — только события и ошибки.
 - Профайлер CPU — `CpuProfiler`: однопоточный, у владельца потока (главный поток App — `ClientHost.Profiler`; Headless —
@@ -80,6 +80,13 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
   события среды (pid 3). Вложенность «X» должна оставаться верной (дочерние обрезаются по родителю) — тест.
 - Сводка F2 (точка Пв) — `ProfileDigest`: главные зоны кадра по своему времени, пересчёт раз в 0,25 с из итогов
   (`FrameTotals`), 0 байт; в кадре без конца окна — сравнение времени.
+- GPU-время (точка Пг, `CpuProfilerGpu.cs`) — зоны вида `ProfileZoneKind.Gpu` (`gpu.frame`, `gpu.<проход>`): время **задаёт** рендер
+  (`RecordGpu(зона, мс)` в открытый кадр, 0 Б; выключенный и `Off` — ничего), а не `Begin/End`; отставание данных —
+  `NoteGpuFrame(lag)` → `ProfileHeader.GpuFrame`. Родителя у них нет (`Unseen`): в своё время кадра, главную зону и разбор
+  причин аномалии (`Classify` пропускает вид `Gpu`) и в строки зон CPU сводки F2 не входят; в отчёте — `frames.gpu` (а не
+  `frames.zones`), `history[].gpuFrame`, `Summary().gpu`; в файле аномалии кадра — секция `gpu` (кадр N − 3 — тот, чьего забора
+  ждал `frame.fenceWait`); в сводке F2 — свои строки (`GpuFrameMs`, `GpuName`, `GpuMs`). Diagnostics о GPU не знает — только
+  вид зоны и имена-константы (`GpuFrameName`, `GpuPrefix`).
 
 Проверка: `tests/Sword.Engine.Runtime.Tests/ProfilerTests` (вложенность, дочерние не дольше родителя, периоды и кольцо,
 включение на границе, несогласованный конец, 0 байт, тик симуляции — те же хеши, исключение в системе),
@@ -90,6 +97,7 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
 аномалия — 0 методов JIT на главном потоке; 0 байт в кадре аномалии; хеши; Chrome Trace
 — JSON и вложенность; сводка F2; фоновый JIT и гибридный CPU в вердикте; тесты со слушателем событий — одной коллекцией:
 слушатели процесса делят сеанс EventPipe),
+`ProfilerGpuTests` (точка Пг: зоны `Gpu` вне дерева CPU, `frames.gpu`, сводка F2, 0 Б, аномалия «ожидание GPU» — секция `gpu`),
 `tests/Sword.Engine.Introspection.Tests/MachineVerdictTests` (перебор и бюджет — «JIT во время замера»),
 `tests/Sword.Game.Tests/ArenaTests` (толпа 32 врагов с профайлером — 0 Б/тик, те же хеши, зоны всех систем и
 инвариантов), `tests/Sword.Engine.Agent.Tests/ProfileToolsTests` (`profile.stages`), `tests/Sword.Benchmarks`

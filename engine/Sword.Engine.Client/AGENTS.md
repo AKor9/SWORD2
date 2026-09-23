@@ -83,5 +83,9 @@
   `--profile-threshold`), клиент движка о нём не знает; `frame.wait` (ограничитель кадров) заводится видом
   `ProfileZoneKind.Idle`. То, что между кадрами (вершина цикла `Run`), в аномалию кадра не попадает — как и в зоны.
 
-Не сделано: GPU-время кадра в числах кадра и бенче (профайлер GPU).
+- GPU-время (точка Пг) — из `Renderer.Gpu`: `FrameStats.GpuMs`/`GpuPassesMs` — последнего разобранного кадра (на 3 раньше;
+  HUD, `report.stats`); бенч — на каждый **новый** разобранный кадр (`Sequence`), не на каждый кадр CPU (`FrameBench.GpuFrame`,
+  `GpuPass`: среднее и p99 кадра, проходы — мс на кадр, строки `[bench]   <проход> … мс/кадр GPU`). Конец `Run` ждёт простоя
+  GPU: `ClientRunReport.Passes` (`RenderPassSummary`) — с `GpuMs` того же кадра, `ClientRunReport.Gpu` — кадр целиком.
+
 Проверка чисел кадра и бенча — `FrameToolsTests`; F4 и бенч вживую — `verify.ps1` `app-smoke`.

@@ -30,6 +30,9 @@ public sealed class ClientAgent : IClientTool, ITickGate
     private int _shownWidth, _shownHeight, _shownPipelines;
     private ulong _shownFrame, _shownTick;
 
+    /// <summary>Кадров рендера отправлено к показу кадра <see cref="_shownFrame"/> (точка Пг: сверка GPU-времён по номеру).</summary>
+    private ulong _shownSubmitted;
+
     private sealed class CaptureRequest(string name, bool ids, IReadOnlyList<string> overlays)
     {
         public readonly string Name = name;
@@ -108,6 +111,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
         _shownPipelines = renderer.PipelineCount;
         _shownFrame = frame;
         _shownTick = simulation.Tick;
+        _shownSubmitted = renderer.FrameNumber;
         if (capture is null || _inFlight is null) return;
         var request = _inFlight;
         _inFlight = null;
@@ -221,6 +225,8 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 "сегменту — левые голубые, правые красные, подписи бойцов; капсулы — как показан боец: при alpha 1 ровно " +
                 "постановка последнего тика, physics.bodies); цвет кадра — без него",
             ["notes"] = result.Notes.Count > 0 ? new JsonArray([.. result.Notes.Select(n => (JsonNode?)n)]) : null,
+            // Точка Пг: кадр снимка ждёт простоя GPU — его GPU-время разобрано сразу (lagFrames 0), с копиями снимка в frameMs.
+            ["gpu"] = GpuJson(passes: true),
             ["entities"] = entities,
             ["rectNote"] = "rect — [x0, y0, x1, y1] в пикселях кадра, начало — левый верхний угол; рамка мира, спроецированная камерой",
         };
@@ -253,6 +259,38 @@ public sealed class ClientAgent : IClientTool, ITickGate
         int ix0 = (int)MathF.Floor(Math.Clamp(x0, 0, width)), iy0 = (int)MathF.Floor(Math.Clamp(y0, 0, height));
         int ix1 = (int)MathF.Ceiling(Math.Clamp(x1, 0, width)), iy1 = (int)MathF.Ceiling(Math.Clamp(y1, 0, height));
         return ix1 > ix0 && iy1 > iy0 ? (ix0, iy0, ix1, iy1) : null;
+    }
+
+    /// <summary>
+    /// GPU-время последнего разобранного кадра (точка Пг) против показанного: его номер кадра клиента (показанный минус
+    /// отставание), кадр целиком и сумма проходов. Поток кадра. Времён ещё нет — null.
+    /// </summary>
+    private JsonObject? GpuJson(bool passes = false)
+    {
+        var gpu = _client.Renderer.Gpu;
+        if (!gpu.Valid) return null;
+        // Кадр рендера показанного кадра — отправленных к нему минус 1; сверка — по номеру кадра рендера, а не по слоту.
+        long lag = (long)_shownSubmitted - 1 - (long)gpu.Frame;
+        var json = new JsonObject
+        {
+            ["frameId"] = lag >= 0 && (ulong)lag < _shownFrame ? _shownFrame - (ulong)lag : null,
+            ["lagFrames"] = lag,
+            ["frameMs"] = Math.Round(gpu.FrameMs, 5),
+            ["passesMs"] = Math.Round(gpu.PassesMs, 5),
+            ["dropped"] = gpu.Dropped,
+            ["timestampHz"] = gpu.TimestampFrequency,
+            ["note"] = "GPU-время кадра frameId — показанный минус lagFrames: разбор после ожидания слота кадра, без стойла (обычно 3 кадра " +
+                "назад; после смены размера и снимка — 0). gpuMs прохода — одноимённого в том кадре (null — такого там не было). frameMs — " +
+                "кадр целиком (проходы, барьеры между ними, копии снимка). Частота GPU плавает; среднее за окно — profile.stages (frames.gpu)",
+        };
+        if (passes)
+        {
+            var list = new JsonArray();
+            for (int i = 0; i < gpu.Count; i++)
+                list.Add(new JsonObject { ["name"] = gpu.NameOf(i), ["gpuMs"] = Math.Round(gpu.MillisecondsOf(i), 5) });
+            json["passes"] = list;
+        }
+        return json;
     }
 
     private static JsonArray Vec(Vector3 v) => new(Math.Round(v.X, 4), Math.Round(v.Y, 4), Math.Round(v.Z, 4));
@@ -317,15 +355,18 @@ public sealed class ClientAgent : IClientTool, ITickGate
         {
             Name = "render.graph", Title = "Рендер-граф кадра",
             Description = "Проходы последнего показанного кадра по порядку: вид, записи и чтения ресурсов, барьеры, вызовы " +
-                "отрисовки и dispatch. frameId и tickId — этого кадра (тик, который он показывает).",
+                "отрисовки и dispatch, GPU-время прохода (gpuMs; кадра gpu.frameId — обычно на 3 раньше показанного: кадры в полёте). " +
+                "gpu — GPU-время того кадра целиком и сумма проходов. frameId и tickId — показанного кадра (тик, который он показывает). " +
+                "Среднее GPU-время за окно — profile.stages (frames.gpu).",
             Run = async call =>
             {
                 // Снято в Presented на потоке кадра, читается в точке обслуживания на нём же: граф, размер, кадр и тик —
-                // одного показанного кадра, а не граф прошлого с тиком после тиков нового.
+                // одного показанного кадра, а не граф прошлого с тиком после тиков нового. GPU-времена (точка Пг) — тоже на
+                // потоке кадра: они обновляются на месте в начале кадра.
                 var snapshot = await _host.Serve(_ => _shownFrame == 0
                     ? throw new InvalidOperationException("ни одного кадра ещё не показано — повторите")
-                    : (Passes: _shownPasses, _client.Renderer.AdapterName, Width: _shownWidth, Height: _shownHeight,
-                        Pipelines: _shownPipelines, Frame: _shownFrame, Tick: _shownTick), call.Cancel).ConfigureAwait(false);
+                    : (Passes: _client.Renderer.Gpu.Join(_shownPasses), Gpu: GpuJson(), _client.Renderer.AdapterName, Width: _shownWidth,
+                        Height: _shownHeight, Pipelines: _shownPipelines, Frame: _shownFrame, Tick: _shownTick), call.Cancel).ConfigureAwait(false);
                 var list = new JsonArray();
                 foreach (var p in snapshot.Passes)   // список кадра не меняется после исполнения графа
                     list.Add(new JsonObject
@@ -337,6 +378,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
                         ["barriers"] = p.Barriers,
                         ["draws"] = p.Draws,
                         ["dispatches"] = p.Dispatches,
+                        ["gpuMs"] = p.GpuMs,
                     });
                 return new ToolOutput(new JsonObject
                 {
@@ -344,6 +386,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
                     ["width"] = snapshot.Width,
                     ["height"] = snapshot.Height,
                     ["pipelines"] = snapshot.Pipelines,
+                    ["gpu"] = snapshot.Gpu,
                     ["passes"] = list,
                 }) { Frame = snapshot.Frame, Tick = snapshot.Tick };
             },

@@ -12,23 +12,27 @@ public enum ProfilePeriod
 
 /// <summary>
 /// Вид зоны (точка Пв): обычная работа, ожидание GPU (забор кадра в полёте, показ) или простой (ограничитель кадров). По виду
-/// захват аномалий делит лишнее время периода на «код» и «ожидание GPU»; итогов и отчёта вид не меняет.
+/// захват аномалий делит лишнее время периода на «код» и «ожидание GPU»; итогов вид не меняет. Точка Пг: <see cref="Gpu"/> —
+/// GPU-время прохода, которое пишет рендер (<see cref="CpuProfiler.RecordGpu"/>), а не <c>Begin/End</c>: вне дерева CPU, в
+/// разбор времени кадра и в сводку F2 зон CPU не входит; в отчёте — своя секция <c>gpu</c>.
 /// </summary>
 public enum ProfileZoneKind : byte
 {
     Work,
     GpuWait,
     Idle,
+    Gpu,
 }
 
 /// <summary>
 /// Заголовок периода в кольце профайлера: номер кадра или тика, тики кадра (первый и сколько), доля тика кадра, время и
 /// выделенные байты периода, служебный ли кадр; у тика — кадр, в котором он сыгран (<see cref="ulong.MaxValue"/> — вне кадра);
 /// счётчики среды за период (точка Пб: такты потока, сборки и пауза GC, выделения процесса, JIT). Время — в отсчётах
-/// <see cref="Stopwatch"/>.
+/// <see cref="Stopwatch"/>. Точка Пг: <paramref name="GpuFrame"/> — кадр, чьи GPU-времена записаны в этот кадр (зоны вида
+/// <see cref="ProfileZoneKind.Gpu"/>; обычно этот минус 3 — кадры в полёте), <see cref="ulong.MaxValue"/> — не записаны.
 /// </summary>
 public readonly record struct ProfileHeader(ulong Number, ulong FirstTick, int Ticks, float Alpha, long Time, long Bytes, bool Service,
-    ulong Frame, ProfileCounters Counters);
+    ulong Frame, ProfileCounters Counters, ulong GpuFrame = ulong.MaxValue);
 
 /// <summary>
 /// Профайлер CPU (раздел 3 плана, точка Па): зоны с номерами, заведёнными заранее (<see cref="Zone"/> — при сборке мира,
@@ -559,7 +563,8 @@ public sealed partial class CpuProfiler
             }
             double mean = Ms(s.TotalTime[z]) / s.Count;
             result.Add(new ProfileZoneStats(_names[z], _parent[z] >= 0 ? _names[_parent[z]] : null, mean, median, p99, Ms(s.MaxTime[z]),
-                Math.Max(0, mean - children[z]), s.TotalBytes[z] / (double)s.Count, s.TotalCalls[z] / (double)s.Count, s.Hits[z] / (double)s.Count));
+                Math.Max(0, mean - children[z]), s.TotalBytes[z] / (double)s.Count, s.TotalCalls[z] / (double)s.Count, s.Hits[z] / (double)s.Count,
+                (ProfileZoneKind)_kind[z]));
         }
         result.Sort((a, b) => b.MeanMs.CompareTo(a.MeanMs));
         return result;
@@ -611,6 +616,9 @@ public sealed partial class CpuProfiler
         public ulong Number, FirstTick;
         public int Ticks;
 
+        /// <summary>Кадр, чьи GPU-времена записаны в открытый период (точка Пг); <see cref="ulong.MaxValue"/> — нет.</summary>
+        public ulong GpuFrame = ulong.MaxValue;
+
         /// <summary>Начало открытого периода — отметка <see cref="Stopwatch"/> открытия его зоны.</summary>
         public long StartTs;
 
@@ -660,6 +668,7 @@ public sealed partial class CpuProfiler
         {
             Number = number;
             FirstTick = ulong.MaxValue;
+            GpuFrame = ulong.MaxValue;
             Ticks = 0;
         }
 
@@ -693,7 +702,7 @@ public sealed partial class CpuProfiler
             if (Headers is not null)
             {
                 int slot = Next;
-                Headers[slot] = new ProfileHeader(Number, FirstTick, Ticks, alpha, Time[root], Bytes[root], service, frame, counters);
+                Headers[slot] = new ProfileHeader(Number, FirstTick, Ticks, alpha, Time[root], Bytes[root], service, frame, counters, GpuFrame);
                 RingStart![slot] = StartTs;
                 Array.Copy(Time, 0, RingTime!, slot * Stride, zones);
                 Array.Copy(Bytes, 0, RingBytes!, slot * Stride, zones);
@@ -745,7 +754,8 @@ public sealed partial class CpuProfiler
 
 /// <summary>
 /// Зона за период (кадр или тик), мс: среднее, медиана, 99-й перцентиль, максимум; своё время (без дочерних), байты и
-/// вызовы в среднем на период, доля периодов, где зона была.
+/// вызовы в среднем на период, доля периодов, где зона была; вид зоны (точка Пг: <see cref="ProfileZoneKind.Gpu"/> — GPU-время
+/// прохода, мс на кадр, вне дерева CPU).
 /// </summary>
 public sealed record ProfileZoneStats(string Name, string? Parent, double MeanMs, double MedianMs, double P99Ms, double MaxMs,
-    double SelfMs, double Bytes, double Calls, double Presence);
+    double SelfMs, double Bytes, double Calls, double Presence, ProfileZoneKind Kind = ProfileZoneKind.Work);

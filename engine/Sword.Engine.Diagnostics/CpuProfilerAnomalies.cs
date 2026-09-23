@@ -186,7 +186,8 @@ public sealed partial class CpuProfiler
                 main = z;
             }
             var kind = (ProfileZoneKind)_kind[z];
-            if (kind == ProfileZoneKind.Work) continue;
+            // GPU-время прохода (точка Пг) — не время потока: в ожидания и разбор не идёт (его родителя нет — не главная зона).
+            if (kind is ProfileZoneKind.Work or ProfileZoneKind.Gpu) continue;
             wait += Ms(s.Time[z]);
             if (kind == ProfileZoneKind.GpuWait) gpu += Math.Max(0, Ms(excess[z]));
         }
@@ -260,7 +261,8 @@ public sealed partial class CpuProfiler
         slot.TickTrigger = !periodHit;
         long time = s.Time[root];
         slot.Header = new ProfileHeader(s.Number, s.FirstTick, s.Ticks, alpha, time, s.Bytes[root], false,
-            period == ProfilePeriod.Tick && _frameAt >= 0 ? _frames.Number : ulong.MaxValue, counters);
+            period == ProfilePeriod.Tick && _frameAt >= 0 ? _frames.Number : ulong.MaxValue, counters,
+            period == ProfilePeriod.Frame ? s.GpuFrame : ulong.MaxValue);
         slot.Start = s.StartTs;
         slot.Median = d.Median;
         slot.Threshold = d.Threshold;

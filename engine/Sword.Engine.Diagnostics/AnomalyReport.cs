@@ -49,7 +49,8 @@ internal static class AnomalyReport
         json["classText"] = AnomalyCauses.Word(record.Class);
         json["causes"] = record.Causes.ToJson();
         json["causesNote"] = "excessMs — сверх медианы; jitMs — компиляция на главном потоке; gcPauseMs — паузы сборок; gpuWaitMs — ожидание GPU " +
-            "(frame.fenceWait, frame.present) сверх среднего; offCpuMs — поток вне CPU вне ожиданий (другие процессы, ОС); codeMs — остаток: код";
+            "(frame.fenceWait, frame.present) сверх среднего — по проходам GPU: секция gpu; offCpuMs — поток вне CPU вне ожиданий (другие процессы, ОС); " +
+            "codeMs — остаток: код";
 
         // Зоны аномального периода (у кадра со сработавшим тиком — и тика).
         var zones = Zones(slot.Zones, slot.Time, slot.Bytes, slot.Calls, slot.Mean, slot.Parent, slot.Kind, root, name);
@@ -61,6 +62,12 @@ internal static class AnomalyReport
         json["header"] = HeaderJson(slot.Header, slot.Period);
         json["zones"] = zones.Top(TopZones);
         json["tree"] = zones.Tree(root);
+        // Точка Пг: GPU-время кадра, забора которого ждал этот кадр, — по проходам (кадр N − 3: запаздывание разбора).
+        if (slot.Period == ProfilePeriod.Frame)
+            json["gpu"] = zones.Gpu(slot.Number, slot.Header.GpuFrame) ?? (JsonNode)new JsonObject
+            {
+                ["note"] = "GPU-времён в этом кадре нет: профайлер включён меньше трёх кадров назад, кадр без рендера или разбор был раньше",
+            };
         if (slot.HasTick)
         {
             var tick = Zones(slot.Zones, slot.TickTime, slot.TickBytes, slot.TickCalls, slot.TickMean, slot.Parent, slot.Kind, CpuProfiler.TickZone, name);
@@ -233,6 +240,7 @@ internal static class AnomalyReport
             json["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks);
             json["alpha"] = Math.Round(h.Alpha, 4);
             json["service"] = h.Service;
+            if (h.GpuFrame != ulong.MaxValue) json["gpuFrame"] = h.GpuFrame;   // точка Пг: чьи GPU-времена в кадре
         }
         else if (h.Frame != ulong.MaxValue) json["inFrame"] = h.Frame;
         json["cpuMs"] = R(c.CpuMs);
@@ -291,8 +299,43 @@ internal static class AnomalyReport
         }
 
         /// <summary>Зоны периода по своему лишнему времени (первая — главная).</summary>
-        public JsonArray Top(int n) => new([.. Enumerable.Range(0, Count).Where(z => Calls[z] > 0).OrderByDescending(z => Self[z]).Take(n)
-            .Select(z => (JsonNode?)ZoneJson(z, withPath: false))]);
+        public JsonArray Top(int n) => new([.. Enumerable.Range(0, Count).Where(z => Calls[z] > 0 && Kind[z] != (byte)ProfileZoneKind.Gpu)
+            .OrderByDescending(z => Self[z]).Take(n).Select(z => (JsonNode?)ZoneJson(z, withPath: false))]);
+
+        /// <summary>
+        /// GPU-времена, записанные в кадр (точка Пг, зоны вида <see cref="ProfileZoneKind.Gpu"/>): кадр целиком и проходы по лишнему
+        /// времени против среднего. Нет — null.
+        /// </summary>
+        public JsonObject? Gpu(ulong number, ulong gpuFrame)
+        {
+            var gpu = Enumerable.Range(0, Count).Where(z => Kind[z] == (byte)ProfileZoneKind.Gpu && Calls[z] > 0).ToList();
+            if (gpu.Count == 0) return null;
+            int frame = gpu.FirstOrDefault(z => Name(z) == CpuProfiler.GpuFrameName, -1);
+            bool known = gpuFrame != ulong.MaxValue && gpuFrame <= number;
+            var json = new JsonObject
+            {
+                ["frame"] = known ? gpuFrame : null,
+                ["lagFrames"] = known ? (long)(number - gpuFrame) : null,
+                ["note"] = "GPU-время кадра frame (точка Пг), разобранного в этом кадре после ожидания его слота: frame.fenceWait этого кадра ждал " +
+                    "именно его (и кадры до него) — при классе gpu лишнее GPU-время видно здесь (excessMs — против среднего); frame.present ждёт " +
+                    "очередь показа — её кадры (этот и два до него) ещё не разобраны, их GPU-времени здесь нет; частота GPU плавает",
+            };
+            if (frame >= 0)
+            {
+                json["frameMs"] = R(CpuProfiler.Ms(Time[frame]));
+                json["meanFrameMs"] = R(CpuProfiler.Ms(Mean[frame]));
+                json["excessFrameMs"] = R(CpuProfiler.Ms(Excess[frame]));
+            }
+            json["passes"] = new JsonArray([.. gpu.Where(z => z != frame).OrderByDescending(z => Excess[z]).Select(z => (JsonNode?)new JsonObject
+            {
+                ["name"] = Name(z).StartsWith(CpuProfiler.GpuPrefix, StringComparison.Ordinal) ? Name(z)[CpuProfiler.GpuPrefix.Length..] : Name(z),
+                ["ms"] = R(CpuProfiler.Ms(Time[z])),
+                ["meanMs"] = R(CpuProfiler.Ms(Mean[z])),
+                ["excessMs"] = R(CpuProfiler.Ms(Excess[z])),
+                ["calls"] = Calls[z],
+            })]);
+            return json;
+        }
 
         /// <summary>Дерево зон от корня периода: дочерние по времени; зоны без вызовов в периоде — только с заметным лишним.</summary>
         public JsonObject Tree(int root) => Node(root, 0);

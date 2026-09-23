@@ -73,6 +73,12 @@ public sealed class GraphicsDevice : IDisposable
     /// <summary>Сколько CPU простоял в ожидании свободного слота кадра, мс.</summary>
     public double LastFenceWaitMs { get; private set; }
 
+    /// <summary>
+    /// GPU-время кадра и проходов (точка Пг): разбор кадра N − <see cref="FrameCount"/> — в <see cref="BeginFrame"/>, после
+    /// ожидания его слота; после <see cref="WaitForIdle"/> — последнего отправленного.
+    /// </summary>
+    public GpuTimer Timer { get; }
+
     /// <param name="gpuValidation">
     /// GPU-валидация (только вместе с <paramref name="enableDebugLayer"/>): проверяет на GPU состояния ресурсов, взятых
     /// шейдером из bindless-кучи, — обычный слой отладки их не видит. Медленно: для тестов и проверочных прогонов.
@@ -164,6 +170,7 @@ public sealed class GraphicsDevice : IDisposable
             }
 
             _fence = Device.CreateFence(0, FenceFlags.None);
+            Timer = new GpuTimer(Device, GraphicsQueue);
             FrameIndex = (int)SwapChain.CurrentBackBufferIndex;
         }
         catch
@@ -261,10 +268,13 @@ public sealed class GraphicsDevice : IDisposable
         }
 
         FlushDeferredRelease();
+        // Кадр этого слота GPU доделал (забор выше): его таймстемпы разбираются сейчас, CPU ради них не ждёт.
+        Timer.Collect(FrameIndex);
 
         _allocators[FrameIndex].Reset();
         _lists[FrameIndex].Reset(_allocators[FrameIndex], null);
         _lists[FrameIndex].SetDescriptorHeaps(Bindless.Heap);
+        Timer.BeginFrame(_lists[FrameIndex], FrameIndex, FrameNumber);
         FrameOpen = true;
     }
 
@@ -279,6 +289,7 @@ public sealed class GraphicsDevice : IDisposable
     {
         if (!FrameOpen) return;
         FrameOpen = false;
+        Timer.Abandon();
         _lists[FrameIndex].Close();
     }
 
@@ -287,6 +298,7 @@ public sealed class GraphicsDevice : IDisposable
     {
         var list = _lists[FrameIndex];
         FrameOpen = false;
+        Timer.EndFrame(list);
         list.Close();
         GraphicsQueue.ExecuteCommandList(list);
 
@@ -297,6 +309,7 @@ public sealed class GraphicsDevice : IDisposable
 
         _frameFenceValues[FrameIndex] = ++_fenceValue;
         GraphicsQueue.Signal(_fence, _fenceValue).CheckError();
+        Timer.Commit();   // слот ждёт разбора — после ожидания этого забора
 
         for (int i = 0; i < _deferredRelease.Count; i++)
         {
@@ -342,6 +355,7 @@ public sealed class GraphicsDevice : IDisposable
             _fenceEvent.WaitOne();
         }
         FlushDeferredRelease();
+        Timer.CollectAll();   // GPU простаивает: отправленные кадры разобраны, опубликован последний
     }
 
     public void DeferRelease(IDisposable resource) =>
@@ -393,6 +407,7 @@ public sealed class GraphicsDevice : IDisposable
 
     private void ReleaseAll()
     {
+        Timer?.Dispose();
         foreach (var l in _lists) l?.Dispose();
         foreach (var a in _allocators) a?.Dispose();
         foreach (var b in _backBuffers) b?.Dispose();

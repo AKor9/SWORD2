@@ -39,7 +39,10 @@
                             profile.json с фазами кадра, тиками, проходами графа и зонами игры; точка Пб — среда кадра и тика,
                             машина в отчёте, report.machine в итоге и бенче; точка Пв — --profile с захватом аномалий: те же
                             байты на кадр, секция anomalies (аномалии под нагрузкой машины — сообщение, не провал); F2
-                            (--hold hud_profiler) — секция профайлера в HUD и профайлер включён;
+                            (--hold hud_profiler) — секция профайлера в HUD и профайлер включён; точка Пг — у каждого
+                            прохода итога gpuMs (GPU-время того же кадра, под GPU-валидацией), report.gpu: отставание 0,
+                            кадр больше нуля, сумма проходов не больше кадра; profile.json — frames.gpu (кадр и проходы,
+                            отставание 3); бенч — GPU-время кадра (среднее, p99) и проходы мс на кадр;
                             --bench 5 — выход «bench» с итогом замера и снимком последнего кадра (нужны видеокарта и
                             пак контента; -SkipGpu — пропустить);
       replay-smoke          реплеи (этап 3б): Sword.exe --record (удержание move_forward и walk, --fps 45) —
@@ -65,7 +68,8 @@
                             Sword.exe --agent
                             (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
                             рамкой; 5в — ID-буфер: сегменты игрока в его рамке с легендой, оверлей капсул), render.graph,
-                            replay.status (запись с тика 0), profile.stages (кадры: фазы, тики, проходы), session.stop — выход
+                            replay.status (запись с тика 0), profile.stages (кадры: фазы, тики, проходы; точка Пг — gpu),
+                            точка Пг — gpuMs проходов в render.graph и gpu снимка (отставание 0), session.stop — выход
                             closed-by-tool (с -SkipGpu — только Headless);
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
@@ -510,6 +514,12 @@ else {
                     # сообщение, а не провал: 120 кадров с GPU-валидацией на машине пользователя (GPU и CPU делят с другими
                     # программами) — рывки ожидания GPU и снятия с процессора бывают, и это не ошибка кода.
                     elseif (-not $profReport.anomalies -or -not $profRun.profile.anomalies) { $problems += '--profile: в отчёте или итоге нет anomalies (точка Пв)' }
+                    # Точка Пг: GPU-время кадра и проходов рядом с зонами CPU — секция frames.gpu, данные кадра N − 3; в зонах CPU их нет.
+                    elseif (-not $profReport.frames.gpu -or $profReport.frames.gpu.lagFrames -ne 3 -or $profReport.frames.gpu.frame.name -ne 'gpu.frame' -or
+                        -not ($profReport.frames.gpu.frame.meanMs -gt 0) -or @($profReport.frames.gpu.passes | Where-Object { $_.name -eq 'gpu.scene.opaque' }).Count -ne 1 -or
+                        @($frameZones | Where-Object { $_ -like 'gpu.*' }).Count -ne 0) {
+                        $problems += "--profile: frames.gpu (точка Пг) — $($profReport.frames.gpu | ConvertTo-Json -Compress -Depth 4)"
+                    }
                     else {
                         $an = $profReport.anomalies
                         $anText = if ([int]$an.detected -gt 0) { "аномалий $($an.detected) ($(@($an.list | Select-Object -Last 3 | ForEach-Object { "кадр $($_.number) $($_.classText) $($_.zone)" }) -join '; '))" } else { 'аномалий нет' }
@@ -538,7 +548,11 @@ else {
                     elseif (-not (Test-Path $benchShot)) { $problems += '--bench 5: нет снимка последнего кадра замера' }
                     elseif ($bench.arena.enemies -ne 32 -or $bench.arena.skinned -ne 33) { $problems += "--bench 5 --units 32: врагов $($bench.arena.enemies), отдано скиннингу $($bench.arena.skinned); ждали 32 и 33" }
                     elseif (-not $bench.report.machine -or -not $bench.report.machine.text) { $problems += '--bench 5: нет report.machine (машина за замер, точка Пб)' }
-                    else { $script:benchNote = "команды арены (PageUp, R) в записи Sword.exe — Headless повторил её хеши; бенч с 32 врагами (33 бойца в кадре): $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс; $($bench.report.machine.text)" }
+                    # Точка Пг: GPU-время кадра замера (среднее, p99) и проходы — мс на кадр (как BenchRecorder SWORD).
+                    elseif ($b.gpuFrames -lt 1 -or -not ($b.gpuMs -gt 0) -or $b.gpuP99Ms -lt $b.gpuMs * 0.5 -or @($b.passes | Where-Object { $_.name -eq 'scene.opaque' -and $_.ms -gt 0 }).Count -ne 1) {
+                        $problems += "--bench 5: GPU — кадров $($b.gpuFrames), ср $($b.gpuMs) мс, p99 $($b.gpuP99Ms), проходы $($b.passes | ConvertTo-Json -Compress)"
+                    }
+                    else { $script:benchNote = "команды арены (PageUp, R) в записи Sword.exe — Headless повторил её хеши; бенч с 32 врагами (33 бойца в кадре): $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс, GPU ср $($b.gpuMs) мс, p99 $($b.gpuP99Ms) мс; $($bench.report.machine.text)" }
                 }
             }
         }
@@ -556,12 +570,23 @@ else {
             elseif ($result.hud.quads -lt 100) { $problems += "hud: квадов $($result.hud.quads) — HUD пуст?" }
             # Шаг кадра — от счётчика кадров (FPS начинается с 60 и сам по себе ничего не доказывает).
             elseif (-not ($result.report.stats.frameMs -gt 0 -and $result.report.stats.fps -gt 0)) { $problems += "числа кадра в итоге: шаг $($result.report.stats.frameMs) мс, FPS $($result.report.stats.fps)" }
+            # Точка Пг: GPU-время проходов под GPU-валидацией — у каждого прохода последнего кадра, того же кадра (конец прогона ждёт
+            # простоя GPU: отставание 0), сумма проходов не больше кадра; число кадра HUD — GPU-время (кадр N − 3).
+            elseif (-not $result.report.gpu -or $result.report.gpu.lag -ne 0 -or -not ($result.report.gpu.frameMs -gt 0) -or
+                $result.report.gpu.passesMs -gt $result.report.gpu.frameMs + 1e-6 -or $result.report.gpu.dropped -ne 0) {
+                $problems += "report.gpu — $($result.report.gpu | ConvertTo-Json -Compress)"
+            }
+            elseif (@($result.report.passes | Where-Object { $null -eq $_.gpuMs -or $_.gpuMs -lt 0 }).Count -gt 0) {
+                $problems += "проходы без gpuMs: $(@($result.report.passes | Where-Object { $null -eq $_.gpuMs } | ForEach-Object { $_.name }) -join ', ')"
+            }
+            elseif (-not ($result.report.stats.gpuMs -gt 0)) { $problems += "числа кадра: GPU-время кадра $($result.report.stats.gpuMs) мс" }
+            else { $script:gpuNote = "GPU (точка Пг, GPU-валидация): кадр $([math]::Round($result.report.gpu.frameMs, 3)) мс, проходы — $(@($result.report.passes | ForEach-Object { "$($_.name) $([math]::Round($_.gpuMs, 3))" }) -join ', ') мс" }
             # Кадр одного цвета сжимается в PNG до пары килобайт; сцена — на порядки больше.
             if (-not (Test-Path $shot)) { $problems += 'нет снимка кадра' }
             elseif ((Get-Item $shot).Length -lt 50KB) { $problems += "снимок подозрительно мал: $((Get-Item $shot).Length) Б — пустой кадр?" }
         }
         if ($problems.Count -eq 0) {
-            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless; с удержанием move_forward бежит от камеры; при --fps 45 — 242 тика, доля 2/3, интерполяция; HUD $($result.hud.quads) квадов; F4 — снимок; $($script:benchNote); $($script:profileNote); кадр $($result.report.averageFrameMs) мс, снимок $shot" }
+            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless; с удержанием move_forward бежит от камеры; при --fps 45 — 242 тика, доля 2/3, интерполяция; HUD $($result.hud.quads) квадов; F4 — снимок; $($script:gpuNote); $($script:benchNote); $($script:profileNote); кадр $($result.report.averageFrameMs) мс, снимок $shot" }
         }
         else { @{ ok = $false; detail = $problems -join '; ' } }
     }
@@ -879,6 +904,11 @@ Add-Step 'agent-smoke' {
             elseif ($player.Count -ne 1) { $problems += "App: capture.bundle — игрока в кадре нет ($(@($bundle.entities).Count) сущностей)" }
             elseif ($bundle.tickId -ne $step.tick) { $problems += "App: снимок на тике $($bundle.tickId), ждали $($step.tick) (пауза)" }
             elseif (-not ($bundle.depthCoverage -gt 0.5)) { $problems += "App: глубина почти пуста: $($bundle.depthCoverage)" }
+            # Точка Пг: кадр снимка ждёт простоя GPU — его GPU-время разобрано сразу (отставание 0), проходы с gpuMs.
+            elseif (-not $bundle.gpu -or $bundle.gpu.lagFrames -ne 0 -or $bundle.gpu.frameId -ne $bundle.frameId -or -not ($bundle.gpu.frameMs -gt 0) -or
+                @($bundle.gpu.passes | Where-Object { $_.name -eq 'scene.opaque' -and $_.gpuMs -gt 0 }).Count -ne 1) {
+                $problems += "App: capture.bundle gpu — $($bundle.gpu | ConvertTo-Json -Compress -Depth 3)"
+            }
             # Точка 5в: ID-буфер и оверлей капсул по заказу — пиксели игрока несут его сущность и сегменты тела (легенда
             # словами), середина рамки каждого кода — внутри рамки игрока; оверлей капсул — отдельный PNG.
             $ids = Call-Http 'capture.bundle' @{ name = 'verify-ids'; ids = $true; overlays = @('capsules') }
@@ -923,9 +953,18 @@ Add-Step 'agent-smoke' {
             }
             elseif (-not $appProf.runtime -or -not $appProf.machine) { $problems += 'App: profile.stages без runtime или machine (точка Пб)' }
             elseif (-not $appProf.anomalies -or $appProf.anomalies -is [string]) { $problems += 'App: profile.stages без anomalies (точка Пв: захват настраивает Sword.exe)' }
+            # Точка Пг: GPU-время кадра и проходов за окно — секция gpu (данные кадра N − 3).
+            elseif (-not $appProf.gpu -or $appProf.gpu.lagFrames -lt 0 -or -not ($appProf.gpu.frame.meanMs -gt 0) -or @($appProf.gpu.passes).Count -lt 1) {
+                $problems += "App: profile.stages без gpu (точка Пг): $($appProf.gpu | ConvertTo-Json -Compress -Depth 3)"
+            }
             $graph = Call-Http 'render.graph' @{}
             $passes = @($graph.passes | ForEach-Object { $_.name })
             if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
+            # Точка Пг: у проходов — gpuMs кадра gpu.frameId (показанный минус отставание: на паузе снимки и шаги, 0…3 кадра).
+            elseif (-not $graph.gpu -or $graph.gpu.lagFrames -lt 0 -or $graph.gpu.lagFrames -gt 3 -or -not ($graph.gpu.frameMs -gt 0) -or
+                @($graph.passes | Where-Object { $_.name -eq 'scene.opaque' -and $_.gpuMs -gt 0 }).Count -ne 1) {
+                $problems += "App: render.graph gpu — $($graph.gpu | ConvertTo-Json -Compress) / $(@($graph.passes | ForEach-Object { "$($_.name)=$($_.gpuMs)" }) -join ', ')"
+            }
             $null = Call-Http 'session.stop' @{}
             if (-not $app.WaitForExit(15000)) { $problems += 'App: не вышла после session.stop' }
             else {
@@ -935,7 +974,7 @@ Add-Step 'agent-smoke' {
             # Снимок глубины и цвета — под GPU-валидацией: сообщения слоя и предупреждения шейдеров — отказ.
             $d3d12 = @(Get-Content $err -Encoding UTF8 | Where-Object { ($_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:') -or $_ -match '^\[shader\]' })
             if ($d3d12.Count -gt 0) { $problems += "App: сообщения D3D12 или шейдеров: $($d3d12 | Select-Object -First 3)" }
-            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; ID-буфер — кодов $(@($ids.ids.legend).Count), у игрока [$($segments -join ', ')], оверлей капсул снят; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет; profile.stages — кадров $($appProf.frames), зон $($appZones.Count)"
+            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; ID-буфер — кодов $(@($ids.ids.legend).Count), у игрока [$($segments -join ', ')], оверлей капсул снят; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет; profile.stages — кадров $($appProf.frames), зон $($appZones.Count), GPU кадра $($appProf.gpu.frame.meanMs) мс; render.graph — GPU-время проходов кадра на $($graph.gpu.lagFrames) раньше показанного; снимок — GPU кадра $($bundle.gpu.frameMs) мс (отставание 0)"
         }
         catch { $problems += "App: $($_.Exception.Message) — журнал $err" }
         finally { if (-not $app.HasExited) { $app.Kill() } }

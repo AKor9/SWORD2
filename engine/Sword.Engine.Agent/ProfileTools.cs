@@ -31,7 +31,9 @@ internal static class ProfileTools
                 "(по умолчанию — медиана последних 128 + max(2 мс кадр / 1 мс тик, 0.75 медианы); threshold — абсолютный порог, мс, 0 — снова " +
                 "по медиане) пишется файлом anomaly-<frame|tick>-N.json (зоны, причины, события окна, машина) и трассой; в ответе — список: " +
                 "период, мс, класс причины (code/jit/gc/gpu/machine), главная зона, файл. trace=true — кольцо в Chrome Trace JSON " +
-                "(Perfetto, chrome://tracing). Меняет только профайлер, не симуляцию.",
+                "(Perfetto, chrome://tracing). gpu (App, точка Пг) — GPU-время кадра (frame) и проходов графа (passes, мс на кадр: " +
+                "среднее, медиана, p99, максимум за окно; lagFrames — данные кадра N − 3, кадры в полёте); один кадр — render.graph. " +
+                "Меняет только профайлер, не симуляцию.",
             Arguments = CoreTools.Props(
                 ("enable", new JsonObject { ["type"] = "boolean", ["description"] = "включить (true) или выключить (false) профайлер" }),
                 ("reset", new JsonObject { ["type"] = "boolean", ["description"] = "забыть итоги и кольцо (после прогрева)" }),
@@ -129,6 +131,8 @@ internal static class ProfileTools
                 data["anomalies"] = r.Anomalies is { } an ? an : "захват не настроен (threshold — настроить, файлы — в артефакты сеанса)";
                 if (traceFile is not null) data["trace"] = traceFile;
                 data["zones"] = section?["zones"]?.DeepClone() ?? new JsonArray();
+                // Точка Пг: GPU-время кадра и проходов (App) — среднее, медиана, p99 за окно, отставание данных (кадры в полёте).
+                if (section?["gpu"] is { } gpu) data["gpu"] = gpu.DeepClone();
                 if (history > 0) data["history"] = section?["history"]?.DeepClone() ?? new JsonArray();
                 data["mismatches"] = report["mismatches"]?.DeepClone();
                 data["abandoned"] = report["abandoned"]?.DeepClone();

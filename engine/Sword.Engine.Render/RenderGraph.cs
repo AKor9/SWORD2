@@ -296,10 +296,12 @@ public sealed class RenderGraph
         Validate();
         var report = new List<RenderPassReport>(_passes.Count);
         var profiler = _profiler;
+        var timer = _device.Timer;   // точка Пг: таймстемпы GPU вокруг каждого прохода (с его барьерами)
         foreach (var p in _passes)
         {
             int zone = profiler.Enabled ? PassZone(p.Name) : 0;
             profiler.Begin(zone);
+            int scope = timer.Begin(list, p.Name);
             _barriers.Clear();
             foreach (var (index, _) in p.Colors) Require(_resources[index], ResourceStates.RenderTarget);
             if (p.Depth >= 0)
@@ -338,6 +340,7 @@ public sealed class RenderGraph
                 _resources[w].Written = true;
                 _resources[w].UavPending = true;
             }
+            timer.End(list, scope);
             profiler.End(zone);
             report.Add(new RenderPassReport(p.Name, p.Kind, Names(p, writes: true), Names(p, writes: false), barriers, draws, dispatches));
         }
@@ -470,17 +473,37 @@ public sealed class RenderGraph
         set
         {
             _passZones.Clear();
+            _gpuZones.Clear();
             _profiler = value;
         }
     }
 
-    /// <summary>Зона прохода: имена проходов стабильны (порядок регистрации — нет), поиск по имени не выделяет памяти.</summary>
+    /// <summary>Зоны GPU-времени проходов (точка Пг): <c>gpu.&lt;проход&gt;</c> вида <see cref="ProfileZoneKind.Gpu"/>.</summary>
+    private readonly Dictionary<string, int> _gpuZones = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Зона прохода: имена проходов стабильны (порядок регистрации — нет), поиск по имени не выделяет памяти. Точка Пг: вместе с
+    /// ней заводится и зона GPU-времени прохода — в том же кадре (первый кадр — служебный), а не через 3 кадра, когда придут его
+    /// времена: иначе строки зон выделялись бы в обычном кадре.
+    /// </summary>
     private int PassZone(string name)
     {
         if (!_passZones.TryGetValue(name, out int zone))
         {
             zone = _profiler.Zone("render." + name);
             _passZones.Add(name, zone);
+            GpuZone(name);
+        }
+        return zone;
+    }
+
+    /// <summary>Зона GPU-времени прохода <paramref name="name"/> (точка Пг); нет — заводится.</summary>
+    internal int GpuZone(string name)
+    {
+        if (!_gpuZones.TryGetValue(name, out int zone))
+        {
+            zone = _profiler.Zone(CpuProfiler.GpuPrefix + name, ProfileZoneKind.Gpu);
+            _gpuZones.Add(name, zone);
         }
         return zone;
     }

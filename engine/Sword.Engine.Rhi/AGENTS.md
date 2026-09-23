@@ -15,6 +15,12 @@ D3D12: устройство, очередь, свопчейн, кольцо ка
 - Ресурс, который может ещё читать GPU, освобождается через `DeferRelease`, а не `Dispose`.
 - Сообщения отладочного слоя — в журнал, категория `d3d12`; `verify.ps1` (шаг `app-smoke`) считает любое такое
   сообщение ошибкой.
+- Профайлер GPU (этап П, точка Пг) — `GpuTimer` (`GraphicsDevice.Timer`, `GpuProfiler` SWORD): таймстемпы на 256 замеров × 2 ×
+  `FrameCount` слотов, замер 0 — кадр целиком (открытие и закрытие списка), проходы — `Begin/End` (их ставит рендер-граф);
+  `ResolveQueryData` — в `EndFrame`, разбор слота — в `BeginFrame` **после ожидания его забора** (без стойла; данные кадра
+  N − 3) и в `WaitForIdle` (все отправленные). Слот помнит номер кадра; публикуется только отправленный (`Commit` после
+  `Signal`), брошенный (`AbandonFrame`) — нет, номер опубликованного только растёт. Всегда включён (`Enabled` — для замера
+  цены), 0 байт в кадре. Проверка — `tests/Sword.Engine.Render.Tests/GpuTimesGpuTests`.
 
 Проверка: `verify.ps1` (шаг `app-smoke`) или вручную
 `Sword.exe --windowed 800x600 --frames 90 --resize-cycle --no-activate --debug --json`.

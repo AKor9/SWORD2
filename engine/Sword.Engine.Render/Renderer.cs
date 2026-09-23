@@ -160,6 +160,7 @@ public sealed class Renderer : IDisposable
             Scene = new SceneTargets(Device, Graph);
             Skinned = new SkinnedMeshes(this);
             Debug = new DebugDraw(this);
+            Gpu = new GpuFrameTimes(Device);
             _frame = new RenderFrame(this);
         }
         catch
@@ -227,8 +228,21 @@ public sealed class Renderer : IDisposable
     /// <summary>Запись последнего кадра на CPU, мс: построение графа и его исполнение в список команд, без ожидания GPU и показа.</summary>
     public double LastRecordMs { get; private set; }
 
+    /// <summary>
+    /// GPU-время кадра и проходов (этап П, точка Пг): таймстемпы вокруг каждого прохода графа и кадра целиком, разбор кадра
+    /// N − 3 после ожидания его слота (без стойла), после <see cref="WaitForIdle"/> — последнего отправленного. Всегда включено.
+    /// </summary>
+    public GpuFrameTimes Gpu { get; }
+
+    /// <summary>Кадров отправлено GPU с начала работы (номер следующего кадра рендера, <see cref="RenderFrame.Number"/>).</summary>
+    public ulong FrameNumber => Device.FrameNumber;
+
     private CpuProfiler _profiler = CpuProfiler.Off;
     private (int FenceWait, int Build, int Record, int Present, int Capture) _zones;
+
+    /// <summary>Зона GPU-времени кадра в профайлере (точка Пг); зоны проходов — у графа (<c>gpu.&lt;проход&gt;</c>).</summary>
+    private int _gpuFrameZone;
+    private long _gpuRecorded;
 
     /// <summary>
     /// Профайлер CPU кадра (точка Па): зоны рендера — ожидание забора кадра в полёте <c>frame.fenceWait</c>, построение
@@ -246,8 +260,25 @@ public sealed class Renderer : IDisposable
             _zones = (value.Zone("frame.fenceWait", ProfileZoneKind.GpuWait), value.Zone("frame.build"), value.Zone("frame.record"),
                 value.Zone("frame.present", ProfileZoneKind.GpuWait), value.Zone("frame.capture"));
             Graph.Profiler = value;
+            _gpuFrameZone = value.Zone(CpuProfiler.GpuFrameName, ProfileZoneKind.Gpu);
             _profiler = value;
         }
+    }
+
+    /// <summary>
+    /// Новые GPU-времена — в кадр профайлера (точка Пг): зоны вида <see cref="ProfileZoneKind.Gpu"/> и отставание (кадр клиента
+    /// данных — этот минус отставание). Раз на новые данные; выключенный профайлер — ничего.
+    /// </summary>
+    private void RecordGpu(CpuProfiler profiler)
+    {
+        var gpu = Gpu;
+        if (!profiler.Enabled || gpu.Sequence == _gpuRecorded || !gpu.Valid) return;
+        _gpuRecorded = gpu.Sequence;
+        // Кадр рендера Device.FrameNumber записывается сейчас: данные — на столько кадров раньше него.
+        profiler.NoteGpuFrame((int)(Device.FrameNumber - gpu.Frame));
+        profiler.RecordGpu(_gpuFrameZone, gpu.FrameMs);
+        // Зоны проходов заведены графом при первой встрече прохода (Graph.PassZone), здесь — только поиск.
+        for (int i = 0; i < gpu.Count; i++) profiler.RecordGpu(Graph.GpuZone(gpu.NameOf(i)), gpu.MillisecondsOf(i));
     }
 
     /// <summary>Конвейеров собрано (каждый — компиляция шейдеров при первом использовании).</summary>
@@ -359,6 +390,7 @@ public sealed class Renderer : IDisposable
         profiler.Begin(_zones.FenceWait);
         Device.BeginFrame();
         profiler.End(_zones.FenceWait);
+        RecordGpu(profiler);   // точка Пг: времена кадра, забора которого ждали (или разобранного ожиданием простоя)
         long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var list = Device.GraphicsList;
         try

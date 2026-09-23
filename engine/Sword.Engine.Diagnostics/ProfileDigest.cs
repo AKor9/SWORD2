@@ -7,14 +7,21 @@ namespace Sword.Engine.Diagnostics;
 /// перекрываются и в сумме дают кадр) за прошлое окно <see cref="WindowSeconds"/>, средний кадр. Пересчёт — раз в окно из
 /// итогов профайлера (разность сумм с прошлого пересчёта, O(зон)); в остальных кадрах — сравнение времени. Без выделений
 /// (массивы растут только вместе с числом зон); однопоточная — поток кадра. Профайлер выключен — строк нет.
+/// Точка Пг: отдельно — GPU-время кадра и главные проходы GPU (зоны вида <see cref="ProfileZoneKind.Gpu"/>, мс на кадр за то же
+/// окно; времена кадров на 3 раньше — кадры в полёте); в строки зон CPU они не входят.
 /// </summary>
 public sealed class ProfileDigest(CpuProfiler profiler)
 {
     public const double WindowSeconds = 0.25;
     public const int MaxLines = 8;
 
+    /// <summary>Строк проходов GPU (точка Пг).</summary>
+    public const int MaxGpuLines = 6;
+
     private readonly int[] _zone = new int[MaxLines];
     private readonly double[] _ms = new double[MaxLines];
+    private readonly int[] _gpuZone = new int[MaxGpuLines];
+    private readonly double[] _gpuMs = new double[MaxGpuLines];
     private long[] _previous = [], _delta = [], _self = [];
     private int _previousCount = -1;
     private long _last;
@@ -41,6 +48,22 @@ public sealed class ProfileDigest(CpuProfiler profiler)
     /// <summary>Своё время зоны строки, мс на кадр.</summary>
     public double Ms(int line) => _ms[line];
 
+    /// <summary>GPU-время кадра целиком за окно, мс на кадр (точка Пг); 0 — времён нет.</summary>
+    public double GpuFrameMs { get; private set; }
+
+    /// <summary>Строк проходов GPU.</summary>
+    public int GpuCount { get; private set; }
+
+    /// <summary>Имя прохода строки GPU — без <c>gpu.</c> (без выделений).</summary>
+    public ReadOnlySpan<char> GpuName(int line)
+    {
+        string name = profiler.NameOf(_gpuZone[line]);
+        return name.StartsWith(CpuProfiler.GpuPrefix, StringComparison.Ordinal) ? name.AsSpan(CpuProfiler.GpuPrefix.Length) : name;
+    }
+
+    /// <summary>GPU-время прохода строки, мс на кадр.</summary>
+    public double GpuMs(int line) => _gpuMs[line];
+
     public CpuProfiler Profiler => profiler;
 
     /// <summary>Кадр: <paramref name="now"/> — отметка <see cref="Stopwatch"/>. Окно кончилось — пересчёт.</summary>
@@ -52,6 +75,8 @@ public sealed class ProfileDigest(CpuProfiler profiler)
             // через 0,25 с, а не через 0,5).
             Ready = false;
             Count = 0;
+            GpuCount = 0;
+            GpuFrameMs = 0;
             _previousCount = -1;
             _started = false;
             return;
@@ -91,24 +116,40 @@ public sealed class ProfileDigest(CpuProfiler profiler)
             int p = profiler.ParentOf(z);
             if (p >= 0 && _delta[z] > 0) _self[p] -= _delta[z];
         }
-        // Главные — по своему времени, вставкой в заранее выделенные строки.
-        int n = 0;
+        // Главные — по своему времени, вставкой в заранее выделенные строки; зоны GPU (точка Пг) — отдельно.
+        int n = 0, g = 0;
+        int gpuFrame = profiler.Find(CpuProfiler.GpuFrameName);
         for (int z = 0; z < zones; z++)
         {
             long v = _self[z];
             if (v <= 0) continue;
-            int at = n < MaxLines ? n : MaxLines;
-            while (at > 0 && _self[_zone[at - 1]] < v) at--;
-            if (at >= MaxLines) continue;
-            int last = Math.Min(n, MaxLines - 1);
-            for (int i = last; i > at; i--) _zone[i] = _zone[i - 1];
-            _zone[at] = z;
-            if (n < MaxLines) n++;
+            if (profiler.KindOf(z) == ProfileZoneKind.Gpu)
+            {
+                if (z != gpuFrame) g = Insert(_gpuZone, g, z, v);
+                continue;
+            }
+            n = Insert(_zone, n, z, v);
         }
         for (int i = 0; i < n; i++) _ms[i] = CpuProfiler.Ms(_self[_zone[i]]) / frames;
+        for (int i = 0; i < g; i++) _gpuMs[i] = CpuProfiler.Ms(_self[_gpuZone[i]]) / frames;
         Count = n;
+        GpuCount = g;
+        GpuFrameMs = gpuFrame >= 0 ? CpuProfiler.Ms(_delta[gpuFrame]) / frames : 0;
         Frames = frames;
         FrameMs = CpuProfiler.Ms(_delta[CpuProfiler.FrameZone]) / frames;
         Ready = true;
+    }
+
+    /// <summary>Вставка зоны <paramref name="z"/> со временем <paramref name="v"/> в строки по убыванию; число строк после.</summary>
+    private int Insert(int[] lines, int n, int z, long v)
+    {
+        int max = lines.Length;
+        int at = n < max ? n : max;
+        while (at > 0 && _self[lines[at - 1]] < v) at--;
+        if (at >= max) return n;
+        int last = Math.Min(n, max - 1);
+        for (int i = last; i > at; i--) lines[i] = lines[i - 1];
+        lines[at] = z;
+        return n < max ? n + 1 : n;
     }
 }

@@ -37,3 +37,14 @@ void CsIncrement(uint3 id : SV_DispatchThreadID)
     RWStructuredBuffer<uint> s = ResourceDescriptorHeap[gPass4];
     if (id.x < gPass0) s[id.x] = s[id.x] + 1;
 }
+
+// Заведомо долгий проход (GpuTimesGpuTests, точка Пг): цепочка зависимых вычислений gPass0 шагов на поток — время растёт с числом
+// шагов, а не с числом потоков; итог пишется в хранилище, чтобы компилятор не выбросил цикл.
+[numthreads(64, 1, 1)]
+void CsSpin(uint3 id : SV_DispatchThreadID)
+{
+    RWStructuredBuffer<uint> s = ResourceDescriptorHeap[gPass4];
+    float x = id.x * 0.001 + 1.0;
+    for (uint i = 0; i < gPass0; i++) x = frac(sin(x * 1.37 + 0.11) * 43758.5453) + 1.0;
+    s[id.x] = asuint(x);
+}

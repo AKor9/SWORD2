@@ -53,11 +53,12 @@ public ref struct Line
 /// клавишам. Размеры — логические пиксели SWORD, масштаб — по высоте окна (<see cref="Scale"/>). Рисует списком квадов,
 /// без выделений в кадре.
 ///
-/// Отличия от SWORD: нет GPU-профайлера — полоса бюджета только CPU, секция «GPU» — вызовы рисования и квады UI;
-/// нет секции «ФИЗИКА И БОЙ», полосы здоровья, экрана «ПАЛ» и ручки времени — со своими фичами. F2 (точка Пв) — как «ПРОФАЙЛЕР,
-/// мс» SWORD внизу панели, но зоны CPU (своё время, мс на кадр), а не проходы GPU (они — точка Пг); ниже — строка среды (Пб) и
-/// последняя аномалия. В бенче F2 по умолчанию скрыт (в SWORD — показан): F2 включает профайлер, а бенч без <c>--profile</c>
-/// меряется без него.
+/// Точка Пг: полоса бюджета — CPU + GPU (как SWORD), секция «GPU» — время кадра на GPU и сумма его проходов (одна очередь — вместо
+/// «compute» и «графика» SWORD), вызовы рисования и квады UI; GPU-время — последнего разобранного кадра (на 3 кадра раньше —
+/// кадры в полёте). Отличия от SWORD: нет секции «ФИЗИКА И БОЙ», полосы здоровья, экрана «ПАЛ» и ручки времени — со своими
+/// фичами. F2 (точка Пв) — как «ПРОФАЙЛЕР, мс» SWORD внизу панели: зоны CPU (своё время, мс на кадр) и под ними (Пг) проходы GPU
+/// (мс на кадр, как в SWORD); ниже — строка среды (Пб) и последняя аномалия. В бенче F2 по умолчанию скрыт (в SWORD — показан):
+/// F2 включает профайлер, а бенч без <c>--profile</c> меряется без него.
 /// </summary>
 public sealed class Hud
 {
@@ -70,6 +71,7 @@ public sealed class Hud
     private static uint Good => T.Good;
     private static uint Bad => T.Bad;
     private static uint CpuC => T.Cpu;
+    private static uint GpuC => T.Gpu;
     private static uint RuleC => T.Rule;
 
     /// <summary>Пользовательский множитель размера интерфейса SWORD (<c>SWORD_UI_SCALE</c> по умолчанию 0,7).</summary>
@@ -127,10 +129,10 @@ public sealed class Hud
         float s = Scale(h);
         float x = (8 + PerfPad) * s, lh = RowH * s;
         var digest = data.Profile;
-        int zoneRows = showProfiler ? digest is { Ready: true } ? digest.Count : 1 : 0;
+        int zoneRows = showProfiler ? digest is { Ready: true } ? digest.Count + GpuRows(digest) : 1 : 0;
         // SWORD: PerfPad + 30 + 16 + 3·TitleH + (4 + строк секции арены)·RowH + 20 + (F2: TitleH + n·RowH·0,9) + PerfPad — у нас две
-        // секции и три строки («КАДР» — две, «GPU» — одна: времён GPU ещё нет); F2 — зоны, строка среды и последняя аномалия.
-        float height = PerfPad + 30 + 16 + 2 * TitleH + 3 * RowH + 20 + PerfPad
+        // секции и четыре строки («КАДР» и «GPU» — по две, как в SWORD); F2 — зоны CPU, проходы GPU (Пг), строка среды и последняя аномалия.
+        float height = PerfPad + 30 + 16 + 2 * TitleH + 4 * RowH + 20 + PerfPad
             + (showProfiler ? TitleH + (zoneRows + ProfilerExtraRows) * RowH * ProfilerRowScale : 0);
         d.Rect(8 * s, 8 * s, (8 + PerfW) * s, (8 + height) * s, Panel, 8 * s);
         float y = (8 + PerfPad) * s;
@@ -143,12 +145,14 @@ public sealed class Hud
         d.TextRight(UiFace.Body, 12 * s, new(right, y + 17 * s), Dim, new Line(buf).S("макс ").F(f.FrameMsMax, "F1").S(" мс").Text);
         y += 30 * s;
 
-        // полоса бюджета 60 Гц: CPU (GPU-профайлера ещё нет)
+        // полоса бюджета 60 Гц: CPU + GPU (SWORD; GPU — последний разобранный кадр, точка Пг)
         const double budget = 1000.0 / 60.0;
         float bx0 = x, bx1 = right, bw = bx1 - bx0, bh = 6 * s;
         d.Rect(bx0, y, bx1, y + bh, T.Track, 3 * s);
         float cpu = (float)Math.Min(f.CpuMs / budget, 1) * bw;
+        float gpu = (float)Math.Min(f.GpuMs / budget, 1) * bw;
         d.Rect(bx0, y, bx0 + cpu, y + bh, CpuC, 3 * s);
+        d.Rect(bx0 + cpu, y, MathF.Min(bx0 + cpu + gpu, bx1), y + bh, GpuC, 3 * s);
         y += 16 * s;
 
         y = Section(d, s, x, y, "КАДР");
@@ -160,23 +164,27 @@ public sealed class Hud
         y += lh;
 
         y = Section(d, s, x, y, "GPU");
+        // Кадр целиком (проходы, барьеры между ними) и сумма проходов — одна очередь (в SWORD — compute и графика).
+        Cell(d, s, x, y, 0, "кадр", new Line(buf).F(f.GpuMs, "F2").S(" мс").Text, GpuC);
+        Cell(d, s, x, y, 1, "проходы", new Line(buf).F(f.GpuPassesMs, "F2").S(" мс").Text, GpuC);
+        y += lh;
         Cell(d, s, x, y, 0, "draw calls", new Line(buf).I(data.DrawCalls).Text, TextC);
         Cell(d, s, x, y, 1, "UI квадов", new Line(buf).I(data.UiQuads).Text, TextC);
         y += lh;
 
         d.Text(UiFace.Body, 11 * s, new(x, y + 4 * s), UiDrawList.WithAlpha(Dim, 0.7f), data.Adapter);
         y += 20 * s;
-        if (showProfiler) y = DrawProfiler(d, s, x, y, right, buf, f, digest, zoneRows);
+        if (showProfiler) y = DrawProfiler(d, s, x, y, right, buf, f, digest);
         return y;
     }
 
     /// <summary>
     /// Секция F2 (точка Пв; «ПРОФАЙЛЕР, мс» SWORD — там проходы GPU): главные зоны кадра по своему времени за прошлые 0,25 с
     /// (мс на кадр, полоса — доля кадра), строка среды (Пб: перенесена сюда — в основной панели её нет, как в SWORD), последняя
-    /// аномалия — период, длительность, класс; главная зона и её лишнее время.
+    /// аномалия — период, длительность, класс; главная зона и её лишнее время. Точка Пг: под зонами CPU — «GPU кадр» и главные
+    /// проходы GPU (мс на кадр за то же окно).
     /// </summary>
-    private static float DrawProfiler(UiDrawList d, float s, float x, float y, float right, Span<char> buf, in FrameStats f, ProfileDigest? digest,
-        int zoneRows)
+    private static float DrawProfiler(UiDrawList d, float s, float x, float y, float right, Span<char> buf, in FrameStats f, ProfileDigest? digest)
     {
         float rh = RowH * ProfilerRowScale * s, width = right - x;
         y = Section(d, s, x, y, "ПРОФАЙЛЕР, мс");
@@ -189,7 +197,7 @@ public sealed class Hud
         else
         {
             double frame = Math.Max(digest.FrameMs, 1e-6);
-            for (int i = 0; i < zoneRows; i++)
+            for (int i = 0; i < digest.Count; i++)
             {
                 double ms = digest.Ms(i);
                 float bar = (float)Math.Min(ms / frame, 1) * width;
@@ -199,6 +207,24 @@ public sealed class Hud
                 string name = digest.Zone(i) == CpuProfiler.FrameZone ? FrameSelfName : digest.Name(i);
                 d.TextFit(UiFace.Num, 12 * s, new(x, y), Dim, name, width - vw - 8 * s);
                 y += rh;
+            }
+            if (GpuRows(digest) > 0)
+            {
+                // Точка Пг: проходы GPU (мс на кадр за то же окно; кадры — на 3 раньше: кадры в полёте), полоса — доля GPU-кадра.
+                double gpuFrame = Math.Max(digest.GpuFrameMs, 1e-6);
+                d.TextRight(UiFace.Num, 12 * s, new(right, y), GpuC, new Line(buf).F(digest.GpuFrameMs, "F3").Text);
+                d.Text(UiFace.Body, 12 * s, new(x, y), GpuC, "GPU кадр");
+                y += rh;
+                for (int i = 0; i < digest.GpuCount; i++)
+                {
+                    double ms = digest.GpuMs(i);
+                    float bar = (float)Math.Min(ms / gpuFrame, 1) * width;
+                    d.Rect(x, y + 13 * s, right, y + 14.5f * s, T.TrackFaint, 1 * s);
+                    d.Rect(x, y + 13 * s, x + bar, y + 14.5f * s, UiDrawList.WithAlpha(GpuC, 0.8f), 1 * s);
+                    float vw = d.TextRight(UiFace.Num, 12 * s, new(right, y), TextC, new Line(buf).F(ms, "F3").Text);
+                    d.TextFit(UiFace.Num, 12 * s, new(x + 10 * s, y), Dim, digest.GpuName(i), width - vw - 18 * s);
+                    y += rh;
+                }
             }
         }
         // Среда за прошлую секунду (точка Пб): методов JIT, сборок GC и их пауза, загрузка CPU другими процессами.
@@ -219,6 +245,9 @@ public sealed class Hud
         }
         return y;
     }
+
+    /// <summary>Строк проходов GPU в F2 (точка Пг): строка «GPU кадр» и проходы; времён GPU нет — ни одной.</summary>
+    private static int GpuRows(ProfileDigest digest) => digest.GpuFrameMs > 0 ? 1 + digest.GpuCount : 0;
 
     /// <summary>Своё время корня кадра — вне всех зон (строка F2).</summary>
     public const string FrameSelfName = "frame (вне зон)";

@@ -62,7 +62,7 @@ public sealed partial class CpuProfiler
             ["ticks"] = Count(ProfilePeriod.Tick).Periods,
             ["mismatches"] = Mismatches,
             ["per"] = period == ProfilePeriod.Frame ? "frame" : "tick",
-            ["top"] = new JsonArray([.. Stats(period).Take(top).Select(z => (JsonNode?)new JsonObject
+            ["top"] = new JsonArray([.. Stats(period).Where(z => z.Kind != ProfileZoneKind.Gpu).Take(top).Select(z => (JsonNode?)new JsonObject
             {
                 ["name"] = z.Name, ["meanMs"] = Round(z.MeanMs, 5), ["p99Ms"] = Round(z.P99Ms, 5), ["selfMs"] = Round(z.SelfMs, 5),
                 ["bytes"] = Round(z.Bytes, 1),
@@ -70,6 +70,8 @@ public sealed partial class CpuProfiler
             // Точка Пб: среда за период (CPU потока против настенного, GC, JIT) — коротко.
             ["runtime"] = RuntimeJson(RuntimeStats(period)),
         };
+        // Точка Пг: GPU-время кадра и главные проходы (мс на кадр) — рядом с зонами CPU.
+        if (period == ProfilePeriod.Frame && GpuJson(Stats(period), top: 5) is { } gpu) json["gpu"] = gpu;
         if (_events is { } events)
         {
             var summary = events.Summary(types: 5, recent: 3);
@@ -99,7 +101,8 @@ public sealed partial class CpuProfiler
         if (count == 0 && service == 0) return null;
         var recent = Recent(period, history);
         int window = Recent(period, int.MaxValue).Count(h => !h.Service);
-        var zones = Stats(period).Where(z => prefix is null || z.Name.StartsWith(prefix, StringComparison.Ordinal)).Take(top);
+        var stats = Stats(period);
+        var zones = stats.Where(z => z.Kind != ProfileZoneKind.Gpu && (prefix is null || z.Name.StartsWith(prefix, StringComparison.Ordinal))).Take(top);
         var json = new JsonObject
         {
             ["count"] = count,
@@ -108,6 +111,8 @@ public sealed partial class CpuProfiler
             ["zones"] = new JsonArray([.. zones.Select(z => (JsonNode?)ZoneJson(z))]),
         };
         if (period == ProfilePeriod.Frame) json.Insert(1, "service", service);
+        // Точка Пг: GPU-время кадра и проходов (зоны вида Gpu) — своей секцией рядом с зонами CPU.
+        if (period == ProfilePeriod.Frame && GpuJson(stats, top) is { } gpu) json["gpu"] = gpu;
         json["history"] = new JsonArray([.. recent.Select(h =>
         {
             var entry = period == ProfilePeriod.Frame
@@ -116,6 +121,7 @@ public sealed partial class CpuProfiler
                     ["frame"] = h.Number,
                     ["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks),
                     ["alpha"] = Round(h.Alpha, 4), ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes, ["service"] = h.Service,
+                    ["gpuFrame"] = h.GpuFrame == ulong.MaxValue ? null : h.GpuFrame,
                 }
                 : new JsonObject
                 {
@@ -135,20 +141,45 @@ public sealed partial class CpuProfiler
         return json;
     }
 
-    /// <summary>Зона за период — объект отчёта (мс — до 10 нс, байты — до 0,1).</summary>
-    public static JsonObject ZoneJson(ProfileZoneStats z) => new()
+    /// <summary>
+    /// Секция <c>gpu</c> кадров (точка Пг): кадр целиком (<c>gpu.frame</c>) и проходы (<c>gpu.&lt;проход&gt;</c>) — мс на кадр:
+    /// среднее, медиана, p99, максимум (<c>presence</c> — доля кадров с данными); отставание данных. Нет — null.
+    /// </summary>
+    private JsonObject? GpuJson(IReadOnlyList<ProfileZoneStats> stats, int top)
     {
-        ["name"] = z.Name,
-        ["parent"] = z.Parent,
-        ["meanMs"] = Round(z.MeanMs, 5),
-        ["medianMs"] = Round(z.MedianMs, 5),
-        ["p99Ms"] = Round(z.P99Ms, 5),
-        ["maxMs"] = Round(z.MaxMs, 5),
-        ["selfMs"] = Round(z.SelfMs, 5),
-        ["bytes"] = Round(z.Bytes, 1),
-        ["calls"] = Round(z.Calls, 3),
-        ["presence"] = Round(z.Presence, 3),
-    };
+        var gpu = stats.Where(z => z.Kind == ProfileZoneKind.Gpu).ToList();
+        if (gpu.Count == 0) return null;
+        var frame = gpu.FirstOrDefault(z => z.Name == GpuFrameName);
+        return new JsonObject
+        {
+            ["note"] = "GPU-время (таймстемпы D3D12, точка Пг): кадр N несёт времена кадра N − lagFrames (кадры в полёте; разбор — после " +
+                "ожидания его слота, без стойла); frame — кадр целиком (проходы, барьеры, копии снимка), passes — проходы графа, мс на кадр " +
+                "(по всем кадрам итогов; presence — доля кадров с данными); частота GPU плавает, часы CPU и GPU не сопоставлены",
+            ["lagFrames"] = RecentGpuLag(),
+            ["frame"] = frame is null ? null : ZoneJson(frame),
+            ["passes"] = new JsonArray([.. gpu.Where(z => z.Name != GpuFrameName).Take(top).Select(z => (JsonNode?)ZoneJson(z))]),
+        };
+    }
+
+    /// <summary>Зона за период — объект отчёта (мс — до 10 нс, байты — до 0,1).</summary>
+    public static JsonObject ZoneJson(ProfileZoneStats z)
+    {
+        var json = new JsonObject
+        {
+            ["name"] = z.Name,
+            ["parent"] = z.Parent,
+            ["meanMs"] = Round(z.MeanMs, 5),
+            ["medianMs"] = Round(z.MedianMs, 5),
+            ["p99Ms"] = Round(z.P99Ms, 5),
+            ["maxMs"] = Round(z.MaxMs, 5),
+            ["selfMs"] = Round(z.SelfMs, 5),
+            ["bytes"] = Round(z.Bytes, 1),
+            ["calls"] = Round(z.Calls, 3),
+            ["presence"] = Round(z.Presence, 3),
+        };
+        if (z.Kind != ProfileZoneKind.Work) json["kind"] = z.Kind.ToString();   // GpuWait, Idle (Пв), Gpu (Пг)
+        return json;
+    }
 
     /// <summary>NaN (нет окна кольца) — null, а не число: JSON не знает NaN.</summary>
     private static JsonNode? Round(double v, int digits) => double.IsFinite(v) ? JsonValue.Create(Math.Round(v, digits)) : null;

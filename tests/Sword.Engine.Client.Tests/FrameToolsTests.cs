@@ -57,6 +57,33 @@ public class FrameToolsTests
         Assert.Equal(100, r.MaxMs);
         Assert.Equal((2.0, 1.0), (r.CpuMs, r.WaitMs));
         Assert.Equal(Math.Round(1000 / 50.5, 1), r.Fps);
+        Assert.Equal(0, r.GpuFrames);                  // времён GPU не было — нулевые GPU-поля, проходов нет
+        Assert.Empty(r.Passes!);
+    }
+
+    [Fact]
+    public void Bench_GpuTime_AverageP99_PassesPerFrame_Like_BenchRecorder()
+    {
+        // Точка Пг: разобранные кадры GPU (раз на новые данные) — среднее и p99 кадра, проходы — сумма за замер / кадров GPU.
+        var bench = new FrameBench(5);
+        bench.GpuFrame(3.9, 50);                        // прогрев — не в счёт, и его проходы тоже
+        bench.GpuPass("scene", 40);
+        for (int i = 1; i <= 100; i++)
+        {
+            bench.Frame(4 + i * 0.01, 10, 2, 1);
+            bench.GpuFrame(4 + i * 0.01, i * 0.01);
+            bench.GpuPass("scene", 0.5);
+            if (i % 2 == 0) bench.GpuPass("debug", 0.2);   // проход не в каждом кадре — мс на кадр по всем
+            bench.GpuPass("hud", 0.1);
+            bench.GpuPass("hud", 0.1);                       // одноимённые в кадре складываются
+        }
+        var r = bench.Result()!;
+        Assert.Equal(100, r.GpuFrames);
+        Assert.Equal(0.505, r.GpuMs, 4);
+        Assert.Equal(1.0, r.GpuP99Ms, 4);                // [⌊0,99·n⌋] сортированных
+        Assert.Equal(["scene", "hud", "debug"], r.Passes!.Select(p => p.Name));   // порядок первой встречи
+        Assert.Equal([0.5, 0.2, 0.1], r.Passes!.Select(p => p.Ms));
+        Assert.EndsWith($"; GPU {r.GpuMs:F2} мс, p99 {r.GpuP99Ms:F2}", r.ToString());
     }
 
     [Theory]
