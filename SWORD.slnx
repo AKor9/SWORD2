@@ -17,6 +17,7 @@
     <Project Path="engine/Sword.Engine.Formats/Sword.Engine.Formats.csproj" />
     <Project Path="engine/Sword.Engine.Ecs/Sword.Engine.Ecs.csproj" />
     <Project Path="engine/Sword.Engine.Content/Sword.Engine.Content.csproj" />
+    <Project Path="engine/Sword.Engine.Physics/Sword.Engine.Physics.csproj" />
     <Project Path="engine/Sword.Engine.Animation/Sword.Engine.Animation.csproj" />
     <Project Path="engine/Sword.Engine.Platform/Sword.Engine.Platform.csproj" />
     <Project Path="engine/Sword.Engine.Platform.Win32/Sword.Engine.Platform.Win32.csproj" />
@@ -46,6 +47,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Sword.Architecture.Tests/Sword.Architecture.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Geometry.Tests/Sword.Engine.Geometry.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Physics.Tests/Sword.Engine.Physics.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Animation.Tests/Sword.Engine.Animation.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Ecs.Tests/Sword.Engine.Ecs.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Runtime.Tests/Sword.Engine.Runtime.Tests.csproj" />

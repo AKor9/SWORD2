@@ -15,7 +15,8 @@
 - Точка 4а (`DuelArena` SWORD): `ArenaSpawn.cs` — секция конфига `arena`, правила спауна (`ArenaRules`: кольцо 5–9 м,
   предел радиуса арены − 3 м, поток ГСЧ `arena.spawn`) и постройка бойца (`Fighters`); `ArenaCommandSystem.cs` —
   команды арены (число врагов, сброс); `ArenaInvariants.cs` — инвариант `arena.slots`. Описание — фича
-  [«Враги»](../Features/Enemies/README.md).
+  [«Враги»](../Features/Enemies/README.md). С 5а боец строится с пустым `BodyRef` — сочленение тела заводит и
+  освобождает хук ECS (фича [«Физика и тела»](../Features/Bodies/README.md)); постройка заново (R) тело не трогает.
 
 ## Зависимости
 

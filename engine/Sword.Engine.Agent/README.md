@@ -96,7 +96,7 @@
 | состояние | `state.hash` — хеш состояния, итог и по участникам (`ecs`, `animation`…); `state.describe(part, filter, skip, take)` — ровно то, что участник хеширует (у `ecs` — сущности, ресурсы, `slots`, `journal:…`, `system:…`); ответ больше 60 тыс. знаков — в файл артефакта (`artifactId`) |
 | команды | `command.send(command, fields, tick | delay, repeat)` — не дальше 1 000 000 тиков вперёд, в очереди агента — не больше 1 000 000 команд одного типа |
 | журнал | `log.tail(after, limit, level, category)` — без `after` последние `limit` записей, прошедших фильтр (среди всего кольца, 2048 записей), `last` — номер последней записи кольца; с `after` — вперёд страницами |
-| устройство | `architecture.projects`, `ecs.plan`, `ecs.explainSystem(name)`, `ecs.componentUsage(name)`, `module.graph` |
+| устройство | `architecture.projects`, `ecs.plan`, `ecs.explainSystem(name)`, `ecs.componentUsage(name)` (с 5а — и хуки времени жизни компонента: `hooks`), `module.graph` |
 | клиент (App) | `capture.bundle(name)`, `render.graph` |
 
 Сущность — номером `12v3` или именем игры (`player`, `enemy N` — враг на месте N, `fighter N` — `Game.Agent`). Компоненты и команды — коротким

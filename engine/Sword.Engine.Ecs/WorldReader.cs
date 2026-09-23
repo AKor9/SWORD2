@@ -27,6 +27,9 @@ public readonly partial struct WorldReader
     /// <summary>Регистрации систем в порядке исполнения (описание мира для людей и агента).</summary>
     public IReadOnlyList<SystemInfo> Systems => _world.Systems;
 
+    /// <summary>Хуки времени жизни ресурсов подсистем: компонент, вид (<c>OnAdd</c>/<c>OnRemove</c>), модуль-владелец.</summary>
+    public IReadOnlyList<HookInfo> Hooks => _world.Hooks;
+
     /// <summary>
     /// Зарегистрирован ли компонент: его регистрирует модуль, и без модуля компонента в мире нет. Запрос и чтение
     /// незарегистрированного компонента — исключение.

@@ -25,7 +25,8 @@ public sealed record WorldOptions
 /// Мир ECS (раздел 5 плана): сущности в архетипах и чанках, ресурсы, журналы срабатываний, стадии и барьеры.
 /// Системы меняют мир только командами (<see cref="CommandBuffer"/>) и записью колонок на месте; команды применяются
 /// на барьере после стадии: проигрывание буферов в порядке систем (черновики становятся сущностями, разрешитель
-/// подставляет их в поля), нормализация срабатываний компонентов (таблица раздела 5), затем события в том же порядке.
+/// подставляет их в поля), нормализация срабатываний компонентов (таблица раздела 5), хуки времени жизни ресурсов
+/// подсистем, затем события в том же порядке.
 /// Исполнение последовательное (v0). Собирает мир <see cref="WorldBuilder"/>.
 /// </summary>
 public sealed partial class World
@@ -64,6 +65,8 @@ public sealed partial class World
 
     // ── барьер: нормализация срабатываний ──────────────────────────────────
     private readonly bool[] _tracked;
+    /// <summary>У типа есть хук (добавления или снятия): его добавления и снятия идут в очередь хуков барьера.</summary>
+    private readonly bool[] _hooked;
     private readonly Dictionary<(Entity, int), int> _trackIndex = [];
     private readonly List<Track> _tracks = [];
     private byte[] _removedValues = new byte[256];
@@ -94,6 +97,8 @@ public sealed partial class World
         _order = new List<Registration>[stages.Length];
         for (int i = 0; i < stages.Length; i++) _order[i] = [];
         _tracked = new bool[types.Length];
+        _hooks = new ComponentHooks?[types.Length];
+        _hooked = new bool[types.Length];
         _empty = ArchetypeFor([]);
         _immediate = new CommandBuffer(this, 0, owner: null);
     }
@@ -325,6 +330,7 @@ public sealed partial class World
             _tracks.Clear();
             _trackIndex.Clear();
             _removedUsed = 0;
+            ClearHooks();
         }
     }
 
@@ -383,6 +389,7 @@ public sealed partial class World
         _trackIndex.Clear();
         _removedUsed = 0;
         _written.Clear();
+        ClearHooks();
         for (int i = 0; i < _resources.Count; i++) _resources[i].ClearStaged();
     }
 
@@ -392,6 +399,7 @@ public sealed partial class World
     /// </summary>
     private void NotInTick(string operation)
     {
+        NotInHooks(operation);
         if (_inTick)
             throw new InvalidOperationException($"World.{operation} во время тика: системы меняют мир только командами (ctx.Commands)");
     }
@@ -595,8 +603,9 @@ public sealed partial class World
     // ── барьер ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Барьер: 1) команды буферов по порядку (черновики → сущности, разрешитель, отслеживание срабатываний);
-    /// 2) нормализованные срабатывания компонентов в журналы; 3) события буферов в том же порядке.
+    /// Барьер: 1) команды буферов по порядку (черновики → сущности, разрешитель, отслеживание срабатываний и очередь
+    /// хуков); 2) нормализованные срабатывания компонентов в журналы; 3) хуки времени жизни по порядку команд
+    /// (WorldHooks.cs); 4) события буферов в том же порядке.
     /// </summary>
     private void PlayBuffers(IReadOnlyList<Registration> order) => PlayBuffers(order, useRegistrations: true, null);
 
@@ -617,6 +626,7 @@ public sealed partial class World
 
         for (int i = 0; i < _resources.Count; i++) _resources[i].ClearStaged();
         FlushTracks();
+        if (_hookCalls.Count > 0) RunHooks();
 
         for (int i = 0; i < count; i++)
         {
@@ -657,7 +667,10 @@ public sealed partial class World
         {
             case CommandOp.Destroy:
                 foreach (int type in a.Components)
+                {
                     if (_tracked[type]) NoteRemoval(e, type, c.Cause);
+                    if (_hooked[type]) NoteHookRemoval(e, type);
+                }
                 Unplace(e);
                 // Поколение исчерпано — номер больше не выдаётся: иначе новое поколение совпало бы со старым хэндлом.
                 if (_generations[e.Index] == int.MaxValue) RetiredIndices++;
@@ -686,6 +699,7 @@ public sealed partial class World
                 if (_tracked[t.Id]) Touch(e, t.Id).Cause = c.Cause;
                 Move(e, WithType(a, t.Id));
                 if (!t.IsTag) payload.CopyTo(CellOf(e, t));
+                if (_hooked[t.Id]) NoteHookAdd(e, t.Id);
                 break;
             }
 
@@ -694,6 +708,7 @@ public sealed partial class World
                 var t = _types[c.Type];
                 if (!a.Has[t.Id]) break;
                 if (_tracked[t.Id]) NoteRemoval(e, t.Id, c.Cause);
+                if (_hooked[t.Id]) NoteHookRemoval(e, t.Id);
                 Move(e, WithoutType(a, t.Id));
                 break;
             }

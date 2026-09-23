@@ -169,6 +169,9 @@ public class ArchitectureMapTests
         var usage = ArchitectureMap.ComponentUsage(systems, typeof(Order).FullName!)["systems"]!.AsArray();
         Assert.Contains(usage, u => u!["system"]!.GetValue<string>() == "test.mover@S1" && u["roles"]![0]!.GetValue<string>() == "consumes");
         Assert.Contains(usage, u => u!["system"]!.GetValue<string>() == "runtime.commands@runtime.commands");
+        var hooks = ArchitectureMap.ComponentUsage(systems, typeof(Marker).FullName!, _sim.World.Hooks)["hooks"]!.AsArray();
+        Assert.Equal(("OnAdd", "test"), (hooks.Single()!["hook"]!.GetValue<string>(), hooks.Single()!["module"]!.GetValue<string>()));
+        Assert.Empty(ArchitectureMap.ComponentUsage(systems, typeof(Body).FullName!, _sim.World.Hooks)["hooks"]!.AsArray());
         var plan = ArchitectureMap.Plan(_sim.World.Stages, systems)["stages"]!.AsArray();
         Assert.Equal(["runtime.commands", "S1", "S2", "runtime.export"], plan.Select(s => s!["stage"]!.GetValue<string>()));
         var modules = ArchitectureMap.ModuleGraph(systems, _sim.ActiveModules, _sim.InactiveModules);

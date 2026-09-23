@@ -134,9 +134,24 @@
 5. Без агента: `Sword.Headless --units N --json` — у мест `action`, `actionWeight`, `yawDelta`; посмотреть глазами —
    `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay` (запись сценария `turn` после `feature.verify`).
 
+**Тела бойцов (этап 5а).** Тело бойца — сочленение из 13 кинематических капсул в подсистеме Physics; у бойца в ECS — хэндл
+`BodyRef`. До 5б тела без формы и стоят в начале координат, на экране их нет (5в).
+1. Хэндл: `entity.get {"entity":"enemy 3","components":["BodyRef"]}` → `Index`, `Generation`; тела — `state.describe
+   {"part":"physics","filter":"3v1"}` (сочленение `Index`v`Generation`: тела 0…12 — хэндл, режим, форма, постановка, прошлая
+   постановка, скорости; тело `i` — сегмент `BodySegs.Segment(i)`: 0…10 — pelvis…shin.r, 11 — foot.l, 12 — foot.r);
+   сводка и свободные слоты — `{"part":"physics","filter":"slots"}`. Хеш тел — участник `physics` в `state.hash`.
+2. Кто заводит и освобождает тело: `ecs.componentUsage {"name":"BodyRef"}` — `hooks` (OnAdd и OnRemove ядра: на барьере,
+   где `BodyRef` появился или пропал) и системы, которые добавляют `BodyRef` (постройка бойца).
+3. Согласованность держит `physics.bodyRefs` (после End: у каждого бойца тело из 13 капсул, у тела ровно один владелец,
+   ничьих тел нет), конечность — `physics.finite` (после Physics): `time.breakOnInvariant {"ids":["physics.bodyRefs"]}`,
+   `invariant.run {"ids":["physics.finite","physics.bodyRefs"]}`. Сколько тел — `world.query {"with":["BodyRef"],"take":0}`
+   (должно быть бойцов) и `articulations` в описании `physics`.
+4. Команды арены: PageDown — тело ушедшего освобождено (сочленение из описания пропало), PageUp — новое (тот же слот, новое
+   поколение), R — те же тела на тех же сущностях. Приёмка — `feature.verify {"id":"bodies"}` (`Sword.Headless --feature bodies`).
+
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;
-   `animation` — пул поз).
+   `animation` — пул поз; `physics` — тела и сочленения, с 5а).
    Два прогона с одними командами обязаны совпасть тик в тик; разный хеш участника называет подсистему.
 2. `state.describe {"part":"ecs","filter":"0v1"}` — компоненты сущности полями ровно так, как они хешируются
    (`filter` — сущность или часть имени компонента); `"filter":"slots"` — свободные номера, `"journal:"` — непрочитанные

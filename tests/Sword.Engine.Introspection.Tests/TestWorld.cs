@@ -53,6 +53,7 @@ public sealed class TestModule : IModule
 
     public void Configure(SimulationBuilder b) =>
         b.Component<Body>().Component<Marker>().Command<Order>()
+            .OnAdd<Marker>((Entity e, ref Marker _) => { })   // хук времени жизни — виден карте архитектуры
             .System("S1", new Mover())
             .System("S2", new Reader())
             .OnWorldBuilt(w =>

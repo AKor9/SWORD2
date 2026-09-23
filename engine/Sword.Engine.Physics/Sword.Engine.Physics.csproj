@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Физика: тела-капсулы и сочленения за хэндлами; с этапа 5 — только кинематические (форма, постановка, концы). -->
+  <PropertyGroup>
+    <SwordSide>Neutral</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Geometry\Sword.Engine.Geometry.csproj" />
+  </ItemGroup>
+
+</Project>

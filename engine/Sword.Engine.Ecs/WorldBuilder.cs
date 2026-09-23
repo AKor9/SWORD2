@@ -66,6 +66,29 @@ public sealed class WorldBuilder
 
     private readonly HashSet<Type> _viewTypes = [];
 
+    private readonly List<Action<World>> _hooks = [];
+
+    /// <summary>
+    /// Хук добавления компонента <typeparamref name="T"/> (раздел 5 плана): завести ресурс подсистемы, когда компонент
+    /// появился у сущности, и записать его хэндл в компонент. Только время жизни ресурсов: зовётся на барьере после
+    /// журналов, структуру мира не меняет, повторный вход — исключение (WorldHooks.cs). Один на тип: у ресурса один владелец.
+    /// </summary>
+    /// <param name="module">Модуль-владелец (описание мира); null — ядро.</param>
+    public WorldBuilder OnAdd<T>(AddHook<T> hook, string? module = null) where T : unmanaged
+    {
+        ArgumentNullException.ThrowIfNull(hook);
+        _hooks.Add(w => w.SetHook<T>(hook, null, module));
+        return this;
+    }
+
+    /// <summary>Хук снятия компонента <typeparamref name="T"/> (снят командой или сущность удалена): освободить ресурс подсистемы.</summary>
+    public WorldBuilder OnRemove<T>(RemoveHook<T> hook, string? module = null) where T : unmanaged
+    {
+        ArgumentNullException.ThrowIfNull(hook);
+        _hooks.Add(w => w.SetHook<T>(null, hook, module));
+        return this;
+    }
+
     /// <summary>Система в стадию. Одну систему можно зарегистрировать в двух стадиях — тогда она обязана быть идемпотентной.</summary>
     /// <param name="module">Модуль-владелец (токен модуля: включение и выключение всех его регистраций).</param>
     /// <param name="source">Где система зарегистрирована (файл:строка) — для описания мира; null — неизвестно.</param>
@@ -82,6 +105,7 @@ public sealed class WorldBuilder
         var events = Number(_events.Values.Select(f => f()), "события");
         var world = new World(Options, types, events, _stages);
         foreach (var add in _resources) add(world);
+        foreach (var hook in _hooks) hook(world);   // незарегистрированный компонент — исключение (TypeOf)
 
         var registrations = new List<Registration>();
         foreach (var (stage, system, module, source) in _systems)

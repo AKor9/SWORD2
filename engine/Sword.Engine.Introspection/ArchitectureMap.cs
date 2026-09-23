@@ -112,8 +112,12 @@ public static class ArchitectureMap
         };
     }
 
-    /// <summary>Кто и как пользуется компонентом (или событием) — по стабильному имени.</summary>
-    public static JsonObject ComponentUsage(IReadOnlyList<SystemInfo> systems, string stableName)
+    /// <summary>
+    /// Кто и как пользуется компонентом (или событием) — по стабильному имени: системы с ролями и хуки времени жизни
+    /// (<paramref name="hooks"/>: <c>OnAdd</c>/<c>OnRemove</c> и модуль-владелец — кто заводит и освобождает ресурс
+    /// подсистемы за компонентом, например тело за <c>BodyRef</c>).
+    /// </summary>
+    public static JsonObject ComponentUsage(IReadOnlyList<SystemInfo> systems, string stableName, IReadOnlyList<HookInfo>? hooks = null)
     {
         var list = new JsonArray();
         foreach (var s in systems)
@@ -129,7 +133,10 @@ public static class ArchitectureMap
             if (roles.Count > 0)
                 list.Add(new JsonObject { ["system"] = s.Name, ["module"] = s.Module, ["active"] = s.Active, ["roles"] = Array(roles) });
         }
-        return new JsonObject { ["data"] = stableName, ["systems"] = list };
+        var hookList = new JsonArray();
+        foreach (var h in hooks ?? [])
+            if (h.Component == stableName) hookList.Add(new JsonObject { ["hook"] = h.Kind, ["module"] = h.Module });
+        return new JsonObject { ["data"] = stableName, ["systems"] = list, ["hooks"] = hookList };
     }
 
     /// <summary>Модули: включённые и выключенные, системы и данные каждого (ядро игры — без модуля).</summary>

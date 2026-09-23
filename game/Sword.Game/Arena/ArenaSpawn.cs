@@ -79,7 +79,8 @@ public static class ArenaRules
 /// <summary>
 /// Боец — один набор компонентов у игрока и у врага (всё, что нужно движению и анимации): тег стороны, место, зерно,
 /// корень и прошлый корень (тот же — боец не «прилетает» в кадр из начала координат; <c>RenderPos = Pos</c> SWORD),
-/// скорость 0, намерение — стоять курсом постройки (<c>FacingGoal = facing</c>), точка взгляда, вход аниматора, поза;
+/// скорость 0, намерение — стоять курсом постройки (<c>FacingGoal = facing</c>), точка взгляда, вход аниматора, поза,
+/// тело (<see cref="BodyRef"/> — пустой: сочленение заводит хук добавления на том же барьере, <c>Bodies.FighterBodies</c>, 5а);
 /// у врага ещё составляющие намерения ИИ (<see cref="EnemyAiTerms"/>), толчки столкновений (<see cref="RootContacts"/>) и
 /// слой действий аниматора — враг не-<c>Agile</c> (<see cref="AnimatorAction"/> и его поза <see cref="ActionPoses"/>, 4г).
 /// Три пути: сборка мира (немедленно, поза берётся сразу); новый боец командами тика (поза — пустой хэндл, её заводит
@@ -116,6 +117,7 @@ public static class Fighters
         world.AddImmediate(e, new AnimatorMotion());
         var pose = world.Resource<PosePool>().Alloc();
         world.AddImmediate(e, new PoseRef { Index = pose.Index, Generation = pose.Generation });
+        world.AddImmediate(e, new BodyRef());   // тело заводит хук добавления (FighterBodies)
         return e;
     }
 
@@ -148,12 +150,14 @@ public static class Fighters
         c.Add(d, gaze);
         c.Add(d, new AnimatorMotion());
         c.Add(d, new PoseRef());
+        c.Add(d, new BodyRef());   // тело заводит хук добавления на барьере стадии (FighterBodies)
     }
 
     /// <summary>
     /// Постройка заново на той же сущности (<c>Fighter.Build</c> SWORD: тот же боец места, новое поколение): корень, прошлый
     /// корень, скорость, намерение, точка взгляда, вход аниматора, зерно и у врага составляющие ИИ и действие аниматора
-    /// (<c>ResetAnimator</c>: без действия) — заново; место, тег, поза и поза слоя действий — прежние. Метка
+    /// (<c>ResetAnimator</c>: без действия) — заново; место, тег, поза, поза слоя действий и тело (<see cref="BodyRef"/> — как
+    /// <c>Fighter.Bodies</c> SWORD при <c>Build</c>) — прежние. Метка
     /// <see cref="Fighter"/> снимается и ставится на одном барьере — <c>Removed&lt;Fighter&gt;</c> и <c>Added&lt;Fighter&gt;</c>
     /// (протокол <c>Game.Contracts</c>): модули заводят своё состояние бойца с нуля (локомоция — со стойки, как
     /// <c>ResetAnimator</c> SWORD), имя и номер сущности у агента не меняются.
@@ -180,7 +184,7 @@ public static class Fighters
     public static SystemSetup DeclaresFighters(this SystemSetup s) => s.Creates().Destroys()
         .Adds<Fighter>().Adds<PlayerTag>().Adds<EnemyTag>().Adds<FighterSlot>().Adds<FighterSeed>().Adds<Transform>()
         .Adds<PrevTransform>().Adds<RootVelocity>().Adds<FighterCommand>().Adds<GazeTarget>().Adds<AnimatorMotion>()
-        .Adds<PoseRef>().Adds<EnemyAiTerms>().Adds<RootContacts>().Adds<AnimatorAction>().Adds<ActionPoses>()
+        .Adds<PoseRef>().Adds<BodyRef>().Adds<EnemyAiTerms>().Adds<RootContacts>().Adds<AnimatorAction>().Adds<ActionPoses>()
         .Removes<Fighter>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>().Sets<AnimatorAction>();
 }

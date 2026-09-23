@@ -390,14 +390,15 @@ internal static class CoreTools
         host.Add(new AgentTool
         {
             Name = "ecs.componentUsage", Title = "Кто пользуется данными",
-            Description = "Какие системы читают, пишут, добавляют, снимают, ставят, порождают или потребляют компонент или событие.",
+            Description = "Какие системы читают, пишут, добавляют, снимают, ставят, порождают или потребляют компонент или событие; " +
+                "hooks — хуки времени жизни компонента (OnAdd/OnRemove, модуль; null — ядро): кто заводит и освобождает ресурс подсистемы за ним (тело за BodyRef).",
             Arguments = Props(("name", Str("имя компонента, события или команды"))),
             Required = ["name"],
             Run = async call =>
             {
                 string stable = StableName(host.Catalog, call.RequiredString("name"));
-                var s = await host.Serve(ctx => (ctx.World.Systems, ctx.Point), call.Cancel);
-                return new ToolOutput(ArchitectureMap.ComponentUsage(s.Systems, stable)) { Point = s.Point };
+                var s = await host.Serve(ctx => (ctx.World.Systems, ctx.World.Hooks, ctx.Point), call.Cancel);
+                return new ToolOutput(ArchitectureMap.ComponentUsage(s.Systems, stable, s.Hooks)) { Point = s.Point };
             },
         });
         host.Add(new AgentTool

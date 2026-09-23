@@ -1,6 +1,7 @@
 using System.Numerics;
 using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
+using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
 using Sword.Game.Bootstrap;
 using Sword.Game.Contracts;
@@ -10,7 +11,11 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>Неисправность, которую модуль вносит на тике <see cref="GameFaultModule.Tick"/>.</summary>
-public enum GameFault { NaNRoot, NaNPose, LatePoseJob, BrokenPoseRef, SharedLocomotionPose, RootInsideNeighbour, RootsPressed }
+public enum GameFault
+{
+    NaNRoot, NaNPose, LatePoseJob, BrokenPoseRef, SharedLocomotionPose, RootInsideNeighbour, RootsPressed,
+    NaNBody, BrokenBodyRef, SharedBodyRef, OrphanArticulation, FighterWithoutBody,
+}
 
 /// <summary>
 /// Модуль-неисправность в настоящей композиции игры (ядро и Locomotion): на тике <see cref="Tick"/> портит одно свойство,
@@ -38,6 +43,11 @@ public sealed class GameFaultModule(GameFault fault) : IModule
             case GameFault.SharedLocomotionPose: b.System(GameStages.End, new SharedLocomotionPose()); break;
             case GameFault.RootInsideNeighbour: b.System(GameStages.Movement, new MoveEnemy(0.1f, Tick - RootOverlapInvariant.HardMaxTicks)); break;
             case GameFault.RootsPressed: b.System(GameStages.Movement, new MoveEnemy(0.65f, Tick - RootOverlapInvariant.MaxTicks)); break;
+            case GameFault.NaNBody: b.System(GameStages.Physics, new NaNBody()); break;
+            case GameFault.BrokenBodyRef: b.System(GameStages.End, new BodyRefFault(shared: false)); break;
+            case GameFault.SharedBodyRef: b.System(GameStages.End, new BodyRefFault(shared: true)); break;
+            case GameFault.OrphanArticulation: b.System(GameStages.End, new OrphanArticulation()); break;
+            case GameFault.FighterWithoutBody: b.System(GameStages.End, new FighterWithoutBody()); break;
         }
     }
 
@@ -154,6 +164,87 @@ public sealed class GameFaultModule(GameFault fault) : IModule
         }
     }
 
+    /// <summary>Physics: таз игрока в NaN мимо постановки (этап 5а — постановки ещё нет, 5б).</summary>
+    private sealed class NaNBody : IContinuousSystem
+    {
+        private Query _query = null!;
+
+        public void Setup(SystemSetup s)
+        {
+            s.Label(new SystemLabel("fault.nan-body")).Reads<BodyRef>();
+            _query = s.Query().With<PlayerTag>().Read<BodyRef>();
+        }
+
+        public void Run(in SystemContext ctx)
+        {
+            if (!Now(ctx)) return;
+            var physics = ctx.World.Resource<IPhysicsWorld>();
+            foreach (var chunk in ctx.Iterate(_query))
+                foreach (var r in chunk.Read<BodyRef>())
+                    physics.Place(physics.Body(new ArticulationHandle(r.Index, r.Generation), 0), new Vector3(float.NaN, 1, 0), Quaternion.Identity);
+        }
+    }
+
+    /// <summary>End: хэндл тела игрока испорчен (поколение +100) или указывает на тело врага 1.</summary>
+    private sealed class BodyRefFault(bool shared) : IContinuousSystem
+    {
+        private Query _player = null!, _enemies = null!;
+
+        public void Setup(SystemSetup s)
+        {
+            s.Label(new SystemLabel("fault.body-ref")).Writes<BodyRef>().Reads<FighterSlot>();
+            _player = s.Query().With<PlayerTag>().Write<BodyRef>();
+            _enemies = s.Query().With<EnemyTag>().Read<FighterSlot>().Read<BodyRef>();
+        }
+
+        public void Run(in SystemContext ctx)
+        {
+            if (!Now(ctx)) return;
+            BodyRef first = default;
+            foreach (var chunk in ctx.Iterate(_enemies))
+            {
+                var slots = chunk.Read<FighterSlot>();
+                var refs = chunk.Read<BodyRef>();
+                for (int i = 0; i < slots.Length; i++)
+                    if (slots[i].Index == 1) first = refs[i];
+            }
+            foreach (var chunk in ctx.Iterate(_player))
+                foreach (ref var r in chunk.Write<BodyRef>())
+                    if (shared) r = first;
+                    else r.Generation += 100;
+        }
+    }
+
+    /// <summary>End: сочленение мимо хука — его никто не освободит.</summary>
+    private sealed class OrphanArticulation : IContinuousSystem
+    {
+        public void Setup(SystemSetup s) => s.Label(new SystemLabel("fault.orphan-articulation"));
+
+        public void Run(in SystemContext ctx)
+        {
+            if (Now(ctx)) ctx.World.Resource<IPhysicsWorld>().CreateArticulation(2);
+        }
+    }
+
+    /// <summary>End: у игрока снят <see cref="BodyRef"/> (хук освобождает тело) — боец без тела.</summary>
+    private sealed class FighterWithoutBody : IContinuousSystem
+    {
+        private Query _query = null!;
+
+        public void Setup(SystemSetup s)
+        {
+            s.Label(new SystemLabel("fault.fighter-without-body")).Removes<BodyRef>();
+            _query = s.Query().With<PlayerTag>().With<BodyRef>();
+        }
+
+        public void Run(in SystemContext ctx)
+        {
+            if (!Now(ctx)) return;
+            foreach (var chunk in ctx.Iterate(_query))
+                foreach (var e in chunk.Entities) ctx.Commands.Remove<BodyRef>(e);
+        }
+    }
+
     private sealed class SharedLocomotionPose : IContinuousSystem
     {
         private Query _query = null!;
@@ -180,7 +271,7 @@ public sealed class GameFaultModule(GameFault fault) : IModule
 public sealed class GameInvariantTests
 {
     private static Simulation Build(GameFault fault) =>
-        Simulation.Build(fault is GameFault.RootInsideNeighbour or GameFault.RootsPressed ? ConfigSet.Empty("arena.enemies=2") : ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
+        Simulation.Build(fault is GameFault.RootInsideNeighbour or GameFault.RootsPressed or GameFault.SharedBodyRef ? ConfigSet.Empty("arena.enemies=2") : ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
             [.. SwordSimulation.Modules(), new GameFaultModule(fault)]);
 
     [Theory]
@@ -191,6 +282,11 @@ public sealed class GameInvariantTests
     [InlineData(GameFault.SharedLocomotionPose, "locomotion.poses", GameStages.End, "ещё и у 0v1")]
     [InlineData(GameFault.RootInsideNeighbour, "movement.rootOverlap", GameStages.Movement, "в 0.1 м: перекрытие 0.6 м — корень в круге соседа (ближе 0.35 м) 5 тиков подряд (можно 4)")]
     [InlineData(GameFault.RootsPressed, "movement.rootOverlap", GameStages.Movement, "в 0.65 м: перекрытие 0.05 м больше 0.02 м 25 тиков подряд (можно 24)")]
+    [InlineData(GameFault.NaNBody, "physics.finite", GameStages.Physics, "положение (NaN, 1, 0)")]
+    [InlineData(GameFault.BrokenBodyRef, "physics.bodyRefs", GameStages.End, "сочленение не живо")]
+    [InlineData(GameFault.SharedBodyRef, "physics.bodyRefs", GameStages.End, "— ещё и у")]
+    [InlineData(GameFault.OrphanArticulation, "physics.bodyRefs", GameStages.End, "(2 тел) без владельца")]
+    [InlineData(GameFault.FighterWithoutBody, "physics.bodyRefs", GameStages.End, "боец без тела (BodyRef)")]
     public void Fault_CaughtOnItsTick_AfterItsStage(GameFault fault, string id, string stage, string details)
     {
         var sim = Build(fault);
@@ -231,7 +327,7 @@ public sealed class GameInvariantTests
     public void FairGame_NoViolations_AllCoreInvariantsChecked()
     {
         var sim = TestAssets.Simulation();
-        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "locomotion.poses"],
+        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.bodyRefs", "locomotion.poses"],
             sim.Invariants.List().Select(i => i.Id));
         for (int t = 0; t < 400; t++)
         {

@@ -519,6 +519,23 @@ public sealed class SimulationBuilder
         return this;
     }
 
+    /// <summary>
+    /// Хук добавления компонента — время жизни ресурса подсистемы (<see cref="WorldBuilder.OnAdd{T}"/>: на барьере после
+    /// журналов, структуру мира не меняет). Владелец — ядро или настраиваемый модуль.
+    /// </summary>
+    public SimulationBuilder OnAdd<T>(AddHook<T> hook) where T : unmanaged
+    {
+        Open()._world.OnAdd(hook, Module);
+        return this;
+    }
+
+    /// <summary>Хук снятия компонента — освободить ресурс подсистемы (<see cref="WorldBuilder.OnRemove{T}"/>).</summary>
+    public SimulationBuilder OnRemove<T>(RemoveHook<T> hook) where T : unmanaged
+    {
+        Open()._world.OnRemove(hook, Module);
+        return this;
+    }
+
     /// <summary>Вид только для чтения для наблюдателей симуляции (клиент, агент) — <see cref="WorldBuilder.ReadView{TView}"/>.</summary>
     public SimulationBuilder ReadView<TView>(TView view) where TView : class, IReadView
     {

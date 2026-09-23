@@ -1,0 +1,94 @@
+{
+  // Приёмка фичи «Физика и тела» (этап 5) — начата на точке 5а (подсистема Physics, хуки ECS, тело бойца — сочленение из
+  // 13 кинематических капсул за BodyRef, участник хеша physics, инварианты physics.*): сценарии и инварианты. Метрики
+  // против трассы SWORD, виды с оверлеем капсул и бюджеты — с постановкой по позе (5б) и капсулами на экране (5в); полный
+  // манифест — на 5г. Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify
+  // (Sword.Headless --feature bodies). Ослабить ожидания — только правкой с сообщением пользователю.
+  "format": "sword-feature",
+  "version": 1,
+  "id": "bodies",
+  "title": "Физика и тела (этап 5; точка 5а — Physics, хуки ECS, тела бойцов за BodyRef)",
+  "doc": "README.md",
+  "sourceRoots": [
+    "engine/Sword.Engine.Physics",
+    "engine/Sword.Engine.Ecs/WorldHooks.cs",
+    "engine/Sword.Engine.Ecs/Hooks.cs",
+    "game/Sword.Game/Bodies",
+    "game/Sword.Game.Contracts/BodySegs.cs",
+    "game/Sword.Game.Contracts/Components.cs",
+    "game/Sword.Game/Arena/ArenaSpawn.cs",
+    "game/Sword.Game/GameCore.cs"
+  ],
+  "requiredModules": ["locomotion"],
+  "scenarios": [
+    {
+      "id": "arena",
+      "title": "тела при командах арены: PageUp, до 32, PageDown ×10, R, до 0, PageUp — у каждого бойца своё тело, лишних нет (physics.bodyRefs)",
+      "set": ["arena.enemies=10"],
+      "ticks": 480,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0.5 } }, "from": 0, "to": 240 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 60, "to": 61 },
+        { "command": "ArenaCommand", "fields": { "Action": "SetEnemies", "Enemies": 32 }, "from": 120, "to": 121 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": -1 }, "from": 180, "to": 190 },
+        { "command": "ArenaCommand", "fields": { "Action": "Reset" }, "from": 300, "to": 301 },
+        { "command": "ArenaCommand", "fields": { "Action": "SetEnemies", "Enemies": 0 }, "from": 360, "to": 361 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 420, "to": 421 }
+      ],
+      "checks": [
+        {
+          "id": "every-fighter", "title": "у каждого бойца есть тело (BodyRef), других владельцев тел нет", "expect": "always",
+          "condition": {
+            "all": [
+              { "none": { "all": [{ "component": "Fighter" }, { "not": { "component": "BodyRef" } }] } },
+              { "none": { "all": [{ "component": "BodyRef" }, { "not": { "component": "Fighter" } }] } }
+            ]
+          }
+        },
+        {
+          "id": "eleven", "title": "PageUp — тел 12", "expect": "always", "from": 62, "to": 120,
+          "condition": { "count": { "component": "BodyRef" }, "equals": 12 }
+        },
+        {
+          "id": "thirty-three", "title": "32 врага — тел 33", "expect": "always", "from": 122, "to": 180,
+          "condition": { "count": { "component": "BodyRef" }, "equals": 33 }
+        },
+        {
+          "id": "page-down", "title": "PageDown ×10 — тел 23", "expect": "always", "from": 191, "to": 300,
+          "condition": { "count": { "component": "BodyRef" }, "equals": 23 }
+        },
+        {
+          "id": "reset", "title": "R — бойцы построены заново на тех же сущностях, тел по-прежнему 23", "expect": "always", "from": 302, "to": 360,
+          "condition": { "count": { "component": "BodyRef" }, "equals": 23 }
+        },
+        {
+          "id": "zero", "title": "0 врагов — одно тело (игрок)", "expect": "always", "from": 362, "to": 420,
+          "condition": { "count": { "component": "BodyRef" }, "equals": 1 }
+        },
+        {
+          "id": "page-up-again", "title": "PageUp — тел 2", "expect": "always", "from": 422,
+          "condition": { "count": { "component": "BodyRef" }, "equals": 2 }
+        }
+      ]
+    },
+    {
+      "id": "reference",
+      "title": "эталон SWORD2 enemies (толпа, команды арены по ходу): хеши участника physics каждого тика",
+      "replay": "tests/reference/replays/enemies.swreplay",
+      "checks": [
+        {
+          "id": "every-fighter", "title": "у каждого бойца есть тело (BodyRef)", "expect": "always",
+          "condition": { "none": { "all": [{ "component": "Fighter" }, { "not": { "component": "BodyRef" } }] } }
+        },
+        {
+          "id": "end-33", "title": "в конце 33 тела", "expect": "eventually", "from": 2990,
+          "condition": { "count": { "component": "BodyRef" }, "equals": 33 }
+        }
+      ]
+    }
+  ],
+  "invariants": ["ecs.finite", "physics.*"],
+  "checklist": [
+    "`Sword.exe`, `Sword.exe --units 32` — игра выглядит и ведёт себя как на этапе 4: враги сходятся, PageUp/PageDown/R работают, кадр плавный; капсул тел на экране ещё нет (появятся на 5в). В журнале нет строк `[invariant] нарушен physics.…`."
+  ]
+}
