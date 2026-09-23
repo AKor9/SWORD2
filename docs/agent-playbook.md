@@ -59,7 +59,24 @@
    PageDown и PageUp того же места враг — новая сущность: имя в условии разрешается один раз, поэтому место — полем:
    `{"exists":{"all":[{"component":"EnemyTag"},{"field":"FighterSlot.Index","equals":5},{"field":"Transform.Position.X","greaterThan":0}]}}`.
 5. Без агента: `Sword.Headless --ticks N --units 32 --json` — `arena` в итоге (задано, бойцов, враги по местам с
-   расстоянием до игрока); приёмка — `Sword.Headless --feature enemies` / `feature.verify {"id":"enemies"}`.
+   расстоянием до игрока, скоростью и составляющими ИИ); приёмка — `Sword.Headless --feature enemies` /
+   `feature.verify {"id":"enemies"}`.
+
+**ИИ врагов: почему враг идёт туда, куда идёт (точка 4б).**
+1. `entity.get {"entity":"enemy 3","components":["EnemyAiTerms","FighterCommand","GazeTarget"]}` — составляющие
+   намерения этого тика: `Distance` (до игрока, м), `ApproachSpeed` (к игроку, м/с: > 0 — подходит, < 0 — отступает;
+   ноль на 1,8 м, предел −2…3,2), `SwaySpeed` (вбок, м/с, ±0,7), `Separation` (толчок соседей ближе 1,4 м) и
+   `Neighbours` (сколько их); `FighterCommand` — итог (желаемая скорость, курс-цель), `GazeTarget` — корень игрока.
+2. Как менялось: `watch.add {"entities":["enemy 3"],"fields":["EnemyAiTerms","FighterCommand","Transform"]}` →
+   `time.step` → `entity.history {"entity":"enemy 3","changes":true}`.
+3. Когда подошли все: `time.runUntil {"condition":{"none":{"all":[{"component":"EnemyTag"},{"field":"EnemyAiTerms.Distance","greaterThan":2.5}]}},"maxTicks":1200}`;
+   сводка по толпе — `world.query {"with":["EnemyTag"],"aggregate":["EnemyAiTerms.Distance","EnemyAiTerms.Neighbours"],"take":0}`.
+4. Намерение считается по корням до движения тика: посреди тика — `time.break {"stage":"Intent"}` и `entity.get` врагов
+   (корни ещё прошлого тика, намерение — уже этого). В тике команды арены враги думают по арене после команды (новые
+   враги, центр после R). Время арены — `{"resource":"SimTime.Time"}`.
+5. Поворот врага пока как у игрока (12 рад/с; поворот на месте клипом — точка 4г), столкновений бойцов нет (4в): враги
+   могут стоять вплотную друг к другу и к игроку. Сверка с SWORD побитово — тест `EnemyAiTests`
+   (`dotnet test tests/Sword.Game.Tests --filter EnemyAi`).
 
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;

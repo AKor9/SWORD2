@@ -1,15 +1,16 @@
 {
-  // Приёмка фичи «Враги и ИИ» (этап 4) — начата на точке 4а (спаун и команды арены); полный манифест (ИИ, столкновения,
-  // поворот клипом, сверка толпы с SWORD, эталон enemies.swreplay) — на 4д. Формат — FeatureManifest
+  // Приёмка фичи «Враги и ИИ» (этап 4) — начата на точке 4а (спаун и команды арены), дополнена на 4б (ИИ: подход,
+  // окружение, погоня); полный манифест (столкновения, поворот клипом, сверка толпы с SWORD, эталон enemies.swreplay) — на 4д. Формат — FeatureManifest
   // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies). Ослабить ожидания — только
   // правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "enemies",
-  "title": "Враги и ИИ (этап 4; точка 4а — спаун и команды арены)",
+  "title": "Враги и ИИ (этап 4; точки 4а — спаун и команды арены, 4б — ИИ врагов)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Arena",
+    "game/Sword.Game/Ai",
     "game/Sword.Game/GameCore.cs",
     "game/Sword.Game.Contracts/Components.cs",
     "game/Sword.Game.Client/ArenaInput.cs",
@@ -19,7 +20,7 @@
   "scenarios": [
     {
       "id": "ring",
-      "title": "10 врагов кольцом вокруг игрока, стоят в стойке (Sword.exe без ключей)",
+      "title": "10 врагов из кольца вокруг игрока сходятся к нему бегом (Sword.exe без ключей)",
       "set": ["arena.enemies=10"],
       "ticks": 600,
       "checks": [
@@ -34,18 +35,11 @@
           }
         },
         {
-          "id": "stand", "title": "враги стоят (ИИ — 4б)", "expect": "always",
-          "condition": {
-            "none": {
-              "all": [
-                { "component": "EnemyTag" },
-                { "any": [{ "field": "RootVelocity.Value.X", "notEquals": 0 }, { "field": "RootVelocity.Value.Z", "notEquals": 0 }] }
-              ]
-            }
-          }
+          "id": "run-in", "title": "враги бегут к игроку (кольцо спауна 5–9 м, подход до 3,2 м/с)", "expect": "eventually", "to": 120,
+          "condition": { "exists": { "all": [{ "component": "EnemyTag" }, { "field": "LegacyLocomotionState.Run", "equals": true }] } }
         },
         {
-          "id": "ring", "title": "в кольце не дальше 9 м от игрока в центре", "expect": "always",
+          "id": "ring", "title": "не дальше 9 м от игрока в центре (кольцо спауна, дальше — только ближе)", "expect": "always",
           "condition": {
             "none": {
               "all": [
@@ -61,15 +55,12 @@
           }
         },
         {
-          "id": "idle-clip", "title": "у врагов идёт локомоция клипами — стойка, не бег", "expect": "always",
-          "condition": {
-            "none": {
-              "all": [
-                { "component": "EnemyTag" },
-                { "any": [{ "field": "LegacyLocomotionState.Clip", "lessThan": 0 }, { "field": "LegacyLocomotionState.Run", "equals": true }] }
-              ]
-            }
-          }
+          "id": "approach", "title": "все враги подошли к игроку ближе 2,5 м", "expect": "eventually",
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "EnemyAiTerms.Distance", "greaterThan": 2.5 }] } }
+        },
+        {
+          "id": "loco-clip", "title": "у врагов идёт локомоция клипами (бег, шаг, стойка — не поза привязки)", "expect": "always",
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "LegacyLocomotionState.Clip", "lessThan": 0 }] } }
         }
       ]
     },
@@ -137,6 +128,96 @@
       ]
     },
     {
+      "id": "surround",
+      "title": "10 врагов подходят и окружают стоящего игрока на ~1,8 м, покачиваются, не бегут и не слипаются",
+      "set": ["arena.enemies=10"],
+      "ticks": 1200,
+      "checks": [
+        {
+          "id": "approach", "title": "за 4 с все враги ближе 2,5 м", "expect": "eventually", "to": 480,
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "EnemyAiTerms.Distance", "greaterThan": 2.5 }] } }
+        },
+        {
+          "id": "ring", "title": "с 4 с — кольцо 1,2…2,6 м вокруг игрока (KeepDistance 1,8; расхождение отодвигает)", "expect": "always", "from": 480,
+          "condition": {
+            "none": {
+              "all": [
+                { "component": "EnemyTag" },
+                { "any": [{ "field": "EnemyAiTerms.Distance", "lessThan": 1.2 }, { "field": "EnemyAiTerms.Distance", "greaterThan": 2.6 }] }
+              ]
+            }
+          }
+        },
+        {
+          "id": "stopped", "title": "с 4 с — к игроку не бегут: подход −1,5…2 м/с, клип не бег", "expect": "always", "from": 480,
+          "condition": {
+            "none": {
+              "all": [
+                { "component": "EnemyTag" },
+                {
+                  "any": [
+                    { "field": "EnemyAiTerms.ApproachSpeed", "greaterThan": 2 }, { "field": "EnemyAiTerms.ApproachSpeed", "lessThan": -1.5 },
+                    { "field": "LegacyLocomotionState.Run", "equals": true }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "apart", "title": "с 4 с — у врага не больше 3 соседей ближе 1,4 м (расхождение)", "expect": "always", "from": 480,
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "EnemyAiTerms.Neighbours", "greaterThan": 3 }] } }
+        },
+        {
+          "id": "gaze", "title": "точка взгляда каждого врага — игрок в центре", "expect": "always", "from": 1,
+          "condition": {
+            "none": {
+              "all": [
+                { "component": "EnemyTag" },
+                {
+                  "any": [
+                    { "field": "GazeTarget.Has", "equals": false },
+                    { "field": "GazeTarget.Point.X", "notEquals": 0 }, { "field": "GazeTarget.Point.Z", "notEquals": 0 }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "ring-end", "title": "в конце — 10 врагов в 1,2…2,5 м от игрока", "expect": "atEnd",
+          "condition": {
+            "all": [
+              { "max": "EnemyAiTerms.Distance", "where": { "component": "EnemyTag" }, "lessThan": 2.5 },
+              { "min": "EnemyAiTerms.Distance", "where": { "component": "EnemyTag" }, "greaterThan": 1.2 },
+              { "count": { "component": "EnemyTag" }, "equals": 10 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "chase",
+      "title": "игрок убегает 4 с и встаёт — враги бегут следом и снова окружают",
+      "set": ["arena.enemies=10"],
+      "ticks": 1500,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 480 }],
+      "checks": [
+        {
+          "id": "ran", "title": "игрок убежал дальше 15 м", "expect": "eventually", "to": 480,
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "greaterThan": 15 }] }
+        },
+        {
+          "id": "chase-run", "title": "враги бегут следом", "expect": "eventually", "from": 240, "to": 480,
+          "condition": { "exists": { "all": [{ "component": "EnemyTag" }, { "field": "LegacyLocomotionState.Run", "equals": true }] } }
+        },
+        {
+          "id": "caught-up", "title": "после остановки все враги снова ближе 2,5 м", "expect": "eventually", "from": 480,
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "EnemyAiTerms.Distance", "greaterThan": 2.5 }] } }
+        }
+      ]
+    },
+    {
       "id": "crowd",
       "title": "32 врага, игрок бежит сквозь кольцо (Sword.exe --units 32 --move 1,0)",
       "set": ["arena.enemies=32"],
@@ -146,23 +227,37 @@
         {
           "id": "thirty-two", "title": "32 врага на местах 1…32", "expect": "always",
           "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 32 }, { "max": "FighterSlot.Index", "equals": 32 }] }
+        },
+        {
+          "id": "chase-run", "title": "толпа бежит за игроком: больше половины врагов — клипом бега", "expect": "eventually", "to": 300,
+          "condition": { "count": { "all": [{ "component": "EnemyTag" }, { "field": "LegacyLocomotionState.Run", "equals": true }] }, "greaterThan": 16 }
         }
       ]
     }
   ],
   "invariants": ["arena.slots", "animation.*", "locomotion.poses", "ecs.finite", "ecs.entityRefs"],
+  "metrics": [
+    {
+      "id": "keep-distance", "scenario": "surround", "source": "sword",
+      "reference": "SWORD 2eab13b EnemyAi.KeepDistance = 1.8f (расхождение соседей ближе Personal 1,4 м отодвигает кольцо из 10 врагов до ~1,9 м)",
+      "entity": "enemy 1", "field": "EnemyAiTerms.Distance", "expected": 1.8, "tolerance": 0.4
+    }
+  ],
   "views": [
-    { "id": "ring", "title": "10 врагов кольцом вокруг игрока, в стойке, разного цвета", "scenario": "ring", "tick": 120, "camera": "0.6,0.8,26,0,0" },
-    { "id": "crowd", "title": "32 врага (--units 32): кольцо плотнее, игрок бежит сквозь него", "scenario": "crowd", "tick": 60, "camera": "0.6,0.9,30,0,0" }
+    { "id": "ring", "title": "10 врагов разного цвета сходятся к игроку из кольца спауна", "scenario": "ring", "tick": 60, "camera": "0.6,0.8,26,0,0" },
+    { "id": "surround", "title": "10 врагов окружили игрока на ~1,8 м, лицом к нему", "scenario": "surround", "tick": 900, "camera": "0.6,0.9,9,0,0" },
+    { "id": "crowd", "title": "32 врага (--units 32): кольцо плотнее, толпа сходится к бегущему игроку", "scenario": "crowd", "tick": 60, "camera": "0.6,0.9,30,0,0" }
   ],
   "budgets": [
     { "id": "crowd", "scenario": "crowd", "msPerTick": 0.3, "stages": { "Animation": 0.25 }, "allocatedBytesPerTick": 0, "repeats": 5 }
   ],
   "checklist": [
-    "`Sword.exe` — вокруг Manny кольцом 5–9 м стоят 10 врагов разного цвета, лицом к нему, в боевой стойке (слегка покачиваются клипом стойки, не T-поза); к игроку не идут (ИИ — точка 4б).",
-    "PageUp — в кольце вокруг игрока (там, где он сейчас) появляется ещё один враг; PageDown — исчезает последний добавленный; больше 32 и меньше 0 не бывает.",
-    "Отбежать от центра и нажать R — Manny мгновенно в центре арены и стоит, враги заново кольцом вокруг центра, их столько же.",
-    "`Sword.exe --units 32` — 32 врага, кадр плавный (FPS в HUD как без врагов или близко); `Sword.exe --units 0` — Manny один.",
-    "`Sword.exe --record my.swreplay` — побегать, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — враги появляются и исчезают сами, как было."
+    "`Sword.exe` — вокруг Manny кольцом 5–9 м появляются 10 врагов разного цвета, лицом к нему, и сразу бегут к нему клипом бега; за 2–3 с встают вокруг примерно в 2 м (чуть дальше вытянутого меча), лицом к Manny.",
+    "Постоять 10–20 с: враги в кольце медленно покачиваются вбок — каждый в своём ритме, кто влево, кто вправо, — шагом или в стойке, не бегут и не слипаются (держатся не ближе полуметра друг к другу; касаться могут — столкновений бойцов ещё нет, точка 4в).",
+    "Отбежать WASD — враги бегут следом и отстают (они медленнее: 3,2 м/с против 4,2); остановиться — догоняют и снова встают кольцом; бегать вокруг них — они всё время разворачиваются к Manny (пока быстро, как игрок: поворот на месте клипом — точка 4г); сквозь врагов можно пробежать (точка 4в).",
+    "PageUp — в кольце 5–9 м вокруг Manny (там, где он сейчас) появляется ещё один враг и сразу идёт к нему; PageDown — исчезает последний добавленный; больше 32 и меньше 0 не бывает.",
+    "Отбежать от центра и нажать R — Manny мгновенно в центре арены и стоит, враги заново кольцом 5–9 м вокруг центра, их столько же, и снова сходятся к нему.",
+    "`Sword.exe --units 32` — 32 врага толпой сходятся к Manny и обступают его в 2–3 ряда (толпа плотная, кто-то стоит ближе остальных), кадр плавный (FPS в HUD как без врагов или близко); `Sword.exe --units 0` — Manny один.",
+    "`Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется само: враги бегут, появляются и исчезают, как было."
   ]
 }

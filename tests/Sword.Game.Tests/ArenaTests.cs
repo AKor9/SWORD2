@@ -24,7 +24,7 @@ public sealed class ArenaTests
 {
     private static Simulation Create(params string[] sets) => TestAssets.Simulation(ConfigSet.Empty(sets));
 
-    private sealed record EnemyRow(int Slot, Entity Entity, Transform Root, FighterCommand Intent, float Seed);
+    private sealed record EnemyRow(int Slot, Entity Entity, Transform Root, PrevTransform Built, FighterCommand Intent, float Seed);
 
     private static List<EnemyRow> Enemies(Simulation sim)
     {
@@ -32,7 +32,8 @@ public sealed class ArenaTests
         var rows = new List<EnemyRow>();
         foreach (var chunk in w.Iterate(w.Query().With<EnemyTag>()))
             foreach (var e in chunk.Entities)
-                rows.Add(new EnemyRow(w.Get<FighterSlot>(e).Index, e, w.Get<Transform>(e), w.Get<FighterCommand>(e), w.Get<FighterSeed>(e).Value));
+                rows.Add(new EnemyRow(w.Get<FighterSlot>(e).Index, e, w.Get<Transform>(e), w.Get<PrevTransform>(e), w.Get<FighterCommand>(e),
+                    w.Get<FighterSeed>(e).Value));
         return [.. rows.OrderBy(r => r.Slot)];
     }
 
@@ -54,18 +55,32 @@ public sealed class ArenaTests
     private static ArenaCommand Set(int n) => new() { Action = ArenaAction.SetEnemies, Enemies = n };
     private static readonly ArenaCommand Reset = new() { Action = ArenaAction.Reset };
 
-    /// <summary>Враги кольцом 5–9 м вокруг <paramref name="center"/>, курсом на него (формула SWORD побитово), стоят.</summary>
-    private static void AssertRing(IReadOnlyList<EnemyRow> enemies, Vector3 center)
+    /// <summary>
+    /// Враги построены кольцом 5–9 м вокруг <paramref name="center"/>, курсом на него (формула SWORD побитово). Точка
+    /// постройки — <see cref="PrevTransform"/>: построенный командой в тике враг уже сделал в нём шаг (ИИ, точка 4б), а
+    /// прошлый корень — точка постройки (<c>RenderPos = Pos</c>). <paramref name="thought"/> — тик уже сыгран: намерение —
+    /// ИИ на центр; нет (сборка мира) — «стоять курсом постройки» (<c>FacingGoal = facing</c>, <c>Fighter.Build</c>).
+    /// </summary>
+    private static void AssertRing(IReadOnlyList<EnemyRow> enemies, Vector3 center, bool thought)
     {
         foreach (var r in enemies)
         {
-            var p = r.Root.Position;
+            var p = r.Built.Position;
             float d = Vector2.Distance(new Vector2(p.X, p.Z), new Vector2(center.X, center.Z));
             Assert.InRange(d, ArenaRules.SpawnMin - 1e-4f, ArenaRules.SpawnMax + 1e-4f);
             Assert.Equal(0, p.Y);
-            Assert.Equal(MathF.Atan2(center.X - p.X, center.Z - p.Z), r.Root.Facing);
-            Assert.Equal(r.Root.Facing, r.Intent.FacingGoal);        // FacingGoal = facing (Fighter.Build)
-            Assert.Equal(Vector3.Zero, r.Intent.DesiredVelocity);
+            Assert.Equal(MathF.Atan2(center.X - p.X, center.Z - p.Z), r.Built.Facing);
+            if (thought)
+            {
+                Assert.True(MathF.Abs(r.Built.Facing - r.Intent.FacingGoal) < 1e-5f, $"курс-цель {r.Intent.FacingGoal} не на центр ({r.Built.Facing})");
+                Assert.True(r.Intent.DesiredVelocity.Length() > 1, $"враг не идёт к центру: {r.Intent.DesiredVelocity}");
+            }
+            else
+            {
+                Assert.Equal(r.Root.Position, p);
+                Assert.Equal(r.Root.Facing, r.Intent.FacingGoal);        // FacingGoal = facing (Fighter.Build)
+                Assert.Equal(Vector3.Zero, r.Intent.DesiredVelocity);
+            }
             Assert.InRange(r.Seed, 0f, 0.99999994f);
         }
     }
@@ -79,7 +94,7 @@ public sealed class ArenaTests
         Assert.Equal(33, FighterCount(sim));
         var enemies = Enemies(sim);
         Assert.Equal(Enumerable.Range(1, 32), enemies.Select(r => r.Slot));
-        AssertRing(enemies, Vector3.Zero);
+        AssertRing(enemies, Vector3.Zero, thought: false);
         Assert.True(enemies.Select(r => r.Seed).Distinct().Count() > 30, "зёрна врагов почти все одинаковые — ГСЧ по месту не работает?");
 
         // У врага — всё, что у игрока (движение, анимация, поза); место игрока — 0.
@@ -95,9 +110,10 @@ public sealed class ArenaTests
             Assert.False(view.Model(w.Get<PoseRef>(e)).IsEmpty);
         }
 
-        // Враги стоят (ИИ — 4б), но локомоция у них идёт: состояние модуля и клип стойки.
+        // Враги идут к игроку (ИИ — точка 4б), локомоция у них идёт: состояние модуля.
         for (int t = 0; t < 60; t++) Step(sim);
-        Assert.Equal(enemies.Select(r => r.Root.Position), Enemies(sim).Select(r => r.Root.Position));
+        Assert.All(enemies.Zip(Enemies(sim)), p => Assert.True(p.Second.Root.Position.Length() < p.First.Root.Position.Length() - 0.5f,
+            $"место {p.First.Slot}: {p.First.Root.Position} → {p.Second.Root.Position} — не подошёл к игроку"));
         Assert.All(enemies, r => Assert.True(w.Has<Locomotion.LegacyLocomotionState>(r.Entity)));
         Assert.Equal(33 * 3, view.PoseCount);   // у каждого бойца — итоговая поза, слой и снимок локомоции
         Assert.Equal(0, sim.Invariants.Total);
@@ -158,8 +174,8 @@ public sealed class ArenaTests
         var after = Enemies(sim);
         Assert.Equal(11, sim.World.Resource<ArenaState>().Enemies);
         Assert.Equal(Enumerable.Range(1, 11), after.Select(r => r.Slot));
-        Assert.Equal(before.Select(r => (r.Entity, r.Root.Position)), after.Take(10).Select(r => (r.Entity, r.Root.Position)));
-        AssertRing([after[^1]], sim.World.Get<Transform>(GameCore.Player(sim.World)).Position);
+        Assert.Equal(before.Select(r => (r.Entity, r.Seed)), after.Take(10).Select(r => (r.Entity, r.Seed)));   // прежние не перестроены
+        AssertRing([after[^1]], sim.World.Get<Transform>(GameCore.Player(sim.World)).Position, thought: true);
         Assert.Equal(12 * 3, view.PoseCount);
 
         Step(sim, Change(-1), Change(-1));   // PageDown дважды в одном тике: уходят места 11 и 10
@@ -186,9 +202,9 @@ public sealed class ArenaTests
         Step(sim, Set(1), Set(3));
         var again = Enemies(sim);
         Assert.Equal(three.Select(r => r.Entity), again.Select(r => r.Entity));
-        Assert.Equal(three[0].Root, again[0].Root);
-        Assert.NotEqual(three[1].Root.Position, again[1].Root.Position);
-        Assert.NotEqual(three[2].Root.Position, again[2].Root.Position);
+        Assert.Equal(three[0].Seed, again[0].Seed);   // место 1 не строится заново
+        Assert.NotEqual(three[1].Built.Position, again[1].Built.Position);
+        Assert.NotEqual(three[2].Built.Position, again[2].Built.Position);
         Assert.Equal(0, sim.Invariants.Total);
     }
 
@@ -222,7 +238,7 @@ public sealed class ArenaTests
         Assert.Equal(Enumerable.Range(1, 5), enemies.Select(r => r.Slot));
         Assert.Equal(oldEnemies.Select(r => r.Entity), enemies.Select(r => r.Entity));
         Assert.All(enemies.Zip(oldEnemies), p => Assert.NotEqual(p.Second.Root.Position, p.First.Root.Position));
-        AssertRing(enemies, Vector3.Zero);
+        AssertRing(enemies, Vector3.Zero, thought: true);
         Assert.Equal(6 * 3, sim.World.View<IAnimationView>().PoseCount);   // позы — прежние, ничего не утекло
         // Локомоция — заново со стойки, как после FighterAnimator.Reset SWORD: без кроссфейда, время клипа — один тик.
         var loco = sim.World.Get<Locomotion.LegacyLocomotionState>(player);

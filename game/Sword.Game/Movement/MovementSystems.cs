@@ -111,7 +111,8 @@ public sealed class PlayerCommandSystem : IContinuousSystem
 /// Gameplay: курс и разгон корня (<c>KinematicSteer</c>, начало <c>KinematicBegin</c>): курс догоняет цель не быстрее
 /// <see cref="MovementRules.TurnRate"/>, скорость — желаемую с разгоном <see cref="MovementRules.Accel"/>. Стоит до
 /// аниматора: в SWORD <c>anim.Tick</c> идёт между разгоном и переносом корня и видит новую скорость. Действий ещё нет
-/// (этап 6): масштаб хода и поворота — 1, поворот на месте клипом (у врагов) не делается.
+/// (этап 6): масштаб хода и поворота — 1. Враги пока поворачивают тем же контроллером, что игрок (<c>Agile</c>): у
+/// не-<c>Agile</c> SWORD стоя — 2,5 рад/с и поворот на месте клипом, если отстал больше 45° (точка 4г).
 /// </summary>
 public sealed class RootSteerSystem : IContinuousSystem
 {

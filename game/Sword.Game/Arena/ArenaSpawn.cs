@@ -2,6 +2,7 @@ using System.Numerics;
 using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
+using Sword.Game.Ai;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Arena;
@@ -76,7 +77,8 @@ public static class ArenaRules
 /// <summary>
 /// Боец — один набор компонентов у игрока и у врага (всё, что нужно движению и анимации): тег стороны, место, зерно,
 /// корень и прошлый корень (тот же — боец не «прилетает» в кадр из начала координат; <c>RenderPos = Pos</c> SWORD),
-/// скорость 0, намерение — стоять курсом постройки (<c>FacingGoal = facing</c>), точка взгляда, вход аниматора, поза.
+/// скорость 0, намерение — стоять курсом постройки (<c>FacingGoal = facing</c>), точка взгляда, вход аниматора, поза;
+/// у врага ещё составляющие намерения ИИ (<see cref="EnemyAiTerms"/>).
 /// Три пути: сборка мира (немедленно, поза берётся сразу); новый боец командами тика (поза — пустой хэндл, её заводит
 /// <see cref="Animation.FighterSetupSystem"/> в Gameplay: команда может не сыграть, а поза из пула — не вернуться); постройка
 /// заново на той же сущности (<see cref="Rebuild"/> — <c>Fighter.Build</c> SWORD над тем же бойцом места).
@@ -92,7 +94,11 @@ public static class Fighters
         var e = world.CreateImmediate();
         world.AddImmediate(e, new Fighter());
         if (s.IsPlayer) world.AddImmediate(e, new PlayerTag());
-        else world.AddImmediate(e, new EnemyTag());
+        else
+        {
+            world.AddImmediate(e, new EnemyTag());
+            world.AddImmediate(e, new EnemyAiTerms());
+        }
         world.AddImmediate(e, new FighterSlot { Index = s.Slot });
         world.AddImmediate(e, new FighterSeed { Value = s.Seed });
         var root = new Transform { Position = s.Position, Facing = s.Facing };
@@ -110,14 +116,19 @@ public static class Fighters
     /// <summary>
     /// Боец командами тика (черновик): появится на барьере стадии со всеми компонентами; поза — пустой хэндл до
     /// <see cref="Animation.FighterSetupSystem"/>. <paramref name="intent"/> и <paramref name="gaze"/> — намерение и точка
-    /// взгляда на этот тик (игроку после сброса — его команда тика и прежняя точка взгляда, как в SWORD).
+    /// взгляда на этот тик (игроку после сброса — его команда тика и прежняя точка взгляда, как в SWORD; врагу — ИИ по
+    /// новой арене, с составляющими <paramref name="terms"/>).
     /// </summary>
-    public static void Create(CommandBuffer c, in FighterSpawn s, in FighterCommand intent, in GazeTarget gaze)
+    public static void Create(CommandBuffer c, in FighterSpawn s, in FighterCommand intent, in GazeTarget gaze, in EnemyAiTerms terms = default)
     {
         var d = c.Create();
         c.Add(d, new Fighter());
         if (s.IsPlayer) c.Add(d, new PlayerTag());
-        else c.Add(d, new EnemyTag());
+        else
+        {
+            c.Add(d, new EnemyTag());
+            c.Add(d, terms);
+        }
         c.Add(d, new FighterSlot { Index = s.Slot });
         c.Add(d, new FighterSeed { Value = s.Seed });
         var root = new Transform { Position = s.Position, Facing = s.Facing };
@@ -132,12 +143,14 @@ public static class Fighters
 
     /// <summary>
     /// Постройка заново на той же сущности (<c>Fighter.Build</c> SWORD: тот же боец места, новое поколение): корень, прошлый
-    /// корень, скорость, намерение, точка взгляда, вход аниматора и зерно — заново; место, тег и поза — прежние. Метка
+    /// корень, скорость, намерение, точка взгляда, вход аниматора, зерно и у врага составляющие ИИ — заново; место, тег и
+    /// поза — прежние. Метка
     /// <see cref="Fighter"/> снимается и ставится на одном барьере — <c>Removed&lt;Fighter&gt;</c> и <c>Added&lt;Fighter&gt;</c>
     /// (протокол <c>Game.Contracts</c>): модули заводят своё состояние бойца с нуля (локомоция — со стойки, как
     /// <c>ResetAnimator</c> SWORD), имя и номер сущности у агента не меняются.
     /// </summary>
-    public static void Rebuild(CommandBuffer c, Entity e, in FighterSpawn s, in FighterCommand intent, in GazeTarget gaze)
+    public static void Rebuild(CommandBuffer c, Entity e, in FighterSpawn s, in FighterCommand intent, in GazeTarget gaze,
+        in EnemyAiTerms terms = default)
     {
         c.Remove<Fighter>(e);
         c.Add(e, new Fighter());
@@ -149,13 +162,14 @@ public static class Fighters
         c.Set(e, intent);
         c.Set(e, gaze);
         c.Set(e, new AnimatorMotion());
+        if (!s.IsPlayer) c.Set(e, terms);
     }
 
-    /// <summary>Объявления системы, которая строит бойцов командами (<see cref="Create(CommandBuffer, in FighterSpawn, in FighterCommand, in GazeTarget)"/>, <see cref="Rebuild"/>).</summary>
+    /// <summary>Объявления системы, которая строит бойцов командами (<see cref="Create(CommandBuffer, in FighterSpawn, in FighterCommand, in GazeTarget, in EnemyAiTerms)"/>, <see cref="Rebuild"/>).</summary>
     public static SystemSetup DeclaresFighters(this SystemSetup s) => s.Creates().Destroys()
         .Adds<Fighter>().Adds<PlayerTag>().Adds<EnemyTag>().Adds<FighterSlot>().Adds<FighterSeed>().Adds<Transform>()
         .Adds<PrevTransform>().Adds<RootVelocity>().Adds<FighterCommand>().Adds<GazeTarget>().Adds<AnimatorMotion>()
-        .Adds<PoseRef>()
+        .Adds<PoseRef>().Adds<EnemyAiTerms>()
         .Removes<Fighter>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
-        .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>();
+        .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>();
 }

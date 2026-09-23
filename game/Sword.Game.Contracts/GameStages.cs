@@ -26,6 +26,12 @@ public static class GameLabels
     public static readonly SystemLabel PlayerCommand = new("core.player-command");
 
     /// <summary>
+    /// Intent, после <see cref="PlayerCommand"/>: ИИ врагов (<c>EnemyAi.Think</c>) — намерение (<c>FighterCommand</c>) и
+    /// точка взгляда каждого врага по корням до движения тика.
+    /// </summary>
+    public static readonly SystemLabel EnemyAi = new("core.enemy-ai");
+
+    /// <summary>
     /// Intent: команды арены (<c>ArenaCommand</c>) — спаун и удаление врагов, сброс. Новые бойцы появляются на барьере
     /// Intent со всеми компонентами бойца; позу им заводит <see cref="FighterSetup"/>.
     /// </summary>

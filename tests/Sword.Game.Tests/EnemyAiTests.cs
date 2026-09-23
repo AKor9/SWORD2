@@ -1,0 +1,442 @@
+using System.Numerics;
+using System.Text.Json.Nodes;
+using Sword.Engine.Agent;
+using Sword.Engine.Diagnostics;
+using Sword.Engine.Ecs;
+using Sword.Engine.Introspection;
+using Sword.Engine.Runtime;
+using Sword.Game.Agent;
+using Sword.Game.Ai;
+using Sword.Game.Arena;
+using Sword.Game.Contracts;
+using Sword.Game.Locomotion;
+
+namespace Sword.Game.Tests;
+
+/// <summary>
+/// ИИ врагов, точка 4б: <c>EnemyAi.Think</c> SWORD 2eab13b без удара и блока — побитово против копии формулы SWORD,
+/// расхождение в порядке мест, время арены (<c>DuelArena.Time += dt</c>), намерение тика после команд арены (в SWORD
+/// <c>SetEnemyCount</c>/<c>Reset</c> — до <c>Think</c>), сценарий окружения, детерминизм и реплей, агентский вид.
+/// </summary>
+public sealed class EnemyAiTests
+{
+    private static Simulation Create(params string[] sets) => TestAssets.Simulation(ConfigSet.Empty(sets));
+
+    // ── копия SWORD ─────────────────────────────────────────────────────────────────────────────────────────────────
+    // Gameplay/Ai/EnemyAi.cs SWORD 2eab13b, Think — строки движения дословно (типы бойца и арены — минимальные заглушки;
+    // удар, блок и таймер — этап 6). Константы — литералы SWORD.
+
+    private const float Reach = 2.3f, KeepDistance = 1.8f, Personal = 1.4f;
+
+    private sealed class SwordFighter
+    {
+        public Vector3 Root;
+        public float Seed;
+        public bool Dead { get; init; }   // смерти до этапа 6 нет
+        public float FacingGoal;
+        public Vector3? GazePoint;
+        public Vector3 DesiredVel;
+    }
+
+    private sealed class SwordArena(SwordFighter[] fighters, int enemyCount, float time)
+    {
+        public SwordFighter Player => fighters[0];
+        public SwordFighter this[int i] => fighters[i];
+        public int EnemyCount => enemyCount;
+        public float Time => time;
+    }
+
+    private static void SwordThink(SwordArena arena, SwordFighter f)
+    {
+        var p = arena.Player;
+        var to = p.Root - f.Root;
+        to.Y = 0;
+        float dist = MathF.Max(to.Length(), 1e-3f);
+        var dir = to / dist;
+        f.FacingGoal = MathF.Atan2(dir.X, dir.Z);
+        f.GazePoint = p.Root;
+
+        var side = new Vector3(dir.Z, 0, -dir.X);
+        var desired = dir * Math.Clamp((dist - KeepDistance) * 2.5f, -2.0f, 3.2f) + side * MathF.Sin(arena.Time * 0.7f + f.Seed * 10) * 0.7f;
+        for (int j = 1; j <= arena.EnemyCount; j++)
+        {
+            var o = arena[j];
+            if (o == f || o.Dead) continue;
+            var d = f.Root - o.Root;
+            d.Y = 0;
+            float l = d.Length();
+            if (l < Personal && l > 1e-3f) desired += d / l * (Personal - l) * 2f;
+        }
+        if (p.Dead) desired *= 0.2f;
+        f.DesiredVel = desired;
+    }
+
+    private static void AssertBits(float expected, float actual, string what) =>
+        Assert.True(BitConverter.SingleToInt32Bits(expected) == BitConverter.SingleToInt32Bits(actual), $"{what}: SWORD {expected:R}, SWORD2 {actual:R}");
+
+    private static void AssertBits(Vector3 expected, Vector3 actual, string what)
+    {
+        AssertBits(expected.X, actual.X, what + ".X");
+        AssertBits(expected.Y, actual.Y, what + ".Y");
+        AssertBits(expected.Z, actual.Z, what + ".Z");
+    }
+
+    [Fact]
+    public void Constants_AreSwordLiterals()
+    {
+        Assert.Equal((KeepDistance, Personal), (EnemyAiRules.KeepDistance, EnemyAiRules.Personal));
+        Assert.Equal((2.5f, -2.0f, 3.2f), (EnemyAiRules.ApproachGain, EnemyAiRules.ApproachMin, EnemyAiRules.ApproachMax));
+        Assert.Equal((0.7f, 10f, 0.7f), (EnemyAiRules.SwayFrequency, EnemyAiRules.SwaySeedScale, EnemyAiRules.SwaySpeed));
+        Assert.Equal((2f, 1e-3f), (EnemyAiRules.SeparationGain, EnemyAiRules.MinDistance));
+        Assert.Equal(2.3f, Reach);   // дистанция удара — этап 6
+    }
+
+    /// <summary>Толпа: игрок и враги 1…n; часть врагов — вплотную друг к другу (расхождение), часть — на игроке, совпадающие корни.</summary>
+    private static (SwordFighter[] Sword, Vector3[] Roots, float[] Seeds, bool[] Present) Crowd(Random rng, int enemies)
+    {
+        var sword = new SwordFighter[ArenaRules.MaxFighters];
+        var roots = new Vector3[ArenaRules.MaxFighters];
+        var seeds = new float[ArenaRules.MaxFighters];
+        var present = new bool[ArenaRules.MaxFighters];
+        float R() => (float)(rng.NextDouble() * 2 - 1);
+        var player = new Vector3(R() * 20, 0, R() * 20);
+        for (int i = 0; i <= enemies; i++)
+        {
+            Vector3 root = i switch
+            {
+                0 => player,
+                _ when i % 7 == 3 => player,                                    // враг на игроке: dist = 1e-3
+                _ when i % 5 == 4 && i > 1 => roots[i - 1],                      // корень соседа: l = 0 — не толкает
+                _ when i % 3 == 0 => roots[i - 1] + new Vector3(R() * 0.8f, 0, R() * 0.8f),   // вплотную к соседу
+                _ => player + new Vector3(R() * 8, R(), R() * 8),               // y ≠ 0 — отбрасывается, как в SWORD
+            };
+            float seed = (float)rng.NextDouble();
+            sword[i] = new SwordFighter { Root = root, Seed = seed };
+            (roots[i], seeds[i], present[i]) = (root, seed, true);
+        }
+        for (int i = enemies + 1; i < sword.Length; i++) sword[i] = new SwordFighter();
+        return (sword, roots, seeds, present);
+    }
+
+    [Fact]
+    public void Think_MatchesSwordFormula_Bitwise()
+    {
+        var rng = new Random(4242);
+        int cases = 0, pushed = 0, backing = 0, capped = 0;
+        for (int run = 0; run < 200; run++)
+        {
+            int enemies = 1 + run % ArenaState.MaxEnemies;
+            var (sword, roots, seeds, present) = Crowd(rng, enemies);
+            // Время арены — как у SWORD: float, накопленный по шагу 1/120 (разные тики, в том числе далёкие).
+            float time = 0;
+            for (int k = 0, n = rng.Next(1, 20000); k < n; k++) time += 1f / 120f;
+            var arena = new SwordArena(sword, enemies, time);
+            for (int slot = 1; slot <= enemies; slot++)
+            {
+                SwordThink(arena, sword[slot]);
+                var intent = EnemyAi.Think(slot, roots[slot], seeds[slot], roots[0], time, roots, present, out var terms);
+                AssertBits(sword[slot].DesiredVel, intent.DesiredVelocity, $"прогон {run}, место {slot}: DesiredVel");
+                AssertBits(sword[slot].FacingGoal, intent.FacingGoal, $"прогон {run}, место {slot}: FacingGoal");
+                cases++;
+                if (terms.Neighbours > 0) pushed++;
+                if (terms.ApproachSpeed < 0) backing++;
+                if (terms.ApproachSpeed == EnemyAiRules.ApproachMax) capped++;
+            }
+        }
+        Assert.True(pushed > 200 && backing > 100 && capped > 100, $"случаев {cases}: расхождение {pushed}, отступ {backing}, предел 3,2 — {capped}");
+    }
+
+    [Fact]
+    public void Terms_ExplainDesiredVelocity()
+    {
+        var roots = new Vector3[ArenaRules.MaxFighters];
+        var present = new bool[ArenaRules.MaxFighters];
+        roots[0] = new Vector3(0, 0, 0);
+        roots[1] = new Vector3(0, 0, 5);       // 5 м перед игроком по +Z
+        roots[2] = new Vector3(0.5f, 0, 5);    // сосед в 0,5 м справа (по −X от первого не толкает — толкает первого к −X)
+        present[0] = present[1] = present[2] = true;
+        var intent = EnemyAi.Think(1, roots[1], 0.25f, roots[0], 3f, roots, present, out var t);
+        Assert.Equal(5f, t.Distance);
+        Assert.Equal(3.2f, t.ApproachSpeed);                                  // (5 − 1,8)·2,5 = 8 → предел 3,2
+        Assert.Equal(MathF.Sin(3f * 0.7f + 0.25f * 10) * 0.7f, t.SwaySpeed);
+        Assert.Equal(1, t.Neighbours);
+        Assert.Equal(new Vector3(-(1.4f - 0.5f) * 2, 0, 0), t.Separation);
+        Assert.Equal(MathF.PI, MathF.Abs(intent.FacingGoal));                 // на игрока — по −Z
+        var dir = new Vector3(0, 0, -1);
+        var side = new Vector3(dir.Z, 0, -dir.X);
+        var sum = dir * t.ApproachSpeed + side * t.SwaySpeed + t.Separation;
+        Assert.True(Vector3.Distance(sum, intent.DesiredVelocity) < 1e-5f, $"{sum} ≠ {intent.DesiredVelocity}");
+    }
+
+    [Fact]
+    public void Separation_AddsInSlotOrder()
+    {
+        // Три соседа, у которых сумма толчков в другом порядке даёт другие биты: ИИ складывает по местам 1…32.
+        var rng = new Random(7);
+        var roots = new Vector3[ArenaRules.MaxFighters];
+        var present = new bool[ArenaRules.MaxFighters];
+        for (int attempt = 0; attempt < 10_000; attempt++)
+        {
+            roots[0] = new Vector3(30, 0, 0);
+            var self = new Vector3((float)rng.NextDouble(), 0, (float)rng.NextDouble());
+            Array.Clear(present);
+            present[0] = present[2] = true;
+            roots[2] = self;
+            for (int j = 1; j <= 4; j++)
+            {
+                if (j == 2) continue;
+                roots[j] = self + new Vector3((float)rng.NextDouble() - 0.5f, 0, (float)rng.NextDouble() - 0.5f);
+                present[j] = true;
+            }
+            var intent = EnemyAi.Think(2, self, 0.5f, roots[0], 1f, roots, present, out var terms);
+            if (terms.Neighbours != 3) continue;
+            Vector3 Push(int j)
+            {
+                var d = self - roots[j];
+                float l = d.Length();
+                return d / l * (1.4f - l) * 2f;
+            }
+            var to = roots[0] - self;
+            float dist = to.Length();
+            var dir = to / dist;
+            var start = dir * Math.Clamp((dist - 1.8f) * 2.5f, -2f, 3.2f) + new Vector3(dir.Z, 0, -dir.X) * MathF.Sin(1f * 0.7f + 0.5f * 10) * 0.7f;
+            var bySlot = start + Push(1) + Push(3) + Push(4);
+            var reversed = start + Push(4) + Push(3) + Push(1);
+            if (bySlot == reversed) continue;
+            Assert.Equal(bySlot, intent.DesiredVelocity);
+            Assert.NotEqual(reversed, intent.DesiredVelocity);
+            return;
+        }
+        Assert.Fail("не нашлось раскладки, где порядок сложения меняет биты");
+    }
+
+    // ── в мире ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// После барьера Intent (корни ещё до движения тика) — намерение каждого врага обязано быть <see cref="EnemyAi.Think"/>
+    /// по арене этого места: игрок, враги по местам, время арены. Проверяется каждый тик, в том числе тики команд арены.
+    /// </summary>
+    private sealed class IntentProbe : ISimulationObserver
+    {
+        public int Checked, CommandTicksChecked, Mismatches;
+        public float Time;
+        public string? First;
+        public readonly HashSet<ulong> CommandTicks = [];
+        private readonly Vector3[] _roots = new Vector3[ArenaRules.MaxFighters];
+        private readonly float[] _seeds = new float[ArenaRules.MaxFighters];
+        private readonly bool[] _present = new bool[ArenaRules.MaxFighters];
+        private float _swordTime;
+
+        public void AfterStage(Simulation sim, int stage)
+        {
+            if (sim.World.Stages[stage] != GameStages.Intent) return;
+            var w = sim.World;
+            _swordTime += 1f / 120f;   // DuelArena.Tick: Time += dt первым делом
+            Time = w.Resource<SimTime>().Time;
+            if (BitConverter.SingleToInt32Bits(Time) != BitConverter.SingleToInt32Bits(_swordTime))
+                Fail($"тик {sim.Tick}: время арены {Time:R}, SWORD {_swordTime:R}");
+            Array.Clear(_present);
+            foreach (var chunk in w.Iterate(w.Query().With<Fighter>()))
+                foreach (var e in chunk.Entities)
+                {
+                    int slot = w.Get<FighterSlot>(e).Index;
+                    (_roots[slot], _seeds[slot], _present[slot]) = (w.Get<Transform>(e).Position, w.Get<FighterSeed>(e).Value, true);
+                }
+            foreach (var chunk in w.Iterate(w.Query().With<EnemyTag>()))
+                foreach (var e in chunk.Entities)
+                {
+                    int slot = w.Get<FighterSlot>(e).Index;
+                    var expected = EnemyAi.Think(slot, _roots[slot], _seeds[slot], _roots[0], Time, _roots, _present, out var terms);
+                    var actual = w.Get<FighterCommand>(e);
+                    var gaze = w.Get<GazeTarget>(e);
+                    bool same = expected.DesiredVelocity == actual.DesiredVelocity && expected.FacingGoal == actual.FacingGoal
+                        && gaze.Has && gaze.Point == _roots[0] && terms.Equals(w.Get<EnemyAiTerms>(e));
+                    if (!same) Fail($"тик {sim.Tick}, место {slot}: намерение {actual.DesiredVelocity}/{actual.FacingGoal}, ждали {expected.DesiredVelocity}/{expected.FacingGoal}");
+                    Checked++;
+                    if (CommandTicks.Contains(sim.Tick)) CommandTicksChecked++;
+                }
+        }
+
+        private void Fail(string what)
+        {
+            Mismatches++;
+            First ??= what;
+        }
+
+        public void AfterTick(Simulation simulation)
+        {
+        }
+    }
+
+    private static ArenaCommand Change(int n) => new() { Action = ArenaAction.ChangeEnemies, Enemies = n };
+    private static readonly ArenaCommand Reset = new() { Action = ArenaAction.Reset };
+
+    /// <summary>Сценарий погони с командами арены: игрок бежит, PageUp, R, PageDown ×2, 32 врага, игрок встаёт; −5, R, +2.</summary>
+    private static readonly Dictionary<int, ArenaCommand[]> ArenaScript = new()
+    {
+        [40] = [Change(1)],
+        [150] = [Reset],
+        [151] = [Change(3), Reset, Change(-1)],
+        [260] = [Change(-1), Change(-1)],
+        [330] = [new ArenaCommand { Action = ArenaAction.SetEnemies, Enemies = 32 }],
+        [420] = [Change(-5), Reset, Change(2)],   // PageDown, R, затем PageUp: места 28, 29 — вокруг центра после сброса
+    };
+
+    private static void ScriptStep(Simulation sim, int t)
+    {
+        if (t < 400) sim.Enqueue(new PlayerCommand { Move = t < 200 ? new Vector2(1, 0.3f) : new Vector2(-0.5f, -1), HasGaze = t > 60, Gaze = new Vector3(8, 0, -8) });
+        if (ArenaScript.TryGetValue(t, out var commands))
+            foreach (var c in commands) sim.Enqueue(c);
+        sim.Export.BeginFrame();
+        sim.Step();
+    }
+
+    [Fact]
+    public void EveryTick_EnemyIntent_IsThinkOverArenaBeforeMovement_IncludingArenaCommandTicks()
+    {
+        var sim = Create("arena.enemies=10");
+        var probe = new IntentProbe();
+        foreach (int t in ArenaScript.Keys) probe.CommandTicks.Add((ulong)t);
+        sim.Observe(probe);
+        for (int t = 0; t < 500; t++) ScriptStep(sim, t);
+        Assert.True(probe.Mismatches == 0, probe.First);
+        Assert.True(probe.Checked > 9_000, $"проверено {probe.Checked}");
+        // Тики команд: новые, сброшенные и оставшиеся враги думают по арене после команд (PageUp — сосед уже есть, R —
+        // игрок в центре, враги в новых точках).
+        Assert.Equal(11 + 11 + 13 + 11 + 32 + 29, probe.CommandTicksChecked);
+        Assert.Equal(29, sim.World.Resource<ArenaState>().Enemies);
+        Assert.Equal(0, sim.Invariants.Total);
+    }
+
+    [Fact]
+    public void CommandTick_NewEnemyThinksAndMoves_SameTick()
+    {
+        // В SWORD SetEnemyCount — до Think того же тика: новый враг не стоит тик «постройки», а сразу идёт к игроку.
+        var sim = Create();
+        var probe = new IntentProbe();
+        sim.Observe(probe);
+        sim.Enqueue(new ArenaCommand { Action = ArenaAction.SetEnemies, Enemies = 2 });
+        sim.Export.BeginFrame();
+        sim.Step();
+        Assert.True(probe.Mismatches == 0, probe.First);
+        Assert.Equal(2, probe.Checked);
+        foreach (var chunk in sim.World.Iterate(sim.World.Query().With<EnemyTag>()))
+            foreach (var e in chunk.Entities)
+            {
+                Assert.True(sim.World.Get<FighterCommand>(e).DesiredVelocity.Length() > 1, "новый враг стоит тик постройки");
+                Assert.NotEqual(Vector3.Zero, sim.World.Get<RootVelocity>(e).Value);
+            }
+    }
+
+    [Fact]
+    public void TenEnemies_SurroundPlayer_AtKeepDistance_AndStop()
+    {
+        var sim = Create("arena.enemies=10");
+        var w = sim.World;
+        var player = GameCore.Player(w);
+        float maxSpawn = 0;
+        foreach (var chunk in w.Iterate(w.Query().With<EnemyTag>()))
+            foreach (var e in chunk.Entities) maxSpawn = MathF.Max(maxSpawn, w.Get<Transform>(e).Position.Length());
+        Assert.True(maxSpawn > 5, $"кольцо спауна ближе 5 м: {maxSpawn}");
+
+        for (int t = 0; t < 1200; t++) { sim.Export.BeginFrame(); sim.Step(); }   // 10 с, игрок стоит в центре
+
+        Assert.Equal(Vector3.Zero, w.Get<Transform>(player).Position);
+        var roots = new List<Vector3>();
+        foreach (var chunk in w.Iterate(w.Query().With<EnemyTag>()))
+            foreach (var e in chunk.Entities)
+            {
+                var root = w.Get<Transform>(e);
+                var terms = w.Get<EnemyAiTerms>(e);
+                float dist = new Vector2(root.Position.X, root.Position.Z).Length();
+                Assert.InRange(dist, 1.6f, 2.4f);                                         // кольцо у 1,8 м (расхождение отодвигает)
+                Assert.InRange(terms.ApproachSpeed, -1f, 1f);                             // к игроку уже не идёт (1 м/с — 2,2 м)
+                Assert.InRange(w.Get<RootVelocity>(e).Value.Length(), 0, 1.2f);           // покачивание, не бег
+                Assert.False(w.Get<LegacyLocomotionState>(e).Run, "враг бежит в кольце");
+                float toPlayer = MathF.Atan2(-root.Position.X, -root.Position.Z);
+                Assert.InRange(MathF.Abs(MathF.IEEERemainder(toPlayer - root.Facing, MathF.Tau)), 0, 0.1f);   // лицом к игроку
+                roots.Add(root.Position);
+            }
+        Assert.Equal(10, roots.Count);
+        float closest = float.MaxValue;
+        for (int i = 0; i < roots.Count; i++)
+            for (int j = i + 1; j < roots.Count; j++) closest = MathF.Min(closest, Vector3.Distance(roots[i], roots[j]));
+        Assert.True(closest > 0.6f, $"враги слиплись: ближайшая пара {closest} м");
+        Assert.Equal(0, sim.Invariants.Total);
+    }
+
+    [Fact]
+    public void TwoRuns_SameHashEveryTick_ReplayRepeats()
+    {
+        var a = Create("arena.enemies=10");
+        var b = Create("arena.enemies=10");
+        var recorder = a.Record(new ReplayInfo("test", "tests", "none"));
+        for (int t = 0; t < 500; t++)
+        {
+            ScriptStep(a, t);
+            ScriptStep(b, t);
+            var ha = a.HashState();
+            var hb = b.HashState();
+            Assert.True(ha.Total == hb.Total, $"тик {t}: {ha} ≠ {hb}");
+        }
+        var replay = Replay.Parse(recorder.ToReplay().ToJson());
+        var c = TestAssets.Simulation(replay.CreateConfig());
+        var played = c.Play(replay);
+        while (c.Tick < replay.Ticks) c.Step();
+        Assert.Null(played.Divergence);
+        Assert.Equal(501, played.HashesChecked);
+        Assert.Equal(a.HashState().Total, c.HashState().Total);
+    }
+
+    [Fact]
+    public async Task Agent_SeesWhyEnemyMoves_TermsInEntityGetHistoryAndConditions()
+    {
+        var sim = Create("arena.enemies=3");
+        var host = new AgentHost(new AgentHostOptions
+        {
+            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
+            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
+            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
+        });
+        SwordAgent.Register(host);
+        using var stop = new CancellationTokenSource();
+        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
+        loop.Start();
+        try
+        {
+            async Task<JsonObject> Call(string tool, JsonObject? args = null)
+            {
+                var request = new JsonObject
+                {
+                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
+                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
+                };
+                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
+                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
+                return r["structuredContent"]!.AsObject();
+            }
+
+            await Call("watch.add", new JsonObject { ["entities"] = new JsonArray("enemy 1"), ["fields"] = new JsonArray("EnemyAiTerms", "FighterCommand") });
+            // «Когда все враги подошли»: условие по расстоянию из вида ИИ.
+            var met = await Call("time.runUntil", new JsonObject
+            {
+                ["condition"] = JsonNode.Parse("""{"none":{"all":[{"component":"EnemyTag"},{"field":"EnemyAiTerms.Distance","greaterThan":2.5}]}}"""),
+                ["maxTicks"] = 1200,
+            });
+            Assert.True(met["met"]!.GetValue<bool>(), met.ToJsonString());
+            var enemy = await Call("entity.get", new JsonObject { ["entity"] = "enemy 1", ["components"] = new JsonArray("EnemyAiTerms") });
+            var text = enemy.ToJsonString();
+            foreach (var field in new[] { "Distance", "ApproachSpeed", "SwaySpeed", "Separation", "Neighbours" }) Assert.Contains(field, text);
+            var history = await Call("entity.history", new JsonObject { ["entity"] = "enemy 1" });
+            Assert.Contains("ApproachSpeed", history.ToJsonString());
+            var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "EnemyAiTerms" });
+            Assert.Contains("SwaySpeed", describe.ToJsonString());
+        }
+        finally
+        {
+            stop.Cancel();
+            host.Service.Wake();
+            loop.Join(TimeSpan.FromSeconds(5));
+        }
+    }
+}

@@ -5,6 +5,7 @@ using System.Text.Json;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Runtime;
 using Sword.Game;
+using Sword.Game.Ai;
 using Sword.Game.Bootstrap;
 using Sword.Game.Contracts;
 
@@ -321,7 +322,8 @@ public static partial class Program
 
     /// <summary>
     /// Арена после прогона (этап 4а): заданное число врагов, бойцов в мире и враги по местам — корень, курс, расстояние
-    /// до игрока (кольцо спауна 5–9 м).
+    /// до игрока (кольцо спауна 5–9 м); с 4б — скорость корня и ИИ последнего тика: подход и покачивание, м/с, соседей
+    /// ближе 1,4 м (<see cref="EnemyAiTerms"/>).
     /// </summary>
     private static object ArenaJson(Simulation sim)
     {
@@ -335,10 +337,13 @@ public static partial class Program
                 fighters++;
                 if (!world.Has<EnemyTag>(e) || !world.TryGet<FighterSlot>(e, out var slot)) continue;
                 var t = world.Get<Transform>(e);
+                var ai = world.TryGet<EnemyAiTerms>(e, out var terms) ? terms : default;
                 enemies.Add((slot.Index, new
                 {
                     slot = slot.Index, entity = e.ToString(), x = t.Position.X, z = t.Position.Z, facing = t.Facing,
                     distance = Vector3.Distance(t.Position with { Y = 0 }, player with { Y = 0 }),
+                    speed = world.Get<RootVelocity>(e).Value.Length(), approach = ai.ApproachSpeed, sway = ai.SwaySpeed,
+                    neighbours = ai.Neighbours,
                 }));
             }
         return new

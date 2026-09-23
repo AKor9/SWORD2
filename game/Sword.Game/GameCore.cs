@@ -1,6 +1,7 @@
 using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
+using Sword.Game.Ai;
 using Sword.Game.Animation;
 using Sword.Game.Arena;
 using Sword.Game.Contracts;
@@ -13,7 +14,7 @@ namespace Sword.Game;
 /// команда игрока из <c>Game.Contracts</c>, движение корня, аниматор бойца (поза в пуле поз, слой движения для
 /// локомоции), начальный мир — игрок в центре арены курсом 0 (<c>DuelArena.Reset</c> SWORD: <c>Build(Player, 0, 0)</c>)
 /// и <c>arena.enemies</c> врагов кольцом вокруг него; команды арены (<see cref="ArenaCommand"/>: число врагов, сброс —
-/// этап 4а). Регистрации ядра — без токена модуля.
+/// этап 4а); ИИ врагов (<see cref="EnemyAiSystem"/> — этап 4б). Регистрации ядра — без токена модуля.
 ///
 /// Порядок <c>KinematicBegin</c> SWORD — по стадиям: курс и разгон (Gameplay) → вход аниматора по новой скорости
 /// (Gameplay) → слои позы и прямая кинематика, пул поз исполняет задания (Animation) → перенос корня и столкновения
@@ -30,7 +31,7 @@ public static class GameCore
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
         b.Component<Transform>().Component<PrevTransform>().Component<RootVelocity>().Component<FighterCommand>()
             .Component<GazeTarget>().Component<Fighter>().Component<PlayerTag>().Component<EnemyTag>()
-            .Component<FighterSlot>().Component<FighterSeed>()
+            .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>()
             .Component<PoseRef>().Component<AnimatorMotion>()
             .Command<PlayerCommand>().Command<ArenaCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
@@ -44,6 +45,7 @@ public static class GameCore
         b.System(GameStages.Begin, new PrevTransformSystem())
             .System(GameStages.Intent, new ArenaCommandSystem())
             .System(GameStages.Intent, new PlayerCommandSystem())
+            .System(GameStages.Intent, new EnemyAiSystem())
             .System(GameStages.Gameplay, new FighterSetupSystem())
             .System(GameStages.Gameplay, new RootSteerSystem())
             .System(GameStages.Gameplay, new AnimatorInputSystem())
