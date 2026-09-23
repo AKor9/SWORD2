@@ -22,6 +22,50 @@ public sealed class RenderFrame
     /// <summary>Номер кадра с начала работы.</summary>
     public ulong Number => _renderer.Device.FrameNumber;
 
+    /// <summary>
+    /// Что снимается с этого кадра (null — ничего). По нему игра регистрирует диагностические проходы только тогда, когда
+    /// их заказали (раздел 8 плана): ID-буфер (<see cref="FrameCapture.IdsPath"/> → <see cref="CaptureIds"/>) и слои
+    /// (<see cref="FrameCapture.Layers"/> → <see cref="CaptureLayer"/>).
+    /// </summary>
+    public FrameCapture? Capture { get; internal set; }
+
+    /// <summary>
+    /// ID-буфер этого кадра для снимка: цель <see cref="TextureFormat.R32Uint"/> размера кадра, записанная проходом кадра
+    /// (коды — <see cref="SkinnedMeshes.IdOf"/>; 0 — ничего). Только когда он заказан (<see cref="FrameCapture.IdsPath"/>).
+    /// </summary>
+    public void CaptureIds(RenderTexture ids)
+    {
+        if (Capture?.IdsPath is null) throw new InvalidOperationException("ID-буфер в этом кадре не заказан (FrameCapture.IdsPath)");
+        var r = _renderer.Graph.Get(ids.Index, buffer: false);
+        if (r.TargetFormat != Vortice.DXGI.Format.R32_UInt || r.Width != Width || r.Height != Height)
+            throw new ArgumentException($"{r.Name}: ID-буфер — цель R32Uint размера кадра {Width}×{Height}", nameof(ids));
+        _renderer.CapturedIds = ids;
+    }
+
+    /// <summary>
+    /// Слой снимка <paramref name="name"/> этого кадра: цель <see cref="TextureFormat.Rgba8Unorm"/> размера кадра, очищенная
+    /// прозрачным и нарисованная с альфа-смешиванием (цвет — умноженный на альфу). В файл слоя идёт снимок цвета с
+    /// наложенным слоем (без цвета — слой на чёрном). Только заказанный слой (<see cref="FrameCapture.Layers"/>).
+    /// </summary>
+    public void CaptureLayer(string name, RenderTexture layer)
+    {
+        if (!WantsLayer(name))
+            throw new InvalidOperationException($"слой {name} в этом кадре не заказан (FrameCapture.Layers)");
+        var r = _renderer.Graph.Get(layer.Index, buffer: false);
+        if (r.TargetFormat != Vortice.DXGI.Format.R8G8B8A8_UNorm || r.Width != Width || r.Height != Height)
+            throw new ArgumentException($"{r.Name}: слой снимка — цель Rgba8Unorm размера кадра {Width}×{Height}", nameof(layer));
+        _renderer.CapturedLayers.Add((name, layer));
+    }
+
+    /// <summary>Заказан ли в этом кадре слой снимка <paramref name="name"/> (циклом, без замыкания: зовётся каждый кадр).</summary>
+    public bool WantsLayer(string name)
+    {
+        if (Capture is not { } c) return false;
+        for (int i = 0; i < c.Layers.Count; i++)
+            if (c.Layers[i].Name == name) return true;
+        return false;
+    }
+
     /// <summary>Константы кадра (<c>register(b0)</c>) для всех проходов, добавленных после вызова.</summary>
     public void SetFrameConstants<T>(in T value) where T : unmanaged
     {
@@ -33,12 +77,43 @@ public sealed class RenderFrame
 
 /// <summary>
 /// Что снять с кадра: цвет (задний буфер, с интерфейсом) в PNG (<c>.bmp</c> — BMP) и глубину сцены в PNG (ближе —
-/// светлее). null — не снимать.
+/// светлее); в диагностическом режиме — ID-буфер (<see cref="IdsPath"/>) и слои (<see cref="Layers"/>), их проходы
+/// регистрирует игра, увидев заказ в <see cref="RenderFrame.Capture"/>. null — не снимать.
 /// </summary>
-public sealed record FrameCapture(string? ColorPath, string? DepthPath = null);
+public sealed record FrameCapture(string? ColorPath, string? DepthPath = null)
+{
+    /// <summary>
+    /// ID-буфер: PNG для глаз (код → свой цвет, 0 — чёрный) по этому пути и сырые коды рядом (<c>.bin</c>: uint32 на пиксель,
+    /// строки сверху вниз); null — не снимать.
+    /// </summary>
+    public string? IdsPath { get; init; }
+
+    /// <summary>Слои снимка (оверлеи игры: капсулы тел и т. п.) — каждый в свой PNG поверх цвета кадра.</summary>
+    public IReadOnlyList<CaptureLayer> Layers { get; init; } = [];
+}
+
+/// <summary>Слой снимка: имя (его знает игра — «capsules») и PNG.</summary>
+public sealed record CaptureLayer(string Name, string Path);
+
+/// <summary>Код ID-буфера на снимке: пикселей и рамка на экране [x0, x1) × [y0, y1) (начало — левый верхний угол).</summary>
+public readonly record struct IdCoverage(uint Id, int Pixels, int X0, int Y0, int X1, int Y1);
 
 /// <summary>Итог снимка: размер кадра, файлы, диапазон глубины (reversed-Z: больше — ближе) и доля пикселей с геометрией.</summary>
-public sealed record CaptureResult(int Width, int Height, string? ColorPath, string? DepthPath, float DepthMin, float DepthMax, float DepthCoverage);
+public sealed record CaptureResult(int Width, int Height, string? ColorPath, string? DepthPath, float DepthMin, float DepthMax, float DepthCoverage)
+{
+    /// <summary>ID-буфер: PNG и сырые коды; null — не заказан или кадр его не дал (<see cref="Notes"/>).</summary>
+    public string? IdsPath { get; init; }
+    public string? IdsRawPath { get; init; }
+
+    /// <summary>Коды ID-буфера на кадре (кроме 0) по возрастанию: пикселей и рамка.</summary>
+    public IReadOnlyList<IdCoverage> Ids { get; init; } = [];
+
+    /// <summary>Снятые слои.</summary>
+    public IReadOnlyList<CaptureLayer> Layers { get; init; } = [];
+
+    /// <summary>Что заказано, но не снято: кадр не дал ID-буфер или слой (игра не умеет его).</summary>
+    public IReadOnlyList<string> Notes { get; init; } = [];
+}
 
 /// <summary>Снимок кадра не записан в файл (каталог недоступен, диск полон, неверный путь); сам кадр показан.</summary>
 public sealed class CaptureException(string message, Exception inner) : IOException(message, inner);
@@ -67,6 +142,10 @@ public sealed class Renderer : IDisposable
     private PakSource? _content;
     private UiPass? _ui;
 
+    /// <summary>ID-буфер и слои, которые игра отдала снимку этого кадра (<see cref="RenderFrame.CaptureIds"/>, <see cref="RenderFrame.CaptureLayer"/>).</summary>
+    internal RenderTexture? CapturedIds;
+    internal readonly List<(string Name, RenderTexture Texture)> CapturedLayers = [];
+
     /// <param name="contract">Преамбула контракта: движок (<see cref="Contribute"/>) и игра.</param>
     public Renderer(RendererOptions options, ShaderContract contract)
     {
@@ -79,10 +158,12 @@ public sealed class Renderer : IDisposable
             Graph = new RenderGraph(Device, Pipelines);
             Scene = new SceneTargets(Device, Graph);
             Skinned = new SkinnedMeshes(this);
+            Debug = new DebugDraw(this);
             _frame = new RenderFrame(this);
         }
         catch
         {
+            Debug?.Dispose();
             Skinned?.Dispose();
             Scene?.Dispose();
             Constants?.Dispose();
@@ -99,6 +180,7 @@ public sealed class Renderer : IDisposable
         c.Add("PASS_COUNT", RootLayout.ConstantCount, "столько gPassN объявляет pass.hlsli");
         SkinnedMeshes.Contribute(c);
         UiPass.Contribute(c);
+        DebugDraw.Contribute(c);
     }
 
     internal GraphicsDevice Device { get; }
@@ -121,6 +203,9 @@ public sealed class Renderer : IDisposable
     public RenderGraph Graph { get; }
     public SceneTargets Scene { get; }
     public SkinnedMeshes Skinned { get; }
+
+    /// <summary>Отладочное рисование (фаза Debug): отрезки, капсулы, текст в мире — поверх сцены или в слой снимка.</summary>
+    public DebugDraw Debug { get; }
 
     /// <summary>
     /// Контент, из которого рендер загружает ассеты по пути (<see cref="SkinnedMeshes.LoadMesh"/>): пак из
@@ -242,6 +327,9 @@ public sealed class Renderer : IDisposable
     public void Render(Action<RenderFrame> build, bool vsync, FrameCapture? capture)
     {
         if (capture is not null) LastCapture = null;   // итог — только этого снимка
+        _frame.Capture = capture;
+        CapturedIds = null;
+        CapturedLayers.Clear();
         Device.BeginFrame();
         long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var list = Device.GraphicsList;
@@ -250,6 +338,7 @@ public sealed class Renderer : IDisposable
             Constants.BeginFrame(Device.FrameIndex);
             Scene.EnsureSize();
             Skinned.Begin();
+            Debug.BeginFrame();
             _ui?.BeginFrame();
             Graph.BeginFrame(0);
 
@@ -264,40 +353,85 @@ public sealed class Renderer : IDisposable
             // следующий кадр начнётся чисто. Время записи — этого кадра, а не прошлого удачного.
             LastRecordMs = System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds;
             Device.AbandonFrame();
+            // Причина отказа D3D12 (конвейер не создан и т. п.) — в журнал сейчас: процесс может не дожить до следующего кадра.
+            Device.DrainDebugMessages();
             throw;
         }
 
-        Vortice.Direct3D12.ID3D12Resource? readback = null, depthReadback = null;
+        Vortice.Direct3D12.ID3D12Resource? readback = null, depthReadback = null, idsReadback = null;
+        var layerReadbacks = capture is { Layers.Count: > 0 } ? new List<(CaptureLayer Layer, Vortice.Direct3D12.ID3D12Resource Readback)>() : null;
+        var notes = capture is null ? null : new List<string>();   // обычный кадр — без выделений
         try
         {
-            int w = 0, h = 0, pitch = 0, dw = 0, dh = 0, dpitch = 0;
+            int w = 0, h = 0, pitch = 0, dw = 0, dh = 0, dpitch = 0, iw = 0, ih = 0, ipitch = 0, lpitch = 0;
             if (capture?.DepthPath is not null)
                 depthReadback = Screenshot.RecordDepthCapture(Device, list, Scene.DepthResource, out dw, out dh, out dpitch);
             if (capture?.ColorPath is not null) readback = Screenshot.RecordCapture(Device, list, out w, out h, out pitch);
+            if (capture?.IdsPath is not null)
+            {
+                if (CapturedIds is { } ids)
+                    idsReadback = Screenshot.RecordTextureCapture(Device, list, Graph.Get(ids.Index, buffer: false), out iw, out ih, out ipitch);
+                else notes!.Add("ID-буфер заказан, а кадр его не дал (игра не регистрирует ID-проход)");
+            }
+            if (layerReadbacks is not null)
+                foreach (var layer in capture!.Layers)
+                {
+                    int k = CapturedLayers.FindIndex(l => l.Name == layer.Name);
+                    if (k < 0)
+                    {
+                        notes!.Add($"слой {layer.Name} заказан, а кадр его не дал (игра не знает такого слоя)");
+                        continue;
+                    }
+                    layerReadbacks.Add((layer, Screenshot.RecordTextureCapture(Device, list, Graph.Get(CapturedLayers[k].Texture.Index, buffer: false),
+                        out _, out _, out lpitch)));
+                }
 
             Device.EndFrame(vsync);
 
-            if (readback is not null || depthReadback is not null)
+            if (capture is not null)
             {
                 Device.WaitForIdle();
                 string? current = null;
                 try
                 {
                     var depth = (Min: 0f, Max: 0f, Coverage: 0f);
+                    byte[]? rgb = null;
                     if (readback is not null)
                     {
-                        current = capture!.ColorPath!;
+                        current = capture.ColorPath!;
                         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
-                        Screenshot.Save(readback, current, w, h, pitch);
+                        rgb = Screenshot.Save(readback, current, w, h, pitch);
                     }
                     if (depthReadback is not null)
                     {
-                        current = capture!.DepthPath!;
+                        current = capture.DepthPath!;
                         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
                         depth = Screenshot.SaveDepth(depthReadback, current, dw, dh, dpitch);
                     }
-                    LastCapture = new CaptureResult(Width, Height, readback is not null ? capture!.ColorPath : null,
-                        depthReadback is not null ? capture!.DepthPath : null, depth.Min, depth.Max, depth.Coverage);
+                    string? idsRaw = null;
+                    IReadOnlyList<IdCoverage> coverage = [];
+                    if (idsReadback is not null)
+                    {
+                        current = capture.IdsPath!;
+                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                        idsRaw = Path.ChangeExtension(current, ".bin");
+                        coverage = Screenshot.SaveIds(idsReadback, current, idsRaw, iw, ih, ipitch);
+                    }
+                    var layers = new List<CaptureLayer>();
+                    if (layerReadbacks is not null)
+                        foreach (var (layer, rb) in layerReadbacks)
+                        {
+                            current = layer.Path;
+                            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                            Screenshot.SaveLayer(rb, current, Width, Height, lpitch, rgb is { } under && under.Length == Width * Height * 3 ? under : null);
+                            layers.Add(layer);
+                        }
+                    if (readback is not null || depthReadback is not null || idsReadback is not null || layers.Count > 0 || notes!.Count > 0)
+                        LastCapture = new CaptureResult(Width, Height, readback is not null ? capture.ColorPath : null,
+                            depthReadback is not null ? capture.DepthPath : null, depth.Min, depth.Max, depth.Coverage)
+                        {
+                            IdsPath = idsReadback is not null ? capture.IdsPath : null, IdsRawPath = idsRaw, Ids = coverage, Layers = layers, Notes = notes!,
+                        };
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
                 {
@@ -317,6 +451,9 @@ public sealed class Renderer : IDisposable
             // отложенное, по забору кадра, а не сразу.
             if (readback is not null) Device.DeferRelease(readback);
             if (depthReadback is not null) Device.DeferRelease(depthReadback);
+            if (idsReadback is not null) Device.DeferRelease(idsReadback);
+            if (layerReadbacks is not null)
+                foreach (var (_, rb) in layerReadbacks) Device.DeferRelease(rb);
         }
         Device.DrainDebugMessages();
     }
@@ -326,6 +463,7 @@ public sealed class Renderer : IDisposable
     {
         Device.WaitForIdle();
         _ui?.Dispose();
+        Debug.Dispose();
         Skinned.Dispose();
         Graph.Dispose();
         Scene.Dispose();

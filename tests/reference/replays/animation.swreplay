@@ -1,10 +1,10 @@
 {
   "format": "sword-replay",
   "version": 1,
-  "build": "1.0.0+e1da408cb9f48b18315a45b5613e6cab3a549ab1",
+  "build": "1.0.0+04cf57e4feebf4dcdf1457a0d4ec985170da26c9",
   "recordedBy": "Sword.Headless",
   "content": "04A5DDD3D5D88407",
-  "recordedUtc": "2026-09-23T08:19:11.1205292Z",
+  "recordedUtc": "2026-09-23T09:34:27.0662281Z",
   "tickRate": 120,
   "seed": 1,
   "ticks": 750,
@@ -69,7 +69,7 @@
     [630, 60, [0, 0.3, -1, true, true, 10, 0, 30]]
   ],
   "hashes": [
-    "0 35027D4E1C51D8FD 3D800C7233506C7F B62470ED0108CD9D",
+    "0 35027D4E1C51D8FD 3D800C7233506C7F 82A38BE90CAAEDF9",
     "1 1ED3FB12976F2A6C 2F24903CE21CB901 5E7EB6490E24DEBF",
     "2 2FA11A261130288F A29B643441E278F7 71B5F04C58B93F67",
     "3 458561EAF6C71EEE A778614B82396B03 A81CB2A2D2025217",

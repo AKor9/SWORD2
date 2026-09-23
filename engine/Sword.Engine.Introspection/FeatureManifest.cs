@@ -362,15 +362,26 @@ public sealed record FeatureMetric
 
 /// <summary>
 /// Вид фичи — кадр App (<c>Sword.exe --replay</c>) после <see cref="Tick"/> тиков сценария: ракурс <see cref="Camera"/>
-/// (<c>поворот,наклон,дистанция[,x,z]</c>; без него — камера SWORD за игроком), HUD — по <see cref="Hud"/>.
+/// (<c>поворот,наклон,дистанция[,x,z]</c>; без него — камера SWORD за игроком), HUD — по <see cref="Hud"/>, отладочные
+/// оверлеи игры поверх кадра — <see cref="Overlays"/> (<c>Sword.exe --overlay</c>: у арены — <c>capsules</c>, капсулы тел, 5в;
+/// имя, которого игра не знает, — провал вида).
 /// </summary>
 public sealed record FeatureView(string Id, string Scenario, ulong Tick, string? Camera, bool Hud, string? Title)
 {
+    public IReadOnlyList<string> Overlays { get; init; } = [];
+
     internal static FeatureView Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "title", "scenario", "tick", "camera", "hud");
+        r.Only("id", "title", "scenario", "tick", "camera", "hud", "overlays");
+        var overlays = r.Strings("overlays", optional: true);
+        for (int i = 0; i < overlays.Count; i++)
+        {
+            if (!overlays[i].All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-'))
+                throw new ArgumentException($"{r.At}.overlays[{i}]: имя оверлея — строчные латинские буквы, цифры и «-», а не «{overlays[i]}»");
+            if (overlays.Take(i).Contains(overlays[i])) throw new ArgumentException($"{r.At}.overlays[{i}]: {overlays[i]} дважды");
+        }
         return new FeatureView(r.String("id"), r.String("scenario"), (ulong)r.Integer("tick", 1, 1_000_000), r.OptionalString("camera"),
-            r.Bool("hud", false), r.OptionalString("title"));
+            r.Bool("hud", false), r.OptionalString("title")) { Overlays = overlays };
     }
 }
 

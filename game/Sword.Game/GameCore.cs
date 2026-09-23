@@ -22,7 +22,8 @@ namespace Sword.Game;
 /// — этап 4г; тело бойца — сочленение капсул в подсистеме Physics за <see cref="BodyRef"/>, время жизни — хуками ECS
 /// (<see cref="FighterBodies"/>, участник хеша <c>physics</c>, инварианты <c>physics.*</c> — этап 5а); форма тела и постановка
 /// при постройке (<see cref="BodySetupSystem"/>), капсулы по позе тика (<see cref="KinematicPlacementSystem"/>, PrePhysics),
-/// поза постройки (<see cref="StartPose"/>), вид тел <see cref="IBodyView"/> — 5б. Регистрации ядра — без токена модуля.
+/// поза постройки (<see cref="StartPose"/>), вид тел <see cref="IBodyView"/> — 5б; тела бойцов сборки мира стоят до первого
+/// тика, вид тел отдаёт клиенту сегменты суставов скелета (ID-буфер) — 5в. Регистрации ядра — без токена модуля.
 ///
 /// Порядок <c>KinematicBegin</c> SWORD — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
 /// без поз по новой скорости: слой движения и шаг действия (Gameplay) → слои позы (локомоция, действие) и прямая
@@ -38,6 +39,7 @@ public static class GameCore
         // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 13 тел), дальше растёт удвоением.
         var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies);
         var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
+        var start = new StartPoseModel(assets.Clips);   // поза постройки тела: сборка мира, постройка командой, инвариант
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
@@ -48,13 +50,13 @@ public static class GameCore
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
             .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 })
-            .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics))
+            .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, JointSegments.Build(assets.Clips.Skeleton)))
             .StateContributor(new AnimationState(poses))
             .StateContributor(new PhysicsState(physics))
             .Invariants(AnimationInvariants.For(poses, assets.Actions))
             .Invariant(new ArenaSlotsInvariant())
             .Invariant(new RootOverlapInvariant())
-            .Invariants(PhysicsInvariants.For(physics, poses, joints))
+            .Invariants(PhysicsInvariants.For(physics, poses, joints, start))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>();
         FighterBodies.Register(b, physics);
@@ -64,7 +66,7 @@ public static class GameCore
             .System(GameStages.Intent, new PlayerCommandSystem())
             .System(GameStages.Intent, new EnemyAiSystem())
             .System(GameStages.Gameplay, new FighterSetupSystem())
-            .System(GameStages.Gameplay, new BodySetupSystem(physics, joints))
+            .System(GameStages.Gameplay, new BodySetupSystem(physics, joints, start))
             .System(GameStages.Gameplay, new EnemyCommandSystem())
             .System(GameStages.Gameplay, new RootSteerSystem())
             .System(GameStages.Gameplay, new AnimatorInputSystem())
@@ -77,6 +79,9 @@ public static class GameCore
             .System(GameStages.End, new ActionPoseReleaseSystem());
 
         b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies));
+        // Тела бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира (5в): как PlaceBuilt SWORD после
+        // AttachRig, до первого тика.
+        b.OnWorldReady(w => BodySetupSystem.PlaceWorldBuilt(w, physics, joints, start));
     }
 
     /// <summary>Боец игрока — единственный с <see cref="PlayerTag"/>; ядро создаёт его при сборке мира.</summary>

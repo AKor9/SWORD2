@@ -15,6 +15,7 @@ public sealed class RenderPassContext
     private TargetLayout _layout;
     private bool _constantsDirty;
     private bool _pipelineSet;
+    private bool _lines;
 
     internal RenderPassContext(PipelineCache pipelines) => _pipelines = pipelines;
 
@@ -42,13 +43,22 @@ public sealed class RenderPassContext
         Array.Clear(_constants);
         _constantsDirty = true;
         _pipelineSet = false;
+        _lines = false;   // граф ставит список треугольников в начале прохода
     }
 
-    /// <summary>Графический конвейер для следующих отрисовок; форматы целей — этого прохода.</summary>
+    /// <summary>
+    /// Графический конвейер для следующих отрисовок; форматы целей — этого прохода. Топология — по конвейеру: отрезки
+    /// (<see cref="GraphicsPipelineDesc.Lines"/>: пары вершин) или треугольники.
+    /// </summary>
     public void SetPipeline(in GraphicsPipelineDesc desc)
     {
         Require(PassKind.Graphics, "графический конвейер");
         _list!.SetPipelineState(_pipelines.GetGraphics(desc, _layout));
+        if (desc.Lines != _lines)
+        {
+            _list.IASetPrimitiveTopology(desc.Lines ? Vortice.Direct3D.PrimitiveTopology.LineList : Vortice.Direct3D.PrimitiveTopology.TriangleList);
+            _lines = desc.Lines;
+        }
         _pipelineSet = true;
     }
 

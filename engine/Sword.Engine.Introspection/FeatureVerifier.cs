@@ -42,8 +42,11 @@ public sealed record FeatureVerifyOptions
     public bool Budgets { get; init; } = true;
 }
 
-/// <summary>Вид для App: реплей сценария (записанный Headless), после скольких тиков, ракурс, HUD, куда PNG.</summary>
-public sealed record ViewRequest(string Feature, string View, string Replay, ulong Tick, string? Camera, bool Hud, string Png);
+/// <summary>Вид для App: реплей сценария (записанный Headless), после скольких тиков, ракурс, HUD, куда PNG, оверлеи игры.</summary>
+public sealed record ViewRequest(string Feature, string View, string Replay, ulong Tick, string? Camera, bool Hud, string Png)
+{
+    public IReadOnlyList<string> Overlays { get; init; } = [];
+}
 
 /// <summary>Итог вида: снят ли кадр, совпали ли хеши App с реплеем, подробности для людей.</summary>
 public sealed record ViewResult(bool Ok, string Detail);
@@ -146,11 +149,12 @@ public static class FeatureVerifier
                 if (env.CaptureView is null) result = new ViewResult(false, "App нет — виды снимает Sword.Headless рядом со собранным Sword.exe");
                 else if (run.RecordedFile is null) result = new ViewResult(false, "сценарий не записан — снимать нечего");
                 else if (v.Tick > run.Ticks) result = new ViewResult(false, $"тик {v.Tick} за концом сценария ({run.Ticks})");
-                else result = env.CaptureView(new ViewRequest(manifest.Id, v.Id, run.RecordedFile, v.Tick, v.Camera, v.Hud, png), cancel);
+                else result = env.CaptureView(new ViewRequest(manifest.Id, v.Id, run.RecordedFile, v.Tick, v.Camera, v.Hud, png) { Overlays = v.Overlays }, cancel);
                 if (!result.Ok) Fail($"вид {v.Id}: {result.Detail}");
                 views.Add(new JsonObject
                 {
                     ["id"] = v.Id, ["title"] = v.Title, ["scenario"] = v.Scenario, ["tick"] = v.Tick, ["ok"] = result.Ok,
+                    ["overlays"] = v.Overlays.Count > 0 ? new JsonArray([.. v.Overlays.Select(o => (JsonNode?)o)]) : null,
                     ["png"] = File.Exists(png) ? png : null, ["detail"] = result.Detail,
                 });
             }

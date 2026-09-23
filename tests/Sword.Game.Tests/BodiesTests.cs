@@ -88,39 +88,63 @@ public sealed class BodiesTests
     }
 
     [Fact]
-    public void EveryFighter_GetsThirteenKinematicCapsules_ShapeAndPlacementFromTheFirstTick()
+    public void EveryFighter_GetsThirteenKinematicCapsules_ShapeAndPlacementAtWorldBuild()
     {
         var sim = Create("arena.enemies=3");
         AssertConsistent(sim);   // сборка мира: немедленные операции — тоже барьеры, хуки сработали
         var physics = Physics(sim);
         var (_, player) = Bodies(sim)[0];
         Assert.Equal(new ArticulationHandle(0, 1), player);   // игрок строится первым
-        for (int i = 0; i < BodySegs.Bodies; i++)
-        {
-            var b = physics.Body(player, i);
-            Assert.Equal(player, physics.ArticulationOf(b));
-            // До первого тика (сборка мира) — тело без формы в начале координат, как поза до первого тика — поза привязки:
-            // постройку сборки мира BodySetupSystem видит в тике 1.
-            Assert.Equal(BodyState.New(BodyMode.Kinematic), physics.Get(b));
-        }
-        Step(sim);
-        // Тик 1: форма — радиусы Fighter.Radii и полудлины процедурной позы постройки (в корне и курсом постройки), капсулы стоят.
+        for (int i = 0; i < BodySegs.Bodies; i++) Assert.Equal(player, physics.ArticulationOf(physics.Body(player, i)));
+
+        // 5в: тела бойцов сборки мира стоят до первого тика (как PlaceBuilt SWORD после AttachRig): форма — радиусы
+        // Fighter.Radii и полудлины процедурной позы постройки (в корне и курсом постройки), капсулы — по позе постройки без
+        // скорости. Тик 1 ставит их при постройке ещё раз теми же значениями — состояние тел то же.
+        var built = Snapshot(sim);
         Span<float> half = stackalloc float[BodySegs.Count];
+        var model = StartModel(sim.World.Resource<StartPose>().Clip);
+        var joints = new BodyJoints(TestAssets.Assets.Clips.Skeleton);
+        var pos = new Vector3[BodySegs.Bodies];
+        var rot = new Quaternion[BodySegs.Bodies];
         foreach (var (e, body) in Bodies(sim).Values)
         {
-            var root = sim.World.Get<PrevTransform>(e);   // корень постройки (Begin тика 1 скопировал его из Transform)
+            var root = sim.World.Get<Transform>(e);   // корень постройки
             FighterShape.HalfLengths(root.Position, root.Facing, half);
+            BodyPlacement.Capsules(model, joints, root.Position, root.Facing, pos, rot);
             for (int i = 0; i < BodySegs.Bodies; i++)
             {
                 var s = physics.Get(physics.Body(body, i));
                 int seg = BodySegs.Segment(i);
                 Assert.Equal((FighterShape.Radii[seg], half[seg]), (s.Radius, s.HalfLength));
                 Assert.True(s.HalfLength is > 0.02f and < 0.4f, $"{BodySegs.Name(seg)}: полудлина {s.HalfLength}");
-                Assert.NotEqual(Vector3.Zero, s.Position);
+                Assert.Equal((pos[i], rot[i], pos[i], rot[i]), (s.Position, s.Rotation, s.PrevPosition, s.PrevRotation));
+                Assert.Equal((Vector3.Zero, Vector3.Zero), (s.Velocity, s.AngularVelocity));
             }
         }
+        // Проверка «сейчас» до первого тика — капсулы сверяются с позой постройки, нарушений нет.
+        Assert.All(sim.Invariants.Run(["physics.kinematicPose", "physics.finite"], 0, "—", sim.Dt), r => Assert.Equal(0, r.Violations));
+
+        Step(sim);
+        // Тик 1: постройка сборки мира поставлена ещё раз теми же значениями, затем постановка тика — прошлая постановка та же.
+        foreach (var (e, body) in Bodies(sim).Values)
+            for (int i = 0; i < BodySegs.Bodies; i++)
+            {
+                var s = physics.Get(physics.Body(body, i));
+                var b = built[(e, i)];
+                Assert.Equal((b.Position, b.Rotation, b.Radius, b.HalfLength), (s.PrevPosition, s.PrevRotation, s.Radius, s.HalfLength));
+            }
         for (int t = 0; t < 60; t++) Step(sim);
         AssertConsistent(sim);   // и physics.kinematicPose, physics.kinematicSpeed — чисто
+    }
+
+    /// <summary>Состояние всех тел бойцов: (сущность, тело) → состояние.</summary>
+    private static Dictionary<(Entity, int), BodyState> Snapshot(Simulation sim)
+    {
+        var physics = Physics(sim);
+        var result = new Dictionary<(Entity, int), BodyState>();
+        foreach (var (e, body) in Bodies(sim).Values)
+            for (int i = 0; i < BodySegs.Bodies; i++) result[(e, i)] = physics.Get(physics.Body(body, i));
+        return result;
     }
 
     /// <summary>Модельные матрицы позы постройки: клип <paramref name="clip"/> в момент 0 (−1 — поза привязки) — своим пулом.</summary>
@@ -308,6 +332,29 @@ public sealed class BodiesTests
         Assert.Equal(["OnAdd", "OnRemove"], usage["hooks"]!.AsArray().Select(h => h!["hook"]!.GetValue<string>()));
         Assert.All(usage["hooks"]!.AsArray(), h => Assert.Null(h!["module"]));
         Assert.Contains(usage["systems"]!.AsArray(), u => u!["system"]!.GetValue<string>() == "core.arena-command@Intent");
+    }
+
+    [Fact]
+    public void JointSegments_AsCharacterRig_ByNameThenParents()
+    {
+        // CharacterRig.JointSegment SWORD: ключевые кости, затем по имени кости UE Manny, затем вверх по родителям, иначе таз.
+        // Имена — UE Manny (пальцы и ball_r в экспорте UE без родителя).
+        string[] names = ["root", "pelvis", "spine_01", "spine_03", "clavicle_l", "neck_01", "head", "upperarm_l", "hand_r",
+            "index_01_l", "thigh_r", "calf_l", "ball_r", "ik_foot_root"];
+        int[] parents = [-1, 0, 1, 2, 3, 3, 5, 4, -1, -1, 1, 1, -1, 0];
+        Assert.Equal([BodySegs.Pelvis, BodySegs.Pelvis, BodySegs.Torso, BodySegs.Torso, BodySegs.Torso, BodySegs.Head, BodySegs.Head,
+            BodySegs.UArmL, BodySegs.FArmR, BodySegs.FArmL, BodySegs.ThighR, BodySegs.ShinL, BodySegs.FootR, BodySegs.Pelvis],
+            JointSegments.Build(names, parents));
+        var skeleton = TestAssets.Assets.Clips.Skeleton;
+        var segments = JointSegments.Build(skeleton);
+        Assert.All(segments, s => Assert.True(BodySegs.Body(s) >= 0, $"сегмент {s} без тела"));
+        // Синтетический скелет: неизвестная кость — по родителю, без ключевого родителя — таз.
+        Assert.Equal([BodySegs.Pelvis, BodySegs.ThighL, BodySegs.ThighL, BodySegs.Pelvis],
+            JointSegments.Build(["pelvis", "thigh_l", "strap", "prop"], [-1, 0, 1, -1]));
+        // Вид тел отдаёт ту же таблицу клиенту (ID-буфер снимка).
+        var view = Create("arena.enemies=0").World.View<IBodyView>();
+        Assert.Equal(segments.Length, view.JointCount);
+        Assert.All(Enumerable.Range(0, segments.Length), j => Assert.Equal(segments[j], view.JointSegment(j)));
     }
 
     [Fact]

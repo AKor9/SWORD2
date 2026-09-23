@@ -2,14 +2,15 @@
   // Приёмка фичи «Физика и тела» (этап 5) — точки 5а (подсистема Physics, хуки ECS, тело бойца — сочленение из 13
   // кинематических капсул за BodyRef, участник хеша physics, инварианты physics.finite/bodyRefs) и 5б (капсулы по позе:
   // форма и постановка при постройке, постановка по позе тика в PrePhysics, инварианты physics.kinematicPose/kinematicSpeed,
-  // метрики против трассы SWORD по вычисляемым полям тела Body.* — Game.Agent.BodyFields). Виды с оверлеем капсул — 5в,
-  // бюджеты — у фичи enemies (crowd, стадия PrePhysics); полный манифест — на 5г. Формат — FeatureManifest
+  // метрики против трассы SWORD по вычисляемым полям тела Body.* — Game.Agent.BodyFields) и 5в (капсулы на экране и агенту:
+  // виды с оверлеем капсул — Sword.exe --overlay capsules; тела сборки мира стоят до первого тика). Бюджеты — у фичи enemies
+  // (crowd, стадия PrePhysics; кадр App); полный манифест — на 5г. Формат — FeatureManifest
   // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature bodies). Ослабить ожидания — только
   // правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "bodies",
-  "title": "Физика и тела (этап 5; 5а — Physics, хуки ECS, тела бойцов за BodyRef; 5б — капсулы по позе)",
+  "title": "Физика и тела (этап 5; 5а — Physics, хуки ECS, тела бойцов за BodyRef; 5б — капсулы по позе; 5в — капсулы на экране и агенту)",
   "doc": "README.md",
   "sourceRoots": [
     "engine/Sword.Engine.Physics",
@@ -22,7 +23,13 @@
     "game/Sword.Game/Arena/ArenaSpawn.cs",
     "game/Sword.Game/Arena/ArenaTerrain.cs",
     "game/Sword.Game/GameCore.cs",
-    "game/Sword.Game.Agent/PhysicsTools.cs"
+    "game/Sword.Game.Agent/PhysicsTools.cs",
+    "game/Sword.Game/Bodies/JointSegments.cs",
+    "game/Sword.Game.Client/ArenaView.cs",
+    "game/Sword.Game.Client/ArenaClient.cs",
+    "engine/Sword.Engine.Render/DebugDraw.cs",
+    "engine/Sword.Engine.Render/Shaders/common/debug.hlsl",
+    "engine/Sword.Engine.Agent.Client/ClientAgent.cs"
   ],
   "requiredModules": ["locomotion"],
   "scenarios": [
@@ -146,7 +153,21 @@
       "entity": "player", "field": "Body.pelvis.Position.Y", "stat": "max", "from": 1, "to": 600, "expected": 2.5, "tolerance": 0.1
     }
   ],
+  "views": [
+    {
+      "id": "capsules-crowd", "title": "32 врага сошлись к игроку (сценарий arena, тик 176) — капсулы тел всех 33 бойцов поверх персонажей (оверлей capsules), камера SWORD за тазом игрока",
+      "scenario": "arena", "tick": 176, "overlays": ["capsules"]
+    },
+    {
+      "id": "capsules-close", "title": "игрок бежит в гору к вершине склона (0, 18) (сценарий terrain, тик 400) — крупно: 13 капсул на суставах Manny, левые голубые, правые красные",
+      "scenario": "terrain", "tick": 400, "camera": "0.6,0.6,7,0,13.5", "overlays": ["capsules"]
+    }
+  ],
   "checklist": [
-    "`Sword.exe`, `Sword.exe --units 32` — игра выглядит и ведёт себя как на этапе 4: враги сходятся, PageUp/PageDown/R работают, кадр плавный; капсул тел на экране ещё нет (появятся на 5в). В журнале нет строк `[invariant] нарушен physics.…`."
+    "`Sword.exe` — F7: поверх Manny и врагов появляются полупрозрачные капсулы тел (таз, торс, голова — жёлтые, левые руки и ноги — голубые, правые — красные); F7 ещё раз — пропадают. В справке F1 — строка «F7 — капсулы тел».",
+    "С включёнными капсулами (F7) побегать WASD, покрутить камеру и приблизить колесом: капсулы идут вместе с персонажем без отставания и дрожи — стопы, кисти и голова остаются внутри своих капсул и на бегу, и на повороте, и при `Sword.exe --max-fps 30`.",
+    "`Sword.exe --units 32`, F7 — капсулы у всех 33 бойцов, враги сходятся с капсулами; PageUp/PageDown/R — капсулы появляются и пропадают вместе с бойцами, после R стоят сразу на построенных бойцах. Кадр плавный.",
+    "Камера следует за тазом игрока (как в SWORD): на бегу и на месте камера идёт ровно, без рывков; тень и зелёное кольцо — под тазом, идут вместе с Manny.",
+    "`Sword.exe --overlay capsules` — капсулы видны с первого кадра (как F7). В журнале нет строк `[invariant] нарушен physics.…`."
   ]
 }

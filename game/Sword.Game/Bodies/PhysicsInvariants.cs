@@ -36,8 +36,8 @@ public static class PhysicsInvariants
     /// </summary>
     public const float MaxRelativeSpeed = 30f, MaxAngularSpeed = 150f;
 
-    public static IEnumerable<IInvariant> For(IPhysicsWorld physics, PosePool poses, BodyJoints joints) =>
-        [new Finite(physics), new KinematicPose(physics, poses, joints), new KinematicSpeed(physics), new BodyRefs(physics)];
+    public static IEnumerable<IInvariant> For(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start) =>
+        [new Finite(physics), new KinematicPose(physics, poses, joints, start), new KinematicSpeed(physics), new BodyRefs(physics)];
 
     /// <summary>
     /// Скорость капсулы относительно бойца, м/с: прошлая постановка, перенесённая вместе с миром бойца из прошлого корня и
@@ -110,9 +110,11 @@ public static class PhysicsInvariants
     /// капсулы — середина её двух точек (<see cref="BodyPlacement.Ends"/>) в мире бойца (корень, курс, высота рельефа), ось —
     /// вдоль направления между ними. Ловит постановку, которая не прошла (капсулы остались на прошлой позе или корне),
     /// перепутанные тела (<see cref="BodyRef"/> двух бойцов обменялись) и тело, сдвинутое после постановки. Бойцы без живой позы
-    /// или с негодным телом пропускаются (их ловят <c>animation.*</c>, <c>physics.bodyRefs</c>).
+    /// или с негодным телом пропускаются (их ловят <c>animation.*</c>, <c>physics.bodyRefs</c>). До первого тика (проверка
+    /// «сейчас» на свежем сеансе, после <c>time.seek 0</c>) капсулы сверяются с позой постройки (<see cref="StartPose"/>): по ней
+    /// их поставила сборка мира (5в), а поза бойца до первого тика — поза привязки (её считает первый тик).
     /// </summary>
-    private sealed class KinematicPose(IPhysicsWorld physics, PosePool poses, BodyJoints joints) : IInvariant
+    private sealed class KinematicPose(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start) : IInvariant
     {
         private ReadQuery? _query;
 
@@ -125,6 +127,9 @@ public static class PhysicsInvariants
         {
             if (NotPlacedYet(ctx)) return;
             var world = ctx.World;
+            // До первого тика тела стоят по позе постройки (сборка мира), а не по позе бойца: её ещё не считал ни один тик.
+            bool built = BeforeFirstTick(ctx);
+            var buildModel = built ? start.Of(world.Resource<StartPose>()) : default;
             _query ??= world.Query().With<Fighter>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
             foreach (var chunk in world.Iterate(_query))
             {
@@ -137,7 +142,7 @@ public static class PhysicsInvariants
                     var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                     var body = FighterBodies.Handle(bodies[i]);
                     if (!poses.IsAlive(pose) || !BodyPlacement.Placeable(physics, body)) continue;
-                    var model = poses.Model(pose);
+                    var model = built ? buildModel : poses.Model(pose);
                     var w = BodyPlacement.World(roots[i].Position, roots[i].Facing);
                     for (int k = 0; k < BodySegs.Bodies; k++)
                     {
@@ -161,17 +166,26 @@ public static class PhysicsInvariants
         }
 
         /// <summary>
-        /// Постановки по позе этого тика ещё не было — сверять капсулы не с чем (проверка «сейчас», <c>invariant.run</c>): до
-        /// первого тика (тела бойцов сборки мира ставит тик 1 — <see cref="BodySetupSystem"/>, записанное отличие 5б, а поза
-        /// сборки мира уже жива) и посреди тика до PrePhysics (после <c>time.break</c>: корень, курс и поза уже этого тика,
-        /// капсулы — ещё прошлого). В тике проверка идёт после PrePhysics и не пропускается.
+        /// Постановки по позе этого тика ещё не было — сверять капсулы не с чем (проверка «сейчас», <c>invariant.run</c>):
+        /// посреди тика до PrePhysics (после <c>time.break</c>: корень, курс и поза уже этого тика, капсулы — ещё прошлого). В
+        /// тике проверка идёт после PrePhysics и не пропускается; до первого тика — сверка с позой постройки
+        /// (<see cref="BeforeFirstTick"/>).
         /// </summary>
         private static bool NotPlacedYet(in InvariantContext ctx)
         {
             var stages = GameStages.All;
             for (int i = 0; i < stages.Count; i++)
                 if (stages[i] == ctx.Stage) return i < PrePhysicsIndex;
-            return ctx.Tick == 0;   // между тиками
+            return false;   // между тиками
+        }
+
+        /// <summary>Между тиками (не стадия игры) до первого тика: тела бойцов сборки мира стоят по позе постройки.</summary>
+        private static bool BeforeFirstTick(in InvariantContext ctx)
+        {
+            var stages = GameStages.All;
+            for (int i = 0; i < stages.Count; i++)
+                if (stages[i] == ctx.Stage) return false;
+            return ctx.Tick == 0;
         }
 
         private static readonly int PrePhysicsIndex = IndexOf(GameStages.PrePhysics);

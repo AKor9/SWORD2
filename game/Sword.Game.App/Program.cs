@@ -53,6 +53,7 @@ public static partial class Program
         public int HashEvery = 1;
         public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
+        public readonly List<string> Overlays = [];
     }
 
     private const string Usage = """
@@ -60,7 +61,7 @@ public static partial class Program
           WASD — ход относительно камеры, Shift — шагом, курсор на земле — куда смотреть;
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
           F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F4 — снимок; Esc — выход;
-          PageUp/PageDown — врагов ±1, R — сброс арены (команды арены — в реплее).
+          PageUp/PageDown — врагов ±1, R — сброс арены (команды арены — в реплее); F7 — капсулы тел поверх персонажей.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
@@ -75,6 +76,8 @@ public static partial class Program
                             кадр замера
           --screenshots DIR куда класть снимки F4 (по умолчанию screenshots в текущем каталоге)
           --no-hud          без HUD (FPS, справка): снимки, сравнимые между прогонами
+          --overlay NAME    отладочный оверлей поверх кадра с первого кадра (можно несколько раз): capsules — капсулы тел
+                            бойцов (как F7); так снимаются виды фичи с оверлеем (views[].overlays манифеста)
           --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
                             снимок кадра; порт — --agent-port N (по умолчанию 47813)
           --bench N         бенч кадра: N с игрового времени (первые 4 — прогрев), затем выход с итогом (кадр ср.,
@@ -137,7 +140,10 @@ public static partial class Program
             var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
             var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
             var playback = replay is null ? null : simulation.Play(replay);
-            var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null);
+            if (options.Overlays.FirstOrDefault(o => !ArenaClient.KnownOverlays.Contains(o)) is { } unknown)
+                throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
+            var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
+                showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay));
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions], config);
             arena.UseBindings(bindings.Keys);
             if (options.Bench > 0) arena.Hud.ShowHelp = false;   // SWORD: ShowHelp = !bench
@@ -219,6 +225,9 @@ public static partial class Program
                         skinned = arena.SkinnedFighters,
                     },
                     hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, quads = arena.HudQuads, lines = arena.HelpLines },
+                    // Капсулы тел (5в): показаны ли поверх персонажей (F7, --overlay capsules), сколько нарисовано в последнем
+                    // кадре и сколько капсул у бойцов кадра.
+                    bodies = new { shown = arena.ShowBodies, drawn = arena.DrawnCapsules, capsules = arena.View.BodyCount },
                     recorded = recorded is null ? null : new
                     {
                         file = Path.GetFullPath(options.Record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count,
@@ -295,6 +304,7 @@ public static partial class Program
                 case "--shot": o.Shot = Next(); break;
                 case "--screenshots": o.Screenshots = Next(); break;
                 case "--no-hud": o.NoHud = true; break;
+                case "--overlay": o.Overlays.Add(Next()); break;
                 case "--agent": o.Agent = true; break;
                 case "--agent-port":
                     if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.AgentPort) || o.AgentPort is < 1 or > 65535)

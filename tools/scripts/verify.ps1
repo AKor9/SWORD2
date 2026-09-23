@@ -28,7 +28,8 @@
                             игрок бежит по направлению камеры; прогон --fps 45 — ровно 242 тика, доля тика 2/3,
                             показанный игрок интерполирован; HUD — проход hud нарисовал фигуры и текст, шаг кадра
                             посчитан; действия screenshot и hud_help (F4, F1, --hold) — один снимок в --screenshots и
-                            справка скрыта; --no-hud — HUD не показан, прохода hud нет;
+                            справка скрыта; debug_bodies (F7, 5в) — капсулы тел 11 бойцов проходом debug.bodies;
+                            --no-hud — HUD не показан, прохода hud нет;
                             --bench 5 — выход «bench» с итогом замера и снимком последнего кадра (нужны видеокарта и
                             пак контента; -SkipGpu — пропустить);
       replay-smoke          реплеи (этап 3б): Sword.exe --record (удержание move_forward и walk, --fps 45) —
@@ -51,7 +52,8 @@
                             командой расходится на тике после неё), experiment.compare; session.stop — выход 0;
                             Sword.exe --agent
                             (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
-                            рамкой), render.graph, replay.status (запись с тика 0), session.stop — выход
+                            рамкой; 5в — ID-буфер: сегменты игрока в его рамке с легендой, оверлей капсул), render.graph,
+                            replay.status (запись с тика 0), session.stop — выход
                             closed-by-tool (с -SkipGpu — только Headless);
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
@@ -354,16 +356,21 @@ else {
                     }
                 }
                 # Точка 1д: действия screenshot (F4) и hud_help (F1) — удержание нажимает их в первом кадре: ровно один
-                # снимок, справка скрыта.
+                # снимок, справка скрыта. Точка 5в: debug_bodies (F7) — капсулы тел всех 11 бойцов поверх кадра проходом
+                # debug.bodies.
                 $shots = Join-Path $dir 'screenshots'
                 if (Test-Path $shots) { Remove-Item -Recurse -Force $shots }
-                $f4 = Invoke-App 'f4' @('--frames', '5', '--hold', 'screenshot,hud_help', '--screenshots', "`"$shots`"")
-                if (-not $f4.ok) { $problems += "прогон с --hold screenshot,hud_help: $($f4.error)" }
+                $f4 = Invoke-App 'f4' @('--frames', '5', '--hold', 'screenshot,hud_help,debug_bodies', '--screenshots', "`"$shots`"")
+                if (-not $f4.ok) { $problems += "прогон с --hold screenshot,hud_help,debug_bodies: $($f4.error)" }
                 else {
                     $files = @(if (Test-Path $shots) { Get-ChildItem $shots -Filter 'sword-*.png' })
                     if ($f4.report.screenshots -ne 1 -or $files.Count -ne 1) { $problems += "F4: снимков в итоге $($f4.report.screenshots), файлов $($files.Count); ждали 1" }
                     elseif ($files[0].Length -lt 20KB) { $problems += "F4: снимок подозрительно мал: $($files[0].Length) Б" }
                     if ($f4.hud.help -ne $false) { $problems += "F1: справка не скрыта (hud.help = $($f4.hud.help))" }
+                    $debugPass = @($f4.report.passes | Where-Object { $_.name -eq 'debug.bodies' })
+                    if (-not $f4.bodies.shown -or $f4.bodies.drawn -ne 143 -or $f4.bodies.capsules -ne 143 -or $debugPass.Count -ne 1 -or $debugPass[0].draws -lt 1) {
+                        $problems += "F7: капсулы тел — показаны $($f4.bodies.shown), нарисовано $($f4.bodies.drawn) из $($f4.bodies.capsules), проходов debug.bodies $($debugPass.Count); ждали 143 капсулы (11 бойцов × 13)"
+                    }
                 }
                 # Точка 1д: без HUD его нет ни в итоге, ни проходом (снимки, сравнимые между прогонами).
                 $bare = Invoke-App 'no-hud' @('--frames', '3', '--no-hud')
@@ -711,6 +718,24 @@ Add-Step 'agent-smoke' {
             elseif ($player.Count -ne 1) { $problems += "App: capture.bundle — игрока в кадре нет ($(@($bundle.entities).Count) сущностей)" }
             elseif ($bundle.tickId -ne $step.tick) { $problems += "App: снимок на тике $($bundle.tickId), ждали $($step.tick) (пауза)" }
             elseif (-not ($bundle.depthCoverage -gt 0.5)) { $problems += "App: глубина почти пуста: $($bundle.depthCoverage)" }
+            # Точка 5в: ID-буфер и оверлей капсул по заказу — пиксели игрока несут его сущность и сегменты тела (легенда
+            # словами), середина рамки каждого кода — внутри рамки игрока; оверлей капсул — отдельный PNG.
+            $ids = Call-Http 'capture.bundle' @{ name = 'verify-ids'; ids = $true; overlays = @('capsules') }
+            $idPlayer = @($ids.entities | Where-Object { $_.name -eq 'player' })
+            $mine = @($ids.ids.legend | Where-Object { $_.name -eq 'player' })
+            $segments = @($mine | ForEach-Object { $_.segment })
+            if (-not $ids.ids -or -not (Test-Path $ids.ids.png) -or -not (Test-Path $ids.ids.raw) -or -not $ids.overlays -or -not (Test-Path $ids.overlays.capsules)) {
+                $problems += "App: capture.bundle ids/overlays — нет файлов: $($ids | ConvertTo-Json -Compress -Depth 3)"
+            }
+            elseif ($idPlayer.Count -ne 1 -or $segments -notcontains 'head' -or $segments -notcontains 'torso' -or @($mine | Where-Object { $_.title -notmatch 'игрока$' }).Count -gt 0) {
+                $problems += "App: ID-буфер — у игрока сегменты [$($segments -join ', ')], названия [$(@($mine | ForEach-Object { $_.title }) -join ', ')]"
+            }
+            else {
+                $r = $idPlayer[0].rect
+                $outside = @($mine | Where-Object { ($_.rect[0] + $_.rect[2]) / 2 -lt $r[0] -or ($_.rect[0] + $_.rect[2]) / 2 -gt $r[2] -or ($_.rect[1] + $_.rect[3]) / 2 -lt $r[1] -or ($_.rect[1] + $_.rect[3]) / 2 -gt $r[3] })
+                if ($outside.Count -gt 0) { $problems += "App: ID-буфер — середины кодов игрока вне его рамки [$($r -join ', ')]: $($outside | ConvertTo-Json -Compress -Depth 3)" }
+                if (@($ids.ids.legend | Where-Object { -not $_.segment -or -not $_.entity }).Count -gt 0) { $problems += 'App: ID-буфер — код без сущности или сегмента в легенде' }
+            }
             $recording = (Call-Http 'replay.status' @{}).recording
             if (-not $recording -or $recording.ticks -lt 60) { $problems += "App: replay.status — запись $($recording | ConvertTo-Json -Compress)" }
             # Этап 3в: условие встаёт ровно на своём тике, даже посреди кадра (8 тиков на кадр на паузе).
@@ -736,7 +761,7 @@ Add-Step 'agent-smoke' {
             # Снимок глубины и цвета — под GPU-валидацией: сообщения слоя и предупреждения шейдеров — отказ.
             $d3d12 = @(Get-Content $err -Encoding UTF8 | Where-Object { ($_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:') -or $_ -match '^\[shader\]' })
             if ($d3d12.Count -gt 0) { $problems += "App: сообщения D3D12 или шейдеров: $($d3d12 | Select-Object -First 3)" }
-            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет"
+            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; ID-буфер — кодов $(@($ids.ids.legend).Count), у игрока [$($segments -join ', ')], оверлей капсул снят; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет"
         }
         catch { $problems += "App: $($_.Exception.Message) — журнал $err" }
         finally { if (-not $app.HasExited) { $app.Kill() } }

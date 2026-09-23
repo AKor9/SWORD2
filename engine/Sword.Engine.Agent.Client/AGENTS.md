@@ -9,7 +9,13 @@
 - Пакет наблюдения собирается на потоке кадра после показа: камера и видимые сущности — от игры
   (`IClientObservable`), имена — `IEntityNames` игры, рамка на экране — проекция рамки мира (угол за камерой не
   считается).
+- ID-буфер и оверлеи (5в) — только по заказу (`capture.bundle {"ids": true, "overlays": [...]}`): агент кладёт их в
+  `FrameCapture` (`IdsPath`, `Layers`), игра видит заказ в `RenderFrame.Capture` и регистрирует свои проходы только в этом
+  кадре (диагностический режим). Неизвестный оверлей — ошибка до снимка (`IClientObservable.Overlays`). Легенда ID-буфера —
+  коды кадра из сводки рендера (`CaptureResult.Ids`) словами игры (`IClientObservable.DescribeId`) и именами `IEntityNames`;
+  что заказано, но не снято, — `notes`.
 - `render.graph` — граф, размер, кадр и тик, снятые в `Presented` (каждый показанный кадр, и из перетаскивания рамки):
   точка обслуживания идёт уже после тиков следующего кадра, и граф прошлого кадра с её тиком не сочетается.
 
-Проверка: `tests/Sword.Engine.Agent.Tests` (`CaptureGeometryTests`), `verify.ps1` шаг `agent-smoke` (живая игра).
+Проверка: `tests/Sword.Engine.Agent.Tests` (`CaptureGeometryTests`), `verify.ps1` шаг `agent-smoke` (живая игра; с 5в — ID-буфер:
+сегменты игрока в его рамке, оверлей капсул), ID-проход — GPU-тест игры `IdBufferGpuTests`.

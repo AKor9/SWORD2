@@ -11,6 +11,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.Direct3D.D3D12" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +23,15 @@
     <ProjectReference Include="..\..\game\Sword.Game.Bootstrap\Sword.Game.Bootstrap.csproj" />
     <ProjectReference Include="..\..\game\Sword.Game.Client\Sword.Game.Client.csproj" />
     <ProjectReference Include="..\..\game\Sword.Game.Agent\Sword.Game.Agent.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Platform.Win32\Sword.Engine.Platform.Win32.csproj" />
+  </ItemGroup>
+
+  <!-- GPU-тест ID-прохода и оверлея капсул (5в, категории Gpu и Content): App-local Agility SDK, как у игры. -->
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\D3D12Core.dll"
+          Link="D3D12\D3D12Core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\d3d12SDKLayers.dll"
+          Link="D3D12\d3d12SDKLayers.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

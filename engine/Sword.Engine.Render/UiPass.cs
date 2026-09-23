@@ -134,11 +134,11 @@ public sealed class UiPass : IDisposable
     public string Report() => $"UI: {Fonts.Report()}, GPU {(_glyphs.Bytes + _curves.Bytes + _bands.Bytes + _indices.Bytes) / 1024.0 / 1024.0:F2} МБ";
 
     /// <summary>
-    /// Проход интерфейса поверх того, что уже нарисовано в заднем буфере: квады <paramref name="draw"/> копируются в
-    /// кольцо кадра сейчас (список можно менять сразу после вызова), рисуются, когда граф дойдёт до прохода. Пустой
-    /// список — прохода нет.
+    /// Проход интерфейса поверх того, что уже нарисовано в заднем буфере (или в цели <paramref name="target"/> размера
+    /// кадра — слой снимка, <see cref="RenderFrame.CaptureLayer"/>): квады <paramref name="draw"/> копируются в кольцо кадра
+    /// сейчас (список можно менять сразу после вызова), рисуются, когда граф дойдёт до прохода. Пустой список — прохода нет.
     /// </summary>
-    public void Add(RenderFrame frame, UiDrawList draw, string name = "ui")
+    public void Add(RenderFrame frame, UiDrawList draw, string name = "ui", RenderTexture? target = null)
     {
         LastQuads = draw.Count;
         LastBatches = 0;
@@ -169,7 +169,7 @@ public sealed class UiPass : IDisposable
         _used += draw.Count;
         LastBatches = work.Batches.Count;
 
-        frame.Graph.AddPass(name).Color(frame.Graph.BackBuffer).Execute(_record[_passes]);
+        frame.Graph.AddPass(name).Color(target ?? frame.Graph.BackBuffer).Execute(_record[_passes]);
         _passes++;
     }
 

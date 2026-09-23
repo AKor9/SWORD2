@@ -416,11 +416,40 @@ public sealed class GameInvariantTests
         Assert.DoesNotContain(sim.Invariants.Run(["ecs.entityRefs"], sim.Tick, "между тиками", sim.Dt), r => r.Violations > 0);
     }
 
+    /// <summary>Модуль, который после постановки тел сборки мира сдвигает таз игрока на 10 см (до первого тика).</summary>
+    private sealed class ShiftBuiltBody : IModule
+    {
+        public string Id => "shift_built";
+
+        public void Configure(SimulationBuilder b) => b.OnWorldReady(w =>
+        {
+            var physics = w.Resource<Sword.Engine.Physics.IPhysicsWorld>();
+            var body = physics.Body(Sword.Game.Bodies.FighterBodies.Handle(w.Get<BodyRef>(GameCore.Player(w.Reader))), BodySegs.Body(BodySegs.Pelvis));
+            var s = physics.Get(body);
+            physics.Place(body, s.Position + new Vector3(0.1f, 0, 0), s.Rotation);
+        });
+    }
+
+    /// <summary>
+    /// 5в: до первого тика тела бойцов сборки мира уже стоят (по позе постройки), и проверка «сейчас» их сверяет, а не
+    /// пропускает: тело, сдвинутое после постановки сборки мира, — нарушение <c>physics.kinematicPose</c> на тике 0.
+    /// </summary>
+    [Fact]
+    public void RunNow_BeforeFirstTick_ChecksWorldBuiltBodies()
+    {
+        var sim = Simulation.Build(ConfigSet.Empty("arena.enemies=2"), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
+            [.. Bootstrap.SwordSimulation.Modules(), new ShiftBuiltBody()]);
+        var result = Assert.Single(sim.Invariants.Run(["physics.kinematicPose"], sim.Tick, "между тиками", sim.Dt));
+        var violation = Assert.Single(result.Details);
+        Assert.Equal(GameCore.Player(sim.World), violation.Entity);
+        Assert.Contains("капсула pelvis (таз) не на суставах позы: центр в 0.1 м", violation.Details);
+    }
+
     /// <summary>
     /// Проверка «сейчас» (<c>invariant.run</c> агента) до первого тика (свежий сеанс, <c>time.seek 0</c>) и посреди тика после
-    /// каждой стадии (<c>time.break</c>) — все инварианты чисты: тела бойцов сборки мира ставит тик 1 (5б), а
-    /// <c>physics.kinematicPose</c> до первого тика и посреди тика до PrePhysics (корень, курс и поза уже новые, капсулы —
-    /// ещё прошлого тика) не сверяет капсулы с позой.
+    /// каждой стадии (<c>time.break</c>) — все инварианты чисты: тела бойцов сборки мира стоят по позе постройки (5в) и
+    /// сверяются с ней, а посреди тика до PrePhysics (корень, курс и поза уже новые, капсулы — ещё прошлого тика)
+    /// <c>physics.kinematicPose</c> капсулы с позой не сверяет.
     /// </summary>
     [Fact]
     public void RunNow_BeforeFirstTickAndMidTick_NoViolations()

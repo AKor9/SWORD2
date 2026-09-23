@@ -93,7 +93,7 @@ public sealed class FeatureTests : IDisposable
             { "id": "mean", "scenario": "rec", "source": "sword2", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X",
               "stat": "mean", "expected": 15.5 }
           ],
-          "views": [{ "id": "end", "scenario": "rec", "tick": 30, "camera": "0.6,0.95,24" }],
+          "views": [{ "id": "end", "scenario": "rec", "tick": 30, "camera": "0.6,0.95,24", "overlays": ["capsules"] }],
           "budgets": [{ "id": "push", "scenario": "push", "allocatedBytesPerTick": 0, "msPerTick": 5, "repeats": 3, "warmup": 5 }],
           "checklist": ["посмотреть"]
         }
@@ -120,6 +120,10 @@ public sealed class FeatureTests : IDisposable
     [InlineData("\"expect\": \"atEnd\"", "\"expect\": \"sometimes\"", "expect «sometimes»")]
     [InlineData("\"views\": [{ \"id\": \"end\", \"scenario\": \"rec\"", "\"views\": [{ \"id\": \"end\", \"scenario\": \"nope\"", "views.end.scenario: нет сценария «nope»")]
     [InlineData("\"checklist\": [\"посмотреть\"]", "\"checklist\": []", "checklist: хотя бы один")]
+    [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": [\"Capsules\"]", "views[0].overlays[0]: имя оверлея")]
+    [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": [\"capsules\", \"capsules\"]", "views[0].overlays[1]: capsules дважды")]
+    [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": \"capsules\"", "views[0].overlays: массив строк")]
+    [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": [\"\"]", "views[0].overlays[0]: непустая строка")]
     [InlineData("\"at\": 5, \"expected\": 5", "\"at\": 5", "нужно field и expected")]
     [InlineData("\"stat\": \"max\", \"from\": 1", "\"stat\": \"max\", \"at\": 3, \"from\": 1", "at — только со stat value")]
     [InlineData("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }", "{ \"id\": \"rec\" }", "без реплея нужно ticks")]
@@ -213,6 +217,9 @@ public sealed class FeatureTests : IDisposable
         // Вид играет запись сценария Headless: те же команды и хеши каждого тика.
         Assert.NotNull(seen);
         Assert.Equal((30ul, "0.6,0.95,24", false), (seen!.Tick, seen.Camera, seen.Hud));
+        Assert.Equal(["capsules"], seen.Overlays);   // оверлеи вида (5в) — App рисует их поверх кадра (--overlay)
+        Assert.Equal(["capsules"], m.Views[0].Overlays);
+        Assert.Equal("capsules", j["views"]![0]!["overlays"]![0]!.GetValue<string>());
         var recorded = Replay.Load(seen.Replay);
         Assert.Equal((30ul, 31), (recorded.Ticks, recorded.Hashes.Count));
         Assert.True(File.Exists(Path.Combine(_root, "out", "report.json")));

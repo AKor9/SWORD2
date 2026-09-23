@@ -3,8 +3,11 @@ using Sword.Game.Contracts;
 
 namespace Sword.Game.Bodies;
 
-/// <summary>Тела для наблюдателей (<see cref="IBodyView"/>): чтение подсистемы Physics без права её менять.</summary>
-public sealed class BodyView(IPhysicsWorld physics) : IBodyView
+/// <summary>
+/// Тела для наблюдателей (<see cref="IBodyView"/>): чтение подсистемы Physics без права её менять; сегменты суставов
+/// скелета — <see cref="JointSegments"/> (5в).
+/// </summary>
+public sealed class BodyView(IPhysicsWorld physics, int[] jointSegments) : IBodyView
 {
     public int BodyCount(BodyRef body)
     {
@@ -21,4 +24,8 @@ public sealed class BodyView(IPhysicsWorld physics) : IBodyView
     public int Articulations => physics.ArticulationCount;
 
     public int Bodies => physics.LiveBodyCount;
+
+    public int JointCount => jointSegments.Length;
+
+    public int JointSegment(int joint) => jointSegments[joint];
 }

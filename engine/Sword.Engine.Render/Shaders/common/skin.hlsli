@@ -44,4 +44,23 @@ void SkinTransform(SkinVertex v, SkinInstance inst, out float3 world, out float3
     }
 }
 
+/// Сустав вершины с наибольшим весом (первый при равенстве) — по нему часть пикселя ID-буфера.
+uint SkinDominantJoint(SkinVertex v, SkinInstance inst)
+{
+    float4 w = float4(v.w, saturate(1 - v.w.x - v.w.y - v.w.z));
+    uint best = 0;
+    for (uint k = 1; k < 4; k++)
+        if (w[k] > w[best]) best = k;
+    return min((v.joints >> (8 * best)) & 0xFF, inst.jointCount - 1);
+}
+
+/// Код ID-буфера (SkinnedMeshes.IdOf): владелец экземпляра << SKIN_ID_PART_BITS | часть сустава (R_SKINPARTS меша вызова);
+/// экземпляр без владельца — 0.
+uint SkinId(uint owner, uint joint)
+{
+    if (owner == 0) return 0;
+    StructuredBuffer<uint> parts = ResourceDescriptorHeap[R_SKINPARTS];
+    return (owner << SKIN_ID_PART_BITS) | (parts[joint] & ((1u << SKIN_ID_PART_BITS) - 1));
+}
+
 #endif

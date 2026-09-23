@@ -30,9 +30,11 @@ public sealed class ClientAgent : IClientTool, ITickGate
     private int _shownWidth, _shownHeight, _shownPipelines;
     private ulong _shownFrame, _shownTick;
 
-    private sealed class CaptureRequest(string name)
+    private sealed class CaptureRequest(string name, bool ids, IReadOnlyList<string> overlays)
     {
         public readonly string Name = name;
+        public readonly bool Ids = ids;
+        public readonly IReadOnlyList<string> Overlays = overlays;
         public readonly TaskCompletionSource<JsonObject> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -80,7 +82,12 @@ public sealed class ClientAgent : IClientTool, ITickGate
         string stem = $"capture-{frame:D6}-{_inFlight.Name}";
         try
         {
-            return new FrameCapture(_host.ArtifactPath(stem + ".color.png"), _host.ArtifactPath(stem + ".depth.png"));
+            // ID-буфер и оверлеи — только по заказу (диагностический режим): их проходы игра регистрирует лишь в этом кадре.
+            return new FrameCapture(_host.ArtifactPath(stem + ".color.png"), _host.ArtifactPath(stem + ".depth.png"))
+            {
+                IdsPath = _inFlight.Ids ? _host.ArtifactPath(stem + ".ids.png") : null,
+                Layers = [.. _inFlight.Overlays.Select(o => new CaptureLayer(o, _host.ArtifactPath($"{stem}.overlay-{o}.png")))],
+            };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -152,6 +159,46 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 });
             }
         }
+        JsonObject? ids = null;
+        if (result.IdsPath is not null)
+        {
+            var legend = new JsonArray();
+            var describer = _client.Game as IClientObservable;
+            foreach (var c in result.Ids)
+            {
+                var meaning = describer?.DescribeId(c.Id);
+                var (owner, part) = SkinnedMeshes.SplitId(c.Id);
+                legend.Add(new JsonObject
+                {
+                    ["id"] = c.Id,
+                    ["owner"] = owner,
+                    ["part"] = part,
+                    ["entity"] = meaning?.Entity.ToString(),
+                    ["name"] = meaning is { } m ? _host.Names?.NameOf(context, m.Entity) : null,
+                    ["kind"] = meaning?.Kind,
+                    ["segment"] = meaning?.Part,
+                    ["title"] = meaning?.Title ?? "код без значения у игры",
+                    ["pixels"] = c.Pixels,
+                    ["rect"] = new JsonArray(c.X0, c.Y0, c.X1, c.Y1),
+                });
+            }
+            ids = new JsonObject
+            {
+                ["png"] = result.IdsPath,
+                ["raw"] = result.IdsRawPath,
+                ["note"] = $"ID-буфер: код пикселя = владелец << {SkinnedMeshes.IdPartBits} | часть; 0 — ничего (земля, колонны, " +
+                    $"небо); часть {SkinnedMeshes.NoPart} — у меша нет частей. raw — uint32 LE на пиксель, {result.Width}×{result.Height}, " +
+                    "строки сверху вниз; png — код своим цветом для глаз. legend — коды кадра: сущность, имя, сегмент, название, " +
+                    "пикселей и рамка [x0, y0, x1, y1)",
+                ["legend"] = legend,
+            };
+        }
+        JsonObject? overlays = null;
+        if (result.Layers.Count > 0)
+        {
+            overlays = new JsonObject();
+            foreach (var l in result.Layers) overlays[l.Name] = l.Path;
+        }
         var bundle = new JsonObject
         {
             ["tickId"] = simulation.Tick,
@@ -168,6 +215,12 @@ public sealed class ClientAgent : IClientTool, ITickGate
             ["depthRange"] = new JsonArray(result.DepthMin, result.DepthMax),
             ["depthCoverage"] = Math.Round(result.DepthCoverage, 4),
             ["camera"] = camera,
+            ["ids"] = ids,
+            ["overlays"] = overlays,
+            ["overlaysNote"] = overlays is null ? null : "оверлей — снимок цвета с наложенным слоем игры (капсулы тел: цвет по " +
+                "сегменту — левые голубые, правые красные, подписи бойцов; капсулы — как показан боец: при alpha 1 ровно " +
+                "постановка последнего тика, physics.bodies); цвет кадра — без него",
+            ["notes"] = result.Notes.Count > 0 ? new JsonArray([.. result.Notes.Select(n => (JsonNode?)n)]) : null,
             ["entities"] = entities,
             ["rectNote"] = "rect — [x0, y0, x1, y1] в пикселях кадра, начало — левый верхний угол; рамка мира, спроецированная камерой",
         };
@@ -215,10 +268,13 @@ public sealed class ClientAgent : IClientTool, ITickGate
         {
             Name = "capture.bundle", Title = "Пакет наблюдения кадра",
             Description = "Снять ближайший кадр живой игры: цвет (с HUD) и глубина в PNG, видимые сущности с экранными " +
-                "прямоугольниками и именами, камера, tickId и frameId — файлы в каталоге артефактов сеанса. На паузе кадр " +
-                "показывает ровно последний тик.",
+                "прямоугольниками и именами, камера, tickId и frameId — файлы в каталоге артефактов сеанса. По заказу — ID-буфер " +
+                "(ids: сущность и сегмент тела на пиксель, легенда «левое предплечье врага 3») и оверлеи слоем поверх цвета " +
+                "(overlays: например capsules — капсулы тел). На паузе кадр показывает ровно последний тик.",
             Arguments = ToolSchema.Props(
                 ("name", ToolSchema.Str("метка в имени файлов (буквы, цифры, «-»; по умолчанию bundle)")),
+                ("ids", new JsonObject { ["type"] = "boolean", ["description"] = "снять ID-буфер: код сущности и сегмента на пиксель с легендой (по умолчанию false)" }),
+                ("overlays", ToolSchema.StrArray("оверлеи игры слоем снимка (у арены — capsules: капсулы тел с подписями бойцов); неизвестное имя — ошибка")),
                 ("timeoutSeconds", ToolSchema.Num($"сколько ждать кадр, с (по умолчанию 10, не больше {MaxCaptureWait:0.#})", 0.5, MaxCaptureWait))),
             ReadOnly = true, Idempotent = false, Cost = ToolCost.Heavy,
             Run = async call =>
@@ -226,8 +282,13 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 string name = call.String("name") ?? "bundle";
                 if (name.Length is 0 or > 40 || !name.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'))
                     throw new ArgumentException("name: буквы, цифры и «-», до 40 знаков");
+                bool wantIds = call.Bool("ids", false);
+                var overlays = call.Strings("overlays").Distinct().ToList();
+                var known = (_client.Game as IClientObservable)?.Overlays ?? [];
+                if (overlays.FirstOrDefault(o => !known.Contains(o)) is { } unknown)
+                    throw new ArgumentException($"overlays: оверлея {unknown} нет; есть: {(known.Count > 0 ? string.Join(", ", known) : "никаких")}");
                 double seconds = call.Number("timeoutSeconds", 10, 0.5, MaxCaptureWait);   // все аргументы — до постановки снимка
-                var request = new CaptureRequest(name);
+                var request = new CaptureRequest(name, wantIds, overlays);
                 _captures.Enqueue(request);
                 JsonObject bundle;
                 try

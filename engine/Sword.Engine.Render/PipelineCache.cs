@@ -163,6 +163,9 @@ internal sealed class PipelineCache : IDisposable
     private ID3D12PipelineState BuildGraphics(in GraphicsPipelineDesc d, in TargetLayout layout, ReadOnlyMemory<byte> vs, ReadOnlyMemory<byte> ps)
     {
         var blendDesc = BlendDescription.Opaque;
+        // Непрозрачный — без смешивания вовсе (BlendDescription.Opaque Vortice включает его как One/Zero): целочисленные цели
+        // (ID-буфер R32_UINT) смешивания не поддерживают, а с One/Zero конвейер не создаётся.
+        for (int i = 0; i < 8; i++) blendDesc.RenderTarget[i].BlendEnable = false;   // 8 целей D3D12
         if (d.Blend == BlendMode.Additive)
             blendDesc.RenderTarget[0] = new RenderTargetBlendDescription(true, false,
                 Blend.SourceAlpha, Blend.One, BlendOperation.Add, Blend.One, Blend.One, BlendOperation.Add);

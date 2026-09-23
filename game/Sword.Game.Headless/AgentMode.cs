@@ -128,6 +128,7 @@ public static partial class Program
         };
         if (!request.Hud) args.Add("--no-hud");
         if (request.Camera is { } camera) args.AddRange(["--camera", camera]);
+        foreach (string overlay in request.Overlays) args.AddRange(["--overlay", overlay]);
         var (report, error) = RunApp(exe, args, cancel);
         if (report is null) return new ViewResult(false, error!);
         var replay = report["replay"];

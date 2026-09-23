@@ -9,7 +9,8 @@ namespace Sword.Game.Client;
 /// Действия ввода арены и их клавиши по умолчанию — как в SWORD 2eab13b (<c>PlayerController</c>, <c>RtsCamera</c>):
 /// WASD — ход относительно камеры, Shift — шагом, F — камера за игроком / свободная, Z/C — поворот, +/− — зум, средняя
 /// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD; PageUp/PageDown —
-/// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены). Колесо и курсор — не
+/// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены); F7 — капсулы тел поверх персонажей
+/// (5в, отладочный вид SWORD2). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
 /// </summary>
@@ -44,11 +45,17 @@ public static class ArenaInput
     /// <summary>Сброс арены: игрок в центре, враги заново (SWORD: R).</summary>
     public static readonly InputAction ArenaReset = new("arena_reset", "R");
 
+    /// <summary>
+    /// Капсулы тел поверх персонажей: показать / скрыть (5в; в SWORD отладочного вида капсул нет, F2, F3, F5, F6 заняты —
+    /// F7). Действие представления: в команды и реплей не идёт.
+    /// </summary>
+    public static readonly InputAction DebugBodies = new("debug_bodies", "F7");
+
     public static readonly IReadOnlyList<InputAction> All =
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
-        HudHelp, EnemiesMore, EnemiesFewer, ArenaReset,
+        HudHelp, EnemiesMore, EnemiesFewer, ArenaReset, DebugBodies,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>

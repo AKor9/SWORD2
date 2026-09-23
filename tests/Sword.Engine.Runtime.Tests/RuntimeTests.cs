@@ -307,6 +307,29 @@ public class SimulationTests
         public void Configure(SimulationBuilder b) => b.OnWorldBuilt(_ => b.Command<Pong>());
     }
 
+    /// <summary>Модуль, который пишет в журнал порядок начального наполнения.</summary>
+    private sealed class OrderModule(List<string> order) : IModule
+    {
+        public string Id => "order";
+
+        public void Configure(SimulationBuilder b) =>
+            b.OnWorldReady(_ => order.Add("module.ready")).OnWorldBuilt(_ => order.Add("module.built"));
+    }
+
+    [Fact]
+    public void OnWorldReady_RunsAfterEveryOnWorldBuilt_OfCoreAndModules()
+    {
+        // Ядро ставит тело бойца по ресурсу, который модуль задаёт при сборке мира (5в): готовность — после всех сборок.
+        var order = new List<string>();
+        var sim = Simulation.Build(ConfigSet.Empty(), Stages, b =>
+        {
+            b.Component<Counter>();
+            b.OnWorldReady(w => order.Add("core.ready")).OnWorldBuilt(w => order.Add("core.built"));
+        }, [new OrderModule(order)]);
+        Assert.Equal(["core.built", "module.built", "core.ready", "module.ready"], order);
+        Assert.Equal(0UL, sim.Tick);
+    }
+
     [Fact]
     public void Builder_IsSealedAfterWorldBuild()
     {

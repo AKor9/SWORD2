@@ -53,8 +53,15 @@ public readonly record struct CameraView(Matrix4x4 ViewProj, Vector3 Eye, Vector
 public readonly record struct VisibleEntity(Entity Entity, string Kind, Vector3 Min, Vector3 Max);
 
 /// <summary>
+/// Код ID-буфера снимка словами: сущность, её вид («player», «enemy»), часть (сегмент тела — «forearm.l»; null — у кода
+/// нет части) и название для людей («левое предплечье врага 3»).
+/// </summary>
+public readonly record struct IdMeaning(Entity Entity, string Kind, string? Part, string Title);
+
+/// <summary>
 /// Наблюдаемость клиентской части игры для инструментов (пакет наблюдения <c>capture.bundle</c>): камера показанного
-/// кадра и что в нём видно. Необязательна: игра без неё даёт снимок без сущностей.
+/// кадра, что в нём видно, какие оверлеи игра снимает слоем и что значат коды ID-буфера. Необязательна: игра без неё
+/// даёт снимок без сущностей.
 /// </summary>
 public interface IClientObservable
 {
@@ -63,4 +70,16 @@ public interface IClientObservable
 
     /// <summary>Видимые сущности последнего кадра — в показанном (интерполированном) положении.</summary>
     void Visible(List<VisibleEntity> into);
+
+    /// <summary>
+    /// Оверлеи, которые игра рисует слоем снимка (<c>RenderFrame.CaptureLayer</c>): имена для <c>capture.bundle</c> и видов
+    /// манифеста фич (<c>views[].overlays</c>). Пусто — оверлеев нет.
+    /// </summary>
+    IReadOnlyList<string> Overlays => [];
+
+    /// <summary>
+    /// Что значит код ID-буфера последнего кадра (<c>SkinnedMeshes.IdOf</c>: владелец и часть); код, которого игра не
+    /// выдавала, — null. Зовётся на потоке кадра сразу после показа снятого кадра.
+    /// </summary>
+    IdMeaning? DescribeId(uint id) => null;
 }

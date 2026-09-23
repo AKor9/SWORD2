@@ -1,6 +1,7 @@
 using System.Numerics;
 using Sword.Engine.Client;
 using Sword.Engine.Ecs;
+using Sword.Engine.Render;
 using Sword.Engine.Runtime;
 using Sword.Game.Arena;
 using Sword.Game.Bootstrap;
@@ -81,6 +82,39 @@ public class PlayerIntentTests
     private static FrameInput Held(bool first, params InputAction[] actions) =>
         new(new Sword.Engine.Platform.InputState(), InputBindings.Resolve(ArenaInput.All, null),
             actions.Select(a => a.Name).ToHashSet(), first, true, 1600, 900, 1f / 60);
+
+    [Fact]
+    public void F7_TogglesBodyCapsules_BindingFromConfig()
+    {
+        // 5в: капсулы тел поверх персонажей — действие debug_bodies (F7 по умолчанию; F2, F3, F5, F6 заняты по SWORD).
+        Assert.Contains(ArenaInput.DebugBodies, ArenaInput.All);
+        Assert.Equal(("debug_bodies", "F7"), (ArenaInput.DebugBodies.Name, ArenaInput.DebugBodies.DefaultKey));
+        var bindings = InputBindings.Resolve([.. ArenaInput.All, .. ClientHost.Actions], ConfigSet.Empty("input.debug_bodies=F9"));
+        Assert.Equal("F9", bindings.Keys["debug_bodies"]);
+        var client = new ArenaClient(hud: false);
+        Assert.False(client.ShowBodies);
+        client.Input(Held(true, ArenaInput.DebugBodies));   // нажатие — в первом кадре удержания
+        Assert.True(client.ShowBodies);
+        client.Input(Held(false, ArenaInput.DebugBodies));  // удержание — не нажатие
+        Assert.True(client.ShowBodies);
+        client.Input(Held(true, ArenaInput.DebugBodies));
+        Assert.False(client.ShowBodies);
+        Assert.True(new ArenaClient(hud: false, showBodies: true).ShowBodies);   // --overlay capsules
+    }
+
+    [Fact]
+    public void IdBufferOwner_FitsTheCode_OverflowGetsNoOwner()
+    {
+        // Код ID-буфера — владелец << 8 | сегмент: номер сущности + 1 в 24 бита. Больший номер при сдвиге потерял бы старшие
+        // биты и совпал бы с кодом другого бойца — у него владельца нет (0: пиксели «ничего»), а не чужой код.
+        Assert.Equal(1u, ArenaClient.OwnerOf(new Entity(0, 1)));
+        Assert.Equal(ArenaClient.OwnerOf(new Entity(7, 1)), ArenaClient.OwnerOf(new Entity(7, 5)));   // поколение — не в коде
+        var last = new Entity((int)SkinnedMeshes.MaxOwner - 1, 1);
+        Assert.Equal(SkinnedMeshes.MaxOwner, ArenaClient.OwnerOf(last));
+        Assert.Equal((SkinnedMeshes.MaxOwner, (uint)BodySegs.Head), SkinnedMeshes.SplitId(SkinnedMeshes.IdOf(ArenaClient.OwnerOf(last), BodySegs.Head)));
+        Assert.Equal(0u, ArenaClient.OwnerOf(new Entity((int)SkinnedMeshes.MaxOwner, 1)));
+        Assert.Equal(0u, SkinnedMeshes.IdOf(ArenaClient.OwnerOf(new Entity(int.MaxValue, 1)), BodySegs.Head));
+    }
 
     [Fact]
     public void Actions_ReachPlayerKeysAndCamera()
@@ -170,8 +204,8 @@ public class ArenaViewTests
             clock.RunFrame(frame);
             view.Extract(clock.Link, interpolate ? clock.Alpha : 1);
             if (view.Player is not { } p) continue;
-            // Тень и кольцо — там же, где показан Manny: иначе они дрожат относительно плавно идущего бойца.
-            Assert.Equal(p.Root with { Y = 0 }, view.PlayerMarker);
+            // Тень и кольцо — таз (5в), там же, где его показывает кадр вместе с Manny: иначе они дрожат относительно бойца.
+            Assert.Equal(view.Body(p)[BodySegs.Body(BodySegs.Pelvis)].Center with { Y = 0 }, view.PlayerMarker);
             if (last is { } x && i > fps * 1.5) speeds.Add((float)((p.Root.X - x) / frame));   // после разгона
             last = p.Root.X;
         }
@@ -265,6 +299,116 @@ public class ArenaViewTests
         Assert.False(sim.World.Has<Fighter>(GameCore.Player(sim.World)));
         Assert.Null(view.Player);
         Assert.Empty(view.Fighters);
+    }
+
+    /// <summary>Прогон толпы при 144 кадрах/с (доля тика дробная): игрок бежит и поворачивает к курсору, враги сходятся.</summary>
+    private static IEnumerable<(ArenaView View, Simulation Sim, float Alpha)> CrowdFrames(int frames)
+    {
+        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=6"));
+        int frame = 0;
+        var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new PlayerCommand
+        {
+            Move = new Vector2(MathF.Cos(frame * 0.02f), MathF.Sin(frame * 0.02f)), HasGaze = true, Gaze = new Vector3(-8, 0, 5),
+        }));
+        var view = new ArenaView(Field);
+        for (; frame < frames; frame++)
+        {
+            clock.RunFrame(1 / 144.0);
+            view.Extract(clock.Link, clock.Alpha);
+            yield return (view, sim, clock.Alpha);
+        }
+    }
+
+    [Fact]
+    public void ShownCapsules_StayOnTheShownPose_AtAnyAlpha()
+    {
+        // 5в: капсулы живого бойца — постановка тика, перенесённая в показанный мир бойца (SkinCutPose.DrawnJoints SWORD): на
+        // суставах той же позы тика в том же мире, в котором рисуется меш, — при любой доле тика (без отставания и дрожи).
+        var joints = new Sword.Game.Bodies.BodyJoints(TestAssets.Assets.Clips.Skeleton);
+        float worstShown = 0, worstLerp = 0;
+        int fractional = 0;
+        foreach (var (view, sim, alpha) in CrowdFrames(300))
+        {
+            Assert.Equal(view.Fighters.Count * BodySegs.Bodies, view.BodyCount);
+            if (alpha is <= 0.05f or >= 0.95f) continue;
+            fractional++;
+            var bodies = sim.World.View<IBodyView>();
+            foreach (var f in view.Fighters)
+            {
+                var pose = view.Pose(f);
+                var body = view.Body(f);
+                Assert.Equal(BodySegs.Bodies, body.Length);
+                var bodyRef = sim.World.Get<BodyRef>(f.Entity);
+                for (int i = 0; i < body.Length; i++)
+                {
+                    var (a, b) = Sword.Game.Bodies.BodyPlacement.Ends(pose, joints, f.World, body[i].Segment);
+                    worstShown = MathF.Max(worstShown, Vector3.Distance(body[i].Center, (a + b) * 0.5f));
+                    Assert.True(Vector3.Dot(body[i].Axis, Vector3.Normalize(b - a)) > 1 - 1e-4f, $"{f.Entity} {BodySegs.Name(body[i].Segment)}: ось не вдоль суставов");
+                    // Для сравнения — интерполяция прошлой и нынешней постановки (BodyMatrix(b, α) SWORD): отстаёт от меша.
+                    worstLerp = MathF.Max(worstLerp, Vector3.Distance(ArenaView.Lerp(bodies.Body(bodyRef, i), alpha).Center, (a + b) * 0.5f));
+                }
+            }
+        }
+        Assert.True(fractional > 100, $"кадров с дробной долей тика {fractional}");
+        Assert.True(worstShown < 1e-4f, $"капсула ушла от показанной позы на {worstShown} м");
+        Assert.True(worstLerp > 0.01f, $"интерполяция постановок отстаёт от меша лишь на {worstLerp} м — тест ничего не различает");
+    }
+
+    [Fact]
+    public void Extract_WithBodiesOf33Fighters_AllocatesNothing()
+    {
+        // 5в: мир представления с капсулами 33 бойцов (429 капсул) — без выделений в установившемся кадре.
+        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32"));
+        var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new PlayerCommand { Move = new Vector2(1, 0) }), ticksPerFrame: 2);
+        var view = new ArenaView(Field);
+        for (int i = 0; i < 30; i++)
+        {
+            clock.RunFrame(0);
+            view.Extract(clock.Link, 0.5f);
+        }
+        long bytes = 0;
+        for (int i = 0; i < 30; i++)
+        {
+            clock.RunFrame(0);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            view.Extract(clock.Link, 0.5f);
+            bytes += GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        Assert.Equal(33 * BodySegs.Bodies, view.BodyCount);
+        Assert.Equal(0, bytes);
+    }
+
+    [Fact]
+    public void ShownCapsules_AtAlphaOne_AreTheTickPlacement_FocusIsPelvisLerp()
+    {
+        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=2"));
+        var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new PlayerCommand { Move = new Vector2(1, 0) }), ticksPerFrame: 3);
+        var view = new ArenaView(Field);
+        for (int i = 0; i < 20; i++)
+        {
+            clock.RunFrame(0);
+            view.Extract(clock.Link, 1);   // бойцы приходят очередью кадра — каждый кадр
+        }
+        var bodies = sim.World.View<IBodyView>();
+        foreach (var f in view.Fighters)
+        {
+            var bodyRef = sim.World.Get<BodyRef>(f.Entity);
+            var body = view.Body(f);
+            for (int i = 0; i < body.Length; i++)
+            {
+                var s = bodies.Body(bodyRef, i);
+                Assert.True(Vector3.Distance(s.Position, body[i].Center) < 1e-5f, $"{f.Entity} тело {i}: {s.Position} против {body[i].Center}");
+                Assert.True(MathF.Abs(Quaternion.Dot(s.Rotation, body[i].Rotation)) > 1 - 1e-6f);
+                Assert.Equal((BodySegs.Segment(i), s.Radius, s.HalfLength), (body[i].Segment, body[i].Radius, body[i].HalfLength));
+            }
+        }
+        // Фокус камеры — таз между прошлой и нынешней постановкой по доле тика (Program.cs SWORD), с Y = 0.
+        foreach (float alpha in (float[])[0, 0.3f, 1])
+        {
+            view.Extract(clock.Link, alpha);
+            var pelvis = bodies.Body(sim.World.Get<BodyRef>(GameCore.Player(sim.World)), BodySegs.Body(BodySegs.Pelvis));
+            Assert.Equal(Vector3.Lerp(pelvis.PrevPosition, pelvis.Position, alpha) with { Y = 0 }, view.PlayerFocus);
+        }
     }
 
     [Fact]

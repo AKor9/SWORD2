@@ -54,9 +54,10 @@ public interface IAnimationView : IReadView
 }
 
 /// <summary>
-/// Тела для наблюдателей симуляции (агент — 5б, клиент — капсулы на экране, 5в): вид только для чтения
+/// Тела для наблюдателей симуляции (агент — 5б, клиент — капсулы на экране и ID-буфер снимка, 5в): вид только для чтения
 /// (<c>WorldReader.View&lt;IBodyView&gt;()</c>) на тела подсистемы Physics по хэндлу сочленения из <see cref="BodyRef"/>.
-/// Тело <c>i</c> сочленения бойца — сегмент <see cref="BodySegs.Segment"/>(i). Меняют тела только системы тика.
+/// Тело <c>i</c> сочленения бойца — сегмент <see cref="BodySegs.Segment"/>(i). Прошлая и нынешняя постановка тела — в
+/// <see cref="BodySnapshot"/>: по ним клиент интерполирует тело по доле тика. Меняют тела только системы тика.
 /// </summary>
 public interface IBodyView : IReadView
 {
@@ -69,6 +70,15 @@ public interface IBodyView : IReadView
     /// <summary>Живых сочленений и тел.</summary>
     int Articulations { get; }
     int Bodies { get; }
+
+    /// <summary>Суставов скелета бойца.</summary>
+    int JointCount { get; }
+
+    /// <summary>
+    /// Сегмент тела (<see cref="BodySegs"/>), к которому относится сустав скелета <paramref name="joint"/>
+    /// (<c>CharacterRig.JointSegment</c> SWORD): ID-буфер снимка — сегмент пикселя по суставу вершины (5в), позже — разрезы.
+    /// </summary>
+    int JointSegment(int joint);
 }
 
 /// <summary>

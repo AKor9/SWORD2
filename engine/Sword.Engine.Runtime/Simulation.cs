@@ -201,6 +201,9 @@ public sealed class Simulation
         // Мир собран: поздняя регистрация (например, из OnWorldBuilt) молча потерялась бы — построитель закрыт.
         b.Sealed = true;
         foreach (var init in b.WorldInits) init(built);
+        // Мир наполнен ядром и модулями: то, что зависит от их начального наполнения (тело бойца по позе постройки,
+        // которую задаёт модуль, — 5в), — после всех OnWorldBuilt.
+        foreach (var init in b.WorldReady) init(built);
         // Участники хеша — по Id (раздел 7 плана): порядок не зависит от порядка регистрации.
         IStateContributor[] state = [.. b.Contributors.Append(new EcsStateContributor(built.Reader)).OrderBy(c => c.Id, StringComparer.Ordinal)];
         // Инварианты: базовые движка, затем ядра и модулей в порядке регистрации.
@@ -428,6 +431,7 @@ public sealed class SimulationBuilder
     private readonly TickCommands _commands;
     private readonly TickExport _export;
     internal readonly List<Action<World>> WorldInits = [];
+    internal readonly List<Action<World>> WorldReady = [];
 
     /// <summary>Мир собран — регистрировать поздно.</summary>
     internal bool Sealed;
@@ -573,6 +577,17 @@ public sealed class SimulationBuilder
     public SimulationBuilder OnWorldBuilt(Action<World> init)
     {
         Open().WorldInits.Add(init);
+        return this;
+    }
+
+    /// <summary>
+    /// Начальное наполнение, которому нужен мир после всех <see cref="OnWorldBuilt"/> ядра и модулей (по порядку
+    /// регистрации): ядро ставит по ресурсу, который задаёт модуль при сборке мира, — например, тело бойца по позе
+    /// постройки (5в). Тоже немедленные изменения до первого тика.
+    /// </summary>
+    public SimulationBuilder OnWorldReady(Action<World> init)
+    {
+        Open().WorldReady.Add(init);
         return this;
     }
 }

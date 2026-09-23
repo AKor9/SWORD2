@@ -23,6 +23,10 @@ namespace Sword.Game.Client;
 /// та же команда в каждый тик кадра (удерживаемое, раздел 7); <see cref="Extract"/> — мир представления
 /// (<see cref="ArenaView"/>, интерполяция по доле тика); <see cref="BuildFrame"/> рисует только его, поверх — HUD
 /// (<see cref="Hud"/>: FPS и числа кадра, справка) UI-проходом рендера.
+///
+/// 5в: камера — за тазом игрока (<see cref="ArenaView.PlayerFocus"/>), тень и кольцо — таз (<see cref="ArenaView.PlayerMarker"/>);
+/// капсулы тел поверх персонажей — F7 (<see cref="ShowBodies"/>, отладочное рисование рендера в фазе Debug); в кадре снимка —
+/// по заказу ID-проход «scene.ids» (код бойца и сегмента на пиксель) и слой капсул <see cref="CapsulesOverlay"/>.
 /// </summary>
 public sealed class ArenaClient : IClientGame, IClientObservable
 {
@@ -59,10 +63,58 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private static readonly GraphicsPipelineDesc Pillar = new(SceneShader, "VsPillar", "PsPillar", Depth: DepthMode.TestWrite);
     private static readonly GraphicsPipelineDesc Skin = new(SceneShader, "VsSkin", "PsSkin", Depth: DepthMode.TestWrite);
 
+    /// <summary>
+    /// ID-проход (диагностический режим, только в кадре снимка с ID-буфером): те же скинированные меши тем же вершинным
+    /// шейдером (та же глубина до бита) с тестом по глубине сцены — пиксель получает код ближайшего бойца и сегмента.
+    /// </summary>
+    private static readonly GraphicsPipelineDesc SkinId = new(SceneShader, "VsSkin", "PsSkinId", Depth: DepthMode.Test);
+
+    /// <summary>Оверлей капсул тел — имя слоя снимка (<c>capture.bundle</c> overlays, <c>views[].overlays</c> манифеста).</summary>
+    public const string CapsulesOverlay = "capsules";
+
+    /// <summary>Оверлеи, которые клиент арены снимает слоем.</summary>
+    public static readonly IReadOnlyList<string> KnownOverlays = [CapsulesOverlay];
+
+    /// <summary>
+    /// Цвет капсулы сегмента (<c>0xAABBGGRR</c>, альфа — у кромки; середина прозрачнее): таз, торс, голова — тёплые
+    /// светлые; левые конечности — голубые, правые — розово-красные; плечо и бедро темнее предплечья и голени, стопа —
+    /// светлее. Лево и право видно сразу — по ним проверяют зеркальность постановки.
+    /// </summary>
+    public static uint CapsuleColour(int segment) => segment switch
+    {
+        BodySegs.Pelvis => Rgba(255, 200, 60),
+        BodySegs.Torso => Rgba(255, 230, 120),
+        BodySegs.Head => Rgba(255, 255, 200),
+        BodySegs.UArmL => Rgba(60, 200, 255),
+        BodySegs.FArmL => Rgba(120, 240, 255),
+        BodySegs.ThighL => Rgba(40, 140, 255),
+        BodySegs.ShinL => Rgba(90, 180, 255),
+        BodySegs.FootL => Rgba(150, 220, 255),
+        BodySegs.UArmR => Rgba(255, 90, 200),
+        BodySegs.FArmR => Rgba(255, 150, 230),
+        BodySegs.ThighR => Rgba(255, 70, 90),
+        BodySegs.ShinR => Rgba(255, 120, 120),
+        BodySegs.FootR => Rgba(255, 170, 150),
+        _ => Rgba(255, 255, 255),
+    };
+
+    private static uint Rgba(byte r, byte g, byte b, byte a = 0xC0) => (uint)(r | g << 8 | b << 16 | a << 24);
+
+    /// <summary>
+    /// Код владельца экземпляра скиннинга для ID-буфера: номер сущности бойца + 1 (0 — «ничего»). Поколение в код не входит:
+    /// в одном кадре номер у живых сущностей один, легенда (<see cref="IClientObservable.DescribeId"/>) ищет бойца кадра. Номер,
+    /// который в код не помещается (больше <see cref="SkinnedMeshes.MaxOwner"/> − 1), — 0: пиксели без бойца, а не чужой код.
+    /// </summary>
+    public static uint OwnerOf(Entity e) => e.Index is >= 0 and < (int)SkinnedMeshes.MaxOwner ? (uint)e.Index + 1 : 0;
+
+    /// <summary>Подписи бойцов на слое капсул снимка — заранее, без выделений в кадре.</summary>
+    private static readonly string[] Labels = [.. Enumerable.Range(0, ArenaState.MaxEnemies + 1).Select(i => i == 0 ? "игрок" : $"враг {i}")];
+
     private readonly RtsCamera _camera = new();
     private readonly HeightField _field = ArenaTerrain.BuildField();
     private readonly ArenaView _view;
     private readonly Action<RenderPassContext> _drawOpaque;
+    private readonly Action<RenderPassContext> _drawIds;
     private Renderer? _renderer;
     private GpuData? _heights, _capsule;
     private GpuIndices? _capsuleIndices;
@@ -86,12 +138,16 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// команды — его, а своя команда клиента того же тика перебила бы их и увела бы реплей в сторону). Камера управляется
     /// в обоих случаях.
     /// </param>
-    public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true)
+    /// <param name="showBodies">Капсулы тел поверх персонажей с первого кадра (<c>--overlay capsules</c>; F7 — переключить).</param>
+    public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true,
+        bool showBodies = false)
     {
         if (!playerCommands && scripted is not null) throw new ArgumentException("заданная команда игрока без команд игрока", nameof(scripted));
         _showHud = hud;
         _playerCommands = playerCommands;
+        ShowBodies = showBodies;
         _drawOpaque = DrawOpaque;
+        _drawIds = DrawIds;
         _view = new ArenaView(ArenaTerrain.Height);
         _scripted = scripted;
         if (camera is { } c)
@@ -124,6 +180,12 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Квадов HUD в последнем кадре (0 — HUD не рисуется).</summary>
     public int HudQuads { get; private set; }
 
+    /// <summary>Капсулы тел поверх персонажей (F7, <c>--overlay capsules</c>).</summary>
+    public bool ShowBodies { get; set; }
+
+    /// <summary>Капсул, отданных отладочному рисованию в последнем кадре (0 — капсулы не рисовались).</summary>
+    public int DrawnCapsules { get; private set; }
+
     /// <summary>Строки справки HUD.</summary>
     public IReadOnlyList<string> HelpLines => _help;
 
@@ -140,6 +202,28 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             into.Add(new VisibleEntity(f.Entity, f.IsPlayer ? "player" : f.Slot > 0 ? "enemy" : "fighter",
                 base_ - new Vector3(FighterHalfWidth, 0, FighterHalfWidth), base_ + new Vector3(FighterHalfWidth, FighterHeight, FighterHalfWidth)));
         }
+    }
+
+    IReadOnlyList<string> IClientObservable.Overlays => KnownOverlays;
+
+    /// <summary>
+    /// Код ID-буфера последнего кадра словами: владелец — боец кадра (<see cref="OwnerOf"/>), часть — сегмент тела; название
+    /// — «левое предплечье врага 3», «голова игрока».
+    /// </summary>
+    IdMeaning? IClientObservable.DescribeId(uint id)
+    {
+        var (owner, part) = SkinnedMeshes.SplitId(id);
+        if (owner == 0) return null;
+        foreach (var f in _view.Fighters)
+        {
+            if (OwnerOf(f.Entity) != owner) continue;
+            string who = f.IsPlayer ? "игрока" : $"врага {f.Slot}";
+            string kind = f.IsPlayer ? "player" : "enemy";
+            return part == SkinnedMeshes.NoPart
+                ? new IdMeaning(f.Entity, kind, null, who)
+                : new IdMeaning(f.Entity, kind, BodySegs.Name((int)part), $"{BodySegs.Title((int)part)} {who}");
+        }
+        return null;
     }
 
     /// <summary>Справка — по действующим привязкам (действие → клавиша): композиция отдаёт их после разрешения конфига.</summary>
@@ -179,6 +263,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _capsuleIndices = renderer.CreateIndices("Mesh.CapsuleIndices", CollectionsMarshal.AsSpan(idx));
 
         _manny = renderer.Skinned.LoadMesh("Manny", MannyMesh);
+        // ID-буфер: пиксель Manny — сегмент тела сустава вершины (CharacterRig.JointSegment SWORD, вид тел симуляции).
+        var bodies = _simulation.World.View<IBodyView>();
+        int joints = renderer.Skinned.JointCount(_manny);
+        if (joints != bodies.JointCount)
+            throw new InvalidDataException($"{MannyMesh}: суставов меша {joints}, скелета бойца {bodies.JointCount}");
+        var parts = new uint[joints];
+        for (int j = 0; j < joints; j++) parts[j] = (uint)bodies.JointSegment(j);
+        renderer.Skinned.SetJointParts(_manny, parts);
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -192,10 +284,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void Input(in FrameInput input)
     {
         if (input.WasPressed(ArenaInput.HudHelp)) _hud.ShowHelp = !_hud.ShowHelp;
-        // Камера — до тиков, за игроком, каким его показал прошлый кадр (Program.cs SWORD: focus по renderAlpha прошлого кадра).
+        if (input.WasPressed(ArenaInput.DebugBodies)) ShowBodies = !ShowBodies;
+        // Камера — до тиков, за тазом игрока, каким его показал прошлый кадр (Program.cs SWORD: focus — таз по renderAlpha
+        // прошлого кадра).
         if (_fixedCamera) _camera.Rebuild(input.Width, input.Height);
-        else _camera.Update(ArenaInput.Camera(input), input.Seconds, _view.Player is { } p ? p.Root with { Y = 0 } : _camera.Target,
-            input.Width, input.Height);
+        else _camera.Update(ArenaInput.Camera(input), input.Seconds, _view.PlayerFocus ?? _camera.Target, input.Width, input.Height);
 
         if (_scripted is { } scripted)
         {
@@ -233,18 +326,22 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         frame.SetFrameConstants(Constants());
 
         // Manny в позе тика (аниматор); позы нет — поза привязки: палитра InverseBind·Component·World = World.
+        // Владелец экземпляра — код бойца для ID-буфера снимка (OwnerOf).
         int skinned = 0;
-        foreach (var fighter in _view.Fighters)
+        var fighters = _view.Fighters;
+        for (int i = 0; i < fighters.Count; i++)
         {
+            var fighter = fighters[i];
             var pose = _view.Pose(fighter);
             var colour = Colour(fighter);
+            uint owner = OwnerOf(fighter.Entity);
             if (pose.IsEmpty)
             {
-                var palette = _renderer!.Skinned.Add(_manny, colour);
+                var palette = _renderer!.Skinned.Add(_manny, colour, owner);
                 palette.Fill(GpuMat34.From(fighter.World));
                 if (!palette.IsEmpty) skinned++;
             }
-            else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.World, colour)) skinned++;
+            else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.World, colour, owner)) skinned++;
         }
         SkinnedFighters = skinned;
 
@@ -254,8 +351,55 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             .Depth(frame.Scene.Depth, DepthAccess.Write, clear: 0f)
             .Execute(_drawOpaque);
 
+        // ID-буфер — только в кадре снимка, который его заказал (диагностический режим, раздел 8 плана).
+        if (frame.Capture?.IdsPath is not null)
+        {
+            var ids = frame.Graph.CreateTexture("scene.ids", new TextureDesc(TextureFormat.R32Uint, TextureUsage.ColorTarget));
+            frame.Graph.AddPass("scene.ids").Color(ids, Vector4.Zero).Depth(frame.Scene.Depth, DepthAccess.Read).Execute(_drawIds);
+            frame.CaptureIds(ids);
+        }
+
         if (_ui is not null) DrawHud(frame);
+        DrawBodies(frame);
     }
+
+    /// <summary>
+    /// Фаза Debug (после сцены и интерфейса, раздел 6 плана): капсулы тел всех бойцов, как показаны бойцы, — поверх кадра
+    /// (F7) и (или) слоем снимка <see cref="CapsulesOverlay"/> с подписями бойцов («игрок», «враг 3»).
+    /// </summary>
+    private void DrawBodies(RenderFrame frame)
+    {
+        bool layer = frame.WantsLayer(CapsulesOverlay);
+        DrawnCapsules = 0;
+        if (!ShowBodies && !layer) return;
+        var debug = _renderer!.Debug;
+        var fighters = _view.Fighters;
+        for (int i = 0; i < fighters.Count; i++)
+        {
+            var body = _view.Body(fighters[i]);
+            for (int k = 0; k < body.Length; k++)
+            {
+                ref readonly var c = ref body[k];
+                debug.Capsule(c.Center, c.Rotation, c.Radius, c.HalfLength, CapsuleColour(c.Segment));
+            }
+            DrawnCapsules += body.Length;
+        }
+        if (ShowBodies) debug.AddPass(frame, frame.Graph.BackBuffer, _camera.ViewProj, _camera.Eye, "debug.bodies");
+        if (!layer) return;
+        for (int i = 0; i < fighters.Count; i++)
+        {
+            var f = fighters[i];
+            if (_view.Body(f) is { Length: > 0 } body && BodySegs.Body(BodySegs.Head) is var head && head < body.Length)
+                debug.Text(body[head].EndB + new Vector3(0, 0.3f, 0), Labels[Math.Clamp(f.IsPlayer ? 0 : f.Slot, 0, Labels.Length - 1)],
+                    f.IsPlayer ? 0xFF80FFFFu : 0xFFFFFFFFu);
+        }
+        var target = frame.Graph.CreateTexture("overlay.capsules", new TextureDesc(TextureFormat.Rgba8Unorm, TextureUsage.ColorTarget));
+        debug.AddPass(frame, target, _camera.ViewProj, _camera.Eye, "overlay.capsules", clear: Vector4.Zero);
+        frame.CaptureLayer(CapsulesOverlay, target);
+    }
+
+    /// <summary>ID-проход: скинированные меши по глубине сцены (только проходит равная — ближайшая поверхность).</summary>
+    private void DrawIds(RenderPassContext ctx) => _renderer!.Skinned.Record(ctx, SkinId);
 
     /// <summary>HUD поверх сцены: числа кадра — прошлого (этот ещё пишется), вызовы и квады — тоже.</summary>
     private void DrawHud(RenderFrame frame)
@@ -288,8 +432,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>
     /// Константы кадра (<c>Program.Fill</c> SWORD): шаг и время тика, номер последнего тика, доля тика. Тень и кольцо
-    /// игрока — в показанной (интерполированной) точке, как и Manny. Намеренное отличие: в SWORD — таз тела на последнем
-    /// тике, и кольцо дрожит относительно плавно идущего бойца.
+    /// игрока — таз тела, как в SWORD (5в), в показанной точке, как и Manny (<see cref="ArenaView.PlayerMarker"/>).
+    /// Намеренное отличие: в SWORD — таз на последнем тике без интерполяции, и кольцо дрожит относительно плавно идущего
+    /// бойца.
     /// </summary>
     private FrameConstants Constants()
     {

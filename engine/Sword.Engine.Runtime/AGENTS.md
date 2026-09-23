@@ -23,6 +23,8 @@
 - Без модуля нет его компонентов, команд и экспорта: наблюдатели спрашивают `WorldReader.Knows<T>`,
   `Simulation.Accepts<T>`, `TickExport.Exports<T>` (у клиента — `SimulationLink`); команда без модуля — исключение.
 - `SimulationBuilder` действует только до сборки мира: регистрация из `OnWorldBuilt` и позже — исключение.
+  `OnWorldReady` — начальное наполнение после всех `OnWorldBuilt` ядра и модулей (ядро ставит по ресурсу, который задаёт
+  модуль при сборке мира: тела бойцов по позе постройки — 5в).
 - Хуки времени жизни ресурсов подсистем — `SimulationBuilder.OnAdd<T>/OnRemove<T>` (ECS, `WorldHooks.cs`; владелец —
   ядро или настраиваемый модуль, виден агенту в `ecs.componentUsage`). Первый потребитель — тело бойца (`BodyRef`, 5а).
 - Конфиг — `ConfigSet`: код → `sword.json` → `sword.user.json` → `SWORD_<СЕКЦИЯ>_<КЛЮЧ>` → `--set`. Вложенные объекты
