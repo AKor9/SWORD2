@@ -11,6 +11,11 @@
     <PackageReference Include="Microsoft.Direct3D.D3D12" />
   </ItemGroup>
 
+  <!-- Разбор ключей и SWORD_NO_ACTIVATE (Program.Parse) — тестами игры. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Game.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Sword.Game.Bootstrap\Sword.Game.Bootstrap.csproj" />
     <ProjectReference Include="..\Sword.Game.Client\Sword.Game.Client.csproj" />

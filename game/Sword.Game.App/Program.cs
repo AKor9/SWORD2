@@ -25,12 +25,21 @@ public static partial class Program
     /// <summary>Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="agent"/> остаётся null.</summary>
     static partial void StartAgent(ClientHost client, Simulation sim, int port, ref IDisposable? agent);
 
-    private sealed class Options
+    /// <summary>
+    /// Переменная окружения: окно без фокуса по умолчанию (как <c>--no-activate</c>). Её задают настройки Claude Code
+    /// проекта (<c>.claude/settings.local.json</c>, <c>env</c>) — окна прогонов агентов не встают поверх приложений
+    /// пользователя; ручной запуск из обычного терминала её не видит. <c>--activate</c> / <c>--no-activate</c> главнее.
+    /// </summary>
+    internal const string NoActivateVariable = "SWORD_NO_ACTIVATE";
+
+    internal sealed class Options
     {
         public int Width = 1600, Height = 900;
         public bool Fullscreen;
         public bool Borderless;
         public bool Activate = true;
+        /// <summary>Откуда <see cref="Activate"/>: <c>default</c>, <c>SWORD_NO_ACTIVATE</c>, <c>--activate</c>, <c>--no-activate</c>.</summary>
+        public string ActivateBy = "default";
         public bool Vsync;
         public bool Debug;
         public bool GpuValidation;
@@ -76,7 +85,8 @@ public static partial class Program
           --gpu-validation  отладочный слой с GPU-валидацией (состояния ресурсов из bindless-кучи; медленно)
           --frames N        выйти после N кадров (проверочный прогон)
           --resize-cycle    менять размер окна по кругу (проверка пересоздания задних буферов)
-          --no-activate     не отбирать фокус: окно показано внизу порядка перекрытия
+          --no-activate     не отбирать фокус: окно показано внизу порядка перекрытия (и с --fullscreen, --borderless)
+          --activate        окно с фокусом, даже если задана SWORD_NO_ACTIVATE (из двух ключей действует последний)
           --shot FILE.png   снять кадр в PNG: последний кадр прогона (--frames), без него — 30-й; с --bench — последний
                             кадр замера
           --screenshots DIR куда класть снимки F4 (по умолчанию screenshots в текущем каталоге)
@@ -122,6 +132,9 @@ public static partial class Program
                             профайлера (--profile, F2, агент) — файлы artifacts/profile/<прогон>/anomaly-*.json и строки журнала
           --profile-trace   то же, что --profile, и кольцо профайлера в Chrome Trace (trace.json рядом с profile.json:
                             Perfetto, chrome://tracing)
+        Переменные:
+          SWORD_NO_ACTIVATE=1 (или true)  окно без фокуса по умолчанию, как --no-activate (так запускают агенты: она задана
+                            в настройках Claude Code проекта); пусто, 0, false — как без неё; --activate и --no-activate главнее
         """;
 
     public static int Main(string[] args)
@@ -132,7 +145,7 @@ public static partial class Program
         Options options;
         try
         {
-            options = Parse(args);
+            options = Parse(args, Environment.GetEnvironmentVariable(NoActivateVariable));
         }
         catch (ArgumentException ex)
         {
@@ -143,6 +156,9 @@ public static partial class Program
 
         // При --json stdout — только итог для агента; журнал уходит в stderr.
         if (options.Json) Log.SetSinks(new ConsoleLogSink(allToStandardError: true));
+        // Почему окно не взяло фокус, когда ключа не было: переменная из настроек Claude Code (агентские запуски).
+        if (options.ActivateBy == NoActivateVariable)
+            Log.Info("sword", $"окно без фокуса: {NoActivateVariable}={Environment.GetEnvironmentVariable(NoActivateVariable)} (фокус — --activate)");
 
         try
         {
@@ -269,6 +285,8 @@ public static partial class Program
                         distance = arena.Camera.Distance, target = new[] { arena.Camera.Target.X, arena.Camera.Target.Z },
                     },
                     input = bindings.Keys,
+                    // Окно: взяло ли фокус при показе и почему (--activate, --no-activate, SWORD_NO_ACTIVATE, default).
+                    window = new { activate = options.Activate, activateBy = options.ActivateBy },
                     // Арена последнего тика (этап 4а): заданное число врагов, бойцов в мире и отданных скиннингу в кадре.
                     arena = new
                     {
@@ -335,9 +353,18 @@ public static partial class Program
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
-    private static Options Parse(string[] args)
+    /// <summary>
+    /// Опции из ключей командной строки и значения <see cref="NoActivateVariable"/> (<paramref name="noActivate"/>;
+    /// null — переменной нет): переменная задаёт умолчание фокуса, ключи <c>--activate</c> / <c>--no-activate</c> — главнее.
+    /// </summary>
+    internal static Options Parse(string[] args, string? noActivate = null)
     {
         var o = new Options();
+        if (NoActivateFlag(noActivate))
+        {
+            o.Activate = false;
+            o.ActivateBy = NoActivateVariable;
+        }
         for (int i = 0; i < args.Length; i++)
         {
             string a = args[i];
@@ -364,7 +391,8 @@ public static partial class Program
                         throw new ArgumentException($"{a}: ожидается число кадров");
                     break;
                 case "--resize-cycle": o.ResizeCycle = true; break;
-                case "--no-activate": o.Activate = false; break;
+                case "--no-activate": (o.Activate, o.ActivateBy) = (false, a); break;
+                case "--activate": (o.Activate, o.ActivateBy) = (true, a); break;
                 case "--json": o.Json = true; break;
                 case "--shot": o.Shot = Next(); break;
                 case "--screenshots": o.Screenshots = Next(); break;
@@ -455,6 +483,18 @@ public static partial class Program
         if (o.Replay is not null && (o.Command is not null || o.Hold.Count > 0))
             throw new ArgumentException("--replay: команды игрока — из реплея; --move, --walk, --gaze, --hold нельзя");
         return o;
+    }
+
+    /// <summary>
+    /// Значение <see cref="NoActivateVariable"/>: <c>1</c>, <c>true</c> (без учёта регистра) — без фокуса; нет, пусто, <c>0</c>,
+    /// <c>false</c> — как без переменной. Иное — ошибка запуска: опечатка не должна молча вернуть окну фокус.
+    /// </summary>
+    internal static bool NoActivateFlag(string? value)
+    {
+        string v = value?.Trim() ?? "";
+        if (v is "" or "0" || v.Equals("false", StringComparison.OrdinalIgnoreCase)) return false;
+        if (v is "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase)) return true;
+        throw new ArgumentException($"{NoActivateVariable}={value}: ожидается 1 или true (окно без фокуса), 0, false или пусто");
     }
 
     /// <summary>Корень репозитория — папка с SWORD.slnx выше exe; null — exe вне репозитория.</summary>
