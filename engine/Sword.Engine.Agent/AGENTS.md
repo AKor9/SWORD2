@@ -33,5 +33,9 @@
   артефакты и отдельные симуляции построителем сеанса (`AgentSimulation.Build`, как `replay.check`; сеанс не
   трогается). Где манифесты и чем снимать виды, задаёт exe игры — `AgentHost.Features` (`FeatureSetup`); движок путей
   игры не знает.
+- Профайлер CPU (этап П, точка Па) — `ProfileTools` (`profile.stages`) над `AgentHost.Profiler`: у Headless — свой,
+  `SimulationLoop` подключает его к каждой симуляции сеанса (и в `Preparing` — до первого тика новой); у живой игры exe
+  отдаёт профайлер клиента (`host.Profiler = client.Profiler`). Профайлер однопоточный: включение, сброс и итоги — только
+  в точке обслуживания; включение — диагностика, не команда симуляции (в реплей не пишется).
 
 Проверка: `tests/Sword.Engine.Agent.Tests`, `verify.ps1` шаг `agent-smoke`.

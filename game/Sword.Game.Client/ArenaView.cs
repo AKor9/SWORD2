@@ -1,5 +1,6 @@
 using System.Numerics;
 using Sword.Engine.Client;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 using Sword.Game.Contracts;
 
@@ -54,6 +55,24 @@ public sealed class ArenaView
 
     /// <param name="height">Высота рельефа в точке (x, z) — функция рельефа (<c>ArenaTerrain.Height</c>), не сетка рисования.</param>
     public ArenaView(Func<float, float, float> height) => _height = height;
+
+    private CpuProfiler _profiler = CpuProfiler.Off;
+    private int _posesZone, _bodiesZone;
+
+    /// <summary>
+    /// Профайлер CPU кадра (точка Па): копия поз бойцов — зона <c>arena.extract.poses</c>, чтение и перенос капсул тел —
+    /// <c>arena.extract.bodies</c> (по вызову на бойца). Задаёт клиент арены из профайлера рендера.
+    /// </summary>
+    public CpuProfiler Profiler
+    {
+        get => _profiler;
+        set
+        {
+            _posesZone = value.Zone("arena.extract.poses");
+            _bodiesZone = value.Zone("arena.extract.bodies");
+            _profiler = value;
+        }
+    }
 
     /// <summary>Бойцов, пропущенных кадром: у сущности нет корня или корня прошлого тика (ошибка симуляции).</summary>
     public int Skipped { get; private set; }
@@ -116,6 +135,7 @@ public sealed class ArenaView
         _views.Clear();
         world.TryView<IAnimationView>(out var poses);
         world.TryView<IBodyView>(out var bodies);
+        var profiler = _profiler;
         int posed = 0, bodied = 0;
         foreach (var e in _fighters)
         {
@@ -127,6 +147,7 @@ public sealed class ArenaView
             var view = Interpolate(e, world.Has<PlayerTag>(e), prev, cur, alpha, _height);
             if (world.TryGet<FighterSlot>(e, out var slot)) view = view with { Slot = slot.Index };
             // Поза — последнего тика, без интерполяции между тиками (как SkinnedCharacters SWORD): плавно идёт корень.
+            profiler.Begin(_posesZone);
             if (poses is not null && world.TryGet<PoseRef>(e, out var poseRef) && poses.Model(poseRef) is { Length: > 0 } model)
             {
                 if (_poses.Length < posed + model.Length) Array.Resize(ref _poses, Math.Max(_poses.Length * 2, posed + model.Length));
@@ -134,7 +155,9 @@ public sealed class ArenaView
                 view = view with { PoseStart = posed, PoseCount = model.Length };
                 posed += model.Length;
             }
+            profiler.End(_posesZone);
             // Тело — постановка последнего тика в мире, где кадр показывает бойца (как меш): без отставания от персонажа.
+            profiler.Begin(_bodiesZone);
             if (bodies is not null && world.TryGet<BodyRef>(e, out var bodyRef) && ReadBody(bodies, bodyRef) is > 0 and var n)
             {
                 if (_bodies.Length < bodied + n) Array.Resize(ref _bodies, Math.Max(_bodies.Length * 2, bodied + n));
@@ -152,6 +175,7 @@ public sealed class ArenaView
                 }
                 bodied += n;
             }
+            profiler.End(_bodiesZone);
             _views.Add(view);
             if (view.IsPlayer)
             {

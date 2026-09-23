@@ -28,7 +28,14 @@ public sealed record DescribeDiff(string Part, int Total, IReadOnlyList<(string 
 /// <summary>Строка перебора (<c>experiment.sweep</c>): комбинация ключей и замеры повторов.</summary>
 public sealed record SweepRow(IReadOnlyList<string> Sets, int Repeats, double MsMedian, double MsMin, double MsMax,
     IReadOnlyDictionary<string, double> Stages, double AllocatedBytesPerTick, int Entities, string? Hash, bool Deterministic,
-    long Violations, string? Error);
+    long Violations, string? Error)
+{
+    /// <summary>
+    /// Мс систем на тик по убыванию (точка Па) — отдельный прогон с профайлером CPU после повторов (медиана — без него);
+    /// null — не мерялось.
+    /// </summary>
+    public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; init; }
+}
 
 /// <summary>
 /// Эксперименты (раздел 8 плана): развилка реплея на ветки (<see cref="Fork"/>), сравнение двух прогонов
@@ -193,9 +200,13 @@ public static class Experiments
     /// Строка — медиана, разброс, стадии, байты на тик, число сущностей, хеш итога и одинаков ли он у всех прогонов, с кругом
     /// прогрева (детерминизм), нарушения.
     /// </summary>
+    /// <param name="systems">
+    /// Время систем (точка Па): после повторов — ещё прогон каждой комбинации с профайлером CPU (зоны <c>метка@стадия</c>);
+    /// медиана, разброс и масштабирование — только из прогонов без него.
+    /// </param>
     public static (IReadOnlyList<SweepRow> Rows, IReadOnlyList<string> Scaling) Sweep(Replay? scenario, ulong ticks,
         IReadOnlyList<(string Key, IReadOnlyList<string> Values)> parameters, int repeats, int warmup, Func<ConfigSet, Simulation> build,
-        CancellationToken cancel = default)
+        CancellationToken cancel = default, bool systems = true)
     {
         if (parameters.Count == 0) throw new ArgumentException("params: хотя бы один ключ со значениями");
         foreach (var (key, values) in parameters)
@@ -235,6 +246,15 @@ public static class Experiments
                     run.Error = e.Message;
                 }
             }
+        if (systems)
+            foreach (var run in runs)
+            {
+                if (run.Error is not null) continue;
+                cancel.ThrowIfCancellationRequested();
+                var sim = build(scenario?.CreateConfig(run.Sets) ?? ConfigSet.Empty([.. run.Sets]));
+                if (scenario is not null) sim.Play(scenario.Head(scenario.Ticks, hashes: false));
+                run.Systems = SimulationMeasure.Run(sim, ticks, warmup, cancel, profile: true).Systems;
+            }
 
         var rows = new List<SweepRow>();
         foreach (var run in runs)
@@ -248,7 +268,10 @@ public static class Experiments
             var ms = measures.Select(m => m.MsPerTick).Order().ToList();
             var stages = measures[0].Stages.Keys.ToDictionary(s => s, s => FeatureVerifier.Median([.. measures.Select(m => m.Stages[s]).Order()]));
             rows.Add(new SweepRow(run.Sets, measures.Count, FeatureVerifier.Median(ms), ms[0], ms[^1], stages, measures.Max(m => m.AllocatedBytesPerTick),
-                run.Entities, run.Hashes.Count == 1 ? run.Hashes.First() : string.Join(" ≠ ", run.Hashes), run.Hashes.Count == 1, run.Violations, run.Error));
+                run.Entities, run.Hashes.Count == 1 ? run.Hashes.First() : string.Join(" ≠ ", run.Hashes), run.Hashes.Count == 1, run.Violations, run.Error)
+            {
+                Systems = run.Systems,
+            });
         }
         return (rows, Scaling(parameters, rows));
     }
@@ -262,6 +285,7 @@ public static class Experiments
         public int Entities { get; set; }
         public long Violations { get; set; }
         public string? Error { get; set; }
+        public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; set; }
     }
 
     private static IEnumerable<List<(string Key, string Value)>> Combinations(IReadOnlyList<(string Key, IReadOnlyList<string> Values)> parameters)

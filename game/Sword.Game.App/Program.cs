@@ -47,6 +47,7 @@ public static partial class Program
         public double Bench;
         public string? Screenshots;
         public bool Agent;
+        public bool Profile;
         public int AgentPort = 47813;
         public string? Record;
         public string? Replay;
@@ -106,6 +107,10 @@ public static partial class Program
                             и мышь игроком не управляют, камера — как обычно; хеши сверяются по участникам (итог --json —
                             replay); после конца реплея игрок стоит. Так снимаются виды фичи (feature.verify)
           --json            итог — одной строкой JSON в stdout (для агента)
+          --profile         профайлер CPU с первого кадра: время и выделения фаз кадра, тиков, стадий, систем,
+                            инвариантов, проходов графа, зон игры; отчёт — artifacts/profile/<прогон>/profile.json,
+                            в --json — секция profile; с --bench — только кадры замера. Агент включает его и без
+                            ключа (profile.stages)
         """;
 
     public static int Main(string[] args)
@@ -160,6 +165,7 @@ public static partial class Program
                 Resizable: !options.Fullscreen && !options.Borderless));
 
             ClientRunReport report;
+            CpuProfiler profiler;
             using (var client = new ClientHost(window, new ClientOptions
             {
                 Vsync = options.Vsync,
@@ -175,8 +181,10 @@ public static partial class Program
                 MaxFps = options.MaxFps,
                 Bindings = bindings,
                 HeldActions = options.Hold,
+                Profile = options.Profile,
             }, arena, simulation))
             {
+                profiler = client.Profiler;
                 IDisposable? agent = null;
                 if (options.Agent)
                 {
@@ -200,6 +208,20 @@ public static partial class Program
                 recorded.Save(options.Record);
                 if (!options.Json) Log.Info("replay", $"записан {Path.GetFullPath(options.Record)}: {recorded.Ticks} тиков, хешей {recorded.Hashes.Count}");
             }
+
+            // Профайлер (--profile, точка Па): отчёт — в артефакты прогона.
+            string? profileFile = options.Profile
+                ? profiler.Write(ProfilePath(), new System.Text.Json.Nodes.JsonObject
+                {
+                    ["process"] = "app",
+                    ["args"] = new System.Text.Json.Nodes.JsonArray([.. args.Select(a => (System.Text.Json.Nodes.JsonNode?)a)]),
+                    ["finished"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture),
+                    ["runtime"] = Environment.Version.ToString(),
+                    ["adapter"] = report.Adapter,
+                    ["exitReason"] = report.ExitReason,
+                })
+                : null;
+            if (profileFile is not null && !options.Json) Log.Info("profile", $"профайлер: {profileFile}");
 
             // Корень игрока последнего кадра — для сверки с Headless на том же числе тиков (verify.ps1, app-smoke).
             // Показанный кадром игрок (интерполированный) и камера — что видел пользователь.
@@ -234,6 +256,8 @@ public static partial class Program
                         runs = recorded.Runs.Count, commands = recorded.CommandCount,
                         stateHash = recorded.Hashes.Count > 0 ? string.Join(' ', recorded.Hashes[^1].Parts.Select(p => p.ToString("X16"))) : null,
                     },
+                    // Профайлер (--profile, точка Па): файл отчёта и главные зоны кадра; без ключа — null.
+                    profile = profileFile is null ? null : ProfileJson(profiler, profileFile),
                     // Воспроизведение (--replay): совпали ли хеши App с записанными — тот же реплей, что у Headless.
                     replay = playback is null ? null : new
                     {
@@ -306,6 +330,7 @@ public static partial class Program
                 case "--no-hud": o.NoHud = true; break;
                 case "--overlay": o.Overlays.Add(Next()); break;
                 case "--agent": o.Agent = true; break;
+                case "--profile": o.Profile = true; break;
                 case "--agent-port":
                     if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.AgentPort) || o.AgentPort is < 1 or > 65535)
                         throw new ArgumentException($"{a}: ожидается порт 1…65535");
@@ -373,6 +398,30 @@ public static partial class Program
         if (o.Replay is not null && (o.Command is not null || o.Hold.Count > 0))
             throw new ArgumentException("--replay: команды игрока — из реплея; --move, --walk, --gaze, --hold нельзя");
         return o;
+    }
+
+    /// <summary>Корень репозитория — папка с SWORD.slnx выше exe; null — exe вне репозитория.</summary>
+    internal static string? RepoRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            if (File.Exists(Path.Combine(dir.FullName, "SWORD.slnx"))) return dir.FullName;
+        return null;
+    }
+
+    /// <summary>
+    /// Отчёт профайлера прогона (<c>--profile</c>): <c>artifacts/profile/&lt;дата-время&gt;-app-&lt;pid&gt;/profile.json</c> в корне
+    /// репозитория, вне репозитория — рядом с exe.
+    /// </summary>
+    private static string ProfilePath() =>
+        Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "profile",
+            $"{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-app-{Environment.ProcessId}", "profile.json");
+
+    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта и коротко — главные зоны кадра.</summary>
+    private static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file)
+    {
+        var json = profiler.Summary(12);
+        json.Insert(0, "file", file);
+        return json;
     }
 
     /// <summary>Отпечаток пака (реплей и квитанции агента называют его).</summary>

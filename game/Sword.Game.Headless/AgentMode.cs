@@ -19,7 +19,7 @@ namespace Sword.Game.Headless;
 /// </summary>
 public static partial class Program
 {
-    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, ref int? exit)
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, ref int? exit)
     {
         var ring = new LogRing();
         Log.SetSinks(new ConsoleLogSink(allToStandardError: true), ring);
@@ -43,6 +43,8 @@ public static partial class Program
         });
         SwordAgent.Register(host);
         host.Features = Features();
+        // --profile: профайлер сеанса включён с начала (profile.stages включает и без ключа); отчёт — при выходе.
+        if (profile) host.Profiler.SetEnabled(true);
 
         var session = new AgentSimulation(sim, ReplayInfo.Current(host.ContentHash), build,
             sets => ConfigSet.Load(AppContext.BaseDirectory, sets));
@@ -72,20 +74,13 @@ public static partial class Program
             recorder.ToReplay().Save(path);
             Log.Info("agent", $"реплей сеанса: {path}");
         }
+        if (profile) Log.Info("profile", $"профайлер: {host.Profiler.Write(ProfilePath("headless-agent"), ProfileHeader("headless-agent", System.Environment.GetCommandLineArgs()[1..]))}");
         Log.Info("agent", $"сеанс {host.SessionId} закончен на тике {session.Current.Tick} (симуляция №{session.Run})");
         exit = 0;
     }
 
     /// <summary><c>artifacts/agent</c> в корне репозитория (папка с SWORD.slnx выше exe), иначе рядом с exe.</summary>
     internal static string ArtifactsRoot() => Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "agent");
-
-    /// <summary>Корень репозитория — папка с SWORD.slnx выше exe; null — exe вне репозитория.</summary>
-    internal static string? RepoRoot()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, "SWORD.slnx"))) return dir.FullName;
-        return null;
-    }
 
     // ── приёмка фич (этап 3д) ─────────────────────────────────────────────
 

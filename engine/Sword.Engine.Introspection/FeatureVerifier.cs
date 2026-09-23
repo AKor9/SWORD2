@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
 
@@ -558,6 +559,23 @@ public static class FeatureVerifier
 
         if (budget.AllocatedBytesPerTick is { } maxBytes && bytes > maxBytes)
             failures.Add($"выделено {Fmt(bytes)} Б/тик, предел {Fmt(maxBytes)}");
+
+        // Время систем (точка Па): ещё один прогон — с профайлером CPU; медиана и пределы выше — без него. Байты этого прогона
+        // держат тот же предел: включённый профайлер не выделяет памяти.
+        var (profiledSim, profiledReplay) = Prepare(manifest, scenario, env, ["sim.invariants=false"], failures, hashes: false);
+        if (profiledSim is not null)
+        {
+            var profiled = SimulationMeasure.Run(profiledSim, scenario.Ticks ?? profiledReplay!.Ticks, budget.Warmup, cancel, profile: true);
+            json["profiled"] = new JsonObject
+            {
+                ["note"] = "отдельный прогон с профайлером CPU — время систем; медиана и пределы бюджета — прогоны без него",
+                ["msPerTick"] = Math.Round(profiled.MsPerTick, 5),
+                ["allocatedBytesPerTick"] = Math.Round(profiled.AllocatedBytesPerTick, 3),
+            };
+            json["systems"] = new JsonObject([.. profiled.Systems!.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)Math.Round(p.Value, 5)))]);
+            if (budget.AllocatedBytesPerTick is { } maxProfiled && profiled.AllocatedBytesPerTick > maxProfiled)
+                failures.Add($"с профайлером выделено {Fmt(profiled.AllocatedBytesPerTick)} Б/тик, предел {Fmt(maxProfiled)}");
+        }
         if (!env.Optimized)
             json["time"] = "не проверяется: сборка Debug (время — только в Release, verify.ps1 -Configuration Release)";
         else
@@ -634,15 +652,28 @@ public static class FeatureVerifier
 
 /// <summary>
 /// Замер прогона (бюджеты фич, <c>experiment.sweep</c>): мс на тик после прогрева, мс стадий (<see cref="StageTimer"/>),
-/// выделенные байты на тик потока симуляции после прогрева.
+/// выделенные байты на тик потока симуляции после прогрева; с профайлером (<c>profile: true</c>, точка Па) — ещё мс систем
+/// (<see cref="Systems"/>: зоны <c>метка@стадия</c> профайлера CPU, среднее на тик после прогрева). Прогон с профайлером —
+/// отдельный: медианы бюджета меряются без него (пара зон включённого — ~0,04 мкс; тик толпы 32 врагов без инвариантов
+/// с ним дольше на ~5 %: 0,110 против 0,105 мс, Release).
 /// </summary>
 public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<string, double> Stages, double AllocatedBytesPerTick)
 {
+    /// <summary>Мс систем на тик (по убыванию) — только у прогона с профайлером, иначе null.</summary>
+    public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; init; }
+
     /// <summary>Сыграть симуляцию до <paramref name="ticks"/> тиков; первые <paramref name="warmup"/> — прогрев, не меряются.</summary>
-    public static SimulationMeasure Run(Simulation sim, ulong ticks, int warmup, CancellationToken cancel = default)
+    /// <param name="profile">С профайлером CPU (время систем); симуляции он не меняет.</param>
+    public static SimulationMeasure Run(Simulation sim, ulong ticks, int warmup, CancellationToken cancel = default, bool profile = false)
     {
         var timer = new StageTimer(sim);
         sim.Observe(timer);
+        var profiler = profile ? new CpuProfiler(history: 0) : null;
+        if (profiler is not null)
+        {
+            sim.AttachProfiler(profiler);
+            profiler.SetEnabled(true);
+        }
         long allocated = 0, elapsed = 0;
         ulong measured = 0;
         while (sim.Tick < ticks)
@@ -652,6 +683,7 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
             if (sim.Tick < (ulong)warmup)
             {
                 sim.Step();
+                if (sim.Tick == (ulong)warmup) profiler?.Reset();
                 continue;
             }
             long bytes = GC.GetAllocatedBytesForCurrentThread();
@@ -663,9 +695,18 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
             measured++;
         }
         sim.Unobserve(timer);
+        IReadOnlyList<KeyValuePair<string, double>>? systems = null;
+        if (profiler is not null)
+        {
+            systems = [.. profiler.Stats(ProfilePeriod.Tick).Where(z => z.Name.Contains('@')).Select(z => KeyValuePair.Create(z.Name, z.MeanMs))];
+            sim.AttachProfiler(CpuProfiler.Off);
+        }
         return new SimulationMeasure(
             measured == 0 ? 0 : elapsed * 1000.0 / Stopwatch.Frequency / measured, timer.Means(),
-            measured == 0 ? 0 : allocated / (double)measured);
+            measured == 0 ? 0 : allocated / (double)measured)
+        {
+            Systems = systems,
+        };
     }
 }
 

@@ -365,6 +365,51 @@ public sealed class ArenaTests
         Assert.Equal(0, sim.Invariants.Total);
     }
 
+    /// <summary>
+    /// Профайлер CPU (точка Па) на толпе 32 врагов с инвариантами: включённый — 0 байт на тик; хеш каждого тика — тот же, что
+    /// без профайлера (он только читает часы); в итогах — тик, стадии игры, каждая система ядра и модуля, инварианты.
+    /// </summary>
+    [Fact]
+    public void SteadyTick_With32Enemies_Profiled_DoesNotAllocate_SameHashes()
+    {
+        var plain = Create("arena.enemies=32");
+        var sim = Create("arena.enemies=32");
+        var profiler = new CpuProfiler();
+        sim.AttachProfiler(profiler);
+        profiler.SetEnabled(true);
+        var command = new PlayerCommand { Move = new Vector2(1, 1), HasGaze = true, Gaze = new Vector3(5, 0, 5) };
+        var a = new ulong[plain.StateParts.Count];
+        var b = new ulong[sim.StateParts.Count];
+        void Step(Simulation s)
+        {
+            s.Export.BeginFrame();
+            s.Enqueue(command);
+            s.Step();
+        }
+        for (int i = 0; i < 200; i++)
+        {
+            Step(plain);
+            Step(sim);
+            Assert.Equal(plain.HashState(a), sim.HashState(b));
+        }
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 600; i++) Step(sim);
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        for (int i = 0; i < 600; i++) Step(plain);
+        Assert.Equal(plain.HashState(a), sim.HashState(b));
+        Assert.Equal(0, sim.Invariants.Total);
+
+        Assert.Equal((800, 0), profiler.Count(ProfilePeriod.Tick));
+        var zones = profiler.Stats(ProfilePeriod.Tick).Select(z => z.Name).ToHashSet();
+        foreach (var system in sim.World.Systems)
+            Assert.Contains(system.Name, zones);
+        foreach (var invariant in sim.Invariants.List().Where(i => i.Enabled))
+            Assert.Contains("invariant." + invariant.Id, zones);
+        foreach (string stage in sim.World.Stages)
+            Assert.Contains("stage." + stage, zones);
+        Assert.Equal(0, profiler.Mismatches);
+    }
+
     /// <summary>Неисправность мест на тике <see cref="Tick"/> (Settle): снять врага места 3 мимо команды арены или дать ему место 2.</summary>
     private sealed class SlotFault(bool duplicate) : IModule
     {

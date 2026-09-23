@@ -19,6 +19,12 @@ public static class Program
     /// <summary>Верх цели «20–30 %»: отношение медиан ECS / сырой цикл.</summary>
     public const double MaxRatio = 1.30;
 
+    /// <summary>
+    /// Цель профайлера (этап П, точка Па): пара Begin/End выключенного — не дороже стольких нс сверх пустого цикла (проверка
+    /// поля; при зоне на систему — ~60 пар на тик толпы, то есть меньше 0,1 мкс на тик).
+    /// </summary>
+    public const double MaxDisabledPairNs = 1.5;
+
     public static int Main(string[] args)
     {
 #if DEBUG
@@ -38,6 +44,10 @@ public static class Program
             .AddDiagnoser(MemoryDiagnoser.Default)
             .AddExporter(MarkdownExporter.GitHub)
             .WithArtifactsPath(Path.Combine(outDir, "BenchmarkDotNet"));
+
+        // Профайлер CPU (точка Па) — свой итог artifacts/bench/profiler.json; --profiler — только он. В полном прогоне — последним:
+        // бенчмарки идут в одном процессе, и его прогон не должен стоять перед замерами ECS и поз.
+        if (args.Contains("--profiler")) return Profiler(config, outDir, quick) ? 0 : 1;
 
         var iteration = BenchmarkRunner.Run<EcsIteration>(config);
         var commands = BenchmarkRunner.Run<EcsCommandsAndJournals>(config);
@@ -87,8 +97,43 @@ public static class Program
         });
         File.WriteAllText(Path.Combine(outDir, "ecs.json"), json);
         Console.WriteLine(json);
-        return ok ? 0 : 1;
+        bool profilerOk = Profiler(config, outDir, quick);
+        return ok && profilerOk ? 0 : 1;
 #endif
+    }
+
+    /// <summary>
+    /// Пара Begin/End профайлера CPU: нс на пару сверх пустого цикла — выключенного (цель — не больше
+    /// <see cref="MaxDisabledPairNs"/>) и включённого; байты — 0 у обоих. Итог — <c>artifacts/bench/profiler.json</c>.
+    /// </summary>
+    private static bool Profiler(IConfig config, string outDir, bool quick)
+    {
+        var summary = BenchmarkRunner.Run<ProfilerZone>(config);
+        double Ns(string method) => summary.Reports.Single(r => r.BenchmarkCase.Descriptor.WorkloadMethod.Name == method).ResultStatistics!.Median;
+        long Bytes(string method)
+        {
+            var r = summary.Reports.Single(x => x.BenchmarkCase.Descriptor.WorkloadMethod.Name == method);
+            return r.GcStats.GetBytesAllocatedPerOperation(r.BenchmarkCase) ?? -1;
+        }
+        double loop = Ns(nameof(ProfilerZone.Loop)), disabled = Ns(nameof(ProfilerZone.Disabled)), enabled = Ns(nameof(ProfilerZone.Enabled));
+        long disabledBytes = Bytes(nameof(ProfilerZone.Disabled)), enabledBytes = Bytes(nameof(ProfilerZone.Enabled));
+        bool ok = disabled - loop <= MaxDisabledPairNs && disabledBytes == 0 && enabledBytes == 0;
+        var result = new
+        {
+            ok, quick, maxDisabledPairNs = MaxDisabledPairNs,
+            loopNs = Math.Round(loop, 3), disabledNs = Math.Round(disabled, 3), enabledNs = Math.Round(enabled, 3),
+            disabledPairNs = Math.Round(disabled - loop, 3), enabledPairNs = Math.Round(enabled - loop, 3),
+            disabledBytes, enabledBytes,
+            timer = new { frequency = System.Diagnostics.Stopwatch.Frequency },
+            runtime = Environment.Version.ToString(), machine = Environment.MachineName, date = DateTime.UtcNow.ToString("u"),
+        };
+        string json = JsonSerializer.Serialize(result, new JsonSerializerOptions
+        {
+            WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+        File.WriteAllText(Path.Combine(outDir, "profiler.json"), json);
+        Console.WriteLine(json);
+        return ok;
     }
 
     private static double Median(Summary summary, string method, int chunkBytes) =>

@@ -214,6 +214,9 @@ public sealed class FeatureTests : IDisposable
         Assert.Equal(0.0, budget["allocatedBytesPerTick"]!.GetValue<double>());
         Assert.Contains("Debug", budget["time"]!.GetValue<string>());
         Assert.Contains("S1", budget["stages"]!.AsObject().Select(p => p.Key));
+        // Точка Па: время систем — отдельный прогон с профайлером CPU; его байты — тот же предел (0).
+        Assert.Equal(["runtime.commands@runtime.commands", "runtime.export@runtime.export", "test.mover@S1", "test.reader@S2"], budget["systems"]!.AsObject().Select(p => p.Key).Order());
+        Assert.Equal(0.0, budget["profiled"]!["allocatedBytesPerTick"]!.GetValue<double>());
 
         // Вид играет запись сценария Headless: те же команды и хеши каждого тика.
         Assert.NotNull(seen);
@@ -414,7 +417,14 @@ public sealed class FeatureTests : IDisposable
             return sim;
         }
         var (warmed, _) = Experiments.Sweep(null, 20, [("sim.tickRate", ["60", "120"]), ("sim.seed", ["1", "2"])], 2, 5, Logged);
-        Assert.Equal(["60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2"], order);
+        // Точка Па: после повторов — ещё круг с профайлером CPU (время систем); медианы — только из повторов.
+        Assert.Equal(["60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2",
+            "60/1", "60/2", "120/1", "120/2"], order);
+        Assert.All(warmed, r => Assert.Equal(["runtime.commands@runtime.commands", "runtime.export@runtime.export", "test.mover@S1", "test.reader@S2"], r.Systems!.Select(p => p.Key).Order()));
+        order.Clear();
+        var (bare, _) = Experiments.Sweep(null, 20, [("sim.seed", ["1"])], 1, 5, Logged, systems: false);
+        Assert.Equal(["120/1", "120/1"], order);   // круг прогрева и повтор, без прогона с профайлером
+        Assert.Null(Assert.Single(bare).Systems);
         Assert.All(warmed, r => Assert.True(r.Repeats == 2 && r.Deterministic, string.Join(",", r.Sets)));
 
         var (bad, _) = Experiments.Sweep(null, 20, [("sim.nope", ["1"])], 1, 0, Build);

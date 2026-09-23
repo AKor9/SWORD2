@@ -127,7 +127,8 @@ internal static class ExperimentTools
             Description = "Перебор комбинаций ключей конфига (params: {\"секция.ключ\": [значения]}, до 64 комбинаций) — сначала каждая по разу " +
                 "без замера (прогрев JIT), затем repeats повторов по кругу комбинаций: реплей replay (без него — мир без команд) до ticks тиков, первые warmup — прогрев. Строка — ключи, мс на " +
                 "тик (медиана, мин, макс), мс стадий, байты на тик, сущностей, хеш итога и одинаков ли он у повторов " +
-                "(детерминизм), нарушения инвариантов. scaling — первое резкое ухудшение масштабирования по числовому ключу. " +
+                "(детерминизм), нарушения инвариантов; systems — мс систем на тик (метка@стадия) из отдельного прогона с профайлером CPU " +
+                "после повторов (медиана — без него). scaling — первое резкое ухудшение масштабирования по числовому ключу. " +
                 "Время осмысленно в Release. Только Headless.",
             Arguments = CoreTools.Props(
                 ("params", new JsonObject { ["type"] = "object", ["description"] = "ключ конфига → массив значений: {\"sim.tickRate\":[60,120]}" }),
@@ -135,6 +136,7 @@ internal static class ExperimentTools
                 ("ticks", CoreTools.Int("тиков прогона (по умолчанию — длина реплея или 600)", 2, 10_000_000)),
                 ("repeats", CoreTools.Int("повторов каждой комбинации (по умолчанию 3)", 1, 20)),
                 ("warmup", CoreTools.Int("тиков прогрева (по умолчанию 120)", 0, 100_000)),
+                ("systems", CoreTools.Int("сколько систем (по времени) в строке: прогон с профайлером; 0 — без него (по умолчанию 10)", 0, 1000)),
                 ("timeoutSeconds", CoreTools.Num("сколько ждать, с (по умолчанию 300)", 1, 3600))),
             Required = ["params"],
             Cost = ToolCost.Heavy,
@@ -151,9 +153,10 @@ internal static class ExperimentTools
                 var parameters = Params(call.Node("params"));
                 ulong ticks = (ulong)call.Integer("ticks", replay is null ? 600 : (long)Math.Min(replay.Ticks, 10_000_000), 2, 10_000_000);
                 int repeats = (int)call.Integer("repeats", 3, 1, 20), warmup = (int)call.Integer("warmup", 120, 0, 100_000);
+                int systems = (int)call.Integer("systems", 10, 0, 1000);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(call.Cancel);
                 timeout.CancelAfter(TimeSpan.FromSeconds(Math.Min(call.Number("timeoutSeconds", 300, 1, 3600), host.MaxWaitSeconds)));
-                var (rows, scaling) = await Task.Run(() => Experiments.Sweep(replay, ticks, parameters, repeats, warmup, session.Build, timeout.Token),
+                var (rows, scaling) = await Task.Run(() => Experiments.Sweep(replay, ticks, parameters, repeats, warmup, session.Build, timeout.Token, systems > 0),
                     timeout.Token).ConfigureAwait(false);
                 return new ToolOutput(new JsonObject
                 {
@@ -169,6 +172,7 @@ internal static class ExperimentTools
                         },
                         ["stages"] = new JsonObject([.. r.Stages.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)Math.Round(p.Value, 5)))]),
                         ["allocatedBytesPerTick"] = Math.Round(r.AllocatedBytesPerTick, 3),
+                        ["systems"] = r.Systems is null ? null : new JsonObject([.. r.Systems.Take(systems).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)Math.Round(p.Value, 5)))]),
                         ["entities"] = r.Entities, ["hash"] = r.Hash, ["deterministic"] = r.Deterministic, ["violations"] = r.Violations,
                         ["error"] = r.Error,
                     })]),

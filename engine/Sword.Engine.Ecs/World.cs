@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Sword.Engine.Diagnostics;
 
 namespace Sword.Engine.Ecs;
 
@@ -96,6 +97,8 @@ public sealed partial class World
         _stages = stages;
         _order = new List<Registration>[stages.Length];
         for (int i = 0; i < stages.Length; i++) _order[i] = [];
+        _stageZones = new int[stages.Length];
+        _barrierZones = new int[stages.Length];
         _tracked = new bool[types.Length];
         _hooks = new ComponentHooks?[types.Length];
         _hooked = new bool[types.Length];
@@ -348,22 +351,31 @@ public sealed partial class World
     {
         NotInTick(nameof(RunTick));
         _inTick = true;
+        // Профайлер (точка Па): зоны стадии (системы, барьер и наблюдатель после него), каждой регистрации и барьера — по
+        // номерам, заведённым в AttachProfiler; выключенный — проверка флага на зону.
+        var profiler = _profiler;
         try
         {
             for (int s = 0; s < _stages.Length; s++)
             {
                 var order = _order[s];
+                profiler.Begin(_stageZones[s]);
                 for (int i = 0; i < order.Count; i++)
                 {
                     var r = order[i];
                     if (!r.Active) continue;
+                    profiler.Begin(r.Zone);
                     r.Run(this, r, tick);
+                    profiler.End(r.Zone);
                     if (Checks && _written.Count > 0) CheckWrittenDeferred(r);
                 }
+                profiler.Begin(_barrierZones[s]);
                 PlayBuffers(order);
                 _barrier++;
                 TrimJournals();
+                profiler.End(_barrierZones[s]);
                 afterBarrier?.Invoke(s);
+                profiler.End(_stageZones[s]);
             }
         }
         catch
@@ -442,6 +454,37 @@ public sealed partial class World
         long upTo = _barrier - _stages.Length - 1;
         if (upTo < 0) return;
         foreach (var j in _journals.Values) j.TrimUpTo(upTo);
+    }
+
+    // ── профайлер ──────────────────────────────────────────────────────────
+
+    private CpuProfiler _profiler = CpuProfiler.Off;
+    private int[] _stageZones, _barrierZones;
+
+    /// <summary>Профайлер CPU тиков этого мира; <see cref="CpuProfiler.Off"/> — не подключён.</summary>
+    public CpuProfiler Profiler => _profiler;
+
+    /// <summary>
+    /// Подключить профайлер CPU (точка Па; между тиками): его зоны заводятся здесь, заранее — стадия
+    /// <c>stage.&lt;стадия&gt;</c> (системы, барьер и наблюдатель после барьера), регистрация системы <c>метка@стадия</c>
+    /// (<see cref="SystemInfo.Name"/>, по номеру регистрации), барьер <c>barrier.&lt;стадия&gt;</c>. Мир профайлер не меняет:
+    /// он только читает часы и счётчик выделений.
+    /// </summary>
+    public void AttachProfiler(CpuProfiler profiler)
+    {
+        ArgumentNullException.ThrowIfNull(profiler);
+        NotInTick(nameof(AttachProfiler));
+        var stages = new int[_stages.Length];
+        var barriers = new int[_stages.Length];
+        for (int s = 0; s < _stages.Length; s++)
+        {
+            stages[s] = profiler.Zone("stage." + _stages[s]);
+            barriers[s] = profiler.Zone("barrier." + _stages[s]);
+        }
+        foreach (var r in _registrations) r.Zone = profiler.Zone(r.Name);
+        _stageZones = stages;
+        _barrierZones = barriers;
+        _profiler = profiler;
     }
 
     // ── сборка (WorldBuilder) ──────────────────────────────────────────────

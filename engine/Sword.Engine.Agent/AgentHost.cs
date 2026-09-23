@@ -71,6 +71,7 @@ public sealed class AgentHost
         InvariantTools.Register(this);
         FeatureTools.Register(this);
         ExperimentTools.Register(this);
+        ProfileTools.Register(this);
     }
 
     public string Mode => _options.Mode;
@@ -155,6 +156,13 @@ public sealed class AgentHost
         get => Observation.Fields;
         set => Observation.Fields = value;
     }
+
+    /// <summary>
+    /// Профайлер CPU (точка Па; <c>profile.stages</c>): у Headless — свой, <see cref="SimulationLoop"/> подключает его к каждой
+    /// симуляции сеанса; у живой игры exe задаёт профайлер клиента (кадр, тики, проходы). Читать и менять — только в точке
+    /// обслуживания (однопоточный).
+    /// </summary>
+    public CpuProfiler Profiler { get; set; } = new();
 
     /// <summary>Где манифесты фич и чем снимать виды (<c>feature.*</c>, этап 3д) — задаёт exe игры; null — фич нет.</summary>
     public FeatureSetup? Features { get; set; }
@@ -243,6 +251,8 @@ public sealed class AgentHost
         invariant.run — проверить сейчас; invariant.define — свой инвариант условием; нарушения — events.history (InvariantViolation).
         Приёмка и эксперименты: feature.list, feature.verify (id) — вердикт фичи по манифесту (сценарии, инварианты, метрики, бюджеты,
         виды); experiment.fork — реплей до тика и ветками дальше, experiment.compare — чем разошлись, experiment.sweep — перебор конфига.
+        Производительность: profile.stages (enable: true) → поработать → profile.stages — где время кадра и тика (стадии, системы,
+        инварианты, фазы кадра, проходы), мс и байты; симуляцию не меняет.
         {(Mode == "app" ? "Живая игра: время идёт само, time.pause останавливает симуляцию (кадры рисуются); capture.bundle — снимок кадра с глубиной, видимыми сущностями и камерой." : "Headless стартует на паузе: время двигают time.step и time.runUntil; time.seek — назад и вперёд, session.start {replay} — воспроизвести реплей (свои команды ветвят его); time.break {stage, condition} — встать посреди тика после стадии.")}
         """;
 

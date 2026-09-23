@@ -37,6 +37,7 @@ public static partial class Program
             MaxWait = HttpTransport.MaxWait,
         });
         SwordAgent.Register(host);
+        host.Profiler = client.Profiler;   // profile.stages — профайлер кадра клиента (фазы кадра, тики, проходы)
         host.Observe(sim);   // история событий, наблюдения, условия — с первого тика игры
         ClientAgent.Attach(host, client);
         var http = new HttpTransport(host.Server, port);
@@ -59,10 +60,5 @@ public static partial class Program
     }
 
     /// <summary><c>artifacts/agent</c> в корне репозитория (папка с SWORD.slnx выше exe), иначе рядом с exe.</summary>
-    private static string ArtifactsRoot()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, "SWORD.slnx"))) return Path.Combine(dir.FullName, "artifacts", "agent");
-        return Path.Combine(AppContext.BaseDirectory, "artifacts", "agent");
-    }
+    private static string ArtifactsRoot() => Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "agent");
 }

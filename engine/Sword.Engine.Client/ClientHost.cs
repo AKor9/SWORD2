@@ -87,6 +87,12 @@ public sealed record ClientOptions
     /// Неизвестное действие — ошибка; регистр не важен.
     /// </summary>
     public IReadOnlyList<string> HeldActions { get; init; } = [];
+
+    /// <summary>
+    /// Профайлер CPU (<see cref="ClientHost.Profiler"/>, точка Па) включён с первого кадра (<c>--profile</c>); с бенчем
+    /// итоги профайлера — только кадры замера (после прогрева). Выключенный стоит проверку флага на зону.
+    /// </summary>
+    public bool Profile { get; init; }
 }
 
 /// <summary>
@@ -209,6 +215,12 @@ public sealed class ClientHost : IDisposable
         _renderer = new Renderer(new RendererOptions(window.NativeHandle, window.Width, window.Height,
             options.DebugLayer || options.GpuValidation, options.ShaderRoot ?? Path.Combine(AppContext.BaseDirectory, "Shaders"),
             options.GpuValidation), contract);
+        // Профайлер CPU (точка Па) — один на поток кадра: фазы кадра, тики симуляции, проходы графа, зоны игры. Рендеру —
+        // до Initialize: игра заводит свои зоны в нём же.
+        _zones = new FrameZones(Profiler);
+        _renderer.Profiler = Profiler;
+        simulation?.AttachProfiler(Profiler);
+        if (options.Profile) Profiler.SetEnabled(true);
         try
         {
             game.Initialize(_renderer, _clock?.Link);
@@ -229,6 +241,12 @@ public sealed class ClientHost : IDisposable
     }
 
     /// <summary>Главный цикл до закрытия окна, Escape или <see cref="ClientOptions.MaxFrames"/>.</summary>
+    /// <remarks>
+    /// Сразу оптимизированным: иначе многоуровневая компиляция через ~4 с заменяет долгий цикл на ходу (OSR) — разовый
+    /// кадр 6–8 мс между кадрами (найдено профайлером, точка Па; события JIT подтвердили компиляцию OSR этого метода).
+    /// Сам метод — тонкий, из вызовов: динамический PGO ему не нужен.
+    /// </remarks>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     public ClientRunReport Run()
     {
         _running = true;
@@ -242,9 +260,17 @@ public sealed class ClientHost : IDisposable
         int gen0Sum = 0;
         string reason = "closed";
         var bench = _options.BenchSeconds > 0 ? new FrameBench(_options.BenchSeconds) : null;
+        var profiler = Profiler;
+        bool profileMeasuring = false;
 
-        while (_window.PumpMessages())
+        while (true)
         {
+            // Кадр профайлера — от прокачки сообщений до конца кадра; включение профайлера вступает в силу здесь.
+            profiler.BeginFrame(_frame + 1);
+            profiler.Begin(_zones.Messages);
+            bool alive = _window.PumpMessages();
+            profiler.End(_zones.Messages);
+            if (!alive) break;
             _liveResizeError?.Throw();
             if (_closeRequested)
             {
@@ -260,7 +286,8 @@ public sealed class ClientHost : IDisposable
             if (_window.Minimized)
             {
                 // Свёрнутое окно не рисуется: DXGI ответил бы «перекрыто», а цикл крутился бы впустую. Инструменты
-                // обслуживаются и так — агент не ждёт, пока окно развернут.
+                // обслуживаются и так — агент не ждёт, пока окно развернут. Кадра нет — и у профайлера.
+                profiler.AbandonFrame();
                 ServeTools();
                 Thread.Sleep(16);
                 last = lastSim = Stopwatch.GetTimestamp();
@@ -275,21 +302,31 @@ public sealed class ClientHost : IDisposable
                 _window.SetClientSize(w, h);
             }
 
+            profiler.Begin(_zones.Resize);
             ResizeIfNeeded();
+            profiler.End(_zones.Resize);
             long simNow = Stopwatch.GetTimestamp();
             long cpuStart = simNow;
             double seconds = _options.FrameSeconds > 0 ? _options.FrameSeconds : Stopwatch.GetElapsedTime(lastSim, simNow).TotalSeconds;
             lastSim = simNow;
             // Кадр (раздел 7): ввод и камера → тики с командами → мир представления → проходы.
+            profiler.Begin(_zones.Input);
             float frameSeconds = _clock?.FrameSeconds(seconds) ?? (float)Math.Max(seconds, 0);
             var input = new FrameInput(_window.Input, _bindings, _held, heldPressed: frames == 0, _window.MouseInside,
                 _renderer.Width, _renderer.Height, frameSeconds);
             _game.Input(input);
             _edges.Note(input);   // фронты кадра — до ближайшего тика (раздел 7)
+            profiler.End(_zones.Input);
+            profiler.Begin(_zones.Simulate);
             int ticks = _clock?.RunFrame(seconds) ?? 0;
+            profiler.End(_zones.Simulate);
+            profiler.Begin(_zones.Tools);
             ServeTools();   // точка обслуживания инструментов: тики кадра сыграны, мир согласован (и на паузе)
+            profiler.End(_zones.Tools);
             _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds, _meter.Stats(ticks, _vsync));
+            profiler.Begin(_zones.Extract);
             _game.Extract(_view);
+            profiler.End(_zones.Extract);
             double simTime = _clock is { } clock ? clock.Link.Tick * (double)clock.Link.Dt : 0;
             // Последний кадр замера — по игровому времени после тиков кадра (BenchRecorder.Done SWORD).
             bool lastBenchFrame = bench?.Done(simTime) == true;
@@ -299,9 +336,16 @@ public sealed class ClientHost : IDisposable
             else if (bench is null && input.WasPressed(Screenshot))   // в бенче F4 нет (SWORD: !bench && F4)
                 shotPath = ScreenshotFile();
             double preRenderMs = Stopwatch.GetElapsedTime(cpuStart).TotalMilliseconds;
+            profiler.Begin(_zones.Render);
             RenderFrame(shotPath, required: shotPath == _options.ScreenshotPath, tools: true);
+            profiler.End(_zones.Render);
             double cpuMs = preRenderMs + _renderer.LastRecordMs;
-            if (_options.MaxFps > 0) WaitForFrameSlot(last, 1 / _options.MaxFps);
+            if (_options.MaxFps > 0)
+            {
+                profiler.Begin(_zones.Wait);
+                WaitForFrameSlot(last, 1 / _options.MaxFps);
+                profiler.End(_zones.Wait);
+            }
 
             long now = Stopwatch.GetTimestamp();
             long allocated = GC.GetAllocatedBytesForCurrentThread();
@@ -309,6 +353,13 @@ public sealed class ClientHost : IDisposable
             double ms = Stopwatch.GetElapsedTime(last, now).TotalMilliseconds;
             // Служебный кадр: первый, со сменой размера с конца прошлого кадра (и из цикла перетаскивания рамки), снимок.
             bool service = frames == 0 || _resizes != lastResizes || shotPath is not null || _toolCaptured;
+            // Бенч: итоги профайлера — кадры замера (первый кадр после прогрева — первый в итогах).
+            if (bench is not null && !profileMeasuring && FrameBench.Measuring(simTime))
+            {
+                profiler.Reset();
+                profileMeasuring = true;
+            }
+            profiler.EndFrame(_view.Alpha, service || lastBenchFrame);
             _meter.Frame(ms, cpuMs, _renderer.LastFenceWaitMs);
             // Последний кадр замера (со снимком — ожидание GPU и PNG) в замер не входит: SWORD копит шаг кадра, измеренный
             // в начале следующего, и после последнего кадра выходит — его шаг не попадает в итог.
@@ -340,6 +391,7 @@ public sealed class ClientHost : IDisposable
                 break;
             }
         }
+        profiler.AbandonFrame();   // выход посреди кадра (окно закрыто, Escape, инструмент): кадр не доделан — не в итогах
         var benchReport = bench?.Result();
         if (benchReport is not null) Log.Info("bench", benchReport.ToString());
 
@@ -431,10 +483,14 @@ public sealed class ClientHost : IDisposable
             Log.Error("client", e.Message);
             captured = false;
         }
-        if (_simulation is not null)   // итог — каждого кадра: инструмент видит граф и тик показанного
+        if (_simulation is not null && _tools.Count > 0)   // итог — каждого кадра: инструмент видит граф и тик показанного
+        {
+            Profiler.Begin(_zones.Presented);
             foreach (var t in _tools)
                 t.Presented(_simulation, _frame, t == capturer ? toolCapture : null,
                     t == capturer && captured ? _renderer.LastCapture : null);
+            Profiler.End(_zones.Presented);
+        }
         _toolCaptured = toolCapture is not null;
         if (screenshot is not null && captured)
         {
@@ -471,6 +527,25 @@ public sealed class ClientHost : IDisposable
     /// <summary>Рендер клиента — для инструментов (граф проходов, снимки).</summary>
     public Renderer Renderer => _renderer;
 
+    /// <summary>
+    /// Профайлер CPU потока кадра (точка Па): кадр — период (зона <c>frame</c>) с фазами <c>frame.messages</c>,
+    /// <c>frame.resize</c>, <c>frame.input</c>, <c>frame.simulate</c> (в нём тики — зона <c>tick</c>, стадии, системы,
+    /// инварианты), <c>frame.tools</c>, <c>frame.extract</c> (зоны игры), <c>frame.render</c> (зоны рендера и
+    /// проходов графа, <c>frame.presented</c> — итог кадра инструментам), <c>frame.wait</c> (ограничитель кадров). Включают
+    /// <see cref="ClientOptions.Profile"/> и инструмент агента (<c>profile.stages</c>) — с начала следующего кадра.
+    /// </summary>
+    public CpuProfiler Profiler { get; } = new();
+
+    private readonly FrameZones _zones;
+
+    /// <summary>Номера зон фаз кадра — заведены при создании клиента.</summary>
+    private sealed class FrameZones(CpuProfiler p)
+    {
+        public readonly int Messages = p.Zone("frame.messages"), Resize = p.Zone("frame.resize"), Input = p.Zone("frame.input"),
+            Simulate = p.Zone("frame.simulate"), Tools = p.Zone("frame.tools"), Extract = p.Zone("frame.extract"),
+            Render = p.Zone("frame.render"), Presented = p.Zone("frame.presented"), Wait = p.Zone("frame.wait");
+    }
+
     /// <summary>Клиентская часть игры — для инструментов (наблюдаемость: <see cref="IClientObservable"/>).</summary>
     public IClientGame Game => _game;
 
@@ -504,6 +579,9 @@ public sealed class ClientHost : IDisposable
     private void OnLiveResize()
     {
         if (_window.Minimized || _liveResizeError is not null) return;
+        // Кадр рисуется внутри зоны frame.messages: зоны, брошенные исключением, снимаются здесь — иначе конец frame.messages
+        // в главном цикле (Debug) бросил бы ошибку профайлера вместо запомненной.
+        int profileDepth = Profiler.Depth;
         try
         {
             ResizeIfNeeded();
@@ -515,6 +593,7 @@ public sealed class ClientHost : IDisposable
         }
         catch (Exception ex)
         {
+            Profiler.UnwindTo(profileDepth);
             _liveResizeError = ExceptionDispatchInfo.Capture(ex);
         }
     }

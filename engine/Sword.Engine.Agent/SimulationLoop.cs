@@ -30,7 +30,11 @@ public static class SimulationLoop
     public static void Run(AgentSimulation session, AgentHost host, CancellationToken stop, Action? started = null)
     {
         var context = new ServiceContext(session.Current);
-        void Prepare(Simulation sim) => host.Observe(sim);
+        void Prepare(Simulation sim)
+        {
+            host.Observe(sim);
+            sim.AttachProfiler(host.Profiler);   // профайлер сеанса — и у новой симуляции (включён или нет — как был)
+        }
         void Changed(Simulation sim)
         {
             context = new ServiceContext(sim);
@@ -58,6 +62,7 @@ public static class SimulationLoop
         host.Time.Changed += host.Service.Wake;
         host.Observation.BreakHandler = Break;
         host.Observe(session.Current);
+        session.Current.AttachProfiler(host.Profiler);
         try
         {
             started?.Invoke();

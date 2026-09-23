@@ -161,6 +161,20 @@ public sealed class SimulationInvariants
         public long Evaluations, Violations, Ticks;
         public int Logged;
         public InvariantViolation? Last;
+        /// <summary>Зона профайлера CPU <c>invariant.&lt;id&gt;</c> (<see cref="AttachProfiler"/>).</summary>
+        public int Zone;
+    }
+
+    private CpuProfiler _profiler = CpuProfiler.Off;
+
+    /// <summary>
+    /// Профайлер CPU (точка Па): каждая проверка — зона <c>invariant.&lt;id&gt;</c>, заведённая здесь и при добавлении
+    /// инварианта (<see cref="Add"/>), а не в тике.
+    /// </summary>
+    internal void AttachProfiler(CpuProfiler profiler)
+    {
+        foreach (var e in _entries) e.Zone = profiler.Zone("invariant." + e.Invariant.Id);
+        _profiler = profiler;
     }
 
     private readonly WorldReader _world;
@@ -250,7 +264,7 @@ public sealed class SimulationInvariants
         int stage = IndexOf(_world.Stages, invariant.After);
         if (stage < 0)
             throw new InvalidOperationException($"инвариант {invariant.Id}: нет стадии «{invariant.After}»; есть: {string.Join(", ", _world.Stages)}");
-        _entries.Add(new Entry(invariant, owner, stage, enabled));
+        _entries.Add(new Entry(invariant, owner, stage, enabled) { Zone = _profiler.Zone("invariant." + invariant.Id) });
     }
 
     private static int IndexOf(IReadOnlyList<string> list, string value)
@@ -285,10 +299,13 @@ public sealed class SimulationInvariants
     }
 
     /// <summary>Одна проверка: время, исключение — тоже нарушение (инвариант не роняет тик). Возвращает число нарушений.</summary>
-    private static int Evaluate(Entry e, in InvariantContext ctx, List<InvariantViolation> into)
+    private int Evaluate(Entry e, in InvariantContext ctx, List<InvariantViolation> into)
     {
         into.Clear();
         var sink = new ViolationSink(into, e.Invariant.Id, ctx.Tick, ctx.Stage);
+        var profiler = _profiler;
+        int depth = profiler.Depth;
+        profiler.Begin(e.Zone);
         long start = Stopwatch.GetTimestamp();
         try
         {
@@ -296,9 +313,11 @@ public sealed class SimulationInvariants
         }
         catch (Exception ex)
         {
+            profiler.UnwindTo(depth + 1);   // зоны, открытые проверкой до исключения, — не её забота
             sink.Report($"исключение в проверке: {ex.GetType().Name}: {ex.Message}");
         }
         e.Ticks += Stopwatch.GetTimestamp() - start;
+        profiler.End(e.Zone);
         e.Evaluations++;
         int count = sink.Count;
         if (count > into.Count && into.Count > 0)

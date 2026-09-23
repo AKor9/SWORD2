@@ -38,6 +38,9 @@ public static partial class Program
                               тик и участник, код выхода 3. С --record — перезапись (новые хеши тех же команд: эталон
                               после намеренного изменения, хеши сценария без хешей); --set поверх — эксперимент
           --json              итог — одной строкой JSON в stdout (для агента)
+          --profile           профайлер CPU: время и выделения тика, стадий, систем, барьеров, инвариантов (после
+                              прогрева — 120 тиков); отчёт — artifacts/profile/<прогон>/profile.json, в --json — секция
+                              profile; с --agent — включён с начала сеанса (profile.stages), отчёт — при выходе
           --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
                               двигает агент; stdout — только протокол, журнал — в stderr
           --feature ID|all    приёмка фичи по манифесту feature.json (feature.verify): сценарии, инварианты,
@@ -49,7 +52,7 @@ public static partial class Program
     /// Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.
     /// <paramref name="build"/> — симуляция из конфига той же композицией (<c>session.start</c>, <c>time.seek</c> назад).
     /// </summary>
-    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, ref int? exit);
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, ref int? exit);
 
     /// <summary>Приёмка фич (<c>--feature</c>, AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
     static partial void RunFeatures(string which, Func<ConfigSet, Simulation> build, string content, bool views, bool budgets, bool json,
@@ -64,7 +67,7 @@ public static partial class Program
         int ticks = 600, sample = 60, hashEvery = 1;
         bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
-        bool json = false, agent = false;
+        bool json = false, agent = false, profile = false;
         string? record = null, replayPath = null, feature = null;
         bool views = true, budgets = true;
         var sets = new List<string>();
@@ -102,6 +105,7 @@ public static partial class Program
                     case "--units": sets.Add(UnitsSet(a, Next())); break;
                     case "--json": json = true; break;
                     case "--agent": agent = true; break;
+                    case "--profile": profile = true; break;
                     case "--feature": feature = Next(); break;
                     case "--no-views": views = false; break;
                     case "--no-budgets": budgets = false; break;
@@ -111,8 +115,9 @@ public static partial class Program
             if (replayPath is not null && commandSet) throw new ArgumentException("--replay: команды — из реплея; --move, --walk, --gaze нельзя");
             if (agent && (replayPath is not null || record is not null))
                 throw new ArgumentException("--agent: реплеи — инструментами агента (session.start, replay.save), не ключами");
-            if (feature is not null && (agent || replayPath is not null || record is not null || commandSet || sets.Count > 0))
-                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set, --units нельзя");
+            if (feature is not null && (agent || replayPath is not null || record is not null || commandSet || sets.Count > 0 || profile))
+                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set, --units, --profile нельзя " +
+                    "(время систем бюджеты мерят сами — отдельным прогоном с профайлером)");
             if (feature is null && (!views || !budgets)) throw new ArgumentException("--no-views и --no-budgets — только с --feature");
         }
         catch (ArgumentException ex)
@@ -158,7 +163,7 @@ public static partial class Program
             if (agent)
             {
                 int? exit = null;
-                RunAgent(sim, Build, ref exit);
+                RunAgent(sim, Build, profile, ref exit);
                 if (exit is { } code) return code;
                 Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
                 return 2;
@@ -166,10 +171,18 @@ public static partial class Program
             var trajectory = new List<object>();
             // Выделения — только тиков (без записи траектории) и после прогрева: раздел 12 плана — 0 байт на тик.
             int warmup = Math.Min(WarmupTicks, ticks / 2);
+            // Профайлер CPU (точка Па): итоги — тики после прогрева, как байты на тик; байты тика с ним — те же 0.
+            var profiler = profile ? new CpuProfiler() : null;
+            if (profiler is not null)
+            {
+                sim.AttachProfiler(profiler);
+                profiler.SetEnabled(true);
+            }
             long allocated = 0;
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
             for (int t = 0; t < ticks; t++)
             {
+                if (t == warmup) profiler?.Reset();
                 long before = GC.GetAllocatedBytesForCurrentThread();
                 // Клиента нет — очередь кадра экспорта тика живёт один тик и не растёт.
                 sim.Export.BeginFrame();
@@ -181,6 +194,8 @@ public static partial class Program
             double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             Replay? recorded = recorder?.ToReplay();
             recorded?.Save(record!);
+            string? profileFile = profiler?.Write(ProfilePath("headless"), ProfileHeader("headless", args));
+            if (profileFile is not null && !json) Log.Info("profile", $"профайлер: {profileFile}");
 
             var report = new
             {
@@ -212,6 +227,8 @@ public static partial class Program
                     commands = recorded.CommandCount,
                 },
                 warnings,
+                // Профайлер (--profile, точка Па): файл отчёта и главные зоны тика; без ключа — null.
+                profile = profiler is null ? null : ProfileJson(profiler, profileFile!),
                 trajectory,
                 modules = sim.ActiveModules,
                 inactiveModules = sim.InactiveModules,
@@ -276,6 +293,41 @@ public static partial class Program
             parts = d.Parts.Select(p => new { part = p.Part, expected = $"{p.Expected:X16}", actual = $"{p.Actual:X16}" }),
         } : null,
     };
+
+    /// <summary>Корень репозитория — папка с SWORD.slnx выше exe; null — exe вне репозитория.</summary>
+    internal static string? RepoRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            if (File.Exists(Path.Combine(dir.FullName, "SWORD.slnx"))) return dir.FullName;
+        return null;
+    }
+
+    /// <summary>
+    /// Отчёт профайлера прогона (<c>--profile</c>, точка Па): <c>artifacts/profile/&lt;дата-время&gt;-&lt;процесс&gt;-&lt;pid&gt;/profile.json</c>
+    /// в корне репозитория, вне репозитория — рядом с exe.
+    /// </summary>
+    internal static string ProfilePath(string process) =>
+        Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "profile",
+            $"{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{process}-{Environment.ProcessId}", "profile.json");
+
+    /// <summary>Поля прогона в начале отчёта профайлера: процесс, ключи запуска, время, среда.</summary>
+    internal static System.Text.Json.Nodes.JsonObject ProfileHeader(string process, string[] args) => new()
+    {
+        ["process"] = process,
+        ["args"] = new System.Text.Json.Nodes.JsonArray([.. args.Select(a => (System.Text.Json.Nodes.JsonNode?)a)]),
+        ["finished"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture),
+        ["runtime"] = Environment.Version.ToString(),
+        ["optimized"] = typeof(Program).Assembly.GetCustomAttributes(typeof(System.Diagnostics.DebuggableAttribute), false)
+            .OfType<System.Diagnostics.DebuggableAttribute>().FirstOrDefault()?.IsJITOptimizerDisabled != true,
+    };
+
+    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта и коротко — главные зоны.</summary>
+    internal static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file)
+    {
+        var json = profiler.Summary(12);
+        json.Insert(0, "file", file);
+        return json;
+    }
 
     /// <summary>Отпечаток пака, если он есть (симуляции контент не нужен, реплей и квитанции называют его всё равно).</summary>
     internal static string ContentHash()

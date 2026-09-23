@@ -266,7 +266,12 @@ public sealed class Simulation
         {
             // Инварианты — первыми: наблюдатель (останов агента) видит нарушения этого барьера.
             if (Invariants.Active) Invariants.AfterBarrier(stage, Tick, Dt);
-            for (int i = 0; i < _observers.Count; i++) _observers[i].AfterStage(this, stage);
+            if (_observers.Count > 0)
+            {
+                _profiler.Begin(_observersZone);
+                for (int i = 0; i < _observers.Count; i++) _observers[i].AfterStage(this, stage);
+                _profiler.End(_observersZone);
+            }
         }
         finally
         {
@@ -377,15 +382,43 @@ public sealed class Simulation
         return Player;
     }
 
+    private CpuProfiler _profiler = CpuProfiler.Off;
+    private int _recordZone, _observersZone;
+
+    /// <summary>Профайлер CPU тиков (<see cref="AttachProfiler"/>); <see cref="CpuProfiler.Off"/> — не подключён.</summary>
+    public CpuProfiler Profiler => _profiler;
+
+    /// <summary>
+    /// Подключить профайлер CPU (точка Па; только владелец, между тиками): тик — период профайлера (зона <c>tick</c>), в нём
+    /// зоны стадий, систем и барьеров мира (<see cref="Ecs.World.AttachProfiler"/>), проверок инвариантов
+    /// (<c>invariant.&lt;id&gt;</c>), наблюдателей (<c>sim.observers</c>) и записи или сверки реплея с хешем
+    /// (<c>sim.record</c>). Номера зон заводятся здесь. Профайлер только читает часы: состояние, хеш и реплей от него не
+    /// зависят (тест — хеши с ним и без совпадают); включает и выключает его владелец (ключ запуска, инструмент агента), а
+    /// не команда симуляции.
+    /// </summary>
+    public void AttachProfiler(CpuProfiler profiler)
+    {
+        ArgumentNullException.ThrowIfNull(profiler);
+        if (Stage is not null) throw new InvalidOperationException("профайлер подключается между тиками");
+        _world.AttachProfiler(profiler);
+        Invariants.AttachProfiler(profiler);
+        _recordZone = profiler.Zone("sim.record");
+        _observersZone = profiler.Zone("sim.observers");
+        _profiler = profiler;
+    }
+
     /// <summary>Один тик: время (<c>DuelArena.Tick</c>: <c>Time += dt</c> первым делом), стадии с барьерами, экспорт.</summary>
     public void Step()
     {
+        var profiler = _profiler;
+        profiler.BeginTick(Tick);
         _time += Dt;
         _world.SetResourceImmediate(new SimTime(Tick, Dt, _time));
         _world.RunTick(Tick, _observers.Count > 0 || Invariants.Active ? _afterBarrier : null);
         Tick++;
         if (Recorder is not null || Player is not null)
         {
+            profiler.Begin(_recordZone);
             Recorder?.EndTick(Tick - 1);
             bool record = Recorder?.HashDue(Tick) ?? false, play = Player?.HashDue(Tick) ?? false;
             if (record || play)
@@ -394,8 +427,15 @@ public sealed class Simulation
                 if (record) Recorder!.AddHash(Tick, _hashParts);
                 if (play) Player!.Check(Tick, _hashParts);
             }
+            profiler.End(_recordZone);
         }
-        for (int i = 0; i < _observers.Count; i++) _observers[i].AfterTick(this);
+        if (_observers.Count > 0)
+        {
+            profiler.Begin(_observersZone);
+            for (int i = 0; i < _observers.Count; i++) _observers[i].AfterTick(this);
+            profiler.End(_observersZone);
+        }
+        profiler.EndTick();
     }
 }
 

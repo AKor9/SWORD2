@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Sword.Engine.Content;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Rhi;
 
 namespace Sword.Engine.Render;
@@ -226,6 +227,28 @@ public sealed class Renderer : IDisposable
     /// <summary>Запись последнего кадра на CPU, мс: построение графа и его исполнение в список команд, без ожидания GPU и показа.</summary>
     public double LastRecordMs { get; private set; }
 
+    private CpuProfiler _profiler = CpuProfiler.Off;
+    private (int FenceWait, int Build, int Record, int Present, int Capture) _zones;
+
+    /// <summary>
+    /// Профайлер CPU кадра (точка Па): зоны рендера — ожидание забора кадра в полёте <c>frame.fenceWait</c>, построение
+    /// кадра игрой <c>frame.build</c>, запись графа в список команд <c>frame.record</c> (в ней — проход за проходом
+    /// <c>render.&lt;проход&gt;</c>), показ <c>frame.present</c>, снимок <c>frame.capture</c>. Задаёт клиент движка до
+    /// <c>IClientGame.Initialize</c> — игра заводит свои зоны в нём же; по умолчанию <see cref="CpuProfiler.Off"/>.
+    /// </summary>
+    public CpuProfiler Profiler
+    {
+        get => _profiler;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _zones = (value.Zone("frame.fenceWait"), value.Zone("frame.build"), value.Zone("frame.record"), value.Zone("frame.present"),
+                value.Zone("frame.capture"));
+            Graph.Profiler = value;
+            _profiler = value;
+        }
+    }
+
     /// <summary>Конвейеров собрано (каждый — компиляция шейдеров при первом использовании).</summary>
     public int PipelineCount => Pipelines.PipelineCount;
 
@@ -330,7 +353,11 @@ public sealed class Renderer : IDisposable
         _frame.Capture = capture;
         CapturedIds = null;
         CapturedLayers.Clear();
+        var profiler = _profiler;
+        int profileDepth = profiler.Depth;
+        profiler.Begin(_zones.FenceWait);
         Device.BeginFrame();
+        profiler.End(_zones.FenceWait);
         long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var list = Device.GraphicsList;
         try
@@ -342,13 +369,18 @@ public sealed class Renderer : IDisposable
             _ui?.BeginFrame();
             Graph.BeginFrame(0);
 
+            profiler.Begin(_zones.Build);
             build(_frame);
+            profiler.End(_zones.Build);
 
+            profiler.Begin(_zones.Record);
             Graph.Execute(list);
+            profiler.End(_zones.Record);
             LastRecordMs = System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds;
         }
         catch
         {
+            profiler.UnwindTo(profileDepth);
             // Кадр не собран (ошибка сцены или нарушен инвариант графа): список команд закрывается без отправки,
             // следующий кадр начнётся чисто. Время записи — этого кадра, а не прошлого удачного.
             LastRecordMs = System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds;
@@ -386,10 +418,13 @@ public sealed class Renderer : IDisposable
                         out _, out _, out lpitch)));
                 }
 
+            profiler.Begin(_zones.Present);
             Device.EndFrame(vsync);
+            profiler.End(_zones.Present);
 
             if (capture is not null)
             {
+                profiler.Begin(_zones.Capture);
                 Device.WaitForIdle();
                 string? current = null;
                 try
@@ -438,6 +473,7 @@ public sealed class Renderer : IDisposable
                     // Кадр показан; не записался только файл — своя ошибка, чтобы клиент отличил её от ошибки кадра.
                     throw new CaptureException($"снимок {current} не записан: {e.Message}", e);
                 }
+                profiler.End(_zones.Capture);
             }
         }
         catch (CaptureException)
@@ -447,6 +483,7 @@ public sealed class Renderer : IDisposable
         }
         finally
         {
+            profiler.UnwindTo(profileDepth);   // ошибка показа или снимка: их зоны не закрыты — кадр клиента идёт дальше
             // Копии снимка записаны в список кадра: при ошибке после отправки GPU мог ещё писать в них — освобождение
             // отложенное, по забору кадра, а не сразу.
             if (readback is not null) Device.DeferRelease(readback);

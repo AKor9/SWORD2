@@ -1,4 +1,5 @@
 using System.Numerics;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Rhi;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
@@ -294,8 +295,11 @@ public sealed class RenderGraph
     {
         Validate();
         var report = new List<RenderPassReport>(_passes.Count);
+        var profiler = _profiler;
         foreach (var p in _passes)
         {
+            int zone = profiler.Enabled ? PassZone(p.Name) : 0;
+            profiler.Begin(zone);
             _barriers.Clear();
             foreach (var (index, _) in p.Colors) Require(_resources[index], ResourceStates.RenderTarget);
             if (p.Depth >= 0)
@@ -334,6 +338,7 @@ public sealed class RenderGraph
                 _resources[w].Written = true;
                 _resources[w].UavPending = true;
             }
+            profiler.End(zone);
             report.Add(new RenderPassReport(p.Name, p.Kind, Names(p, writes: true), Names(p, writes: false), barriers, draws, dispatches));
         }
 
@@ -452,6 +457,32 @@ public sealed class RenderGraph
     {
         list.SetComputeRootSignature(_pipelines.RootSignature);
         if (p.FrameConstants != 0) list.SetComputeRootConstantBufferView(RootLayout.FrameCb, p.FrameConstants);
+    }
+
+    private CpuProfiler _profiler = CpuProfiler.Off;
+    /// <summary>Зоны проходов по имени прохода: строка «render.имя» строится один раз на имя, а не каждый кадр.</summary>
+    private readonly Dictionary<string, int> _passZones = new(StringComparer.Ordinal);
+
+    /// <summary>Профайлер CPU записи кадра (<see cref="Renderer.Profiler"/>): проход — зона <c>render.&lt;проход&gt;</c>.</summary>
+    internal CpuProfiler Profiler
+    {
+        get => _profiler;
+        set
+        {
+            _passZones.Clear();
+            _profiler = value;
+        }
+    }
+
+    /// <summary>Зона прохода: имена проходов стабильны (порядок регистрации — нет), поиск по имени не выделяет памяти.</summary>
+    private int PassZone(string name)
+    {
+        if (!_passZones.TryGetValue(name, out int zone))
+        {
+            zone = _profiler.Zone("render." + name);
+            _passZones.Add(name, zone);
+        }
+        return zone;
     }
 
     internal void Dispose() => _pool.Dispose();

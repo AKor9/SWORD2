@@ -1,0 +1,48 @@
+{
+  // Приёмка фичи «Диагностический профайлер» (этап П) — начата на точке Па (зоны CPU и выделения): толпа 32 врагов,
+  // бюджет — медиана тика без профайлера (предел — как у бюджета crowd фичи bodies) и отдельный прогон с профайлером: время
+  // систем (budgets[].systems в отчёте) и 0 Б на тик с ним. Дальше — Пб (GC, JIT, машина), Пв (аномалии, F2), Пг (GPU-время
+  // проходов), Пд (разбор открытых вопросов). Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify
+  // (Sword.Headless --feature profiler). Ослабить ожидания — только правкой с сообщением пользователю.
+  "format": "sword-feature",
+  "version": 1,
+  "id": "profiler",
+  "title": "Диагностический профайлер (этап П; точка Па — зоны CPU и выделения)",
+  "doc": "README.md",
+  "sourceRoots": [
+    "engine/Sword.Engine.Diagnostics",
+    "engine/Sword.Engine.Agent/ProfileTools.cs",
+    "engine/Sword.Engine.Client/ClientHost.cs",
+    "engine/Sword.Engine.Render/RenderGraph.cs",
+    "game/Sword.Game.Client/ArenaView.cs"
+  ],
+  "requiredModules": ["locomotion"],
+  "scenarios": [
+    {
+      "id": "crowd",
+      "title": "32 врага, игрок бежит сквозь кольцо, толпа бежит следом (Sword.exe --units 32 --move 1,0 --profile)",
+      "set": ["arena.enemies=32"],
+      "ticks": 900,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 900 }],
+      "checks": [
+        {
+          "id": "thirty-two", "title": "врагов 32, бойцов 33", "expect": "always",
+          "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 32 }, { "count": { "component": "Fighter" }, "equals": 33 }] }
+        }
+      ]
+    }
+  ],
+  "invariants": ["ecs.finite"],
+  "budgets": [
+    // Па: тик и байты — как бюджет crowd фичи bodies (медиана без профайлера); время систем — прогон с профайлером,
+    // его байты — тот же предел 0.
+    { "id": "crowd", "scenario": "crowd", "msPerTick": 0.21, "allocatedBytesPerTick": 0, "repeats": 5 }
+  ],
+  "checklist": [
+    "`Sword.exe --profile` — игра как обычно; через 10–20 с Esc. В журнале строка `[profile] профайлер: …\\artifacts\\profile\\…-app-…\\profile.json`; файл открывается.",
+    "В этом `profile.json`: `frames.count` — число сыгранных кадров без первого (он служебный); первая зона `frames.zones` — `frame`, рядом `frame.render`, `frame.simulate`, `tick`, `frame.fenceWait`; в `ticks.zones` — `stage.Animation`, `core.animation-tick@Animation`, `invariant.…`; `mismatches` — 0.",
+    "`Sword.exe --units 32 --bench 10` и `Sword.exe --units 32 --bench 10 --profile` — оба закрываются сами; в журнале `[bench] … кадр ср …` у них близко (профайлер в кадре — доли процента); у второго ещё строка `[profile]`, в его файле `frames.count` — около числа кадров замера.",
+    "`Sword.exe` без `--profile` — FPS и плавность как до этапа П (выключенный профайлер не заметен).",
+    "`Sword.Headless --ticks 600 --units 32 --profile` — строка `[profile] профайлер: …headless…\\profile.json`; в файле `ticks.count` — 480 (после прогрева 120 тиков), первая зона — `tick`."
+  ]
+}

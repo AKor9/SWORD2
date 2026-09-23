@@ -242,6 +242,9 @@ internal sealed class Registration
 
     public string Name => $"{Label}@{Stage}";
 
+    /// <summary>Номер зоны профайлера CPU (<see cref="World.AttachProfiler"/>): имя строится один раз, не в тике.</summary>
+    public int Zone;
+
     /// <summary>Производит ли регистрация это срабатывание (по объявлениям).</summary>
     public bool Produces(TriggerKey key, World world) => key.Kind switch
     {

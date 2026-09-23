@@ -252,6 +252,10 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void Initialize(Renderer renderer, SimulationLink? simulation)
     {
         _renderer = renderer;
+        // Профайлер CPU кадра (точка Па) — тот же, что у рендера: зоны арены заводятся здесь, не в кадре.
+        var profiler = renderer.Profiler;
+        _view.Profiler = profiler;
+        _zones = (profiler.Zone("arena.build.skin"), profiler.Zone("arena.build.hud"), profiler.Zone("arena.build.bodies"));
         // Игрок и его команда — ядро игры: симуляция у арены есть всегда.
         _simulation = simulation ?? throw new ArgumentNullException(nameof(simulation), "клиенту арены нужна симуляция");
         _heights = renderer.CreateData<float>("Arena.Heights", _field.Heights);
@@ -327,6 +331,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
         // Manny в позе тика (аниматор); позы нет — поза привязки: палитра InverseBind·Component·World = World.
         // Владелец экземпляра — код бойца для ID-буфера снимка (OwnerOf).
+        var profiler = _renderer!.Profiler;
+        profiler.Begin(_zones.Skin);
         int skinned = 0;
         var fighters = _view.Fighters;
         for (int i = 0; i < fighters.Count; i++)
@@ -344,6 +350,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.World, colour, owner)) skinned++;
         }
         SkinnedFighters = skinned;
+        profiler.End(_zones.Skin);
 
         frame.Graph.AddPass("scene.opaque")
             .Color(frame.Graph.BackBuffer, ClearColour)
@@ -359,9 +366,19 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             frame.CaptureIds(ids);
         }
 
-        if (_ui is not null) DrawHud(frame);
+        if (_ui is not null)
+        {
+            profiler.Begin(_zones.Hud);
+            DrawHud(frame);
+            profiler.End(_zones.Hud);
+        }
+        profiler.Begin(_zones.Bodies);
         DrawBodies(frame);
+        profiler.End(_zones.Bodies);
     }
+
+    /// <summary>Зоны профайлера CPU в построении кадра арены (<see cref="Initialize"/>).</summary>
+    private (int Skin, int Hud, int Bodies) _zones;
 
     /// <summary>
     /// Фаза Debug (после сцены и интерфейса, раздел 6 плана): капсулы тел всех бойцов, как показаны бойцы, — поверх кадра
