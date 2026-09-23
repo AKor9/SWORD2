@@ -2,8 +2,8 @@
   // Приёмка фичи «Враги и ИИ» (этап 4) — начата на точке 4а (спаун и команды арены), дополнена на 4б (ИИ: подход,
   // окружение, погоня), 4в (столкновения бойцов: толпа, игрок расталкивает её, инвариант movement.rootOverlap) и 4г
   // (поворот врага на месте клипом командой врагу, сверка с трассой SWORD); полный — на 4д: сверка толпы с трассой SWORD
-  // (сценарий sword-crowd, метрики sword-crowd-*), бюджеты на 32 врагах (тик, стадии, байты, кадр App). Эталон SWORD2
-  // enemies.swreplay фиксируется после подтверждения пользователя (раздел 12 плана) — как, в README.md («Эталон SWORD2»).
+  // (сценарий sword-crowd, метрики sword-crowd-*), бюджеты на 32 врагах (тик, стадии, байты, кадр App). После
+  // подтверждения пользователя (раздел 12 плана) зафиксирован эталон SWORD2 enemies.swreplay — сценарий reference.
   // Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies).
   // Ослабить ожидания — только правкой с сообщением пользователю.
   "format": "sword-feature",
@@ -395,6 +395,17 @@
           "id": "crowd-at-pillar", "title": "у колонны толпа из 32 врагов упирается друг в друга", "expect": "eventually", "from": 2701,
           "condition": { "count": { "all": [{ "component": "EnemyTag" }, { "field": "RootContacts.Contacts", "greaterThan": 0 }] }, "greaterThan": 8 }
         },
+        {
+          "id": "thirty-two", "title": "в конце — 32 врага, бойцов 33", "expect": "atEnd",
+          "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 32 }, { "count": { "component": "Fighter" }, "equals": 33 }] }
+        }
+      ]
+    },
+    {
+      "id": "reference",
+      "title": "эталон SWORD2 врагов (после подтверждения этапа 4): запись сценария sword-crowd — толпа, команды арены по ходу (PageUp, PageDown, 16, R, 32), колонна (хеши каждого тика)",
+      "replay": "tests/reference/replays/enemies.swreplay",
+      "checks": [
         {
           "id": "thirty-two", "title": "в конце — 32 врага, бойцов 33", "expect": "atEnd",
           "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 32 }, { "count": { "component": "Fighter" }, "equals": 33 }] }
