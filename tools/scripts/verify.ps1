@@ -38,7 +38,8 @@
                             (-SkipGpu — запись Headless вместо Sword.exe; -SkipReference — без эталонов);
       features              приёмка фич (этап 3д): Sword.Headless --feature all — манифест feature.json каждой фичи:
                             сценарии, их проверки и хеши реплеев, инварианты, метрики против эталонов SWORD и SWORD2,
-                            бюджеты (время — только с -Configuration Release, байты — всегда), виды — кадры
+                            бюджеты (время и кадр App на записи сценария — только с -Configuration Release,
+                            байты — всегда), виды — кадры
                             Sword.exe --replay по записи сценария с теми же хешами; итоги — artifacts/features/<id>
                             (-SkipGpu — без видов; -SkipReference — пропустить: эталоны на эталонном паке);
       agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
@@ -511,7 +512,7 @@ else {
             $views = if ($_.views -is [array]) { @($_.views).Count } else { 0 }
             "$($_.feature) (сценариев $(@($_.scenarios).Count), метрик $(@($_.metrics).Count), видов $views, бюджетов $(if ($_.budgets -is [array]) { @($_.budgets).Count } else { 0 }))"
         }
-        $time = if ($Configuration -eq 'Release') { 'бюджеты времени проверены' } else { 'время бюджетов только замерено (Debug)' }
+        $time = if ($Configuration -eq 'Release') { 'бюджеты времени и кадра проверены' } else { 'время и кадр бюджетов только замерены (Debug)' }
         $viewNote = if ($SkipGpu) { 'виды пропущены (-SkipGpu)' } else { 'хеши App во всех видах совпали с Headless' }
         @{ ok = $true; detail = "зелёные: $($summary -join ', '); $time; $viewNote" }
     }

@@ -222,6 +222,8 @@ public sealed class ArenaTests
         Assert.True(sim.World.Get<Transform>(oldPlayer).Position.X > 3);
 
         Assert.True(sim.World.Get<Locomotion.LegacyLocomotionState>(oldPlayer).Run);
+        int oldDir = sim.World.Get<Locomotion.LegacyLocomotionState>(oldPlayer).Dir;
+        Assert.NotEqual(0, oldDir);   // бежит вбок от взгляда
 
         Step(sim, Reset);   // R, игрок стоит
         // Тот же боец места 0 (Fighter.Build SWORD над тем же бойцом): имя и номер у агента прежние.
@@ -243,6 +245,8 @@ public sealed class ArenaTests
         // Локомоция — заново со стойки, как после FighterAnimator.Reset SWORD: без кроссфейда, время клипа — один тик.
         var loco = sim.World.Get<Locomotion.LegacyLocomotionState>(player);
         Assert.Equal((false, 1f, 1f / 120), (loco.Run, loco.Fade, loco.Time));
+        // …кроме стороны ходьбы: LegacyLocomotion.Reset SWORD не трогает _dir (найдено трассой толпы 4д).
+        Assert.Equal(oldDir, loco.Dir);
 
         // Команда игрока тика сброса действует сразу (в SWORD Reset — до PlayerController.Think того же тика).
         sim.Enqueue(new PlayerCommand { Move = new Vector2(0, 1) });

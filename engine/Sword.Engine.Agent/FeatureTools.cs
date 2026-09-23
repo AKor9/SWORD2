@@ -6,10 +6,11 @@ namespace Sword.Engine.Agent;
 
 /// <summary>
 /// Где манифесты фич и чем снимать виды (этап 3д): корень репозитория, каталоги поиска <c>feature.json</c>, снимок вида в
-/// App (null — App нет), оптимизирована ли сборка (бюджеты времени — только в Release). Задаёт exe игры.
+/// App (null — App нет), оптимизирована ли сборка (бюджеты времени — только в Release), замер кадра App для бюджета кадра
+/// (точка 4д; null — App нет). Задаёт exe игры.
 /// </summary>
 public sealed record FeatureSetup(string RepoRoot, IReadOnlyList<string> Roots, Func<ViewRequest, CancellationToken, ViewResult>? CaptureView,
-    bool Optimized);
+    bool Optimized, Func<FrameRequest, CancellationToken, FrameResult>? MeasureFrame = null);
 
 /// <summary>
 /// Приёмка фич (этап 3д, раздел 8 плана — «Контракт фичи»): <c>feature.list</c> — манифесты, <c>feature.verify</c> —
@@ -65,13 +66,14 @@ internal static class FeatureTools
             Name = "feature.verify", Title = "Проверить фичу",
             Description = "Приёмка фичи одним вызовом (раздел 12 плана): сценарии манифеста в отдельных симуляциях (хеши реплеев, " +
                 "проверки-условия, нарушения инвариантов — провал), инварианты манифеста, метрики против эталонов SWORD и SWORD2, " +
-                "бюджеты (медиана повторов без инвариантов; время — только в Release), виды — кадры Sword.exe --replay по записи " +
+                "бюджеты (медиана повторов без инвариантов; кадр App — бенчем на записи сценария; время и кадр — только в Release), " +
+                "виды — кадры Sword.exe --replay по записи " +
                 "сценария. Ответ — вердикт ok, провалы словами, по разделам; всё — в каталоге артефактов (report.json, записи " +
                 "сценариев, PNG видов). Вердикт — по манифесту и эталонам, не по мнению агента. Только Headless.",
             Arguments = CoreTools.Props(
                 ("id", CoreTools.Str("фича (feature.list)")),
                 ("views", new JsonObject { ["type"] = "boolean", ["description"] = "снимать виды в App (по умолчанию true)" }),
-                ("budgets", new JsonObject { ["type"] = "boolean", ["description"] = "мерить бюджеты (по умолчанию true)" }),
+                ("budgets", new JsonObject { ["type"] = "boolean", ["description"] = "мерить бюджеты (по умолчанию true; кадр App — только вместе с views)" }),
                 ("timeoutSeconds", CoreTools.Num("сколько ждать, с (по умолчанию 600)", 1, 3600))),
             Required = ["id"],
             Cost = ToolCost.Heavy,
@@ -102,7 +104,7 @@ internal static class FeatureTools
     internal static FeatureEnvironment Environment(AgentHost host, AgentSimulation session, FeatureSetup setup) => new()
     {
         RepoRoot = setup.RepoRoot, Build = session.Build, Info = session.Info, Names = host.Names, CaptureView = setup.CaptureView,
-        Optimized = setup.Optimized,
+        Optimized = setup.Optimized, MeasureFrame = setup.MeasureFrame,
     };
 
     private static IReadOnlyList<FeatureManifest> Manifests(AgentHost host)

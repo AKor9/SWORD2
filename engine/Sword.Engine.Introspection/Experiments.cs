@@ -188,8 +188,10 @@ public static class Experiments
     /// <summary>
     /// Перебор конфига (<c>experiment.sweep</c>): каждая комбинация значений ключей <paramref name="parameters"/> —
     /// <paramref name="repeats"/> прогонов по очереди (замеры времени не мешают друг другу): сценарий <paramref name="scenario"/>
-    /// (или мир без команд) до <paramref name="ticks"/> тиков, первые <paramref name="warmup"/> — прогрев. Строка — медиана,
-    /// разброс, стадии, байты на тик, число сущностей, хеш итога и одинаков ли он у повторов (детерминизм), нарушения.
+    /// (или мир без команд) до <paramref name="ticks"/> тиков, первые <paramref name="warmup"/> — прогрев. Сначала круг
+    /// прогрева (каждая комбинация по разу без замера), затем повторы по кругу комбинаций (точка 4д: JIT свежего процесса).
+    /// Строка — медиана, разброс, стадии, байты на тик, число сущностей, хеш итога и одинаков ли он у всех прогонов, с кругом
+    /// прогрева (детерминизм), нарушения.
     /// </summary>
     public static (IReadOnlyList<SweepRow> Rows, IReadOnlyList<string> Scaling) Sweep(Replay? scenario, ulong ticks,
         IReadOnlyList<(string Key, IReadOnlyList<string> Values)> parameters, int repeats, int warmup, Func<ConfigSet, Simulation> build,
@@ -203,45 +205,63 @@ public static class Experiments
         if (combinations > MaxCombinations) throw new ArgumentException($"комбинаций {combinations} — не больше {MaxCombinations}");
         if (ticks <= (ulong)warmup) throw new ArgumentException($"ticks {ticks} не больше прогрева {warmup}");
 
-        var rows = new List<SweepRow>();
-        foreach (var combo in Combinations(parameters))
-        {
-            var sets = combo.Select(p => $"{p.Key}={p.Value}").ToList();
-            var measures = new List<SimulationMeasure>();
-            var hashes = new HashSet<string>();
-            int entities = 0;
-            long violations = 0;
-            string? error = null;
-            for (int r = 0; r < repeats && error is null; r++)
+        // Порядок прогонов (точка 4д): сначала круг прогрева — каждая комбинация по разу без замера, затем повторы по кругу
+        // (все комбинации — повтор 1, все — повтор 2, …). Иначе первые комбинации свежего процесса мерились на
+        // неоптимизированном коде: многоуровневый JIT переводит горячие методы на оптимизированный уровень в фоне, с
+        // задержкой по времени (~0,1 с после последней новой компиляции), а прогрев в тиках у лёгкой комбинации — доли
+        // миллисекунды. Замер: [0, 8, 16, 32] врагов в свежем Sword.Headless — 0 и 8 врагов в 15 и 3 раза медленнее, в
+        // обратном порядке — нет. Круг прогрева даёт методы всех комбинаций, повтор по кругу разносит остаток перехода по
+        // разным повторам — медиана его отбрасывает.
+        var runs = Combinations(parameters).Select(c => new SweepRun(c.Select(p => $"{p.Key}={p.Value}").ToList())).ToList();
+        for (int r = -1; r < repeats; r++)
+            foreach (var run in runs)
             {
+                if (run.Error is not null) continue;
                 cancel.ThrowIfCancellationRequested();
                 try
                 {
-                    var sim = build(scenario?.CreateConfig(sets) ?? ConfigSet.Empty([.. sets]));
+                    var sim = build(scenario?.CreateConfig(run.Sets) ?? ConfigSet.Empty([.. run.Sets]));
                     // Без сверки хешей, как бюджеты: иначе мерится хеш каждого тика, и только у комбинаций с конфигом
                     // реплея (с другим конфигом сверка обрывается на первом расхождении) — ложное «резкое ухудшение».
                     if (scenario is not null) sim.Play(scenario.Head(scenario.Ticks, hashes: false));
-                    measures.Add(SimulationMeasure.Run(sim, ticks, warmup, cancel));
-                    hashes.Add(sim.HashState().Total.ToString("X16", CultureInfo.InvariantCulture));
-                    entities = sim.World.EntityCount;
-                    violations = Math.Max(violations, sim.Invariants.Total);
+                    var measure = SimulationMeasure.Run(sim, ticks, warmup, cancel);
+                    if (r >= 0) run.Measures.Add(measure);
+                    run.Hashes.Add(sim.HashState().Total.ToString("X16", CultureInfo.InvariantCulture));
+                    run.Entities = sim.World.EntityCount;
+                    run.Violations = Math.Max(run.Violations, sim.Invariants.Total);
                 }
                 catch (Exception e) when (e is ArgumentException or InvalidOperationException or InvalidDataException)
                 {
-                    error = e.Message;
+                    run.Error = e.Message;
                 }
             }
+
+        var rows = new List<SweepRow>();
+        foreach (var run in runs)
+        {
+            var measures = run.Measures;
             if (measures.Count == 0)
             {
-                rows.Add(new SweepRow(sets, 0, 0, 0, 0, new Dictionary<string, double>(), 0, 0, null, false, 0, error));
+                rows.Add(new SweepRow(run.Sets, 0, 0, 0, 0, new Dictionary<string, double>(), 0, 0, null, false, 0, run.Error));
                 continue;
             }
             var ms = measures.Select(m => m.MsPerTick).Order().ToList();
             var stages = measures[0].Stages.Keys.ToDictionary(s => s, s => FeatureVerifier.Median([.. measures.Select(m => m.Stages[s]).Order()]));
-            rows.Add(new SweepRow(sets, measures.Count, FeatureVerifier.Median(ms), ms[0], ms[^1], stages, measures.Max(m => m.AllocatedBytesPerTick),
-                entities, hashes.Count == 1 ? hashes.First() : string.Join(" ≠ ", hashes), hashes.Count == 1, violations, error));
+            rows.Add(new SweepRow(run.Sets, measures.Count, FeatureVerifier.Median(ms), ms[0], ms[^1], stages, measures.Max(m => m.AllocatedBytesPerTick),
+                run.Entities, run.Hashes.Count == 1 ? run.Hashes.First() : string.Join(" ≠ ", run.Hashes), run.Hashes.Count == 1, run.Violations, run.Error));
         }
         return (rows, Scaling(parameters, rows));
+    }
+
+    /// <summary>Комбинация перебора: замеры повторов, хеши итога (с кругом прогрева), сущностей, нарушения, ошибка.</summary>
+    private sealed class SweepRun(List<string> sets)
+    {
+        public List<string> Sets { get; } = sets;
+        public List<SimulationMeasure> Measures { get; } = [];
+        public HashSet<string> Hashes { get; } = [];
+        public int Entities { get; set; }
+        public long Violations { get; set; }
+        public string? Error { get; set; }
     }
 
     private static IEnumerable<List<(string Key, string Value)>> Combinations(IReadOnlyList<(string Key, IReadOnlyList<string> Values)> parameters)

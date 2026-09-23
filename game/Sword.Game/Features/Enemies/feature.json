@@ -1,14 +1,15 @@
 {
   // Приёмка фичи «Враги и ИИ» (этап 4) — начата на точке 4а (спаун и команды арены), дополнена на 4б (ИИ: подход,
   // окружение, погоня), 4в (столкновения бойцов: толпа, игрок расталкивает её, инвариант movement.rootOverlap) и 4г
-  // (поворот врага на месте клипом командой врагу, сверка с трассой SWORD); полный манифест (сверка толпы с SWORD, эталон
-  // enemies.swreplay) — на 4д. Формат — FeatureManifest
-  // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies). Ослабить ожидания — только
-  // правкой с сообщением пользователю.
+  // (поворот врага на месте клипом командой врагу, сверка с трассой SWORD); полный — на 4д: сверка толпы с трассой SWORD
+  // (сценарий sword-crowd, метрики sword-crowd-*), бюджеты на 32 врагах (тик, стадии, байты, кадр App). Эталон SWORD2
+  // enemies.swreplay фиксируется после подтверждения пользователя (раздел 12 плана) — как, в README.md («Эталон SWORD2»).
+  // Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies).
+  // Ослабить ожидания — только правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "enemies",
-  "title": "Враги и ИИ (этап 4; точки 4а — спаун и команды арены, 4б — ИИ врагов, 4в — столкновения бойцов, 4г — поворот на месте)",
+  "title": "Враги и ИИ (этап 4; точки 4а — спаун и команды арены, 4б — ИИ врагов, 4в — столкновения бойцов, 4г — поворот на месте, 4д — сверка толпы с SWORD и приёмка)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Arena",
@@ -324,6 +325,81 @@
           "condition": { "none": { "all": [{ "component": "PlayerTag" }, { "component": "AnimatorAction" }] } }
         }
       ]
+    },
+    {
+      "id": "sword-crowd",
+      "title": "сценарий трассы толпы SWORD (4д): 12 врагов сходятся к стоящему игроку; PageUp ×2 и 16; игрок разворачивается взглядом, пробегает сквозь кольцо, бегает кругами, уходит шагом; PageDown ×3 и PageUp ×3 (те же места заново); бег по диагонали, R, бег в сторону (сторона ходьбы переживает сброс); бег к колонне 0 — толпа прижимается к ней; у колонны — 32 врага (3000 тиков)",
+      "set": ["arena.enemies=12", "sim.seed=1"],
+      "ticks": 3000,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 0 }, "HasGaze": true, "Gaze": { "X": 10, "Y": 0, "Z": 0 } }, "from": 480, "to": 600 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 }, "HasGaze": true, "Gaze": { "X": 30, "Y": 0, "Z": 0 } }, "from": 600, "to": 780 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 } }, "from": 780, "to": 825 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 1 } }, "from": 825, "to": 870 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 870, "to": 915 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": -1 } }, "from": 915, "to": 960 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": -1 } }, "from": 960, "to": 1005 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": -1, "Y": -1 } }, "from": 1005, "to": 1050 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": -1, "Y": 0 } }, "from": 1050, "to": 1095 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": -1, "Y": 1 } }, "from": 1095, "to": 1140 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": -1, "Y": 0 }, "Walk": true, "HasGaze": true, "Gaze": { "X": -30, "Y": 0, "Z": 0 } }, "from": 1140, "to": 1320 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 300 } }, "from": 1320, "to": 1400 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0.454, "Y": 0.891 } }, "from": 1400, "to": 1470 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 26.635, "Y": 9.223 }, "HasGaze": true, "Gaze": { "X": 27.747272, "Y": 0, "Z": 11.405652 } }, "from": 1560, "to": 2420 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 480, "to": 481 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 540, "to": 541 },
+        { "command": "ArenaCommand", "fields": { "Action": "SetEnemies", "Enemies": 16 }, "from": 600, "to": 601 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": -1 }, "from": 1180, "to": 1181 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": -1 }, "from": 1190, "to": 1191 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": -1 }, "from": 1200, "to": 1201 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 1240, "to": 1241 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 1250, "to": 1251 },
+        { "command": "ArenaCommand", "fields": { "Action": "ChangeEnemies", "Enemies": 1 }, "from": 1260, "to": 1261 },
+        { "command": "ArenaCommand", "fields": { "Action": "Reset" }, "from": 1400, "to": 1401 },
+        { "command": "ArenaCommand", "fields": { "Action": "SetEnemies", "Enemies": 32 }, "from": 2700, "to": 2701 }
+      ],
+      "checks": [
+        {
+          "id": "page-down-up", "title": "PageDown ×3 — 13 врагов, PageUp ×3 — снова 16 (места 14…16 — новые враги)", "expect": "always", "from": 1202, "to": 1240,
+          "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 13 }, { "max": "FighterSlot.Index", "equals": 13 }] }
+        },
+        {
+          "id": "sixteen", "title": "после PageUp ×3 и сброса — 16 врагов", "expect": "always", "from": 1262, "to": 2700,
+          "condition": { "count": { "component": "EnemyTag" }, "equals": 16 }
+        },
+        {
+          "id": "reset", "title": "R — игрок в центре (в тике сброса уже сделал первый шаг команды: ближе 5 см)", "expect": "always", "from": 1401, "to": 1401,
+          "condition": {
+            "all": [
+              { "entity": "player" }, { "field": "Transform.Position.X", "greaterThan": -0.05 }, { "field": "Transform.Position.X", "lessThan": 0.05 },
+              { "field": "Transform.Position.Z", "greaterThan": -0.05 }, { "field": "Transform.Position.Z", "lessThan": 0.05 }
+            ]
+          }
+        },
+        {
+          "id": "pillar", "title": "игрок упёрся в колонну 0 и стоит у неё: центр (27,75; 11,41), радиус 1,2 + корень 0,35 — игрок в (26,28; 10,90)", "expect": "eventually", "from": 2300, "to": 2420,
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "greaterThan": 26.2 }, { "field": "Transform.Position.X", "lessThan": 26.35 }, { "field": "Transform.Position.Z", "greaterThan": 10.85 }, { "field": "Transform.Position.Z", "lessThan": 10.95 }] }
+        },
+        {
+          "id": "pillar-pushes", "title": "толпа у колонны прижимает врагов к ней: враг сдвинут колонной (RootContacts.Obstacle, 4д)", "expect": "eventually", "from": 2420,
+          "condition": {
+            "exists": {
+              "all": [
+                { "component": "EnemyTag" },
+                { "any": [{ "field": "RootContacts.Obstacle.X", "notEquals": 0 }, { "field": "RootContacts.Obstacle.Z", "notEquals": 0 }] }
+              ]
+            }
+          }
+        },
+        {
+          "id": "crowd-at-pillar", "title": "у колонны толпа из 32 врагов упирается друг в друга", "expect": "eventually", "from": 2701,
+          "condition": { "count": { "all": [{ "component": "EnemyTag" }, { "field": "RootContacts.Contacts", "greaterThan": 0 }] }, "greaterThan": 8 }
+        },
+        {
+          "id": "thirty-two", "title": "в конце — 32 врага, бойцов 33", "expect": "atEnd",
+          "condition": { "all": [{ "count": { "component": "EnemyTag" }, "equals": 32 }, { "count": { "component": "Fighter" }, "equals": 33 }] }
+        }
+      ]
     }
   ],
   "invariants": ["arena.slots", "movement.rootOverlap", "animation.*", "locomotion.poses", "ecs.finite", "ecs.entityRefs"],
@@ -339,8 +415,29 @@
       "tolerance": 0
     },
     {
+      "id": "sword-crowd-player", "scenario": "sword-crowd", "source": "sword",
+      "reference": "трасса толпы SWORD 2eab13b на эталонном паке (tests/reference/sword-trace, сценарий crowd; 4д): игрок (Agile) — корень и курс тик за тиком, побитово; вся толпа (корни, курсы, клипы, действия, позы: 53 400 бойце-тиков) — ReferenceTraceTests.Crowd_MatchesSwordTickByTick",
+      "entity": "player", "trace": "tests/reference/anim-crowd.trace.json",
+      "series": { "x[0]": "Transform.Position.X", "z[0]": "Transform.Position.Z", "facing[0]": "Transform.Facing" },
+      "tolerance": 0
+    },
+    {
+      "id": "sword-crowd-enemy-1", "scenario": "sword-crowd", "source": "sword",
+      "reference": "трасса толпы SWORD (4д): враг места 1 (EnemyAi.Think, ResolveRoots, поворот не-Agile) — корень и курс тик за тиком, побитово",
+      "entity": "enemy 1", "trace": "tests/reference/anim-crowd.trace.json",
+      "series": { "x[1]": "Transform.Position.X", "z[1]": "Transform.Position.Z", "facing[1]": "Transform.Facing" },
+      "tolerance": 0
+    },
+    {
+      "id": "sword-crowd-enemy-12", "scenario": "sword-crowd", "source": "sword",
+      "reference": "трасса толпы SWORD (4д): враг места 12 (последнее место сборки мира; строится заново сбросом R) — корень и курс тик за тиком, побитово",
+      "entity": "enemy 12", "trace": "tests/reference/anim-crowd.trace.json",
+      "series": { "x[12]": "Transform.Position.X", "z[12]": "Transform.Position.Z", "facing[12]": "Transform.Facing" },
+      "tolerance": 0
+    },
+    {
       "id": "keep-distance", "scenario": "surround", "source": "sword",
-      "reference": "SWORD 2eab13b EnemyAi.KeepDistance = 1.8f (расхождение соседей ближе Personal 1,4 м отодвигает кольцо из 10 врагов до ~1,9 м)",
+      "reference": "SWORD 2eab13b EnemyAi.KeepDistance = 1.8f; допуск ±0,4 пересмотрен на 4д и оставлен: это «враг в кольце у KeepDistance», а не точность — по 64 зёрнам расстояние врага 1 в конце surround 1,46…2,29 м (все враги 1,30…2,29: покачивание ±0,7 м/с и расхождение соседей), при sim.seed 1 — 1,875; точность — побитовые трассы толпы и поворота",
       "entity": "enemy 1", "field": "EnemyAiTerms.Distance", "expected": 1.8, "tolerance": 0.4
     }
   ],
@@ -349,20 +446,27 @@
     { "id": "surround", "title": "10 врагов окружили игрока на ~1,8 м, лицом к нему", "scenario": "surround", "tick": 900, "camera": "0.6,0.9,9,0,0" },
     { "id": "crowd", "title": "32 врага (--units 32): кольцо плотнее, толпа сходится к бегущему игроку", "scenario": "crowd", "tick": 60, "camera": "0.6,0.9,30,0,0" },
     { "id": "turn", "title": "враг 1 разворачивается на месте клипом разворота (командой врагу), игрок стоит в центре", "scenario": "turn", "tick": 480, "camera": "0.6,0.9,5,-4.95,-4.69" },
-    { "id": "push", "title": "игрок упёрся в толпу из 32 врагов и расталкивает её; враги стоят плечом к плечу, не друг в друге", "scenario": "push", "tick": 640, "camera": "0.6,0.9,9,1,0" }
+    { "id": "push", "title": "игрок упёрся в толпу из 32 врагов и расталкивает её; враги стоят плечом к плечу, не друг в друге", "scenario": "push", "tick": 640, "camera": "0.6,0.9,9,1,0" },
+    { "id": "pillar", "title": "сценарий трассы толпы (4д): игрок у колонны 0, толпа из 32 врагов обступила его и прижимается к колонне, никто не стоит в колонне", "scenario": "sword-crowd", "tick": 2992, "camera": "0.6,0.9,16,26.3,10.9" }
   ],
   "budgets": [
-    { "id": "crowd", "scenario": "crowd", "msPerTick": 0.3, "stages": { "Animation": 0.25 }, "allocatedBytesPerTick": 0, "repeats": 5 }
+    // 4д: пределы — около 2× к медиане замера на этой машине (Ryzen 7 7800X3D, RTX 5070, Release; README.md, «Бюджеты»):
+    // тик 0,077 мс (23 прогона: 0,0766…0,0782), Animation 0,068, Movement 0,0040, Intent 0,0025, Gameplay 0,0014; кадр App
+    // на записи сценария 640×480 — средний 0,37 мс, p99 0,81 (6 прогонов). Было на 4а–4г: 0,3 мс/тик и Animation 0,25.
+    {
+      "id": "crowd", "scenario": "crowd", "msPerTick": 0.16,
+      "stages": { "Animation": 0.14, "Movement": 0.01, "Intent": 0.006, "Gameplay": 0.004 },
+      "allocatedBytesPerTick": 0, "repeats": 5,
+      "frame": { "averageMs": 1.0, "p99Ms": 2.5, "seconds": 5 }
+    }
   ],
   "checklist": [
-    "`Sword.exe` — вокруг Manny кольцом 5–9 м появляются 10 врагов разного цвета, лицом к нему, и сразу бегут к нему клипом бега; за 2–3 с встают вокруг примерно в 2 м (чуть дальше вытянутого меча), лицом к Manny.",
-    "Постоять 10–20 с: враги в кольце медленно покачиваются вбок — каждый в своём ритме, кто влево, кто вправо, — шагом или в стойке, не бегут и не слипаются (держатся не ближе полуметра друг к другу; вплотную — касаются, но друг в друга не заходят).",
-    "Отбежать WASD — враги бегут следом и отстают (они медленнее: 3,2 м/с против 4,2); остановиться — догоняют и снова встают кольцом; бегать вокруг них — они всё время разворачиваются к Manny: на ходу быстро, стоя — плавно, без рывков и прокручивания на месте (поворот на месте клипом в обычной игре почти не бывает — так и в SWORD, см. пункт 9); сквозь врагов не пробежать — Manny упирается, его отводит вбок, и он протискивается между ними.",
-    "PageUp — в кольце 5–9 м вокруг Manny (там, где он сейчас) появляется ещё один враг и сразу идёт к нему; PageDown — исчезает последний добавленный; больше 32 и меньше 0 не бывает.",
-    "Отбежать от центра и нажать R — Manny мгновенно в центре арены и стоит, враги заново кольцом 5–9 м вокруг центра, их столько же, и снова сходятся к нему.",
-    "`Sword.exe --units 32` — 32 врага толпой сходятся к Manny и обступают его в 2–3 ряда плечом к плечу, но никто не стоит внутри другого и внутри Manny (руки и плечи могут заходить друг в друга: сталкиваются только круги корней 0,35 м, тела — этап 5), кадр плавный (FPS в HUD как без врагов или близко); `Sword.exe --units 0` — Manny один.",
-    "`Sword.exe --units 32`, подождать, пока толпа обступит Manny, и бежать в неё (D): Manny с разбега упирается (заметно тормозит), толкает врагов перед собой, скользит вдоль них и протискивается сквозь толпу; враги впереди расступаются, сзади снова сходятся; никто не проходит сквозь Manny и друг сквозь друга.",
-    "`Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется само: враги бегут, появляются и исчезают, как было.",
-    "Поворот на месте клипом (4г): после `verify.ps1` (или `Sword.Headless --feature enemies`) — `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay`, смотреть на врага 1 слева-сзади от Manny (камеру подвести к нему). Враг стоит лицом к Manny, затем поворачивается на месте на четверть круга влево — переступая ногами клипом поворота, а не вращаясь статуей; через 1,5 с — вправо, ещё через 1,5 с — разворот кругом, тоже шагами; потом чуть доворачивает плавно без шагов; начинает поворот и сразу уходит шагом — поворот мягко гаснет, без рывка позы; на ходу поворачивает быстро без клипа; остановился — снова поворачивается на месте шагами. Ноги не проскальзывают заметно, поза не прыгает."
+    "`Sword.exe` — вокруг Manny кольцом 5–9 м появляются 10 врагов разного цвета, лицом к нему, и сразу бегут к нему клипом бега; за 2–3 с встают вокруг примерно в 2 м (чуть дальше вытянутого меча), лицом к Manny. Постоять 10–20 с: враги медленно покачиваются вбок — каждый в своём ритме, шагом или в стойке, — не бегут и не слипаются (вплотную касаются, но друг в друга не заходят).",
+    "Бегать WASD: враги бегут следом и отстают (3,2 м/с против 4,2 у Manny); остановиться — догоняют и снова встают кольцом. Бегать вокруг них — всё время разворачиваются к Manny: на ходу быстро, стоя — плавно, без рывков и прокручивания на месте. Сквозь врагов не пробежать — Manny упирается, его отводит вбок, и он протискивается между ними.",
+    "PageUp — в кольце 5–9 м вокруг Manny (там, где он сейчас) появляется ещё один враг и сразу идёт к нему; PageDown — исчезает последний добавленный; больше 32 и меньше 0 не бывает. Отбежать от центра и нажать R — Manny мгновенно в центре арены и стоит, враги заново кольцом вокруг центра, их столько же, и снова сходятся к нему.",
+    "`Sword.exe --units 32` — 32 врага толпой обступают Manny в 2–3 ряда плечом к плечу; никто не стоит внутри другого и внутри Manny (руки и плечи могут заходить друг в друга: сталкиваются только круги корней 0,35 м, тела — этап 5). Бежать в толпу (D) — Manny с разбега упирается, толкает врагов перед собой и протискивается; впереди расступаются, сзади снова сходятся. Кадр плавный, FPS в HUD — как без врагов или близко; `Sword.exe --units 0` — Manny один.",
+    "Колонна: `Sword.exe --units 32`, дождаться, пока толпа обступит Manny, и бежать к ближайшей колонне (от центра — 30 м), встать вплотную к ней: толпа догоняет и обступает Manny у колонны, крайние враги прижимаются к колонне и обходят её; ни Manny, ни враг не стоят внутри колонны, никого не трясёт и не выталкивает рывком.",
+    "Поворот на месте клипом (в обычной игре почти не бывает — так и в SWORD): после `verify.ps1` (или `Sword.Headless --feature enemies`) — `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay --camera 0.6,0.9,8,-4.95,-4.69` — камера смотрит на врага 1 (в сценарии он один, в ~7 м от Manny). Через полсекунды враг поворачивается на месте на четверть круга влево — переступая ногами клипом поворота, а не вращаясь статуей; через 1,5 с — вправо, ещё через 1,5 с — разворот кругом, тоже шагами; чуть доворачивает плавно без шагов; начинает поворот и сразу уходит шагом — поворот мягко гаснет без рывка позы; на ходу поворачивает быстро без клипа. Ноги заметно не проскальзывают, поза не прыгает.",
+    "Запись: `Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется само. Сценарий сверки с SWORD: `Sword.exe --replay artifacts/features/enemies/scenario-sword-crowd.swreplay` — толпа сходится, игрок бегает, враги появляются и исчезают, сброс, бег к колонне, у колонны 32 врага; в журнале при выходе — «реплей: сверено хешей …» без строки расхождения."
   ]
 }

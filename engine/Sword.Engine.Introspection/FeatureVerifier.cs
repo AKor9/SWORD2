@@ -26,6 +26,9 @@ public sealed class FeatureEnvironment
 
     /// <summary>Сборка оптимизирована (Release): бюджеты времени проверяются; в Debug — только меряются.</summary>
     public bool Optimized { get; init; }
+
+    /// <summary>Замерить кадр App на записи сценария (бюджет кадра); null — App нет (бюджет кадра — провал, если его просили).</summary>
+    public Func<FrameRequest, CancellationToken, FrameResult>? MeasureFrame { get; init; }
 }
 
 /// <summary>Что делать в <see cref="FeatureVerifier.Verify"/>: виды, бюджеты, куда класть артефакты.</summary>
@@ -41,6 +44,15 @@ public sealed record ViewRequest(string Feature, string View, string Replay, ulo
 
 /// <summary>Итог вида: снят ли кадр, совпали ли хеши App с реплеем, подробности для людей.</summary>
 public sealed record ViewResult(bool Ok, string Detail);
+
+/// <summary>Замер кадра для App (бюджет кадра): реплей сценария (записанный Headless), секунды бенча (первые 4 — прогрев).</summary>
+public sealed record FrameRequest(string Feature, string Budget, string Replay, double Seconds);
+
+/// <summary>
+/// Итог замера кадра: App отработал и его хеши совпали с записью (<see cref="Ok"/>), кадров замера, средний кадр, 99-й
+/// перцентиль и худший, мс; подробности для людей.
+/// </summary>
+public sealed record FrameResult(bool Ok, string Detail, long Frames = 0, double AverageMs = double.NaN, double P99Ms = double.NaN, double MaxMs = double.NaN);
 
 /// <summary>Итог <c>feature.verify</c>: вердикт, провалы словами, полный отчёт JSON (он же — <c>report.json</c> в артефактах).</summary>
 public sealed record FeatureReport(string Feature, bool Ok, IReadOnlyList<string> Failures, JsonObject Json, string Directory);
@@ -110,7 +122,12 @@ public static class FeatureVerifier
             foreach (var b in manifest.Budgets)
             {
                 cancel.ThrowIfCancellationRequested();
-                var result = Budget(manifest, b, manifest.Scenario(b.Scenario), env, cancel);
+                var result = b.HasSimulation
+                    ? Budget(manifest, b, manifest.Scenario(b.Scenario), env, cancel)
+                    : (Json: new JsonObject { ["id"] = b.Id, ["scenario"] = b.Scenario }, Failures: new List<string>());
+                if (b.Frame is { } frame) FrameBudget(manifest.Id, b, frame, runs[b.Scenario], env, options, result.Json, result.Failures, cancel);
+                result.Json["ok"] = result.Failures.Count == 0;
+                result.Json["failures"] = new JsonArray([.. result.Failures.Select(f => (JsonNode?)f)]);
                 budgets.Add(result.Json);
                 failures.AddRange(result.Failures.Select(f => $"бюджет {b.Id}: {f}"));
             }
@@ -219,6 +236,7 @@ public static class FeatureVerifier
         public required JsonObject Json { get; init; }
         public List<string> Failures { get; } = [];
         public ulong Ticks { get; set; }
+        public int TickRate { get; set; } = 120;
         public bool Completed { get; private set; }
         public string? RecordedFile { get; set; }
         public List<(string Id, long Evaluations, long Violations)> Invariants { get; } = [];
@@ -247,6 +265,7 @@ public static class FeatureVerifier
             if (sim is null) return;
             ulong ticks = scenario.Ticks ?? replay!.Ticks;
             Ticks = ticks;
+            TickRate = sim.Settings.TickRate;
             Json["ticks"] = ticks;
             Json["modules"] = new JsonArray([.. sim.ActiveModules.Select(m => (JsonNode?)m)]);
 
@@ -541,6 +560,58 @@ public static class FeatureVerifier
         json["ok"] = failures.Count == 0;
         json["failures"] = new JsonArray([.. failures.Select(f => (JsonNode?)f)]);
         return (json, failures);
+    }
+
+    /// <summary>
+    /// Бюджет кадра: App играет запись сценария бенчем (<see cref="FeatureEnvironment.MeasureFrame"/>); хеши App обязаны
+    /// совпасть с записью. Без видов (<c>--no-views</c>: App не запускается, например без видеокарты) — не меряется; время —
+    /// проверяется только в Release, как время бюджета симуляции.
+    /// </summary>
+    private static void FrameBudget(string feature, FeatureBudget budget, FeatureFrameBudget frame, ScenarioRun run, FeatureEnvironment env,
+        FeatureVerifyOptions options, JsonObject json, List<string> failures, CancellationToken cancel)
+    {
+        var fj = new JsonObject { ["seconds"] = frame.Seconds, ["limitAverageMs"] = frame.AverageMs, ["limitP99Ms"] = frame.P99Ms };
+        json["frame"] = fj;
+        if (!options.Views)
+        {
+            fj["measured"] = "не мерялся: виды выключены (--no-views) — App не запускается";
+            return;
+        }
+        if (env.MeasureFrame is null)
+        {
+            failures.Add("кадр: App нет — кадр меряет Sword.Headless рядом со собранным Sword.exe");
+            return;
+        }
+        if (run.RecordedFile is null)
+        {
+            failures.Add("кадр: сценарий не записан — играть нечего");
+            return;
+        }
+        ulong need = (ulong)Math.Ceiling(frame.Seconds * run.TickRate);
+        if (run.Ticks < need)
+        {
+            failures.Add($"кадр: сценарий ({run.Ticks} тиков) короче бенча ({frame.Seconds} с — {need} тиков)");
+            return;
+        }
+        var r = env.MeasureFrame(new FrameRequest(feature, budget.Id, run.RecordedFile, frame.Seconds), cancel);
+        fj["ok"] = r.Ok;
+        fj["detail"] = r.Detail;
+        fj["frames"] = r.Frames;
+        if (double.IsFinite(r.AverageMs)) fj["averageMs"] = r.AverageMs;
+        if (double.IsFinite(r.P99Ms)) fj["p99Ms"] = r.P99Ms;
+        if (double.IsFinite(r.MaxMs)) fj["maxMs"] = r.MaxMs;
+        if (!r.Ok)
+        {
+            failures.Add($"кадр: {r.Detail}");
+            return;
+        }
+        if (!env.Optimized)
+        {
+            fj["time"] = "не проверяется: сборка Debug (время — только в Release, verify.ps1 -Configuration Release)";
+            return;
+        }
+        if (frame.AverageMs is { } avg && !(r.AverageMs <= avg)) failures.Add($"кадр {Fmt(r.AverageMs)} мс в среднем, предел {Fmt(avg)}");
+        if (frame.P99Ms is { } p99 && !(r.P99Ms <= p99)) failures.Add($"кадр {Fmt(r.P99Ms)} мс (99-й перцентиль), предел {Fmt(p99)}");
     }
 
     internal static double Median(IReadOnlyList<double> sorted) =>

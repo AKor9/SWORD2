@@ -81,7 +81,8 @@
 1. Толчки тика у врага — `entity.get {"entity":"enemy 3","components":["RootContacts","Transform","RootVelocity"]}`:
    `Contacts` (сколько раз за оба прохода разрешалась пара с ним), `Push` (сдвиг корня парами, м), `FromPlayer` (часть
    сдвига от пары с игроком), `Deepest` (наибольшее перекрытие пары до разрешения, м) и `DeepestWith` (с кем: место,
-   0 — игрок, −1 — касаний не было). Колонны и край сюда не входят. У игрока вида нет: его толчок парами —
+   0 — игрок, −1 — касаний не было), `Obstacle` (4д: сдвиг корня колоннами и краем арены; `Push + Obstacle` — весь сдвиг
+   столкновениями; «во что упёрся» — `{"field":"RootContacts.Obstacle.X","notEquals":0}`). У игрока вида нет: его толчок парами —
    `−Σ FromPlayer`: `world.query {"with":["EnemyTag"],"aggregate":["RootContacts.FromPlayer.X","RootContacts.FromPlayer.Z"],"take":0}`
    (`sum`); упёрся ли игрок — `RootVelocity` против `FighterCommand.DesiredVelocity` (`entity.get player`).
 2. «Когда игрок толкнул врага»: `time.runUntil {"condition":{"exists":{"all":[{"component":"EnemyTag"},{"field":"RootContacts.DeepestWith","equals":0}]}},"maxTicks":600}`;
@@ -96,8 +97,21 @@
 4. Посреди тика: `time.break {"stage":"Movement"}` — корни уже разведены; `{"stage":"Animation"}` — ещё до переноса и
    столкновений. Побитово с SWORD — тест `RootCollisionTests` (`dotnet test tests/Sword.Game.Tests --filter RootCollision`).
 5. Без агента: `Sword.Headless --ticks N --units 32 --move 1,0 --json` — `arena.closestPair` (ближайшая пара корней:
-   расстояние и места; ближе 0,7 м — перекрытие) и у мест `contacts`, `push`, `fromPlayer`, `deepest`, `deepestWith`;
-   приёмка — сценарий `push` манифеста `enemies`.
+   расстояние и места; ближе 0,7 м — перекрытие) и у мест `contacts`, `push`, `fromPlayer`, `deepest`, `deepestWith`,
+   `obstacle`; приёмка — сценарий `push` манифеста `enemies` (толпа у колонны — `sword-crowd`, проверка `pillar-pushes`).
+
+**Толпа против SWORD: где разошлась (точка 4д).**
+1. Трасса толпы SWORD — `tests/reference/anim-crowd.trace.json` (настоящий `FighterAnimator`, копии `EnemyAi.Think` и
+   `ResolveRoots`, команды арены по ходу, до 33 бойцов). Вся толпа — `dotnet test tests/Sword.Game.Tests --filter
+   Crowd_MatchesSwordTickByTick`: сообщение называет тик, место и что разошлось (клип, действие, корень, курс, поза).
+   Через агента — `feature.verify {"id":"enemies","views":false,"budgets":false}`: метрики `sword-crowd-player`,
+   `sword-crowd-enemy-1`, `sword-crowd-enemy-12` — `firstMismatch` (тик, ключ `x[место]`/`z[…]`/`facing[…]`, SWORD и SWORD2).
+2. Посмотреть бойца на тике расхождения: `session.start {"replay":"<артефакты>/scenario-sword-crowd.swreplay"}`,
+   `time.runUntil {"tick":T-1}`, `watch.add {"entities":["enemy 5"],"fields":["Transform","EnemyAiTerms","RootContacts","LegacyLocomotionState"]}`,
+   `time.step`, `entity.history`; число в трассе — `ticks[T-1]` (массивы по местам 0…EnemyCount). Пересобрать трассу — README
+   `tests/reference/sword-trace` (вход — `artifacts/reference/crowd.input.json`, его пишет тот же тест).
+3. Сценарий и расстановка трассы — те же, что у теста: изменили сценарий (`ReferenceTraceTests.CrowdSegments`) или спаун —
+   тест скажет «снять трассу заново», и сценарий `sword-crowd` манифеста надо поправить теми же командами.
 
 **Поворот врага на месте клипом (точка 4г).**
 1. Враг (не-`Agile`) поворачивает на ходу 12 рад/с, стоя — 2,5 рад/с, а отстал стоя больше 45° — клипом (90° влево,
@@ -185,7 +199,8 @@
 1. `feature.list` — фичи; `feature.list {"id":"animation"}` — манифест целиком.
 2. `feature.verify {"id":"animation"}` — вердикт `ok` и `failures` словами; по разделам — сценарии (проверки, хеши
    реплея, нарушения), инварианты (проверок, нарушений), метрики (`value`, `expected`, `detail`; ряд против трассы SWORD —
-   `firstMismatch`), бюджеты (медиана мс на тик, стадии, байты; время — только в Release), виды (PNG кадров
+   `firstMismatch`), бюджеты (медиана мс на тик, стадии, байты; кадр App — `frame`: средний и p99 на записи сценария,
+   хеши App сверены; время и кадр проверяются только в Release, без видов кадр не меряется), виды (PNG кадров
    `Sword.exe --replay` по записи сценария, хеши App сверены с Headless). Всё — в каталоге артефактов (`report.json`,
    `scenario-*.swreplay`, `view-*.png`). `views:false` — без App. Без агента — `Sword.Headless --feature ID|all [--json]`
    (код 4 — провал), `verify.ps1` шаг `features`.
@@ -205,7 +220,12 @@
    этом тике.
 3. `experiment.sweep {"params":{"sim.tickRate":[60,120]},"replay":"my.swreplay","repeats":3}` — по комбинации: мс на тик
    (медиана, разброс), мс стадий, байты на тик, хеш итога и `deterministic` (повторы совпали); `scaling` — где время
-   растёт резко быстрее значения ключа. Время — в Release (`tools/scripts/agent-headless.cmd` собирает Debug).
+   растёт резко быстрее значения ключа. Время — в Release (`tools/scripts/agent-headless.cmd` собирает Debug). Толпа:
+   `{"params":{"arena.enemies":[0,8,16,32]},"replay":"<артефакты enemies>/scenario-crowd.swreplay","repeats":7}` (таблица
+   этапа 4 — README фичи `enemies`). Перебор сначала прогоняет каждую комбинацию по разу без замера, затем повторы по
+   кругу комбинаций: без этого первые комбинации свежего процесса мерились на неоптимизированном JIT (в 3–15 раз
+   медленнее, 4д); `msPerTick.max` (первый круг повторов) ещё бывает выше — смотреть медиану. Сеанс агента меряет с
+   инвариантами (`sim.invariants=false` в `params` — как бюджет манифеста).
 
 **Понять, почему поле такое.** `ecs.componentUsage {"name":"Transform"}` — кто пишет; `ecs.explainSystem` писателя —
 его входы (`upstream`, с пометкой «в этом тике» или «с прошлого тика» и причиной `why`: команды той же стадии —

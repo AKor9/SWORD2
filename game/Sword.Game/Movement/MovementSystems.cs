@@ -264,7 +264,8 @@ public sealed class RootControlSystem : IContinuousSystem
 /// (<c>entity.get</c>, <c>watch.add</c>, условия и агрегаты) и манифест фичи. Хешируется (участник <c>ecs</c>): это
 /// производное состояние, детерминированное, как и сами корни. Только у врагов (как <c>EnemyAiTerms</c>): толчок игрока
 /// парами — <c>−Σ FromPlayer</c> по врагам (каждая пара сдвигает обоих на одну и ту же величину в разные стороны).
-/// Колонны и край арены сюда не входят.
+/// Колонны и край арены — отдельно, <see cref="Obstacle"/> (4д): <see cref="Push"/> + <see cref="Obstacle"/> — весь сдвиг корня
+/// столкновениями за тик (с точностью до округления float).
 /// </summary>
 public struct RootContacts
 {
@@ -283,6 +284,9 @@ public struct RootContacts
     /// <summary>Место бойца этой пары (0 — игрок); −1 — касаний не было.</summary>
     public int DeepestWith;
 
+    /// <summary>Сдвиг корня колоннами и краем арены за тик, м (оба прохода; точка 4д): то, чего пары не объясняют.</summary>
+    public Vector3 Obstacle;
+
     /// <summary>Касаний не было.</summary>
     public static readonly RootContacts None = new() { DeepestWith = -1 };
 }
@@ -298,7 +302,8 @@ public static class RootCollision
     /// <summary>
     /// Корни и скорости по местам (0 — игрок, 1…32 — враги); <paramref name="present"/> — место занято. Пустое место
     /// пропускается, как неактивное в SWORD (<c>i &lt; ActiveCount</c>); этап 6 добавит сюда пропуск мёртвых
-    /// (<c>a.Dead</c>, <c>b.Dead</c>). <paramref name="contacts"/> — толчки пар за вызов по местам (перезаписываются).
+    /// (<c>a.Dead</c>, <c>b.Dead</c>). <paramref name="contacts"/> — толчки пар, колонн и края за вызов по местам
+    /// (перезаписываются; только учёт — корни и скорости он не трогает).
     /// </summary>
     public static void Resolve(Span<Vector3> roots, Span<Vector3> velocities, ReadOnlySpan<bool> present, Span<RootContacts> contacts)
     {
@@ -316,8 +321,10 @@ public static class RootCollision
                     Record(ref contacts[i], push, overlap, j);
                     Record(ref contacts[j], -push, overlap, i);
                 }
+                var before = roots[i];
                 foreach (var pillar in ArenaLayout.Pillars) RootCollisionSystem.PushOutOfPillar(ref roots[i], ref velocities[i], pillar);
                 RootCollisionSystem.KeepInsideArena(ref roots[i], ref velocities[i]);
+                contacts[i].Obstacle += roots[i] - before;
             }
     }
 

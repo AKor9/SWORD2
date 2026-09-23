@@ -376,8 +376,8 @@ public sealed record FeatureView(string Id, string Scenario, ulong Tick, string?
 
 /// <summary>
 /// Бюджет производительности сценария: мс на тик (медиана <see cref="Repeats"/> прогонов без инвариантов, как бенч), мс
-/// стадий, выделенные байты на тик после <see cref="Warmup"/> тиков прогрева. Время проверяется только в оптимизированной
-/// сборке (Release); байты — всегда.
+/// стадий, выделенные байты на тик после <see cref="Warmup"/> тиков прогрева; кадр App (<see cref="Frame"/>, точка 4д).
+/// Время проверяется только в оптимизированной сборке (Release); байты — всегда.
 /// </summary>
 public sealed record FeatureBudget
 {
@@ -389,9 +389,15 @@ public sealed record FeatureBudget
     public int Repeats { get; init; } = 5;
     public int Warmup { get; init; } = 120;
 
+    /// <summary>Бюджет кадра App на записи сценария; null — кадр не меряется.</summary>
+    public FeatureFrameBudget? Frame { get; init; }
+
+    /// <summary>Есть что мерить в симуляции (мс на тик, стадии, байты), а не только кадр.</summary>
+    public bool HasSimulation => MsPerTick is not null || Stages.Count > 0 || AllocatedBytesPerTick is not null;
+
     internal static FeatureBudget Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "scenario", "msPerTick", "stages", "allocatedBytesPerTick", "repeats", "warmup");
+        r.Only("id", "scenario", "msPerTick", "stages", "allocatedBytesPerTick", "repeats", "warmup", "frame");
         var stages = new Dictionary<string, double>(StringComparer.Ordinal);
         if (r.OptionalObject("stages") is { } o)
             foreach (var (key, _) in o)
@@ -401,11 +407,36 @@ public sealed record FeatureBudget
             Id = r.String("id"), Scenario = r.String("scenario"), MsPerTick = r.OptionalNumber("msPerTick"), Stages = stages,
             AllocatedBytesPerTick = r.OptionalNumber("allocatedBytesPerTick"),
             Repeats = (int)(r.OptionalInteger("repeats", 1, 50) ?? 5), Warmup = (int)(r.OptionalInteger("warmup", 0, 100_000) ?? 120),
+            Frame = r.OptionalObject("frame") is { } f ? FeatureFrameBudget.Parse(new FeatureManifest.Reader(f, $"{r.At}.frame")) : null,
         };
-        if (b.MsPerTick is null && b.Stages.Count == 0 && b.AllocatedBytesPerTick is null)
-            throw new ArgumentException($"{r.At}: нечего проверять — msPerTick, stages или allocatedBytesPerTick");
+        if (!b.HasSimulation && b.Frame is null)
+            throw new ArgumentException($"{r.At}: нечего проверять — msPerTick, stages, allocatedBytesPerTick или frame");
         if (b.MsPerTick <= 0 || b.Stages.Values.Any(v => v <= 0) || b.AllocatedBytesPerTick < 0)
             throw new ArgumentException($"{r.At}: пределы — положительные (байты — не меньше 0)");
         return b;
+    }
+}
+
+/// <summary>
+/// Бюджет кадра (точка 4д): App играет запись сценария бенчем (<c>Sword.exe --replay … --bench <see cref="Seconds"/></c>:
+/// первые 4 с игрового времени — прогрев, vsync выключен, хеши сверяются с записью Headless) — средний кадр и 99-й
+/// перцентиль, мс. Как время бюджета — проверяется только в Release; нужен App (виды включены).
+/// </summary>
+public sealed record FeatureFrameBudget
+{
+    public double? AverageMs { get; init; }
+    public double? P99Ms { get; init; }
+
+    /// <summary>Секунды игрового времени бенча (больше 4 — прогрев): запись сценария должна быть не короче.</summary>
+    public double Seconds { get; init; } = 5;
+
+    internal static FeatureFrameBudget Parse(FeatureManifest.Reader r)
+    {
+        r.Only("averageMs", "p99Ms", "seconds");
+        var f = new FeatureFrameBudget { AverageMs = r.OptionalNumber("averageMs"), P99Ms = r.OptionalNumber("p99Ms"), Seconds = r.OptionalNumber("seconds") ?? 5 };
+        if (f.AverageMs is null && f.P99Ms is null) throw new ArgumentException($"{r.At}: нечего проверять — averageMs или p99Ms");
+        if (f.AverageMs <= 0 || f.P99Ms <= 0) throw new ArgumentException($"{r.At}: пределы — положительные");
+        if (!(f.Seconds > 4 && f.Seconds <= 60)) throw new ArgumentException($"{r.At}.seconds: больше 4 (прогрев бенча) и не больше 60");
+        return f;
     }
 }

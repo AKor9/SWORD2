@@ -98,7 +98,7 @@ public static partial class Program
         if (RepoRoot() is not { } root) return null;
         bool optimized = typeof(Program).Assembly.GetCustomAttributes(typeof(DebuggableAttribute), false)
             .OfType<DebuggableAttribute>().FirstOrDefault()?.IsJITOptimizerDisabled != true;
-        return new FeatureSetup(root, [Path.Combine(root, "game"), Path.Combine(root, "engine")], CaptureView, optimized);
+        return new FeatureSetup(root, [Path.Combine(root, "game"), Path.Combine(root, "engine")], CaptureView, optimized, MeasureFrame);
     }
 
     /// <summary>Sword.exe той же конфигурации сборки, что этот Headless (…\bin\Debug\… → App\bin\Debug); null — не собран.</summary>
@@ -128,6 +128,48 @@ public static partial class Program
         };
         if (!request.Hud) args.Add("--no-hud");
         if (request.Camera is { } camera) args.AddRange(["--camera", camera]);
+        var (report, error) = RunApp(exe, args, cancel);
+        if (report is null) return new ViewResult(false, error!);
+        var replay = report["replay"];
+        bool match = replay?["match"]?.GetValue<bool>() == true;
+        if (!File.Exists(request.Png)) return new ViewResult(false, "Sword.exe отработал, а PNG нет");
+        string frames = report["report"]?["frames"]?.ToJsonString() ?? "?";
+        return match
+            ? new ViewResult(true, $"кадр {frames} (после {request.Tick} тиков, {k} на кадр); хеши App совпали с записью Headless (сверено {replay!["hashesChecked"]})")
+            : new ViewResult(false, $"хеши App разошлись с записью Headless: {replay?["divergence"]}");
+    }
+
+    /// <summary>
+    /// Бюджет кадра (точка 4д): Sword.exe играет записанный сценарий бенчем (<c>--replay … --bench N</c>: первые 4 с — прогрев,
+    /// vsync выключен, справка скрыта), окно 640×480 без фокуса — как бенч <c>verify.ps1</c> app-smoke. Хеши App сверяются с
+    /// записью Headless: замер — ровно той игры, что сценарий.
+    /// </summary>
+    private static FrameResult MeasureFrame(FrameRequest request, CancellationToken cancel)
+    {
+        if (AppExe() is not { } exe) return new FrameResult(false, "Sword.exe не собран (dotnet build SWORD.slnx)");
+        var (report, error) = RunApp(exe,
+        [
+            "--replay", request.Replay, "--windowed", "640x480", "--no-activate", "--json",
+            "--bench", request.Seconds.ToString(CultureInfo.InvariantCulture),
+        ], cancel);
+        if (report is null) return new FrameResult(false, error!);
+        var bench = report["report"]?["bench"];
+        var replay = report["replay"];
+        if (bench is null || report["report"]?["exitReason"]?.GetValue<string>() != "bench")
+            return new FrameResult(false, $"Sword.exe вышел не по бенчу: {report["report"]?["exitReason"]}");
+        long frames = bench["frames"]?.GetValue<long>() ?? 0;
+        double avg = bench["averageMs"]?.GetValue<double>() ?? double.NaN, p99 = bench["p99Ms"]?.GetValue<double>() ?? double.NaN,
+            max = bench["maxMs"]?.GetValue<double>() ?? double.NaN;
+        if (replay?["match"]?.GetValue<bool>() != true)
+            return new FrameResult(false, $"хеши App разошлись с записью Headless: {replay?["divergence"]}", frames, avg, p99, max);
+        if (frames <= 0) return new FrameResult(false, "кадров замера нет", frames, avg, p99, max);
+        return new FrameResult(true, $"кадров замера {frames}: ср {avg} мс, p99 {p99} мс, макс {max} мс; хеши App совпали с записью " +
+            $"(сверено {replay["hashesChecked"]}); {report["report"]?["adapter"]}", frames, avg, p99, max);
+    }
+
+    /// <summary>Запустить Sword.exe и прочитать итог JSON (последняя строка stdout); ошибка — словами.</summary>
+    private static (JsonNode? Report, string? Error) RunApp(string exe, IEnumerable<string> args, CancellationToken cancel)
+    {
         var start = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (string a in args) start.ArgumentList.Add(a);
         using var process = Process.Start(start) ?? throw new InvalidOperationException($"не запустился {exe}");
@@ -143,7 +185,7 @@ public static partial class Program
         {
             process.Kill(entireProcessTree: true);
             if (cancel.IsCancellationRequested) throw;
-            return new ViewResult(false, "Sword.exe не закончил за 180 с");
+            return (null, "Sword.exe не закончил за 180 с");
         }
         string line = LastLine(stdout.GetAwaiter().GetResult());
         JsonNode? report = null;
@@ -157,15 +199,9 @@ public static partial class Program
         if (process.ExitCode != 0 || report?["ok"]?.GetValue<bool>() != true)
         {
             string err = report?["error"]?.GetValue<string>() ?? LastLine(stderr.GetAwaiter().GetResult());
-            return new ViewResult(false, $"Sword.exe — код {process.ExitCode}: {err}");
+            return (null, $"Sword.exe — код {process.ExitCode}: {err}");
         }
-        var replay = report["replay"];
-        bool match = replay?["match"]?.GetValue<bool>() == true;
-        if (!File.Exists(request.Png)) return new ViewResult(false, "Sword.exe отработал, а PNG нет");
-        string frames = report["report"]?["frames"]?.ToJsonString() ?? "?";
-        return match
-            ? new ViewResult(true, $"кадр {frames} (после {request.Tick} тиков, {k} на кадр); хеши App совпали с записью Headless (сверено {replay!["hashesChecked"]})")
-            : new ViewResult(false, $"хеши App разошлись с записью Headless: {replay?["divergence"]}");
+        return (report, null);
     }
 
     private static string LastLine(string text) =>
@@ -191,7 +227,7 @@ public static partial class Program
         var env = new FeatureEnvironment
         {
             RepoRoot = setup.RepoRoot, Build = build, Info = ReplayInfo.Current(content), Names = new SwordAgent.ArenaNames(),
-            CaptureView = setup.CaptureView, Optimized = setup.Optimized,
+            CaptureView = setup.CaptureView, Optimized = setup.Optimized, MeasureFrame = setup.MeasureFrame,
         };
         var reports = new List<FeatureReport>();
         foreach (var m in chosen)

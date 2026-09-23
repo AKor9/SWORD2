@@ -39,8 +39,9 @@ public static class LegacyLocomotion
     public const float LocoFade = 0.25f, MinHold = 0.35f, RunEnter = 1.9f, RunExit = 1.4f, DirHysteresis = 0.2f;
 
     /// <summary>
-    /// Новое состояние — как после <c>FighterAnimator.Reset</c> SWORD (<c>Tick(0)</c> стоя): стойка с нулевого момента,
-    /// без кроссфейда. Поз ещё нет — их возьмёт первый <see cref="Tick"/>.
+    /// Новое состояние — как после <c>FighterAnimator.Reset</c> SWORD (<c>Tick(0)</c> стоя) у нового аниматора: стойка с
+    /// нулевого момента, без кроссфейда, сторона 0. Поз ещё нет — их возьмёт первый <see cref="Tick"/>. Боец, построенный
+    /// заново на той же сущности, сохраняет сторону (<see cref="LegacyLocomotionSetupSystem"/>).
     /// </summary>
     public static LegacyLocomotionState Start(ActionTable actions) => new()
     {
@@ -113,7 +114,8 @@ public static class LegacyLocomotion
 /// Gameplay: новому бойцу — состояние локомоции. Позы слоя и снимка здесь не берутся: компонент добавляет команда, и если
 /// она не сыграет (боец снят на том же барьере, тик прерван), позы некому было бы вернуть. Боец, построенный заново на
 /// той же сущности (<c>Added&lt;Fighter&gt;</c> у бойца, у которого состояние уже есть, — сброс арены), начинает локомоцию с
-/// нуля, как после <c>FighterAnimator.Reset</c> SWORD; его позы слоя и снимка остаются его.
+/// нуля, как после <c>FighterAnimator.Reset</c> SWORD, кроме стороны ходьбы: <c>LegacyLocomotion.Reset</c> SWORD её не
+/// сбрасывает (точка 4д, трасса толпы); его позы слоя и снимка остаются его.
 /// </summary>
 public sealed class LegacyLocomotionSetupSystem : IReactiveSystem<Added<Fighter>>
 {
@@ -131,6 +133,9 @@ public sealed class LegacyLocomotionSetupSystem : IReactiveSystem<Added<Fighter>
             if (ctx.World.TryGet<LegacyLocomotionState>(a.Entity, out var old))
             {
                 var fresh = LegacyLocomotion.Start(actions);
+                // LegacyLocomotion.Reset SWORD не трогает _dir: сторона ходьбы переживает Fighter.Build того же бойца
+                // (сброс R) и решает, с какого клипа он пойдёт (гистерезис стороны). Трасса толпы 4д это ловит.
+                fresh.Dir = old.Dir;
                 fresh.Layer = old.Layer;
                 fresh.From = old.From;
                 ctx.Commands.Set(a.Entity, fresh);

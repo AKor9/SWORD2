@@ -146,7 +146,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
     {
         var rng = new Random(4343);
         var contacts = new RootContacts[ArenaRules.MaxFighters];
-        int pairs = 0, pillars = 0, edges = 0, coincident = 0, holes = 0, crowds = 0;
+        int pairs = 0, pillars = 0, edges = 0, coincident = 0, holes = 0, crowds = 0, obstacles = 0;
         for (int run = 0; run < 3000; run++)
         {
             int count = 1 + run % ArenaRules.MaxFighters;
@@ -157,18 +157,24 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
             holes += Enumerable.Range(0, Array.LastIndexOf(present, true)).Count(s => !present[s]);
             var arena = new SwordArena([.. sword.Select(x => x.F)]);
             arena.ResolveRoots();
+            var before = (Vector3[])roots.Clone();
             RootCollision.Resolve(roots, velocities, present, contacts);
             foreach (var (s, f) in sword)
             {
                 AssertBits(f.Root, roots[s], $"прогон {run}, место {s}: Root");
                 AssertBits(f.RootVel, velocities[s], $"прогон {run}, место {s}: RootVel");
+                // Вид (4д): пары и препятствия вместе объясняют весь сдвиг корня (с точностью до округления float).
+                var moved = roots[s] - before[s];
+                Assert.True(Vector3.Distance(moved, contacts[s].Push + contacts[s].Obstacle) < 1e-4f,
+                    $"прогон {run}, место {s}: сдвиг {moved}, Push {contacts[s].Push} + Obstacle {contacts[s].Obstacle}");
+                obstacles += contacts[s].Obstacle != Vector3.Zero ? 1 : 0;
             }
             (pairs, pillars, edges, coincident) = (pairs + arena.Pairs, pillars + arena.Pillars, edges + arena.Edges, coincident + arena.Coincident);
             if (sword.Count > 1) crowds++;
         }
         output.WriteLine($"толп {crowds}: пар {pairs}, колонн {pillars}, края {edges}, совпавших корней {coincident}, дыр {holes}");
-        Assert.True(pairs > 20_000 && pillars > 1_000 && edges > 1_000 && coincident > 200 && holes > 500,
-            $"пар {pairs}, колонн {pillars}, края {edges}, совпавших {coincident}, дыр {holes}");
+        Assert.True(pairs > 20_000 && pillars > 1_000 && edges > 1_000 && coincident > 200 && holes > 500 && obstacles > 1_000,
+            $"пар {pairs}, колонн {pillars}, края {edges}, совпавших {coincident}, дыр {holes}, сдвинутых препятствием {obstacles}");
     }
 
     [Fact]
@@ -195,7 +201,9 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
             }
             AssertBits(root, roots[0], $"прогон {run}: корень");
             AssertBits(velocity, velocities[0], $"прогон {run}: скорость");
-            Assert.Equal(RootContacts.None, contacts[0]);
+            // Пар нет; сдвиг колоннами и краем — в Obstacle (4д).
+            Assert.Equal(RootContacts.None with { Obstacle = contacts[0].Obstacle }, contacts[0]);
+            Assert.True(Vector3.Distance(root - crowd.Roots[slot], contacts[0].Obstacle) < 1e-4f, $"прогон {run}: Obstacle {contacts[0].Obstacle}");
         }
     }
 
@@ -228,6 +236,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         {
             // Колонн и края рядом нет — весь сдвиг корня от пар.
             Assert.True(Vector3.Distance(roots[s] - before[s], contacts[s].Push) < 1e-6f, $"место {s}: сдвиг {roots[s] - before[s]}, Push {contacts[s].Push}");
+            Assert.Equal(Vector3.Zero, contacts[s].Obstacle);
         }
         // Толчок игрока — минус сумма FromPlayer врагов.
         Assert.True(Vector3.Distance(contacts[0].Push, -contacts[2].FromPlayer) < 1e-6f);
@@ -569,6 +578,20 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
             Assert.Contains("FromPlayer", sum.ToJsonString());
             var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "RootContacts" });
             Assert.Contains("DeepestWith", describe.ToJsonString());
+
+            // 4д: препятствия — «врага 1 сдвинул край арены» (командой врагу гоним его к краю).
+            await Call("command.send", new JsonObject
+            {
+                ["command"] = "EnemyCommand", ["fields"] = JsonNode.Parse("""{"Slot":1,"Velocity":{"X":0,"Y":-30},"FacingGoal":3.14}"""), ["repeat"] = 900,
+            });
+            var edge = await Call("time.runUntil", new JsonObject
+            {
+                ["condition"] = JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"any":[{"field":"RootContacts.Obstacle.X","notEquals":0},{"field":"RootContacts.Obstacle.Z","notEquals":0}]}]}"""),
+                ["maxTicks"] = 900,
+            });
+            Assert.True(edge["met"]!.GetValue<bool>(), edge.ToJsonString());
+            var enemy = await Call("entity.get", new JsonObject { ["entity"] = "enemy 1", ["components"] = new JsonArray("RootContacts", "Transform") });
+            Assert.Contains("Obstacle", enemy.ToJsonString());
         }
         finally
         {

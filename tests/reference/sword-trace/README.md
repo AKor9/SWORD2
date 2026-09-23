@@ -1,4 +1,4 @@
-# Трассы SWORD для сверки анимации (этап 2, точка 4г)
+# Трассы SWORD для сверки анимации и толпы (этап 2, точки 4г и 4д)
 
 `../anim-locomotion.trace.json` снят этой программой с **настоящего кода SWORD 2eab13b** на эталонном паке
 `Content.reference.swpak`: игрок (`Agile`) без Motion Matching — встроенный `KinematicSteer`, `FighterAnimator`
@@ -20,6 +20,21 @@ yaw, `YawDelta`, `RootDelta` (x, z), переход от снимка и хеш 
 (`EnemyCommand`) — тест `ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick` и сценарий `turn` манифеста `enemies`
 (метрика `sword-turn-trace`).
 
+`../anim-crowd.trace.json` (точка 4д, сценарий `crowd`) — **толпа**: игрок (`Agile`) и враги (не-`Agile`), у каждого места
+свой настоящий `FighterAnimator` (33 аниматора заводятся сразу, как `DuelArena.AttachRig`; постройка бойца — `Reset`, как
+`Fighter.Build` → `ResetAnimator`: аниматор места переживает PageDown/PageUp и сброс, вместе с тем, что `Reset` не
+сбрасывает). Тик — порядок `DuelArena.Tick`: `Time += dt` → `PlayerController.Think` → `EnemyAi.Think` врагов по местам
+1…`EnemyCount` → `KinematicBegin` всех бойцов 0…`ActiveCount − 1` → `ResolveRoots`; команды арены (`SetEnemyCount`,
+`Reset`) — до тика, как из цикла кадра SWORD. Сценарий и расстановку программа читает из входа (`crowd.input.json`, его пишет
+тест SWORD2 — ниже): команды игрока по сегментам, команды арены по тикам и постройки (тик, место, корень, курс, зерно) —
+`Random(7)` SWORD не воспроизводится, поэтому бойцы строятся там же, где SWORD2 (игрок при сборке и сбросе — в центре,
+программа это проверяет). На тик — по местам 0…`EnemyCount` массивами: `x`, `z` (корень), `facing`, `clip` (номер в
+`clipNames`), `action` и `actionClip` (слой действий), `poseHash`; итог (`summary`) — бойцов до 33, команд арены 11,
+построек 53, пар корней 3164, толчков колонной 2307, края 0, поворотов клипом 0. Копия трассы хранит вход (`input`), и тест
+сверяет его с SWORD2. Сверяет `tests/Sword.Game.Tests/ReferenceTraceTests.Crowd_MatchesSwordTickByTick` (каждый боец
+каждого тика) и метрики `sword-crowd-*` сценария `sword-crowd` манифеста `enemies`. Файл — одна строка JSON без перевода
+строки в конце, как и прежние трассы (3,4 МБ).
+
 **Что здесь настоящий SWORD, а что — копия.** Настоящий код SWORD (подключён исходниками): `CharacterRig`,
 `FighterAnimator`, `LegacyLocomotion`, `SkeletalClips`, `AnimLibrary`, чтение пака. Переписаны в `Program.cs` вручную,
 потому что `Sword.Game` SWORD (`DuelArena`, `PlayerController`, `Fighter`) не подключается: `PlayerController.Think`
@@ -37,6 +52,16 @@ yaw, `YawDelta`, `RootDelta` (x, z), переход от снимка и хеш 
 `control` уклонения, `RootDelta` по курсу), `Fighter.DirToLocal` — сверена построчно с `DuelArena.Kinematic.cs` 2eab13b.
 Коллизий, фиксации стоп (`PinFeet`) и ИИ в копии нет: сценарий держит врага вдали от игрока, колонн и края, а стопы —
 этап 9 (как в трассе игрока).
+
+В трассе толпы (4д) настоящие — `FighterAnimator` каждого бойца (`Tick`, `Reset`, `StartTurn`, `SetBlock`) и геометрия арены
+(`Sword.Game/Gameplay/ArenaLayout.cs` SWORD подключён ссылкой: `ArenaRadius`, `Pillars`). Копии (`CrowdTrace`), сверенные
+построчно с 2eab13b: `EnemyAi.Think` — строки движения (подход до `KeepDistance` 1,8, покачивание, расхождение по местам
+1…`EnemyCount`, курс-цель на игрока, `SetBlock(false)`); удара по таймеру, `Built`, `p.Dead` и пропуска мёртвых нет (этап
+6); `PlayerController.Think` — движение и взгляд (`SetBlock(false)`: блок не держат); `KinematicSteer`/`KinematicBegin` (как
+в трассе поворота), `ResolveRoots` целиком (два прохода, пары, колонны, край; мёртвых нет), поля движения `Fighter.Build`
+(курс, цель курса, зерно, желаемая скорость, корень, скорость); `DuelArena.Reset`/`SetEnemyCount`/`Spawn` — с расстановкой
+из входа (неактивным местам при сбросе — только `Reset` аниматора: их корень SWORD задаёт снова, когда место станет активным).
+Точка взгляда (`GazePoint`) не пишется: кинематический боец её не читает (поворот головы — только у живого рэгдолла).
 
 На этапе 6 (удары, блок, реакции, уклонения: `TurnScale`/`MoveScale` становятся не 1, появляются снимок позы и рывок
 уклонения) обе копии нужно пересверить с SWORD или заменить на подключение настоящего `DuelArena`.
@@ -62,6 +87,7 @@ yaw, `YawDelta`, `RootDelta` (x, z), переход от снимка и хеш 
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Game\Gameplay\ArenaLayout.cs" Link="SWORD\Game\ArenaLayout.cs" />
     <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Anim\**\*.cs" Exclude="D:\Work\Visual Studio\SWORD\src\Sword.Anim\obj\**;D:\Work\Visual Studio\SWORD\src\Sword.Anim\bin\**" LinkBase="SWORD\Anim" />
     <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Combat\**\*.cs" Exclude="D:\Work\Visual Studio\SWORD\src\Sword.Combat\obj\**;D:\Work\Visual Studio\SWORD\src\Sword.Combat\bin\**" LinkBase="SWORD\Combat" />
     <Compile Include="D:\Work\Visual Studio\SWORD\src\Sword.Content\**\*.cs" Exclude="D:\Work\Visual Studio\SWORD\src\Sword.Content\obj\**;D:\Work\Visual Studio\SWORD\src\Sword.Content\bin\**" LinkBase="SWORD\Content" />
@@ -76,7 +102,17 @@ dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\refe
 dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\anim-turn.trace.json" turn
 ```
 
-Третий аргумент — сценарий: `player` (по умолчанию) или `turn`. Сценарий игрока (`Scenario.Segments`) должен совпадать с
+Толпа (4д) — в два шага: сначала тест SWORD2 пишет вход (сценарий `ReferenceTraceTests.CrowdSegments`/`CrowdArenaCommands` и
+расстановку SWORD2 по тикам) — он пишет его при каждом прогоне, даже когда трассы ещё нет или она разошлась; затем программа:
+
+```
+dotnet test tests/Sword.Game.Tests --filter Crowd_MatchesSwordTickByTick      # пишет artifacts/reference/crowd.input.json
+dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\anim-crowd.trace.json" crowd "<SWORD2>\artifacts\reference\crowd.input.json"
+dotnet test tests/Sword.Game.Tests --filter Crowd_MatchesSwordTickByTick      # сверка
+```
+
+Третий аргумент — сценарий: `player` (по умолчанию), `turn` или `crowd` (четвёртый — вход). Сценарий игрока (`Scenario.Segments`) должен совпадать с
 `ReferenceTraceTests.Segments`; сценарий поворота тест читает из самой трассы (`segments`), а манифест `enemies` (сценарий
 `turn`) повторяет его командами — правя `TurnTrace.Segments`, поправить и манифест. На 4г программа пересобрана и трасса
-игрока снята заново — побайтно та же.
+игрока снята заново — побайтно та же. На 4д программа пересобрана (с `ArenaLayout.cs` SWORD) и обе прежние трассы сняты заново
+— побайтно те же. Правя сценарий толпы в тесте, поправить и сценарий `sword-crowd` манифеста `enemies` (те же команды).

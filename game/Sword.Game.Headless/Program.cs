@@ -354,7 +354,7 @@ public static partial class Program
                     distance = Vector3.Distance(t.Position with { Y = 0 }, player with { Y = 0 }),
                     speed = world.Get<RootVelocity>(e).Value.Length(), approach = ai.ApproachSpeed, sway = ai.SwaySpeed,
                     neighbours = ai.Neighbours, contacts = push.Contacts, push = push.Push.Length(), fromPlayer = push.FromPlayer.Length(),
-                    deepest = push.Deepest, deepestWith = push.DeepestWith,
+                    deepest = push.Deepest, deepestWith = push.DeepestWith, obstacle = push.Obstacle.Length(),
                     action = action.Kind.ToString(), actionWeight = action.Weight, yawDelta = action.YawDelta,
                 }));
             }

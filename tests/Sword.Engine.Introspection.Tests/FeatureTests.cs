@@ -125,6 +125,10 @@ public sealed class FeatureTests : IDisposable
     [InlineData("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }", "{ \"id\": \"rec\" }", "без реплея нужно ticks")]
     [InlineData("\"msPerTick\": 5", "\"msPerTick\": -5", "пределы — положительные")]
     [InlineData("\"from\": 0, \"to\": 10", "\"from\": 10, \"to\": 10", "to 10 не больше from 10")]
+    [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"seconds\": 5 }", "frame: нечего проверять — averageMs или p99Ms")]
+    [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"averageMs\": 1, \"seconds\": 4 }", "frame.seconds: больше 4")]
+    [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"p99Ms\": 0 }", "frame: пределы — положительные")]
+    [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"p99Ms\": 1, \"fps\": 60 }", "fps: неизвестный ключ")]
     public void Manifest_Errors_NamePlace(string from, string to, string expected)
     {
         string json = Good();
@@ -210,6 +214,75 @@ public sealed class FeatureTests : IDisposable
         Assert.Contains(report.Json["invariants"]!.AsArray(), x => x!["id"]!.GetValue<string>() == "ecs.finite" && !x["ok"]!.GetValue<bool>());
     }
 
+    /// <summary>
+    /// Бюджет кадра (точка 4д): App играет запись сценария бенчем; в Debug кадр только меряется, в Release — пределы среднего и
+    /// 99-го перцентиля; разошедшиеся хеши App — провал; без видов (App не запускается) — не меряется; бенч длиннее записи — провал.
+    /// </summary>
+    [Fact]
+    public void Verify_FrameBudget_PlaysRecordedScenario_ChecksLimitsOnlyInRelease()
+    {
+        RecordReplay("rec.swreplay", 30);
+        string json = Good()
+            .Replace("\"budgets\": [", "\"budgets\": [{ \"id\": \"frame\", \"scenario\": \"slow\", \"frame\": { \"averageMs\": 2, \"p99Ms\": 4 } }, ")
+            .Replace("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }",
+                "{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }, { \"id\": \"slow\", \"set\": [\"sim.tickRate=10\"], \"ticks\": 60 }");
+        var m = FeatureManifest.Load(Manifest(json));
+        var fb = m.Budgets[0];
+        Assert.Equal((2.0, 4.0, 5.0, false), (fb.Frame!.AverageMs, fb.Frame.P99Ms, fb.Frame.Seconds, fb.HasSimulation));
+
+        FrameRequest? seen = null;
+        var result = new FrameResult(true, "замер", 100, 3, 3.5, 9);
+        FeatureEnvironment Env2(bool optimized) => new()
+        {
+            RepoRoot = _root, Build = Build, Info = Info, Optimized = optimized,
+            CaptureView = (r, _) =>
+            {
+                File.WriteAllBytes(r.Png, [1]);
+                return new ViewResult(true, "снят");
+            },
+            MeasureFrame = (r, _) =>
+            {
+                seen = r;
+                return result;
+            },
+        };
+        FeatureReport Run(FeatureManifest manifest, bool optimized, bool views = true) =>
+            FeatureVerifier.Verify(manifest, Env2(optimized), new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Views = views });
+
+        // Debug: кадр меряется на записи сценария (60 тиков по 10/с — не короче бенча 5 с), но не проверяется.
+        var debug = Run(m, optimized: false);
+        Assert.True(debug.Ok, string.Join("\n", debug.Failures));
+        Assert.Equal(("push", "frame", 5.0), (seen!.Feature, seen.Budget, seen.Seconds));
+        Assert.Equal(60ul, Replay.Load(seen.Replay).Ticks);
+        var frame = debug.Json["budgets"]![0]!["frame"]!;
+        Assert.Equal((3.0, 3.5, 100L), (frame["averageMs"]!.GetValue<double>(), frame["p99Ms"]!.GetValue<double>(), frame["frames"]!.GetValue<long>()));
+        Assert.Contains("Debug", frame["time"]!.GetValue<string>());
+        Assert.Null(debug.Json["budgets"]![0]!["msPerTick"]);   // только кадр: симуляция бюджета не гонялась
+
+        // Release: средний 3 мс больше предела 2 — провал; p99 3,5 ≤ 4 — нет.
+        var release = Run(m, optimized: true);
+        Assert.False(release.Ok);
+        Assert.Contains("бюджет frame: кадр 3 мс в среднем, предел 2", release.Failures);
+        Assert.DoesNotContain(release.Failures, f => f.Contains("перцентиль"));
+
+        // Хеши App разошлись с записью — провал в любой сборке.
+        result = new FrameResult(false, "хеши App разошлись с записью Headless: тик 5");
+        Assert.Contains("бюджет frame: кадр: хеши App разошлись с записью Headless: тик 5", Run(m, optimized: false).Failures);
+
+        // Без видов App не запускается — кадр не меряется, это не провал.
+        seen = null;
+        result = new FrameResult(true, "замер", 100, 1, 1, 1);
+        var noViews = Run(m, optimized: true, views: false);
+        Assert.True(noViews.Ok, string.Join("\n", noViews.Failures));
+        Assert.Null(seen);
+        Assert.Contains("не мерялся", noViews.Json["budgets"]![0]!["frame"]!["measured"]!.GetValue<string>());
+
+        // Бенч длиннее записи сценария — провал, App не запускается.
+        var longer = FeatureManifest.Load(Manifest(json.Replace("\"p99Ms\": 4 }", "\"p99Ms\": 4, \"seconds\": 7 }")));
+        Assert.Contains("бюджет frame: кадр: сценарий (60 тиков) короче бенча (7 с — 70 тиков)", Run(longer, optimized: true).Failures);
+        Assert.Null(seen);
+    }
+
     // ── эксперименты ──────────────────────────────────────────────────────
 
     private static ScenarioCommand Order(float x, ulong from, ulong to) =>
@@ -276,6 +349,19 @@ public sealed class FeatureTests : IDisposable
         Assert.Equal(4, rows.Select(r => r.Hash).Distinct().Count());            // частота и зерно — в хеше
         Assert.Contains("S1", rows[0].Stages.Keys);
         Assert.Contains(scaling, s => s.StartsWith("sim.tickRate:", StringComparison.Ordinal));
+
+        // Порядок прогонов (4д): круг прогрева — каждая комбинация по разу, затем повторы по кругу комбинаций, а не все
+        // повторы одной подряд (первые комбинации свежего процесса иначе мерились на неоптимизированном JIT).
+        var order = new List<string>();
+        Simulation Logged(ConfigSet config)
+        {
+            var sim = Build(config);
+            order.Add($"{sim.Settings.TickRate}/{sim.Settings.Seed}");
+            return sim;
+        }
+        var (warmed, _) = Experiments.Sweep(null, 20, [("sim.tickRate", ["60", "120"]), ("sim.seed", ["1", "2"])], 2, 5, Logged);
+        Assert.Equal(["60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2"], order);
+        Assert.All(warmed, r => Assert.True(r.Repeats == 2 && r.Deterministic, string.Join(",", r.Sets)));
 
         var (bad, _) = Experiments.Sweep(null, 20, [("sim.nope", ["1"])], 1, 0, Build);
         Assert.NotNull(Assert.Single(bad).Error);

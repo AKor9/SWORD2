@@ -26,7 +26,7 @@ SWORD 2eab13b, `Sword.Combat/LegacyLocomotion.cs` — без изменений 
 | `LegacyLocomotion` — объект у каждого `FighterAnimator`, позы в своих массивах | состояние — компонент модуля `LegacyLocomotionState`, позы — в пуле (`Layer` — слой, `From` — снимок) |
 | при смене клипа снимок — пересэмплирование текущей позы (`Sample` → `_fromRot`) | задание `Copy(From ← Layer)`: слой ещё держит итог прошлого тика — это та же поза побитово |
 | `ILocomotionSource`, `FighterAnimator.SetLocomotion` | нет: модуль пишет позу системой в стадии Animation (раздел 7 плана — без стратегий) |
-| `FighterAnimator.Reset` → `Tick(0)` | `LegacyLocomotion.Start`: стойка с нулевого момента без кроссфейда — то же состояние |
+| `FighterAnimator.Reset` → `Tick(0)` | `LegacyLocomotion.Start`: стойка с нулевого момента без кроссфейда — то же состояние; `LegacyLocomotion.Reset` не трогает `_dir` — боец, построенный заново на той же сущности (сброс R), сохраняет сторону `Dir` (найдено трассой толпы 4д) |
 | `FootDown` (касание стоп по разметке клипа) | не перенесено: нужно фиксации стоп и следам крови (этапы 9, 12) |
 
 Сверка — `tests/Sword.Game.Tests/ReferenceTraceTests`: 900 тиков сценария игрока против трассы настоящего кода SWORD на
@@ -36,7 +36,7 @@ SWORD 2eab13b, `Sword.Combat/LegacyLocomotion.cs` — без изменений 
 
 | стадия | система | вид |
 |---|---|---|
-| Gameplay | `locomotion.setup` (`LegacyLocomotionSetupSystem`) | реактивная `Added<Fighter>`: состояние (командой, без поз); боец построен заново на той же сущности (сброс арены, точка 4а) — состояние с нуля (`Set`, как `FighterAnimator.Reset` SWORD), позы слоя и снимка прежние |
+| Gameplay | `locomotion.setup` (`LegacyLocomotionSetupSystem`) | реактивная `Added<Fighter>`: состояние (командой, без поз); боец построен заново на той же сущности (сброс арены, точка 4а) — состояние с нуля (`Set`, как `FighterAnimator.Reset` SWORD), кроме стороны `Dir` (её SWORD не сбрасывает, 4д), позы слоя и снимка прежние |
 | Animation | `locomotion.legacy` (`LegacyLocomotionSystem`), до `core.animator-pose` | непрерывная: на первом тике бойца — две позы из пула (слой и снимок), дальше выбор клипа, задания пулу |
 | End | `locomotion.release` (`LegacyLocomotionReleaseSystem`) | реактивная `Removed<LegacyLocomotionState>`: позы — в пул |
 
@@ -78,6 +78,9 @@ walk_*, run_*), `Sword.Engine.Animation` (пул поз, клипы), `Sword.Eng
 - Поиск кадра (`AnimatorMotion.Search`, с 4г — false, пока поворот на месте ведёт всё тело врага) локомоция клипами не
   использует и в SWORD: под действием она идёт как шла, слой действий смешивается поверх (`core.animator-pose`).
 - Motion Matching игрока — этап 8.
+- Сторона ходьбы `Dir` сохраняется только у бойца, построенного заново на той же сущности (сброс R). Новая сущность
+  места (PageDown → PageUp) начинает со стороны 0, а в SWORD аниматор места помнит её с прошлой жизни — отличие ядра игры
+  (неактивных мест в SWORD2 нет), записано в `game/Sword.Game/Features/Enemies/README.md` («Намеренные отличия»).
 
 ## Агентский доступ
 
