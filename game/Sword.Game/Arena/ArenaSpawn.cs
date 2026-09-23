@@ -4,6 +4,7 @@ using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
 using Sword.Game.Ai;
 using Sword.Game.Contracts;
+using Sword.Game.Movement;
 
 namespace Sword.Game.Arena;
 
@@ -78,7 +79,7 @@ public static class ArenaRules
 /// Боец — один набор компонентов у игрока и у врага (всё, что нужно движению и анимации): тег стороны, место, зерно,
 /// корень и прошлый корень (тот же — боец не «прилетает» в кадр из начала координат; <c>RenderPos = Pos</c> SWORD),
 /// скорость 0, намерение — стоять курсом постройки (<c>FacingGoal = facing</c>), точка взгляда, вход аниматора, поза;
-/// у врага ещё составляющие намерения ИИ (<see cref="EnemyAiTerms"/>).
+/// у врага ещё составляющие намерения ИИ (<see cref="EnemyAiTerms"/>) и толчки столкновений (<see cref="RootContacts"/>).
 /// Три пути: сборка мира (немедленно, поза берётся сразу); новый боец командами тика (поза — пустой хэндл, её заводит
 /// <see cref="Animation.FighterSetupSystem"/> в Gameplay: команда может не сыграть, а поза из пула — не вернуться); постройка
 /// заново на той же сущности (<see cref="Rebuild"/> — <c>Fighter.Build</c> SWORD над тем же бойцом места).
@@ -98,6 +99,7 @@ public static class Fighters
         {
             world.AddImmediate(e, new EnemyTag());
             world.AddImmediate(e, new EnemyAiTerms());
+            world.AddImmediate(e, RootContacts.None);
         }
         world.AddImmediate(e, new FighterSlot { Index = s.Slot });
         world.AddImmediate(e, new FighterSeed { Value = s.Seed });
@@ -128,6 +130,7 @@ public static class Fighters
         {
             c.Add(d, new EnemyTag());
             c.Add(d, terms);
+            c.Add(d, RootContacts.None);
         }
         c.Add(d, new FighterSlot { Index = s.Slot });
         c.Add(d, new FighterSeed { Value = s.Seed });
@@ -169,7 +172,7 @@ public static class Fighters
     public static SystemSetup DeclaresFighters(this SystemSetup s) => s.Creates().Destroys()
         .Adds<Fighter>().Adds<PlayerTag>().Adds<EnemyTag>().Adds<FighterSlot>().Adds<FighterSeed>().Adds<Transform>()
         .Adds<PrevTransform>().Adds<RootVelocity>().Adds<FighterCommand>().Adds<GazeTarget>().Adds<AnimatorMotion>()
-        .Adds<PoseRef>().Adds<EnemyAiTerms>()
+        .Adds<PoseRef>().Adds<EnemyAiTerms>().Adds<RootContacts>()
         .Removes<Fighter>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>();
 }

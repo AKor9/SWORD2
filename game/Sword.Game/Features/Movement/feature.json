@@ -92,7 +92,7 @@
       "replay": "tests/reference/replays/prototype.swreplay"
     }
   ],
-  "invariants": ["ecs.finite", "ecs.entityRefs"],
+  "invariants": ["ecs.finite", "ecs.entityRefs", "movement.rootOverlap"],
   "metrics": [
     {
       "id": "run-speed", "scenario": "run-edge", "source": "sword", "reference": "SWORD 2eab13b PlayerController.RunSpeed = 4.2f",

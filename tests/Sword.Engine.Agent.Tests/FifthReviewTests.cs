@@ -33,17 +33,11 @@ public class FifthReviewTests
     public async Task LogTail_LevelFilter_FindsOlderRecords_NotOnlyAmongLastLimit()
     {
         // Ошибка, за ней 60 строк info: без after — последние записи уровня error, а не error среди последних 50 строк.
+        // Записи — прямо в кольцо сеанса (64 записи), а не через общий Log: тесты сборки идут параллельно, и чужие записи
+        // общего журнала (больше трёх за эти 61 строку) вытесняли ошибку из кольца — тест изредка падал под нагрузкой.
         using var f = new AgentFixture();
-        Log.AddSink(f.Ring);
-        try
-        {
-            Log.Error("test", "та самая ошибка");
-            for (int i = 0; i < 60; i++) Log.Info("test", $"шум {i}");
-        }
-        finally
-        {
-            Log.RemoveSink(f.Ring);
-        }
+        f.Ring.Write(new LogEntry(DateTime.UtcNow, LogLevel.Error, "test", "та самая ошибка"));
+        for (int i = 0; i < 60; i++) f.Ring.Write(new LogEntry(DateTime.UtcNow, LogLevel.Info, "test", $"шум {i}"));
         var (data, err) = await f.Tool("log.tail", new JsonObject { ["level"] = "error", ["category"] = "test" });
         Assert.False(err);
         var entry = Assert.Single(data["entries"]!.AsArray())!;

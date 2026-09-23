@@ -74,9 +74,30 @@
 4. Намерение считается по корням до движения тика: посреди тика — `time.break {"stage":"Intent"}` и `entity.get` врагов
    (корни ещё прошлого тика, намерение — уже этого). В тике команды арены враги думают по арене после команды (новые
    враги, центр после R). Время арены — `{"resource":"SimTime.Time"}`.
-5. Поворот врага пока как у игрока (12 рад/с; поворот на месте клипом — точка 4г), столкновений бойцов нет (4в): враги
-   могут стоять вплотную друг к другу и к игроку. Сверка с SWORD побитово — тест `EnemyAiTests`
-   (`dotnet test tests/Sword.Game.Tests --filter EnemyAi`).
+5. Поворот врага пока как у игрока (12 рад/с; поворот на месте клипом — точка 4г). Сверка с SWORD побитово — тест
+   `EnemyAiTests` (`dotnet test tests/Sword.Game.Tests --filter EnemyAi`).
+
+**Столкновения бойцов: кто кого толкнул и где перекрытие (точка 4в).**
+1. Толчки тика у врага — `entity.get {"entity":"enemy 3","components":["RootContacts","Transform","RootVelocity"]}`:
+   `Contacts` (сколько раз за оба прохода разрешалась пара с ним), `Push` (сдвиг корня парами, м), `FromPlayer` (часть
+   сдвига от пары с игроком), `Deepest` (наибольшее перекрытие пары до разрешения, м) и `DeepestWith` (с кем: место,
+   0 — игрок, −1 — касаний не было). Колонны и край сюда не входят. У игрока вида нет: его толчок парами —
+   `−Σ FromPlayer`: `world.query {"with":["EnemyTag"],"aggregate":["RootContacts.FromPlayer.X","RootContacts.FromPlayer.Z"],"take":0}`
+   (`sum`); упёрся ли игрок — `RootVelocity` против `FighterCommand.DesiredVelocity` (`entity.get player`).
+2. «Когда игрок толкнул врага»: `time.runUntil {"condition":{"exists":{"all":[{"component":"EnemyTag"},{"field":"RootContacts.DeepestWith","equals":0}]}},"maxTicks":600}`;
+   кого — `world.query {"with":["EnemyTag"],"where":{"field":"RootContacts.DeepestWith","equals":0},"fields":["RootContacts","FighterSlot"]}`.
+   Как менялось — `watch.add {"entities":["enemy 3"],"fields":["RootContacts","Transform"]}` → `entity.history`.
+3. Перекрытие корней держит инвариант `movement.rootOverlap` (после Movement): ближе 0,35 м — дольше 4 тиков подряд,
+   перекрытие больше 0,02 м — дольше 24 тиков подряд (после спауна, особенно у края арены, кучка врагов разводится
+   несколько тиков — это не ошибка). Встать на нарушении — `time.breakOnInvariant {"ids":["movement.rootOverlap"]}` и
+   `time.runUntil`; подробности (обе сущности, расстояние, перекрытие, какое правило) — `events.history
+   {"types":["InvariantViolation"]}` и `invariant.list`; проверить сейчас — `invariant.run {"ids":["movement.rootOverlap"]}`
+   (счёт тиков подряд не сдвигает). Почему такой допуск — замер в `game/Sword.Game/Features/Enemies/README.md`.
+4. Посреди тика: `time.break {"stage":"Movement"}` — корни уже разведены; `{"stage":"Animation"}` — ещё до переноса и
+   столкновений. Побитово с SWORD — тест `RootCollisionTests` (`dotnet test tests/Sword.Game.Tests --filter RootCollision`).
+5. Без агента: `Sword.Headless --ticks N --units 32 --move 1,0 --json` — `arena.closestPair` (ближайшая пара корней:
+   расстояние и места; ближе 0,7 м — перекрытие) и у мест `contacts`, `push`, `fromPlayer`, `deepest`, `deepestWith`;
+   приёмка — сценарий `push` манифеста `enemies`.
 
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;

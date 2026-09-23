@@ -8,6 +8,7 @@ using Sword.Game;
 using Sword.Game.Ai;
 using Sword.Game.Bootstrap;
 using Sword.Game.Contracts;
+using Sword.Game.Movement;
 
 namespace Sword.Game.Headless;
 
@@ -323,32 +324,48 @@ public static partial class Program
     /// <summary>
     /// Арена после прогона (этап 4а): заданное число врагов, бойцов в мире и враги по местам — корень, курс, расстояние
     /// до игрока (кольцо спауна 5–9 м); с 4б — скорость корня и ИИ последнего тика: подход и покачивание, м/с, соседей
-    /// ближе 1,4 м (<see cref="EnemyAiTerms"/>).
+    /// ближе 1,4 м (<see cref="EnemyAiTerms"/>); с 4в — толчки столкновений последнего тика (<see cref="RootContacts"/>:
+    /// пар, сдвиг корня парами и от игрока, м, наибольшее перекрытие и с кем) и ближайшая пара бойцов на арене
+    /// (<c>closestPair</c>: расстояние корней, м, и места; ближе 0,7 м — перекрытие, инвариант <c>movement.rootOverlap</c>).
     /// </summary>
     private static object ArenaJson(Simulation sim)
     {
         var world = sim.World;
         var player = world.Get<Transform>(GameCore.Player(world)).Position;
         var enemies = new List<(int Slot, object Row)>();
+        var roots = new List<(int Slot, Vector3 Root)>();
         int fighters = 0;
         foreach (var chunk in world.Iterate(world.Query().With<Fighter>()))
             foreach (var e in chunk.Entities)
             {
                 fighters++;
-                if (!world.Has<EnemyTag>(e) || !world.TryGet<FighterSlot>(e, out var slot)) continue;
+                if (!world.TryGet<FighterSlot>(e, out var slot)) continue;
                 var t = world.Get<Transform>(e);
+                roots.Add((slot.Index, t.Position));
+                if (!world.Has<EnemyTag>(e)) continue;
                 var ai = world.TryGet<EnemyAiTerms>(e, out var terms) ? terms : default;
+                var push = world.TryGet<RootContacts>(e, out var contacts) ? contacts : RootContacts.None;
                 enemies.Add((slot.Index, new
                 {
                     slot = slot.Index, entity = e.ToString(), x = t.Position.X, z = t.Position.Z, facing = t.Facing,
                     distance = Vector3.Distance(t.Position with { Y = 0 }, player with { Y = 0 }),
                     speed = world.Get<RootVelocity>(e).Value.Length(), approach = ai.ApproachSpeed, sway = ai.SwaySpeed,
-                    neighbours = ai.Neighbours,
+                    neighbours = ai.Neighbours, contacts = push.Contacts, push = push.Push.Length(), fromPlayer = push.FromPlayer.Length(),
+                    deepest = push.Deepest, deepestWith = push.DeepestWith,
                 }));
+            }
+        (float Distance, int A, int B)? closest = null;
+        for (int i = 0; i < roots.Count; i++)
+            for (int j = i + 1; j < roots.Count; j++)
+            {
+                float d = (roots[i].Root - roots[j].Root).Length();
+                if (closest is null || d < closest.Value.Distance)
+                    closest = (d, Math.Min(roots[i].Slot, roots[j].Slot), Math.Max(roots[i].Slot, roots[j].Slot));
             }
         return new
         {
             enemies = world.Resource<ArenaState>().Enemies, fighters,
+            closestPair = closest is { } c ? new { distance = c.Distance, slots = new[] { c.A, c.B } } : null,
             places = enemies.OrderBy(p => p.Slot).Select(p => p.Row),
         };
     }

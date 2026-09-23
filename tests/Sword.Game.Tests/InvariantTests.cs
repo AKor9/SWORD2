@@ -5,17 +5,21 @@ using Sword.Engine.Runtime;
 using Sword.Game.Bootstrap;
 using Sword.Game.Contracts;
 using Sword.Game.Locomotion;
+using Sword.Game.Movement;
 
 namespace Sword.Game.Tests;
 
 /// <summary>Неисправность, которую модуль вносит на тике <see cref="GameFaultModule.Tick"/>.</summary>
-public enum GameFault { NaNRoot, NaNPose, LatePoseJob, BrokenPoseRef, SharedLocomotionPose }
+public enum GameFault { NaNRoot, NaNPose, LatePoseJob, BrokenPoseRef, SharedLocomotionPose, RootInsideNeighbour, RootsPressed }
 
 /// <summary>
 /// Модуль-неисправность в настоящей композиции игры (ядро и Locomotion): на тике <see cref="Tick"/> портит одно свойство,
 /// которое держат базовые инварианты — корень игрока в NaN (Movement), поза бойца в NaN (смешивание с весом NaN,
 /// Animation), задание пулу поз после его исполнения (Animation),
-/// хэндл позы бойца (End), общая поза слоя и снимка локомоции (End).
+/// хэндл позы бойца (End), общая поза слоя и снимка локомоции (End); после столкновений (Movement) — корень врага 2 в
+/// 0,1 м от врага 1 (в круге соседа) с тика <see cref="Tick"/> − 4 или прижат к нему на 0,65 м (перекрытие 0,05 м) с тика
+/// <see cref="Tick"/> − 24: на тике <see cref="Tick"/> — на тик дольше, чем можно (<c>movement.rootOverlap</c>; нужны враги —
+/// <c>arena.enemies = 2</c>).
 /// </summary>
 public sealed class GameFaultModule(GameFault fault) : IModule
 {
@@ -32,6 +36,8 @@ public sealed class GameFaultModule(GameFault fault) : IModule
             case GameFault.LatePoseJob: b.System(GameStages.Animation, new LatePoseJob()); break;
             case GameFault.BrokenPoseRef: b.System(GameStages.End, new BrokenPoseRef()); break;
             case GameFault.SharedLocomotionPose: b.System(GameStages.End, new SharedLocomotionPose()); break;
+            case GameFault.RootInsideNeighbour: b.System(GameStages.Movement, new MoveEnemy(0.1f, Tick - RootOverlapInvariant.HardMaxTicks)); break;
+            case GameFault.RootsPressed: b.System(GameStages.Movement, new MoveEnemy(0.65f, Tick - RootOverlapInvariant.MaxTicks)); break;
         }
     }
 
@@ -115,6 +121,39 @@ public sealed class GameFaultModule(GameFault fault) : IModule
         }
     }
 
+    /// <summary>После столкновений: враг 2 — в <paramref name="distance"/> м по +X от врага 1, с тика <paramref name="from"/> до <see cref="Tick"/>.</summary>
+    private sealed class MoveEnemy(float distance, ulong from) : IContinuousSystem
+    {
+        private Query _query = null!;
+
+        public void Setup(SystemSetup s)
+        {
+            s.Label(new SystemLabel("fault.move-enemy")).After(GameLabels.RootCollision).Reads<FighterSlot>().Writes<Transform>();
+            _query = s.Query().With<EnemyTag>().Read<FighterSlot>().Write<Transform>();
+        }
+
+        public void Run(in SystemContext ctx)
+        {
+            ulong tick = ctx.World.Resource<SimTime>().Tick;
+            if (tick < from || tick > Tick) return;
+            Vector3 first = default;
+            foreach (var chunk in ctx.Iterate(_query))
+            {
+                var slots = chunk.Read<FighterSlot>();
+                var t = chunk.Write<Transform>();
+                for (int i = 0; i < t.Length; i++)
+                    if (slots[i].Index == 1) first = t[i].Position;
+            }
+            foreach (var chunk in ctx.Iterate(_query))
+            {
+                var slots = chunk.Read<FighterSlot>();
+                var t = chunk.Write<Transform>();
+                for (int i = 0; i < t.Length; i++)
+                    if (slots[i].Index == 2) t[i].Position = first + new Vector3(distance, 0, 0);
+            }
+        }
+    }
+
     private sealed class SharedLocomotionPose : IContinuousSystem
     {
         private Query _query = null!;
@@ -141,7 +180,7 @@ public sealed class GameFaultModule(GameFault fault) : IModule
 public sealed class GameInvariantTests
 {
     private static Simulation Build(GameFault fault) =>
-        Simulation.Build(ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
+        Simulation.Build(fault is GameFault.RootInsideNeighbour or GameFault.RootsPressed ? ConfigSet.Empty("arena.enemies=2") : ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
             [.. SwordSimulation.Modules(), new GameFaultModule(fault)]);
 
     [Theory]
@@ -150,6 +189,8 @@ public sealed class GameInvariantTests
     [InlineData(GameFault.LatePoseJob, "animation.settled", GameStages.Animation, "в очереди пула 1 заданий")]
     [InlineData(GameFault.BrokenPoseRef, "animation.owners", GameStages.End, "поза не жива")]
     [InlineData(GameFault.SharedLocomotionPose, "locomotion.poses", GameStages.End, "ещё и у 0v1")]
+    [InlineData(GameFault.RootInsideNeighbour, "movement.rootOverlap", GameStages.Movement, "в 0.1 м: перекрытие 0.6 м — корень в круге соседа (ближе 0.35 м) 5 тиков подряд (можно 4)")]
+    [InlineData(GameFault.RootsPressed, "movement.rootOverlap", GameStages.Movement, "в 0.65 м: перекрытие 0.05 м больше 0.02 м 25 тиков подряд (можно 24)")]
     public void Fault_CaughtOnItsTick_AfterItsStage(GameFault fault, string id, string stage, string details)
     {
         var sim = Build(fault);
@@ -168,10 +209,29 @@ public sealed class GameInvariantTests
     }
 
     [Fact]
+    public void RootOverlap_OnDemandRuns_DoNotAdvanceTicksInARow()
+    {
+        // Пара прижата с тика 1: после тика 24 — 24 тика подряд (можно). Проверки по запросу между тиками тот же мир
+        // не считают новым тиком; нарушение — ровно на плановой проверке тика 25.
+        var sim = Build(GameFault.RootsPressed);
+        for (int t = 0; t < (int)GameFaultModule.Tick; t++) sim.Step();
+        for (int k = 0; k < 5; k++)
+            Assert.All(sim.Invariants.Run(["movement.rootOverlap"], sim.Tick, "между тиками", sim.Dt), r => Assert.Equal(0, r.Violations));
+        Assert.Equal(0, sim.Invariants.Total);
+        sim.Step();
+        var first = sim.Invariants.Recent()[0];
+        Assert.Equal(("movement.rootOverlap", GameFaultModule.Tick), (first.Id, first.Tick));
+        Assert.Contains("25 тиков подряд", first.Details);
+        // По запросу после нарушения — то же нарушение (счёт не сдвинулся до 26).
+        var again = sim.Invariants.Run(["movement.rootOverlap"], sim.Tick, "между тиками", sim.Dt);
+        Assert.Contains("25 тиков подряд", Assert.Single(again).Details[0].Details);
+    }
+
+    [Fact]
     public void FairGame_NoViolations_AllCoreInvariantsChecked()
     {
         var sim = TestAssets.Simulation();
-        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "arena.slots", "locomotion.poses"],
+        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "arena.slots", "movement.rootOverlap", "locomotion.poses"],
             sim.Invariants.List().Select(i => i.Id));
         for (int t = 0; t < 400; t++)
         {

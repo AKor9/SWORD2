@@ -24,7 +24,7 @@ public static class MovementRules
     /// <summary>Корень держится на 0,6 м внутри края арены.</summary>
     public const float EdgeMargin = 0.6f;
 
-    /// <summary>Радиус круга корня, м: столкновения корней с колоннами (и с бойцами — этап 4).</summary>
+    /// <summary>Радиус круга корня, м: столкновения корней с колоннами и между бойцами (пара — ближе 2·0,35 м).</summary>
     public const float RootRadius = 0.35f;
 
     /// <summary>Проходов разрешения столкновений корней за тик.</summary>
@@ -181,38 +181,172 @@ public sealed class RootControlSystem : IContinuousSystem
 }
 
 /// <summary>
-/// Movement, после <see cref="RootControlSystem"/>: столкновения корней (<c>ResolveRoots</c>) — два прохода, в каждом
-/// колонны, затем край арены. Корень выталкивается на край препятствия, скорость внутрь него гасится: боец упирается
-/// и скользит вдоль. Столкновения корней бойцов между собой — с врагами (этап 4).
+/// Толчки корня врага столкновениями бойцов на последнем тике (<c>ResolveRoots</c>, оба прохода) — агентский вид
+/// столкновений: кто кого толкнул и насколько. Пишет <see cref="RootCollisionSystem"/> каждый тик; читают агент
+/// (<c>entity.get</c>, <c>watch.add</c>, условия и агрегаты) и манифест фичи. Хешируется (участник <c>ecs</c>): это
+/// производное состояние, детерминированное, как и сами корни. Только у врагов (как <c>EnemyAiTerms</c>): толчок игрока
+/// парами — <c>−Σ FromPlayer</c> по врагам (каждая пара сдвигает обоих на одну и ту же величину в разные стороны).
+/// Колонны и край арены сюда не входят.
+/// </summary>
+public struct RootContacts
+{
+    /// <summary>Сколько раз за тик разрешалась пара с этим бойцом (оба прохода; пара в обоих проходах — 2).</summary>
+    public int Contacts;
+
+    /// <summary>Сдвиг корня парами с бойцами за тик, м (сумма толчков обоих проходов).</summary>
+    public Vector3 Push;
+
+    /// <summary>Часть <see cref="Push"/> от пары с игроком (место 0), м: игрок толкнул этого врага.</summary>
+    public Vector3 FromPlayer;
+
+    /// <summary>Наибольшее перекрытие пары до разрешения за тик, м (0,7 − расстояние корней; 0 — касаний не было).</summary>
+    public float Deepest;
+
+    /// <summary>Место бойца этой пары (0 — игрок); −1 — касаний не было.</summary>
+    public int DeepestWith;
+
+    /// <summary>Касаний не было.</summary>
+    public static readonly RootContacts None = new() { DeepestWith = -1 };
+}
+
+/// <summary>
+/// <c>ResolveRoots</c> SWORD 2eab13b (<c>DuelArena.cs</c>) по местам бойцов: два прохода; в каждом бойцы по порядку мест,
+/// у бойца — сначала пары со всеми следующими (круги корней по 0,35 м: каждому половина перекрытия, скорость внутрь
+/// соседа гасится), затем колонны и край арены — до следующего бойца. Порядок вычислений float тот же (сверка —
+/// <c>RootCollisionTests</c>, побитово против копии SWORD).
+/// </summary>
+public static class RootCollision
+{
+    /// <summary>
+    /// Корни и скорости по местам (0 — игрок, 1…32 — враги); <paramref name="present"/> — место занято. Пустое место
+    /// пропускается, как неактивное в SWORD (<c>i &lt; ActiveCount</c>); этап 6 добавит сюда пропуск мёртвых
+    /// (<c>a.Dead</c>, <c>b.Dead</c>). <paramref name="contacts"/> — толчки пар за вызов по местам (перезаписываются).
+    /// </summary>
+    public static void Resolve(Span<Vector3> roots, Span<Vector3> velocities, ReadOnlySpan<bool> present, Span<RootContacts> contacts)
+    {
+        int n = Math.Min(Math.Min(roots.Length, velocities.Length), Math.Min(present.Length, contacts.Length));
+        for (int i = 0; i < n; i++) contacts[i] = RootContacts.None;
+        for (int iter = 0; iter < MovementRules.CollisionIterations; iter++)
+            for (int i = 0; i < n; i++)
+            {
+                if (!present[i]) continue;
+                for (int j = i + 1; j < n; j++)
+                {
+                    if (!present[j]) continue;
+                    Pair(ref roots[i], ref velocities[i], ref roots[j], ref velocities[j], out var push, out float overlap);
+                    if (overlap <= 0) continue;
+                    Record(ref contacts[i], push, overlap, j);
+                    Record(ref contacts[j], -push, overlap, i);
+                }
+                foreach (var pillar in ArenaLayout.Pillars) RootCollisionSystem.PushOutOfPillar(ref roots[i], ref velocities[i], pillar);
+                RootCollisionSystem.KeepInsideArena(ref roots[i], ref velocities[i]);
+            }
+    }
+
+    /// <summary>
+    /// Пара бойцов (a — место раньше): ближе 0,7 м — каждому половина перекрытия по линии корней, скорость a внутрь b и
+    /// b внутрь a гасится. Совпавшие корни (ближе 1e-4 м) не разводятся — как в SWORD. <paramref name="overlap"/> —
+    /// перекрытие до разрешения (0 — пары не было), <paramref name="push"/> — сдвиг a (b сдвинут на −push).
+    /// </summary>
+    public static void Pair(ref Vector3 a, ref Vector3 aVelocity, ref Vector3 b, ref Vector3 bVelocity, out Vector3 push, out float overlap)
+    {
+        push = default;
+        overlap = 0;
+        var d = a - b;
+        float l = d.Length();
+        if (l >= 2 * MovementRules.RootRadius || l < 1e-4f) return;
+        var n = d / l;
+        overlap = 2 * MovementRules.RootRadius - l;
+        push = n * (overlap * 0.5f);
+        a += push;
+        b -= push;
+        float va = Vector3.Dot(aVelocity, n), vb = Vector3.Dot(bVelocity, n);
+        if (va < 0) aVelocity -= n * va;
+        if (vb > 0) bVelocity -= n * vb;
+    }
+
+    private static void Record(ref RootContacts c, Vector3 push, float overlap, int other)
+    {
+        c.Contacts++;
+        c.Push += push;
+        if (other == 0) c.FromPlayer += push;
+        if (overlap > c.Deepest)
+        {
+            c.Deepest = overlap;
+            c.DeepestWith = other;
+        }
+    }
+}
+
+/// <summary>
+/// Movement, после <see cref="RootControlSystem"/>: столкновения корней (<c>ResolveRoots</c> SWORD целиком,
+/// <see cref="RootCollision.Resolve"/>) — бойцы собираются по местам (<see cref="FighterSlot"/>: порядок обхода SWORD —
+/// игрок 0, враги 1…32), разрешаются два прохода (пары бойцов, колонны, край арены) и записываются обратно. Корень
+/// выталкивается на край препятствия, скорость внутрь него гасится: боец упирается и скользит вдоль, бойцы
+/// расталкивают друг друга. Врагам — вид толчков тика (<see cref="RootContacts"/>). Массивы мест заводятся один раз —
+/// тик памяти не выделяет. Боец без места или второй на том же месте (нарушение <c>arena.slots</c>) не сдвигается.
 /// </summary>
 public sealed class RootCollisionSystem : IContinuousSystem
 {
-    private Query _query = null!;
+    private Query _fighters = null!, _viewers = null!;
+    private readonly Vector3[] _roots = new Vector3[ArenaRules.MaxFighters], _velocities = new Vector3[ArenaRules.MaxFighters];
+    private readonly bool[] _present = new bool[ArenaRules.MaxFighters];
+    private readonly Entity[] _owners = new Entity[ArenaRules.MaxFighters];
+    private readonly RootContacts[] _contacts = new RootContacts[ArenaRules.MaxFighters];
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.RootCollision).After(GameLabels.RootControl).Writes<Transform>().Writes<RootVelocity>();
-        _query = s.Query().With<Fighter>().Write<Transform>().Write<RootVelocity>();
+        s.Label(GameLabels.RootCollision).After(GameLabels.RootControl).Reads<FighterSlot>().Writes<Transform>()
+            .Writes<RootVelocity>().Writes<RootContacts>();
+        _fighters = s.Query().With<Fighter>().Read<FighterSlot>().Write<Transform>().Write<RootVelocity>();
+        _viewers = s.Query().With<Fighter>().Read<FighterSlot>().Write<RootContacts>();
     }
 
     public void Run(in SystemContext ctx)
     {
-        foreach (var chunk in ctx.Iterate(_query))
+        Array.Clear(_present);
+        foreach (var chunk in ctx.Iterate(_fighters))
         {
-            var t = chunk.Write<Transform>();
-            var v = chunk.Write<RootVelocity>()[..t.Length];
-            for (int i = 0; i < t.Length; i++) Resolve(ref t[i].Position, ref v[i].Value);
+            var entities = chunk.Entities;
+            var slots = chunk.Read<FighterSlot>()[..entities.Length];
+            var t = chunk.Write<Transform>()[..entities.Length];
+            var v = chunk.Write<RootVelocity>()[..entities.Length];
+            for (int i = 0; i < entities.Length; i++)
+            {
+                int slot = slots[i].Index;
+                if ((uint)slot >= ArenaRules.MaxFighters || _present[slot]) continue;
+                (_roots[slot], _velocities[slot], _owners[slot], _present[slot]) = (t[i].Position, v[i].Value, entities[i], true);
+            }
+        }
+
+        RootCollision.Resolve(_roots, _velocities, _present, _contacts);
+
+        foreach (var chunk in ctx.Iterate(_fighters))
+        {
+            var entities = chunk.Entities;
+            var slots = chunk.Read<FighterSlot>()[..entities.Length];
+            var t = chunk.Write<Transform>()[..entities.Length];
+            var v = chunk.Write<RootVelocity>()[..entities.Length];
+            for (int i = 0; i < entities.Length; i++)
+                if (Owns(slots[i].Index, entities[i], out int slot))
+                {
+                    t[i].Position = _roots[slot];
+                    v[i].Value = _velocities[slot];
+                }
+        }
+        foreach (var chunk in ctx.Iterate(_viewers))
+        {
+            var entities = chunk.Entities;
+            var slots = chunk.Read<FighterSlot>()[..entities.Length];
+            var c = chunk.Write<RootContacts>()[..entities.Length];
+            for (int i = 0; i < entities.Length; i++) c[i] = Owns(slots[i].Index, entities[i], out int slot) ? _contacts[slot] : RootContacts.None;
         }
     }
 
-    /// <summary>Один боец: порядок <c>ResolveRoots</c> — проходы, в каждом колонны, затем край.</summary>
-    public static void Resolve(ref Vector3 root, ref Vector3 velocity)
+    private bool Owns(int slot, Entity e, out int index)
     {
-        for (int iter = 0; iter < MovementRules.CollisionIterations; iter++)
-        {
-            foreach (var pillar in ArenaLayout.Pillars) PushOutOfPillar(ref root, ref velocity, pillar);
-            KeepInsideArena(ref root, ref velocity);
-        }
+        index = slot;
+        return (uint)slot < ArenaRules.MaxFighters && _present[slot] && _owners[slot] == e;
     }
 
     /// <summary>Колонна: xy — центр (x, z), z — радиус; корень — на радиус колонны плюс свой.</summary>

@@ -14,7 +14,8 @@ namespace Sword.Game;
 /// команда игрока из <c>Game.Contracts</c>, движение корня, аниматор бойца (поза в пуле поз, слой движения для
 /// локомоции), начальный мир — игрок в центре арены курсом 0 (<c>DuelArena.Reset</c> SWORD: <c>Build(Player, 0, 0)</c>)
 /// и <c>arena.enemies</c> врагов кольцом вокруг него; команды арены (<see cref="ArenaCommand"/>: число врагов, сброс —
-/// этап 4а); ИИ врагов (<see cref="EnemyAiSystem"/> — этап 4б). Регистрации ядра — без токена модуля.
+/// этап 4а); ИИ врагов (<see cref="EnemyAiSystem"/> — этап 4б); столкновения корней бойцов между собой
+/// (<see cref="RootCollisionSystem"/>, инвариант <see cref="RootOverlapInvariant"/> — этап 4в). Регистрации ядра — без токена модуля.
 ///
 /// Порядок <c>KinematicBegin</c> SWORD — по стадиям: курс и разгон (Gameplay) → вход аниматора по новой скорости
 /// (Gameplay) → слои позы и прямая кинематика, пул поз исполняет задания (Animation) → перенос корня и столкновения
@@ -31,7 +32,7 @@ public static class GameCore
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
         b.Component<Transform>().Component<PrevTransform>().Component<RootVelocity>().Component<FighterCommand>()
             .Component<GazeTarget>().Component<Fighter>().Component<PlayerTag>().Component<EnemyTag>()
-            .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>()
+            .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>().Component<RootContacts>()
             .Component<PoseRef>().Component<AnimatorMotion>()
             .Command<PlayerCommand>().Command<ArenaCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
@@ -39,6 +40,7 @@ public static class GameCore
             .StateContributor(new AnimationState(poses))
             .Invariants(AnimationInvariants.For(poses))
             .Invariant(new ArenaSlotsInvariant())
+            .Invariant(new RootOverlapInvariant())
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>();
 

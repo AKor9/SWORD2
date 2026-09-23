@@ -229,7 +229,9 @@ Add-Step 'headless-smoke' {
         if (-not $crowd.ok -or $crowd.arena.enemies -ne 32 -or $crowd.arena.fighters -ne 33) { $problems += "--units 40: врагов $($crowd.arena.enemies), бойцов $($crowd.arena.fighters); ждали предел 32 и 33 ($($crowd.error))" }
         elseif ($crowd.allocatedBytesPerTick -ne 0) { $problems += "32 врага: тик выделяет $($crowd.allocatedBytesPerTick) Б, ждали 0" }
         elseif ($crowd.invariants.violations -ne 0) { $problems += "32 врага: нарушения инвариантов $(@($crowd.invariants.first) -join '; ')" }
-        else { $crowdNote = "; 10 врагов из sword.json, --units 40 → 32 врага: $($crowd.msPerTick) мс/тик, 0 Б/тик" }
+        # Точка 4в: столкновения бойцов — ближайшая пара корней не ближе 0,7 − 0,02 м (допуск movement.rootOverlap).
+        elseif (-not $crowd.arena.closestPair -or $crowd.arena.closestPair.distance -lt 0.68) { $problems += "32 врага: ближайшая пара корней $($crowd.arena.closestPair.distance) м (места $(@($crowd.arena.closestPair.slots) -join ', ')), ждали не ближе 0.68" }
+        else { $crowdNote = "; 10 врагов из sword.json, --units 40 → 32 врага: $($crowd.msPerTick) мс/тик, 0 Б/тик, ближайшая пара $([math]::Round($crowd.arena.closestPair.distance, 3)) м" }
     }
     # Детерминизм (этап 3): тот же прогон ещё раз — тот же хеш каждого участника.
     if ($problems.Count -eq 0) {
