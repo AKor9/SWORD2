@@ -30,11 +30,12 @@ SWORD2 — архитектурная реорганизация SWORD: движ
 ```
 dotnet build SWORD.slnx
 dotnet test SWORD.slnx
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 [-Json] [-SkipReference]
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 [-Json] [-SkipReference] [-Configuration Release] [-Only шаги]
 ```
 
 `verify.ps1` — сборка, тесты, заготовки запрещённых ссылок, переводы строк, эталонный пак. `-Json` — итог одним
-JSON-объектом для агентов.
+JSON-объектом для агентов. Полный прогон — в Debug (проверки мира ECS есть только в Debug); время бюджетов
+проверяется только в Release — там достаточно замеров: `-Configuration Release -Only headless-smoke,app-smoke,features`.
 
 ## Эталон SWORD
 
