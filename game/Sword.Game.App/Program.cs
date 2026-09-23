@@ -49,6 +49,8 @@ public static partial class Program
         public bool Agent;
         public bool Profile;
         public bool ProfileEvents;
+        public bool ProfileTrace;
+        public double ProfileThreshold;
         public int AgentPort = 47813;
         public string? Record;
         public string? Replay;
@@ -62,7 +64,8 @@ public static partial class Program
         Управление (привязки — секция конфига input, например --set input.move_forward=Up):
           WASD — ход относительно камеры, Shift — шагом, курсор на земле — куда смотреть;
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
-          F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F4 — снимок; Esc — выход;
+          F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, последняя
+          аномалия, строка среды; включает профайлер); F4 — снимок; Esc — выход;
           PageUp/PageDown — врагов ±1, R — сброс арены (команды арены — в реплее); F7 — капсулы тел поверх персонажей.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
@@ -114,6 +117,11 @@ public static partial class Program
                             profile; с --bench — только кадры замера. Агент включает его и без ключа (profile.stages)
           --profile runtime то же и диагностический режим: события среды (выделения по типам, сборки, JIT с уровнями)
                             с кадром, тиком и зоной — секция events отчёта; дорогой (JIT медленнее)
+          --profile-threshold MS  порог аномалии кадра и тика, мс (без ключа — по медиане последних 128: кадр дольше
+                            медианы + max(2 мс, 0.75 медианы), тик — медианы + max(1 мс, 0.75 медианы)); аномалии включённого
+                            профайлера (--profile, F2, агент) — файлы artifacts/profile/<прогон>/anomaly-*.json и строки журнала
+          --profile-trace   то же, что --profile, и кольцо профайлера в Chrome Trace (trace.json рядом с profile.json:
+                            Perfetto, chrome://tracing)
         """;
 
     public static int Main(string[] args)
@@ -169,6 +177,8 @@ public static partial class Program
 
             ClientRunReport report;
             CpuProfiler profiler;
+            // Каталог прогона профайлера — один на прогон: аномалии (по ходу) и profile.json, trace.json (в конце).
+            string profileDir = ProfileDir();
             using (var client = new ClientHost(window, new ClientOptions
             {
                 Vsync = options.Vsync,
@@ -189,6 +199,15 @@ public static partial class Program
             }, arena, simulation))
             {
                 profiler = client.Profiler;
+                // Захват аномалий (точка Пв): судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.
+                profiler.CaptureAnomalies(new AnomalyOptions
+                {
+                    Directory = profileDir, AbsoluteMs = options.ProfileThreshold,
+                    Run = new Dictionary<string, string>
+                    {
+                        ["process"] = "app", ["args"] = string.Join(" ", args), ["runtime"] = Environment.Version.ToString(),
+                    },
+                });
                 IDisposable? agent = null;
                 if (options.Agent)
                 {
@@ -213,9 +232,9 @@ public static partial class Program
                 if (!options.Json) Log.Info("replay", $"записан {Path.GetFullPath(options.Record)}: {recorded.Ticks} тиков, хешей {recorded.Hashes.Count}");
             }
 
-            // Профайлер (--profile, точка Па): отчёт — в артефакты прогона.
+            // Профайлер (--profile, точка Па): отчёт — в артефакты прогона (файлы аномалий — дописаны: Write ждёт писателя).
             string? profileFile = options.Profile
-                ? profiler.Write(ProfilePath(), new System.Text.Json.Nodes.JsonObject
+                ? profiler.Write(Path.Combine(profileDir, "profile.json"), new System.Text.Json.Nodes.JsonObject
                 {
                     ["process"] = "app",
                     ["args"] = new System.Text.Json.Nodes.JsonArray([.. args.Select(a => (System.Text.Json.Nodes.JsonNode?)a)]),
@@ -226,6 +245,13 @@ public static partial class Program
                 })
                 : null;
             if (profileFile is not null && !options.Json) Log.Info("profile", $"профайлер: {profileFile}");
+            // Точка Пв: кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
+            string? traceFile = options.ProfileTrace
+                ? profiler.WriteTrace(Path.Combine(profileDir, "trace.json"), new Dictionary<string, string> { ["process"] = "app" })
+                : null;
+            if (traceFile is not null && !options.Json) Log.Info("profile", $"трасса (Perfetto, chrome://tracing): {traceFile}");
+            profiler.FlushAnomalies();
+            if (profiler.Anomalies is { Detected: > 0 } anomalies && !options.Json) Log.Info("profile", anomalies.Summary());
 
             // Корень игрока последнего кадра — для сверки с Headless на том же числе тиков (verify.ps1, app-smoke).
             // Показанный кадром игрок (интерполированный) и камера — что видел пользователь.
@@ -250,7 +276,7 @@ public static partial class Program
                         fighters = arena.View.Fighters.Count,
                         skinned = arena.SkinnedFighters,
                     },
-                    hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, quads = arena.HudQuads, lines = arena.HelpLines },
+                    hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, profiler = arena.Hud.ShowProfiler, quads = arena.HudQuads, lines = arena.HelpLines },
                     // Капсулы тел (5в): показаны ли поверх персонажей (F7, --overlay capsules), сколько нарисовано в последнем
                     // кадре и сколько капсул у бойцов кадра.
                     bodies = new { shown = arena.ShowBodies, drawn = arena.DrawnCapsules, capsules = arena.View.BodyCount },
@@ -261,7 +287,13 @@ public static partial class Program
                         stateHash = recorded.Hashes.Count > 0 ? string.Join(' ', recorded.Hashes[^1].Parts.Select(p => p.ToString("X16"))) : null,
                     },
                     // Профайлер (--profile, точка Па): файл отчёта и главные зоны кадра; без ключа — null.
-                    profile = profileFile is null ? null : ProfileJson(profiler, profileFile),
+                    profile = profileFile is null ? null : ProfileJson(profiler, profileFile, traceFile),
+                    // Профайлер кадра и без ключа (точка Пв): включён ли (ключом, F2, агентом), кадров в итогах, аномалий захвачено.
+                    profiler = new
+                    {
+                        enabled = profiler.Enabled, frames = profiler.Count(ProfilePeriod.Frame).Periods,
+                        anomalies = profiler.Anomalies?.Detected ?? 0,
+                    },
                     // Воспроизведение (--replay): совпали ли хеши App с записанными — тот же реплей, что у Headless.
                     replay = playback is null ? null : new
                     {
@@ -280,6 +312,7 @@ public static partial class Program
                         : $"реплей: сверено хешей {playback.HashesChecked}, последний — после {playback.LastMatch?.ToString() ?? "—"} тиков");
             }
             profiler.SetEvents(false);   // диагностический режим (--profile runtime): слушатель событий среды закрыт после итога
+            profiler.StopAnomalies();    // писатель аномалий — дописан и остановлен
             return 0;
         }
         catch (Exception ex)
@@ -342,6 +375,15 @@ public static partial class Program
                         o.ProfileEvents = true;
                         i++;
                     }
+                    break;
+                case "--profile-trace":
+                    o.Profile = true;
+                    o.ProfileTrace = true;
+                    break;
+                case "--profile-threshold":
+                    if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out o.ProfileThreshold)
+                        || !(o.ProfileThreshold >= 0 && o.ProfileThreshold <= 60_000))
+                        throw new ArgumentException($"{a}: ожидается порог в мс 0…60000 (0 — по медиане)");
                     break;
                 case "--agent-port":
                     if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.AgentPort) || o.AgentPort is < 1 or > 65535)
@@ -421,18 +463,20 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Отчёт профайлера прогона (<c>--profile</c>): <c>artifacts/profile/&lt;дата-время&gt;-app-&lt;pid&gt;/profile.json</c> в корне
-    /// репозитория, вне репозитория — рядом с exe.
+    /// Каталог прогона профайлера: <c>artifacts/profile/&lt;дата-время старта&gt;-app-&lt;pid&gt;</c> в корне репозитория, вне
+    /// репозитория — рядом с exe. В нём — файлы аномалий (по ходу, точка Пв), <c>profile.json</c> и <c>trace.json</c> (в конце);
+    /// создаётся при первой записи.
     /// </summary>
-    private static string ProfilePath() =>
+    private static string ProfileDir() =>
         Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "profile",
-            $"{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-app-{Environment.ProcessId}", "profile.json");
+            $"{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-app-{Environment.ProcessId}");
 
-    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта и коротко — главные зоны кадра.</summary>
-    private static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file)
+    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта, трасса и коротко — главные зоны кадра, аномалии.</summary>
+    private static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file, string? trace)
     {
         var json = profiler.Summary(12);
         json.Insert(0, "file", file);
+        if (trace is not null) json.Insert(1, "trace", trace);
         return json;
     }
 

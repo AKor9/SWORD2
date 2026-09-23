@@ -27,7 +27,11 @@ internal static class ProfileTools
                 "(главный поток и процесс), выделения процесса; machine — машина с включения или reset: загрузка системы другими процессами, " +
                 "частота CPU, GC и JIT, вердикт код/среда/машина с причинами. events=true — диагностический режим: события среды " +
                 "(EventListener: выделения по типам, сборки и паузы, JIT с уровнями tier0/tier1/osr, фоновый ли) с кадром, тиком и зоной; " +
-                "дорогой (JIT медленнее), events=false — выключить. Меняет только профайлер, не симуляцию.",
+                "дорогой (JIT медленнее), events=false — выключить. anomalies — захват аномалий (точка Пв): кадр или тик дольше порога " +
+                "(по умолчанию — медиана последних 128 + max(2 мс кадр / 1 мс тик, 0.75 медианы); threshold — абсолютный порог, мс, 0 — снова " +
+                "по медиане) пишется файлом anomaly-<frame|tick>-N.json (зоны, причины, события окна, машина) и трассой; в ответе — список: " +
+                "период, мс, класс причины (code/jit/gc/gpu/machine), главная зона, файл. trace=true — кольцо в Chrome Trace JSON " +
+                "(Perfetto, chrome://tracing). Меняет только профайлер, не симуляцию.",
             Arguments = CoreTools.Props(
                 ("enable", new JsonObject { ["type"] = "boolean", ["description"] = "включить (true) или выключить (false) профайлер" }),
                 ("reset", new JsonObject { ["type"] = "boolean", ["description"] = "забыть итоги и кольцо (после прогрева)" }),
@@ -44,7 +48,14 @@ internal static class ProfileTools
                 {
                     ["type"] = "boolean",
                     ["description"] = "диагностический режим: события среды (выделения по типам, GC, JIT) с местом — кадр, тик, зона; включает и профайлер",
-                })),
+                }),
+                ("anomalies", CoreTools.Int("сколько последних аномалий в ответе (по умолчанию 10; 0 — только счёт)", 0, ProfileAnomalies.Capacity)),
+                ("threshold", new JsonObject
+                {
+                    ["type"] = "number", ["minimum"] = 0,
+                    ["description"] = "порог аномалии кадра и тика, мс (абсолютный); 0 — по медиане последних периодов (по умолчанию)",
+                }),
+                ("trace", new JsonObject { ["type"] = "boolean", ["description"] = "записать кольцо профайлера в Chrome Trace JSON (Perfetto) в артефакты сеанса" })),
             ReadOnly = false,
             Run = async call =>
             {
@@ -56,13 +67,27 @@ internal static class ProfileTools
                 string? prefix = call.String("prefix");
                 int top = (int)call.Integer("top", 40, 1, 1000);
                 int history = (int)call.Integer("history", 0, 0, CpuProfiler.DefaultHistory);
-                string? file = write ? host.ArtifactPath($"profile-{DateTime.UtcNow:HHmmss-fff}.json") : null;
+                int anomalies = (int)call.Integer("anomalies", 10, 0, ProfileAnomalies.Capacity);
+                double? threshold = call.Node("threshold") is { } t
+                    ? t.GetValueKind() == System.Text.Json.JsonValueKind.Number && t.GetValue<double>() is var ms && ms >= 0 && double.IsFinite(ms)
+                        ? ms : throw new ArgumentException("threshold: число мс ≥ 0 (0 — порог по медиане)")
+                    : null;
+                bool trace = call.Bool("trace", false);
+                string stamp = $"{DateTime.UtcNow:HHmmss-fff}";
+                string? file = write ? host.ArtifactPath($"profile-{stamp}.json") : null;
+                string? traceFile = trace ? host.ArtifactPath($"trace-{stamp}.json") : null;
                 var r = await host.Serve(ctx =>
                 {
                     var p = host.Profiler;
                     if (enable is { } on) p.SetEnabled(on);
                     if (events is { } diag) p.SetEvents(diag);
                     if (reset) p.Reset();
+                    // Точка Пв: порог аномалий; захват не настроен exe — файлы в артефакты сеанса.
+                    if (threshold is { } limit)
+                    {
+                        if (p.Anomalies is null && !p.IsOff) p.CaptureAnomalies(new AnomalyOptions { Directory = host.Artifacts });
+                        if (p.Anomalies is { } a) a.AbsoluteMs = limit;
+                    }
                     // События приходят с задержкой (~15 мс): итог — после хвоста (метка компилируется здесь, на потоке владельца).
                     if (p.Events is not null) p.FlushEvents(TimeSpan.FromSeconds(1));
                     var period = per switch
@@ -74,7 +99,10 @@ internal static class ProfileTools
                     var report = p.Report(history, top, prefix);
                     int zones = prefix is null ? p.Stats(period).Count : p.Stats(period).Count(z => z.Name.StartsWith(prefix, StringComparison.Ordinal));
                     if (file is not null) p.Write(file, new JsonObject { ["process"] = host.Mode, ["build"] = host.BuildId, ["session"] = host.SessionId });
-                    return (Report: report, Period: period, Zones: zones, Events: p.Events?.Summary(types: 10, recent: 8), ctx.Point);
+                    if (traceFile is not null)
+                        p.WriteTrace(traceFile, new Dictionary<string, string> { ["process"] = host.Mode, ["session"] = host.SessionId, ["build"] = host.BuildId });
+                    return (Report: report, Period: period, Zones: zones, Events: p.Events?.Summary(types: 10, recent: 8),
+                        Anomalies: p.Anomalies?.ToJson(anomalies), ctx.Point);
                 }, call.Cancel);
                 var report = r.Report;
                 string key = r.Period == ProfilePeriod.Frame ? "frames" : "ticks";
@@ -97,6 +125,9 @@ internal static class ProfileTools
                 if (section?["runtime"] is { } runtime) data["runtime"] = runtime.DeepClone();
                 if (report["machine"] is { } machine) data["machine"] = machine.DeepClone();
                 data["events"] = r.Events is { } ev ? ev : "выключены (events: true — диагностический режим)";
+                // Точка Пв: аномалии — порог, счёт, последние (класс, главная зона, файл); файлы пишет фоновый поток: свежие — state queued.
+                data["anomalies"] = r.Anomalies is { } an ? an : "захват не настроен (threshold — настроить, файлы — в артефакты сеанса)";
+                if (traceFile is not null) data["trace"] = traceFile;
                 data["zones"] = section?["zones"]?.DeepClone() ?? new JsonArray();
                 if (history > 0) data["history"] = section?["history"]?.DeepClone() ?? new JsonArray();
                 data["mismatches"] = report["mismatches"]?.DeepClone();

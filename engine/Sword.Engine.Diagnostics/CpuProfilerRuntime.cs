@@ -78,7 +78,7 @@ public sealed partial class CpuProfiler
     private bool Changed => _wanted != _enabled || !ReferenceEquals(_timeline, _wanted ? _wantedTimeline : null);
 
     /// <summary>Имя зоны для другого потока (слушатель событий).</summary>
-    private string SharedName(int zone)
+    internal string SharedName(int zone)
     {
         lock (_names) return (uint)zone < (uint)_names.Count ? _names[zone] : $"#{zone}";
     }

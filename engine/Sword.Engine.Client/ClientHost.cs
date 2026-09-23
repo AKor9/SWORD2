@@ -419,7 +419,8 @@ public sealed class ClientHost : IDisposable
         var machine = machineStart is { } ms0 ? MachineReport.Between(ms0, MachineSample.Take(), computeBound: false) : null;
         var benchReport = bench?.Result();
         if (benchReport is not null) Log.Info("bench", benchReport.ToString());
-        if (benchReport is not null && machine is not null) Log.Info("bench", "машина: " + machine.Text);
+        // «вердикт: машина: …» / «вердикт: код: …» — без повтора слова «машина» (было «машина: машина: …», доводка Пб на Пв).
+        if (benchReport is not null && machine is not null) Log.Info("bench", "вердикт: " + machine.Text);
 
         _liveResizeError?.Throw();
         int steady = frames - serviceFrames;
@@ -570,7 +571,7 @@ public sealed class ClientHost : IDisposable
     {
         public readonly int Messages = p.Zone("frame.messages"), Resize = p.Zone("frame.resize"), Input = p.Zone("frame.input"),
             Simulate = p.Zone("frame.simulate"), Tools = p.Zone("frame.tools"), Extract = p.Zone("frame.extract"),
-            Render = p.Zone("frame.render"), Presented = p.Zone("frame.presented"), Wait = p.Zone("frame.wait");
+            Render = p.Zone("frame.render"), Presented = p.Zone("frame.presented"), Wait = p.Zone("frame.wait", ProfileZoneKind.Idle);
     }
 
     /// <summary>Клиентская часть игры — для инструментов (наблюдаемость: <see cref="IClientObservable"/>).</summary>

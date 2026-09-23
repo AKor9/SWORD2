@@ -242,8 +242,9 @@ public sealed class Renderer : IDisposable
         set
         {
             ArgumentNullException.ThrowIfNull(value);
-            _zones = (value.Zone("frame.fenceWait"), value.Zone("frame.build"), value.Zone("frame.record"), value.Zone("frame.present"),
-                value.Zone("frame.capture"));
+            // Ожидание забора кадра и показ — ожидание GPU (точка Пв: класс аномалии «ожидание GPU» — по этим зонам).
+            _zones = (value.Zone("frame.fenceWait", ProfileZoneKind.GpuWait), value.Zone("frame.build"), value.Zone("frame.record"),
+                value.Zone("frame.present", ProfileZoneKind.GpuWait), value.Zone("frame.capture"));
             Graph.Profiler = value;
             _profiler = value;
         }

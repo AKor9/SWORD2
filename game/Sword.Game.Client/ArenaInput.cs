@@ -10,7 +10,7 @@ namespace Sword.Game.Client;
 /// WASD — ход относительно камеры, Shift — шагом, F — камера за игроком / свободная, Z/C — поворот, +/− — зум, средняя
 /// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD; PageUp/PageDown —
 /// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены); F7 — капсулы тел поверх персонажей
-/// (5в, отладочный вид SWORD2). Колесо и курсор — не
+/// (5в, отладочный вид SWORD2); F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
 /// </summary>
@@ -38,6 +38,13 @@ public static class ArenaInput
     /// <summary>Справка HUD: показать / скрыть (SWORD: F1).</summary>
     public static readonly InputAction HudHelp = new("hud_help", "F1");
 
+    /// <summary>
+    /// Профайлер в HUD: главные зоны кадра, строка среды, последняя аномалия — показать / скрыть (SWORD: F2 — «ПРОФАЙЛЕР» панели;
+    /// точка Пв). Включает профайлер CPU, если он выключен (выключает — только если его включил сам). Действие представления: в
+    /// команды и реплей не идёт.
+    /// </summary>
+    public static readonly InputAction HudProfiler = new("hud_profiler", "F2");
+
     /// <summary>Врагов на одного больше / меньше (SWORD: PageUp / PageDown).</summary>
     public static readonly InputAction EnemiesMore = new("enemies_more", "PageUp");
     public static readonly InputAction EnemiesFewer = new("enemies_fewer", "PageDown");
@@ -55,7 +62,7 @@ public static class ArenaInput
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
-        HudHelp, EnemiesMore, EnemiesFewer, ArenaReset, DebugBodies,
+        HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, DebugBodies,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>

@@ -126,6 +126,12 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private PlayerCommand _frameCommand;
     private readonly Hud _hud = new();
     private readonly bool _showHud;
+
+    /// <summary>Сводка профайлера для F2 (точка Пв); null — профайлера нет (<see cref="CpuProfiler.Off"/>).</summary>
+    private ProfileDigest? _digest;
+
+    /// <summary>Профайлер включён F2 (выключает его F2 только тогда: включённый ключом или агентом остаётся).</summary>
+    private bool _profilerByHud;
     private UiDrawList? _ui;
     private FrameStats _stats;
     private IReadOnlyList<string> _help = Hud.HelpLines(new Dictionary<string, string>());
@@ -176,6 +182,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>HUD рисуется.</summary>
     public bool ShowsHud => _showHud;
+
+    /// <summary>Сводка профайлера F2 (итог Sword.exe, тесты); null — профайлера нет.</summary>
+    public ProfileDigest? ProfileDigest => _digest;
 
     /// <summary>Квадов HUD в последнем кадре (0 — HUD не рисуется).</summary>
     public int HudQuads { get; private set; }
@@ -256,6 +265,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         var profiler = renderer.Profiler;
         _view.Profiler = profiler;
         _zones = (profiler.Zone("arena.build.skin"), profiler.Zone("arena.build.hud"), profiler.Zone("arena.build.bodies"));
+        _digest = profiler.IsOff ? null : new ProfileDigest(profiler);
         // Игрок и его команда — ядро игры: симуляция у арены есть всегда.
         _simulation = simulation ?? throw new ArgumentNullException(nameof(simulation), "клиенту арены нужна симуляция");
         _heights = renderer.CreateData<float>("Arena.Heights", _field.Heights);
@@ -288,6 +298,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void Input(in FrameInput input)
     {
         if (input.WasPressed(ArenaInput.HudHelp)) _hud.ShowHelp = !_hud.ShowHelp;
+        if (input.WasPressed(ArenaInput.HudProfiler)) ToggleProfiler();
         if (input.WasPressed(ArenaInput.DebugBodies)) ShowBodies = !ShowBodies;
         // Камера — до тиков, за тазом игрока, каким его показал прошлый кадр (Program.cs SWORD: focus — таз по renderAlpha
         // прошлого кадра).
@@ -302,6 +313,26 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         // Курсор — после камеры этого кадра; точка на плоскости земли, только когда курсор над окном (SWORD).
         bool hit = _camera.ScreenToGround(input.MouseX, input.MouseY, input.Width, input.Height, out var ground);
         _frameCommand = PlayerIntent.Command(ArenaInput.Player(input), _camera, hit && input.MouseInside, ground);
+    }
+
+    /// <summary>
+    /// F2 (точка Пв): секция профайлера в HUD; профайлер выключен — F2 его включает (со следующего кадра), и выключает, только если
+    /// включил сам. Представление: симуляцию не трогает, в реплей не идёт.
+    /// </summary>
+    private void ToggleProfiler()
+    {
+        _hud.ShowProfiler = !_hud.ShowProfiler;
+        if (_renderer?.Profiler is not { IsOff: false } profiler) return;
+        if (_hud.ShowProfiler && !profiler.Requested)
+        {
+            profiler.SetEnabled(true);
+            _profilerByHud = true;
+        }
+        else if (!_hud.ShowProfiler && _profilerByHud)
+        {
+            profiler.SetEnabled(false);
+            _profilerByHud = false;
+        }
     }
 
     /// <summary>
@@ -426,7 +457,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         var passes = renderer.Graph.LastFrame;
         for (int i = 0; i < passes.Count; i++) draws += passes[i].Draws;
         _ui!.Clear();
-        _hud.Draw(_ui, frame.Width, frame.Height, new HudData(_stats, draws, renderer.Ui.LastQuads, renderer.AdapterName), _help);
+        // Сводка F2 — раз в 0,25 с из итогов профайлера (в остальных кадрах — сравнение времени), только когда секция видна.
+        if (_hud.ShowProfiler) _digest?.Update(System.Diagnostics.Stopwatch.GetTimestamp());
+        _hud.Draw(_ui, frame.Width, frame.Height, new HudData(_stats, draws, renderer.Ui.LastQuads, renderer.AdapterName, _digest), _help);
         HudQuads = _ui.Count;
         renderer.Ui.Add(frame, _ui, "hud");
     }

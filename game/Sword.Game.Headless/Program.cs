@@ -44,6 +44,10 @@ public static partial class Program
                               (profile.stages), отчёт — при выходе
           --profile runtime   то же и диагностический режим: события среды (выделения по типам, сборки, JIT с
                               уровнями) с тиком и зоной — секция events отчёта; дорогой (JIT медленнее)
+          --profile-threshold MS  порог аномалии тика, мс (без ключа — медиана последних 128 тиков + max(1 мс,
+                              0.75 медианы)); аномалии — файлы artifacts/profile/<прогон>/anomaly-tick-N.json и строки журнала
+          --profile-trace     то же, что --profile, и кольцо профайлера в Chrome Trace (trace.json рядом с
+                              profile.json: Perfetto, chrome://tracing)
                               Без ключа итог --json всё равно несёт machine: машина за тики после прогрева (поток на
                               CPU, загрузка системы другими процессами, частота, GC, JIT) и вердикт «код или машина»
           --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
@@ -57,7 +61,8 @@ public static partial class Program
     /// Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.
     /// <paramref name="build"/> — симуляция из конфига той же композицией (<c>session.start</c>, <c>time.seek</c> назад).
     /// </summary>
-    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, ref int? exit);
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, double profileThreshold,
+        ref int? exit);
 
     /// <summary>Приёмка фич (<c>--feature</c>, AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
     static partial void RunFeatures(string which, Func<ConfigSet, Simulation> build, string content, bool views, bool budgets, bool json,
@@ -72,7 +77,8 @@ public static partial class Program
         int ticks = 600, sample = 60, hashEvery = 1;
         bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
-        bool json = false, agent = false, profile = false, profileEvents = false;
+        bool json = false, agent = false, profile = false, profileEvents = false, profileTrace = false;
+        double profileThreshold = 0;
         string? record = null, replayPath = null, feature = null;
         bool views = true, budgets = true;
         var sets = new List<string>();
@@ -117,6 +123,15 @@ public static partial class Program
                             profileEvents = true;
                             i++;
                         }
+                        break;
+                    case "--profile-trace":
+                        profile = true;
+                        profileTrace = true;
+                        break;
+                    case "--profile-threshold":
+                        if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out profileThreshold)
+                            || !(profileThreshold >= 0 && profileThreshold <= 60_000))
+                            throw new ArgumentException($"{a}: ожидается порог в мс 0…60000 (0 — по медиане)");
                         break;
                     case "--feature": feature = Next(); break;
                     case "--no-views": views = false; break;
@@ -175,7 +190,7 @@ public static partial class Program
             if (agent)
             {
                 int? exit = null;
-                RunAgent(sim, Build, profile, profileEvents, ref exit);
+                RunAgent(sim, Build, profile, profileEvents, profileThreshold, ref exit);
                 if (exit is { } code) return code;
                 Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
                 return 2;
@@ -185,9 +200,19 @@ public static partial class Program
             int warmup = Math.Min(WarmupTicks, ticks / 2);
             // Профайлер CPU (точка Па): итоги — тики после прогрева, как байты на тик; байты тика с ним — те же 0.
             var profiler = profile ? new CpuProfiler() : null;
+            string profileDir = ProfileDir("headless");
             if (profiler is not null)
             {
                 sim.AttachProfiler(profiler);
+                // Захват аномалий тика (точка Пв): файлы — в каталог прогона профайлера, рядом с profile.json.
+                profiler.CaptureAnomalies(new AnomalyOptions
+                {
+                    Directory = profileDir, AbsoluteMs = profileThreshold,
+                    Run = new Dictionary<string, string>
+                    {
+                        ["process"] = "headless", ["args"] = string.Join(" ", args), ["runtime"] = Environment.Version.ToString(),
+                    },
+                });
                 profiler.SetEnabled(true);
                 if (profileEvents) profiler.SetEvents(true);
             }
@@ -214,8 +239,14 @@ public static partial class Program
             var machine = machineStart is { } m0 ? MachineReport.Between(m0, MachineSample.Take(), computeBound: true) : null;
             Replay? recorded = recorder?.ToReplay();
             recorded?.Save(record!);
-            string? profileFile = profiler?.Write(ProfilePath("headless"), ProfileHeader("headless", args));
+            string? profileFile = profiler?.Write(Path.Combine(profileDir, "profile.json"), ProfileHeader("headless", args));
             if (profileFile is not null && !json) Log.Info("profile", $"профайлер: {profileFile}");
+            // Точка Пв: кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
+            string? traceFile = profileTrace
+                ? profiler!.WriteTrace(Path.Combine(profileDir, "trace.json"), new Dictionary<string, string> { ["process"] = "headless" })
+                : null;
+            if (traceFile is not null && !json) Log.Info("profile", $"трасса (Perfetto, chrome://tracing): {traceFile}");
+            if (profiler?.Anomalies is { Detected: > 0 } anomalies && !json) Log.Info("profile", anomalies.Summary());
 
             var report = new
             {
@@ -248,7 +279,7 @@ public static partial class Program
                 },
                 warnings,
                 // Профайлер (--profile, точка Па): файл отчёта и главные зоны тика; без ключа — null.
-                profile = profiler is null ? null : ProfileJson(profiler, profileFile!),
+                profile = profiler is null ? null : ProfileJson(profiler, profileFile!, traceFile),
                 // Машина за тики после прогрева (точка Пб): поток на CPU, загрузка системы, частота, GC, JIT и вердикт.
                 machine,
                 trajectory,
@@ -259,6 +290,7 @@ public static partial class Program
                 config = sim.Config.Effective,
                 configSources = sim.Config.Sources,
             };
+            profiler?.StopAnomalies();   // писатель аномалий — дописан (Write ждал его) и остановлен
             if (json) Console.WriteLine(JsonSerializer.Serialize(report, JsonOptions));
             else
             {
@@ -326,12 +358,14 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Отчёт профайлера прогона (<c>--profile</c>, точка Па): <c>artifacts/profile/&lt;дата-время&gt;-&lt;процесс&gt;-&lt;pid&gt;/profile.json</c>
-    /// в корне репозитория, вне репозитория — рядом с exe.
+    /// Каталог прогона профайлера (<c>--profile</c>, точки Па и Пв): <c>artifacts/profile/&lt;дата-время старта&gt;-&lt;процесс&gt;-&lt;pid&gt;</c>
+    /// в корне репозитория, вне репозитория — рядом с exe: файлы аномалий (по ходу), <c>profile.json</c> и <c>trace.json</c> (в конце).
+    /// Создаётся при первой записи.
     /// </summary>
-    internal static string ProfilePath(string process) =>
+    internal static string ProfileDir(string process) =>
         Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "profile",
-            $"{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{process}-{Environment.ProcessId}", "profile.json");
+            $"{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{process}-{Environment.ProcessId}");
+
 
     /// <summary>Поля прогона в начале отчёта профайлера: процесс, ключи запуска, время, среда.</summary>
     internal static System.Text.Json.Nodes.JsonObject ProfileHeader(string process, string[] args) => new()
@@ -344,11 +378,12 @@ public static partial class Program
             .OfType<System.Diagnostics.DebuggableAttribute>().FirstOrDefault()?.IsJITOptimizerDisabled != true,
     };
 
-    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта и коротко — главные зоны.</summary>
-    internal static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file)
+    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта, трасса и коротко — главные зоны, аномалии.</summary>
+    internal static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file, string? trace)
     {
         var json = profiler.Summary(12);
         json.Insert(0, "file", file);
+        if (trace is not null) json.Insert(1, "trace", trace);
         return json;
     }
 

@@ -31,12 +31,14 @@ public class HudTests
     [Fact]
     public void Help_ShowsActualBindings()
     {
-        var config = ConfigSet.Empty("input.move_forward=Up", "input.hud_help=F2", "input.arena_reset=Home", "input.debug_bodies=F8");
+        var config = ConfigSet.Empty("input.move_forward=Up", "input.hud_help=F2", "input.hud_profiler=F9", "input.arena_reset=Home",
+            "input.debug_bodies=F8");
         var bindings = InputBindings.Resolve([.. ArenaInput.All, .. ClientHost.Actions], config);
         var lines = Hud.HelpLines(bindings.Keys);
         Assert.Contains("Up A S D — движение (Shift — шагом)", lines[0]);
         Assert.Contains("СКМ — камера", lines[1]);
-        Assert.StartsWith("F2 — справка    F4 — снимок", lines[2]);
+        Assert.StartsWith("F2 — справка    F9 — профайлер    F4 — снимок", lines[2]);   // F2 по умолчанию — профайлер (Пв)
+        Assert.StartsWith("F1 — справка    F2 — профайлер    F4 — снимок", Hud.HelpLines(new Dictionary<string, string>())[2]);
         // Клавиши арены (этап 4а) и капсулы тел (5в: F7 по умолчанию, привязка — секция input).
         Assert.Equal("PgUp / PgDn — врагов ±1    Home — сброс арены    F8 — капсулы тел", lines[3]);
         Assert.EndsWith("F7 — капсулы тел", Hud.HelpLines(new Dictionary<string, string>())[3]);
@@ -130,7 +132,7 @@ public sealed class HudDrawTests : IDisposable
         Assert.Equal(t.Accent, Hud.RuntimeColour(busy with { OthersBusy = 0.05 }));    // JIT и GC были
         Assert.Equal(t.TextDim, Hud.RuntimeColour(new(0, 0, 0, 0.05, true)));
 
-        var hud = new Hud();
+        var hud = new Hud { ShowProfiler = true };   // строка среды — в секции F2 (точка Пв)
         var d = new UiDrawList(_fonts);
         var data = Data with { Frame = Data.Frame with { Runtime = busy } };
         for (int i = 0; i < 5; i++)
@@ -145,6 +147,105 @@ public sealed class HudDrawTests : IDisposable
             hud.Draw(d, 1600, 900, data with { Frame = data.Frame with { Runtime = busy with { Jit = i } } }, []);
         }
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    /// <summary>
+    /// F2 (точка Пв): секция профайлера — главные зоны кадра, строка среды, последняя аномалия; буквы имён зон (шрифт Num) и
+    /// строк секции (Body, Label) — в шрифте; секция внутри панели и окна; кадр HUD с ней не выделяет; без F2 панель — как в SWORD
+    /// (строки среды в ней нет).
+    /// </summary>
+    [Fact]
+    public void ProfilerSection_F2_ZonesAnomaly_Glyphs_InsidePanel_NoAllocations()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "sword-hud-tests", Guid.NewGuid().ToString("N")[..8]);
+        var p = new Sword.Engine.Diagnostics.CpuProfiler(64);
+        var anomalies = p.CaptureAnomalies(new Sword.Engine.Diagnostics.AnomalyOptions { Directory = dir, AbsoluteMs = 0.0001, MaxFiles = 1 });
+        try
+        {
+            p.SetEnabled(true);
+            string[] names = ["core.animation-tick@Animation", "invariant.animation.finite", "frame.fenceWait", "arena.build.skin",
+                "invariant.movement.rootOverlap", "core.kinematic-placement@PrePhysics", "render.scene.opaque", "frame.record", "stage.Animation"];
+            int[] zones = [.. names.Select(p.Zone)];
+            var digest = new Sword.Engine.Diagnostics.ProfileDigest(p);
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            void Frames(int n)
+            {
+                for (int f = 0; f < n; f++)
+                {
+                    p.BeginFrame((ulong)f);
+                    foreach (int z in zones)
+                    {
+                        p.Begin(z);
+                        long until = System.Diagnostics.Stopwatch.GetTimestamp() + System.Diagnostics.Stopwatch.Frequency / 100_000;
+                        while (System.Diagnostics.Stopwatch.GetTimestamp() < until) { }
+                        p.End(z);
+                    }
+                    p.EndFrame(1, false);
+                }
+            }
+            Frames(40);
+            digest.Update(now);
+            Frames(40);
+            digest.Update(now + System.Diagnostics.Stopwatch.Frequency);
+            Assert.True(digest.Ready);
+            Assert.True(anomalies.TryGetLast(out var last));
+
+            // Буквы: имена зон — шрифт Num, строки секции — Body, заголовок — Label.
+            Span<char> buf = stackalloc char[96];
+            foreach (string name in names.Append(Hud.FrameSelfName))
+                foreach (var g in _fonts.Shape(UiFace.Num, name).ToArray())
+                    Assert.True(g.GlyphId != 0, $"нет glyph'а для «{name[(int)g.Cluster]}» в «{name}» (Num)");
+            foreach (string text in (string[])[Hud.AnomalyText(new Line(buf), last).ToString(), "профайлер: собираю кадры…", "профайлер включается…",
+                "аномалий нет", "аномалии не ловятся", "профайлера нет", "аномалия: тик 383 в кадре 1234 · 8.61 мс · ожидание GPU", "машина", "код"])
+                foreach (var g in _fonts.Shape(UiFace.Body, text).ToArray())
+                    Assert.True(g.GlyphId != 0, $"нет glyph'а для «{text[(int)g.Cluster]}» в «{text}» (Body)");
+            foreach (var g in _fonts.Shape(UiFace.Label, "ПРОФАЙЛЕР, мс").ToArray()) Assert.True(g.GlyphId != 0);
+            Assert.StartsWith("аномалия: кадр ", Hud.AnomalyText(new Line(buf), last).ToString());
+
+            var data = Data with { Profile = digest };
+            var hud = new Hud { ShowHelp = false };
+            var d = new UiDrawList(_fonts);
+            hud.Draw(d, 1600, 900, data, []);
+            int without = d.Count;
+            float bottomWithout = d.Quads[0].Centre.Y + d.Quads[0].HalfSize.Y;
+            hud.ShowProfiler = true;
+            d.Clear();
+            hud.Draw(d, 1600, 900, data, []);
+            Assert.True(d.Count > without + 100, $"квадов с F2 {d.Count}, без — {without}");
+            var quads = d.Quads;
+            float bottom = quads[0].Centre.Y + quads[0].HalfSize.Y;
+            Assert.True(bottom > bottomWithout);
+            foreach (ref readonly var q in quads[1..])
+            {
+                Assert.True(q.Centre.Y + q.HalfSize.Y <= bottom + 1, "содержимое F2 — внутри панели");
+                Assert.InRange(q.Centre.X + q.HalfSize.X, 0, quads[0].Centre.X + quads[0].HalfSize.X + 1);
+            }
+            Assert.True(bottom < 900, "панель с F2 — в окне");
+
+            for (int i = 0; i < 5; i++)
+            {
+                d.Clear();
+                hud.Draw(d, 1600, 900, data, []);
+            }
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 50; i++)
+            {
+                d.Clear();
+                hud.Draw(d, 1600, 900, data with { Frame = data.Frame with { Fps = 100 + i } }, []);
+            }
+            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+        finally
+        {
+            anomalies.Dispose();
+            try
+            {
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            }
+            catch (IOException)
+            {
+            }
+        }
     }
 
     [Fact]

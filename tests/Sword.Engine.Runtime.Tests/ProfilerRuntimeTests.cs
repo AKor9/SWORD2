@@ -13,6 +13,7 @@ namespace Sword.Engine.Runtime.Tests;
 /// Тесты одного класса идут последовательно, но классы — параллельно: сборки и JIT других потоков процесса возможны в любом
 /// кадре, поэтому проверяется «у своего кадра есть», а «у чужого нет» — только для счётчиков текущего потока (JIT потока).
 /// </summary>
+[Collection(RuntimeEventsCollection.Name)]
 public class ProfilerRuntimeTests
 {
     private static void Spin(double ms)
@@ -395,7 +396,7 @@ public class ProfilerRuntimeTests
     private static MachineSample Sample(double seconds, long idle, long kernel, long user, long process, double cpuSeconds = 0,
         int gc = 0, long jit = 0, double mhz = 4800, int limit = 4201) =>
         new((long)(seconds * Stopwatch.Frequency), idle, kernel, user, process,
-            new ProfileCounters((long)(cpuSeconds * ThreadClock.CyclesPerSecond), gc, 0, 0, gc * 10_000L, 0, 0, jit, 0, jit * 1000),
+            new ProfileCounters((long)(cpuSeconds * ThreadClock.CyclesPerSecond), gc, 0, 0, gc * 10_000L, 0, jit, jit, jit * 1000, jit * 1000),
             0, mhz, 4201, 4201, limit);
 
     [Fact]
@@ -430,7 +431,7 @@ public class ProfilerRuntimeTests
         // JIT и GC во время замера — среда; машина спокойна.
         var runtime = MachineReport.Between(start, Sample(1, 9_000, 10_000, 0, 800, cpuSeconds: 0.99, gc: 2, jit: 3), computeBound: true);
         Assert.Equal(MachineVerdict.Runtime, runtime.Verdict);
-        Assert.Contains("JIT во время замера: 3 метода", runtime.Text);
+        Assert.Contains("JIT во время замера на главном потоке: 3 метода", runtime.Text);   // JIT главного потока (фоновый — не вердикт, Пв)
         Assert.Contains("GC во время замера: сборок 2", runtime.Text);
         // Сумма окон: доли — по сумме времён.
         var sum = MachineReport.Combine([quiet, busy])!;

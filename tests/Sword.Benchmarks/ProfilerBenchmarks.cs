@@ -61,14 +61,17 @@ public class ProfilerZone
 /// Цена счётчиков точки Пб: опрос счётчиков среды без тактов потока и с ними (<see cref="ProfileCounters.Read"/>: сборки,
 /// пауза, выделения процесса, JIT; такты — <c>QueryThreadCycleTime</c>), период профайлера (кадр без зон) выключенного и
 /// включённого — два опроса на период, снимок машины на границе замера без пробы частоты и с ней, кадр строки HUD
-/// (<see cref="RuntimeMeter.Frame"/> — сравнение времени, опрос раз в секунду). Цель — 0 байт у всех.
+/// (<see cref="RuntimeMeter.Frame"/> — сравнение времени, опрос раз в секунду). Точка Пв: период с захватом аномалий (суд по
+/// порогу — окно медианы) и период-аномалия (разбор причин, главная зона, запись в список; файл не пишется — лимит 0, так
+/// меряется цена главного потока без писателя). Цель — 0 байт у всех.
 /// </summary>
 [MemoryDiagnoser]
 public class ProfilerCounters
 {
-    private CpuProfiler _off = null!, _on = null!;
+    private CpuProfiler _off = null!, _on = null!, _capture = null!, _anomaly = null!;
     private readonly RuntimeMeter _meter = new();
     private long _sink;
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "sword-bench-anomalies");
 
     [GlobalSetup]
     public void Setup()
@@ -76,7 +79,56 @@ public class ProfilerCounters
         _off = new CpuProfiler();
         _on = new CpuProfiler();
         _on.SetEnabled(true);
+        _capture = new CpuProfiler();
+        _capture.CaptureAnomalies(new AnomalyOptions { Directory = _dir });
+        _capture.SetEnabled(true);
+        _anomaly = new CpuProfiler();
+        _anomaly.CaptureAnomalies(new AnomalyOptions { Directory = _dir, AbsoluteMs = 0.00001, MaxFiles = 0 });
+        _anomaly.SetEnabled(true);
+        for (int i = 0; i < 64; i++)
+        {
+            PeriodCapture();
+            PeriodAnomaly();
+        }
         _meter.Frame(System.Diagnostics.Stopwatch.GetTimestamp());
+    }
+
+    [GlobalCleanup]
+    public void Cleanup()
+    {
+        _capture.StopAnomalies();
+        _anomaly.StopAnomalies();
+    }
+
+    [Benchmark]
+    public void PeriodCapture()
+    {
+        _capture.BeginFrame(1);
+        _capture.EndFrame(1, service: false);
+    }
+
+    /// <summary>Период-аномалия: кадр — не короче 3 отсчётов часов (порог — 1 отсчёт); цена захвата — разность с <see cref="PeriodSpin"/>.</summary>
+    [Benchmark]
+    public void PeriodAnomaly()
+    {
+        _anomaly.BeginFrame(1);
+        Spin();
+        _anomaly.EndFrame(1, service: false);
+    }
+
+    /// <summary>Тот же кадр у включённого профайлера без захвата.</summary>
+    [Benchmark]
+    public void PeriodSpin()
+    {
+        _on.BeginFrame(1);
+        Spin();
+        _on.EndFrame(1, service: false);
+    }
+
+    private static void Spin()
+    {
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        while (System.Diagnostics.Stopwatch.GetTimestamp() - t0 < 3) { }
     }
 
     [Benchmark]

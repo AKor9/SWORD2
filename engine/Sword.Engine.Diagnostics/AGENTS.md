@@ -2,8 +2,9 @@
 
 Основа диагностики (раздел 3 ARCHITECTURE_PLAN.md: «Log, профайлер CPU, счётчики, ручки (Tuning), каналы трасс»),
 Neutral, зависит только от Core. Сейчас: журнал (`Log`, `LogRing` — `log.tail`), профайлер CPU (`CpuProfiler`, этап П,
-точка Па) и счётчики среды и машины (точка Пб: `ProfileCounters`, `MachineSample`/`MachineReport`, `RuntimeMeter`,
-`RuntimeEvents`). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
+точка Па), счётчики среды и машины (точка Пб: `ProfileCounters`, `MachineSample`/`MachineReport`, `RuntimeMeter`,
+`RuntimeEvents`), захват аномалий, Chrome Trace и сводка HUD (точка Пв: `ProfileAnomalies`, `AnomalyReport`, `ChromeTrace`,
+`ProfileDigest`). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
 
 - `Log` не без выделений (строки, запись): из горячего пути (тик, кадр) в него не писать — только события и ошибки.
 - Профайлер CPU — `CpuProfiler`: однопоточный, у владельца потока (главный поток App — `ClientHost.Profiler`; Headless —
@@ -51,12 +52,46 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
     массив, читает поток слушателя). Выделения слушателя — на его потоке; главный поток не выделяет (тест). Места событий —
     по времени: часы сеанса EventPipe калибруются метками (свои динамические методы, фоновый поток); отчёт перед записью ждёт
     хвост (`FlushEvents`, `Write` — сам). Имена зон слушатель читает под замком (`SharedName`), не из горячего пути.
+  - вердикт (изменено на Пв): «среда» — только JIT **на потоке замера** (`ProfileCounters.JitMethods`) и GC; фоновый JIT — причина
+    `BackgroundReasons` без смены вердикта; предел ОС — против собственной базы процессора (`Machine.Summarize`,
+    `MachineSample.LimitBaseMhz`), не наибольшей базы (гибридные CPU).
+- Захват аномалий (точка Пв) — `CpuProfiler.CaptureAnomalies(AnomalyOptions)` → `ProfileAnomalies`:
+  - суд — только у включённого профайлера, в невстраиваемых `CloseFrame`/`CloseTick` (`FrameAnomaly`/`TickAnomaly`, файл
+    `CpuProfilerAnomalies.cs`): окно медианы (`Detector`, 128 периодов, пересчёт каждые 32 — сортировка копии в заранее
+    выделенном массиве), порог — `медиана + max(MinExcess, 0,75·медиана)` (кадр 2 мс, тик 1 мс) или абсолютный; служебные кадры
+    и первые 32 периода не судятся; аномальный тик кадра App ждёт кадра (`PendingTick`) — один файл кадра;
+  - на аномалии главный поток **не выделяет**: разбор причин (`Classify`: JIT главного потока, пауза GC, ожидание GPU по
+    `ProfileZoneKind`, вне CPU, остаток — код; главная зона — по своему лишнему времени), запись в список (кольцо 256 под
+    замком), ведро жетонов и копия в свободное место (`AnomalySlot`, 3 места; массивы — при настройке и росте зон). Код
+    захвата — `AggressiveOptimization` и `PrepareMethod` при настройке (`WarmCapture`), и всё, что он зовёт только на аномалии
+    (методы списка и ведра, окно медианы, свойства записей и настроек): первая аномалия не платит JIT — тест на свежей копии
+    сборки (`FirstAnomaly_NoJitOnMainThread_FreshAssembly`). Новое в пути аномалии — добавить в `WarmCapture`. Новое в копии или
+    разборе — только в заранее выделенное (тест `Capture_ZeroBytesOnMainThread_EvenInAnomalyFrames`);
+  - файл (`AnomalyReport`), трассу (`ChromeTrace`) и строку журнала `profile` пишет **поток писателя** (`sword.profile.anomalies`)
+    — только из места копирования (запись аномалии — `AnomalySlot.Record`, не кольцо списка: его писатель мог отстать);
+    прогревается при включении профайлера (`RequestWarm` — пробный файл в пустой поток);
+    `FlushAnomalies` — дождаться (перед отчётом и выходом; `Write` ждёт сам), `StopAnomalies` — закрыть;
+  - виды зон — `Zone(имя, ProfileZoneKind)`: ожидание GPU (`frame.fenceWait`, `frame.present` — рендер), простой
+    (`frame.wait` — клиент); Diagnostics имён чужих зон не знает;
+  - период, прерванный ожиданием вне кода (останов агента посреди тика), — `Interrupt()`: закроется служебным (в кольце, не в
+    итогах, не судится); зовёт тот, кто ждёт (`SimulationLoop.Break`).
+- Chrome Trace (точка Пв) — `ChromeTrace`: кольцо (`CpuProfiler.WriteTrace`: «X» кадров и тиков с настоящим началом —
+  `Series.RingStart`, зоны — подряд из итогов периода), лента зон (пары «B»/«E» — `ProfileTimeline.Read`, диагностический режим) и
+  события среды (pid 3). Вложенность «X» должна оставаться верной (дочерние обрезаются по родителю) — тест.
+- Сводка F2 (точка Пв) — `ProfileDigest`: главные зоны кадра по своему времени, пересчёт раз в 0,25 с из итогов
+  (`FrameTotals`), 0 байт; в кадре без конца окна — сравнение времени.
 
 Проверка: `tests/Sword.Engine.Runtime.Tests/ProfilerTests` (вложенность, дочерние не дольше родителя, периоды и кольцо,
 включение на границе, несогласованный конец, 0 байт, тик симуляции — те же хеши, исключение в системе),
 `ProfilerRuntimeTests` (точка Пб: выключенный не опрашивает, 0 байт с лентой и слушателем, сон и счётный цикл, сборка и JIT
 своего кадра, события в своём кадре и зоне, хеши с событиями, вердикт, строка HUD),
+`ProfilerAnomalyTests` и `MachineVerdictRefinementTests` (точка Пв: медленный кадр или тик — один файл, зона наверху, класс;
+тик в кадре; ровный прогон — ни одного; JIT — класс JIT и событие; лимит и частота; отставший писатель — своя запись; первая
+аномалия — 0 методов JIT на главном потоке; 0 байт в кадре аномалии; хеши; Chrome Trace
+— JSON и вложенность; сводка F2; фоновый JIT и гибридный CPU в вердикте; тесты со слушателем событий — одной коллекцией:
+слушатели процесса делят сеанс EventPipe),
 `tests/Sword.Engine.Introspection.Tests/MachineVerdictTests` (перебор и бюджет — «JIT во время замера»),
 `tests/Sword.Game.Tests/ArenaTests` (толпа 32 врагов с профайлером — 0 Б/тик, те же хеши, зоны всех систем и
 инвариантов), `tests/Sword.Engine.Agent.Tests/ProfileToolsTests` (`profile.stages`), `tests/Sword.Benchmarks`
-(`ProfilerZone`, `artifacts/bench/profiler.json`), `verify.ps1` (`headless-smoke`, `app-smoke`, `agent-smoke`, `-Bench`).
+(`ProfilerZone`, `ProfilerCounters` — с Пв и период с захватом, период-аномалия; `artifacts/bench/profiler.json`), `verify.ps1`
+(`headless-smoke`, `app-smoke`, `agent-smoke`, `-Bench`).

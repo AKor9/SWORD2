@@ -159,16 +159,17 @@ public readonly record struct ProfileCounters(long ThreadCycles, int Gen0, int G
 /// ядро с простоем, пользователь — сумма по всем логическим процессорам, 100 нс) и процесса (<c>GetProcessTimes</c>),
 /// счётчики среды (<see cref="ProfileCounters"/>), байты текущего потока, частота CPU. Снимать на потоке, который меряется
 /// (такты — текущего потока). Без выделений; ~3 мкс без пробы частоты, ~50 мкс с ней — только на границах замера, не каждый
-/// кадр.
+/// кадр. Частота по данным ОС — <see cref="Machine.Power"/>: <see cref="LimitMhz"/> — предел самого ограниченного логического
+/// процессора, <see cref="LimitBaseMhz"/> — его собственная базовая частота (у гибридных CPU базы P- и E-ядер разные).
 /// </summary>
 public readonly record struct MachineSample(long Time, long SystemIdle, long SystemKernel, long SystemUser, long ProcessTime,
-    ProfileCounters Runtime, long ThreadBytes, double ProbeMhz, int BaseMhz, int CurrentMhz, int LimitMhz)
+    ProfileCounters Runtime, long ThreadBytes, double ProbeMhz, int BaseMhz, int CurrentMhz, int LimitMhz, int LimitBaseMhz = 0)
 {
     /// <summary>Снять сейчас; <paramref name="probe"/> — ещё проба частоты ядра (<see cref="Machine.ProbeMhz"/>, ~50 мкс).</summary>
     public static MachineSample Take(bool probe = true)
     {
         double mhz = probe ? Machine.ProbeMhz() : 0;
-        var (baseMhz, current, limit) = Machine.Power();
+        var power = Machine.Power();
         long idle = 0, kernel = 0, user = 0, process = 0;
         if (OperatingSystem.IsWindows())
         {
@@ -178,9 +179,18 @@ public readonly record struct MachineSample(long Time, long SystemIdle, long Sys
         }
         var runtime = ProfileCounters.Read();
         return new MachineSample(Stopwatch.GetTimestamp(), idle, kernel, user, process, runtime, GC.GetAllocatedBytesForCurrentThread(),
-            mhz, baseMhz, current, limit);
+            mhz, power.Base, power.Current, power.Limit, power.LimitBase);
     }
 }
+
+/// <summary>Частоты логического процессора по данным ОС, МГц (<c>PROCESSOR_POWER_INFORMATION</c>): база, «текущая», предел.</summary>
+public readonly record struct ProcessorPower(uint MaxMhz, uint CurrentMhz, uint MhzLimit);
+
+/// <summary>
+/// Сводка частот по данным ОС, МГц (<see cref="Machine.Summarize"/>): наибольшая база, средняя «текущая», предел самого
+/// ограниченного процессора и его собственная база.
+/// </summary>
+public readonly record struct PowerSummary(int Base, int Current, int Limit, int LimitBase);
 
 /// <summary>Вердикт замера: время — за код, за среду .NET (JIT, GC во время замера) или за машину (загрузка, частота).</summary>
 public enum MachineVerdict
@@ -198,8 +208,10 @@ public enum MachineVerdict
 /// Критерии (константы ниже): машина занята — другие процессы заняли не меньше <see cref="OthersBusyLimit"/> всех логических
 /// процессоров, или счётный поток (тики, замер бюджета) был на CPU меньше <see cref="OnCpuLimit"/> своего настенного времени
 /// (его снимали с процессора), или частота ядра ниже <see cref="FrequencyLimit"/> базовой (энергосбережение, перегрев), или
-/// ОС ограничила частоту; среда — JIT или GC во время замера (любой: метод, скомпилированный посреди замера, — пауза или
-/// смена кода на ходу). Иначе — код: время замера принадлежит коду. Причины машины важнее причин среды.
+/// ОС ограничила частоту какого-либо процессора ниже его собственной базовой; среда — JIT на потоке замера (главном) или GC во
+/// время замера: пауза самого замеряемого потока. Фоновый JIT (tier1 на фоновом потоке — смена кода на ходу, а не пауза) —
+/// причина в <see cref="Reasons"/>, вердикт не меняет (точка Пв: иначе почти любой замер свежего процесса был бы «средой»).
+/// Иначе — код: время замера принадлежит коду. Причины машины важнее причин среды.
 ///
 /// Точность: загрузка системы и процесса — по счётчикам ОС с шагом тика таймера (~15,6 мс на процессор): окно короче ~0,5 с —
 /// грубо (см. <see cref="Note"/>); время потока — такты TSC, точно; частота — проба цепочкой умножений (оценка: задержка
@@ -243,6 +255,12 @@ public sealed class MachineReport
     public int CurrentMhz { get; init; }
     public int LimitMhz { get; init; }
 
+    /// <summary>Базовая частота процессора с пределом <see cref="LimitMhz"/> (гибридные CPU: у P- и E-ядер базы разные); 0 — не знаем.</summary>
+    public int LimitBaseMhz { get; init; }
+
+    /// <summary>База для сравнения с пределом ОС: своя база ограниченного процессора, без неё — общая.</summary>
+    private int LimitReference => LimitBaseMhz > 0 ? LimitBaseMhz : BaseMhz;
+
     /// <summary>Счётный поток: доля времени на CPU проверяется (тики Headless, бюджеты, перебор); кадр App ждёт GPU — нет.</summary>
     public bool ComputeBound { get; init; }
 
@@ -281,6 +299,7 @@ public sealed class MachineReport
             BaseMhz = b.BaseMhz,
             CurrentMhz = b.CurrentMhz,
             LimitMhz = b.LimitMhz,
+            LimitBaseMhz = b.LimitBaseMhz,
             ComputeBound = computeBound,
             ComputeOnCpu = computeOnCpu,
         };
@@ -313,13 +332,20 @@ public sealed class MachineReport
                 ProbeMhz = Min(sum.ProbeMhz, r.ProbeMhz),
                 BaseMhz = Math.Max(sum.BaseMhz, r.BaseMhz),
                 CurrentMhz = r.CurrentMhz,
-                LimitMhz = sum.LimitMhz > 0 && r.LimitMhz > 0 ? Math.Min(sum.LimitMhz, r.LimitMhz) : Math.Max(sum.LimitMhz, r.LimitMhz),
+                // Предел — окна с наименьшей долей предела от своей базы (самое сильное ограничение).
+                LimitMhz = MoreLimited(sum, r) ? sum.LimitMhz : r.LimitMhz,
+                LimitBaseMhz = MoreLimited(sum, r) ? sum.LimitBaseMhz : r.LimitBaseMhz,
                 ComputeBound = sum.ComputeBound && r.ComputeBound,
                 Windows = sum.Windows + r.Windows,
             };
         }
         return sum;
     }
+
+    /// <summary>Предел ОС у <paramref name="a"/> не слабее (доля своей базы не больше), чем у <paramref name="b"/>; нет предела у b — a.</summary>
+    private static bool MoreLimited(MachineReport a, MachineReport b) =>
+        b.LimitMhz <= 0 || b.LimitReference <= 0
+        || (a.LimitMhz > 0 && a.LimitReference > 0 && a.LimitMhz / (double)a.LimitReference <= b.LimitMhz / (double)b.LimitReference);
 
     /// <summary>Меньшая из двух частот; нет одной — другая.</summary>
     private static double Min(double x, double y) => x > 0 && y > 0 ? Math.Min(x, y) : Math.Max(x, y);
@@ -343,21 +369,27 @@ public sealed class MachineReport
             }
             if (ProbeMhz > 0 && BaseMhz > 0 && ProbeMhz < FrequencyLimit * BaseMhz)
                 list.Add($"частота CPU {ProbeMhz:0} МГц — ниже базовой {BaseMhz} МГц (энергосбережение или перегрев)");
-            if (LimitMhz > 0 && BaseMhz > 0 && LimitMhz < BaseMhz)
-                list.Add($"ОС ограничила частоту CPU: {LimitMhz} из {BaseMhz} МГц");
+            // Предел — против собственной базы процессора: у гибридного CPU база E-ядер ниже базы P-ядер, и сравнение наименьшего
+            // предела с наибольшей базой называло бы ограничением обычную работу E-ядер (точка Пв, доводка Пб).
+            if (LimitMhz > 0 && LimitReference > 0 && LimitMhz < LimitReference)
+                list.Add($"ОС ограничила частоту CPU: {LimitMhz} из {LimitReference} МГц");
             return list;
         }
     }
 
-    /// <summary>Причины среды: JIT и GC во время замера.</summary>
+    /// <summary>
+    /// Причины среды, которые меняют вердикт: JIT на потоке замера (главном: компиляция посреди замера — его пауза) и GC во время
+    /// замера (сборка останавливает и его).
+    /// </summary>
     public IReadOnlyList<string> RuntimeReasons
     {
         get
         {
             var list = new List<string>();
             var r = Runtime;
-            if (r.JitProcess > 0)
-                list.Add($"JIT во время замера: {r.JitProcess} {Methods(r.JitProcess)} (на главном потоке — {r.JitMethods}), {F(r.JitProcessMs, 2)} мс");
+            if (r.JitMethods > 0)
+                list.Add($"JIT во время замера на главном потоке: {r.JitMethods} {Methods(r.JitMethods)}, {F(r.JitMs, 2)} мс " +
+                    $"(процесса — {r.JitProcess}, {F(r.JitProcessMs, 2)} мс)");
             if (r.Collections > 0)
             {
                 var (g0, g1, g2) = r.Exclusive;
@@ -367,10 +399,25 @@ public sealed class MachineReport
         }
     }
 
+    /// <summary>
+    /// Фоновый JIT во время замера (методы процесса не на главном потоке: фоновая компиляция tier1, чужие потоки) — причина для
+    /// сведения, вердикт не меняет: поток замера не стоит, меняется лишь код на ходу (точка Пв, доводка Пб).
+    /// </summary>
+    public IReadOnlyList<string> BackgroundReasons
+    {
+        get
+        {
+            var r = Runtime;
+            long methods = r.JitProcess - r.JitMethods;
+            if (methods <= 0) return [];
+            return [$"фоновый JIT во время замера: {methods} {Methods(methods)}, {F(Math.Max(0, r.JitProcessMs - r.JitMs), 2)} мс (не главный поток — вердикт не меняет)"];
+        }
+    }
+
     public MachineVerdict Verdict => MachineReasons.Count > 0 ? MachineVerdict.Machine : RuntimeReasons.Count > 0 ? MachineVerdict.Runtime : MachineVerdict.Code;
 
-    /// <summary>Все причины: машины, затем среды.</summary>
-    public IReadOnlyList<string> Reasons => [.. MachineReasons, .. RuntimeReasons];
+    /// <summary>Все причины: машины, среды (меняют вердикт), затем фонового JIT (не меняет).</summary>
+    public IReadOnlyList<string> Reasons => [.. MachineReasons, .. RuntimeReasons, .. BackgroundReasons];
 
     /// <summary>Вердикт словами: «машина: …», «среда: …» или «код: машина спокойна (…)».</summary>
     public string Text
@@ -379,11 +426,12 @@ public sealed class MachineReport
         {
             string quiet = $"другие процессы {Pct(OthersBusyShare)} %" + (OnCpuForVerdict is { } on ? $", {(ComputeOnCpu is null ? "поток" : "тики")} на CPU {Pct(on)} %" : "") +
                 (ProbeMhz > 0 ? $", {ProbeMhz:0} МГц" : "");
+            var background = BackgroundReasons;
             return Verdict switch
             {
                 MachineVerdict.Machine => "машина: " + string.Join("; ", Reasons),
                 MachineVerdict.Runtime => "среда: " + string.Join("; ", Reasons) + $" (машина спокойна: {quiet})",
-                _ => $"код: машина спокойна ({quiet}), JIT и GC нет",
+                _ => $"код: машина спокойна ({quiet}), JIT на главном потоке и GC нет" + (background.Count > 0 ? "; " + background[0] : ""),
             };
         }
     }
@@ -424,7 +472,7 @@ public sealed class MachineReport
         json["mhz"] = new JsonObject
         {
             ["probe"] = Math.Round(ProbeMhz), ["probeStart"] = Math.Round(ProbeMhzStart), ["probeEnd"] = Math.Round(ProbeMhzEnd),
-            ["base"] = BaseMhz, ["os"] = CurrentMhz, ["limit"] = LimitMhz,
+            ["base"] = BaseMhz, ["os"] = CurrentMhz, ["limit"] = LimitMhz, ["limitBase"] = LimitReference,
         };
         json["gc"] = new JsonObject { ["collections"] = r.Collections, ["gen0"] = g0, ["gen1"] = g1, ["gen2"] = g2, ["pauseMs"] = Math.Round(r.PauseMs, 3) };
         json["jit"] = new JsonObject
@@ -527,11 +575,8 @@ public static class Machine
         return x;
     }
 
-    /// <summary>
-    /// Частота по данным ОС, МГц: базовая (наибольшая <c>MaxMhz</c>), «текущая» (средняя <c>CurrentMhz</c>) и предел
-    /// (наименьший <c>MhzLimit</c>) по логическим процессорам; нули — нет данных.
-    /// </summary>
-    public static unsafe (int Base, int Current, int Limit) Power()
+    /// <summary>Частота по данным ОС — сводка по всем логическим процессорам (<see cref="Summarize"/>); нули — нет данных.</summary>
+    public static unsafe PowerSummary Power()
     {
         if (!OperatingSystem.IsWindows()) return default;
         const int max = 256;   // буфер — на стеке; процессоров больше — данных нет
@@ -540,18 +585,40 @@ public static class Machine
         int status = MachineNative.CallNtPowerInformation(MachineNative.ProcessorInformation, null, 0, buffer,
             (uint)(sizeof(MachineNative.ProcessorPowerInformation) * max));
         if (status != 0) return default;
-        int top = 0, limit = int.MaxValue, n = 0;
-        long current = 0;
+        var processors = stackalloc ProcessorPower[max];
+        int n = 0;
         for (int i = 0; i < max; i++)
+            if (buffer[i].MaxMhz != 0) processors[n++] = new ProcessorPower(buffer[i].MaxMhz, buffer[i].CurrentMhz, buffer[i].MhzLimit);
+        return Summarize(new ReadOnlySpan<ProcessorPower>(processors, n));
+    }
+
+    /// <summary>
+    /// Сводка частот процессоров, МГц: базовая (наибольшая <c>MaxMhz</c>), «текущая» (средняя <c>CurrentMhz</c>) и предел — у
+    /// процессора, чей предел меньше всего от его собственной базы (<see cref="PowerSummary.Limit"/> и
+    /// <see cref="PowerSummary.LimitBase"/>). Предел сравнивается с базой того же процессора: у гибридного CPU (P- и E-ядра) базы
+    /// разные, и наименьший предел против наибольшей базы называл бы ограничением обычную частоту E-ядер (доводка Пб на Пв).
+    /// Пусто — нули.
+    /// </summary>
+    public static PowerSummary Summarize(ReadOnlySpan<ProcessorPower> processors)
+    {
+        int top = 0, n = 0, limit = 0, limitBase = 0;
+        long current = 0;
+        double worst = double.MaxValue;
+        foreach (var p in processors)
         {
-            var p = buffer[i];
             if (p.MaxMhz == 0) continue;
             top = Math.Max(top, (int)p.MaxMhz);
-            limit = Math.Min(limit, (int)p.MhzLimit);
             current += p.CurrentMhz;
             n++;
+            double ratio = p.MhzLimit / (double)p.MaxMhz;
+            if (ratio < worst)
+            {
+                worst = ratio;
+                limit = (int)p.MhzLimit;
+                limitBase = (int)p.MaxMhz;
+            }
         }
-        return n == 0 ? default : (top, (int)(current / n), limit);
+        return n == 0 ? default : new PowerSummary(top, (int)(current / n), limit, limitBase);
     }
 
     /// <summary>Номер потока ОС текущего потока (события среды несут его в <c>OSThreadId</c>).</summary>

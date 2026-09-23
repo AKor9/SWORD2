@@ -2,13 +2,14 @@
   // Приёмка фичи «Диагностический профайлер» (этап П) — начата на точке Па (зоны CPU и выделения): толпа 32 врагов,
   // бюджет — медиана тика без профайлера (предел — как у бюджета crowd фичи bodies) и отдельный прогон с профайлером: время
   // систем (budgets[].systems в отчёте) и 0 Б на тик с ним. Пб (GC, JIT, машина): отчёт бюджета несёт budgets[].machine —
-  // вердикт «код или машина»; пределы не менялись. Дальше — Пв (аномалии, F2), Пг (GPU-время проходов), Пд (разбор открытых
+  // вердикт «код или машина»; пределы не менялись. Пв (аномалии, Chrome Trace, F2): манифест не менялся — захват аномалий меряют
+  // тесты и verify.ps1 (App и F2 — вне feature.verify). Дальше — Пг (GPU-время проходов), Пд (разбор открытых
   // вопросов). Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify
   // (Sword.Headless --feature profiler). Ослабить ожидания — только правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "profiler",
-  "title": "Диагностический профайлер (этап П; точки Па — зоны CPU и выделения, Пб — GC, JIT и машина)",
+  "title": "Диагностический профайлер (этап П; точки Па — зоны CPU и выделения, Пб — GC, JIT и машина, Пв — аномалии, Chrome Trace, F2)",
   "doc": "README.md",
   "sourceRoots": [
     "engine/Sword.Engine.Diagnostics",
@@ -16,6 +17,8 @@
     "engine/Sword.Engine.Client/ClientHost.cs",
     "engine/Sword.Engine.Client/FrameTools.cs",
     "game/Sword.Game.Client/Hud/Hud.cs",
+    "game/Sword.Game.Client/ArenaClient.cs",
+    "game/Sword.Game.Client/ArenaInput.cs",
     "engine/Sword.Engine.Render/RenderGraph.cs",
     "game/Sword.Game.Client/ArenaView.cs"
   ],
@@ -47,9 +50,13 @@
     "`Sword.exe --units 32 --bench 10` и `Sword.exe --units 32 --bench 10 --profile` — оба закрываются сами; в журнале `[bench] … кадр ср …` у них близко (профайлер в кадре — доли процента); у второго ещё строка `[profile]`, в его файле `frames.count` — около числа кадров замера.",
     "`Sword.exe` без `--profile` — FPS и плавность как до этапа П (выключенный профайлер не заметен).",
     "`Sword.Headless --ticks 600 --units 32 --profile` — строка `[profile] профайлер: …headless…\\profile.json`; в файле `ticks.count` — 480 (после прогрева 120 тиков), первая зона — `tick`.",
-    "`Sword.exe` — в HUD под «тиков сим.» строка `JIT n · GC n/Y мс · фон CPU X %`: в первую секунду — прочерки, потом числа за прошлую секунду; в первые секунды JIT больше нуля, дальше обычно 0; GC — 0. Запустите что-нибудь тяжёлое (сборку, игру) — «фон CPU» растёт, от 25 % строка красная.",
-    "`Sword.exe --units 32 --bench 10` — в журнале после `[bench] кадров …` строка `[bench] машина: …` — вердикт `код`, `среда` (JIT во время замера) или `машина` (загрузка других процессов, частота). Тот же бенч под нагрузкой (запущена тяжёлая программа) — вердикт `машина: машина занята: загрузка системы другими процессами N %`.",
+    "`Sword.exe`, F2 — внизу панели HUD секция «ПРОФАЙЛЕР, мс», в ней строка `JIT n · GC n/Y мс · фон CPU X %` (с Пв — здесь, а не под «тиков сим.»; в панели без F2 её нет — как в SWORD): в первые секунды JIT больше нуля, дальше обычно 0; GC — 0. Запустите что-нибудь тяжёлое (сборку, игру) — «фон CPU» растёт, от 25 % строка красная.",
+    "`Sword.exe --units 32 --bench 10` — в журнале после `[bench] кадров …` строка `[bench] вердикт: …` (без повтора «машина: машина:») — `код`, `среда` (JIT на главном потоке или GC во время замера; фоновый JIT — только причиной «фоновый JIT … вердикт не меняет») или `машина` (загрузка других процессов, частота). Тот же бенч под нагрузкой (запущена тяжёлая программа) — `вердикт: машина: машина занята: загрузка системы другими процессами N %`.",
     "`Sword.Headless --ticks 3600 --units 32 --move 1,0 --profile runtime` — в журнале итог с `; среда: JIT во время замера …` или `; код: машина спокойна …`; в `profile.json` — `machine` (вердикт), `ticks.runtime` (`onCpuPct` около 100), `events` (`calibrated` true, `late` 0, в `recent.jitMain` — компиляции OSR с тиком и зоной).",
-    "`Sword.exe --profile runtime` — игра как обычно (в первые секунды возможны подёргивания — диагностический режим удорожает JIT); после Esc в `profile.json` — `events.alloc.types` с типами и зонами (`frame.record`, `render.…`)."
+    "`Sword.exe --profile runtime` — игра как обычно (в первые секунды возможны подёргивания — диагностический режим удорожает JIT); после Esc в `profile.json` — `events.alloc.types` с типами и зонами (`frame.record`, `render.…`).",
+    "`Sword.exe` без ключей, F2 — секция «ПРОФАЙЛЕР, мс»: сначала «профайлер включается…», через четверть секунды — до 8 строк «зона — мс на кадр» с полосой (`frame.fenceWait`, `frame.present`, `arena.build.skin`, `frame (вне зон)`…), ниже строка среды и «аномалий нет» или «аномалия: кадр N · X мс · класс» с главной зоной. F2 ещё раз — секция скрыта. Справка (F1) — «F2 — профайлер». FPS с F2 — как без него (разница — доли процента).",
+    "`Sword.exe --profile --profile-threshold 1` — в журнале строки `[profile] аномалия: кадр N: X мс (медиана …, порог 1) — ожидание GPU (или код, JIT, GC, машина); главная зона …; файл …\\anomaly-frame-N.json` — сначала до пяти подряд, дальше не чаще раза в секунду («без файлов по частоте — ещё K»), всего файлов не больше 20; F2 показывает последнюю. Файл открывается: `class`, `causes`, `mainZone.path`, `zones` (первая — главная), `tree`, `recent`, `machine`. При Esc — строка `[profile] аномалий N …: ожидание GPU …; файлов K …`.",
+    "`Sword.Headless --ticks 3600 --units 32 --move 1,0 --profile` — одна-две строки `[profile] аномалия: тик …— JIT; главная зона core.root-collision@Movement …` и `… invariant.ecs.finite …` (компиляции OSR первых секунд — вопрос Пд), в конце `аномалий 2 …: JIT 2`. С `--profile runtime` — в их файлах `events.period.jit` называет метод (`RootCollision::Resolve`, `EcsInvariants+Finite::Evaluate`, уровень `osr`).",
+    "`Sword.exe --units 32 --bench 10 --profile-trace` — в журнале `[profile] трасса (Perfetto, chrome://tracing): …\\trace.json`; открыть на https://ui.perfetto.dev («Open trace file») — процесс «SWORD: кольцо профайлера», дорожки «кадры» и «тики»: у кадра — зоны вложенно (`frame.render` > `frame.fenceWait`…), колесо мыши — масштаб. Так же открывается любой `anomaly-…trace.json` (окно аномалии, аномальный период помечен `anomaly: true`); с `--profile runtime` в нём ещё «лента зон (точно)» и события JIT и GC."
   ]
 }

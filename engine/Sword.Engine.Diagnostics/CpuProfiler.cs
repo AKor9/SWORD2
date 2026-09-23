@@ -11,6 +11,17 @@ public enum ProfilePeriod
 }
 
 /// <summary>
+/// Вид зоны (точка Пв): обычная работа, ожидание GPU (забор кадра в полёте, показ) или простой (ограничитель кадров). По виду
+/// захват аномалий делит лишнее время периода на «код» и «ожидание GPU»; итогов и отчёта вид не меняет.
+/// </summary>
+public enum ProfileZoneKind : byte
+{
+    Work,
+    GpuWait,
+    Idle,
+}
+
+/// <summary>
 /// Заголовок периода в кольце профайлера: номер кадра или тика, тики кадра (первый и сколько), доля тика кадра, время и
 /// выделенные байты периода, служебный ли кадр; у тика — кадр, в котором он сыгран (<see cref="ulong.MaxValue"/> — вне кадра);
 /// счётчики среды за период (точка Пб: такты потока, сборки и пауза GC, выделения процесса, JIT). Время — в отсчётах
@@ -65,6 +76,7 @@ public sealed partial class CpuProfiler
     private readonly List<string> _names = [];
     private readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
     private int[] _parent = [];
+    private byte[] _kind = [];
     private int _capacity;
 
     private readonly int[] _stackZone = new int[MaxDepth];
@@ -136,8 +148,28 @@ public sealed partial class CpuProfiler
         return id;
     }
 
+    /// <summary>Номер зоны с видом (точка Пв: ожидание GPU, простой); вид задаётся при первой регистрации с ним.</summary>
+    public int Zone(string name, ProfileZoneKind kind)
+    {
+        int id = Zone(name);
+        if (!_off && kind != ProfileZoneKind.Work) _kind[id] = (byte)kind;
+        return id;
+    }
+
+    /// <summary>Вид зоны.</summary>
+    public ProfileZoneKind KindOf(int zone) => (uint)zone < (uint)_names.Count ? (ProfileZoneKind)_kind[zone] : ProfileZoneKind.Work;
+
     /// <summary>Номер зоны, если она заведена; иначе −1.</summary>
     public int Find(string name) => _ids.TryGetValue(name, out int id) ? id : -1;
+
+    /// <summary>
+    /// Родитель зоны — зона, под которой она открывалась: номер; −1 — корень (не открывалась ни под какой), −2 — не встречалась,
+    /// −3 — под разными.
+    /// </summary>
+    public int ParentOf(int zone) => (uint)zone < (uint)_names.Count ? _parent[zone] : Unseen;
+
+    /// <summary>Это общий выключенный <see cref="Off"/> (его не включить).</summary>
+    public bool IsOff => _off;
 
     /// <summary>
     /// Включить или выключить. Действует сразу, если ни кадр, ни тик не открыт; иначе — с начала следующего верхнего
@@ -160,6 +192,21 @@ public sealed partial class CpuProfiler
     /// </summary>
     private bool _inFrame, _inTick;
 
+    /// <summary>Открытый кадр или тик прерван ожиданием (<see cref="Interrupt"/>): закроется служебным.</summary>
+    private bool _interruptedFrame, _interruptedTick;
+
+    /// <summary>
+    /// Открытые кадр и тик прерваны ожиданием вне кода (останов агента посреди тика — <c>time.break</c>, точка Пв): закроются
+    /// служебными — в кольце, но не в итогах и не судятся захватом аномалий (иначе минуты ожидания агента были бы «аномалией»
+    /// и испортили бы средние и максимум). У <see cref="Off"/> и без открытого периода — ничего.
+    /// </summary>
+    public void Interrupt()
+    {
+        if (_off) return;
+        if (_inFrame) _interruptedFrame = true;
+        if (_inTick) _interruptedTick = true;
+    }
+
     private void Apply()
     {
         _pending = false;
@@ -171,6 +218,7 @@ public sealed partial class CpuProfiler
         if (_wanted && !_enabled) StartWindow();
         _enabled = _wanted;
         _timeline = _enabled ? _wantedTimeline : null;
+        if (_enabled) _anomalies?.RequestWarm();   // точка Пв: писатель аномалий компилирует свой код сейчас, а не посреди прогона
     }
 
     /// <summary>
@@ -184,6 +232,7 @@ public sealed partial class CpuProfiler
         Mismatches = Overflows = Abandoned = 0;
         if (_enabled) StartWindow();
         _events?.Reset();
+        _anomalies?.OnReset();   // список аномалий не забывается: новая эпоха (аномалии замера — после сброса)
     }
 
     // ── зоны ───────────────────────────────────────────────────────────────
@@ -307,6 +356,7 @@ public sealed partial class CpuProfiler
             DropFrame();
         }
         _depth = 0;
+        _interruptedFrame = false;
         if (_pending) Apply();
         if (!_enabled) return;
         _frames.Open(number);
@@ -314,6 +364,7 @@ public sealed partial class CpuProfiler
         _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, 0, ProfileTimeline.Kind.FrameOpen, (long)number);
         _frames.Start = ReadCounters();
         Push(FrameZone);
+        _frames.StartTs = _stackTime[0];
     }
 
     /// <summary>Конец кадра: доля тика кадра и служебный ли он (служебные в средние и перцентили не входят).</summary>
@@ -336,8 +387,11 @@ public sealed partial class CpuProfiler
         }
         if (_depth != _frameAt + 1) Unbalanced(FrameZone);
         Pop(FrameZone);
+        service |= _interruptedFrame;
+        _interruptedFrame = false;
         var counters = ReadCounters().Since(_frames.Start);
         _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
+        if (_anomalies is not null) FrameAnomaly(alpha, service, counters);   // точка Пв: аномалия кадра или его тика
         _frames.Record(alpha, service, ulong.MaxValue, counters);
         _frameAt = -1;
     }
@@ -360,6 +414,7 @@ public sealed partial class CpuProfiler
         }
         _frameAt = -1;
         _frames.Clear();
+        _anomalies?.DropPending();   // аномальный тик брошенного кадра — без кадра не пишется
     }
 
     /// <summary>
@@ -384,6 +439,7 @@ public sealed partial class CpuProfiler
         }
         // Без кадров тик — верхний период: здесь вступает в силу включение (если снаружи нет открытых зон).
         if (!_inFrame && _depth == 0 && _pending) Apply();
+        _interruptedTick = false;
         if (!_enabled) return;
         if (_frameAt >= 0) _frames.NoteTick(tick);
         _ticks.Open(tick);
@@ -391,6 +447,7 @@ public sealed partial class CpuProfiler
         _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickOpen, (long)tick);
         _ticks.Start = ReadCounters();
         Push(TickZone);
+        _ticks.StartTs = _stackTime[_tickAt];
     }
 
     /// <summary>Конец тика.</summary>
@@ -408,9 +465,13 @@ public sealed partial class CpuProfiler
         if (_tickAt < 0) return;
         if (_depth != _tickAt + 1) Unbalanced(TickZone);
         Pop(TickZone);
+        bool interrupted = _interruptedTick;
+        _interruptedTick = false;
         var counters = ReadCounters().Since(_ticks.Start);
         _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
-        _ticks.Record(1, service: false, _frameAt >= 0 ? _frames.Number : ulong.MaxValue, counters);
+        // Точка Пв: аномалия тика (в кадре App — пишется с кадром); тик, прерванный ожиданием агента, — служебный, не судится.
+        if (_anomalies is not null && !interrupted) TickAnomaly(counters);
+        _ticks.Record(1, service: interrupted, _frameAt >= 0 ? _frames.Number : ulong.MaxValue, counters);
         _tickAt = -1;
     }
 
@@ -504,6 +565,9 @@ public sealed partial class CpuProfiler
         return result;
     }
 
+    /// <summary>Суммы времени зон по кадрам с последнего сброса (без служебных) и число кадров — для сводки HUD (<see cref="ProfileDigest"/>).</summary>
+    internal (long[] Total, int Count) FrameTotals() => (_frames.TotalTime, _frames.Count);
+
     /// <summary>Отсчёты <see cref="Stopwatch"/> в миллисекунды.</summary>
     public static double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
 
@@ -512,8 +576,10 @@ public sealed partial class CpuProfiler
     private void Grow(int capacity)
     {
         Array.Resize(ref _parent, capacity);
+        Array.Resize(ref _kind, capacity);
         _frames.Grow(capacity);
         _ticks.Grow(capacity);
+        GrowAnomalies(capacity);
         _capacity = capacity;
     }
 
@@ -539,14 +605,24 @@ public sealed partial class CpuProfiler
         public long[]? RingTime, RingBytes;
         public int[]? RingCalls;
 
+        /// <summary>Начало периода в кольце — отметка <see cref="Stopwatch"/> (точка Пв: Chrome Trace, окно аномалии).</summary>
+        public long[]? RingStart;
+
         public ulong Number, FirstTick;
         public int Ticks;
+
+        /// <summary>Начало открытого периода — отметка <see cref="Stopwatch"/> открытия его зоны.</summary>
+        public long StartTs;
+
+        /// <summary>Место периода <paramref name="back"/> назад в кольце (0 — последний записанный).</summary>
+        public int Slot(int back) => (Next - 1 - back + Capacity) % Capacity;
 
         public void Allocate(int capacity, int stride)
         {
             Capacity = capacity;
             Stride = stride;
             Headers = new ProfileHeader[capacity];
+            RingStart = new long[capacity];
             RingTime = new long[capacity * stride];
             RingBytes = new long[capacity * stride];
             RingCalls = new int[capacity * stride];
@@ -618,6 +694,7 @@ public sealed partial class CpuProfiler
             {
                 int slot = Next;
                 Headers[slot] = new ProfileHeader(Number, FirstTick, Ticks, alpha, Time[root], Bytes[root], service, frame, counters);
+                RingStart![slot] = StartTs;
                 Array.Copy(Time, 0, RingTime!, slot * Stride, zones);
                 Array.Copy(Bytes, 0, RingBytes!, slot * Stride, zones);
                 Array.Copy(Calls, 0, RingCalls!, slot * Stride, zones);

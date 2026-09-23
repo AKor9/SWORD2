@@ -19,7 +19,8 @@ namespace Sword.Game.Headless;
 /// </summary>
 public static partial class Program
 {
-    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, ref int? exit)
+    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, double profileThreshold,
+        ref int? exit)
     {
         var ring = new LogRing();
         Log.SetSinks(new ConsoleLogSink(allToStandardError: true), ring);
@@ -43,6 +44,14 @@ public static partial class Program
         });
         SwordAgent.Register(host);
         host.Features = Features();
+        // Захват аномалий (точка Пв): судит включённый профайлер (--profile или profile.stages); файлы — в каталог прогона
+        // профайлера, туда же profile.json при выходе.
+        string profileDir = ProfileDir("headless-agent");
+        host.Profiler.CaptureAnomalies(new AnomalyOptions
+        {
+            Directory = profileDir, AbsoluteMs = profileThreshold,
+            Run = new Dictionary<string, string> { ["process"] = "headless-agent", ["session"] = host.SessionId, ["runtime"] = Environment.Version.ToString() },
+        });
         // --profile: профайлер сеанса включён с начала (profile.stages включает и без ключа); отчёт — при выходе.
         if (profile) host.Profiler.SetEnabled(true);
         if (profileEvents) host.Profiler.SetEvents(true);   // --profile runtime: диагностический режим (точка Пб)
@@ -75,7 +84,10 @@ public static partial class Program
             recorder.ToReplay().Save(path);
             Log.Info("agent", $"реплей сеанса: {path}");
         }
-        if (profile) Log.Info("profile", $"профайлер: {host.Profiler.Write(ProfilePath("headless-agent"), ProfileHeader("headless-agent", System.Environment.GetCommandLineArgs()[1..]))}");
+        if (profile)
+            Log.Info("profile", $"профайлер: {host.Profiler.Write(Path.Combine(profileDir, "profile.json"), ProfileHeader("headless-agent", Environment.GetCommandLineArgs()[1..]))}");
+        if (host.Profiler.Anomalies is { Detected: > 0 } anomalies) Log.Info("profile", anomalies.Summary());
+        host.Profiler.StopAnomalies();
         Log.Info("agent", $"сеанс {host.SessionId} закончен на тике {session.Current.Tick} (симуляция №{session.Run})");
         exit = 0;
     }

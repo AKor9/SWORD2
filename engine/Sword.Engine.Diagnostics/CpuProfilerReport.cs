@@ -41,6 +41,8 @@ public sealed partial class CpuProfiler
         if (PeriodJson(ProfilePeriod.Frame, history, top, prefix) is { } frames) json["frames"] = frames;
         if (PeriodJson(ProfilePeriod.Tick, history, top, prefix) is { } ticks) json["ticks"] = ticks;
         if (_events is { } events) json["events"] = events.Summary(types: 40, recent: 100);
+        // Точка Пв: захваченные аномалии (порог, счёт, последние с классом, главной зоной и файлом).
+        if (_anomalies is { } anomalies) json["anomalies"] = anomalies.ToJson(max: 100);
         return json;
     }
 
@@ -75,6 +77,17 @@ public sealed partial class CpuProfiler
             {
                 ["received"] = summary["received"]?.DeepClone(), ["late"] = summary["late"]?.DeepClone(),
                 ["alloc"] = summary["alloc"]?["types"]?.DeepClone(), ["jit"] = summary["jit"]?.DeepClone(), ["gc"] = summary["gc"]?.DeepClone(),
+            };
+        }
+        if (_anomalies is { } anomalies)
+        {
+            // Точка Пв: аномалии коротко — сколько, по классам, последние пять.
+            var a = anomalies.ToJson(max: 5);
+            json["anomalies"] = new JsonObject
+            {
+                ["detected"] = a["detected"]?.DeepClone(), ["sinceReset"] = a["sinceReset"]?.DeepClone(), ["written"] = a["written"]?.DeepClone(),
+                ["byClass"] = a["byClass"]?.DeepClone(), ["threshold"] = a["threshold"]?.DeepClone(), ["directory"] = a["directory"]?.DeepClone(),
+                ["last"] = a["list"]?.DeepClone(),
             };
         }
         return json;
@@ -147,6 +160,7 @@ public sealed partial class CpuProfiler
     public string Write(string path, JsonObject? header = null)
     {
         FlushEvents();   // события среды приходят с задержкой: отчёт — после хвоста
+        FlushAnomalies(TimeSpan.FromSeconds(2));   // файлы аномалий — дописаны: в отчёте их пути
         var report = Report();
         if (header is not null)
         {
@@ -164,5 +178,43 @@ public sealed partial class CpuProfiler
             WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         }).ReplaceLineEndings("\r\n") + "\r\n");
         return full;
+    }
+
+    /// <summary>
+    /// Кольцо профайлера — в Chrome Trace Event JSON (точка Пв, <see cref="ChromeTrace"/>: Perfetto, <c>chrome://tracing</c>): кадры
+    /// и тики кольца с настоящим временем и зонами (суммой вызовов за период), в диагностическом режиме — события среды окна. Не
+    /// горячий путь (выделяет, пишет файл); только на потоке владельца. Каталог создаётся.
+    /// </summary>
+    public string WriteTrace(string path, IReadOnlyDictionary<string, string>? meta = null)
+    {
+        FlushEvents();
+        int zones = _names.Count;
+        var parent = new int[zones];
+        Array.Copy(_parent, parent, zones);
+        long from = Math.Min(Oldest(_frames), Oldest(_ticks));
+        var data = new TraceData
+        {
+            Name = SharedName, Parent = parent, Zones = zones, Meta = meta,
+            Events = _events is { } events && from != long.MaxValue ? [.. events.Recent().Where(e => e.Time >= from)] : null,
+        };
+        AddRing(data, _frames, tick: false);
+        AddRing(data, _ticks, tick: true);
+        string full = Path.GetFullPath(path);
+        ChromeTrace.Write(full, data);
+        return full;
+    }
+
+    /// <summary>Начало самого старого периода кольца; пусто — <see cref="long.MaxValue"/>.</summary>
+    private static long Oldest(Series s) => s.Headers is null || s.Filled == 0 ? long.MaxValue : s.RingStart![(s.Next - s.Filled + s.Capacity) % s.Capacity];
+
+    private static void AddRing(TraceData data, Series s, bool tick)
+    {
+        if (s.Headers is null) return;
+        for (int i = 0; i < s.Filled; i++)
+        {
+            int slot = (s.Next - s.Filled + i + s.Capacity) % s.Capacity;
+            var h = s.Headers[slot];
+            data.Periods.Add(new TracePeriod(tick, h.Number, s.RingStart![slot], h, s.RingTime, s.RingCalls, slot * s.Stride, false));
+        }
     }
 }

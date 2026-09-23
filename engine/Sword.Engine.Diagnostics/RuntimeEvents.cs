@@ -18,7 +18,8 @@ public sealed class ProfileTimeline
     /// <summary>Записей по умолчанию (12 МБ): ~0,25 с кадров App при ~400 записях на кадр и 2700 кадрах/с — с запасом над задержкой событий.</summary>
     public const int DefaultCapacity = 1 << 19;
 
-    internal enum Kind : short
+    /// <summary>Вид записи: начало и конец зоны, открытие и закрытие кадра и тика, раскрутка стека (новая глубина).</summary>
+    public enum Kind : short
     {
         Begin = 1,
         End,
@@ -131,7 +132,43 @@ public sealed class ProfileTimeline
     }
 
     private ref readonly Entry At(long i) => ref _entries[i & _mask];
+
+    /// <summary>
+    /// Записи ленты со временем в [<paramref name="from"/>, <paramref name="to"/>] по порядку — в <paramref name="into"/> (точка Пв:
+    /// точный Chrome Trace окна аномалии). С другого потока: окно, начало которого уже затёрто, и затёртое за время чтения —
+    /// false (прочитанное из этого вызова убирается). Не горячий путь.
+    /// </summary>
+    public bool Read(long from, long to, List<TimelineEntry> into)
+    {
+        long w = Written;
+        if (w == 0) return false;
+        long lo = Math.Max(0, w - _entries.Length + _entries.Length / 8);
+        if (lo > 0 && At(lo).Time > from) return false;   // начало окна — за краем ленты
+        long a = lo, b = w;   // первая запись не раньше from
+        while (a < b)
+        {
+            long m = (a + b) / 2;
+            if (At(m).Time < from) a = m + 1;
+            else b = m;
+        }
+        int start = into.Count;
+        for (long i = a; i < w; i++)
+        {
+            var e = At(i);
+            if (e.Time > to) break;
+            into.Add(new TimelineEntry(e.Time, e.Zone, e.Depth, (Kind)e.Kind, e.Arg));
+        }
+        if (Written - _entries.Length > a)
+        {
+            into.RemoveRange(start, into.Count - start);
+            return false;
+        }
+        return true;
+    }
 }
+
+/// <summary>Запись ленты зон (<see cref="ProfileTimeline.Read"/>): время, зона, глубина стека после записи, вид, номер кадра или тика.</summary>
+public readonly record struct TimelineEntry(long Time, int Zone, int Depth, ProfileTimeline.Kind Kind, long Arg);
 
 /// <summary>
 /// Место события в ленте владельца: известно ли (лента есть и событие не старше её), кадр (или «после кадра N» — между

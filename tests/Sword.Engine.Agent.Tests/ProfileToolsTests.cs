@@ -89,6 +89,59 @@ public class ProfileToolsTests
         Assert.True(off["enabled"]!.GetValue<bool>());   // профайлер остаётся включённым
     }
 
+    /// <summary>
+    /// Точка Пв: <c>profile.stages</c> — аномалии (без настройки exe — «не настроен»; <c>threshold</c> настраивает захват в
+    /// артефакты сеанса и ставит абсолютный порог; список — период, мс, класс, главная зона, файл; <c>anomalies</c> — сколько);
+    /// <c>threshold: 0</c> — снова по медиане; <c>trace</c> — кольцо в Chrome Trace JSON; порог меньше нуля — ошибка.
+    /// </summary>
+    [Fact]
+    public async Task ProfileStages_AnomaliesThresholdAndTrace()
+    {
+        using var f = new AgentFixture();
+        var (on, error) = await f.Tool("profile.stages", new JsonObject { ["enable"] = true });
+        Assert.False(error, on.ToJsonString());
+        Assert.Equal(JsonValueKind.String, on["anomalies"]!.GetValueKind());   // захват не настроен (exe не задал каталог)
+
+        var (set, _) = await f.Tool("profile.stages", new JsonObject { ["threshold"] = 0.0001 });
+        Assert.Equal("absolute", set["anomalies"]!["threshold"]!["mode"]!.GetValue<string>());
+        await f.Tool("time.step", new JsonObject { ["ticks"] = 60 });   // первые 32 тика не судятся
+        Assert.True(f.Host.Profiler.FlushAnomalies(TimeSpan.FromSeconds(10)));
+
+        var (r, _) = await f.Tool("profile.stages", new JsonObject { ["anomalies"] = 100 });
+        var a = r["anomalies"]!;
+        Assert.Equal(28, a["detected"]!.GetValue<int>());
+        var list = a["list"]!.AsArray();
+        Assert.Equal(28, list.Count);
+        var first = list[0]!;
+        Assert.Equal("tick", first["period"]!.GetValue<string>());
+        Assert.Equal(32, first["number"]!.GetValue<int>());
+        Assert.Contains(first["class"]!.GetValue<string>(), (string[])["code", "jit", "gc", "machine"]);
+        Assert.False(string.IsNullOrEmpty(first["zone"]!.GetValue<string>()));
+        string file = first["file"]!.GetValue<string>();
+        Assert.StartsWith(f.Host.Artifacts, file);
+        Assert.Equal(ProfileAnomalies.FileFormat, JsonNode.Parse(File.ReadAllText(file))!["format"]!.GetValue<string>());
+        // Ведро: до 5 файлов сразу, дальше — 1 в секунду; писатель занят всеми тремя местами — «busy». Список — все 28.
+        int written = a["written"]!.GetValue<int>(), rate = a["suppressed"]!["rate"]!.GetValue<int>(), busy = a["suppressed"]!["busy"]!.GetValue<int>();
+        Assert.InRange(written, 1, 5);
+        Assert.Equal(28, written + rate + busy);
+        Assert.True(rate > 0);
+
+        var (brief, _) = await f.Tool("profile.stages", new JsonObject { ["anomalies"] = 0, ["threshold"] = 0, ["trace"] = true });
+        Assert.Empty(brief["anomalies"]!["list"]!.AsArray());
+        Assert.Equal("median", brief["anomalies"]!["threshold"]!["mode"]!.GetValue<string>());
+        string trace = brief["trace"]!.GetValue<string>();
+        using (var doc = JsonDocument.Parse(File.ReadAllText(trace)))
+        {
+            var events = doc.RootElement.GetProperty("traceEvents").EnumerateArray().ToList();
+            Assert.Contains(events, e => e.GetProperty("ph").GetString() == "X" && e.GetProperty("name").GetString() == "tick 59");
+            Assert.Contains(events, e => e.GetProperty("ph").GetString() == "X" && e.GetProperty("name").GetString() == "push.mover@S");
+        }
+
+        var (bad, isError) = await f.Tool("profile.stages", new JsonObject { ["threshold"] = -1 });
+        Assert.True(isError, bad.ToJsonString());
+        f.Host.Profiler.StopAnomalies();
+    }
+
     [Fact]
     public async Task ProfileStages_FollowsSessionSimulation()
     {

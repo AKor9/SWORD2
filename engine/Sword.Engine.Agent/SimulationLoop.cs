@@ -46,6 +46,8 @@ public static class SimulationLoop
         void Break(Simulation sim, string stage)
         {
             Log.Info("agent", $"останов посреди тика {sim.Tick} после барьера стадии {stage}");
+            // Тик прерван ожиданием агента: у профайлера он служебный — не в итогах и не аномалия (точка Пв).
+            host.Profiler.Interrupt();
             var inTick = new ServiceContext(sim);
             while (!stop.IsCancellationRequested)
             {

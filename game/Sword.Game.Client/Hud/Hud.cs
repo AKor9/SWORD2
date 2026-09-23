@@ -5,8 +5,11 @@ using Sword.Engine.Ui;
 
 namespace Sword.Game.Client;
 
-/// <summary>Снимок кадра для HUD: числа кадра клиента и рендера (<c>HudData</c> SWORD 2eab13b).</summary>
-public readonly record struct HudData(FrameStats Frame, int DrawCalls, int UiQuads, string Adapter);
+/// <summary>
+/// Снимок кадра для HUD: числа кадра клиента и рендера (<c>HudData</c> SWORD 2eab13b); <paramref name="Profile"/> — сводка
+/// профайлера для F2 (точка Пв: главные зоны кадра, последняя аномалия), null — профайлера нет.
+/// </summary>
+public readonly record struct HudData(FrameStats Frame, int DrawCalls, int UiQuads, string Adapter, ProfileDigest? Profile = null);
 
 /// <summary>Строка на стеке: форматирование без выделений в кадре (<c>Line</c> SWORD).</summary>
 public ref struct Line
@@ -51,7 +54,10 @@ public ref struct Line
 /// без выделений в кадре.
 ///
 /// Отличия от SWORD: нет GPU-профайлера — полоса бюджета только CPU, секция «GPU» — вызовы рисования и квады UI;
-/// нет секции «ФИЗИКА И БОЙ», полосы здоровья, экрана «ПАЛ» и ручки времени — со своими фичами.
+/// нет секции «ФИЗИКА И БОЙ», полосы здоровья, экрана «ПАЛ» и ручки времени — со своими фичами. F2 (точка Пв) — как «ПРОФАЙЛЕР,
+/// мс» SWORD внизу панели, но зоны CPU (своё время, мс на кадр), а не проходы GPU (они — точка Пг); ниже — строка среды (Пб) и
+/// последняя аномалия. В бенче F2 по умолчанию скрыт (в SWORD — показан): F2 включает профайлер, а бенч без <c>--profile</c>
+/// меряется без него.
 /// </summary>
 public sealed class Hud
 {
@@ -74,6 +80,9 @@ public sealed class Hud
     /// <summary>Справка (F1).</summary>
     public bool ShowHelp { get; set; } = true;
 
+    /// <summary>Профайлер (F2, точка Пв): главные зоны кадра, строка среды, последняя аномалия — секция внизу панели.</summary>
+    public bool ShowProfiler { get; set; }
+
     /// <summary>Масштаб интерфейса по высоте окна: <c>clamp(h / 1080, 0,75, 2) · UserScale</c>.</summary>
     public static float Scale(int h) => Math.Clamp(h / 1080f, 0.75f, 2f) * UserScale;
 
@@ -83,7 +92,7 @@ public sealed class Hud
     /// <summary>HUD кадра: панель производительности и справка (<paramref name="help"/> — строки справа сверху).</summary>
     public void Draw(UiDrawList d, int w, int h, in HudData data, IReadOnlyList<string> help)
     {
-        DrawPerf(d, h, data);
+        DrawPerf(d, h, data, ShowProfiler);
         if (ShowHelp) DrawHelp(d, w, h, help);
     }
 
@@ -104,16 +113,25 @@ public sealed class Hud
         d.TextRight(UiFace.Num, 14 * s, new(cx + CellW * s, y), colour, value);
     }
 
+    /// <summary>Строк секции профайлера сверх строк зон: строка среды и две строки последней аномалии.</summary>
+    private const int ProfilerExtraRows = 3;
+
+    /// <summary>Строка секции профайлера — ниже обычной (<c>lh · 0,9</c> SWORD).</summary>
+    private const float ProfilerRowScale = 0.9f;
+
     /// <summary>Панель производительности (<c>Hud.DrawPerf</c> SWORD). Возвращает нижний край.</summary>
-    private static float DrawPerf(UiDrawList d, int h, in HudData data)
+    private static float DrawPerf(UiDrawList d, int h, in HudData data, bool showProfiler)
     {
         Span<char> buf = stackalloc char[96];
         var f = data.Frame;
         float s = Scale(h);
         float x = (8 + PerfPad) * s, lh = RowH * s;
-        // SWORD: PerfPad + 30 + 16 + 3·TitleH + (4 + строк секции арены)·RowH + 20 + PerfPad — у нас две секции и четыре
-        // строки («КАДР» — две ячеек и строка среды, точка Пб; «GPU» — одна: времён GPU ещё нет).
-        const float height = PerfPad + 30 + 16 + 2 * TitleH + 4 * RowH + 20 + PerfPad;
+        var digest = data.Profile;
+        int zoneRows = showProfiler ? digest is { Ready: true } ? digest.Count : 1 : 0;
+        // SWORD: PerfPad + 30 + 16 + 3·TitleH + (4 + строк секции арены)·RowH + 20 + (F2: TitleH + n·RowH·0,9) + PerfPad — у нас две
+        // секции и три строки («КАДР» — две, «GPU» — одна: времён GPU ещё нет); F2 — зоны, строка среды и последняя аномалия.
+        float height = PerfPad + 30 + 16 + 2 * TitleH + 3 * RowH + 20 + PerfPad
+            + (showProfiler ? TitleH + (zoneRows + ProfilerExtraRows) * RowH * ProfilerRowScale : 0);
         d.Rect(8 * s, 8 * s, (8 + PerfW) * s, (8 + height) * s, Panel, 8 * s);
         float y = (8 + PerfPad) * s;
         float right = (PerfW - PerfPad + 8) * s;
@@ -140,9 +158,6 @@ public sealed class Hud
         Cell(d, s, x, y, 0, "тиков сим.", new Line(buf).I(f.Ticks).Text, TextC);
         Cell(d, s, x, y, 1, "vsync", f.Vsync ? "вкл" : "выкл", f.Vsync ? Accent : TextC);
         y += lh;
-        // Среда за прошлую секунду (точка Пб): методов JIT, сборок GC и их пауза, загрузка CPU другими процессами.
-        d.Text(UiFace.Body, 13 * s, new(x, y + 1 * s), RuntimeColour(f.Runtime), RuntimeText(new Line(buf), f.Runtime));
-        y += lh;
 
         y = Section(d, s, x, y, "GPU");
         Cell(d, s, x, y, 0, "draw calls", new Line(buf).I(data.DrawCalls).Text, TextC);
@@ -151,8 +166,74 @@ public sealed class Hud
 
         d.Text(UiFace.Body, 11 * s, new(x, y + 4 * s), UiDrawList.WithAlpha(Dim, 0.7f), data.Adapter);
         y += 20 * s;
+        if (showProfiler) y = DrawProfiler(d, s, x, y, right, buf, f, digest, zoneRows);
         return y;
     }
+
+    /// <summary>
+    /// Секция F2 (точка Пв; «ПРОФАЙЛЕР, мс» SWORD — там проходы GPU): главные зоны кадра по своему времени за прошлые 0,25 с
+    /// (мс на кадр, полоса — доля кадра), строка среды (Пб: перенесена сюда — в основной панели её нет, как в SWORD), последняя
+    /// аномалия — период, длительность, класс; главная зона и её лишнее время.
+    /// </summary>
+    private static float DrawProfiler(UiDrawList d, float s, float x, float y, float right, Span<char> buf, in FrameStats f, ProfileDigest? digest,
+        int zoneRows)
+    {
+        float rh = RowH * ProfilerRowScale * s, width = right - x;
+        y = Section(d, s, x, y, "ПРОФАЙЛЕР, мс");
+        if (digest is not { Ready: true })
+        {
+            string state = digest is null ? "профайлера нет" : digest.Profiler.Enabled ? "профайлер: собираю кадры…" : "профайлер включается…";
+            d.Text(UiFace.Body, 12 * s, new(x, y), Dim, state);
+            y += rh;
+        }
+        else
+        {
+            double frame = Math.Max(digest.FrameMs, 1e-6);
+            for (int i = 0; i < zoneRows; i++)
+            {
+                double ms = digest.Ms(i);
+                float bar = (float)Math.Min(ms / frame, 1) * width;
+                d.Rect(x, y + 13 * s, right, y + 14.5f * s, T.TrackFaint, 1 * s);
+                d.Rect(x, y + 13 * s, x + bar, y + 14.5f * s, UiDrawList.WithAlpha(Accent, 0.8f), 1 * s);
+                float vw = d.TextRight(UiFace.Num, 12 * s, new(right, y), TextC, new Line(buf).F(ms, "F3").Text);
+                string name = digest.Zone(i) == CpuProfiler.FrameZone ? FrameSelfName : digest.Name(i);
+                d.TextFit(UiFace.Num, 12 * s, new(x, y), Dim, name, width - vw - 8 * s);
+                y += rh;
+            }
+        }
+        // Среда за прошлую секунду (точка Пб): методов JIT, сборок GC и их пауза, загрузка CPU другими процессами.
+        d.Text(UiFace.Body, 12 * s, new(x, y), RuntimeColour(f.Runtime), RuntimeText(new Line(buf), f.Runtime));
+        y += rh;
+        if (digest?.Profiler.Anomalies is { } anomalies && anomalies.TryGetLast(out var last))
+        {
+            d.Text(UiFace.Body, 12 * s, new(x, y), AnomalyColour(last.Class), AnomalyText(new Line(buf), last));
+            y += rh;
+            var zone = new Line(buf).S(last.ZoneName.AsSpan(0, Math.Min(last.ZoneName.Length, 64))).S(" +").F(last.ZoneExcessMs, "F2").S(" мс").Text;
+            d.TextFit(UiFace.Num, 12 * s, new(x, y), Dim, zone, width);
+            y += rh;
+        }
+        else
+        {
+            d.Text(UiFace.Body, 12 * s, new(x, y), Dim, digest?.Profiler.Anomalies is null ? "аномалии не ловятся" : "аномалий нет");
+            y += 2 * rh;
+        }
+        return y;
+    }
+
+    /// <summary>Своё время корня кадра — вне всех зон (строка F2).</summary>
+    public const string FrameSelfName = "frame (вне зон)";
+
+    /// <summary>Первая строка аномалии F2: «аномалия: кадр 1234 · 8.61 мс · JIT» (тик в кадре — «тик 383 в кадре 1234»).</summary>
+    public static ReadOnlySpan<char> AnomalyText(Line line, in ProfileAnomaly a)
+    {
+        line = line.S("аномалия: ");
+        if (a.TickTrigger && a.Tick is { } tick) line = line.S("тик ").I((long)tick).S(" в кадре ").I((long)a.Number);
+        else line = line.S(a.Period == ProfilePeriod.Frame ? "кадр " : "тик ").I((long)a.Number);
+        return line.S(RuntimeSeparator).F(a.Ms, "F2").S(" мс").S(RuntimeSeparator).S(AnomalyCauses.Word(a.Class)).Text;
+    }
+
+    /// <summary>Цвет аномалии: машина — плохо (не код игры), остальное — акцент.</summary>
+    public static uint AnomalyColour(AnomalyClass c) => c == AnomalyClass.Machine ? Bad : Accent;
 
     /// <summary>Разделитель строки среды.</summary>
     public const string RuntimeSeparator = " · ";
@@ -199,7 +280,7 @@ public sealed class Hud
         [
             $"курсор — поворот    {K(ArenaInput.MoveForward)} {K(ArenaInput.MoveLeft)} {K(ArenaInput.MoveBack)} {K(ArenaInput.MoveRight)} — движение ({K(ArenaInput.Walk)} — шагом)",
             $"колесо, {K(ArenaInput.CameraZoomIn)} {K(ArenaInput.CameraZoomOut)} — зум    {K(ArenaInput.CameraRotateLeft)} {K(ArenaInput.CameraRotateRight)} / {K(ArenaInput.CameraOrbit)} — камера    {K(ArenaInput.CameraFollow)} — свободная",
-            $"{K(ArenaInput.HudHelp)} — справка    {K(ClientHost.Screenshot)} — снимок    Esc — выход",
+            $"{K(ArenaInput.HudHelp)} — справка    {K(ArenaInput.HudProfiler)} — профайлер    {K(ClientHost.Screenshot)} — снимок    Esc — выход",
             $"{K(ArenaInput.EnemiesMore)} / {K(ArenaInput.EnemiesFewer)} — врагов ±1    {K(ArenaInput.ArenaReset)} — сброс арены    {K(ArenaInput.DebugBodies)} — капсулы тел",
         ];
     }

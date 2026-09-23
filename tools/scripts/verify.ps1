@@ -22,7 +22,10 @@
                             игрового времени без ошибок; опечатка в секции конфига и выключение ядра — ошибки; этап П —
                             толпа с --profile: 0 Б/тик, тот же хеш, profile.json с зонами тика, стадий, систем, инвариантов;
                             точка Пб — machine в итоге (вердикт «код или машина»), среда тика и машина в отчёте;
-                            --profile runtime — события среды с калибровкой часов, 0 Б/тик, тот же хеш;
+                            --profile runtime — события среды с калибровкой часов, 0 Б/тик, тот же хеш; точка Пв —
+                            секция anomalies в итоге и отчёте, порог --profile-threshold 0.001 (аномалия — каждый тик):
+                            0 Б/тик и при захвате, файлов не больше лимита, файл аномалии и его трасса — верный JSON,
+                            --profile-trace — trace.json (Chrome Trace); аномалии ровного прогона — сообщение, не провал;
       app-smoke             Sword.exe без фокуса: 90 кадров по 2 тика с командой «бег по +X», смена размера по
                             кругу, слой отладки D3D12 с GPU-валидацией, снимок последнего кадра — итог JSON в
                             порядке, предупреждений и ошибок D3D12 и предупреждений шейдеров нет, проход
@@ -34,7 +37,9 @@
                             справка скрыта; debug_bodies (F7, 5в) — капсулы тел 11 бойцов проходом debug.bodies;
                             --no-hud — HUD не показан, прохода hud нет; этап П — --profile: те же байты на кадр, что без него,
                             profile.json с фазами кадра, тиками, проходами графа и зонами игры; точка Пб — среда кадра и тика,
-                            машина в отчёте, report.machine в итоге и бенче;
+                            машина в отчёте, report.machine в итоге и бенче; точка Пв — --profile с захватом аномалий: те же
+                            байты на кадр, секция anomalies (аномалии под нагрузкой машины — сообщение, не провал); F2
+                            (--hold hud_profiler) — секция профайлера в HUD и профайлер включён;
                             --bench 5 — выход «bench» с итогом замера и снимком последнего кадра (нужны видеокарта и
                             пак контента; -SkipGpu — пропустить);
       replay-smoke          реплеи (этап 3б): Sword.exe --record (удержание move_forward и walk, --fps 45) —
@@ -55,7 +60,8 @@
                             replay.save, time.seek назад и вперёд к тому же хешу, session.start с реплеем — совпал,
                             replay.check; этап 3д — feature.list, feature.verify, experiment.fork (ветка с другой
                             командой расходится на тике после неё), experiment.compare; этап П — profile.stages (включить,
-                            30 тиков, зоны, среда тика и машина — точка Пб, выключить); session.stop — выход 0;
+                            30 тиков, зоны, среда тика и машина — точка Пб, аномалии и trace — точка Пв, выключить);
+                            session.stop — выход 0;
                             Sword.exe --agent
                             (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
                             рамкой; 5в — ID-буфер: сегменты игрока в его рамке с легендой, оверлей капсул), render.graph,
@@ -82,8 +88,17 @@
 .PARAMETER SkipGpu
     Не запускать шаги, которым нужны окно и видеокарта.
 
+.PARAMETER Only
+    Только эти шаги (через запятую); `build` идёт всегда, остальные — «пропущено (-Only)»; неизвестный шаг — ошибка до
+    сборки; итог — только выбранных шагов (поле `only` в `-Json`, пометка в последней строке). Для Release-замеров после
+    полного прогона Debug: `-Configuration Release -Only headless-smoke,app-smoke,features` — тесты и проверки правил в
+    Release не повторяются (проверки мира ECS включены только в Debug, время бюджетов проверяется только в Release).
+
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 -Json
+
+.EXAMPLE
+    powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 -Json -Configuration Release -Only headless-smoke,app-smoke,features
 #>
 param(
     [ValidateSet('Debug', 'Release')]
@@ -91,7 +106,8 @@ param(
     [switch]$Json,
     [switch]$SkipReference,
     [switch]$SkipGpu,
-    [switch]$Bench
+    [switch]$Bench,
+    [string[]]$Only = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,11 +116,23 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
 
+$knownSteps = @('build', 'test', 'forbidden-references', 'without-agent', 'without-modules', 'headless-smoke', 'app-smoke',
+    'replay-smoke', 'features', 'agent-smoke', 'ecs-bench', 'line-endings', 'reference')
+$Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+foreach ($name in $Only) {
+    if ($knownSteps -notcontains $name) { throw "-Only: неизвестный шаг «$name»; шаги: $($knownSteps -join ', ')" }
+}
+
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $solution = Join-Path $root 'SWORD.slnx'
 $steps = New-Object System.Collections.Generic.List[object]
 
 function Add-Step([string]$Name, [scriptblock]$Body) {
+    if ($Only.Count -gt 0 -and $Name -ne 'build' -and $Only -notcontains $Name) {
+        $steps.Add([ordered]@{ name = $Name; ok = $true; seconds = 0; detail = 'пропущено (-Only)' })
+        if (-not $Json) { Write-Host ('SKIP {0,-22} пропущено (-Only)' -f $Name) }
+        return
+    }
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         $result = & $Body
@@ -272,6 +300,33 @@ Add-Step 'headless-smoke' {
         elseif (($diag.stateHash | ConvertTo-Json -Compress) -ne ($crowd.stateHash | ConvertTo-Json -Compress)) { $problems += "--profile runtime: хеш $($diag.stateHash.total), без профайлера — $($crowd.stateHash.total)" }
         elseif (-not $diagReport.events -or -not $diagReport.events.calibrated -or $diagReport.events.received -lt 1) { $problems += "--profile runtime: события — калибровка $($diagReport.events.calibrated), принято $($diagReport.events.received)" }
         else { $crowdNote += "; --profile runtime — событий $($diagReport.events.received), JIT $($diagReport.events.jit.methods), 0 Б/тик, тот же хеш" }
+    }
+    # Точка Пв: захват аномалий. Ровный прогон толпы (--profile выше) — аномалии не провал: первые секунды свежего процесса — JIT
+    # (OSR в тике, класс JIT), под нагрузкой машины — «машина»; о них — сообщение. Проверка устройства — порогом 0.001 мс
+    # (аномалия — каждый тик после 32 первых): главный поток не выделяет и в кадре аномалии (0 Б/тик), файлов — не больше лимита
+    # (20), каждый — формат sword-profile-anomaly с главной зоной и классом, трасса аномалии и trace.json — Chrome Trace.
+    if ($problems.Count -eq 0) {
+        $normal = $prof.profile.anomalies
+        $forced = (& $exe.FullName --ticks 240 --units 40 --move 1,0 --profile-threshold 0.001 --profile-trace --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        $a = $forced.profile.anomalies
+        $dirA = if ($a) { $a.directory } else { $null }
+        $files = @(if ($dirA -and (Test-Path $dirA)) { Get-ChildItem $dirA -Filter 'anomaly-*.json' | Where-Object { $_.Name -notlike '*.trace.json' } })
+        $traces = @(if ($dirA -and (Test-Path $dirA)) { Get-ChildItem $dirA -Filter 'anomaly-*.trace.json' })
+        $first = if ($files.Count -gt 0) { Get-Content $files[0].FullName -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
+        $firstTrace = if ($traces.Count -gt 0) { Get-Content $traces[0].FullName -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
+        $ringTrace = if ($forced.profile.trace -and (Test-Path $forced.profile.trace)) { Get-Content $forced.profile.trace -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
+        if (-not $normal) { $problems += '--profile: в итоге нет profile.anomalies (захват аномалий, точка Пв)' }
+        elseif (-not $forced.ok -or -not $a) { $problems += "--profile-threshold: итог — $($forced.error)" }
+        elseif ([int]$a.detected -ne 240 - 32) { $problems += "--profile-threshold 0.001: аномалий $($a.detected), ждали $(240 - 32) (каждый тик после 32 первых)" }
+        elseif ($forced.allocatedBytesPerTick -ne 0) { $problems += "--profile-threshold 0.001: тик выделяет $($forced.allocatedBytesPerTick) Б при захвате аномалий, ждали 0" }
+        elseif ($files.Count -lt 1 -or $files.Count -gt 20 -or [int]$a.written -ne $files.Count) { $problems += "--profile-threshold 0.001: файлов аномалий $($files.Count) (в итоге — $($a.written)), ждали 1…20" }
+        elseif (-not $first -or $first.format -ne 'sword-profile-anomaly' -or -not $first.mainZone.name -or $first.class -notin @('code', 'jit', 'gc', 'gpu', 'machine')) { $problems += "файл аномалии $($files[0].FullName): формат $($first.format), зона $($first.mainZone.name), класс $($first.class)" }
+        elseif (-not $firstTrace -or @($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count -lt 10) { $problems += "трасса аномалии: событий X $(@($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count)" }
+        elseif (-not $ringTrace -or @($ringTrace.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count -lt 100) { $problems += "--profile-trace: trace.json — $($forced.profile.trace)" }
+        else {
+            $normalText = if ([int]$normal.detected -gt 0) { "аномалий $($normal.detected) ($(@($normal.last | ForEach-Object { "тик $($_.number) $($_.classText) $($_.zone)" }) -join '; '))" } else { 'аномалий нет' }
+            $crowdNote += "; точка Пв — ровный прогон: $normalText; порог 0.001 мс — $($a.detected) аномалий, 0 Б/тик, файлов $($files.Count) (лимит 20), трасса и trace.json — Chrome Trace"
+        }
     }
     # Детерминизм (этап 3): тот же прогон ещё раз — тот же хеш каждого участника.
     if ($problems.Count -eq 0) {
@@ -451,8 +506,24 @@ else {
                     # Точка Пб: среда на кадр и тик, машина в отчёте и в итоге прогона (и без профайлера).
                     elseif (-not $profReport.frames.runtime -or -not $profReport.ticks.runtime -or -not $profReport.machine.verdict) { $problems += '--profile: в отчёте нет frames.runtime, ticks.runtime или machine' }
                     elseif (-not $plainRun.report.machine -or -not $plainRun.report.machine.text) { $problems += 'итог Sword.exe без report.machine (вердикт «код или машина»)' }
-                    else { $script:profileNote = "--profile — $($profRun.report.allocatedBytesPerFrame) Б/кадр, как без него, зон кадра $($frameZones.Count), кадр на CPU $($profReport.frames.runtime.onCpuPct) %" }
+                    # Точка Пв: захват аномалий включён с --profile (байты на кадр — те же, проверено выше); аномалии этого прогона —
+                    # сообщение, а не провал: 120 кадров с GPU-валидацией на машине пользователя (GPU и CPU делят с другими
+                    # программами) — рывки ожидания GPU и снятия с процессора бывают, и это не ошибка кода.
+                    elseif (-not $profReport.anomalies -or -not $profRun.profile.anomalies) { $problems += '--profile: в отчёте или итоге нет anomalies (точка Пв)' }
+                    else {
+                        $an = $profReport.anomalies
+                        $anText = if ([int]$an.detected -gt 0) { "аномалий $($an.detected) ($(@($an.list | Select-Object -Last 3 | ForEach-Object { "кадр $($_.number) $($_.classText) $($_.zone)" }) -join '; '))" } else { 'аномалий нет' }
+                        $script:profileNote = "--profile — $($profRun.report.allocatedBytesPerFrame) Б/кадр, как без него (и с захватом аномалий), зон кадра $($frameZones.Count), кадр на CPU $($profReport.frames.runtime.onCpuPct) %, $anText"
+                    }
                 }
+                # Точка Пв: F2 (удержание нажимает его в первом кадре) — секция профайлера в HUD, профайлер включён им самим.
+                $f2 = Invoke-App 'f2' @('--frames', '60', '--hold', 'hud_profiler')
+                if (-not $f2.ok) { $problems += "прогон с --hold hud_profiler: $($f2.error)" }
+                elseif (-not $f2.hud.profiler -or -not $f2.profiler.enabled -or [int]$f2.profiler.frames -lt 50) {
+                    $problems += "F2: секция показана $($f2.hud.profiler), профайлер включён $($f2.profiler.enabled), кадров в итогах $($f2.profiler.frames); ждали да, да, ≥ 50"
+                }
+                elseif ([int]$f2.hud.quads -le [int]$plainRun.hud.quads) { $problems += "F2: квадов HUD $($f2.hud.quads), без F2 — $($plainRun.hud.quads): секции нет?" }
+                else { $script:profileNote += "; F2 — секция профайлера ($($f2.hud.quads) квадов HUD против $($plainRun.hud.quads)), профайлер включён клавишей" }
                 # Точка 1д: бенч кадра — 5 с игрового времени, из них 4 — прогрев; выход сам, итог и снимок последнего кадра.
                 # Точка 4а: с толпой — 32 врага (--units 32), кадр рисует всех 33 бойцов.
                 $benchShot = Join-Path $dir 'bench.png'
@@ -751,6 +822,15 @@ Add-Step 'agent-smoke' {
         elseif (-not $prof.runtime -or -not ($prof.runtime.cpuMs -gt 0) -or -not $prof.machine -or $prof.machine.verdict -notin @('код', 'среда', 'машина')) {
             $problems += "Headless: profile.stages без runtime или machine: $($prof.runtime | ConvertTo-Json -Compress) $($prof.machine.verdict)"
         }
+        # Точка Пв: захват аномалий сеанса настроен exe (порог по медиане), трасса кольца — Chrome Trace.
+        elseif (-not $prof.anomalies -or $prof.anomalies -is [string] -or $prof.anomalies.threshold.mode -ne 'median') {
+            $problems += "Headless: profile.stages без anomalies (захват не настроен exe?): $($prof.anomalies | ConvertTo-Json -Compress -Depth 3)"
+        }
+        else {
+            $profTrace = Call-Stdio 'profile.stages' @{ trace = $true; anomalies = 0 }
+            $traceJson = if ($profTrace.trace -and (Test-Path $profTrace.trace)) { Get-Content $profTrace.trace -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
+            if (-not $traceJson -or @($traceJson.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count -lt 30) { $problems += "Headless: profile.stages {trace} — $($profTrace.trace)" }
+        }
         $null = Call-Stdio 'session.stop' @{}
         if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
         elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
@@ -842,6 +922,7 @@ Add-Step 'agent-smoke' {
                 $problems += "App: profile.stages — включён $($appProf.enabled), кадров $($appProf.frames), тиков $($appProf.ticks), нет зон [$($appMissing -join ', ')], несогласованных $($appProf.mismatches)"
             }
             elseif (-not $appProf.runtime -or -not $appProf.machine) { $problems += 'App: profile.stages без runtime или machine (точка Пб)' }
+            elseif (-not $appProf.anomalies -or $appProf.anomalies -is [string]) { $problems += 'App: profile.stages без anomalies (точка Пв: захват настраивает Sword.exe)' }
             $graph = Call-Http 'render.graph' @{}
             $passes = @($graph.passes | ForEach-Object { $_.name })
             if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
@@ -915,11 +996,17 @@ else {
 }
 
 $allOk = @($steps | Where-Object { -not $_.ok }).Count -eq 0
+# -Only: итог — только выбранных шагов (остальные — «пропущено (-Only)»); это видно и в JSON (only), и в последней строке.
+$onlySteps = if ($Only.Count -gt 0) { @('build') + @($Only | Where-Object { $_ -ne 'build' }) } else { @() }
+$onlyNote = if ($onlySteps.Count -gt 0) { " (только шаги -Only: $($onlySteps -join ', '))" } else { '' }
 if ($Json) {
-    [ordered]@{ ok = $allOk; configuration = $Configuration; steps = $steps } | ConvertTo-Json -Depth 4 -Compress
+    $summary = [ordered]@{ ok = $allOk; configuration = $Configuration }
+    if ($onlySteps.Count -gt 0) { $summary.only = $onlySteps }
+    $summary.steps = $steps
+    $summary | ConvertTo-Json -Depth 4 -Compress
 }
 else {
     Write-Host ''
-    Write-Host $(if ($allOk) { 'Проверка пройдена.' } else { 'Проверка НЕ пройдена.' })
+    Write-Host $(if ($allOk) { "Проверка пройдена$onlyNote." } else { "Проверка НЕ пройдена$onlyNote." })
 }
 if ($allOk) { exit 0 } else { exit 1 }
