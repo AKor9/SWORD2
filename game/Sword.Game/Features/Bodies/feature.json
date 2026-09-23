@@ -6,8 +6,9 @@
   // виды с оверлеем капсул — Sword.exe --overlay capsules; тела сборки мира стоят до первого тика); полный — на 5г: сценарии
   // толпы (бег сквозь 32 врагов), поворота врага клипом, рельефа (склон, ступени вверх и вниз, ухабы — против трассы SWORD
   // рельефа anim-terrain.trace.json побитово), метрики скоростей и высот капсул по замерам, виды крупным планом, бюджеты
-  // (тик и стадия PrePhysics с 32 врагами, кадр App без капсул и с капсулами — budgets[].frame.overlays, 5г). Эталон SWORD2
-  // bodies.swreplay — после подтверждения пользователя (README, «Эталон SWORD2»). Формат — FeatureManifest
+  // (тик и стадия PrePhysics с 32 врагами, кадр App без капсул и с капсулами — budgets[].frame.overlays, 5г). После
+  // подтверждения пользователя (раздел 12 плана) зафиксирован эталон SWORD2 bodies.swreplay — запись сценария terrain,
+  // сценарий reference-terrain и метрика sword-terrain-pelvis-reference на нём (README, «Эталон SWORD2»). Формат — FeatureManifest
   // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature bodies). Ослабить ожидания — только
   // правкой с сообщением пользователю.
   "format": "sword-feature",
@@ -184,6 +185,26 @@
           "condition": { "count": { "component": "BodyRef" }, "equals": 33 }
         }
       ]
+    },
+    {
+      "id": "reference-terrain",
+      "title": "эталон SWORD2 bodies (после подтверждения этапа 5): запись сценария terrain — склон, ступени вверх бегом и вниз шагом, стойка на ярусе, ухабы (хеши участников animation, ecs, physics каждого тика); тела — против трассы рельефа SWORD",
+      "replay": "tests/reference/replays/bodies.swreplay",
+      "checks": [
+        {
+          "id": "one-body", "title": "одно тело — у игрока, других владельцев нет", "expect": "always",
+          "condition": {
+            "all": [
+              { "count": { "component": "BodyRef" }, "equals": 1 },
+              { "none": { "all": [{ "component": "Fighter" }, { "not": { "component": "BodyRef" } }] } }
+            ]
+          }
+        },
+        {
+          "id": "on-bumps", "title": "в конце игрок на ухабах — ближе 3 м к (0, −18)", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.X", "greaterThan": -3 }, { "field": "Transform.Position.X", "lessThan": 3 }, { "field": "Transform.Position.Z", "greaterThan": -21 }, { "field": "Transform.Position.Z", "lessThan": -15 }] }
+        }
+      ]
     }
   ],
   "invariants": ["ecs.*", "physics.*", "animation.*", "locomotion.poses", "arena.slots", "movement.rootOverlap"],
@@ -212,6 +233,13 @@
     {
       "id": "sword-terrain-pelvis", "scenario": "terrain", "source": "sword",
       "reference": "трасса рельефа SWORD 2eab13b на эталонном паке (5г: та же программа tests/reference/sword-trace, сценарий crowd, вход — сценарий рельефа): центр капсулы таза игрока на склоне, ступенях вверх и вниз, ухабах тик за тиком, побитово; все 13 капсул каждого тика (хеш), выборка и форма — ReferenceTraceTests.Terrain_MatchesSwordTickByTick",
+      "entity": "player", "trace": "tests/reference/anim-terrain.trace.json",
+      "series": { "pelvis0[0]": "Body.pelvis.Position.X", "pelvis0[1]": "Body.pelvis.Position.Y", "pelvis0[2]": "Body.pelvis.Position.Z" },
+      "tolerance": 0
+    },
+    {
+      "id": "sword-terrain-pelvis-reference", "scenario": "reference-terrain", "source": "sword",
+      "reference": "трасса рельефа SWORD (5г) на эталоне SWORD2 bodies.swreplay (приёмка этапа 5): центр капсулы таза игрока тик за тиком, побитово — эталон записан тем же сценарием, что трасса",
       "entity": "player", "trace": "tests/reference/anim-terrain.trace.json",
       "series": { "pelvis0[0]": "Body.pelvis.Position.X", "pelvis0[1]": "Body.pelvis.Position.Y", "pelvis0[2]": "Body.pelvis.Position.Z" },
       "tolerance": 0

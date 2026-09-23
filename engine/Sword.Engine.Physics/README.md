@@ -23,7 +23,8 @@ PrePhysics); наблюдателям — вид игры `IBodyView` повер
 бойца каждого тика, 5б) и рельефа (склон, ступени вверх и вниз, ухабы — 5г). Замер (5г, Release, `experiment.sweep` по
 `arena.enemies`, без инвариантов): стадия PrePhysics — 0,0009 / 0,0074 / 0,0138 / 0,0270 мс на тик при 1 / 9 / 17 / 33 бойцах
 (линейно, ~63 нс на капсулу — 13 вызовов `SetKinematicTarget` через интерфейс и `FromBasis` на капсулу), 0 байт. Приёмка —
-фича [«Физика и тела»](../../game/Sword.Game/Features/Bodies/README.md) (этап 5 ждёт подтверждения пользователя).
+фича [«Физика и тела»](../../game/Sword.Game/Features/Bodies/README.md) (этап 5 принят пользователем; эталон SWORD2 —
+`tests/reference/replays/bodies.swreplay`).
 
 ## Откуда логика
 

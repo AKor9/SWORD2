@@ -169,4 +169,5 @@ dotnet test tests/Sword.Game.Tests --filter Terrain_MatchesSwordTickByTick    # 
 `enemies.swreplay` (запись сценария `sword-crowd`): правя сценарий толпы, эталон `enemies` записать заново. На 5г программа
 пересобрана (те же ссылки): `anim-locomotion`, `anim-turn`, `anim-crowd` сняты заново — побайтно те же; снята `anim-terrain`.
 Правя сценарий рельефа (`ReferenceTraceTests.TerrainSegments`), поправить и сценарий `terrain` манифеста `bodies` (те же
-команды).
+команды) и записать заново эталон SWORD2 `bodies.swreplay` (запись сценария `terrain`, приёмка этапа 5: на нём метрика
+`sword-terrain-pelvis-reference`).
