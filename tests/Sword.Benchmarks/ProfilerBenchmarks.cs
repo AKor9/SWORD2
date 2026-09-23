@@ -83,7 +83,7 @@ public class ProfilerCounters
         _capture.CaptureAnomalies(new AnomalyOptions { Directory = _dir });
         _capture.SetEnabled(true);
         _anomaly = new CpuProfiler();
-        _anomaly.CaptureAnomalies(new AnomalyOptions { Directory = _dir, AbsoluteMs = 0.00001, MaxFiles = 0 });
+        _anomaly.CaptureAnomalies(new AnomalyOptions { Directory = _dir, AbsoluteMs = 0.00001, MaxFiles = 0, MaxFilesGpuWait = 0, MaxFilesMachine = 0, NoticeableFiles = 0 });
         _anomaly.SetEnabled(true);
         for (int i = 0; i < 64; i++)
         {

@@ -32,6 +32,7 @@ public sealed partial class CpuProfiler
         _anomalies = null;
         if (_capacity < 64) Grow(64);
         var a = new ProfileAnomalies(this, options, _capacity);
+        a.SetDisplay(_displayHz);
         WarmCapture();
         _anomalies = a;
         if (_enabled || _wanted) a.RequestWarm();   // уже включён — писатель прогревается сразу (иначе — при включении)
@@ -70,7 +71,7 @@ public sealed partial class CpuProfiler
         // аномалии компилировались бы на главном потоке, найдено при приёмке Пв): список, ведро, места, снимок машины, класс.
         foreach (string name in (string[])[nameof(ProfileAnomalies.Record), nameof(ProfileAnomalies.Admit), nameof(ProfileAnomalies.Acquire),
             nameof(ProfileAnomalies.Submit), nameof(ProfileAnomalies.SetFile), nameof(ProfileAnomalies.Baseline), nameof(ProfileAnomalies.DropPending),
-            nameof(ProfileAnomalies.NoteMachine)])
+            nameof(ProfileAnomalies.NoteMachine), nameof(ProfileAnomalies.NoteLimit)])
             RuntimeHelpers.PrepareMethod(typeof(ProfileAnomalies).GetMethod(name, any)!.MethodHandle);
         foreach (var m in typeof(ProfileAnomalies.Detector).GetMethods(any | BindingFlags.DeclaredOnly)) RuntimeHelpers.PrepareMethod(m.MethodHandle);
         // Записи — конструкторы и свойства (в Debug и на уровне 0 они не встраиваются: `with` зовёт init-свойства).
@@ -88,21 +89,26 @@ public sealed partial class CpuProfiler
         MachineSample.Take(probe: false);
     }
 
-    /// <summary>Конец кадра (до записи в кольцо): суд кадра; аномальный тик кадра — пишется с ним.</summary>
+    /// <summary>
+    /// Конец кадра (до записи в кольцо): суд кадра; аномальный тик кадра — пишется с ним. Кадр инструментов (<paramref name="tools"/>,
+    /// после Пв) как кадр не судится и в окно медианы не идёт — его лишнее время за работой агента; аномальный тик в нём — пишется
+    /// (тики сыграны до точки обслуживания).
+    /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private void FrameAnomaly(float alpha, bool service, in ProfileCounters counters)
+    private void FrameAnomaly(float alpha, bool service, bool tools, in ProfileCounters counters)
     {
         var a = _anomalies!;
         long time = _frames.Time[FrameZone];
         a.NoteMachine(_frames.StartTs + time);
-        if (service)
+        if (service || tools)
         {
             // Служебный кадр (первый, смена размера, снимок) медленный по делу: не судится и в окно медианы не идёт.
+            if (!service && a.Pending.Active) Capture(ProfilePeriod.Frame, alpha, counters, periodHit: false, toolsFrame: true);
             a.DropPending();
             return;
         }
         bool hit = a.Frames.Push(time);
-        if (hit || a.Pending.Active) Capture(ProfilePeriod.Frame, alpha, counters, hit);
+        if (hit || a.Pending.Active) Capture(ProfilePeriod.Frame, alpha, counters, hit, toolsFrame: false);
         a.DropPending();
     }
 
@@ -115,7 +121,7 @@ public sealed partial class CpuProfiler
         if (_frameAt < 0) a.NoteMachine(_ticks.StartTs + time);
         if (!a.Ticks.Push(time)) return;
         if (_frameAt >= 0) PendTick(counters, time);
-        else Capture(ProfilePeriod.Tick, 1, counters, true);
+        else Capture(ProfilePeriod.Tick, 1, counters, true, toolsFrame: false);
     }
 
     /// <summary>Аномальный тик кадра App: разбор и копия строки тика — до конца кадра (худший тик кадра).</summary>
@@ -199,9 +205,13 @@ public sealed partial class CpuProfiler
         return new AnomalyCauses(extra, jit, gc, gpu, machine, code);
     }
 
-    /// <summary>Аномалия периода (или кадра App с аномальным тиком): список, файл (если пускают лимит и частота) — копия писателю.</summary>
+    /// <summary>
+    /// Аномалия периода (или кадра App с аномальным тиком): список, файл (если пускают лимит класса и частота; заметную — и сверх
+    /// них, из запаса заметных) — копия писателю. Заметная (после Пв) — кадр не короче интервала показа
+    /// (<see cref="ProfileAnomalies.NoticeableMs"/>); тик без кадров и кадр инструментов (его длина — за работой агента) — нет.
+    /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
-    private void Capture(ProfilePeriod period, float alpha, in ProfileCounters counters, bool periodHit)
+    private void Capture(ProfilePeriod period, float alpha, in ProfileCounters counters, bool periodHit, bool toolsFrame)
     {
         var a = _anomalies!;
         var s = period == ProfilePeriod.Frame ? _frames : _ticks;
@@ -229,13 +239,16 @@ public sealed partial class CpuProfiler
         }
         long now = Stopwatch.GetTimestamp();
         var cls = causes.Class;
+        // Заметная: кадр App не короче интервала показа — хотя бы одно обновление экрана показало прежний кадр (поле, не свойство:
+        // путь аномалии не зовёт некомпилированного).
+        bool noticeable = period == ProfilePeriod.Frame && !toolsFrame && time >= a.NoticeableTicks;
         var record = a.Record(new ProfileAnomaly(0, period, s.Number, pending.Active ? pending.Number : null, tickTrigger,
             Ms(tickTrigger ? pending.Time : time), Ms(tickTrigger ? pending.Median : d.Median), Ms(tickTrigger ? pending.Threshold : d.Threshold),
-            Ms(time), causes, cls, main, _names[main], Ms(zoneTime), Ms(zoneExcess), 0, AnomalyFile.Queued, null, now));
+            Ms(time), causes, cls, main, _names[main], Ms(zoneTime), Ms(zoneExcess), 0, AnomalyFile.Queued, null, now, noticeable));
         long seq = record.Sequence;
-        var file = a.Admit(now);
+        var file = a.Admit(now, cls, noticeable, out int bucket);
         var slot = file == AnomalyFile.Queued ? a.Acquire(zones) : null;
-        if (file == AnomalyFile.Queued && slot is null) file = AnomalyFile.Busy;
+        if (file == AnomalyFile.Queued && slot is null) file = AnomalyFile.Busy;   // в лимит идёт только отданное писателю (Submit)
         if (slot is null)
         {
             a.SetFile(seq, file, null);
@@ -243,7 +256,7 @@ public sealed partial class CpuProfiler
         }
         slot.Record = record;   // копия записи: кольцо списка (256) писатель не перечитывает — его могли уже перезаписать
         FillSlot(slot, s, period, root, alpha, counters, zones, seq, periodHit, causes, main, d);
-        a.Submit(slot);
+        a.Submit(slot, bucket);
     }
 
     /// <summary>Копия для писателя: строки зон, средние, родители, виды, последние периоды, тик кадра, машина.</summary>
@@ -267,6 +280,8 @@ public sealed partial class CpuProfiler
         slot.Median = d.Median;
         slot.Threshold = d.Threshold;
         slot.AbsoluteMs = d.AbsoluteMs;
+        slot.NoticeableTicks = a.NoticeableTicks;
+        slot.DisplayHz = a.DisplayHz;
         slot.Causes = causes;
         slot.MainZone = main;
         Array.Copy(s.Time, slot.Time, zones);

@@ -15,4 +15,11 @@
 - Пока тянут рамку, система крутит свой цикл сообщений внутри `PumpMessages`, и главный цикл стоит: `WM_SIZE`
   между `WM_ENTERSIZEMOVE` и `WM_EXITSIZEMOVE` поднимает событие `LiveResize`, по нему клиент рисует кадр.
 
+- Частота монитора (`RefreshHz`) — текущий режим экрана монитора окна (`Win32Ui.RefreshRate`: `MonitorFromWindow` →
+  `GetMonitorInfoW` → `EnumDisplaySettingsW`); вызовы ОС выделяют (имя устройства — строка), поэтому только на событиях:
+  создание окна, `WM_DISPLAYCHANGE`, `WM_DPICHANGED`, `WM_EXITSIZEMOVE` и `WM_MOVE` со сменой монитора (`MonitorFromWindow` не
+  выделяет — сверка с запомненным монитором; перенос Win+Shift+стрелкой на монитор того же масштаба `WM_DPICHANGED` и
+  `WM_EXITSIZEMOVE` не даёт — найдено проверяющим доводки после Пв); свойство — поле, его читают каждый кадр. 0 и 1 от драйвера —
+  «неизвестна» (0).
+
 Логика ввода проверяется тестами `tests/Sword.Engine.Platform.Tests` без окна.

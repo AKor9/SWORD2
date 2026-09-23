@@ -30,9 +30,11 @@ public enum ProfileZoneKind : byte
 /// счётчики среды за период (точка Пб: такты потока, сборки и пауза GC, выделения процесса, JIT). Время — в отсчётах
 /// <see cref="Stopwatch"/>. Точка Пг: <paramref name="GpuFrame"/> — кадр, чьи GPU-времена записаны в этот кадр (зоны вида
 /// <see cref="ProfileZoneKind.Gpu"/>; обычно этот минус 3 — кадры в полёте), <see cref="ulong.MaxValue"/> — не записаны.
+/// После Пв (решение пользователя): <paramref name="Tools"/> — кадр инструментов (точка обслуживания выполняла запросы агента):
+/// служебный (<paramref name="Service"/> тоже истина) — в кольце с этой пометкой, не в итогах и не судится как кадр.
 /// </summary>
 public readonly record struct ProfileHeader(ulong Number, ulong FirstTick, int Ticks, float Alpha, long Time, long Bytes, bool Service,
-    ulong Frame, ProfileCounters Counters, ulong GpuFrame = ulong.MaxValue);
+    ulong Frame, ProfileCounters Counters, ulong GpuFrame = ulong.MaxValue, bool Tools = false);
 
 /// <summary>
 /// Профайлер CPU (раздел 3 плана, точка Па): зоны с номерами, заведёнными заранее (<see cref="Zone"/> — при сборке мира,
@@ -128,6 +130,24 @@ public sealed partial class CpuProfiler
 
     /// <summary>Периодов в кольце.</summary>
     public int History => _history;
+
+    private double _displayHz;
+
+    /// <summary>
+    /// Частота обновления монитора, на котором показываются кадры, Гц; 0 — неизвестна (Headless, окно не сказало). Задаёт владелец
+    /// кадров (клиент — по окну). По ней захват аномалий судит «заметность» аномалии кадра (после Пв, решение пользователя):
+    /// кадр не короче интервала показа <c>1000 / Гц</c> мс — хотя бы одно обновление экрана показало прежний кадр; неизвестна —
+    /// <see cref="ProfileAnomalies.DefaultDisplayIntervalMs"/> (60 Гц). Менять — на потоке владельца.
+    /// </summary>
+    public double DisplayHz
+    {
+        get => _displayHz;
+        set
+        {
+            _displayHz = double.IsFinite(value) && value > 0 ? value : 0;
+            _anomalies?.SetDisplay(_displayHz);
+        }
+    }
 
     /// <summary>Заведённые зоны по номерам.</summary>
     public IReadOnlyList<string> Zones => _names;
@@ -377,11 +397,24 @@ public sealed partial class CpuProfiler
     {
         if (_off) return;
         _inFrame = false;
-        if (_enabled) CloseFrame(alpha, service);
+        if (_enabled) CloseFrame(alpha, service, tools: false);
+    }
+
+    /// <summary>
+    /// Конец кадра; <paramref name="tools"/> — кадр инструментов (после Пв, решение пользователя: точка обслуживания выполняла
+    /// запросы агента): служебный — в кольце с пометкой <see cref="ProfileHeader.Tools"/>, не в средних и перцентилях, как кадр не
+    /// судится; аномальный тик этого кадра — судится (тики сыграны до точки обслуживания, работа агента их не удлиняет).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void EndFrame(float alpha, bool service, bool tools)
+    {
+        if (_off) return;
+        _inFrame = false;
+        if (_enabled) CloseFrame(alpha, service, tools);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private void CloseFrame(float alpha, bool service)
+    private void CloseFrame(float alpha, bool service, bool tools)
     {
         if (_frameAt < 0) return;
         if (_tickAt >= 0)
@@ -395,8 +428,8 @@ public sealed partial class CpuProfiler
         _interruptedFrame = false;
         var counters = ReadCounters().Since(_frames.Start);
         _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
-        if (_anomalies is not null) FrameAnomaly(alpha, service, counters);   // точка Пв: аномалия кадра или его тика
-        _frames.Record(alpha, service, ulong.MaxValue, counters);
+        if (_anomalies is not null) FrameAnomaly(alpha, service, tools, counters);   // точка Пв: аномалия кадра или его тика
+        _frames.Record(alpha, service | tools, ulong.MaxValue, counters, tools);
         _frameAt = -1;
     }
 
@@ -508,6 +541,9 @@ public sealed partial class CpuProfiler
         return (s.Count, s.Service);
     }
 
+    /// <summary>Кадров инструментов с последнего сброса (после Пв: часть служебных — <see cref="ProfileHeader.Tools"/>).</summary>
+    public int ToolFrames => _frames.ToolFrames;
+
     /// <summary>Последние <paramref name="count"/> периодов кольца (служебные — тоже), от старых к новым.</summary>
     public IReadOnlyList<ProfileHeader> Recent(ProfilePeriod period, int count)
     {
@@ -598,7 +634,7 @@ public sealed partial class CpuProfiler
         public int[] Calls = [];
         public long[] TotalTime = [], TotalBytes = [], TotalCalls = [], MaxTime = [];
         public int[] Hits = [];
-        public int Count, Service;
+        public int Count, Service, ToolFrames;
 
         /// <summary>Счётчики среды на начале открытого периода и итоги с последнего сброса (без служебных; точка Пб).</summary>
         public ProfileCounters Start, Totals;
@@ -686,7 +722,7 @@ public sealed partial class CpuProfiler
             Calls[zone]++;
         }
 
-        public void Record(float alpha, bool service, ulong frame, in ProfileCounters counters)
+        public void Record(float alpha, bool service, ulong frame, in ProfileCounters counters, bool tools = false)
         {
             int zones = owner._names.Count;
             int root = ReferenceEquals(this, owner._frames) ? FrameZone : TickZone;
@@ -702,7 +738,7 @@ public sealed partial class CpuProfiler
             if (Headers is not null)
             {
                 int slot = Next;
-                Headers[slot] = new ProfileHeader(Number, FirstTick, Ticks, alpha, Time[root], Bytes[root], service, frame, counters, GpuFrame);
+                Headers[slot] = new ProfileHeader(Number, FirstTick, Ticks, alpha, Time[root], Bytes[root], service, frame, counters, GpuFrame, tools);
                 RingStart![slot] = StartTs;
                 Array.Copy(Time, 0, RingTime!, slot * Stride, zones);
                 Array.Copy(Bytes, 0, RingBytes!, slot * Stride, zones);
@@ -710,6 +746,7 @@ public sealed partial class CpuProfiler
                 Next = (slot + 1) % Capacity;
                 if (Filled < Capacity) Filled++;
             }
+            if (tools) ToolFrames++;
             if (service) Service++;
             else
             {
@@ -743,7 +780,7 @@ public sealed partial class CpuProfiler
             Array.Clear(TotalCalls);
             Array.Clear(MaxTime);
             Array.Clear(Hits);
-            Count = Service = 0;
+            Count = Service = ToolFrames = 0;
             Next = Filled = 0;
             Totals = default;
             GcPeriods = JitPeriods = JitMainPeriods = 0;

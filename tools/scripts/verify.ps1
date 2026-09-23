@@ -323,13 +323,15 @@ Add-Step 'headless-smoke' {
         elseif (-not $forced.ok -or -not $a) { $problems += "--profile-threshold: итог — $($forced.error)" }
         elseif ([int]$a.detected -ne 240 - 32) { $problems += "--profile-threshold 0.001: аномалий $($a.detected), ждали $(240 - 32) (каждый тик после 32 первых)" }
         elseif ($forced.allocatedBytesPerTick -ne 0) { $problems += "--profile-threshold 0.001: тик выделяет $($forced.allocatedBytesPerTick) Б при захвате аномалий, ждали 0" }
-        elseif ($files.Count -lt 1 -or $files.Count -gt 20 -or [int]$a.written -ne $files.Count) { $problems += "--profile-threshold 0.001: файлов аномалий $($files.Count) (в итоге — $($a.written)), ждали 1…20" }
+        # После Пв: лимиты файлов по классам — код/JIT/GC 20, «машина» 5 (ожидания GPU и заметных у Headless нет): не больше 25.
+        elseif (-not $a.limits -or [int]$a.limits.general.files -gt 20 -or [int]$a.limits.machine.files -gt 5 -or [int]$a.limits.gpu.files -ne 0 -or [int]$a.limits.noticeable.files -ne 0) { $problems += "--profile-threshold 0.001: лимиты файлов по классам — $($a.limits | ConvertTo-Json -Compress -Depth 3)" }
+        elseif ($files.Count -lt 1 -or $files.Count -gt 25 -or [int]$a.written -ne $files.Count) { $problems += "--profile-threshold 0.001: файлов аномалий $($files.Count) (в итоге — $($a.written)), ждали 1…25 (20 код/JIT/GC + 5 «машина»)" }
         elseif (-not $first -or $first.format -ne 'sword-profile-anomaly' -or -not $first.mainZone.name -or $first.class -notin @('code', 'jit', 'gc', 'gpu', 'machine')) { $problems += "файл аномалии $($files[0].FullName): формат $($first.format), зона $($first.mainZone.name), класс $($first.class)" }
         elseif (-not $firstTrace -or @($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count -lt 10) { $problems += "трасса аномалии: событий X $(@($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count)" }
         elseif (-not $ringTrace -or @($ringTrace.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count -lt 100) { $problems += "--profile-trace: trace.json — $($forced.profile.trace)" }
         else {
             $normalText = if ([int]$normal.detected -gt 0) { "аномалий $($normal.detected) ($(@($normal.last | ForEach-Object { "тик $($_.number) $($_.classText) $($_.zone)" }) -join '; '))" } else { 'аномалий нет' }
-            $crowdNote += "; точка Пв — ровный прогон: $normalText; порог 0.001 мс — $($a.detected) аномалий, 0 Б/тик, файлов $($files.Count) (лимит 20), трасса и trace.json — Chrome Trace"
+            $crowdNote += "; точка Пв — ровный прогон: $normalText; порог 0.001 мс — $($a.detected) аномалий, 0 Б/тик, файлов $($files.Count) (код/JIT/GC — $($a.limits.general.files) из 20, «машина» — $($a.limits.machine.files) из 5), трасса и trace.json — Chrome Trace"
         }
     }
     # Детерминизм (этап 3): тот же прогон ещё раз — тот же хеш каждого участника.
@@ -953,6 +955,14 @@ Add-Step 'agent-smoke' {
             }
             elseif (-not $appProf.runtime -or -not $appProf.machine) { $problems += 'App: profile.stages без runtime или machine (точка Пб)' }
             elseif (-not $appProf.anomalies -or $appProf.anomalies -is [string]) { $problems += 'App: profile.stages без anomalies (точка Пв: захват настраивает Sword.exe)' }
+            # После Пв: кадры с запросами агента (time.step, этот profile.stages) — кадры инструментов: служебные, помечены; заметность —
+            # по частоте монитора окна (или 60 Гц по умолчанию).
+            elseif ([int]$appProf.toolFrames -lt 1 -or [int]$appProf.serviceFrames -lt [int]$appProf.toolFrames) {
+                $problems += "App: profile.stages — кадров инструментов $($appProf.toolFrames), служебных $($appProf.serviceFrames): запросы агента не помечают кадр"
+            }
+            elseif (-not ($appProf.anomalies.display.noticeableMs -gt 0) -or $appProf.anomalies.display.source -notin @('monitor', 'default')) {
+                $problems += "App: profile.stages — нет порога заметности: $($appProf.anomalies.display | ConvertTo-Json -Compress)"
+            }
             # Точка Пг: GPU-время кадра и проходов за окно — секция gpu (данные кадра N − 3).
             elseif (-not $appProf.gpu -or $appProf.gpu.lagFrames -lt 0 -or -not ($appProf.gpu.frame.meanMs -gt 0) -or @($appProf.gpu.passes).Count -lt 1) {
                 $problems += "App: profile.stages без gpu (точка Пг): $($appProf.gpu | ConvertTo-Json -Compress -Depth 3)"
@@ -974,7 +984,7 @@ Add-Step 'agent-smoke' {
             # Снимок глубины и цвета — под GPU-валидацией: сообщения слоя и предупреждения шейдеров — отказ.
             $d3d12 = @(Get-Content $err -Encoding UTF8 | Where-Object { ($_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:') -or $_ -match '^\[shader\]' })
             if ($d3d12.Count -gt 0) { $problems += "App: сообщения D3D12 или шейдеров: $($d3d12 | Select-Object -First 3)" }
-            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; ID-буфер — кодов $(@($ids.ids.legend).Count), у игрока [$($segments -join ', ')], оверлей капсул снят; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет; profile.stages — кадров $($appProf.frames), зон $($appZones.Count), GPU кадра $($appProf.gpu.frame.meanMs) мс; render.graph — GPU-время проходов кадра на $($graph.gpu.lagFrames) раньше показанного; снимок — GPU кадра $($bundle.gpu.frameMs) мс (отставание 0)"
+            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; ID-буфер — кодов $(@($ids.ids.legend).Count), у игрока [$($segments -join ', ')], оверлей капсул снят; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет; profile.stages — кадров $($appProf.frames) (кадров инструментов — $($appProf.toolFrames)), зон $($appZones.Count), порог заметности $($appProf.anomalies.display.noticeableMs) мс ($($appProf.anomalies.display.source)), GPU кадра $($appProf.gpu.frame.meanMs) мс; render.graph — GPU-время проходов кадра на $($graph.gpu.lagFrames) раньше показанного; снимок — GPU кадра $($bundle.gpu.frameMs) мс (отставание 0)"
         }
         catch { $problems += "App: $($_.Exception.Message) — журнал $err" }
         finally { if (-not $app.HasExited) { $app.Kill() } }

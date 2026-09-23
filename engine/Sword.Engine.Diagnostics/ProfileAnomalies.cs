@@ -24,7 +24,11 @@ public enum AnomalyClass : byte
     Machine,
 }
 
-/// <summary>Судьба файла аномалии: в очереди, записан, ошибка записи; не пишется — лимит за прогон, частота, писатель занят.</summary>
+/// <summary>
+/// Судьба файла аномалии: в очереди, записан, ошибка записи; не пишется — общий лимит за прогон, частота, писатель занят, лимит
+/// своего класса за прогон (после Пв: «ожидание GPU» и «машина» — свои лимиты, <see cref="AnomalyOptions.MaxFilesGpuWait"/>,
+/// <see cref="AnomalyOptions.MaxFilesMachine"/>).
+/// </summary>
 public enum AnomalyFile : byte
 {
     Queued,
@@ -33,6 +37,7 @@ public enum AnomalyFile : byte
     Limit,
     Rate,
     Busy,
+    ClassLimit,
 }
 
 /// <summary>
@@ -86,8 +91,10 @@ public readonly record struct AnomalyCauses(double ExcessMs, double JitMs, doubl
 /// <summary>
 /// Настройки захвата аномалий (точка Пв). Порог периода: абсолютный (<see cref="AbsoluteMs"/> &gt; 0 — дольше стольких мс) или
 /// по медиане последних <see cref="Window"/> периодов своего вида: <c>медиана + max(MinExcess, RelativeExcess·медиана)</c>.
-/// Первые <see cref="MinSamples"/> периодов не судятся. Файлов за прогон — не больше <see cref="MaxFiles"/>, частота — ведро
-/// жетонов (<see cref="Burst"/> сразу, дальше <see cref="FilesPerSecond"/>).
+/// Первые <see cref="MinSamples"/> периодов не судятся. Файлов за прогон — по классам (после Пв, решение пользователя): «ожидание
+/// GPU» — не больше <see cref="MaxFilesGpuWait"/>, «машина» — <see cref="MaxFilesMachine"/> (чужая нагрузка), остальные классы —
+/// <see cref="MaxFiles"/>; заметной аномалии, которой не хватило лимита или жетона, — запас <see cref="NoticeableFiles"/>. Частота —
+/// ведро жетонов (<see cref="Burst"/> сразу, дальше <see cref="FilesPerSecond"/>).
 /// </summary>
 public sealed record AnomalyOptions
 {
@@ -123,8 +130,25 @@ public sealed record AnomalyOptions
     /// <summary>Сколько периодов вида нужно до первого суда (первые кадры свежего процесса — компиляция всего).</summary>
     public int MinSamples { get; init; } = 32;
 
-    /// <summary>Файлов аномалий за прогон, не больше.</summary>
+    /// <summary>Файлов аномалий классов «код», JIT, GC за прогон, не больше (у «ожидания GPU» и «машины» — свои лимиты).</summary>
     public int MaxFiles { get; init; } = 20;
+
+    /// <summary>
+    /// Файлов аномалий «ожидание GPU» за прогон, не больше (после Пв, решение пользователя): на бенче App GPU, занятый чужой
+    /// программой, даёт сотни таких аномалий (~60 в секунду, Пв) — без своего лимита они съедали все 20 файлов в первые секунды,
+    /// и аномалии кода, JIT, GC после этого оставались без файла.
+    /// </summary>
+    public int MaxFilesGpuWait { get; init; } = 5;
+
+    /// <summary>Файлов аномалий «машина» за прогон, не больше (поток сняли с процессора — чужая нагрузка; как <see cref="MaxFilesGpuWait"/>).</summary>
+    public int MaxFilesMachine { get; init; } = 5;
+
+    /// <summary>
+    /// Запас файлов заметных аномалий за прогон (после Пв): заметная, которой не хватило лимита своего класса или жетона ведра, всё
+    /// же пишется — из этого запаса. Он мал и один на прогон: лавины нет (всего файлов не больше
+    /// <c>MaxFiles + MaxFilesGpuWait + MaxFilesMachine + NoticeableFiles</c> = 40 по умолчанию).
+    /// </summary>
+    public int NoticeableFiles { get; init; } = 10;
 
     /// <summary>Файлов подряд без ожидания (ведро жетонов).</summary>
     public int Burst { get; init; } = 5;
@@ -145,13 +169,21 @@ public sealed record AnomalyOptions
 /// <summary>
 /// Захваченная аномалия (точка Пв): вид и номер периода (у кадра App, сработавшего по тику, — ещё тик), длительность, медиана
 /// и порог сработавшего периода, разбор причин и класс, главная зона (наибольшее своё лишнее время), эпоха (число сбросов
-/// профайлера до неё: 0 — прогрев, дальше — замер), судьба файла и путь.
+/// профайлера до неё: 0 — прогрев, дальше — замер), судьба файла и путь. После Пв: <paramref name="Noticeable"/> — заметная: кадр App
+/// (<see cref="PeriodMs"/>) не короче интервала показа (<see cref="ProfileAnomalies.NoticeableMs"/>) — порог суда про «дольше
+/// обычного», заметность — про «пропущено обновление экрана».
 /// </summary>
 public readonly record struct ProfileAnomaly(long Sequence, ProfilePeriod Period, ulong Number, ulong? Tick, bool TickTrigger, double Ms,
     double MedianMs, double ThresholdMs, double PeriodMs, AnomalyCauses Causes, AnomalyClass Class, int Zone, string ZoneName, double ZoneMs,
-    double ZoneExcessMs, int Epoch, AnomalyFile File, string? Path, long Timestamp)
+    double ZoneExcessMs, int Epoch, AnomalyFile File, string? Path, long Timestamp, bool Noticeable = false)
 {
-    /// <summary>Коротко словами: «кадр 1234 (тик 383): 8.61 мс, медиана 0.37 — JIT; core.root-collision@Movement +7.90 мс».</summary>
+    /// <summary>Слово заметной аномалии (журнал, файл, F2).</summary>
+    public const string NoticeableWord = "заметная";
+
+    /// <summary>
+    /// Коротко словами: «кадр 1234 (тик 383): 8.61 мс, медиана 0.37 — JIT; core.root-collision@Movement +7.90 мс»; заметная —
+    /// «— машина, заметная (кадр 25.1 мс)».
+    /// </summary>
     public string Text
     {
         get
@@ -160,8 +192,9 @@ public readonly record struct ProfileAnomaly(long Sequence, ProfilePeriod Period
             string what = Period == ProfilePeriod.Frame
                 ? TickTrigger ? $"тик {Tick} в кадре {Number}" : $"кадр {Number}"
                 : $"тик {Number}";
-            return string.Format(ci, "{0}: {1:0.###} мс (медиана {2:0.###}, порог {3:0.###}) — {4}; главная зона {5} {6:0.###} мс (+{7:0.###})",
-                what, Ms, MedianMs, ThresholdMs, AnomalyCauses.Word(Class), ZoneName, ZoneMs, ZoneExcessMs);
+            string noticeable = Noticeable ? string.Format(ci, ", {0} (кадр {1:0.###} мс)", NoticeableWord, PeriodMs) : "";
+            return string.Format(ci, "{0}: {1:0.###} мс (медиана {2:0.###}, порог {3:0.###}) — {4}{8}; главная зона {5} {6:0.###} мс (+{7:0.###})",
+                what, Ms, MedianMs, ThresholdMs, AnomalyCauses.Word(Class), ZoneName, ZoneMs, ZoneExcessMs, noticeable);
         }
     }
 
@@ -178,6 +211,7 @@ public readonly record struct ProfileAnomaly(long Sequence, ProfilePeriod Period
         ["periodMs"] = Math.Round(PeriodMs, 4),
         ["class"] = AnomalyCauses.Key(Class),
         ["classText"] = AnomalyCauses.Word(Class),
+        ["noticeable"] = Noticeable,
         ["causes"] = Causes.ToJson(),
         ["zone"] = ZoneName,
         ["zoneMs"] = Math.Round(ZoneMs, 4),
@@ -213,19 +247,39 @@ public sealed class ProfileAnomalies : IDisposable
     private readonly ProfileAnomaly[] _records = new ProfileAnomaly[Capacity];
     private long _sequence, _sinceReset;
 
-    /// <summary>Итоги за прогон (список — кольцо последних <see cref="Capacity"/>): по судьбе файла и по классу.</summary>
-    private readonly long[] _byFile = new long[6], _byClass = new long[5];
+    /// <summary>Итоги за прогон (список — кольцо последних <see cref="Capacity"/>): по судьбе файла и по классу; заметных.</summary>
+    private readonly long[] _byFile = new long[7], _byClass = new long[5];
+    private long _noticeable;
+
+    /// <summary>
+    /// Интервал показа по умолчанию, мс — 60 Гц (после Пв): частота монитора неизвестна (окно не сказало) — самая частая частота
+    /// мониторов и та, под которую SWORD меряет «кадр 16,7 мс с vsync».
+    /// </summary>
+    public const double DefaultDisplayIntervalMs = 1000.0 / 60;
+
+    /// <summary>
+    /// Порог заметности, отсчёты <see cref="Stopwatch"/>, и частота монитора (0 — неизвестна) — поля, а не свойства: их читает путь
+    /// аномалии (<c>Capture</c>), а он не должен звать некомпилированного. Пишет владелец (<see cref="SetDisplay"/>).
+    /// </summary>
+    internal long NoticeableTicks = (long)(DefaultDisplayIntervalMs * Stopwatch.Frequency / 1000);
+    internal double DisplayHz;
+
+    /// <summary>Места лимита файлов: общий (код, JIT, GC), «ожидание GPU», «машина», запас заметных.</summary>
+    internal const int BucketGeneral = 0, BucketGpuWait = 1, BucketMachine = 2, BucketNoticeable = 3;
+    private readonly int[] _bucketFiles = new int[4];
+
+    /// <summary>Исчерпанные лимиты (бит на место лимита) — владелец ставит, писатель говорит о каждом в журнал один раз.</summary>
+    private int _limitBits, _limitLogged;
 
     internal readonly Detector Frames, Ticks;
     internal readonly AnomalySlot[] SlotPool;
     private long _order;
     private int _capacity;
 
-    // Файлы: лимит и ведро жетонов (владелец); пропуски по частоте — писателю в строку журнала.
-    private int _files;
+    // Файлы: ведро жетонов (владелец; лимиты — _bucketFiles); пропуски по частоте — писателю в строку журнала.
     private double _tokens;
     private long _refilled;
-    private int _rateSkipped, _limitNoted;
+    private int _rateSkipped;
 
     // Машина для окна аномалии: снимки раз в секунду на границе периода (без пробы частоты, ~3 мкс, 0 байт).
     private MachineSample _m0, _m1;
@@ -311,14 +365,43 @@ public sealed class ProfileAnomalies : IDisposable
         lock (_gate) return _byClass[(int)c];
     }
 
-    /// <summary>Итог одной строкой (журнал exe): сколько, после сброса, по классам, файлов, каталог.</summary>
+    /// <summary>Заметных аномалий за прогон (кадр не короче интервала показа — <see cref="NoticeableMs"/>).</summary>
+    public long NoticeableCount
+    {
+        get
+        {
+            lock (_gate) return _noticeable;
+        }
+    }
+
+    /// <summary>
+    /// Порог заметности, мс — интервал показа (после Пв, решение пользователя): <c>1000 / частота монитора</c>, если её сказал
+    /// владелец кадров (<see cref="CpuProfiler.DisplayHz"/>: клиент — по монитору окна; с vsync показ идёт ровно с этим
+    /// интервалом), иначе <see cref="DefaultDisplayIntervalMs"/>.
+    /// </summary>
+    public double NoticeableMs => CpuProfiler.Ms(Volatile.Read(ref NoticeableTicks));
+
+    /// <summary>Откуда порог заметности: <c>monitor</c> — частота монитора окна, <c>default</c> — 60 Гц по умолчанию.</summary>
+    public string NoticeableSource => DisplayHz > 0 ? "monitor" : "default";
+
+    /// <summary>Частота монитора (0 — неизвестна): порог заметности — её интервал. Поток владельца.</summary>
+    internal void SetDisplay(double hz)
+    {
+        DisplayHz = hz > 0 && double.IsFinite(hz) ? hz : 0;
+        double ms = DisplayHz > 0 ? 1000 / DisplayHz : DefaultDisplayIntervalMs;
+        Volatile.Write(ref NoticeableTicks, Math.Max(1, (long)(ms * Stopwatch.Frequency / 1000)));
+    }
+
+    /// <summary>Итог одной строкой (журнал exe): сколько, после сброса, по классам, заметных, файлов, каталог.</summary>
     public string Summary()
     {
         var classes = Enum.GetValues<AnomalyClass>().Select(c => (c, n: CountOf(c))).Where(x => x.n > 0).OrderByDescending(x => x.n)
             .Select(x => $"{AnomalyCauses.Word(x.c)} {x.n}");
-        return $"аномалий {Detected}" + (Epoch > 0 ? $" (после сброса итогов — {SinceReset})" : "") + $": {string.Join(", ", classes)}; " +
+        long noticeable = NoticeableCount;
+        return $"аномалий {Detected}" + (Epoch > 0 ? $" (после сброса итогов — {SinceReset})" : "") + $": {string.Join(", ", classes)}" +
+            (noticeable > 0 ? $"; заметных {noticeable} (кадр ≥ {NoticeableMs:0.#} мс)" : "") + "; " +
             $"файлов {CountOf(AnomalyFile.Written)} (не писались: по частоте {CountOf(AnomalyFile.Rate)}, сверх лимита {CountOf(AnomalyFile.Limit)}, " +
-            $"писатель занят {CountOf(AnomalyFile.Busy)}) — {Directory}";
+            $"сверх лимита класса {CountOf(AnomalyFile.ClassLimit)}, писатель занят {CountOf(AnomalyFile.Busy)}) — {Directory}";
     }
 
     /// <summary>Порог кадра и тика сейчас, мс (NaN — окно медианы ещё не набрано).</summary>
@@ -376,14 +459,24 @@ public sealed class ProfileAnomalies : IDisposable
             ["detected"] = Detected,
             ["sinceReset"] = SinceReset,
             ["epoch"] = Epoch,
+            // После Пв: заметные — кадр App не короче интервала показа (частота монитора или 60 Гц по умолчанию).
+            ["noticeable"] = NoticeableCount,
+            ["display"] = new JsonObject
+            {
+                ["noticeableMs"] = Math.Round(NoticeableMs, 4), ["hz"] = DisplayHz > 0 ? Math.Round(DisplayHz, 3) : null,
+                ["source"] = NoticeableSource,
+                ["rule"] = "заметная — кадр App не короче интервала показа (1000 / частота монитора; неизвестна — 60 Гц): хотя бы одно " +
+                    "обновление экрана показало прежний кадр; тик без кадров и кадр инструментов — не заметные",
+            },
             ["written"] = CountOf(AnomalyFile.Written),
             ["queued"] = CountOf(AnomalyFile.Queued),
             ["suppressed"] = new JsonObject
             {
-                ["limit"] = CountOf(AnomalyFile.Limit), ["rate"] = CountOf(AnomalyFile.Rate),
+                ["limit"] = CountOf(AnomalyFile.Limit), ["classLimit"] = CountOf(AnomalyFile.ClassLimit), ["rate"] = CountOf(AnomalyFile.Rate),
                 ["busy"] = CountOf(AnomalyFile.Busy), ["failed"] = CountOf(AnomalyFile.Failed),
             },
             ["maxFiles"] = Options.MaxFiles,
+            ["limits"] = LimitsJson(),
             ["byClass"] = new JsonObject([.. Enum.GetValues<AnomalyClass>().Select(c => (c, n: CountOf(c))).Where(x => x.n > 0)
                 .OrderByDescending(x => x.n).Select(x => KeyValuePair.Create(AnomalyCauses.Key(x.c), (JsonNode?)x.n))]),
             ["list"] = new JsonArray([.. list.Select(a => (JsonNode?)a.ToJson())]),
@@ -392,6 +485,27 @@ public sealed class ProfileAnomalies : IDisposable
     }
 
     private static JsonNode? Num(double v) => double.IsFinite(v) ? Math.Round(v, 4) : null;
+
+    /// <summary>Лимиты файлов по классам и сколько файлов отдано писателю в каждый (после Пв); <c>total</c> — наибольшее за прогон.</summary>
+    public JsonObject LimitsJson()
+    {
+        int[] files;
+        lock (_gate) files = [.. _bucketFiles];
+        var o = Options;
+        return new JsonObject
+        {
+            ["general"] = new JsonObject { ["max"] = o.MaxFiles, ["files"] = files[BucketGeneral], ["classes"] = "code, jit, gc" },
+            ["gpu"] = new JsonObject { ["max"] = o.MaxFilesGpuWait, ["files"] = files[BucketGpuWait] },
+            ["machine"] = new JsonObject { ["max"] = o.MaxFilesMachine, ["files"] = files[BucketMachine] },
+            ["noticeable"] = new JsonObject
+            {
+                ["max"] = o.NoticeableFiles, ["files"] = files[BucketNoticeable],
+                ["note"] = "запас заметных: заметная аномалия, которой не хватило лимита своего класса или жетона ведра",
+            },
+            ["total"] = o.MaxFiles + o.MaxFilesGpuWait + o.MaxFilesMachine + o.NoticeableFiles,
+            ["burst"] = o.Burst, ["filesPerSecond"] = o.FilesPerSecond,
+        };
+    }
 
     /// <summary>Дождаться, пока писатель запишет всё, что в очереди. false — не успел за <paramref name="timeout"/>.</summary>
     public bool Flush(TimeSpan timeout)
@@ -463,6 +577,7 @@ public sealed class ProfileAnomalies : IDisposable
             long seq = _sequence++;
             _sinceReset++;
             _byClass[(int)a.Class]++;
+            if (a.Noticeable) _noticeable++;
             _byFile[(int)AnomalyFile.Queued]++;   // судьба — следующим вызовом SetFile или писателем
             var stored = a with { Sequence = seq, Epoch = Epoch };
             _records[seq % Capacity] = stored;
@@ -482,24 +597,50 @@ public sealed class ProfileAnomalies : IDisposable
         }
     }
 
-    /// <summary>Можно ли писать файл: лимит за прогон, ведро жетонов. Queued — жетон взят.</summary>
+    /// <summary>
+    /// Можно ли писать файл: лимит своего класса за прогон (после Пв: «ожидание GPU», «машина» — свои, остальные — общий), ведро
+    /// жетонов. Заметной, которой не хватило лимита или жетона, — запас заметных (жетон — если есть). Queued — пускают:
+    /// <paramref name="bucket"/> — чей лимит, в него файл засчитывает <see cref="Submit"/>.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]   // путь аномалии: см. CpuProfiler.WarmCapture
-    internal AnomalyFile Admit(long now)
+    internal AnomalyFile Admit(long now, AnomalyClass cls, bool noticeable, out int bucket)
     {
-        if (_files >= Options.MaxFiles)
-        {
-            if (Interlocked.Exchange(ref _limitNoted, 1) == 0) _wake.Set();   // писатель скажет в журнал один раз
-            return AnomalyFile.Limit;
-        }
-        _tokens = Math.Min(Options.Burst, _tokens + (now - _refilled) / (double)Stopwatch.Frequency * Options.FilesPerSecond);
+        var o = Options;
+        bucket = cls == AnomalyClass.GpuWait ? BucketGpuWait : cls == AnomalyClass.Machine ? BucketMachine : BucketGeneral;
+        int max = bucket == BucketGpuWait ? o.MaxFilesGpuWait : bucket == BucketMachine ? o.MaxFilesMachine : o.MaxFiles;
+        bool room = _bucketFiles[bucket] < max;
+        _tokens = Math.Min(o.Burst, _tokens + (now - _refilled) / (double)Stopwatch.Frequency * o.FilesPerSecond);
         _refilled = now;
-        if (_tokens < 1)
+        if (room && _tokens >= 1)
         {
-            Interlocked.Increment(ref _rateSkipped);
-            return AnomalyFile.Rate;
+            _tokens -= 1;
+            return AnomalyFile.Queued;
         }
-        _tokens -= 1;
-        return AnomalyFile.Queued;
+        // Заметная — приоритет: сверх лимита класса и без жетона, но из малого запаса на прогон (лавины нет).
+        if (noticeable && _bucketFiles[BucketNoticeable] < o.NoticeableFiles)
+        {
+            if (_tokens >= 1) _tokens -= 1;
+            bucket = BucketNoticeable;
+            return AnomalyFile.Queued;
+        }
+        if (noticeable && o.NoticeableFiles > 0) NoteLimit(BucketNoticeable);
+        if (!room)
+        {
+            NoteLimit(bucket);
+            return bucket == BucketGeneral ? AnomalyFile.Limit : AnomalyFile.ClassLimit;
+        }
+        Interlocked.Increment(ref _rateSkipped);
+        return AnomalyFile.Rate;
+    }
+
+    /// <summary>Лимит исчерпан: писатель скажет в журнал один раз (пишет бит только владелец — без гонки).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]   // путь аномалии: см. CpuProfiler.WarmCapture
+    internal void NoteLimit(int bucket)
+    {
+        int bit = 1 << bucket, bits = Volatile.Read(ref _limitBits);
+        if ((bits & bit) != 0) return;
+        Volatile.Write(ref _limitBits, bits | bit);
+        _wake.Set();
     }
 
     /// <summary>Свободное место копирования не уже <paramref name="zones"/>; null — все заняты писателем.</summary>
@@ -512,11 +653,11 @@ public sealed class ProfileAnomalies : IDisposable
         return null;
     }
 
-    /// <summary>Отдать заполненное место писателю.</summary>
+    /// <summary>Отдать заполненное место писателю; файл — в лимит <paramref name="bucket"/> (из <see cref="Admit"/>).</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]   // путь аномалии: см. CpuProfiler.WarmCapture
-    internal void Submit(AnomalySlot slot)
+    internal void Submit(AnomalySlot slot, int bucket)
     {
-        _files++;
+        lock (_gate) _bucketFiles[bucket]++;
         slot.Order = ++_order;
         Volatile.Write(ref slot.State, AnomalySlot.Filled);
         _wake.Set();
@@ -594,11 +735,21 @@ public sealed class ProfileAnomalies : IDisposable
         {
             _wake.WaitOne(TimeSpan.FromMilliseconds(250));
             if (_warmWanted && !_warmed) Warm();
-            if (Volatile.Read(ref _limitNoted) == 1)
+            int fresh = Volatile.Read(ref _limitBits) & ~_limitLogged;
+            if (fresh != 0)
             {
-                Volatile.Write(ref _limitNoted, 2);
-                Diagnostics.Log.Info("profile", $"аномалий больше {Options.MaxFiles} за прогон — файлы больше не пишутся; " +
-                    "список — profile.json (anomalies) и profile.stages");
+                _limitLogged |= fresh;
+                const string list = "список — profile.json (anomalies) и profile.stages";
+                if ((fresh & (1 << BucketGeneral)) != 0)
+                    Diagnostics.Log.Info("profile", $"аномалий кода, JIT, GC больше {Options.MaxFiles} за прогон — их файлы больше не пишутся; {list}");
+                if ((fresh & (1 << BucketGpuWait)) != 0)
+                    Diagnostics.Log.Info("profile", $"аномалий «ожидание GPU» больше {Options.MaxFilesGpuWait} за прогон — их файлы больше не пишутся " +
+                        $"(GPU делится с чужой программой?); {list}");
+                if ((fresh & (1 << BucketMachine)) != 0)
+                    Diagnostics.Log.Info("profile", $"аномалий «машина» больше {Options.MaxFilesMachine} за прогон — их файлы больше не пишутся " +
+                        $"(машина нагружена?); {list}");
+                if ((fresh & (1 << BucketNoticeable)) != 0)
+                    Diagnostics.Log.Info("profile", $"запас файлов заметных аномалий ({Options.NoticeableFiles} за прогон) исчерпан; {list}");
             }
             while (Next() is { } slot)
             {
@@ -766,6 +917,10 @@ internal sealed class AnomalySlot
     public AnomalyCauses Causes;
     public int MainZone;
     public double AbsoluteMs;
+
+    /// <summary>Порог заметности (отсчёты) и частота монитора (0 — неизвестна) в момент аномалии (после Пв).</summary>
+    public long NoticeableTicks;
+    public double DisplayHz;
 
     public long[] Time = [], Bytes = [], Mean = [];
     public int[] Calls = [], Parent = [];

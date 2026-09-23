@@ -293,6 +293,9 @@ public static partial class Program
                     {
                         enabled = profiler.Enabled, frames = profiler.Count(ProfilePeriod.Frame).Periods,
                         anomalies = profiler.Anomalies?.Detected ?? 0,
+                        // После Пв: заметных (кадр не короче интервала показа монитора) и кадров инструментов (запросы агента).
+                        noticeable = profiler.Anomalies?.NoticeableCount ?? 0, noticeableMs = profiler.Anomalies?.NoticeableMs,
+                        toolFrames = profiler.ToolFrames,
                     },
                     // Воспроизведение (--replay): совпали ли хеши App с записанными — тот же реплей, что у Headless.
                     replay = playback is null ? null : new

@@ -205,11 +205,16 @@ public sealed class HudDrawTests : IDisposable
                 foreach (var g in _fonts.Shape(UiFace.Num, name).ToArray())
                     Assert.True(g.GlyphId != 0, $"нет glyph'а для «{name[(int)g.Cluster]}» в «{name}» (Num)");
             foreach (string text in (string[])[Hud.AnomalyText(new Line(buf), last).ToString(), "профайлер: собираю кадры…", "профайлер включается…",
-                "аномалий нет", "GPU кадр", "кадр", "проходы", "аномалии не ловятся", "профайлера нет", "аномалия: тик 383 в кадре 1234 · 8.61 мс · ожидание GPU", "машина", "код"])
+                "аномалий нет", "GPU кадр", "кадр", "проходы", "аномалии не ловятся", "профайлера нет", "аномалия: тик 383 в кадре 1234 · 8.61 мс · ожидание GPU", "машина", "код",
+                Hud.AnomalyText(new Line(buf), last with { Noticeable = true }).ToString(), Hud.NoticeableText(new Line(buf), 3, 12).ToString()])
                 foreach (var g in _fonts.Shape(UiFace.Body, text).ToArray())
                     Assert.True(g.GlyphId != 0, $"нет glyph'а для «{text[(int)g.Cluster]}» в «{text}» (Body)");
             foreach (var g in _fonts.Shape(UiFace.Label, "ПРОФАЙЛЕР, мс").ToArray()) Assert.True(g.GlyphId != 0);
             Assert.StartsWith("аномалия: кадр ", Hud.AnomalyText(new Line(buf), last).ToString());
+            // После Пв: заметная (кадр не короче интервала показа) — «· заметная» в строке F2 и счёт заметных справа.
+            Assert.EndsWith(" · заметная", Hud.AnomalyText(new Line(buf), last with { Noticeable = true }).ToString());
+            Assert.DoesNotContain("заметная", Hud.AnomalyText(new Line(buf), last with { Noticeable = false }).ToString());
+            Assert.Equal("заметных 3 из 12", Hud.NoticeableText(new Line(buf), 3, 12).ToString());
 
             var data = Data with { Profile = digest, Frame = Data.Frame with { GpuMs = 1.25, GpuPassesMs = 1.1 } };
             var hud = new Hud { ShowHelp = false };

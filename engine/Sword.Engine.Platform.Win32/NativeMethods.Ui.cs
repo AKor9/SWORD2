@@ -13,12 +13,73 @@ internal struct MINMAXINFO
     public POINT ptMaxTrackSize;
 }
 
+/// <summary>Сведения о мониторе с именем устройства (<c>MONITORINFOEXW</c>): имя нужно <c>EnumDisplaySettingsW</c>.</summary>
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+internal struct MONITORINFOEX
+{
+    public uint cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public uint dwFlags;
+
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+    public string szDevice;
+}
+
+/// <summary>
+/// Режим экрана (<c>DEVMODEW</c>, 220 байт): нужны только размер структуры и частота обновления — остальные поля не читаются,
+/// поэтому разметка явная по смещениям Windows SDK.
+/// </summary>
+[StructLayout(LayoutKind.Explicit, Size = 220)]
+internal struct DEVMODE
+{
+    [FieldOffset(68)] public ushort dmSize;
+    [FieldOffset(184)] public uint dmDisplayFrequency;
+}
+
 /// <summary>
 /// Вызовы Win32 для окон инструментов: рама, ожидание событий вместо кадров на всю мощность,
-/// форма курсора, буфер обмена, DPI. Отдельно от <see cref="Win32"/>: игре они не нужны.
+/// форма курсора, буфер обмена, DPI, частота монитора. Отдельно от <see cref="Win32"/>: игре они не нужны.
 /// </summary>
 internal static class Win32Ui
 {
+    /// <summary>Сменился режим экрана (разрешение, частота) — частоту монитора окна перечитать.</summary>
+    public const uint WM_DISPLAYCHANGE = 0x007E;
+
+    /// <summary>Окно перемещено (в том числе на другой монитор без перетаскивания: Win+Shift+стрелка).</summary>
+    public const uint WM_MOVE = 0x0003;
+
+    public const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+
+    /// <summary>Текущий режим экрана у <c>EnumDisplaySettingsW</c>.</summary>
+    public const int ENUM_CURRENT_SETTINGS = -1;
+
+    [DllImport("user32.dll")]
+    public static extern nint MonitorFromWindow(nint hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetMonitorInfoEx(nint hMonitor, ref MONITORINFOEX lpmi);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "EnumDisplaySettingsW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumDisplaySettings(string lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
+
+    /// <summary>
+    /// Частота обновления монитора (<c>MonitorFromWindow</c> окна — монитор, на котором большая часть окна), Гц: имя устройства
+    /// монитора → текущий режим экрана. 0 — не узнать (нет монитора, драйвер вернул 0 или 1 — «по умолчанию железа»). Выделяет
+    /// (имя устройства — строка): зовётся на событиях окна, не каждый кадр.
+    /// </summary>
+    public static int RefreshRate(nint monitor)
+    {
+        if (monitor == nint.Zero) return 0;
+        var info = new MONITORINFOEX { cbSize = (uint)Marshal.SizeOf<MONITORINFOEX>(), szDevice = "" };
+        if (!GetMonitorInfoEx(monitor, ref info) || string.IsNullOrEmpty(info.szDevice)) return 0;
+        var mode = new DEVMODE { dmSize = 220 };
+        if (!EnumDisplaySettings(info.szDevice, ENUM_CURRENT_SETTINGS, ref mode)) return 0;
+        return mode.dmDisplayFrequency > 1 ? (int)mode.dmDisplayFrequency : 0;
+    }
+
     public const uint WM_NULL = 0x0000;
     public const uint WM_ERASEBKGND = 0x0014;
     public const uint WM_SETCURSOR = 0x0020;

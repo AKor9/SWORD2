@@ -137,6 +137,7 @@ public static class ChromeTrace
             w.WriteNumber("ticks", p.Header.Ticks);
             w.WriteNumber("alpha", Math.Round(p.Header.Alpha, 4));
             w.WriteBoolean("service", p.Header.Service);
+            if (p.Header.Tools) w.WriteBoolean("tools", true);   // после Пв: кадр инструментов (запросы агента)
         }
         w.WriteNumber("gc", c.Collections);
         w.WriteNumber("jit", c.JitMethods);

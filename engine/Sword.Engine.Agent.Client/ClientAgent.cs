@@ -68,10 +68,15 @@ public sealed class ClientAgent : IClientTool, ITickGate
 
     // ── кадр ───────────────────────────────────────────────────────────────
 
-    public void Serve(Simulation simulation, ulong frame)
+    /// <summary>
+    /// Точка обслуживания кадра: запросы агента из очереди (не дольше <see cref="ServiceBudget"/>). Истина — выполнен хотя бы один:
+    /// кадр — кадр инструментов (после Пв: любой запрос выделяет на главном потоке и тратит время, которого у игры нет, — кадр
+    /// служебный, в средних и бюджете его нет, профайлер не судит его как кадр).
+    /// </summary>
+    public bool Serve(Simulation simulation, ulong frame)
     {
         _host.LastFrame = frame;
-        _host.Service.Serve(new ServiceContext(simulation, frame), ServiceBudget);
+        return _host.Service.Serve(new ServiceContext(simulation, frame), ServiceBudget) > 0;
     }
 
     public FrameCapture? Capture(ulong frame)

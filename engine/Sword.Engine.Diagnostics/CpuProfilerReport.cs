@@ -59,6 +59,7 @@ public sealed partial class CpuProfiler
             ["enabled"] = Enabled,
             ["frames"] = frames,
             ["serviceFrames"] = service,
+            ["toolFrames"] = ToolFrames,
             ["ticks"] = Count(ProfilePeriod.Tick).Periods,
             ["mismatches"] = Mismatches,
             ["per"] = period == ProfilePeriod.Frame ? "frame" : "tick",
@@ -88,7 +89,8 @@ public sealed partial class CpuProfiler
             json["anomalies"] = new JsonObject
             {
                 ["detected"] = a["detected"]?.DeepClone(), ["sinceReset"] = a["sinceReset"]?.DeepClone(), ["written"] = a["written"]?.DeepClone(),
-                ["byClass"] = a["byClass"]?.DeepClone(), ["threshold"] = a["threshold"]?.DeepClone(), ["directory"] = a["directory"]?.DeepClone(),
+                ["byClass"] = a["byClass"]?.DeepClone(), ["noticeable"] = a["noticeable"]?.DeepClone(), ["display"] = a["display"]?.DeepClone(),
+                ["threshold"] = a["threshold"]?.DeepClone(), ["limits"] = a["limits"]?.DeepClone(), ["directory"] = a["directory"]?.DeepClone(),
                 ["last"] = a["list"]?.DeepClone(),
             };
         }
@@ -110,7 +112,11 @@ public sealed partial class CpuProfiler
             ["runtime"] = RuntimeJson(RuntimeStats(period)),
             ["zones"] = new JsonArray([.. zones.Select(z => (JsonNode?)ZoneJson(z))]),
         };
-        if (period == ProfilePeriod.Frame) json.Insert(1, "service", service);
+        if (period == ProfilePeriod.Frame)
+        {
+            json.Insert(1, "service", service);
+            json.Insert(2, "toolFrames", ToolFrames);   // после Пв: из служебных — кадры инструментов (запросы агента)
+        }
         // Точка Пг: GPU-время кадра и проходов (зоны вида Gpu) — своей секцией рядом с зонами CPU.
         if (period == ProfilePeriod.Frame && GpuJson(stats, top) is { } gpu) json["gpu"] = gpu;
         json["history"] = new JsonArray([.. recent.Select(h =>
@@ -122,6 +128,7 @@ public sealed partial class CpuProfiler
                     ["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks),
                     ["alpha"] = Round(h.Alpha, 4), ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes, ["service"] = h.Service,
                     ["gpuFrame"] = h.GpuFrame == ulong.MaxValue ? null : h.GpuFrame,
+                    ["tools"] = h.Tools ? true : null,   // после Пв: кадр инструментов — почему служебный
                 }
                 : new JsonObject
                 {

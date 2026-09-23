@@ -30,7 +30,10 @@ internal static class ProfileTools
                 "дорогой (JIT медленнее), events=false — выключить. anomalies — захват аномалий (точка Пв): кадр или тик дольше порога " +
                 "(по умолчанию — медиана последних 128 + max(2 мс кадр / 1 мс тик, 0.75 медианы); threshold — абсолютный порог, мс, 0 — снова " +
                 "по медиане) пишется файлом anomaly-<frame|tick>-N.json (зоны, причины, события окна, машина) и трассой; в ответе — список: " +
-                "период, мс, класс причины (code/jit/gc/gpu/machine), главная зона, файл. trace=true — кольцо в Chrome Trace JSON " +
+                "период, мс, класс причины (code/jit/gc/gpu/machine), главная зона, файл; noticeable — заметная (кадр App не короче " +
+                "интервала показа монитора, display.noticeableMs); файлов — по классам (limits: код/JIT/GC 20, ожидание GPU 5, машина 5, " +
+                "запас заметных 10). Кадры App, в которых точка обслуживания выполняла запросы агента (и этот вызов), — служебные " +
+                "(toolFrames, history[].tools): не в средних и как кадр не судятся. trace=true — кольцо в Chrome Trace JSON " +
                 "(Perfetto, chrome://tracing). gpu (App, точка Пг) — GPU-время кадра (frame) и проходов графа (passes, мс на кадр: " +
                 "среднее, медиана, p99, максимум за окно; lagFrames — данные кадра N − 3, кадры в полёте); один кадр — render.graph. " +
                 "Меняет только профайлер, не симуляцию.",
@@ -119,6 +122,8 @@ internal static class ProfileTools
                     data["note"] = host.Mode == "app" ? "включение и выключение — с начала следующего кадра" : "включение и выключение — с начала следующего тика";
                 data["periods"] = section?["count"]?.DeepClone() ?? 0;
                 if (section?["service"] is { } service) data["serviceFrames"] = service.DeepClone();
+                // После Пв: из служебных — кадры инструментов (точка обслуживания выполняла запросы агента, в том числе этот).
+                if (section?["toolFrames"] is { } toolFrames) data["toolFrames"] = toolFrames.DeepClone();
                 data["window"] = section?["window"]?.DeepClone() ?? 0;
                 data["frames"] = report["frames"]?["count"]?.DeepClone() ?? 0;
                 data["ticks"] = report["ticks"]?["count"]?.DeepClone() ?? 0;

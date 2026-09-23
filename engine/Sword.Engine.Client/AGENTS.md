@@ -82,6 +82,13 @@
 - Захват аномалий (точка Пв) настраивает exe на `ClientHost.Profiler` (`CaptureAnomalies`: каталог прогона, порог
   `--profile-threshold`), клиент движка о нём не знает; `frame.wait` (ограничитель кадров) заводится видом
   `ProfileZoneKind.Idle`. То, что между кадрами (вершина цикла `Run`), в аномалию кадра не попадает — как и в зоны.
+- Доводка после Пв (решения пользователя): **кадр инструментов** — `IClientTool.Serve` вернул истину (инструмент выполнил
+  работу: запросы агента) — служебный: не в среднем, худшем кадре и байтах итога (`ClientRunReport.ToolFrames`, входят в
+  `ServiceFrames`), профайлеру — `EndFrame(alpha, service, tools: true)` (пометка `tools` в кольце, как кадр не судится; тик кадра
+  судится). Пустая точка обслуживания (очередь пуста) кадр не помечает. Частота монитора — `IWindow.RefreshHz` (поле окна,
+  читается каждый кадр; изменилась — `Profiler.DisplayHz`: порог «заметной» аномалии), в строке журнала старта — `монитор N Гц`,
+  в итоге — `ClientRunReport.DisplayHz`. Проверка — `ProfilerAnomalyTests` (профайлер), `verify.ps1` `agent-smoke`
+  (`toolFrames` у `profile.stages` живой игры).
 
 - GPU-время (точка Пг) — из `Renderer.Gpu`: `FrameStats.GpuMs`/`GpuPassesMs` — последнего разобранного кадра (на 3 раньше;
   HUD, `report.stats`); бенч — на каждый **новый** разобранный кадр (`Sequence`), не на каждый кадр CPU (`FrameBench.GpuFrame`,

@@ -56,6 +56,17 @@ public sealed class Win32Window : IWindow
 
     public int Dpi { get; private set; } = 96;
 
+    /// <summary>
+    /// Частота обновления монитора окна, Гц (0 — не узнать): при создании, смене режима экрана (<c>WM_DISPLAYCHANGE</c>), смене
+    /// монитора с другим масштабом (<c>WM_DPICHANGED</c>), в конце перетаскивания окна (<c>WM_EXITSIZEMOVE</c> — окно могли
+    /// перенести на другой монитор) и при перемещении окна на другой монитор без перетаскивания (<c>WM_MOVE</c> со сменой
+    /// монитора: Win+Shift+стрелка, <c>SetWindowPos</c> — монитор того же масштаба <c>WM_DPICHANGED</c> не шлёт).
+    /// </summary>
+    public int RefreshHz { get; private set; }
+
+    /// <summary>Монитор, чья частота в <see cref="RefreshHz"/> (<c>MonitorFromWindow</c> не выделяет — сверка на каждом WM_MOVE).</summary>
+    private nint _monitor;
+
     /// <summary>Масштаб монитора окна: 1 при 100 %, 1,5 при 150 %.</summary>
     public float DpiScale => Dpi / 96f;
 
@@ -167,6 +178,7 @@ public sealed class Win32Window : IWindow
                 Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
 
         Dpi = (int)Math.Max(96, Win32Ui.GetDpiForWindow(Handle));
+        ReadRefreshRate(Handle);
         Win32.GetClientRect(Handle, out var client);
         Width = Math.Max(1, client.Right - client.Left);
         Height = Math.Max(1, client.Bottom - client.Top);
@@ -315,6 +327,13 @@ public sealed class Win32Window : IWindow
         }
     }
 
+    /// <summary>Монитор окна и его частота (выделяет — только на событиях окна).</summary>
+    private void ReadRefreshRate(nint hWnd)
+    {
+        _monitor = Win32Ui.MonitorFromWindow(hWnd, Win32Ui.MONITOR_DEFAULTTONEAREST);
+        RefreshHz = Win32Ui.RefreshRate(_monitor);
+    }
+
     private nint WindowProc(nint hWnd, uint msg, nint wParam, nint lParam)
     {
         switch (msg)
@@ -352,7 +371,17 @@ public sealed class Win32Window : IWindow
 
             case Win32Ui.WM_EXITSIZEMOVE:
                 _inSizeMove = false;
+                ReadRefreshRate(hWnd);   // окно могли перенести на другой монитор
                 return nint.Zero;
+
+            // Окно перенесли без перетаскивания (Win+Shift+стрелка, SetWindowPos): на другой монитор — перечитать частоту.
+            case Win32Ui.WM_MOVE:
+                if (Win32Ui.MonitorFromWindow(hWnd, Win32Ui.MONITOR_DEFAULTTONEAREST) != _monitor) ReadRefreshRate(hWnd);
+                return nint.Zero;
+
+            case Win32Ui.WM_DISPLAYCHANGE:
+                ReadRefreshRate(hWnd);
+                return Win32.DefWindowProc(hWnd, msg, wParam, lParam);
 
             // Фон окна рисует свопчейн; стирание системой кистью давало мелькание при изменении размера.
             case Win32Ui.WM_ERASEBKGND:
@@ -373,6 +402,7 @@ public sealed class Win32Window : IWindow
             case Win32Ui.WM_DPICHANGED:
             {
                 Dpi = Math.Max(96, (int)(wParam.ToInt64() & 0xFFFF));
+                ReadRefreshRate(hWnd);
                 if (_resizable)
                 {
                     var r = Marshal.PtrToStructure<RECT>(lParam);

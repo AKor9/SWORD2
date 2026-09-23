@@ -74,7 +74,16 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
   - виды зон — `Zone(имя, ProfileZoneKind)`: ожидание GPU (`frame.fenceWait`, `frame.present` — рендер), простой
     (`frame.wait` — клиент); Diagnostics имён чужих зон не знает;
   - период, прерванный ожиданием вне кода (останов агента посреди тика), — `Interrupt()`: закроется служебным (в кольце, не в
-    итогах, не судится); зовёт тот, кто ждёт (`SimulationLoop.Break`).
+    итогах, не судится); зовёт тот, кто ждёт (`SimulationLoop.Break`);
+  - доводка после Пв (решения пользователя): порог суда не менялся; **заметная** — аномалия кадра не короче интервала показа
+    (`CpuProfiler.DisplayHz` задаёт владелец кадров — клиент по монитору окна; 0 — `ProfileAnomalies.DefaultDisplayIntervalMs`,
+    60 Гц); порог — поле `ProfileAnomalies.NoticeableTicks` (путь аномалии читает поля, а не свойства), тик без кадров и кадр
+    инструментов — не заметные; **лимиты файлов по классам** — `AnomalyOptions.MaxFiles` (код, JIT, GC; 20), `MaxFilesGpuWait` (5),
+    `MaxFilesMachine` (5), запас заметных `NoticeableFiles` (10: заметная сверх лимита класса или без жетона); выбор — `Admit`
+    (место лимита — `bucket`), счёт — `Submit` (только отданное писателю), исчерпанный лимит — `NoteLimit` (бит; писатель говорит
+    в журнал один раз); без файла по лимиту класса — `AnomalyFile.ClassLimit`; **кадр инструментов** — `EndFrame(alpha, service,
+    tools)`: служебный с пометкой `ProfileHeader.Tools` (`ToolFrames`), как кадр не судится и в окно медианы не идёт, аномальный
+    тик кадра — судится (`FrameAnomaly` → `Capture(…, toolsFrame: true)`).
 - Chrome Trace (точка Пв) — `ChromeTrace`: кольцо (`CpuProfiler.WriteTrace`: «X» кадров и тиков с настоящим началом —
   `Series.RingStart`, зоны — подряд из итогов периода), лента зон (пары «B»/«E» — `ProfileTimeline.Read`, диагностический режим) и
   события среды (pid 3). Вложенность «X» должна оставаться верной (дочерние обрезаются по родителю) — тест.
@@ -98,6 +107,8 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
 — JSON и вложенность; сводка F2; фоновый JIT и гибридный CPU в вердикте; тесты со слушателем событий — одной коллекцией:
 слушатели процесса делят сеанс EventPipe),
 `ProfilerGpuTests` (точка Пг: зоны `Gpu` вне дерева CPU, `frames.gpu`, сводка F2, 0 Б, аномалия «ожидание GPU» — секция `gpu`),
+`ProfilerAnomalyTests` доводки после Пв (заметность по интервалу показа, лимиты по классам и запас заметных, кадр инструментов не
+судится — его тик судится, 0 Б в кадрах инструментов),
 `tests/Sword.Engine.Introspection.Tests/MachineVerdictTests` (перебор и бюджет — «JIT во время замера»),
 `tests/Sword.Game.Tests/ArenaTests` (толпа 32 врагов с профайлером — 0 Б/тик, те же хеши, зоны всех систем и
 инвариантов), `tests/Sword.Engine.Agent.Tests/ProfileToolsTests` (`profile.stages`), `tests/Sword.Benchmarks`

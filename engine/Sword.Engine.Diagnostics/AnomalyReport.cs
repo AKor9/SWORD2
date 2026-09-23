@@ -47,6 +47,15 @@ internal static class AnomalyReport
         };
         json["class"] = AnomalyCauses.Key(record.Class);
         json["classText"] = AnomalyCauses.Word(record.Class);
+        // После Пв: заметная — кадр App не короче интервала показа (порог суда — «дольше обычного», заметность — «видно глазу»).
+        json["noticeable"] = record.Noticeable;
+        json["display"] = new JsonObject
+        {
+            ["noticeableMs"] = R(CpuProfiler.Ms(slot.NoticeableTicks)),
+            ["hz"] = slot.DisplayHz > 0 ? Math.Round(slot.DisplayHz, 3) : null,
+            ["source"] = slot.DisplayHz > 0 ? "monitor" : "default",
+            ["periodMs"] = R(CpuProfiler.Ms(slot.Header.Time)),
+        };
         json["causes"] = record.Causes.ToJson();
         json["causesNote"] = "excessMs — сверх медианы; jitMs — компиляция на главном потоке; gcPauseMs — паузы сборок; gpuWaitMs — ожидание GPU " +
             "(frame.fenceWait, frame.present) сверх среднего — по проходам GPU: секция gpu; offCpuMs — поток вне CPU вне ожиданий (другие процессы, ОС); " +
@@ -240,6 +249,7 @@ internal static class AnomalyReport
             json["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks);
             json["alpha"] = Math.Round(h.Alpha, 4);
             json["service"] = h.Service;
+            if (h.Tools) json["tools"] = true;   // после Пв: кадр инструментов (запросы агента) — служебный, как кадр не судится
             if (h.GpuFrame != ulong.MaxValue) json["gpuFrame"] = h.GpuFrame;   // точка Пг: чьи GPU-времена в кадре
         }
         else if (h.Frame != ulong.MaxValue) json["inFrame"] = h.Frame;

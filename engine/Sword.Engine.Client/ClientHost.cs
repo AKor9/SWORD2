@@ -114,7 +114,9 @@ public sealed record ClientOptions
 /// замера, без него — с конца первого кадра до выхода; загрузка системы другими процессами, частота, GC, JIT и вердикт
 /// «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт). Точка Пг: <see cref="Passes"/> — проходы последнего
 /// кадра с GPU-временем того же кадра (после ожидания простоя GPU в конце прогона), <see cref="Gpu"/> — GPU-время этого кадра
-/// целиком и сумма проходов.
+/// целиком и сумма проходов. После Пв (решение пользователя): служебные — ещё кадры инструментов (<see cref="ToolFrames"/>:
+/// точка обслуживания выполняла запросы агента — выделения и время агента, а не игры); <see cref="DisplayHz"/> — частота
+/// монитора окна в конце прогона (0 — неизвестна), по ней профайлер судит «заметность» аномалии кадра.
 /// </summary>
 public sealed record ClientRunReport(
     string ExitReason,
@@ -141,7 +143,9 @@ public sealed record ClientRunReport(
     FrameBenchReport? Bench,
     IReadOnlyList<RenderPassSummary> Passes,
     MachineReport? Machine = null,
-    GpuFrameReport? Gpu = null);
+    GpuFrameReport? Gpu = null,
+    int ToolFrames = 0,
+    int DisplayHz = 0);
 
 /// <summary>
 /// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
@@ -182,6 +186,9 @@ public sealed class ClientHost : IDisposable
     private readonly bool _vsync;
     private readonly FrameStatsMeter _meter = new();
     private int _screenshots;
+
+    /// <summary>Частота монитора окна, отданная профайлеру (0 — неизвестна).</summary>
+    private int _displayHz;
 
     /// <summary>Исключение кадра, нарисованного из системного цикла перетаскивания; бросается в главном цикле.</summary>
     private ExceptionDispatchInfo? _liveResizeError;
@@ -234,6 +241,9 @@ public sealed class ClientHost : IDisposable
         simulation?.AttachProfiler(Profiler);
         if (options.Profile) Profiler.SetEnabled(true);
         if (options.ProfileEvents) Profiler.SetEvents(true);
+        // После Пв: интервал показа — частота монитора окна (порог «заметной» аномалии кадра); окно перенесли — обновляется в кадре.
+        _displayHz = window.RefreshHz;
+        Profiler.DisplayHz = _displayHz;
         MachineSample.Take();   // первый снимок машины — здесь: его разовая компиляция и статика — не в кадрах Run
         try
         {
@@ -250,7 +260,7 @@ public sealed class ClientHost : IDisposable
         _window.LiveResize += OnLiveResize;
         Log.Info("input", "привязки: " + string.Join(", ", _bindings.Keys.Select(p => $"{p.Key}={p.Value}")));
         Log.Info("client", $"{_renderer.AdapterName}, {_renderer.AdapterVramMb} МБ, {window.Width}×{window.Height}, " +
-            $"вертикальная синхронизация {(_vsync ? "вкл" : "выкл")}" +
+            $"вертикальная синхронизация {(_vsync ? "вкл" : "выкл")}, монитор {(_displayHz > 0 ? $"{_displayHz} Гц" : "— Гц (неизвестно)")}" +
             (options.GpuValidation ? ", отладочный слой D3D12 с GPU-валидацией" : options.DebugLayer ? ", отладочный слой D3D12" : ""));
     }
 
@@ -268,7 +278,7 @@ public sealed class ClientHost : IDisposable
         long last = Stopwatch.GetTimestamp(), lastSim = last;
         long lastAllocated = GC.GetAllocatedBytesForCurrentThread();
         int lastGen0 = GC.CollectionCount(0), lastResizes = _resizes;
-        int frames = 0, serviceFrames = 0, cycle = 0;
+        int frames = 0, serviceFrames = 0, toolFrames = 0, cycle = 0;
         double firstFrameMs = 0, frameMsSum = 0, frameMsMax = 0;
         long allocatedSum = 0;
         int gen0Sum = 0;
@@ -338,7 +348,9 @@ public sealed class ClientHost : IDisposable
             int ticks = _clock?.RunFrame(seconds) ?? 0;
             profiler.End(_zones.Simulate);
             profiler.Begin(_zones.Tools);
-            ServeTools();   // точка обслуживания инструментов: тики кадра сыграны, мир согласован (и на паузе)
+            // Точка обслуживания инструментов: тики кадра сыграны, мир согласован (и на паузе). Выполнены запросы агента — кадр
+            // инструментов (после Пв): служебный — не в среднем и бюджете кадра, профайлер не судит его как кадр.
+            bool toolWork = ServeTools();
             profiler.End(_zones.Tools);
             _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds, _meter.Stats(ticks, _vsync));
             profiler.Begin(_zones.Extract);
@@ -368,8 +380,14 @@ public sealed class ClientHost : IDisposable
             long allocated = GC.GetAllocatedBytesForCurrentThread();
             int gen0 = GC.CollectionCount(0);
             double ms = Stopwatch.GetElapsedTime(last, now).TotalMilliseconds;
-            // Служебный кадр: первый, со сменой размера с конца прошлого кадра (и из цикла перетаскивания рамки), снимок.
+            // Служебный кадр: первый, со сменой размера с конца прошлого кадра (и из цикла перетаскивания рамки), снимок; после Пв —
+            // и кадр инструментов (профайлеру — отдельной пометкой: в кольце видно, почему кадр не судился).
             bool service = frames == 0 || _resizes != lastResizes || shotPath is not null || _toolCaptured;
+            if (_window.RefreshHz != _displayHz)
+            {
+                _displayHz = _window.RefreshHz;   // окно перенесли на монитор с другой частотой (поле окна — без вызовов ОС)
+                profiler.DisplayHz = _displayHz;
+            }
             // Бенч: итоги профайлера — кадры замера (первый кадр после прогрева — первый в итогах).
             if (bench is not null && !profileMeasuring && FrameBench.Measuring(simTime))
             {
@@ -378,7 +396,12 @@ public sealed class ClientHost : IDisposable
                 takeMachine = true;
             }
             if (bench is null && frames == 0) takeMachine = true;
-            profiler.EndFrame(_view.Alpha, service || lastBenchFrame);
+            profiler.EndFrame(_view.Alpha, service || lastBenchFrame, toolWork);
+            if (toolWork)
+            {
+                toolFrames++;
+                service = true;
+            }
             var gpu = _renderer.Gpu;   // точка Пг: GPU-время последнего разобранного кадра (на 3 раньше этого)
             _meter.Frame(ms, cpuMs, _renderer.LastFenceWaitMs, gpu.Valid ? gpu.FrameMs : 0, gpu.Valid ? gpu.PassesMs : 0);
             // Последний кадр замера (со снимком — ожидание GPU и PNG) в замер не входит: SWORD копит шаг кадра, измеренный
@@ -465,7 +488,9 @@ public sealed class ClientHost : IDisposable
             Bench: benchReport,
             Passes: _renderer.Gpu.Join(_renderer.Graph.LastFrame),
             Machine: machine,
-            Gpu: _renderer.Gpu.Report());
+            Gpu: _renderer.Gpu.Report(),
+            ToolFrames: toolFrames,
+            DisplayHz: _displayHz);
     }
 
     private long _benchGpu;
@@ -559,10 +584,13 @@ public sealed class ClientHost : IDisposable
 
     private bool _toolCaptured;
 
-    private void ServeTools()
+    /// <summary>Точка обслуживания инструментов; истина — хоть один выполнил работу (кадр инструментов, после Пв).</summary>
+    private bool ServeTools()
     {
-        if (_simulation is null) return;
-        foreach (var t in _tools) t.Serve(_simulation, _frame + 1);
+        if (_simulation is null) return false;
+        bool work = false;
+        foreach (var t in _tools) work |= t.Serve(_simulation, _frame + 1);
+        return work;
     }
 
     /// <summary>

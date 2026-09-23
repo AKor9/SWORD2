@@ -32,8 +32,12 @@ public interface ITickGate
 /// </summary>
 public interface IClientTool
 {
-    /// <summary>Точка обслуживания: тики кадра сыграны, мир согласован. <paramref name="frame"/> — номер кадра (с 1).</summary>
-    void Serve(Simulation simulation, ulong frame);
+    /// <summary>
+    /// Точка обслуживания: тики кадра сыграны, мир согласован. <paramref name="frame"/> — номер кадра (с 1). Истина — инструмент
+    /// выполнил работу (запросы агента): кадр — кадр инструментов, служебный (после Пв, решение пользователя: не в среднем и
+    /// бюджете кадра, профайлер не судит его как кадр). Ложь — только проверил очередь.
+    /// </summary>
+    bool Serve(Simulation simulation, ulong frame);
 
     /// <summary>Снять ли этот кадр: null — нет.</summary>
     FrameCapture? Capture(ulong frame);

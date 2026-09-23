@@ -234,8 +234,10 @@ public sealed class Hud
         {
             d.Text(UiFace.Body, 12 * s, new(x, y), AnomalyColour(last.Class), AnomalyText(new Line(buf), last));
             y += rh;
+            // После Пв: справа — заметных за прогон из всех (заметная — кадр не короче интервала показа монитора).
+            float cw = d.TextRight(UiFace.Body, 12 * s, new(right, y), Dim, NoticeableText(new Line(buf), anomalies.NoticeableCount, anomalies.Detected));
             var zone = new Line(buf).S(last.ZoneName.AsSpan(0, Math.Min(last.ZoneName.Length, 64))).S(" +").F(last.ZoneExcessMs, "F2").S(" мс").Text;
-            d.TextFit(UiFace.Num, 12 * s, new(x, y), Dim, zone, width);
+            d.TextFit(UiFace.Num, 12 * s, new(x, y), Dim, zone, width - cw - 8 * s);
             y += rh;
         }
         else
@@ -252,14 +254,22 @@ public sealed class Hud
     /// <summary>Своё время корня кадра — вне всех зон (строка F2).</summary>
     public const string FrameSelfName = "frame (вне зон)";
 
-    /// <summary>Первая строка аномалии F2: «аномалия: кадр 1234 · 8.61 мс · JIT» (тик в кадре — «тик 383 в кадре 1234»).</summary>
+    /// <summary>
+    /// Первая строка аномалии F2: «аномалия: кадр 1234 · 8.61 мс · JIT» (тик в кадре — «тик 383 в кадре 1234»); заметная (после Пв:
+    /// кадр не короче интервала показа монитора) — ещё «· заметная».
+    /// </summary>
     public static ReadOnlySpan<char> AnomalyText(Line line, in ProfileAnomaly a)
     {
         line = line.S("аномалия: ");
         if (a.TickTrigger && a.Tick is { } tick) line = line.S("тик ").I((long)tick).S(" в кадре ").I((long)a.Number);
         else line = line.S(a.Period == ProfilePeriod.Frame ? "кадр " : "тик ").I((long)a.Number);
-        return line.S(RuntimeSeparator).F(a.Ms, "F2").S(" мс").S(RuntimeSeparator).S(AnomalyCauses.Word(a.Class)).Text;
+        line = line.S(RuntimeSeparator).F(a.Ms, "F2").S(" мс").S(RuntimeSeparator).S(AnomalyCauses.Word(a.Class));
+        return a.Noticeable ? line.S(RuntimeSeparator).S(ProfileAnomaly.NoticeableWord).Text : line.Text;
     }
+
+    /// <summary>Счёт заметных F2 (после Пв): «заметных 3 из 12» — за прогон.</summary>
+    public static ReadOnlySpan<char> NoticeableText(Line line, long noticeable, long detected) =>
+        line.S("заметных ").I(noticeable).S(" из ").I(detected).Text;
 
     /// <summary>Цвет аномалии: машина — плохо (не код игры), остальное — акцент.</summary>
     public static uint AnomalyColour(AnomalyClass c) => c == AnomalyClass.Machine ? Bad : Accent;
