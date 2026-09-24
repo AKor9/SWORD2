@@ -35,11 +35,26 @@ public static class CorpseInvariants
     public const float PointTolerance = 0.06f, ExcessTolerance = 1.2f;
 
     /// <summary>
-    /// <c>physics.ground</c>: глубина торца капсулы трупа в земле после шага, м. Застарелая глубина уходит не быстрее скорости выталкивания, а
-    /// поза смерти бывает в земле: живой, стоящий у кромки ступени, держит стопу в подступенке — до 15 см (замер s8), клинок под кучей трупов
-    /// вдавлен до 11 см. Допуск — ~2× к худшему: ловит провал сквозь землю, а не выход застарелой глубины.
+    /// <c>physics.ground</c>: глубина торца капсулы трупа в земле после шага, м, без проверки выхода (7з-2; было 0,3 м). Мир после пар и трение,
+    /// не топящее застарелую глубину (7з-2), — тело, зажатое кучей или живым, в землю не уходит: клинок под кучей тонул до 7,8 см, стопа в толпе
+    /// трупов — до 2,6 см (исправлено). Остаётся медленный выход клинка, зажатого между землёй и телом другого трупа (оба касания — застарелые:
+    /// земля выводит клинок, он входит в тело трупа, пара возвращает его — 0,4…1 мм за тик): до 2,7 см (толпа сценария «Бой»). Глубже допуска —
+    /// только выходя: не дольше, чем выход от глубины начала со скоростью ¼ <c>PopSpeed</c>, плюс <see cref="GroundExitGrace"/>, и никогда не
+    /// глубже <see cref="FreshGroundTolerance"/> (поза смерти: живой у кромки ступени держит стопу в подступенке — до 15 см; команда сцены).
     /// </summary>
-    public const float GroundTolerance = 0.3f;
+    public const float GroundTolerance = 0.03f;
+
+    /// <summary><c>physics.ground</c>: глубже этого — сразу, м (прежний допуск 7з: провал сквозь землю).</summary>
+    public const float FreshGroundTolerance = 0.3f;
+
+    /// <summary>
+    /// <c>physics.ground</c>: запас времени на выход из земли, с, сверх <c>(глубина начала − допуск) / (¼ PopSpeed)</c>. Выход не монотонен:
+    /// труп, опрокидываясь через кромку ступени, в первые тики вдавливает стопу в подступенок ещё на 8…10 мм (так и в master — поведение 7з), и
+    /// правило «глубина уменьшилась за тик не меньше чем на ¼ <c>PopSpeed·dt</c>» (первая редакция 7з-2) ловило это у 28 мест трупа из 205 у
+    /// ступеней пирамиды пака (проверка 7з-2). Замер проверки: без запаса — 2 места из 205 (выход дольше на 2…6 тиков), с 0,125 с — 0; толпа
+    /// сценария «Бой» (4 прогона по 3600 тиков) — 0, а в master (клинок под кучей тонет) — 294…658 нарушений на прогон у 3…9 тел.
+    /// </summary>
+    public const float GroundExitGrace = 0.25f;
 
     /// <summary>
     /// <c>physics.inArena</c>: выход торца капсулы за стену или в колонну, м, без проверки выхода. Больше — только если выходит: за тик
@@ -49,12 +64,21 @@ public static class CorpseInvariants
     public const float ArenaTolerance = 0.01f;
 
     /// <summary>
-    /// <c>physics.energy</c>: рост энергии трупа (сочленения без толчков живых) за подшаг, Дж. Одна итерация решателя при переходе в труп, ударах
-    /// о землю и друг о друга даёт всплески (замер — README «7з», пак): s8 — до 10,6 Дж, s4 — 5,1, толпа 32 трупов — 10,1 (синтетический риг тестов:
-    /// s4 — 20,1, толпа — 12,8); допуск ~2× к худшему на паке — ловит «взрыв» и сустав, рывком стягивающий оторванное тело, а не мелкую накачку
-    /// в куче (её ловят проверки покоя сценариев).
+    /// <c>physics.energy</c>: рост энергии за подшаг трупа без толчков живых и без контакта с другим трупом, Дж (7з-2: труп на трупе — энергия
+    /// передаётся, рост одного — не накачка). Всплески при ударе о землю — унаследованный разрыв сустава сводился одной жёсткой поправкой — с 7з-2
+    /// сводится не быстрее <see cref="PhysicsSettings.JointPopSpeed"/>: замер (пак) — s8 ≤ 5,7 Дж (было до 17,3), s4 — 4,4, толпа 32 трупов — 6,2
+    /// (было 25 Дж допуска при замерах до 10,6); проверка 7з-2: 205 мест трупа у ступеней — ≤ 8,2 Дж (p95 5,8), 40 вариантов толпы 32 трупов
+    /// (смерть на тиках 600…1185) — ≤ 8,9. Ловит «взрыв» и сустав, рывком стягивающий оторванное тело.
     /// </summary>
-    public const float EnergyTolerance = 25f;
+    public const float EnergyTolerance = 12.5f;
+
+    /// <summary>
+    /// <c>physics.energy</c>: рост за подшаг суммы энергий всех трупов, касавшихся другого трупа, Дж (передача внутри суммы сокращается). Замер
+    /// исполнителя 7з-2 — ≤ 3,3 Дж на сценарии <c>crowd32</c>; проверка 7з-2 на 40 вариантах толпы (смерть на тиках 600…1185) — до 14,6 Дж (с
+    /// допуском 12,5 — ложное нарушение у одного варианта из 40), наибольший рост одного трупа в контакте — до 11,3. Сумма — по всей арене, не по
+    /// группе касавшихся: рост одной группы может скрыть убыль другой (по группам — до 14,2 Дж). Допуск ~1,7× к худшему.
+    /// </summary>
+    public const float PairedEnergyTolerance = 25f;
 
     /// <summary><c>physics.pushes</c>: запас над долей 1 бюджетов и над пределами скорости выталкивания и Δv (округление float).</summary>
     public const float PushTolerance = 1e-3f;
@@ -239,12 +263,18 @@ public static class CorpseInvariants
 
     /// <summary>
     /// <c>physics.ground</c> (после Physics) — торцы капсул тел на физике (сферы концов оси, как их видит физика) не глубже
-    /// <see cref="GroundTolerance"/> в земле арены (<see cref="IGround.Touches"/>: наибольшая глубина по граням). Ловит тело, провалившееся
-    /// сквозь землю или ступень (контакты не держат). Нечисловое — дело <c>physics.finite</c>.
+    /// <see cref="GroundTolerance"/> в земле арены (<see cref="IGround.Touches"/>: наибольшая глубина по граням); глубже — только выходя (7з-2):
+    /// эпизод «глубже допуска» (с проверки, где тело глубже допуска, а прошлая проверка того же тела — в допуске или её нет) длится не дольше
+    /// <c>(глубина начала − допуск) / (¼ PopSpeed) + </c><see cref="GroundExitGrace"/>; глубже <see cref="FreshGroundTolerance"/> — никогда.
+    /// Память — по слотам тел (поколение, тик, начало эпизода и его глубина). Ловит тело, провалившееся сквозь землю или ступень, и тело, которое
+    /// держит в земле (куча или живой вдавливает). Нечисловое — дело <c>physics.finite</c>.
     /// </summary>
     private sealed class Ground(IPhysicsWorld physics, IGround ground) : IInvariant
     {
         private readonly GroundTouch[] _touches = new GroundTouch[IGround.MaxTouches];
+
+        /// <summary>По слотам тел: поколение, тик проверки, тик начала эпизода «глубже допуска» и глубина начала (0 — тело в допуске).</summary>
+        private (int Generation, ulong Tick, ulong Start, float StartDepth)[] _last = [];
 
         public string Id => "physics.ground";
         public InvariantCost Cost => InvariantCost.Heavy;
@@ -253,9 +283,11 @@ public static class CorpseInvariants
 
         public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
         {
+            if (_last.Length < physics.BodyCapacity) Array.Resize(ref _last, physics.BodyCapacity);
+            float exit = 0.25f * physics.Settings.PopSpeed;
             for (int i = 0, n = physics.BodyCapacity; i < n; i++)
             {
-                if (Problem(i) is not { } problem) continue;
+                if (Problem(i, ctx.Tick, ctx.Dt, exit) is not { } problem) continue;
                 violations.Report(problem);
                 if (violations.Full) return;
             }
@@ -270,15 +302,26 @@ public static class CorpseInvariants
             return depth;
         }
 
-        private string? Problem(int slot)
+        private string? Problem(int slot, ulong tick, float dt, float exit)
         {
             var b = physics.BodyAt(slot);
             if (b.IsNone) return null;
             var s = physics.Get(b);
             if (s.Mode != BodyMode.Simulated || !s.IsFinite) return null;
             float depth = MathF.Max(Depth(ground, s.EndA, s.Radius, _touches), Depth(ground, s.EndB, s.Radius, _touches));
-            if (depth <= GroundTolerance) return null;
-            return Text($"тело {b} (сочленение {physics.ArticulationOf(b)}) в земле на {depth:G4} м (допуск {GroundTolerance}); центр {s.Position}");
+            var last = _last[slot];
+            if (depth <= GroundTolerance)
+            {
+                _last[slot] = (b.Generation, tick, 0, 0);
+                return null;
+            }
+            // эпизод «глубже допуска» начинается здесь, если прошлая проверка того же тела — в допуске, её нет или она не раньше (перемотка)
+            if (last.Generation != b.Generation || last.Tick >= tick || !(last.StartDepth > 0)) last = (b.Generation, tick, tick, depth);
+            _last[slot] = (b.Generation, tick, last.Start, last.StartDepth);
+            float elapsed = (tick - last.Start) * dt;
+            float allowed = exit > 0 ? (last.StartDepth - GroundTolerance) / exit + GroundExitGrace : float.PositiveInfinity;
+            if (depth <= FreshGroundTolerance && elapsed <= allowed) return null;
+            return Text($"тело {b} (сочленение {physics.ArticulationOf(b)}) в земле на {depth:G4} м {elapsed:G3} с (с {last.StartDepth:G4} м; допуск {GroundTolerance}, выход — не дольше {allowed:G3} с, глубже {FreshGroundTolerance} — сразу); центр {s.Position}");
         }
     }
 
@@ -348,13 +391,15 @@ public static class CorpseInvariants
 
     /// <summary>
     /// <c>physics.energy</c> (после Physics; диагностический — по запросу) — энергия трупа (кинетическая + m·g·y) не растёт скачком за подшаг
-    /// внутри шага: наибольший рост за подшаг у сочленения, которого в подшаге не толкали живые (<see cref="PhysicsTrace.Stats.EnergyGrowth"/>),
-    /// — не больше <see cref="EnergyTolerance"/>. По сочленению, а не суммой (<see cref="PhysicsTrace.Stats.EnergyGrowthTotal"/> — в сообщении):
-    /// сумма растёт с числом трупов, одновременно выходящих из внахлёста (32 трупа синтетической толпы — 296 Дж в тик смерти всех при 12,8 Дж
-    /// у одного), а передача энергии трупу при ударе другого трупа в замеры по сочленению уже вошла (толпа — ≤ 12,8 Дж). Меряет
-    /// трасса физики — проверяется, пока включён диагностический режим <c>physics.trace</c> (7и; трасса у мира одна — инвариант её не
-    /// включает и не выключает; манифест фичи включает режим ключом сценария <c>diagnostics</c>, агент — <c>physics.bodies {trace:"on"}</c>);
-    /// режим выключен — проверять нечего. Ловит «взрыв» решателя и сустав, рывком стягивающий оторванное тело.
+    /// внутри шага (7з-2 — честно, без передачи между трупами): (1) наибольший рост за подшаг у сочленения, которого в подшаге не толкали живые и
+    /// которое не касалось другого тела на физике (<see cref="PhysicsTrace.Stats.EnergyGrowth"/>), и (2) наибольший рост суммы всех касавшихся друг
+    /// друга трупов за подшаг (<see cref="PhysicsTrace.Stats.EnergyGrowthPairedTotal"/>: удар трупа о труп передаёт энергию — рост одного не
+    /// накачка, в сумме передача сокращается) — не больше <see cref="EnergyTolerance"/> и <see cref="PairedEnergyTolerance"/> соответственно.
+    /// Рост по фазам подшага — в сообщении (где энергия
+    /// появилась: суставы, пары, мир, скоростной проход). Меряет трасса физики — проверяется, пока включён диагностический режим
+    /// <c>physics.trace</c> (7и; трасса у мира одна — инвариант её не включает и не выключает; манифест фичи включает режим ключом сценария
+    /// <c>diagnostics</c>, агент — <c>physics.bodies {trace:"on"}</c>); режим выключен — проверять нечего. Ловит «взрыв» решателя и сустав,
+    /// рывком стягивающий оторванное тело.
     /// </summary>
     private sealed class Energy(IPhysicsWorld physics) : IInvariant
     {
@@ -367,8 +412,18 @@ public static class CorpseInvariants
         {
             if (physics.Trace is not { } trace) return;   // режим physics.trace выключен
             var last = trace.Last;
-            if (!(last.EnergyGrowth > EnergyTolerance)) return;
-            violations.Report(Text($"рост энергии трупа {last.EnergyArticulation} за подшаг {last.EnergyGrowth:G4} Дж (допуск {EnergyTolerance}); всех трупов без толчков вместе — {last.EnergyGrowthTotal:G4} Дж"));
+            if (last.EnergyGrowth > EnergyTolerance)
+                violations.Report(Text($"рост энергии трупа {last.EnergyArticulation} за подшаг {last.EnergyGrowth:G4} Дж (допуск {EnergyTolerance}); {Phases(last)}"));
+            if (last.EnergyGrowthPairedTotal > PairedEnergyTolerance)
+                violations.Report(Text($"рост энергии трупов в контакте друг с другом (сумма) за подшаг {last.EnergyGrowthPairedTotal:G4} Дж (допуск {PairedEnergyTolerance}; наибольший у одного — {last.EnergyGrowthPaired:G4} Дж, {last.EnergyPairedArticulation}); {Phases(last)}"));
+        }
+
+        private static string Phases(PhysicsTrace.Stats s)
+        {
+            var sb = new System.Text.StringBuilder("по фазам:");
+            for (int p = 0; p < PhysicsTrace.PhaseCount; p++)
+                sb.Append(CultureInfo.InvariantCulture, $" {PhysicsTrace.PhaseName((PhysicsPhase)p)} {s.PhaseGrowth((PhysicsPhase)p):G3};");
+            return sb.ToString();
         }
     }
 

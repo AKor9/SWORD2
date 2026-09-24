@@ -15,6 +15,28 @@ internal struct JointRecord
     public Vector3 ParentAnchor;
     public Quaternion Rest;
     public bool Enabled;
+
+    /// <summary>
+    /// Пороги быстрого «в пределах» (7з-2), считаются по описанию при записи (<see cref="Of"/>): квадрат тангенса люфта оси шарнира;
+    /// тангенс половины предела скручивания; квадрат тангенса половины наименьшей полуоси эллипса наклона. ∞ — предел не достижим.
+    /// </summary>
+    public float SlackTan2, TwistTanHalf, SwingTanHalf2;
+
+    /// <summary>Запись сустава по описанию: включён, привязки ещё нет, пороги быстрого «в пределах» — по пределам.</summary>
+    public static JointRecord Of(in JointDesc d)
+    {
+        float slack = d.AxisSlack, twist = d.Twist;
+        float swing = MathF.Min(MathF.Min(MathF.Max(d.SwingXMax, Joints.EllipseFloor), MathF.Max(-d.SwingXMin, Joints.EllipseFloor)),
+            MathF.Max(d.SwingZ, Joints.EllipseFloor));
+        return new JointRecord
+        {
+            Desc = d,
+            Enabled = true,
+            SlackTan2 = slack < MathF.PI / 2 ? MathF.Tan(slack) * MathF.Tan(slack) : float.PositiveInfinity,
+            TwistTanHalf = twist < MathF.PI ? MathF.Tan(twist / 2) : float.PositiveInfinity,
+            SwingTanHalf2 = swing < MathF.PI ? MathF.Tan(swing / 2) * MathF.Tan(swing / 2) : float.PositiveInfinity,
+        };
+    }
 }
 
 /// <summary>
@@ -133,9 +155,11 @@ internal static class Joints
     /// <c>d(sv) = u·(u·δ) + φ·v·(ctg φ·(v·δ) − δ_Y)</c>, откуда <c>∇C = (G·u)·u + (G·v)·φ·ctg φ·v − (G·v)·φ·Y</c>, G = ∇_sv C.
     /// У SWORD наклон сжимался к центру эллипса вдоль луча — у неокружного эллипса это не нормаль: предел совершал работу.
     /// </summary>
-    public static bool SwingCorrection(in JointDesc d, Quaternion q, out Vector3 delta)
+    public static bool SwingCorrection(in JointDesc d, Quaternion q, out Vector3 delta, float tanHalf2 = 0)
     {
         delta = default;
+        // 7з-2: быстрое «внутри» — наклон не больше наименьшей полуоси m (круг внутри эллипса): 2·atan2(ρ, l) ≤ m ⇔ ρ² ≤ l²·tg²(m/2)
+        if (q.X * q.X + q.Z * q.Z <= (q.Y * q.Y + q.W * q.W) * tanHalf2) return false;
         var sv = SwingVector(q);
         float phi = sv.Length();
         if (!(phi > TwistEpsilon)) return false;
@@ -161,11 +185,13 @@ internal static class Joints
     /// <c>δ = g·(τ_c − τ)/|g|²</c>. У SWORD — поворот вокруг оси ребёнка (Y): при наклоне плеча 2,6 рад градиент отклонён от неё
     /// на 75°, и предел совершал работу по замкнутому пути (коническое движение руки — рост энергии).
     /// </summary>
-    public static bool TwistCorrection(in JointDesc d, Quaternion q, out Vector3 delta)
+    public static bool TwistCorrection(in JointDesc d, Quaternion q, out Vector3 delta, float tanHalf = 0)
     {
         delta = default;
         float yw = q.Y * q.Y + q.W * q.W;
         if (!(yw > TwistEpsilon * TwistEpsilon)) return false;
+        // 7з-2: быстрое «в пределе» (W ≥ 0 у отклонения): |2·atan2(y, w)| ≤ T ⇔ |y| ≤ w·tg(T/2)
+        if (MathF.Abs(q.Y) <= q.W * tanHalf) return false;
         float twist = 2 * MathF.Atan2(q.Y, q.W);
         float tc = Math.Clamp(twist, -d.Twist, d.Twist);
         if (tc == twist) return false;
@@ -221,6 +247,17 @@ internal static class Joints
         kx += Vector3.UnitX * b.InvMass + Vector3.Cross(b.InvInertiaWorld(Vector3.Cross(r, Vector3.UnitX)), r);
         ky += Vector3.UnitY * b.InvMass + Vector3.Cross(b.InvInertiaWorld(Vector3.Cross(r, Vector3.UnitY)), r);
         kz += Vector3.UnitZ * b.InvMass + Vector3.Cross(b.InvInertiaWorld(Vector3.Cross(r, Vector3.UnitZ)), r);
+    }
+
+    /// <summary>
+    /// То же по матрице обратной инерции тела в мире (7з-2: расслабление — поза подшага уже не меняется): <c>r × eₖ</c> — столбцы
+    /// кососимметричной <c>[r]×</c>, без поворотов на каждый столбец.
+    /// </summary>
+    public static void AddPointMass(in InvInertiaMatrix w, Vector3 r, ref Vector3 kx, ref Vector3 ky, ref Vector3 kz)
+    {
+        kx += Vector3.UnitX * w.InvMass + Vector3.Cross(w.Apply(new Vector3(0, r.Z, -r.Y)), r);
+        ky += Vector3.UnitY * w.InvMass + Vector3.Cross(w.Apply(new Vector3(-r.Z, 0, r.X)), r);
+        kz += Vector3.UnitZ * w.InvMass + Vector3.Cross(w.Apply(new Vector3(r.Y, -r.X, 0)), r);
     }
 
     /// <summary>

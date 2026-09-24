@@ -45,8 +45,13 @@ public sealed partial class PhysicsWorld
         t.Correction(body, source, h, in t.Snapshot(body), s.Position, s.PrevPosition, s.Rotation, s.Mass);
     }
 
-    partial void TraceContact(PhysicsSource source, int body, int other, Vector3 point, Vector3 normal, float depth, float solved) =>
-        _trace?.RecordContact(source, TraceBody(body), TraceBody(other), point, normal, depth, solved);
+    partial void TraceContact(PhysicsSource source, int body, int other, Vector3 point, Vector3 normal, float depth, float solved)
+    {
+        if (_trace is not { } t) return;
+        t.RecordContact(source, TraceBody(body), TraceBody(other), point, normal, depth, solved);
+        // 7з-2: пара тел на физике — оба сочленения в этом подшаге «в контакте с трупом» (энергия передаётся — рост сочленения не накачка)
+        if (source == PhysicsSource.Pair) t.Paired(_bodyOwner[body], _bodyOwner[other]);
+    }
 
     partial void TraceFriction(int body, float lambdaN, float lambdaT, bool held) => _trace?.Friction(held);
 
@@ -86,6 +91,38 @@ public sealed partial class PhysicsWorld
         ref readonly var s = ref _bodies[b];
         if (s.Mode != BodyMode.Simulated) return;
         t.EnergyAdd(_bodyOwner[b], s.KineticEnergy + (double)s.Mass * _dynamics[s.Profile].Gravity * s.Position.Y);
+    }
+
+    partial void TracePhase(PhysicsPhase phase, float h)
+    {
+        if (_trace is not { } t) return;
+        t.PhaseClear();
+        bool moved = phase < PhysicsPhase.Velocity;
+        for (int b = 0; b < _bodyCapacity; b++) TracePhaseBody(t, b, moved, h);
+        for (int a = 0; a < _artCapacity; a++) t.PhaseEnd(a, phase);
+    }
+
+    /// <summary>
+    /// Тело на физике после фазы: энергия (кинетическая + m·g·y) — в сумму его сочленения. После позиционных фаз (<paramref name="moved"/>)
+    /// скорости — те, что дал бы сдвиг за подшаг (<see cref="Dynamics.UpdateVelocity"/> без демпфирования): поправка положения, которая
+    /// станет скоростью, видна в той фазе, что её сделала.
+    /// </summary>
+    private void TracePhaseBody(PhysicsTrace t, int b, bool moved, float h)
+    {
+        if (_bodyGeneration[b] <= 0) return;
+        ref readonly var s = ref _bodies[b];
+        if (s.Mode != BodyMode.Simulated) return;
+        float kinetic = s.KineticEnergy;
+        if (moved)
+        {
+            var copy = s;
+            copy.Velocity = (s.Position - s.PrevPosition) / h;
+            var dq = s.Rotation * Quaternion.Conjugate(s.PrevRotation);
+            if (dq.W < 0) dq = Quaternion.Negate(dq);
+            copy.AngularVelocity = new Vector3(dq.X, dq.Y, dq.Z) * (2f / h);
+            kinetic = copy.KineticEnergy;
+        }
+        t.PhaseAdd(_bodyOwner[b], kinetic + (double)s.Mass * _dynamics[s.Profile].Gravity * s.Position.Y);
     }
 
     partial void TraceStep(float dt)

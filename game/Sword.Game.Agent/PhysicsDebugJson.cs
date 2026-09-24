@@ -96,8 +96,10 @@ public static class PhysicsDebugJson
             ["note"] = "трасса физики — диагностический режим: мир, хеш и реплей от неё не зависят; включение и выключение — между тиками, " +
                 "данные — с ближайшего тика. last — последний тик, window — с начала окна (reset), run — с включения. Скорости — тел на " +
                 "физике (труп) по подшагам, м/с; sources — поправки по источникам: сдвиг / h (м/с), угол / h (рад/с), скрытый сдвиг прошлой " +
-                "позы / h (должен быть 0), псевдоимпульс за тик (Н·с), контакты и глубины (м); energy — рост энергии за подшаг, Дж (без толчков " +
-                "живых — должен быть около 0)",
+                "позы / h (должен быть 0), псевдоимпульс за тик (Н·с), контакты и глубины (м); energy — рост энергии за подшаг, Дж (growth — " +
+                "труп без толчков живых и без контакта с другим трупом, должен быть около 0; paired — труп в контакте с трупом, передача; " +
+                "pairedTotal — сумма касавшихся; phases — где рост появился: integrate, joints, world, pairs, pressed (мир после пар), velocity, " +
+                "contactVelocity, relax)",
         };
         if (!debug.TraceOn) return o;
         var owners = Owners(ctx, names);
@@ -137,6 +139,7 @@ public static class PhysicsDebugJson
     private static JsonObject Period(IPhysicsDebugView debug, PhysicsTracePeriod period, Dictionary<(int, int), (Entity Entity, string? Name)> owners)
     {
         var s = debug.TraceSummary(period);
+        var en = debug.TraceEnergy(period);
         var sources = new JsonArray();
         for (int i = 0; i < SourceNames.Length; i++)
         {
@@ -176,6 +179,13 @@ public static class PhysicsDebugJson
             {
                 ["growth"] = Round(s.EnergyGrowth), ["body"] = Body(s.EnergyBody, -1, owners), ["total"] = Round(s.EnergyGrowthTotal),
                 ["pushed"] = Round(s.EnergyGrowthPushed),
+                ["paired"] = Round(en.Paired), ["pairedBody"] = Body(en.PairedBody, -1, owners), ["pairedTotal"] = Round(en.PairedTotal),
+                ["phases"] = new JsonObject
+                {
+                    ["integrate"] = Round(en.Integrate), ["joints"] = Round(en.Joints), ["world"] = Round(en.World), ["pairs"] = Round(en.Pairs),
+                    ["pressed"] = Round(en.Pressed), ["velocity"] = Round(en.Velocity), ["contactVelocity"] = Round(en.ContactVelocity),
+                    ["relax"] = Round(en.Relax),
+                },
             },
             ["sources"] = sources,
             ["top"] = top,

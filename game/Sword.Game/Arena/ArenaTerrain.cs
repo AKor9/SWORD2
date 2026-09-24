@@ -115,11 +115,14 @@ public static class ArenaTerrain
 
     // Слагаемые с градиентом: значение — те же выражения в том же порядке, что у Hills/Slope/Bumps (бит в бит); при
     // сглаживании 0 значение — +0 (второй множитель не отрицателен), градиент не меняется. Производная расстояния до центра
-    // участка — только в переходе сглаживания (там расстояние > 0).
+    // участка — только в переходе сглаживания (там расстояние > 0). 7з-2 (земля физики — на каждом торце каждого подшага): дальше
+    // края участка по квадрату расстояния — сразу 0, без корня (корень монотонен: квадрат ≥ края² ⇒ расстояние ≥ края — сглаживание 0).
 
     private static float Hills(float x, float z, ref Vector2 gradient)
     {
-        float d1 = MathF.Sqrt((x - 16) * (x - 16) + z * z);
+        float q = (x - 16) * (x - 16) + z * z;
+        if (q >= 9 * 9) return 0;
+        float d1 = MathF.Sqrt(q);
         float s = Smooth(9, 6, d1, out float ds);
         if (s == 0) return 0;
         float sx = MathF.Sin(x * 1.3f), cz = MathF.Cos(z * 1.1f);
@@ -132,7 +135,9 @@ public static class ArenaTerrain
 
     private static float Slope(float x, float z, ref Vector2 gradient)
     {
-        float d3 = MathF.Sqrt(x * x + (z - 18) * (z - 18));
+        float q = x * x + (z - 18) * (z - 18);
+        if (q >= 9 * 9) return 0;
+        float d3 = MathF.Sqrt(q);
         float s = Smooth(9, 1, d3, out float ds);
         if (s == 0) return 0;
         if (ds != 0)
@@ -146,7 +151,9 @@ public static class ArenaTerrain
 
     private static float Bumps(float x, float z, ref Vector2 gradient)
     {
-        float d4 = MathF.Sqrt(x * x + (z + 18) * (z + 18));
+        float q = x * x + (z + 18) * (z + 18);
+        if (q >= 8 * 8) return 0;
+        float d4 = MathF.Sqrt(q);
         float s = Smooth(8, 6, d4, out float ds);
         if (s == 0) return 0;
         float a = x * 3.1f + z * 1.7f, b = z * 2.9f - x * 1.3f;

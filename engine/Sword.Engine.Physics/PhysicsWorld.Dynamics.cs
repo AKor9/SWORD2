@@ -46,6 +46,7 @@ public sealed partial class PhysicsWorld
         if (mode == BodyMode.Simulated && !(s.Mass > 0))
             throw new InvalidOperationException($"тело {body} без массы не может быть на физике: сначала SetShape с массой");
         s.Mode = mode;
+        StepMarkNonFinite(body.Index);   // 7з-2: нечисловое кинематическое тело, ставшее телом на физике, — в счёт нечисловых
     }
 
     public void SetDynamics(BodyHandle body, int profile)
@@ -81,7 +82,9 @@ public sealed partial class PhysicsWorld
     {
         Check(body);
         if (Problem(state) is { } problem) throw new ArgumentException($"состояние тела {body}: {problem}", nameof(state));
+        bool simulated = _bodies[body.Index].Mode == BodyMode.Simulated;
         _bodies[body.Index] = state;
+        if (simulated || state.Mode == BodyMode.Simulated) StepMarkNonFinite(body.Index);   // 7з-2: режим мог смениться
     }
 
     public void SetKinematicSource(BodyHandle body, KinematicSource source)

@@ -31,6 +31,34 @@ public sealed partial class PhysicsWorld
     /// <summary>Сочленений с телами на физике — на начало шага.</summary>
     private int _contactsSimulatedArticulations;
 
+    /// <summary>Пары сочленений, прошедшие отсев подшага (<c>i &lt; j</c> по слотам), — заранее выделенный список (растёт со слотами).</summary>
+    private (int I, int J)[] _contactsArtPairs = [];
+    private int _contactsArtPairCount;
+
+    /// <summary>Тела сочленения у сферы чужого (отсев тел пары, 7з-2) — буфер на пару (растёт со слотами тел).</summary>
+    private int[] _contactsNear = [];
+
+    /// <summary>
+    /// Щуп тела для пар подшага (7з-2): центр, полуось капсулы в мире (ось · полудлина), полуразмер коробки по осям мира (|полуось| +
+    /// радиус), радиус, на физике ли — плотно и без поворота на каждую пару. У тел на физике — с отсева подшага и после каждой поправки пары
+    /// (толчка), у кинематических — с начала шага.
+    /// </summary>
+    private struct ContactsProbe
+    {
+        public Vector3 Center, Axis, Extent;
+        public float Radius;
+        public bool Simulated;
+    }
+
+    /// <summary>Коробка сочленения по осям мира (центр, полуразмер) — отсев пар подшага (7з-2).</summary>
+    private readonly record struct ContactsBox(Vector3 Center, Vector3 Half);
+
+    /// <summary>Щупы по слотам тел (<see cref="ContactsProbe"/>).</summary>
+    private ContactsProbe[] _contactsProbe = [];
+
+    /// <summary>Коробки по слотам сочленений: с телами на физике — отсева подшага, без них — начала шага.</summary>
+    private ContactsBox[] _contactsBox = [];
+
     /// <summary>Контакты подшага для скоростного прохода (по порядку решения), заранее выделенные.</summary>
     private ContactsVelocityEntry[] _contactsVelocity = [];
     private int _contactsVelocityCount;
@@ -39,25 +67,55 @@ public sealed partial class PhysicsWorld
     private readonly GroundTouch[] _groundTouches = new GroundTouch[IGround.MaxTouches];
 
     // Настройки контактов — читаются из _settings раз на шаг (настройки меняются только между шагами).
-    private float _contactsPopSpeed, _contactsFriction, _contactsCompliance;
+    private float _contactsPopSpeed, _contactsFriction, _contactsPairFriction, _contactsCompliance;
 
     /// <summary>Пар сочленений, прошедших отсев по свежим границам, за последний шаг (все подшаги) — тестам и диагностике.</summary>
     internal int ContactsPairChecks { get; private set; }
+
+    /// <summary>Проверок коробки тела против коробки чужого сочленения (отсев тел пары, 7з-2) за последний шаг — тестам и диагностике.</summary>
+    internal int ContactsBodyChecks { get; private set; }
+
+    /// <summary>Контактов пар с трением покоя и сколько из них держало (сдвиг погашен) за последний шаг (7з-2) — тестам и диагностике.</summary>
+    internal int ContactsPairFrictionChecks { get; private set; }
+
+    internal int ContactsPairFrictionHeld { get; private set; }
+
+    /// <summary>
+    /// Тела, которых в подшаге касались пары (другое тело на физике, толчок живого), — для земли после пар (7з-2): номер подшага пометки по
+    /// слотам тел (без очистки массива) и список помеченных по порядку пометки.
+    /// </summary>
+    private int[] _contactsPressedStamp = [], _contactsPressed = [];
+    private int _contactsPressedCount, _contactsSubstepStamp;
+
+    /// <summary>
+    /// Поза тела до первой поправки пары в подшаге (после мира) — по слотам тел, с номером подшага пометки (7з-2): мир после пар решает
+    /// только то, что сделали пары, — глубину и сдвиг по земле от этой позы (<see cref="ContactsPressedWorld"/>).
+    /// </summary>
+    private int[] _contactsPoseStamp = [];
+    private Vector3[] _contactsPosePosition = [];
+    private Quaternion[] _contactsPoseRotation = [];
+
+    /// <summary>Тел, прижатых парами к земле, которых земля выталкивала второй раз (после пар), за последний шаг (7з-2) — тестам и диагностике.</summary>
+    internal int ContactsPressedChecks { get; private set; }
 
     /// <summary>Пар тел, дошедших до ближайших точек осей (<c>SegSeg</c>), за последний шаг — тестам и диагностике.</summary>
     internal int ContactsNarrowChecks { get; private set; }
 
     /// <summary>
     /// Контакт подшага для скоростного прохода: точки — в системах тел (до выталкивания), нормаль — от второго к первому; второго
-    /// нет (−1) — мир. <see cref="Sliding"/> — предел импульса трения скольжения, Н·с: <c>μ · λn / h</c> (0 — без трения).
+    /// нет (−1) — мир. <see cref="Sliding"/> — предел импульса трения скольжения, Н·с: <c>μ · λn / h</c> (0 — без трения);
+    /// <see cref="Lambda"/> — нормальная λ контакта, кг·м (бюджет трения покоя пар, 7з-2).
     /// </summary>
     private struct ContactsVelocityEntry
     {
         public int Body, Other;
         public Vector3 LocalA, LocalB, Normal;
-        public float Sliding;
+        public float Sliding, Lambda;
         public PhysicsSource Source;
     }
+
+    /// <summary>Бюджет трения покоя пар подшага по слотам тел, кг·м (7з-2): <c>μ · Σλn</c> пар тела; вне прохода трения — 0.</summary>
+    private float[] _contactsBudget = [];
 
     public void SetGround(IGround? ground) => _ground = ground;
 
@@ -92,15 +150,32 @@ public sealed partial class PhysicsWorld
         {
             Array.Resize(ref _contactsBounds, articulations);
             Array.Resize(ref _contactsSimulated, articulations);
+            Array.Resize(ref _contactsBox, articulations);
+            _contactsArtPairs = new (int, int)[articulations * (articulations - 1) / 2];
         }
+        if (_contactsNear.Length < bodies) _contactsNear = new int[bodies];
+        if (_contactsPressed.Length < bodies)
+        {
+            Array.Resize(ref _contactsPressed, bodies);
+            Array.Resize(ref _contactsPressedStamp, bodies);
+            Array.Resize(ref _contactsPoseStamp, bodies);
+            Array.Resize(ref _contactsPosePosition, bodies);
+            Array.Resize(ref _contactsPoseRotation, bodies);
+            Array.Resize(ref _groundNormalSum, bodies);
+            Array.Resize(ref _groundFrictionSpent, bodies);
+        }
+        if (_contactsProbe.Length < bodies) Array.Resize(ref _contactsProbe, bodies);
+        if (_contactsBudget.Length < bodies) Array.Resize(ref _contactsBudget, bodies);
         int velocity = bodies * ContactsPerBody;
         if (_contactsVelocity.Length < velocity) Array.Resize(ref _contactsVelocity, velocity);
+        StepGrow(articulations, bodies);
     }
 
     partial void ContactsReset(int articulation)
     {
         _contactsBounds[articulation] = default;
         _contactsSimulated[articulation] = 0;
+        StepReset(articulation);
     }
 
     /// <summary>
@@ -163,7 +238,7 @@ public sealed partial class PhysicsWorld
         float solved = ContactsSolvedDepth(pen, pen0, _contactsPopSpeed, h);
         var local = s.ToLocal(point);
         float lambda = Xpbd.Contact(ref s, point, n, -solved, 0, h);
-        if (lambda > 0) ContactsAddVelocity(body, local, -1, default, n, mu * lambda / h, source);
+        if (lambda > 0) ContactsAddVelocity(body, local, -1, default, n, mu * lambda / h, lambda, source);
         if (_trace is not null) TraceContact(source, body, -1, point, n, pen, solved);
         return lambda;
     }
@@ -177,6 +252,9 @@ public sealed partial class PhysicsWorld
         ref var s = ref _bodies[body];
         float limit = _wallRadius - s.Radius;
         float half = s.HalfLength;
+        // 7з-2: отсев по центру — торцы не дальше полудлины от центра: центр ближе <c>limit − полудлина</c> к оси арены — торцам не до стены
+        float inner = limit - half;
+        if (inner > 0 && s.Position.X * s.Position.X + s.Position.Z * s.Position.Z < inner * inner) return;
         ContactsWallEnd(body, -half, limit, h);
         if (half > 0) ContactsWallEnd(body, half, limit, h);
     }
@@ -234,72 +312,283 @@ public sealed partial class PhysicsWorld
     // ——— Пары сочленений ———
 
     /// <summary>
-    /// Пары сочленений <c>i &lt; j</c> по слотам: отсев по свежим границам (пересчитаны здесь — поза этого подшага), пары без
-    /// тела на физике — пропуск до границ; внутри пары — тела по порядку, пары тел без тела на физике — пропуск до <c>SegSeg</c>.
-    /// Своих тел сочленения не сталкивает.
+    /// Отсев сочленений подшага (7з-2 — по коробкам): щупы тел (<see cref="ContactsProbe"/>) и коробки сочленений с телами на физике — по
+    /// позе этого подшага (у сочленений без тел на физике — на весь шаг, <see cref="ContactsKinematicBounds"/>); пары <c>i &lt; j</c> по
+    /// слотам, чьи коробки пересеклись, — в список подшага; пары без тела на физике — мимо. Коробка (по осям мира) у лежащего трупа
+    /// теснее сферы: в куче сфер пересекалась бо́льшая часть пар.
     /// </summary>
-    private void ContactsPairs(float h)
+    private void ContactsBroadphase()
     {
+        _contactsArtPairCount = 0;
         if (_contactsSimulatedArticulations == 0) return;
-        ContactsUpdateBounds();
+        for (int a = 0; a < _artCapacity; a++)
+            if (_contactsSimulated[a] > 0) ContactsRefresh(a);
         for (int i = 0; i < _artCapacity; i++)
-            if (_artGeneration[i] > 0) ContactsPairsOf(i, h);
+            if (_artGeneration[i] > 0) ContactsPairsOf(i);
     }
 
-    private void ContactsPairsOf(int i, float h)
+    /// <summary>Щупы тел сочленения и его коробка — по нынешней позе.</summary>
+    private void ContactsRefresh(int a)
     {
-        var bi = _contactsBounds[i];
+        var members = _artBodies[a]!;
+        Vector3 min = new(float.PositiveInfinity), max = new(float.NegativeInfinity);
+        for (int k = 0, n = _artCount[a]; k < n; k++)
+        {
+            ref readonly var p = ref ContactsProbeOf(members[k]);
+            min = Vector3.Min(min, p.Center - p.Extent);
+            max = Vector3.Max(max, p.Center + p.Extent);
+        }
+        _contactsBox[a] = new ContactsBox((min + max) * 0.5f, (max - min) * 0.5f);
+    }
+
+    /// <summary>Щуп тела — по нынешней позе (<see cref="_contactsProbe"/>); вызывают отсев и каждая поправка пары (толчок).</summary>
+    private ref ContactsProbe ContactsProbeOf(int body)
+    {
+        ref readonly var s = ref _bodies[body];
+        ref var p = ref _contactsProbe[body];
+        p.Center = s.Position;
+        p.Axis = Vector3.Transform(Vector3.UnitY, s.Rotation) * s.HalfLength;
+        p.Extent = Vector3.Abs(p.Axis) + new Vector3(s.Radius);
+        p.Radius = s.Radius;
+        p.Simulated = s.Mode == BodyMode.Simulated;
+        return ref p;
+    }
+
+    /// <summary>Щупы и коробки сочленений без тел на физике — раз на шаг, в его начале (их тела шаг не двигает).</summary>
+    private void ContactsKinematicBounds()
+    {
+        for (int a = 0; a < _artCapacity; a++)
+            if (_artGeneration[a] > 0 && _contactsSimulated[a] == 0) ContactsRefresh(a);
+    }
+
+    private void ContactsPairsOf(int i)
+    {
+        var bi = _contactsBox[i];
         bool si = _contactsSimulated[i] > 0;
         for (int j = i + 1; j < _artCapacity; j++)
         {
             if (_artGeneration[j] <= 0 || !(si || _contactsSimulated[j] > 0)) continue;
-            var bj = _contactsBounds[j];
-            float reach = bi.Radius + bj.Radius;
-            if (!(Vector3.DistanceSquared(bi.Center, bj.Center) <= reach * reach)) continue;   // NaN — тоже мимо
+            var bj = _contactsBox[j];
+            if (!ContactsOverlap(bi.Center, bi.Half, bj.Center, bj.Half)) continue;   // NaN — тоже мимо
             ContactsPairChecks++;
-            ContactsArticulationPair(i, j, h);
+            _contactsArtPairs[_contactsArtPairCount++] = (i, j);
         }
     }
 
-    private void ContactsArticulationPair(int i, int j, float h)
+    /// <summary>Коробки (центр, полуразмер по осям мира) пересекаются; NaN — нет.</summary>
+    private static bool ContactsOverlap(Vector3 ca, Vector3 ha, Vector3 cb, Vector3 hb)
     {
-        var mi = _artBodies[i]!;
-        for (int x = 0, n = _artCount[i]; x < n; x++) ContactsBodyAgainst(mi[x], j, h);
+        var gap = Vector3.Abs(ca - cb) - ha - hb;
+        return gap.X <= 0 && gap.Y <= 0 && gap.Z <= 0;
     }
 
-    private void ContactsBodyAgainst(int a, int j, float h)
+    /// <summary>
+    /// Пары сочленений из отсева подшага (<c>i &lt; j</c> по слотам): внутри пары — тела по порядку, пары тел без тела на физике — пропуск до
+    /// <c>SegSeg</c>; своих тел сочленения не сталкивает. После нормалей всех пар — трение покоя пар (7з-2).
+    /// </summary>
+    private void ContactsPairs(float h)
     {
-        bool sa = _bodies[a].Mode == BodyMode.Simulated;
-        var mj = _artBodies[j]!;
-        for (int y = 0, n = _artCount[j]; y < n; y++)
+        _contactsSubstepStamp++;
+        _contactsPressedCount = 0;
+        int first = _contactsVelocityCount;
+        for (int k = 0; k < _contactsArtPairCount; k++)
         {
-            int b = mj[y];
-            if (sa || _bodies[b].Mode == BodyMode.Simulated) ContactsBodyPair(a, b, h);
+            var (i, j) = _contactsArtPairs[k];
+            ContactsArticulationPair(i, j, h);
+        }
+        if (_contactsPairFriction > 0 && _contactsVelocityCount > first) ContactsPairFriction(first, h);
+    }
+
+    /// <summary>Пара сейчас поправит тело: первая в подшаге — запомнить его позу (после мира) для мира после пар.</summary>
+    private void ContactsPoseBeforePair(int body)
+    {
+        if (_contactsPoseStamp[body] == _contactsSubstepStamp) return;
+        _contactsPoseStamp[body] = _contactsSubstepStamp;
+        ref readonly var s = ref _bodies[body];
+        _contactsPosePosition[body] = s.Position;
+        _contactsPoseRotation[body] = s.Rotation;
+    }
+
+    /// <summary>Тело на физике поправила пара (другое тело на физике, толчок живого) — в список прижатых подшага (раз на подшаг).</summary>
+    private void ContactsPress(int body)
+    {
+        if (_contactsPressedStamp[body] == _contactsSubstepStamp) return;
+        _contactsPressedStamp[body] = _contactsSubstepStamp;
+        _contactsPressed[_contactsPressedCount++] = body;
+    }
+
+    /// <summary>
+    /// Мир после пар (7з-2) — для тел, которых поправили пары (другое тело на физике, толчок живого): пара (тяжёлое тело на лёгком, клинок
+    /// живого, бьющий вниз) вдавливает тело в землю после её прохода, и к концу подшага оно оставалось бы в земле — в следующем подшаге эта
+    /// глубина уже «застарелая» и выходит не быстрее <see cref="PhysicsSettings.PopSpeed"/>, а пара вдавливает снова (клинок под кучей тонул до
+    /// 7,8 см). И тело, не касавшееся земли в первом проходе: толчок мог загнать его в землю.
+    /// <para>
+    /// Второй проход решает <b>только сделанное парами</b>: старая поза для него — поза тела до первой пары подшага (после мира,
+    /// <see cref="ContactsPoseBeforePair"/>), выход старой глубины — 0: вдавливание парами решается целиком, а что земля оставила после
+    /// первого прохода (один проход Гаусса — Зейделя по двум торцам недотягивает ~20 % глубины), остаётся как было; трение о землю держит
+    /// сдвиг, сделанный парами, бюджетом всей нагрузки тела (вместе с первым проходом, <see cref="GroundFriction"/>). Опора тела, лежащего на
+    /// ней, поднимается только на то, на что его же нормаль её вдавила, — вдоль нормали пары, без касательного сдвига под лежащим. Решай второй
+    /// проход всю глубину от начала подшага — он поднимал бы опору на недотянутое первым проходом уже после трения пар, и тело на наклонном
+    /// касании сползало бы на <c>подъём · sin</c> за подшаг (замер 7з-2: стержень на двух опорах, 18°, — 1 мм/с). Первый проход мира — до пар
+    /// (как с 7г): мир только после пар оставлял опору осевшей под тяжестью на время пар — сползание на <c>g·h²·sin</c> за подшаг (6 мм/с).
+    /// </para>
+    /// </summary>
+    private void ContactsPressedWorld(float h)
+    {
+        if (_contactsPressedCount == 0) return;
+        float pop = _contactsPopSpeed;
+        _contactsPopSpeed = 0;
+        _groundPressedPass = true;
+        for (int i = 0; i < _contactsPressedCount; i++) ContactsPressedBody(_contactsPressed[i], h);
+        _groundPressedPass = false;
+        _contactsPopSpeed = pop;
+    }
+
+    /// <summary>
+    /// Прижатое тело — мир от позы до пар: прошлая поза подменяется на время прохода и возвращается. Касались земли оба торца — ещё раз
+    /// нормали земли без трения: поправка второго торца поворачивает тело и вдавливает первый (качели: живой давит на конец клинка, земля
+    /// поднимает этот конец — другой уходит в землю), а к следующему подшагу это застарелая глубина, выходящая не быстрее
+    /// <see cref="PhysicsSettings.PopSpeed"/> (замер 7з-2, толпа сценария «Бой»: клинок под стопой живого тонул до 4 см).
+    /// </summary>
+    private void ContactsPressedBody(int b, float h)
+    {
+        ContactsPressedChecks++;
+        ref var s = ref _bodies[b];
+        var (prevPosition, prevRotation) = (s.PrevPosition, s.PrevRotation);
+        s.PrevPosition = _contactsPosePosition[b];
+        s.PrevRotation = _contactsPoseRotation[b];
+        ContactsWorldBody(b, h);
+        if (_ground is not null && _groundContactCount > 1) GroundNormals(b, h);
+        s.PrevPosition = prevPosition;
+        s.PrevRotation = prevRotation;
+    }
+
+    /// <summary>
+    /// Трение покоя пар тел на физике (7з-2; по образцу земли) — после нормалей всех пар подшага: «всё или ничего»
+    /// (<see cref="Xpbd.Friction(ref BodyState, Vector3, ref BodyState, Vector3, Vector3, float, float, float, float)"/>) по контактам
+    /// подшага в материальных точках контакта, с <b>общим бюджетом тела</b> <c>μ · Σλn</c> его пар: контакт держит, если его λt не больше
+    /// остатка бюджета обоих тел, и тратит его у обоих. Одно касание гасит сдвиг тела целиком, а его λn — лишь доля веса (тело на двух
+    /// трупах): по своей λn оно держало бы до доли μ. Без трения тело, лежащее на другом трупе, съезжало с него под тяжестью.
+    /// </summary>
+    private void ContactsPairFriction(int first, float h)
+    {
+        var entries = _contactsVelocity;
+        float mu = _contactsPairFriction;
+        int end = _contactsVelocityCount;
+        for (int i = first; i < end; i++)
+        {
+            ref readonly var e = ref entries[i];
+            if (e.Other < 0) continue;
+            _contactsBudget[e.Body] += mu * e.Lambda;
+            _contactsBudget[e.Other] += mu * e.Lambda;
+        }
+        for (int i = first; i < end; i++)
+            if (entries[i].Other >= 0) ContactsPairStatic(in entries[i], h);
+        for (int i = first; i < end; i++)
+        {
+            ref readonly var e = ref entries[i];
+            if (e.Other < 0) continue;
+            _contactsBudget[e.Body] = 0;
+            _contactsBudget[e.Other] = 0;
+        }
+    }
+
+    private void ContactsPairStatic(in ContactsVelocityEntry e, float h)
+    {
+        float budget = MathF.Min(_contactsBudget[e.Body], _contactsBudget[e.Other]);
+        if (!(budget > 0)) return;
+        ref var a = ref _bodies[e.Body];
+        ref var b = ref _bodies[e.Other];
+        if (_trace is not null)
+        {
+            TraceBegin(e.Body);
+            TraceBegin(e.Other);
+        }
+        float lambdaT = Xpbd.Friction(ref a, a.ToWorld(e.LocalA), ref b, b.ToWorld(e.LocalB), e.Normal, budget, 1, 0, h);
+        ContactsPairFrictionChecks++;
+        if (lambdaT > 0)
+        {
+            ContactsPairFrictionHeld++;
+            _contactsBudget[e.Body] -= lambdaT;
+            _contactsBudget[e.Other] -= lambdaT;
+        }
+        if (_trace is null) return;
+        TraceEnd(e.Body, PhysicsSource.Pair, h);
+        TraceEnd(e.Other, PhysicsSource.Pair, h);
+    }
+
+    /// <summary>
+    /// Пара сочленений (7з-2 — отсев тел по коробкам): тело, чья коробка не задевает коробки чужого сочленения, не касается ни одного его
+    /// тела (все его капсулы — внутри неё), — поэтому сначала тела <paramref name="j"/> у коробки <paramref name="i"/> (список по порядку),
+    /// затем тела <paramref name="i"/> у коробки <paramref name="j"/> против этого списка. Порядок пар тел — прежний.
+    /// </summary>
+    private void ContactsArticulationPair(int i, int j, float h)
+    {
+        var near = _contactsNear;
+        int m = ContactsNearOf(j, _contactsBox[i], near);
+        if (m == 0) return;
+        var bj = _contactsBox[j];
+        var mi = _artBodies[i]!;
+        for (int x = 0, n = _artCount[i]; x < n; x++)
+        {
+            int a = mi[x];
+            if (ContactsNear(a, in bj)) ContactsBodyAgainst(a, near, m, h);
+        }
+    }
+
+    /// <summary>Тела сочленения <paramref name="j"/>, чьи коробки задевают коробку <paramref name="b"/>, — по порядку в <paramref name="near"/>; сколько.</summary>
+    private int ContactsNearOf(int j, in ContactsBox b, int[] near)
+    {
+        var mj = _artBodies[j]!;
+        int m = 0;
+        for (int y = 0, n = _artCount[j]; y < n; y++)
+            if (ContactsNear(mj[y], in b)) near[m++] = mj[y];
+        return m;
+    }
+
+    /// <summary>Коробка тела (щуп) задевает коробку <paramref name="b"/>.</summary>
+    private bool ContactsNear(int body, in ContactsBox b)
+    {
+        ContactsBodyChecks++;
+        ref readonly var p = ref _contactsProbe[body];
+        return ContactsOverlap(p.Center, p.Extent, b.Center, b.Half);
+    }
+
+    private void ContactsBodyAgainst(int a, int[] near, int m, float h)
+    {
+        ref readonly var pa = ref _contactsProbe[a];
+        bool sa = pa.Simulated;
+        for (int y = 0; y < m; y++)
+        {
+            int b = near[y];
+            ref readonly var pb = ref _contactsProbe[b];
+            if ((sa || pb.Simulated) && ContactsOverlap(pa.Center, pa.Extent, pb.Center, pb.Extent)) ContactsBodyPair(a, b, h);
         }
     }
 
     /// <summary>
-    /// Пара тел разных сочленений, хотя бы одно — на физике: ближайшие точки осей; пересеклись — тело на физике ↔ тело на
-    /// физике: <see cref="Xpbd.Contact(ref BodyState, Vector3, ref BodyState, Vector3, Vector3, float, float, float, float)"/> с
+    /// Пара тел разных сочленений, хотя бы одно — на физике, чьи коробки пересеклись (7з-2: отсев по коробкам капсул — щупам подшага
+    /// <see cref="_contactsProbe"/>, они же дают отрезки осей без поворота на пару): ближайшие точки осей; пересеклись — тело на физике ↔
+    /// тело на физике: <see cref="Xpbd.Contact(ref BodyState, Vector3, ref BodyState, Vector3, Vector3, float, float, float, float)"/> с
     /// <see cref="PhysicsSettings.ContactCompliance"/> и старой глубиной пары в прошлых позах, в скоростной проход; кинематическое
     /// ↔ на физике — толчок 7д (<see cref="PushKinematic"/>, полная глубина, нормаль — от кинематического).
     /// </summary>
     private void ContactsBodyPair(int ia, int ib, float h)
     {
+        ref readonly var qa = ref _contactsProbe[ia];
+        ref readonly var qb = ref _contactsProbe[ib];
+        ContactsNarrowChecks++;
+        float rs = qa.Radius + qb.Radius;
+        float d2 = ContactsClosest(qa.Center, qa.Axis, _bodies[ia].HalfLength, qb.Center, qb.Axis, _bodies[ib].HalfLength, out var c1, out var c2);
+        if (!(d2 < rs * rs)) return;
         ref var a = ref _bodies[ia];
         ref var b = ref _bodies[ib];
-        float reach = a.HalfLength + a.Radius + b.HalfLength + b.Radius;
-        if (!(Vector3.DistanceSquared(a.Position, b.Position) <= reach * reach)) return;
-        ContactsNarrowChecks++;
-        float d2 = ContactsClosest(a.Position, a.Rotation, a.HalfLength, b.Position, b.Rotation, b.HalfLength, out var c1, out var c2);
-        float rs = a.Radius + b.Radius;
-        if (!(d2 < rs * rs)) return;
         float d = MathF.Sqrt(d2);
         var n = d > ContactsDirectionEpsilon ? (c1 - c2) / d : ContactsFallbackNormal(in a, in b);
         float pen = rs - d;
         var pa = c1 - n * a.Radius;
         var pb = c2 + n * b.Radius;
-        bool sa = a.Mode == BodyMode.Simulated, sb = b.Mode == BodyMode.Simulated;
+        bool sa = qa.Simulated, sb = qb.Simulated;
         if (sa && sb)
         {
             ContactsSimulatedPair(ia, ib, pa, pb, n, pen, h);
@@ -318,13 +607,22 @@ public sealed partial class PhysicsWorld
         float pen0 = ContactsPrevOverlap(in a, in b);
         float solved = ContactsSolvedDepth(pen, pen0, _contactsPopSpeed, h);
         Vector3 la = a.ToLocal(pa), lb = b.ToLocal(pb);   // материальные точки — до выталкивания
+        ContactsPoseBeforePair(ia);
+        ContactsPoseBeforePair(ib);
         if (_trace is not null)
         {
             TraceBegin(ia);
             TraceBegin(ib);
         }
         float lambda = Xpbd.Contact(ref a, pa, ref b, pb, n, -solved, _contactsCompliance, h);
-        if (lambda > 0) ContactsAddVelocity(ia, la, ib, lb, n, 0, PhysicsSource.Pair);
+        if (lambda > 0)
+        {
+            ContactsAddVelocity(ia, la, ib, lb, n, _contactsPairFriction * lambda / h, lambda, PhysicsSource.Pair);
+            ContactsProbeOf(ia);   // поправка сдвинула и повернула тела — щупы пар дальше по подшагу — нынешние
+            ContactsProbeOf(ib);
+            ContactsPress(ia);
+            ContactsPress(ib);
+        }
         if (_trace is null) return;
         TraceContact(PhysicsSource.Pair, ia, ib, pa, n, pen, solved);
         TraceEnd(ia, PhysicsSource.Pair, h);
@@ -335,10 +633,12 @@ public sealed partial class PhysicsWorld
     /// Ближайшие точки осей двух капсул (<see cref="Segments.SegSeg"/>): первым идёт более короткий отрезок — у
     /// <c>SegSeg</c> вырожденный второй отрезок даёт начало первого, а не ближайшую точку (шар против капсулы).
     /// </summary>
-    private static float ContactsClosest(Vector3 pa, Quaternion qa, float ha, Vector3 pb, Quaternion qb, float hb, out Vector3 ca, out Vector3 cb)
+    private static float ContactsClosest(Vector3 pa, Quaternion qa, float ha, Vector3 pb, Quaternion qb, float hb, out Vector3 ca, out Vector3 cb) =>
+        ContactsClosest(pa, Vector3.Transform(Vector3.UnitY, qa) * ha, ha, pb, Vector3.Transform(Vector3.UnitY, qb) * hb, hb, out ca, out cb);
+
+    /// <summary>То же по полуосям в мире <paramref name="ea"/>, <paramref name="eb"/> (ось · полудлина).</summary>
+    private static float ContactsClosest(Vector3 pa, Vector3 ea, float ha, Vector3 pb, Vector3 eb, float hb, out Vector3 ca, out Vector3 cb)
     {
-        var ea = Vector3.Transform(Vector3.UnitY, qa) * ha;
-        var eb = Vector3.Transform(Vector3.UnitY, qb) * hb;
         if (hb < ha) return Segments.SegSeg(pb - eb, pb + eb, pa - ea, pa + ea, out cb, out ca);
         return Segments.SegSeg(pa - ea, pa + ea, pb - eb, pb + eb, out ca, out cb);
     }
@@ -366,7 +666,7 @@ public sealed partial class PhysicsWorld
 
     // ——— Скоростной проход ———
 
-    private void ContactsAddVelocity(int body, Vector3 localA, int other, Vector3 localB, Vector3 n, float sliding, PhysicsSource source)
+    private void ContactsAddVelocity(int body, Vector3 localA, int other, Vector3 localB, Vector3 n, float sliding, float lambda, PhysicsSource source)
     {
         if (_contactsVelocityCount == _contactsVelocity.Length)
             Array.Resize(ref _contactsVelocity, Math.Max(16, _contactsVelocity.Length * 2));   // разово, сверх запаса
@@ -377,6 +677,7 @@ public sealed partial class PhysicsWorld
         c.LocalB = localB;
         c.Normal = n;
         c.Sliding = sliding;
+        c.Lambda = lambda;
         c.Source = source;
     }
 
@@ -394,9 +695,15 @@ public sealed partial class PhysicsWorld
         _contactsVelocityCount = 0;
     }
 
+    /// <summary>
+    /// Контакт скоростного прохода: обратные инерции тел — матрицы подшага (<see cref="_stepInertia"/>: поза после обновления скоростей
+    /// не меняется). Пара тел на физике (7з-2) — после нормали трение скольжения по Кулону, как у земли: относительная касательная скорость
+    /// точек гасится импульсом не больше <c>μ · λn / h</c>.
+    /// </summary>
     private void ContactsSolveVelocity(in ContactsVelocityEntry c)
     {
         ref var a = ref _bodies[c.Body];
+        ref readonly var wa = ref _stepInertia[c.Body];
         var pa = a.ToWorld(c.LocalA);
         var ra = pa - a.Position;
         var n = c.Normal;
@@ -404,23 +711,27 @@ public sealed partial class PhysicsWorld
         if (c.Other >= 0)
         {
             ref var b = ref _bodies[c.Other];
+            ref readonly var wb = ref _stepInertia[c.Other];
             var pb = b.ToWorld(c.LocalB);
             var rb = pb - b.Position;
             vn = Vector3.Dot(a.PointVelocity(pa) - b.PointVelocity(pb), n);
-            if (!(MathF.Abs(vn) >= ContactsVelocityEpsilon)) return;
-            float w = a.InvMassAt(ra, n) + b.InvMassAt(rb, n);
-            if (!(w > 0)) return;
-            var p = n * (-vn / w);
-            Dynamics.ApplyImpulse(ref a, p, ra);
-            Dynamics.ApplyImpulse(ref b, -p, rb);
+            float w = wa.At(ra, n) + wb.At(rb, n);
+            if (MathF.Abs(vn) >= ContactsVelocityEpsilon && w > 0)
+            {
+                var p = n * (-vn / w);
+                wa.Impulse(ref a, p, ra);
+                wb.Impulse(ref b, -p, rb);
+            }
+            else vn = 0;
+            if (c.Sliding > 0) ContactsPairSliding(ref a, in wa, pa, ra, ref b, in wb, pb, rb, n, c.Sliding);
         }
         else
         {
             vn = Vector3.Dot(a.PointVelocity(pa), n);
-            float w = a.InvMassAt(ra, n);
-            if (MathF.Abs(vn) >= ContactsVelocityEpsilon && w > 0) Dynamics.ApplyImpulse(ref a, n * (-vn / w), ra);
+            float w = wa.At(ra, n);
+            if (MathF.Abs(vn) >= ContactsVelocityEpsilon && w > 0) wa.Impulse(ref a, n * (-vn / w), ra);
             else vn = 0;
-            if (c.Sliding > 0) ContactsSliding(ref a, pa, ra, n, c.Sliding);
+            if (c.Sliding > 0) ContactsSliding(ref a, in wa, pa, ra, n, c.Sliding);
         }
         if (vn > 0 && _trace is not null) TraceVelocity(c.Source, c.Body, vn);   // погашена скорость расхождения (выталкивания)
     }
@@ -431,26 +742,38 @@ public sealed partial class PhysicsWorld
     /// позиционного прохода держит только почти неподвижную точку (сдвиг за подшаг ≲ μ·g·h²) — сорвавшееся тело без трения
     /// скольжения не остановилось бы.
     /// </summary>
-    private static void ContactsSliding(ref BodyState a, Vector3 pa, Vector3 ra, Vector3 n, float limit)
+    private static void ContactsSliding(ref BodyState a, in InvInertiaMatrix wa, Vector3 pa, Vector3 ra, Vector3 n, float limit)
     {
         var v = a.PointVelocity(pa);
         var vt = v - n * Vector3.Dot(v, n);
         float speed = vt.Length();
         if (!(speed >= ContactsVelocityEpsilon)) return;
         var t = vt / speed;
-        float w = a.InvMassAt(ra, t);
+        float w = wa.At(ra, t);
         if (!(w > 0)) return;
-        Dynamics.ApplyImpulse(ref a, t * -MathF.Min(limit, speed / w), ra);
+        wa.Impulse(ref a, t * -MathF.Min(limit, speed / w), ra);
+    }
+
+    /// <summary>
+    /// Трение скольжения пары тел на физике (7з-2): относительная касательная скорость точек контакта гасится импульсом против неё (тело
+    /// a — минус, b — плюс), не больше <paramref name="limit"/>, Н·с, и не больше, чем нужно до нуля; импульс пары сохраняется.
+    /// </summary>
+    private static void ContactsPairSliding(ref BodyState a, in InvInertiaMatrix wa, Vector3 pa, Vector3 ra, ref BodyState b, in InvInertiaMatrix wb,
+        Vector3 pb, Vector3 rb, Vector3 n, float limit)
+    {
+        var v = a.PointVelocity(pa) - b.PointVelocity(pb);
+        var vt = v - n * Vector3.Dot(v, n);
+        float speed = vt.Length();
+        if (!(speed >= ContactsVelocityEpsilon)) return;
+        var t = vt / speed;
+        float w = wa.At(ra, t) + wb.At(rb, t);
+        if (!(w > 0)) return;
+        var p = t * -MathF.Min(limit, speed / w);
+        wa.Impulse(ref a, p, ra);
+        wb.Impulse(ref b, -p, rb);
     }
 
     // ——— Границы ———
-
-    /// <summary>Границы всех живых сочленений по нынешней позе (отсев пар подшага; после последнего подшага — <see cref="Bounds"/>).</summary>
-    private void ContactsUpdateBounds()
-    {
-        for (int a = 0; a < _artCapacity; a++)
-            if (_artGeneration[a] > 0) _contactsBounds[a] = ContactsBoundsOf(a);
-    }
 
     /// <summary>Сфера всех капсул сочленения (идея — <c>UpdateBounds</c> SWORD): центр — среднее центров тел, радиус — наибольшее <c>|центр тела − центр| + полудлина + радиус</c>.</summary>
     private ArticulationBounds ContactsBoundsOf(int a)

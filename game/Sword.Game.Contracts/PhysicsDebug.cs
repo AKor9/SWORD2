@@ -60,6 +60,16 @@ public readonly record struct PhysicsTraceSummary(int Steps, int Substeps, doubl
     float EnergyGrowth, BodyRef EnergyBody, float EnergyGrowthTotal, float EnergyGrowthPushed);
 
 /// <summary>
+/// Рост энергии за подшаг сверх сводки накопителя (7з-2; агент — <c>physics.bodies {trace}</c> → <c>energy</c>), Дж: у трупа, касавшегося
+/// другого тела на физике (чьё), — передача при ударе трупа о труп, не накачка; наибольший рост суммы всех касавшихся друг друга за подшаг
+/// (инвариант <c>physics.energy</c>); наибольший рост сочленения без толчков живых по фазам подшага — интеграция, суставы, мир (земля, стена,
+/// колонны), пары, мир после пар (прижатые парами к земле), скорости по профилю, скоростной проход, расслабление суставов (где энергия
+/// появилась).
+/// </summary>
+public readonly record struct PhysicsTraceEnergy(float Paired, BodyRef PairedBody, float PairedTotal, float Integrate, float Joints, float World,
+    float Pairs, float Pressed, float Velocity, float ContactVelocity, float Relax);
+
+/// <summary>
 /// Накопленное трассой по источнику (7и): поправок; наибольшие сдвиг / h, м/с, угол / h, рад/с, скрытый сдвиг прошлой позы / h;
 /// псевдоимпульс за тик — наибольший и сумма, Н·с; контактов, наибольшая глубина и отложенная, м; погашено скоростным проходом, м/с;
 /// точный импульс толчков, Н·с.
@@ -107,6 +117,9 @@ public interface IPhysicsDebugView : IReadView
 
     /// <summary>Сводка накопителя <paramref name="period"/>.</summary>
     PhysicsTraceSummary TraceSummary(PhysicsTracePeriod period);
+
+    /// <summary>Рост энергии накопителя <paramref name="period"/> сверх сводки (7з-2): в контакте трупов, их сумма, по фазам подшага.</summary>
+    PhysicsTraceEnergy TraceEnergy(PhysicsTracePeriod period);
 
     /// <summary>Накопленное накопителем <paramref name="period"/> по источнику <paramref name="source"/>.</summary>
     PhysicsTraceSource TraceSource(PhysicsTracePeriod period, PhysicsContactSource source);

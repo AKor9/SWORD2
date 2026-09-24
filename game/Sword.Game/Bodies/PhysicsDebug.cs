@@ -115,6 +115,15 @@ public sealed class PhysicsDebugView(IPhysicsWorld physics) : IPhysicsDebugView
             s.EnergyGrowth, PhysicsDebug.Ref(s.EnergyArticulation), s.EnergyGrowthTotal, s.EnergyGrowthPushed);
     }
 
+    public PhysicsTraceEnergy TraceEnergy(PhysicsTracePeriod period)
+    {
+        if (Stats(period) is not { } s) return default;
+        return new PhysicsTraceEnergy(s.EnergyGrowthPaired, PhysicsDebug.Ref(s.EnergyPairedArticulation), s.EnergyGrowthPairedTotal,
+            s.PhaseGrowth(PhysicsPhase.Integrate), s.PhaseGrowth(PhysicsPhase.Joints), s.PhaseGrowth(PhysicsPhase.World), s.PhaseGrowth(PhysicsPhase.Pairs),
+            s.PhaseGrowth(PhysicsPhase.Pressed), s.PhaseGrowth(PhysicsPhase.Velocity), s.PhaseGrowth(PhysicsPhase.ContactVelocity),
+            s.PhaseGrowth(PhysicsPhase.Relax));
+    }
+
     public PhysicsTraceSource TraceSource(PhysicsTracePeriod period, PhysicsContactSource source)
     {
         if (Stats(period) is not { } s || (int)source >= PhysicsTrace.SourceCount) return default;

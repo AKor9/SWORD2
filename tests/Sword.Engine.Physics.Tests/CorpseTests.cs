@@ -9,7 +9,9 @@ namespace Sword.Engine.Physics.Tests;
 /// энергия кучи убывает, местный рост энергии (риск 7г «зажимы в куче») — замер в выводе и в README физики («Сведение физики»).
 /// Массы и радиусы — как у игры (<c>FighterShape.Masses</c>, <c>FighterShape.Radii</c> — данные теста, игра не подключена; они же
 /// у заготовки <see cref="JointsRig.Fighter"/>), суставы — таблица-заготовка <see cref="JointsRig.FighterJoints"/> (отправные
-/// пределы SWORD), профиль динамики — по умолчанию (<see cref="BodyDynamics"/>), шаг — настоящий <see cref="PhysicsWorld.Step"/>.
+/// пределы SWORD), сустав запястья выключен, как у трупа игры (7з-2: клинок — свободное тело трупа; с включённым запястьем клинок,
+/// опёртый о кромку, в одном из мест досыпал до 14 с — предел запястья срабатывал каждый подшаг), профиль динамики — по умолчанию
+/// (<see cref="BodyDynamics"/>), шаг — настоящий <see cref="PhysicsWorld.Step"/>.
 /// </summary>
 public class CorpseTests(ITestOutputHelper output)
 {
@@ -39,8 +41,12 @@ public class CorpseTests(ITestOutputHelper output)
             w.Place(b, origin + Vector3.Transform(s.Position, turn), Quaternion.Normalize(turn * s.Rotation));
         }
         w.SetJoints(art, JointsRig.FighterJoints(w, art));
+        w.SetJointEnabled(art, Wrist, false);   // 7з-2: как у трупа игры (7з) — меч выпал, клинок — свободное тело трупа
         return art;
     }
+
+    /// <summary>Сустав запястья таблицы-заготовки (ребёнок — клинок, тело 11).</summary>
+    private const int Wrist = 10;
 
     /// <summary>Лёжа: ось стойки — вдоль +X (ноги у начала координат), затем курс <paramref name="yaw"/> вокруг вертикали.</summary>
     private static Quaternion Lying(float yaw) =>
@@ -121,7 +127,8 @@ public class CorpseTests(ITestOutputHelper output)
         output.WriteLine($"({x}; {y}; курс {yaw}): падение — точка {fallPoint * 1000:F1} мм, выход {fallExcess:F3} рад; покой " +
                          $"{RestTicks / 120} с — скорость ≤ {speed:G3} м/с, {angular:G3} рад/с; энергия над началом покоя ≤ {eMax - e0:G3} Дж, " +
                          $"итог {prev - e0:G3} Дж, сумма приростов за тик {rise:G3} Дж; рост за подшаг (трасса) {window.EnergyGrowth:G3} Дж; " +
-                         $"точка {restPoint * 1000:F2} мм, выход {restExcess:F4} рад; глубина {depth * 1000:F3} мм; {allocated} Б");
+                         $"точка {restPoint * 1000:F2} мм, выход {restExcess:F4} рад; глубина {depth * 1000:F3} мм; {allocated} Б; рост по фазам: " +
+                         string.Join(", ", Enum.GetValues<PhysicsPhase>().Select(p => $"{p} {window.PhaseGrowth(p):G2}")));
         Assert.True(speed <= RestSpeed && angular <= RestAngular, $"не успокоился: {speed} м/с, {angular} рад/с");
         Assert.True(eMax - e0 <= RestEnergyRise, $"энергия в покое выросла на {eMax - e0} Дж");
         Assert.True(window.EnergyGrowth <= RestSubstepGrowth, $"рост энергии за подшаг {window.EnergyGrowth} Дж");
@@ -219,11 +226,14 @@ public class CorpseTests(ITestOutputHelper output)
 
     /// <summary>
     /// Покой: подъём энергии над началом покоя, Дж (замер ≤ 2,6e-3 — досыпание наискось через кромку, итог — убыль; у остальных
-    /// ≤ 8e-5), рост за подшаг по трассе, Дж (замер ≤ 1,4e-4).
+    /// ≤ 8e-5), рост за подшаг по трассе, Дж (замер ≤ 1,4e-4; 7з-2 — ≤ 2,1e-4).
     /// </summary>
     private const float RestEnergyRise = 1e-2f, RestSubstepGrowth = 5e-4f;
 
-    /// <summary>Суставы при падении (удар о землю и кромку): ошибка точки, м (замер ≤ 0,023), выход, рад (замер ≤ 0,136).</summary>
+    /// <summary>
+    /// Суставы при падении (удар о землю и кромку): ошибка точки, м (замер ≤ 0,023; 7з-2 — ≤ 0,032: разрыв удара сводится не быстрее
+    /// <see cref="PhysicsSettings.JointPopSpeed"/>), выход, рад (замер ≤ 0,136).
+    /// </summary>
     private const float FallPoint = 0.05f, FallExcess = 0.3f;
 
     /// <summary>Суставы в покое: ошибка точки, м (замер ≤ 5,2e-4), выход, рад (замер ≤ 4,3e-3).</summary>
@@ -242,9 +252,11 @@ public class CorpseTests(ITestOutputHelper output)
     private const float PileScatter = 1.5f, PileSpeed = 5f;
 
     /// <summary>
-    /// Куча, суставы: при падении — ошибка точки, м (замер ≤ 0,037), выход, рад (замер ≤ 0,37: удары трупов друг о друга, одна
-    /// итерация); в последние 2 с — точка (замер ≤ 0,003), выход (замер ≤ 0,060); глубина в земле, м (замер ≤ 0,008 — тело под
-    /// весом кучи).
+    /// Куча, суставы: при падении — ошибка точки, м (замер ≤ 0,037; 7з-2 — ≤ 0,048), выход, рад (замер ≤ 0,37: удары трупов друг о друга,
+    /// одна итерация; 7з-2 — ≤ 0,066 и 0,42); в последние 2 с — точка (замер ≤ 0,003; 7з-2 — 0,013, по вариантам шага 0,0024…0,016: куча
+    /// ещё оседает, скорость до 2 м/с, удары рвут суставы, а унаследованный разрыв до 1 см сводится не быстрее
+    /// <see cref="PhysicsSettings.JointPopSpeed"/>), выход (замер ≤ 0,060; 7з-2 — 0,055); глубина в земле, м (замер ≤ 0,008 — тело под весом
+    /// кучи; 7з-2, мир после пар — ≤ 0,0025).
     /// </summary>
-    private const float PileFallPoint = 0.08f, PileFallExcess = 0.75f, PileRestPoint = 0.01f, PileRestExcess = 0.15f, PileDepth = 0.02f;
+    private const float PileFallPoint = 0.08f, PileFallExcess = 0.75f, PileRestPoint = 0.03f, PileRestExcess = 0.15f, PileDepth = 0.02f;
 }

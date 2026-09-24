@@ -149,6 +149,7 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
         s.Position = s.PrevPosition = s.StartPosition = position;
         s.Rotation = s.PrevRotation = s.StartRotation = rotation;
         s.Velocity = s.AngularVelocity = Vector3.Zero;
+        if (s.Mode == BodyMode.Simulated) StepMarkNonFinite(body.Index);
     }
 
     public void SetKinematicTarget(BodyHandle body, Vector3 position, Quaternion rotation, float dt)
@@ -295,4 +296,10 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
 
     /// <summary>Трасса (из шага 7г, в конце шага): итог тика — окно и прогон, события быстрее порога.</summary>
     partial void TraceStep(float dt);
+
+    /// <summary>
+    /// Трасса (7з-2; из шага после каждой фазы подшага): энергия сочленений на физике после фазы <paramref name="phase"/> — рост энергии
+    /// по фазам (после позиционных фаз — по скоростям <c>сдвиг / h</c>, после скоростных — по настоящим).
+    /// </summary>
+    partial void TracePhase(PhysicsPhase phase, float h);
 }

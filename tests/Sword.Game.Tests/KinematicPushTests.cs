@@ -729,7 +729,9 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
     /// <summary>
     /// s6 — постройка бойца на трупе: враг 1 в (0; 1,5) убит, через 2 с враг 2 поставлен командой в место наибольшего пересечения с телами трупа и
     /// стоит (команда врагу): его тела расталкивают труп не быстрее своей точки + <c>PopSpeed</c> (стоит — 1 м/с) — без разлёта: центр масс трупа
-    /// ≤ 1 м/с (замер 0,48), сдвиг ≤ 0,5 м (0,04), тела ≤ 3 м/с (1,6); через 4 с покой (≤ 0,1 Дж; 0,04); враг 2 не отброшен (отдача в пределе).
+    /// ≤ 1 м/с (замер 0,48; 7з-2 — 0,69), сдвиг ≤ 0,8 м (0,04; 7з-2 — 0,58: труп лёг иначе — суставы после удара о землю сводятся не быстрее
+    /// <c>JointPopSpeed</c>, — место наибольшего пересечения пришлось на его центр масс, мера 2,05 против 1,65, и боец выталкивает труп на свою
+    /// ширину), тела ≤ 3 м/с (1,6); через 4 с покой (≤ 0,1 Дж; 0,04); враг 2 не отброшен (отдача в пределе).
     /// </summary>
     [Fact]
     public void S6_FighterBuiltOnCorpse_PushesItApartWithoutScatter()
@@ -765,7 +767,7 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
         float moved = Vector3.Distance(com0, end.Com);
         output.WriteLine(F($"s6 (пак): труп лёг центром масс в ({com0.X:F3}; {com0.Z:F3}); место наибольшего пересечения ({at.X:F2}; {at.Y:F2}), мера {overlap:F3}; центр масс трупа до {comSpeed:F3} м/с, сдвиг {moved:F3} м, тела до {bodyMax:F2} м/с, в конце {end.KineticEnergy:F4} Дж; враг 2 сдвинулся до {secondMoved:F3} м; толчок {trace.Window.Source(PhysicsSource.PushBody).Applied:F2} Н·с, выталкивание {trace.Window.PushPopSpeed:F4}"));
         Assert.True(overlap > 0.5f, $"пересечения нет: {overlap}");
-        Assert.True(comSpeed <= 1 && moved <= 0.5f && bodyMax <= 3, "труп разлетелся");
+        Assert.True(comSpeed <= 1 && moved <= 0.8f && bodyMax <= 3, "труп разлетелся");
         Assert.True(end.KineticEnergy <= 0.1f, $"труп не успокоился: {end.KineticEnergy} Дж");
         Assert.True(secondMoved <= 0.5f, $"враг 2 отброшен на {secondMoved} м");
         Assert.True(trace.Window.Source(PhysicsSource.PushBody).Applied > 0 && trace.Window.PushPopSpeed <= physics.Settings.PopSpeed + PopSlack);

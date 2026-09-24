@@ -1,5 +1,6 @@
 using System.Numerics;
 using Sword.Engine.Animation;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
@@ -152,14 +153,41 @@ public sealed class DeathToRagdollSystem(IPhysicsWorld physics, CorpseJoints joi
 
 /// <summary>
 /// Physics (<see cref="GameLabels.PhysicsStep"/>; 7з): шаг физики на тик (<see cref="IPhysicsWorld.Step"/>, подшаги — из настроек): тела на
-/// физике (трупы) — интеграция, суставы, земля, стена и колонны арены, трупы между собой, толчки кинематических тел живых. Кинематические
-/// тела шаг не двигает; без трупов — только границы сочленений. Мир ECS не меняет.
+/// физике (трупы) — интеграция, суставы, земля, стена и колонны арены, трупы между собой и толчки кинематических тел живых, мир после пар
+/// (7з-2). Кинематические тела шаг не двигает; без трупов — только границы сочленений. Мир ECS не меняет.
+/// <para>
+/// 7з-2: зоны профайлера внутри шага (<c>physics.*</c>, <see cref="IPhysicsWorld.AttachProfiler"/>) — профайлер мира, пока он включён: сменился
+/// (подключили, включили, выключили) — физике передаётся перед шагом (заведение зон выделяет память — один раз на профайлер, в первом тике
+/// после включения); выключенный или <see cref="CpuProfiler.Off"/> — физике <see cref="CpuProfiler.Off"/>. Прогрев кода шага —
+/// <see cref="PhysicsWarmup"/> при сборке мира (конструктор системы).
+/// </para>
 /// </summary>
-public sealed class PhysicsStepSystem(IPhysicsWorld physics) : IContinuousSystem
+public sealed class PhysicsStepSystem : IContinuousSystem
 {
+    private readonly IPhysicsWorld _physics;
+    private CpuProfiler _attached = CpuProfiler.Off;
+
+    public PhysicsStepSystem(IPhysicsWorld physics)
+    {
+        _physics = physics;
+        PhysicsWarmup.Once(physics.Settings);
+    }
+
     public void Setup(SystemSetup s) => s.Label(GameLabels.PhysicsStep);
 
-    public void Run(in SystemContext ctx) => physics.Step(ctx.World.Resource<SimTime>().Dt);
+    public void Run(in SystemContext ctx)
+    {
+        var profiler = ctx.World.Profiler;
+        var want = profiler.Enabled ? profiler : CpuProfiler.Off;
+        if (!ReferenceEquals(want, _attached)) Attach(want);
+        _physics.Step(ctx.World.Resource<SimTime>().Dt);
+    }
+
+    private void Attach(CpuProfiler profiler)
+    {
+        _physics.AttachProfiler(profiler);
+        _attached = profiler;
+    }
 }
 
 /// <summary>
@@ -205,6 +233,11 @@ public sealed class CorpseRootSystem(IPhysicsWorld physics) : IContinuousSystem
 /// же тике строит возрождение, пропускается. Нарушение до пересборки видно — <c>physics.finite</c> после шага. Живого с нечисловым телом
 /// (кинематика — по позе и корню: ошибка выше физики) не пересобирает — его ловят <c>ecs.finite</c>, <c>physics.finite</c>, и чинить молча
 /// нельзя.
+/// <para>
+/// 7з-2: нечисловые тела считает физика (<see cref="IPhysicsWorld.NonFiniteArticulations"/> — по концу шага и записям тел после него): 0 —
+/// система ничего не обходит (тик боя — одно чтение счётчика вместо 14 копий тел на каждого бойца); иначе — бойцы по порядку, у трупа с
+/// флагом <see cref="IPhysicsWorld.HasNonFinite"/> — постройка заново. Гарантия та же: флаг — любое нечисловое поле любого тела на физике.
+/// </para>
 /// </summary>
 public sealed class BodyRebuildSystem(IPhysicsWorld physics) : IContinuousSystem
 {
@@ -220,6 +253,7 @@ public sealed class BodyRebuildSystem(IPhysicsWorld physics) : IContinuousSystem
 
     public void Run(in SystemContext ctx)
     {
+        if (physics.NonFiniteArticulations == 0) return;   // 7з-2: нечисловых тел на физике нет — обходить нечего
         foreach (var chunk in ctx.Iterate(_fighters))
         {
             var bodies = chunk.Read<BodyRef>();
@@ -229,7 +263,7 @@ public sealed class BodyRebuildSystem(IPhysicsWorld physics) : IContinuousSystem
             for (int i = 0; i < bodies.Length; i++)
             {
                 var body = FighterBodies.Handle(bodies[i]);
-                if (!BodyPlacement.Placeable(physics, body) || !Corpse.IsCorpse(physics, body) || Corpse.Finite(physics, body)) continue;
+                if (!BodyPlacement.Placeable(physics, body) || !physics.HasNonFinite(body) || !Corpse.IsCorpse(physics, body)) continue;
                 Rebuild(ctx, entities[i], slots[i].Index, roots[i]);
             }
         }

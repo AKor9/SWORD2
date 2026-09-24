@@ -9,6 +9,9 @@ public sealed partial class PhysicsTrace
     /// <summary>Источников поправок (<see cref="PhysicsSource"/>).</summary>
     public const int SourceCount = 7;
 
+    /// <summary>Фаз подшага (<see cref="PhysicsPhase"/>, 7з-2).</summary>
+    public const int PhaseCount = 8;
+
     /// <summary>Порог события по умолчанию: тело за тик быстрее, м/с.</summary>
     public const float DefaultEventSpeed = 12f;
 
@@ -43,12 +46,18 @@ public sealed partial class PhysicsTrace
     private bool[] _isTouched = [];
     private int _touchedCount, _bodyCapacity;
 
-    // по слотам сочленений: энергия на физике (кинетическая + m·g·y) в конце прошлого подшага и сейчас; толкали ли живые
+    // по слотам сочленений: энергия на физике (кинетическая + m·g·y) в конце прошлого подшага и сейчас; толкали ли живые; касалось ли
+    // другого тела на физике (7з-2)
     private double[] _energyPrev = [], _energyNow = [];
-    private bool[] _energyHas = [], _energyValid = [], _pushed = [];
+    private bool[] _energyHas = [], _energyValid = [], _pushed = [], _paired = [];
     private int _artCapacity;
-    private double _energyTotal;
-    private bool _energyTotalAny;
+    private double _energyTotal, _energyPairedTotal;
+    private bool _energyTotalAny, _energyPairedAny;
+
+    // 7з-2: энергия по фазам подшага — после прошлой фазы и сейчас (по слотам сочленений), рост фаз этого подшага (сочленение × фаза)
+    private double[] _phaseNow = [], _phaseLast = [];
+    private bool[] _phaseHas = [], _phaseLastValid = [], _phaseValid = [];
+    private float[] _phaseGrowth = [];
 
     private readonly double[] _impulseTick = new double[SourceCount];
 
@@ -126,9 +135,12 @@ public sealed partial class PhysicsTrace
         _touchedCount = 0;
         Array.Clear(_energyValid);
         Array.Clear(_pushed);
+        Array.Clear(_paired);
+        Array.Clear(_phaseLastValid);
+        Array.Clear(_phaseValid);
         Array.Clear(_impulseTick);
-        _energyTotal = 0;
-        _energyTotalAny = false;
+        _energyTotal = _energyPairedTotal = 0;
+        _energyTotalAny = _energyPairedAny = false;
     }
 
     // ——— запись (мир; внутри шага — в накопитель шага, после шага — в последний тик; всегда — в окно и прогон) ———
@@ -158,6 +170,13 @@ public sealed partial class PhysicsTrace
             Array.Resize(ref _energyHas, articulations);
             Array.Resize(ref _energyValid, articulations);
             Array.Resize(ref _pushed, articulations);
+            Array.Resize(ref _paired, articulations);
+            Array.Resize(ref _phaseNow, articulations);
+            Array.Resize(ref _phaseLast, articulations);
+            Array.Resize(ref _phaseHas, articulations);
+            Array.Resize(ref _phaseLastValid, articulations);
+            Array.Resize(ref _phaseValid, articulations * PhaseCount);
+            Array.Resize(ref _phaseGrowth, articulations * PhaseCount);
             _artCapacity = articulations;
         }
     }
@@ -166,7 +185,9 @@ public sealed partial class PhysicsTrace
     internal void ResetArticulation(int articulation, ReadOnlySpan<int> bodies)
     {
         if (articulation >= _artCapacity) return;
-        _energyValid[articulation] = _energyHas[articulation] = _pushed[articulation] = false;
+        _energyValid[articulation] = _energyHas[articulation] = _pushed[articulation] = _paired[articulation] = false;
+        _phaseLastValid[articulation] = false;
+        _phaseValid.AsSpan(articulation * PhaseCount, PhaseCount).Clear();
         foreach (int b in bodies)
             if (b < _bodyCapacity) ClearBody(b);
     }
@@ -295,32 +316,93 @@ public sealed partial class PhysicsTrace
     {
         _energyPrev[articulation] = _energyNow[articulation];
         _energyValid[articulation] = _energyHas[articulation];
-        _pushed[articulation] = false;
+        _pushed[articulation] = _paired[articulation] = false;
     }
 
-    /// <summary>Конец подшага: рост энергии сочленения против конца прошлого подшага (или начала шага).</summary>
+    /// <summary>Сочленения <paramref name="a"/> и <paramref name="b"/> в этом подшаге касались друг друга телами на физике (7з-2).</summary>
+    internal void Paired(int a, int b)
+    {
+        _paired[a] = true;
+        _paired[b] = true;
+    }
+
+    /// <summary>
+    /// Конец подшага: рост энергии сочленения против конца прошлого подшага (или начала шага) — по классам (7з-2): толкаемое живыми, в
+    /// контакте с другим телом на физике (энергия передаётся между трупами — рост одного не накачка; их сумма — отдельно), без того и
+    /// другого; рост по фазам подшага — у не толкаемых.
+    /// </summary>
     internal void EnergyCompare(int articulation, ArticulationHandle handle)
     {
         bool has = _energyHas[articulation];
         if (has && _energyValid[articulation])
         {
             float growth = (float)(_energyNow[articulation] - _energyPrev[articulation]);
-            bool pushed = _pushed[articulation];
-            _step.Energy(handle, growth, pushed);
-            _window.Energy(handle, growth, pushed);
-            _run.Energy(handle, growth, pushed);
+            bool pushed = _pushed[articulation], paired = _paired[articulation];
+            _step.Energy(handle, growth, pushed, paired);
+            _window.Energy(handle, growth, pushed, paired);
+            _run.Energy(handle, growth, pushed, paired);
             if (!pushed)
             {
                 _energyTotal += growth;
                 _energyTotalAny = true;
+                if (paired)
+                {
+                    _energyPairedTotal += growth;
+                    _energyPairedAny = true;
+                }
+                EnergyPhases(articulation, handle);
             }
         }
         _energyPrev[articulation] = _energyNow[articulation];
         _energyValid[articulation] = has;
-        _pushed[articulation] = false;
+        _pushed[articulation] = _paired[articulation] = false;
     }
 
-    /// <summary>Конец подшага: рост энергии всех сочленений без толчков, контакты подшага — в последние.</summary>
+    /// <summary>Рост энергии сочленения по фазам этого подшага — в накопители (наибольший по фазе и чей).</summary>
+    private void EnergyPhases(int articulation, ArticulationHandle handle)
+    {
+        int row = articulation * PhaseCount;
+        for (int p = 0; p < PhaseCount; p++)
+        {
+            if (!_phaseValid[row + p]) continue;
+            float growth = _phaseGrowth[row + p];
+            _step.Phase(p, growth, handle);
+            _window.Phase(p, growth, handle);
+            _run.Phase(p, growth, handle);
+        }
+    }
+
+    /// <summary>Фаза подшага: суммы энергий по сочленениям — заново.</summary>
+    internal void PhaseClear()
+    {
+        Array.Clear(_phaseNow);
+        Array.Clear(_phaseHas);
+    }
+
+    internal void PhaseAdd(int articulation, double energy)
+    {
+        _phaseNow[articulation] += energy;
+        _phaseHas[articulation] = true;
+    }
+
+    /// <summary>
+    /// Конец фазы <paramref name="phase"/> у сочленения: рост против прошлой фазы (у интеграции — против конца прошлого подшага или начала
+    /// шага, как рост подшага).
+    /// </summary>
+    internal void PhaseEnd(int articulation, PhysicsPhase phase)
+    {
+        int i = articulation * PhaseCount + (int)phase;
+        bool has = _phaseHas[articulation];
+        bool first = phase == PhysicsPhase.Integrate;
+        bool valid = has && (first ? _energyValid[articulation] : _phaseLastValid[articulation]);
+        double before = first ? _energyPrev[articulation] : _phaseLast[articulation];
+        _phaseValid[i] = valid;
+        _phaseGrowth[i] = valid ? (float)(_phaseNow[articulation] - before) : 0;
+        _phaseLast[articulation] = _phaseNow[articulation];
+        _phaseLastValid[articulation] = has;
+    }
+
+    /// <summary>Конец подшага: рост энергии всех сочленений без толчков (и всех в контакте друг с другом), контакты подшага — в последние.</summary>
     internal void SubstepEnd()
     {
         if (_energyTotalAny)
@@ -330,8 +412,16 @@ public sealed partial class PhysicsTrace
             _window.EnergyTotal(total);
             _run.EnergyTotal(total);
         }
-        _energyTotal = 0;
-        _energyTotalAny = false;
+        if (_energyPairedAny)
+        {
+            float paired = (float)_energyPairedTotal;
+            _step.EnergyPairedTotal(paired);
+            _window.EnergyPairedTotal(paired);
+            _run.EnergyPairedTotal(paired);
+        }
+        _energyTotal = _energyPairedTotal = 0;
+        _energyTotalAny = _energyPairedAny = false;
+        Array.Clear(_phaseValid);
         (_contacts, _contactsLast) = (_contactsLast, _contacts);
         _contactLastCount = _contactCount;
         _lostLast = _lost;

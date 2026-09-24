@@ -47,6 +47,46 @@ public readonly record struct BodyDynamics()
 }
 
 /// <summary>
+/// Обратная инерция тела в мире — симметричная матрица 3×3 по столбцам (7з-2): <c>R · diag(I⁻¹) · Rᵀ</c> для позы, которая дальше не
+/// меняется (скоростной проход контактов и расслабление суставов идут после обновления скоростей подшага): одна матрица на тело вместо
+/// двух поворотов на каждый вызов <see cref="BodyState.InvInertiaWorld"/>. Та же величина, округление — своё.
+/// </summary>
+internal readonly struct InvInertiaMatrix
+{
+    public readonly Vector3 X, Y, Z;
+    public readonly float InvMass;
+
+    public InvInertiaMatrix(in BodyState s)
+    {
+        var m = Matrix4x4.CreateFromQuaternion(s.Rotation);
+        // строки — образы осей тела (столбцы поворота): W = Σ dᵢ·rᵢ·rᵢᵀ, столбец k — Σ dᵢ·rᵢ·(rᵢ)ₖ
+        Vector3 r0 = new(m.M11, m.M12, m.M13), r1 = new(m.M21, m.M22, m.M23), r2 = new(m.M31, m.M32, m.M33);
+        var d = s.InvInertia;
+        X = r0 * (d.X * r0.X) + r1 * (d.Y * r1.X) + r2 * (d.Z * r2.X);
+        Y = r0 * (d.X * r0.Y) + r1 * (d.Y * r1.Y) + r2 * (d.Z * r2.Y);
+        Z = r0 * (d.X * r0.Z) + r1 * (d.Y * r1.Z) + r2 * (d.Z * r2.Z);
+        InvMass = s.InvMass;
+    }
+
+    /// <summary>Обратная инерция в мире, применённая к вектору (как <see cref="BodyState.InvInertiaWorld"/>).</summary>
+    public Vector3 Apply(Vector3 v) => X * v.X + Y * v.Y + Z * v.Z;
+
+    /// <summary>Обратная масса тела в точке с плечом <paramref name="r"/> вдоль единичного <paramref name="n"/> (как <see cref="BodyState.InvMassAt"/>).</summary>
+    public float At(Vector3 r, Vector3 n)
+    {
+        var rn = Vector3.Cross(r, n);
+        return InvMass + Vector3.Dot(rn, Apply(rn));
+    }
+
+    /// <summary>Импульс в скорость в точке с плечом <paramref name="r"/> (как <see cref="Dynamics.ApplyImpulse"/>).</summary>
+    public void Impulse(ref BodyState b, Vector3 impulse, Vector3 r)
+    {
+        b.Velocity += impulse * InvMass;
+        b.AngularVelocity += Apply(Vector3.Cross(r, impulse));
+    }
+}
+
+/// <summary>
 /// Динамика тела-капсулы — функции над <c>ref BodyState</c> (идеи — <c>RigidBody</c> SWORD 2eab13b): форма с массой,
 /// позиционная коррекция импульсом и поворот (решатель XPBD — <see cref="Xpbd"/>), импульс в скорость, интеграция подшага и
 /// обновление скоростей подшага по профилю. Запросы (точки, скорость точки, обратная масса и инерция) — члены

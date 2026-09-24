@@ -266,6 +266,41 @@ public class KinematicPushTests
         Assert.True(top >= limit - 0.05f, $"часть разогналась до {top} при пределе {limit}");
     }
 
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(2f)]
+    [InlineData(8f)]
+    public void LightLongPiece_PushedAtTip_RotationKeepsPointWithinPopSpeed(float pusherSpeed)
+    {
+        // 7з-2 (находка 7к: выталкивание до 1,026 м/с при PopSpeed 1): длинная лёгкая капсула, толкаемая у торца, от поправки поворачивается —
+        // линейный предел λ·w не видит второго порядка поворота. Точный предел мерит настоящий сдвиг материальной точки: выталкивание сверх
+        // толкающей точки — не больше PopSpeed (с допуском инварианта physics.pushes 1e-3).
+        var s = PhysicsSettings.Default with { PopSpeed = 1 };
+        var w = World(substeps: 4, s);
+        var trace = w.EnableTrace();
+        var pusher = Pusher(w, 0.1f, Vector3.Zero);
+        var piece = w.CreateArticulation(1);
+        var pieceBody = w.Body(piece, 0);
+        w.SetShape(pieceBody, 0.3f, 0.03f, 0.3f);
+        w.Place(pieceBody, new Vector3(-0.27f, 0, 0.1f), Quaternion.CreateFromAxisAngle(Vector3.UnitZ, -MathF.PI / 2));   // вдоль +X, торец B у толкающего
+        w.SetMode(pieceBody, BodyMode.Simulated);
+        w.SetDynamics(pieceBody, Vacuum);
+        var pb = w.Body(pusher, 0);
+        var velocity = new Vector3(0, 0, pusherSpeed);
+        for (int t = 0; t < 12; t++)
+        {
+            var tip = w.Get(pieceBody).EndB;   // торец части; толкающий — за ним внахлёст на 6 см
+            var at = tip - new Vector3(0, 0, 0.07f);
+            w.Place(pb, at - velocity * Dt, Quaternion.Identity);
+            w.SetKinematicTarget(pb, at, Quaternion.Identity, Dt);
+            w.Step(Dt);
+        }
+        var run = trace.Run;
+        Assert.True(run.PushPopSpeed <= s.PopSpeed + 1e-3f, $"выталкивание {run.PushPopSpeed} м/с сверх толкающей точки при PopSpeed {s.PopSpeed}");
+        Assert.True(run.PushPopSpeed >= s.PopSpeed * 0.9f, $"предел скорости не упирался: {run.PushPopSpeed} м/с — проверка ни о чём");
+        Assert.True(run.Source(PhysicsSource.PushBody).Angular > 1, "часть почти не поворачивалась — проверка ни о чём");
+    }
+
     [Fact]
     public void NoReaction_PushesWithoutReaction()
     {

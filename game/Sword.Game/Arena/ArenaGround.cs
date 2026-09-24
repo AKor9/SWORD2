@@ -84,7 +84,8 @@ public sealed class ArenaGround : IGround
     private static float SmoothDepth(Vector3 center, float radius, out Vector3 normal)
     {
         float height = ArenaTerrain.SmoothHeightAt(center.X, center.Z, out var gradient);
-        normal = Vector3.Normalize(new Vector3(-gradient.X, 1, -gradient.Y));
+        // 7з-2: ровное место (градиент 0 — центр арены, между участками) — нормаль уже единичная, без корня (бит в бит та же)
+        normal = gradient.X == 0 && gradient.Y == 0 ? new Vector3(-gradient.X, 1, -gradient.Y) : Vector3.Normalize(new Vector3(-gradient.X, 1, -gradient.Y));
         return radius - (center.Y - height) * normal.Y;
     }
 

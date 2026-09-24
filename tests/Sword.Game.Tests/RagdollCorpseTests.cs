@@ -191,8 +191,10 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     internal const float RestComSpeed = 0.2f, RestKineticEnd = 0.03f, RestEnergyRise = 0.05f;
 
     /// <summary>
-    /// Труп на ровной земле: за 2 с ложится, дальше окно покоя 5 с — центр масс успокаивается, энергия в покое не растёт (<see cref="RestComSpeed"/>,
-    /// <see cref="RestKineticEnd"/>, <see cref="RestEnergyRise"/>), тела в земле — не глубже 1 см, суставы держат; инварианты чисты.
+    /// Труп на ровной земле: за 3 с ложится, дальше окно покоя 5 с — центр масс успокаивается, энергия в покое не растёт (<see cref="RestComSpeed"/>,
+    /// <see cref="RestKineticEnd"/>, <see cref="RestEnergyRise"/>), тела в земле — не глубже 1 см, суставы держат; инварианты чисты. Синтетический риг
+    /// (стопы в земле на 4,5 см) после падения перекатывается по земле: до 2,0 с (7з), до 2,25 с с 7з-2 (разрыв суставов при ударе сводится не
+    /// быстрее <see cref="PhysicsSettings.JointPopSpeed"/>) — ложится за 3 с, окно покоя — после.
     /// </summary>
     [Fact]
     public void Corpse_OnFlatGround_Settles_EnergyAtRestDoesNotGrow()
@@ -201,7 +203,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         Step(sim, Place(1, 4, 4, 1.1f));
         Step(sim, Kill(1));
         var e = Fighter(sim, 1);
-        var rest = RestWindow(sim, physics, e, settle: 240, window: 600);
+        var rest = RestWindow(sim, physics, e, settle: 360, window: 600);
         output.WriteLine($"ровная земля: {rest}");
         Assert.True(rest.ComSpeed <= RestComSpeed && rest.KineticEnd <= RestKineticEnd, rest.ToString());
         Assert.True(rest.EnergyRise <= RestEnergyRise, rest.ToString());
@@ -663,6 +665,76 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         Assert.True(hit.Id == id, $"{id} не поймал {fault}; нарушения: {string.Join("; ", sim.Invariants.Recent().Take(3))}");
         Assert.Equal((tick, stage), (hit.Tick, hit.Stage));
         output.WriteLine($"{fault}: {hit}");
+    }
+
+    /// <summary>
+    /// <c>physics.ground</c> (7з-2): глубже допуска — только выходя. Голова трупа, лежащего на ровной земле, поставлена на 4 см в землю (глубже
+    /// допуска 3 см, мельче 0,3 м): отпущенная выходит (застарелая глубина — <c>PopSpeed·dt</c> за тик) — нарушений нет; удержанная на 4 см —
+    /// нарушение, когда эпизод длится дольше <c>(4 − 3 см) / (¼ PopSpeed) + </c><see cref="CorpseInvariants.GroundExitGrace"/> ≈ 0,29 с (тик
+    /// 395). Проверка 7з-2: тест неисправности ловил только «глубже 0,3 м».
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GroundInvariant_DeepBody_OnlyExiting(bool hold)
+    {
+        var holder = new IPhysicsWorld[1];
+        const ulong tick = 360;
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Physics, new SinkHead(tick, hold ? 60 : 1, holder)));
+        holder[0] = physics;
+        Step(sim, Place(1, 4, 4, 1.1f));
+        Step(sim, Kill(1));
+        while (sim.Tick < tick) sim.Step();
+        Clean(sim);
+        for (int t = 0; t < 60; t++) sim.Step();
+        var hits = sim.Invariants.Recent().Where(v => v.Id == "physics.ground").OrderBy(v => v.Tick).ToArray();
+        output.WriteLine(hits.Length > 0 ? $"{hits[0].Tick}: {hits[0].Details}" : "нарушений нет");
+        if (hold) Assert.True(hits.Length > 0 && hits[0].Tick is >= tick + 33 and <= tick + 38, $"удержанная в земле голова: первое нарушение {(hits.Length > 0 ? hits[0].Tick : 0)}, ждали ~{tick + 35}");
+        else Assert.Empty(hits);
+    }
+
+    /// <summary>Голова трупа 1 — на 4 см в земле после шага (Physics) тиков <paramref name="from"/> … <c>from + ticks − 1</c>.</summary>
+    private sealed class SinkHead(ulong from, int ticks, IPhysicsWorld[] physics) : IContinuousSystem
+    {
+        private readonly GroundTouch[] _touches = new GroundTouch[IGround.MaxTouches];
+
+        public void Setup(SystemSetup s) => s.Label(new SystemLabel("test.sink-head")).After(GameLabels.CorpseRoot);
+
+        public void Run(in SystemContext ctx)
+        {
+            ulong now = ctx.World.Resource<SimTime>().Tick;
+            if (now < from || now >= from + (ulong)ticks) return;
+            var p = physics[0];
+            var head = p.Body(FighterBodies.Handle(ctx.World.Get<BodyRef>(FighterIn(ctx.World, 1))), BodySegs.Head);
+            for (int k = 0; k < 8; k++)   // касание видно только в земле: голова над землёй — опускать по 1 см, в земле — до 4 см
+            {
+                var s = p.Get(head);
+                float depth = MathF.Max(Depth(s.EndA, s.Radius), Depth(s.EndB, s.Radius));
+                if (MathF.Abs(depth - 0.04f) < 1e-3f) return;
+                p.Place(head, s.Position - new Vector3(0, depth > 0 ? 0.04f - depth : 0.01f, 0), s.Rotation);
+            }
+            throw new InvalidOperationException("голова трупа не легла на землю");
+        }
+
+        private float Depth(Vector3 end, float radius)
+        {
+            int n = Math.Min(ArenaGround.Instance.Touches(end, radius, _touches), _touches.Length);
+            float d = 0;
+            for (int i = 0; i < n; i++) d = MathF.Max(d, _touches[i].Depth);
+            return d;
+        }
+    }
+
+    /// <summary>
+    /// Прогрев шага физики (7з-2, <see cref="PhysicsWarmup"/>): в игре он идёт в фоне, и его ошибка только пишется в журнал, — здесь на этом
+    /// потоке: синтетические трупы, «живой» с проходом, удар — шаги без исключений.
+    /// </summary>
+    [Fact]
+    public void PhysicsWarmup_Runs_WithoutErrors()
+    {
+        var result = PhysicsWarmup.Run(PhysicsSettings.Default with { PopSpeed = 1 }, 0.05);
+        output.WriteLine(result.ToString());
+        Assert.True(result.Steps > 30, result.ToString());
     }
 
     // ── агент, хеш, память ──────────────────────────────────────────────────────────────────────────────────────────

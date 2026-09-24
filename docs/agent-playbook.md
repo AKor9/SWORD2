@@ -643,3 +643,22 @@ capsules`).
    `ragdoll.recoilMaxSpeed`; у человека — F3 «Рэгдолл», раздел «ТОЛЧОК ЖИВОГО»); приёмка — `feature.verify {"id":"ragdoll"}` (сценарии s3, s6, s1).
    Эксперимент без сеанса: `Sword.Headless --replay artifacts/features/ragdoll/scenario-s3.swreplay --set ragdoll.playerRecoil=4 --sample 1 --json`
    — `trajectory[].speed` игрока у трупа (0,25 — 4,15 м/с; 4 — 3,19).
+
+## Скорость и покой физики трупа (7з-2)
+
+Шаг физики виден по фазам, рост энергии — по фазам подшага и отдельно у трупов в контакте друг с другом (фича «Рэгдолл», раздел «7з-2»;
+README физики, «7з-2»):
+1. Где время шага: `profile.stages {"enable":true,"reset":true}` → тики с трупами (толпа: `SceneCommand` `Kill` всем) → `profile.stages
+   {"top":40}` — под `core.physics-step@Physics` зоны `physics.integrate`, `physics.joints`, `physics.bounds` (отсев сочленений по коробкам
+   и границы конца шага), `physics.pairs` (пары тел, толчки живых, трение пар), `physics.ground` (мир и мир после пар — два вызова на
+   подшаг), `physics.velocity`, `physics.contactVelocity`, `physics.relax`: мс за тик, вызовы — подшаги. Зоны заводит `core.physics-step`,
+   когда профайлер мира включён; выключенный — 0 Б. Первая смерть не компилирует шаг: прогрев JIT в фоне при сборке первой симуляции
+   процесса — `log.tail` → `[physics] прогрев шага физики трупа: …` (шаги, секунды, затих ли JIT).
+2. Откуда энергия: `physics.bodies {"trace":"on"}` → тики → `physics.bodies {"trace":"show"}` → `trace.last.energy` (и `window`, `run`):
+   `growth` — труп без толчков живых и без контакта с другим трупом (накачка — должна быть около 0), `paired` и `pairedBody` — наибольший рост у
+   трупа в контакте с трупом (передача при ударе), `pairedTotal` — рост суммы касавшихся (инвариант `physics.energy`: `growth` — 12,5 Дж,
+   `pairedTotal` — 25 Дж), `phases` — где появился рост: `integrate`, `joints` (сведение разрыва суставов, не быстрее `JointPopSpeed`), `world`, `pairs`,
+   `pressed` (мир после пар), `velocity`, `contactVelocity`, `relax`. Нарушение `physics.energy` пишет те же фазы в сообщении.
+3. Глубина в земле: `physics.ground` — 3 см, глубже — не дольше выхода со скоростью ¼ `PopSpeed` + 0,25 с (глубже 0,3 м — сразу); встать — `time.breakOnInvariant
+   {"ids":["physics.ground"]}`, затем `physics.bodies {"entity":"<чьё тело>"}` (`grounded`, концы) и `physics.bodies {"trace":"show"}` →
+   `trace.contacts` (`ground`/`pair`/`push.*`: глубина и решённая) — кто держит тело в земле.

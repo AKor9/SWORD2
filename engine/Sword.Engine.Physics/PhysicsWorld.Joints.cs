@@ -23,7 +23,7 @@ public sealed partial class PhysicsWorld
                 throw new ArgumentException($"сустав {j} сочленения {articulation}: {problem}", nameof(joints));
         var records = _joints[a];
         if (n > 0 && (records is null || records.Length < n)) _joints[a] = records = new JointRecord[n];
-        for (int j = 0; j < n; j++) records![j] = new JointRecord { Desc = joints[j], Enabled = true };
+        for (int j = 0; j < n; j++) records![j] = JointRecord.Of(joints[j]);
         _jointCount[a] = n;
         _jointHitCount[a] = 0;
         // Журнал: за подшаг — не больше двух срабатываний на сустав (шарнир: ось и сгиб; наклон-скручивание: наклон и
@@ -104,9 +104,16 @@ public sealed partial class PhysicsWorld
     partial void SolveJoints(float h, int substep)
     {
         float compliance = _settings.JointLimitCompliance;
+        _jointsPopDepth = _settings.JointPopSpeed * h;
         for (int a = 0; a < _artCapacity; a++)
             if (_jointCount[a] > 0) JointsSolveArticulation(a, h, substep, compliance);
     }
+
+    /// <summary>
+    /// Сколько унаследованного разрыва точки сустава сводится за подшаг, м (7з-2): <c>JointPopSpeed · h</c> (∞ — весь); пишет
+    /// <see cref="SolveJoints"/>.
+    /// </summary>
+    private float _jointsPopDepth = float.PositiveInfinity;
 
     partial void RelaxJoints(float h, int substep)
     {
@@ -124,7 +131,7 @@ public sealed partial class PhysicsWorld
     private void JointsSolveArticulation(int a, float h, int substep, float compliance)
     {
         if (substep == 0) _jointHitCount[a] = 0;
-        if (!JointsAnySimulated(a)) return;
+        if (_contactsSimulated[a] == 0) return;   // тел на физике нет (счёт шага — режим внутри шага не меняется)
         int n = _jointCount[a];
         JointsEnsureLog(a, _jointHitCount[a] + 2 * n);
         if (_trace is not null) JointsTraceBegin(a);
@@ -151,13 +158,20 @@ public sealed partial class PhysicsWorld
         {
             // Ось шарнира ребёнка — к оси, которую держит родитель, сверх люфта; затем сгиб — в [BendMin, BendMax].
             var ap = Joints.ParentHingeAxis(r.Desc, p.Rotation, r.Rest);
-            float off = Joints.OffAxis(Joints.ChildHingeAxis(r.Desc, c.Rotation), ap, out var cross);
-            if (off > r.Desc.AxisSlack)
+            var ac = Joints.ChildHingeAxis(r.Desc, c.Rotation);
+            var cross = Vector3.Cross(ac, ap);
+            float dot = Vector3.Dot(ac, ap);
+            // 7з-2: быстрое «в люфте» — atan2(|ac × ap|, ac·ap) ≤ люфт ⇔ |ac × ap|² ≤ (ac·ap)²·tg²(люфт) при ac·ap > 0
+            if (!(dot > 0 && cross.LengthSquared() <= dot * dot * r.SlackTan2))
             {
                 float len = cross.Length();
-                if (len > Joints.AxisEpsilon) JointsLimit(a, j, ref c, cs, ref p, ps, cross * ((off - r.Desc.AxisSlack) / len), alpha, h, substep);
-                // Ось родителя — по позе после поправки оси (у SWORD сгиб мерился вокруг оси до неё).
-                ap = Joints.ParentHingeAxis(r.Desc, p.Rotation, r.Rest);
+                float off = MathF.Atan2(len, dot);
+                if (off > r.Desc.AxisSlack)
+                {
+                    if (len > Joints.AxisEpsilon) JointsLimit(a, j, ref c, cs, ref p, ps, cross * ((off - r.Desc.AxisSlack) / len), alpha, h, substep);
+                    // Ось родителя — по позе после поправки оси (у SWORD сгиб мерился вокруг оси до неё).
+                    ap = Joints.ParentHingeAxis(r.Desc, p.Rotation, r.Rest);
+                }
             }
             float bend = Joints.Bend(r.Desc, p.Rotation, c.Rotation, ap);
             float clamped = Math.Clamp(bend, r.Desc.BendMin, r.Desc.BendMax);
@@ -172,22 +186,51 @@ public sealed partial class PhysicsWorld
         {
             // Наклон, затем скручивание — каждое вдоль градиента своей меры, левым поворотом в системе покоя (в мир — P·Rest).
             var q = Joints.Deviation(p.Rotation, r.Rest, c.Rotation);
-            if (Joints.SwingCorrection(r.Desc, q, out var swing))
+            if (Joints.SwingCorrection(r.Desc, q, out var swing, r.SwingTanHalf2))
             {
                 JointsLimit(a, j, ref c, cs, ref p, ps, Vector3.Transform(swing, p.Rotation * r.Rest), alpha, h, substep);
                 q = Joints.Deviation(p.Rotation, r.Rest, c.Rotation);
             }
-            if (Joints.TwistCorrection(r.Desc, q, out var twist))
+            if (Joints.TwistCorrection(r.Desc, q, out var twist, r.TwistTanHalf))
                 JointsLimit(a, j, ref c, cs, ref p, ps, Vector3.Transform(twist, p.Rotation * r.Rest), alpha, h, substep);
         }
 
-        // Точка сустава — жёстко (α = 0).
+        // Точка сустава — жёстко (α = 0); разрыв, унаследованный от прошлого подшага, — не быстрее JointPopSpeed (7з-2).
         var pc = c.ToWorld(r.Desc.ChildAnchor);
         var pp = p.ToWorld(r.ParentAnchor);
-        if (cs && ps) Xpbd.Attach(ref c, pc, ref p, pp, 0, h);
-        else if (cs) Xpbd.Attach(ref c, pc, pp, 0, h);
-        else Xpbd.Attach(ref p, pp, pc, 0, h);
+        var gap = pc - pp;
+        float distance = gap.Length();
+        if (distance < Xpbd.AttachEpsilon) return;
+        float solve = distance > _jointsPopDepth ? JointsSolvedGap(ref r, in c, in p, distance, h) : distance;
+        if (!(solve > 0)) return;
+        var n = gap / distance;
+        if (cs && ps) Xpbd.Along(ref c, pc, ref p, pp, n, solve, 0, h);
+        else if (cs) Xpbd.Along(ref c, pc, n, solve, 0, h);
+        else Xpbd.Along(ref p, pp, -n, solve, 0, h);
     }
+
+    /// <summary>
+    /// Сколько разрыва точки сустава сводить в этом подшаге (7з-2; как <see cref="ContactsSolvedDepth"/> для глубины): старый разрыв —
+    /// та же пара точек в прошлых позах (начало подшага: его оставили контакты прошлого подшага, решаемые после суставов) — уходит не
+    /// быстрее <see cref="PhysicsSettings.JointPopSpeed"/>; новый разрыв этого подшага (интеграция разнесла тела) — целиком. Без предела
+    /// одна жёсткая поправка переводила разрыв 5…7 мм после удара трупа о землю в скорость ~3 м/с — всплеск энергии до 10 Дж за подшаг.
+    /// Зовётся, только когда разрыв больше <c>JointPopSpeed · h</c> (меньший решается целиком при любой старой глубине).
+    /// </summary>
+    private float JointsSolvedGap(ref JointRecord r, in BodyState c, in BodyState p, float len, float h)
+    {
+        var pc0 = c.PrevPosition + Vector3.Transform(r.Desc.ChildAnchor, c.PrevRotation);
+        var pp0 = p.PrevPosition + Vector3.Transform(r.ParentAnchor, p.PrevRotation);
+        float solved = ContactsSolvedDepth(len, Vector3.Distance(pc0, pp0), _settings.JointPopSpeed, h);
+        return MathF.Max(solved, len - JointsPopLag);
+    }
+
+    /// <summary>
+    /// Наибольший разрыв точки сустава, который сводится с ограничением скорости, м (7з-2): больше — лишнее сводится сразу. Удар о землю
+    /// рвёт сустав на 5…7 мм — это сводится не быстрее <see cref="PhysicsSettings.JointPopSpeed"/>; труп, зажатый в куче (пары решаются после
+    /// суставов), без предела отставания рвал сустав на сантиметры (замер: куча тестов — до 361 мм при падении). Замер (толпа 32 трупов на
+    /// паке): 0,5 см — всплески s8 до 8 Дж; 1 см — до 2,5 Дж, разрыв при падении толпы ≤ 16 мм; 2 см — ≤ 25 мм.
+    /// </summary>
+    internal const float JointsPopLag = 0.01f;
 
     /// <summary>
     /// Поправка предела: повернуть ребёнка относительно родителя на <paramref name="theta"/> (мир, рад) —
@@ -215,7 +258,7 @@ public sealed partial class PhysicsWorld
     /// </summary>
     private void JointsRelaxArticulation(int a, int substep)
     {
-        if (!JointsAnySimulated(a)) return;
+        if (_contactsSimulated[a] == 0) return;
         var records = _joints[a]!;
         var members = _artBodies[a]!;
         int n = _jointCount[a];
@@ -240,11 +283,14 @@ public sealed partial class PhysicsWorld
         if (dv.LengthSquared() < Joints.RelaxEpsilonSquared) return;
         Vector3 rc = pc - c.Position, rp = pp - p.Position;
         Vector3 kx = default, ky = default, kz = default;
-        if (cs) Joints.AddPointMass(c, rc, ref kx, ref ky, ref kz);
-        if (ps) Joints.AddPointMass(p, rp, ref kx, ref ky, ref kz);
+        // обратные инерции — матрицы подшага (7з-2: поза после обновления скоростей не меняется)
+        ref readonly var wc = ref _stepInertia[members[r.Desc.Child]];
+        ref readonly var wp = ref _stepInertia[members[r.Desc.Parent]];
+        if (cs) Joints.AddPointMass(in wc, rc, ref kx, ref ky, ref kz);
+        if (ps) Joints.AddPointMass(in wp, rp, ref kx, ref ky, ref kz);
         if (!Joints.Solve(kx, ky, kz, -dv, out var impulse)) return;
-        if (cs) Dynamics.ApplyImpulse(ref c, impulse, rc);
-        if (ps) Dynamics.ApplyImpulse(ref p, -impulse, rp);
+        if (cs) wc.Impulse(ref c, impulse, rc);
+        if (ps) wp.Impulse(ref p, -impulse, rp);
     }
 
     /// <summary>
@@ -270,19 +316,21 @@ public sealed partial class PhysicsWorld
         var pp = p.ToWorld(r.ParentAnchor);
         Vector3 rc = pc - c.Position, rp = pp - p.Position;
         var dv = c.PointVelocity(pc) - p.PointVelocity(pp);
+        ref readonly var wc = ref _stepInertia[members[r.Desc.Child]];
+        ref readonly var wp = ref _stepInertia[members[r.Desc.Parent]];
         Vector3 kx = default, ky = default, kz = default, b = default;
         float w = 0;
         if (cs)
         {
-            Joints.AddPointMass(c, rc, ref kx, ref ky, ref kz);
-            var ic = c.InvInertiaWorld(n);
+            Joints.AddPointMass(in wc, rc, ref kx, ref ky, ref kz);
+            var ic = wc.Apply(n);
             b += Vector3.Cross(ic, rc);
             w += Vector3.Dot(n, ic);
         }
         if (ps)
         {
-            Joints.AddPointMass(p, rp, ref kx, ref ky, ref kz);
-            var ip = p.InvInertiaWorld(n);
+            Joints.AddPointMass(in wp, rp, ref kx, ref ky, ref kz);
+            var ip = wp.Apply(n);
             b += Vector3.Cross(ip, rp);
             w += Vector3.Dot(n, ip);
         }
@@ -294,13 +342,13 @@ public sealed partial class PhysicsWorld
         var l = n * lambda;
         if (cs)
         {
-            Dynamics.ApplyImpulse(ref c, j, rc);
-            c.AngularVelocity += c.InvInertiaWorld(l);
+            wc.Impulse(ref c, j, rc);
+            c.AngularVelocity += wc.Apply(l);
         }
         if (ps)
         {
-            Dynamics.ApplyImpulse(ref p, -j, rp);
-            p.AngularVelocity -= p.InvInertiaWorld(l);
+            wp.Impulse(ref p, -j, rp);
+            p.AngularVelocity -= wp.Apply(l);
         }
     }
 
@@ -330,15 +378,6 @@ public sealed partial class PhysicsWorld
         ref readonly var c = ref _bodies[members[r.Desc.Child]];
         r.ParentAnchor = p.ToLocal(c.ToWorld(r.Desc.ChildAnchor));
         r.Rest = Quaternion.Normalize(Quaternion.Conjugate(p.Rotation) * c.Rotation);
-    }
-
-    private bool JointsAnySimulated(int a)
-    {
-        var members = _artBodies[a]!;
-        int n = _artCount[a];
-        for (int k = 0; k < n; k++)
-            if (_bodies[members[k]].Mode == BodyMode.Simulated) return true;
-        return false;
     }
 
     /// <summary>Журнал сочленения — не меньше <paramref name="need"/> записей (рост — только при новых размерах или подшагах).</summary>

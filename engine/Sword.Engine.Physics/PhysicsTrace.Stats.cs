@@ -11,8 +11,13 @@ public sealed partial class PhysicsTrace
 {
     private static readonly string[] SourceNames = ["суставы", "земля", "стена", "пара", "толчок тела", "толчок прохода", "без отдачи"];
 
+    private static readonly string[] PhaseNames = ["интеграция", "суставы", "мир", "пары", "мир после пар", "скорости", "скоростной проход", "расслабление"];
+
     /// <summary>Имя источника для сводки.</summary>
     public static string SourceName(PhysicsSource source) => SourceNames[(int)source];
+
+    /// <summary>Имя фазы подшага для сводки (7з-2).</summary>
+    public static string PhaseName(PhysicsPhase phase) => PhaseNames[(int)phase];
 
     /// <summary>
     /// Контакт подшага: источник, тело на физике, второе тело (<see cref="BodyHandle.None"/> — мир: земля, стена, колонна;
@@ -119,6 +124,8 @@ public sealed partial class PhysicsTrace
         private readonly long[] _speedHistogram = new long[SpeedBins], _angularHistogram = new long[AngularBins];
         private readonly Event[] _top = new Event[TopCapacity];
         private int _topCount;
+        private readonly float[] _phaseGrowth = new float[PhaseCount];
+        private readonly ArticulationHandle[] _phaseArticulation = new ArticulationHandle[PhaseCount];
 
         /// <summary>Шагов (закрытых <c>TraceStep</c>) и подшагов (закрытых <c>TraceSubstep</c>); время шагов, с.</summary>
         public int Steps { get; private set; }
@@ -182,13 +189,30 @@ public sealed partial class PhysicsTrace
         public int FrictionHeld { get; private set; }
 
         /// <summary>
-        /// Рост энергии за подшаг (кинетическая + m·g·y), Дж: наибольший у сочленения, которое живые в подшаге не толкали, и
-        /// какого; наибольший у всех таких вместе; наибольший у толкаемого живыми (толчок вправе добавлять энергию).
+        /// Рост энергии за подшаг (кинетическая + m·g·y), Дж: наибольший у сочленения, которое живые в подшаге не толкали и которое не
+        /// касалось другого тела на физике (7з-2; инвариант <c>physics.energy</c>), и какого; наибольший у всех без толчков вместе (и
+        /// касавшихся); наибольший у толкаемого живыми (толчок вправе добавлять энергию).
         /// </summary>
         public float EnergyGrowth { get; private set; }
         public ArticulationHandle EnergyArticulation { get; private set; }
         public float EnergyGrowthTotal { get; private set; }
         public float EnergyGrowthPushed { get; private set; }
+
+        /// <summary>
+        /// Рост энергии за подшаг у сочленения, касавшегося другого тела на физике (7з-2: труп на трупе — энергия передаётся, рост одного —
+        /// не накачка), Дж, и какого; наибольший рост суммы всех касавшихся за подшаг (передача внутри суммы сокращается).
+        /// </summary>
+        public float EnergyGrowthPaired { get; private set; }
+        public ArticulationHandle EnergyPairedArticulation { get; private set; }
+        public float EnergyGrowthPairedTotal { get; private set; }
+
+        /// <summary>
+        /// Рост энергии сочленения без толчков живых за фазу подшага <paramref name="phase"/> (7з-2), Дж — наибольший (где энергия
+        /// появляется: суставы сводят разрыв, выталкивание, скоростной проход…), и у какого сочленения.
+        /// </summary>
+        public float PhaseGrowth(PhysicsPhase phase) => _phaseGrowth[(int)phase];
+
+        public ArticulationHandle PhaseArticulation(PhysicsPhase phase) => _phaseArticulation[(int)phase];
 
         /// <summary>Событий (тело·тиков быстрее порога) и самые быстрые из них (по убыванию скорости, до <see cref="TopCapacity"/>).</summary>
         public int Events { get; private set; }
@@ -222,6 +246,10 @@ public sealed partial class PhysicsTrace
             FrictionContacts = FrictionHeld = 0;
             EnergyGrowth = EnergyGrowthTotal = EnergyGrowthPushed = 0;
             EnergyArticulation = ArticulationHandle.None;
+            EnergyGrowthPaired = EnergyGrowthPairedTotal = 0;
+            EnergyPairedArticulation = ArticulationHandle.None;
+            Array.Clear(_phaseGrowth);
+            Array.Clear(_phaseArticulation);
             Events = 0;
         }
 
@@ -311,11 +339,18 @@ public sealed partial class PhysicsTrace
             if (w > AngularSpeedMax) AngularSpeedMax = w;
         }
 
-        internal void Energy(ArticulationHandle articulation, float growth, bool pushed)
+        internal void Energy(ArticulationHandle articulation, float growth, bool pushed, bool paired)
         {
             if (pushed)
             {
                 EnergyGrowthPushed = MathF.Max(EnergyGrowthPushed, growth);
+                return;
+            }
+            if (paired)
+            {
+                if (!(growth > EnergyGrowthPaired)) return;
+                EnergyGrowthPaired = growth;
+                EnergyPairedArticulation = articulation;
                 return;
             }
             if (!(growth > EnergyGrowth)) return;
@@ -324,6 +359,15 @@ public sealed partial class PhysicsTrace
         }
 
         internal void EnergyTotal(float growth) => EnergyGrowthTotal = MathF.Max(EnergyGrowthTotal, growth);
+
+        internal void EnergyPairedTotal(float growth) => EnergyGrowthPairedTotal = MathF.Max(EnergyGrowthPairedTotal, growth);
+
+        internal void Phase(int phase, float growth, ArticulationHandle articulation)
+        {
+            if (!(growth > _phaseGrowth[phase])) return;
+            _phaseGrowth[phase] = growth;
+            _phaseArticulation[phase] = articulation;
+        }
 
         /// <summary>Событие: в счёт и в «самые быстрые» (фиксированный массив по убыванию скорости; равные — в порядке прихода).</summary>
         internal void AddEvent(in Event e)
@@ -388,8 +432,11 @@ public sealed partial class PhysicsTrace
             sb.AppendLine(inv, $"{prefix} удары: {Hits} (урезано потолком Δv {HitsCapped}, проходом {HitsBudgeted}); доля Δv {HitDvShare:F3}; " +
                                $"Δv тела {HitDv:F2} м/с, Δω {HitDw:F1} рад/с");
             sb.AppendLine(inv, $"{prefix} трение покоя о землю: держало {FrictionHeld} из {FrictionContacts}");
-            sb.Append(inv, $"{prefix} рост энергии за подшаг: сочленение без толчков {EnergyGrowth:F4} Дж ({EnergyArticulation}), " +
-                           $"все без толчков {EnergyGrowthTotal:F4} Дж, толкаемое живыми {EnergyGrowthPushed:F4} Дж");
+            sb.AppendLine(inv, $"{prefix} рост энергии за подшаг: сочленение без толчков и контакта с телом на физике {EnergyGrowth:F4} Дж " +
+                               $"({EnergyArticulation}), в контакте {EnergyGrowthPaired:F4} Дж ({EnergyPairedArticulation}), все в контакте вместе " +
+                               $"{EnergyGrowthPairedTotal:F4} Дж, все без толчков {EnergyGrowthTotal:F4} Дж, толкаемое живыми {EnergyGrowthPushed:F4} Дж");
+            sb.Append(inv, $"{prefix} рост энергии по фазам подшага, Дж:");
+            for (int p = 0; p < PhaseCount; p++) sb.Append(inv, $" {PhaseNames[p]} {_phaseGrowth[p]:F4};");
             for (int k = 0; k < _topCount; k++)
             {
                 sb.AppendLine();

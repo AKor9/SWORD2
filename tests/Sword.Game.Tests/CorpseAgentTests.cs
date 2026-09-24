@@ -80,6 +80,11 @@ public sealed class CorpseAgentTests
                 var p = on[period]!;
                 Assert.NotNull(p["speed"]?["max"]);
                 Assert.NotNull(p["energy"]);
+                // 7з-2: рост у трупов в контакте друг с другом и по фазам подшага
+                Assert.NotNull(p["energy"]!["paired"]);
+                Assert.NotNull(p["energy"]!["pairedTotal"]);
+                foreach (string phase in (string[])["integrate", "joints", "world", "pairs", "pressed", "velocity", "contactVelocity", "relax"])
+                    Assert.NotNull(p["energy"]!["phases"]![phase]);
                 Assert.IsType<JsonArray>(p["sources"]);
                 Assert.IsType<JsonArray>(p["top"]);
             }

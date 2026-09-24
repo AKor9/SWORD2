@@ -160,8 +160,9 @@ public class TraceTests
     {
         // Суставы (7в) открывают снимки у всех тел сочленения на физике (N TraceBegin), проход, затем N TraceEnd: поправка каждого
         // тела мерится от его собственного снимка. Три шара цепочкой, средний сдвинут вбок на 2 см; шаг из одного подшага, без
-        // гравитации и скоростей — сдвиг тела за шаг и есть поправка суставов.
-        var w = World(substeps: 1);
+        // гравитации и скоростей — сдвиг тела за шаг и есть поправка суставов. Разрыв унаследован (сдвиг — и прошлой позы): сводится
+        // целиком только без предела скорости сведения (7з-2, JointPopSpeed) — здесь проверяется трасса, а не сведение.
+        var w = World(substeps: 1, PhysicsSettings.Default with { JointPopSpeed = float.PositiveInfinity });
         var trace = w.EnableTrace();
         var art = Target(w, 2, 0.05f, Vacuum, Vector3.Zero, new Vector3(0, 0.2f, 0), new Vector3(0, 0.4f, 0));
         var anchor = new Vector3(0, -0.1f, 0);

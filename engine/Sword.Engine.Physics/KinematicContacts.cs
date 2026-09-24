@@ -149,6 +149,7 @@ public sealed partial class PhysicsWorld
         var applied = dir * j;
         Vector3 v0 = s.Velocity, w0 = s.AngularVelocity;
         Dynamics.ApplyImpulse(ref s, applied, r);
+        if (s.Mode == BodyMode.Simulated) StepMarkNonFinite(body.Index);   // 7з-2: счёт нечисловых — по записи тела
         if (_trace is { } trace)
         {
             float share = impactSpeed > 0 ? j * w / impactSpeed : 0;
@@ -318,16 +319,17 @@ public sealed partial class PhysicsWorld
 
         var trace = _trace;
         PhysicsTrace.Snap snap = default;
-        Vector3 local = default;
-        if (trace is not null)
-        {
-            snap = new PhysicsTrace.Snap(phys.Position, phys.PrevPosition, phys.Rotation);
-            local = phys.ToLocal(point);
-        }
+        if (trace is not null) snap = new PhysicsTrace.Snap(phys.Position, phys.PrevPosition, phys.Rotation);
+        var local = phys.ToLocal(point);   // материальная точка толчка — до поправки
+        var saved = phys;
+        ContactsPoseBeforePair(body);      // 7з-2: мир после пар решает от позы до пар
 
         float lambda = Xpbd.Contact(ref phys, point, normal, -depth, settings.ContactCompliance, h, max);
+        if (lambda > 0 && w > 0) lambda = KinematicExactLimit(ref phys, in saved, local, point, prevPoint, normal, depth, (vKin + settings.PopSpeed) * h, lambda, h);
         if (lambda > 0)
         {
+            ContactsProbeOf(body);   // 7з-2: толчок сдвинул и повернул тело — щуп пар подшага нынешний
+            ContactsPress(body);     // 7з-2: толчок мог вдавить тело в землю — мир после пар
             if (pair.Used == 0) _kinematicSubstepPairs++;
             pair.Used = MathF.Min(_kinematicPairBudget, pair.Used + lambda);
             if (_kinematicPairBudget > 0) _kinematicSubstepShare = MathF.Max(_kinematicSubstepShare, pair.Used / _kinematicPairBudget);
@@ -336,6 +338,34 @@ public sealed partial class PhysicsWorld
             if (source != KinematicSource.NoReaction) _kinematicReaction[pusher] -= normal * (lambda / h);
         }
         if (trace is not null) KinematicTrace(trace, kinematic, body, in snap, local, prevPoint, point, normal, depth, vKin, lambda, h, in pair, source);
+        return lambda;
+    }
+
+    /// <summary>Допуск точного предела скорости толчка, м/с: точка тела после толчка не быстрее толкающей плюс <c>PopSpeed</c> — с этим запасом.</summary>
+    private const float KinematicLimitSlack = 1e-4f;
+
+    /// <summary>
+    /// Точный предел скорости толчка (7з-2): λ предела считается линейно (<c>сдвиг = λ·w</c>), а поворот от поправки — нелинеен: точка
+    /// лёгкого тела (стопа, кисть) уходила за предел до 2,6 % (замер 7к: выталкивание 1,026 м/с при <c>PopSpeed</c> 1, инвариант
+    /// <c>physics.pushes</c>). После поправки мерится настоящий сдвиг материальной точки вдоль нормали от прошлой позы; больше
+    /// <paramref name="allowed"/> — тело возвращается в позу до толчка, и λ урезается в долю лишнего от собственного сдвига поправки (до
+    /// трёх раз: ошибка — второго порядка, сходится сразу). Возвращает применённую λ.
+    /// </summary>
+    private float KinematicExactLimit(ref BodyState phys, in BodyState saved, Vector3 local, Vector3 point, Vector3 prevPoint, Vector3 normal,
+        float depth, float allowed, float lambda, float h)
+    {
+        float before = Vector3.Dot(point - prevPoint, normal);
+        for (int k = 0; k < 3; k++)
+        {
+            float moved = Vector3.Dot(phys.ToWorld(local) - prevPoint, normal);
+            float over = moved - allowed;
+            float own = moved - before;
+            if (!(over > KinematicLimitSlack * h) || !(own > 0)) return lambda;
+            float scaled = lambda * MathF.Max(0, (own - over) / own);
+            phys = saved;
+            lambda = scaled > 0 ? Xpbd.Contact(ref phys, point, normal, -depth, _settings.ContactCompliance, h, scaled) : 0;
+            if (!(lambda > 0)) return 0;
+        }
         return lambda;
     }
 

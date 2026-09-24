@@ -63,13 +63,31 @@ public sealed record PhysicsSettings
     /// </summary>
     public float HitDvShare { get; init; } = 0.5f;
 
+    /// <summary>
+    /// Скорость сведения унаследованного разрыва точки сустава, м/с (7з-2): разрыв до <c>1 см</c>, оставленный прошлым подшагом (контакты
+    /// решаются после суставов — удар трупа о землю рвёт сустав на 5…7 мм), сводится не быстрее её; новый разрыв этого подшага (интеграция)
+    /// и разрыв сверх 1 см — целиком. Как <see cref="PopSpeed"/> для застарелой глубины: одна жёсткая поправка переводила разрыв 5…7 мм в
+    /// скорость ~3 м/с — всплеск энергии до 10…17 Дж за подшаг. <see cref="float.PositiveInfinity"/> — без ограничения (до 7з-2). Читает 7в
+    /// (проход суставов). Своя, не SWORD.
+    /// </summary>
+    public float JointPopSpeed { get; init; } = 1.5f;
+
+    /// <summary>
+    /// Трение между телами на физике μ (7з-2): трение покоя пар «всё или ничего» с общим бюджетом тела (μ·Σλn его пар в подшаге) после
+    /// нормалей всех пар подшага и трение скольжения по Кулону в скоростном проходе — как у земли. 0 — без трения (до 7з-2: тело, лежащее на
+    /// другом трупе, съезжало с него под тяжестью — «вздрагивание» кучи). Читает 7г. Своя, не SWORD.
+    /// </summary>
+    public float PairFriction { get; init; } = 0.7f;
+
     /// <summary>Что не так с настройками (null — годны): подшаги 1…64, проход — от 1 тика, числа — конечные и не меньше 0.</summary>
     public string? Problem()
     {
         if (Substeps is < 1 or > 64) return $"подшагов {Substeps}: нужно 1…64";
         if (PassExitTicks < 1) return $"тиков до закрытия прохода {PassExitTicks}: нужно от 1";
         if (!NonNegative(PopSpeed)) return "скорость выталкивания — конечная, не меньше 0";
+        if (float.IsNaN(JointPopSpeed) || JointPopSpeed < 0) return "скорость сведения разрыва сустава — не меньше 0 (∞ — без ограничения)";
         if (!NonNegative(StaticFriction)) return "трение покоя — конечное, не меньше 0";
+        if (!NonNegative(PairFriction)) return "трение между телами — конечное, не меньше 0";
         if (!NonNegative(ContactCompliance) || !NonNegative(JointLimitCompliance)) return "податливости — конечные, не меньше 0";
         if (!NonNegative(PushForce)) return "бюджет толчка — конечный, не меньше 0";
         if (!NonNegative(PassShare) || !NonNegative(HitDvShare)) return "доли прохода и Δv удара — конечные, не меньше 0";

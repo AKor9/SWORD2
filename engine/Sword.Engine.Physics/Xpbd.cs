@@ -12,6 +12,10 @@ namespace Sword.Engine.Physics;
 /// миром: у него конечная масса, и функция его сдвинет. <c>a</c> и <c>b</c> — разные тела. Точки — в мире, нормаль и
 /// направления — единичные, <c>h</c> — конечный и больше 0 (не проверяется: горячий путь). Памяти не выделяют.
 /// </para>
+/// <para>
+/// 7з-2: поворот от поправки — <c>I⁻¹(r × λn) = λ·I⁻¹(r × n)</c>, а <c>I⁻¹(r × n)</c> уже посчитан для обратной массы в точке — второй
+/// раз не считается (два поворота кватернионом на тело меньше; та же величина, округление — своё).
+/// </para>
 /// </summary>
 public static class Xpbd
 {
@@ -33,24 +37,25 @@ public static class Xpbd
     /// </summary>
     public static float Along(ref BodyState a, Vector3 pa, ref BodyState b, Vector3 pb, Vector3 n, float c, float compliance, float h)
     {
-        Vector3 ra = pa - a.Position, rb = pb - b.Position;
-        float w = a.InvMassAt(ra, n) + b.InvMassAt(rb, n);
+        Vector3 rna = Vector3.Cross(pa - a.Position, n), rnb = Vector3.Cross(pb - b.Position, n);
+        Vector3 ia = a.InvInertiaWorld(rna), ib = b.InvInertiaWorld(rnb);
+        float w = a.InvMass + Vector3.Dot(rna, ia) + b.InvMass + Vector3.Dot(rnb, ib);
         if (!(w > 0)) return 0;
         float lambda = -c / (w + compliance / (h * h));
-        var p = n * lambda;
-        Dynamics.Correct(ref a, p, ra);
-        Dynamics.Correct(ref b, -p, rb);
+        Shift(ref a, n * lambda, ia * lambda);
+        Shift(ref b, -n * lambda, ib * -lambda);
         return lambda;
     }
 
     /// <summary><see cref="Along(ref BodyState, Vector3, ref BodyState, Vector3, Vector3, float, float, float)"/> с миром: двигается только <paramref name="a"/>.</summary>
     public static float Along(ref BodyState a, Vector3 pa, Vector3 n, float c, float compliance, float h)
     {
-        var ra = pa - a.Position;
-        float w = a.InvMassAt(ra, n);
+        var rna = Vector3.Cross(pa - a.Position, n);
+        var ia = a.InvInertiaWorld(rna);
+        float w = a.InvMass + Vector3.Dot(rna, ia);
         if (!(w > 0)) return 0;
         float lambda = -c / (w + compliance / (h * h));
-        Dynamics.Correct(ref a, n * lambda, ra);
+        Shift(ref a, n * lambda, ia * lambda);
         return lambda;
     }
 
@@ -87,14 +92,12 @@ public static class Xpbd
         float angle = theta.Length();
         if (angle < AngularEpsilon) return 0;
         var n = theta / angle;
-        float w = Vector3.Dot(n, a.InvInertiaWorld(n)) + Vector3.Dot(n, b.InvInertiaWorld(n));
+        Vector3 ia = a.InvInertiaWorld(n), ib = b.InvInertiaWorld(n);
+        float w = Vector3.Dot(n, ia) + Vector3.Dot(n, ib);
         if (!(w > 0)) return 0;
         float lambda = angle / (w + compliance / (h * h));
-        var p = n * lambda;
-        var da = a.InvInertiaWorld(p);
-        var db = b.InvInertiaWorld(p);
-        Dynamics.Rotate(ref a, da);
-        Dynamics.Rotate(ref b, -db);
+        Dynamics.Rotate(ref a, ia * lambda);
+        Dynamics.Rotate(ref b, ib * -lambda);
         return lambda;
     }
 
@@ -104,10 +107,11 @@ public static class Xpbd
         float angle = theta.Length();
         if (angle < AngularEpsilon) return 0;
         var n = theta / angle;
-        float w = Vector3.Dot(n, a.InvInertiaWorld(n));
+        var ia = a.InvInertiaWorld(n);
+        float w = Vector3.Dot(n, ia);
         if (!(w > 0)) return 0;
         float lambda = angle / (w + compliance / (h * h));
-        Dynamics.Rotate(ref a, a.InvInertiaWorld(n * lambda));
+        Dynamics.Rotate(ref a, ia * lambda);
         return lambda;
     }
 
@@ -124,14 +128,14 @@ public static class Xpbd
         float maxLambda = float.PositiveInfinity)
     {
         if (!(c < 0) || !(maxLambda > 0)) return 0;
-        Vector3 ra = pa - a.Position, rb = pb - b.Position;
-        float w = a.InvMassAt(ra, n) + b.InvMassAt(rb, n);
+        Vector3 rna = Vector3.Cross(pa - a.Position, n), rnb = Vector3.Cross(pb - b.Position, n);
+        Vector3 ia = a.InvInertiaWorld(rna), ib = b.InvInertiaWorld(rnb);
+        float w = a.InvMass + Vector3.Dot(rna, ia) + b.InvMass + Vector3.Dot(rnb, ib);
         if (!(w > 0)) return 0;
         float lambda = MathF.Min(-c / (w + compliance / (h * h)), maxLambda);
         if (!(lambda > 0)) return 0;
-        var p = n * lambda;
-        Dynamics.Correct(ref a, p, ra);
-        Dynamics.Correct(ref b, -p, rb);
+        Shift(ref a, n * lambda, ia * lambda);
+        Shift(ref b, -n * lambda, ib * -lambda);
         return lambda;
     }
 
@@ -140,12 +144,13 @@ public static class Xpbd
         float maxLambda = float.PositiveInfinity)
     {
         if (!(c < 0) || !(maxLambda > 0)) return 0;
-        var ra = pa - a.Position;
-        float w = a.InvMassAt(ra, n);
+        var rna = Vector3.Cross(pa - a.Position, n);
+        var ia = a.InvInertiaWorld(rna);
+        float w = a.InvMass + Vector3.Dot(rna, ia);
         if (!(w > 0)) return 0;
         float lambda = MathF.Min(-c / (w + compliance / (h * h)), maxLambda);
         if (!(lambda > 0)) return 0;
-        Dynamics.Correct(ref a, n * lambda, ra);
+        Shift(ref a, n * lambda, ia * lambda);
         return lambda;
     }
 
@@ -171,32 +176,53 @@ public static class Xpbd
         float slip = ct.Length();
         if (!(slip >= FrictionEpsilon)) return 0;
         var t = ct / slip;
-        Vector3 ra = pa - a.Position, rb = pb - b.Position;
-        float w = a.InvMassAt(ra, t) + b.InvMassAt(rb, t);
+        Vector3 rta = Vector3.Cross(pa - a.Position, t), rtb = Vector3.Cross(pb - b.Position, t);
+        Vector3 ia = a.InvInertiaWorld(rta), ib = b.InvInertiaWorld(rtb);
+        float w = a.InvMass + Vector3.Dot(rta, ia) + b.InvMass + Vector3.Dot(rtb, ib);
         if (!(w > 0)) return 0;
         float lambda = slip / (w + compliance / (h * h));
         if (!(lambda <= muStatic * lambdaN)) return 0;
-        var p = t * lambda;
-        Dynamics.Correct(ref a, -p, ra);
-        Dynamics.Correct(ref b, p, rb);
+        Shift(ref a, -t * lambda, ia * -lambda);
+        Shift(ref b, t * lambda, ib * lambda);
         return lambda;
     }
 
     /// <summary>Трение покоя тела <paramref name="a"/> о неподвижный мир (точка мира не сдвигается).</summary>
-    public static float Friction(ref BodyState a, Vector3 pa, Vector3 n, float lambdaN, float muStatic, float compliance, float h)
+    public static float Friction(ref BodyState a, Vector3 pa, Vector3 n, float lambdaN, float muStatic, float compliance, float h) =>
+        Friction(ref a, pa, n, lambdaN, muStatic, compliance, h, out _);
+
+    /// <summary>
+    /// То же; <paramref name="turn"/> — поворот тела поправкой (вектор, рад; не держит — 0): по нему мир считает, куда поворот увёл точки
+    /// тела (7з-2: земля — вдавливание трением). Касательная поправка в точке на плече сдвигает торцы и по нормали: обратная масса точки
+    /// связывает касательное с нормальным через поворот.
+    /// </summary>
+    public static float Friction(ref BodyState a, Vector3 pa, Vector3 n, float lambdaN, float muStatic, float compliance, float h, out Vector3 turn)
     {
+        turn = default;
         if (!(lambdaN > 0) || !(muStatic > 0)) return 0;
         var d = pa - a.PrevPoint(pa);
         var ct = d - n * Vector3.Dot(d, n);
         float slip = ct.Length();
         if (!(slip >= FrictionEpsilon)) return 0;
         var t = ct / slip;
-        var ra = pa - a.Position;
-        float w = a.InvMassAt(ra, t);
+        var rta = Vector3.Cross(pa - a.Position, t);
+        var ia = a.InvInertiaWorld(rta);
+        float w = a.InvMass + Vector3.Dot(rta, ia);
         if (!(w > 0)) return 0;
         float lambda = slip / (w + compliance / (h * h));
         if (!(lambda <= muStatic * lambdaN)) return 0;
-        Dynamics.Correct(ref a, -t * lambda, ra);
+        turn = ia * -lambda;
+        Shift(ref a, -t * lambda, turn);
         return lambda;
+    }
+
+    /// <summary>
+    /// Позиционная коррекция импульсом <c>p</c> в точке (<see cref="Dynamics.Correct"/>), когда <c>I⁻¹(r × p)</c> уже известен:
+    /// центр — на <c>p / m</c>, поворот — на <paramref name="dTheta"/> (с обрезкой угла).
+    /// </summary>
+    private static void Shift(ref BodyState b, Vector3 impulse, Vector3 dTheta)
+    {
+        b.Position += impulse * b.InvMass;
+        Dynamics.Rotate(ref b, dTheta);
     }
 }
