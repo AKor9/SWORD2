@@ -69,14 +69,17 @@ internal sealed class TickCommands : IContinuousSystem
             _head = 0;
         }
 
-        /// <summary>Выдать команды тика <paramref name="tick"/>; прошедшие (раньше него) — отбросить.</summary>
-        public void EmitDue(ulong tick, CommandBuffer commands, ICommandSink? sink, int type)
+        /// <summary>
+        /// Выдать команды тика <paramref name="tick"/>; прошедшие (раньше него) — отбросить. <paramref name="origin"/> — откуда
+        /// команда: в диагностическом режиме причинности она корень с этим пояснением (6д).
+        /// </summary>
+        public void EmitDue(ulong tick, CommandBuffer commands, ICommandSink? sink, int type, string origin)
         {
             while (_head < _items.Count && _items[_head].Tick <= tick)
             {
                 var (t, c) = _items[_head++];
                 if (t != tick) continue;
-                commands.Emit(c);
+                commands.EmitCommand(c, origin);
                 sink?.Command(tick, type, MemoryMarshal.AsBytes(new ReadOnlySpan<T>(in c)));
             }
             // Сжатие — когда отработанная голова не меньше хвоста: в среднем O(1) на команду.
@@ -120,16 +123,29 @@ internal sealed class TickCommands : IContinuousSystem
 
         public void EmitDue(ulong tick, CommandBuffer commands, ICommandSink? sink, int type)
         {
-            _pending.EmitDue(tick, commands, sink, type);
-            _tools.EmitDue(tick, commands, sink, type);
+            _pending.EmitDue(tick, commands, sink, type, Origins.Client);
+            _tools.EmitDue(tick, commands, sink, type, Origins.Tool);
         }
 
         public void EmitRaw(ulong tick, ReadOnlySpan<byte> command, CommandBuffer commands, ICommandSink? sink, int type)
         {
             var c = MemoryMarshal.Read<T>(command);
-            commands.Emit(c);
+            commands.EmitCommand(c, Origins.Replay);
             sink?.Command(tick, type, command);
         }
+    }
+
+    /// <summary>Откуда команда тика — пояснение корня в журнале причинности (6д).</summary>
+    public static class Origins
+    {
+        /// <summary>Очередь владельца: клиент (клавиатура, мышь), exe, тесты — <see cref="Simulation.Enqueue{T}(in T)"/>.</summary>
+        public const string Client = "клиент";
+
+        /// <summary>Очередь инструментов: агент (<c>command.send</c>), DevTools.</summary>
+        public const string Tool = "агент";
+
+        /// <summary>Воспроизводимый реплей.</summary>
+        public const string Replay = "реплей";
     }
 
     private readonly Dictionary<Type, IQueue> _queues = [];

@@ -160,6 +160,8 @@ public readonly struct ChunkView
                 throw new InvalidOperationException($"{_registration?.Name ?? "мир"}: {t.StableName} реактивный — меняется только командой Set");
             if (t.HasEntityFields) _world.NoteWritten(_archetype, _chunk, t);
         }
+        // Диагностический режим (6д): грубо — какая регистрация писала столбец в каком тике (state.why непрерывных полей).
+        if (_world.Causality is { } log && _registration is not null) log.NoteWrite(t.Id, _registration.Id, _world.CurrentTick);
         return Column<T>(t);
     }
 

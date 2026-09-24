@@ -88,6 +88,8 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
             }
         }
         var cmd = ctx.Commands;
+        // Причина (state.why, 6д): постройка места — от команды своей партии, меч и число врагов — от последней команды тика.
+        ctx.Cause = commands[^1].Cause;
         if (inventory.Equipped != before.Equipped || inventory.Owned != before.Owned) cmd.SetResource(inventory);
         // Меч в руке игрока — меч инвентаря (сброс строит игрока сразу с ним).
         if (resetBatch == 0 && !player.IsNull && inventory.Equipped != before.Equipped)
@@ -98,6 +100,7 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
         ulong tick = world.Resource<SimTime>().Tick;
         if (resetBatch != 0)
         {
+            ctx.Cause = commands[(int)resetBatch - 1].Cause;
             var playerSpawn = ArenaRules.Player(rng, tick, resetBatch, inventory.Equipped);
             var gaze = world.TryGet<GazeTarget>(player, out var g) ? g : default;
             if (player.IsNull) Fighters.Create(cmd, playerSpawn, Fighters.Standing(playerSpawn), gaze);
@@ -113,6 +116,7 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
                 continue;
             }
             if (_batch[slot] == 0) continue;
+            ctx.Cause = commands[(int)_batch[slot] - 1].Cause;
             var spawn = ArenaRules.Enemy(rng, tick, _batch[slot], slot, _center[slot], weapons);
             if (e.IsNull) Fighters.Create(cmd, spawn, Fighters.Standing(spawn), default);
             else Fighters.Rebuild(cmd, e, spawn, Fighters.Standing(spawn), default, Action(world, e), dead: world.Has<Dead>(e));

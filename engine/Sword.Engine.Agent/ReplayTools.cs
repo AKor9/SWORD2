@@ -210,12 +210,19 @@ internal static class ReplayTools
                 "Запись прежней симуляции сохраняется в артефакты. Только Headless.",
             Arguments = Props(
                 ("replay", Str("реплей: путь или имя в каталоге артефактов; без него — конфиг запуска")),
-                ("set", StrArray("ключи конфига секция.ключ=значение (поверх файлов или конфига реплея)"))),
+                ("set", StrArray("ключи конфига секция.ключ=значение (поверх файлов или конфига реплея)")),
+                ("causality", new JsonObject
+                {
+                    ["type"] = "boolean",
+                    ["description"] = "диагностический режим причинности (state.why, причины в events.history) для этой и следующих " +
+                        "симуляций сеанса; хеш и реплей не меняет (без аргумента — как было: ключ --causality или прошлый session.start)",
+                })),
             ReadOnly = false, Idempotent = false, Cost = ToolCost.Heavy,
             Run = async call =>
             {
                 var session = RequireRebuild(host);
                 var sets = call.Strings("set");
+                bool? causality = call.Node("causality") is null ? null : call.Bool("causality", false);
                 Replay? replay = null;
                 string? path = null;
                 if (call.String("replay") is { } which)
@@ -233,9 +240,10 @@ internal static class ReplayTools
                         recorder.ToReplay().Save(previous);
                     }
                     var config = replay?.CreateConfig(sets) ?? s.LoadConfig(sets);
+                    if (causality is { } on) s.Causality = on;
                     var sim = s.Start(config, replay, path);
                     return (previous, sim.ActiveModules, sim.InactiveModules, config.Sources, Warnings: sim.Player?.Warnings ?? [], s.Run,
-                        Playback: Playback(sim.Player, sim.Tick));
+                        Playback: Playback(sim.Player, sim.Tick), Causality: sim.Causality is not null);
                 }, call.Cancel);
                 return new ToolOutput(new JsonObject
                 {
@@ -249,6 +257,7 @@ internal static class ReplayTools
                     ["activeModules"] = new JsonArray([.. result.ActiveModules.Select(m => (JsonNode?)m)]),
                     ["inactiveModules"] = new JsonArray([.. result.InactiveModules.Select(m => (JsonNode?)m)]),
                     ["configSources"] = new JsonArray([.. result.Sources.Select(m => (JsonNode?)m)]),
+                    ["causality"] = result.Causality,
                 }) { Tick = 0 };
             },
         });

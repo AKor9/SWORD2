@@ -47,7 +47,8 @@ public readonly record struct EntityDraft(int Index, int Buffer, uint Turn)
 
 /// <summary>
 /// Причина записи команды или события — для <c>state.why</c> (раздел 8 плана). Слот есть в каждой записи с v0; вне
-/// диагностического режима пуст (<see cref="None"/>) и ничего не стоит.
+/// диагностического режима пуст (<see cref="None"/>) и ничего не стоит; в режиме — номер записи журнала причинности
+/// (<see cref="CausalityLog"/>). В хеш состояния не входит (6д).
 /// </summary>
 public readonly record struct CauseId(int Value)
 {
@@ -71,16 +72,16 @@ public readonly record struct SystemLabel(string Name)
 // ── срабатывания: записи журналов ───────────────────────────────────────────
 
 /// <summary>Компонент <typeparamref name="T"/> добавлен (сущности его не было до барьера, после — есть).</summary>
-public readonly record struct Added<T>(Entity Entity, CauseId Cause) where T : unmanaged;
+public readonly record struct Added<T>(Entity Entity, CauseId Cause) : ICaused where T : unmanaged;
 
 /// <summary>Компонент снят или сущность удалена; <see cref="Value"/> — значение на момент снятия.</summary>
-public readonly record struct Removed<T>(Entity Entity, T Value, CauseId Cause) where T : unmanaged;
+public readonly record struct Removed<T>(Entity Entity, T Value, CauseId Cause) : ICaused where T : unmanaged;
 
 /// <summary>Реактивный компонент заменён командой <c>Set</c>; <see cref="Value"/> — итоговое значение барьера.</summary>
-public readonly record struct Changed<T>(Entity Entity, T Value, CauseId Cause) where T : unmanaged;
+public readonly record struct Changed<T>(Entity Entity, T Value, CauseId Cause) : ICaused where T : unmanaged;
 
 /// <summary>Событие <typeparamref name="E"/>.</summary>
-public readonly record struct Event<E>(E Value, CauseId Cause) where E : unmanaged;
+public readonly record struct Event<E>(E Value, CauseId Cause) : ICaused where E : unmanaged;
 
 /// <summary>Ресурс мира заменён.</summary>
-public readonly record struct ResourceChanged<T>(T Value, CauseId Cause);
+public readonly record struct ResourceChanged<T>(T Value, CauseId Cause) : ICaused;

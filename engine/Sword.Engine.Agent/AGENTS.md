@@ -56,4 +56,10 @@
   тик с ожиданием агента — служебный, не аномалия и не в итогах. Точка Пг: ответ `profile.stages` несёт `gpu` (секция
   `frames.gpu` отчёта: GPU-время кадра и проходов за окно, отставание) — у App; нового инструмента нет.
 
+- Причинность (6д) — `CauseTools` (`state.why`) над `CausalityQuery` (Introspection); режим — `AgentSimulation.Causality`
+  (`--causality`, `session.start {causality}`: новая симуляция сеанса и перемотка назад включают журнал до первого тика),
+  `session.status` — `causality`; `events.history` — `cause` записи (номер, родитель, вид, система, источник), только в режиме.
+  Лимиты: цепочка — до 64 шагов (по умолчанию 16), изменений — до 20 (по умолчанию 1). Тест — `Sword.Game.Tests/CausalityTests`
+  (`Agent_StateWhy_AndEventsHistoryCauses`: нужен бой игры).
+
 Проверка: `tests/Sword.Engine.Agent.Tests`, `verify.ps1` шаг `agent-smoke`.

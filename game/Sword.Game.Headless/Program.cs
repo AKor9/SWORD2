@@ -53,6 +53,9 @@ public static partial class Program
           --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
                               двигает агент; stdout — только протокол, журнал — в stderr. Выход: конец stdin,
                               конец процесса-родителя (обёртки клиента), session.stop, простой (--idle-exit)
+          --causality         диагностический режим причинности (state.why): команды, события, решения и Set/Add/Remove
+                              получают причину, родителя, систему и источник в кольцо (65 536 записей); хеш и реплей не
+                              меняет; с --agent — у всех симуляций сеанса (session.start {causality:false} — выключить)
           --idle-exit MIN     с --agent: выйти, если MIN минут не было вызовов инструментов (по умолчанию 15;
                               0 — не выходить): клиент держит сервер, пока открыт его сеанс; вызов после выхода
                               клиент (Claude Code, Codex) запускает на новом сервере — сеанс с тика 0, реплей прежнего
@@ -85,7 +88,7 @@ public static partial class Program
         int ticks = 600, sample = 60, hashEvery = 1;
         bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
-        bool json = false, agent = false, profile = false, profileEvents = false, profileTrace = false;
+        bool json = false, agent = false, profile = false, profileEvents = false, profileTrace = false, causality = false;
         double profileThreshold = 0, idleExit = DefaultIdleExitMinutes;
         bool idleExitSet = false;
         string? record = null, replayPath = null, feature = null;
@@ -125,6 +128,7 @@ public static partial class Program
                     case "--units": sets.Add(UnitsSet(a, Next())); break;
                     case "--json": json = true; break;
                     case "--agent": agent = true; break;
+                    case "--causality": causality = true; break;
                     case "--profile":
                         profile = true;
                         if (i + 1 < args.Length && args[i + 1] == "runtime")
@@ -157,8 +161,8 @@ public static partial class Program
             if (replayPath is not null && commandSet) throw new ArgumentException("--replay: команды — из реплея; --move, --walk, --gaze нельзя");
             if (agent && (replayPath is not null || record is not null))
                 throw new ArgumentException("--agent: реплеи — инструментами агента (session.start, replay.save), не ключами");
-            if (feature is not null && (agent || replayPath is not null || record is not null || commandSet || sets.Count > 0 || profile))
-                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set, --units, --profile нельзя " +
+            if (feature is not null && (agent || replayPath is not null || record is not null || commandSet || sets.Count > 0 || profile || causality))
+                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set, --units, --profile, --causality нельзя " +
                     "(время систем бюджеты мерят сами — отдельным прогоном с профайлером)");
             if (feature is null && (!views || !budgets)) throw new ArgumentException("--no-views и --no-budgets — только с --feature");
             if (idleExitSet && !agent) throw new ArgumentException("--idle-exit — только с --agent");
@@ -198,6 +202,7 @@ public static partial class Program
                 return 2;
             }
             var sim = Build(config);
+            if (causality) sim.EnableCausality();   // 6д: диагностика — хеш и реплей те же
             var playback = replay is null ? null : sim.Play(replay);
             if (playback is not null) warnings.AddRange(playback.Warnings);
             foreach (var w in warnings) Log.Warning("replay", w);
@@ -296,6 +301,8 @@ public static partial class Program
                 warnings,
                 // Профайлер (--profile, точка Па): файл отчёта и главные зоны тика; без ключа — null.
                 profile = profiler is null ? null : ProfileJson(profiler, profileFile!, traceFile),
+                // Причинность (--causality, 6д): записей журнала и ёмкость кольца; без ключа — null.
+                causality = sim.Causality is { } log ? new { written = log.Written, capacity = log.Capacity } : null,
                 // Машина за тики после прогрева (точка Пб): поток на CPU, загрузка системы, частота, GC, JIT и вердикт.
                 machine,
                 trajectory,

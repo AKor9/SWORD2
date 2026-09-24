@@ -231,6 +231,7 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
         var rules = world.Resource<CombatRules>();
         var clips = world.Resource<PosePool>().Clips;
         var commands = ctx.Journal<Event<EnemyCommand>>();
+        var log = ctx.Causality;
         _crowd.Gather(ctx, _fighters, _deadPlayer);
         bool strike = rules.EnemiesAttack && !_crowd.PlayerDead;   // мёртвого игрока не бьют (!p.Dead SWORD)
         foreach (var chunk in ctx.Iterate(_enemies))
@@ -246,7 +247,9 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
             {
                 int slot = slots[i].Index;
                 if ((uint)slot >= ArenaRules.MaxFighters || !_crowd.Think(slot, time.Time, ref intent[i], ref gaze[i], ref terms[i])) continue;
-                Attack(ref action[i], ref attack[i], terms[i].Distance, Commanded(commands, slot), strike, entities[i], time, rng, clips);
+                int serial = action[i].AttackSerial, commanded = Commanded(commands, slot);
+                Attack(ref action[i], ref attack[i], terms[i].Distance, commanded, strike, entities[i], time, rng, clips);
+                if (log is not null && action[i].AttackSerial != serial) Started(ctx, log, entities[i], serial, action[i].AttackSerial, commands, slot, commanded);
             }
         }
     }
@@ -257,6 +260,25 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
         for (int c = commands.Length - 1; c >= 0; c--)
             if (commands[c].Value.Slot == slot) return commands[c].Value.Attack;
         return 0;
+    }
+
+    /// <summary>
+    /// Диагностический режим (6д): удар начался — родитель начала удара — команда врагу этого тика или решение ИИ «удар по таймеру»
+    /// (корень: команды нет).
+    /// </summary>
+    private static void Started(in SystemContext ctx, CausalityLog log, Entity e, int before, int serial, ReadOnlySpan<Event<EnemyCommand>> commands,
+        int slot, int commanded)
+    {
+        var parent = CauseId.None;
+        if (commanded != 0)
+            for (int c = commands.Length - 1; c >= 0; c--)
+                if (commands[c].Value.Slot == slot)
+                {
+                    parent = commands[c].Cause;
+                    break;
+                }
+        if (parent.Value == 0) parent = ctx.Commands.Note(CombatCauses.AiStrike, e, CauseId.None);
+        CombatCauses.Started(ctx, log, e, before, serial, parent);
     }
 
     /// <summary>

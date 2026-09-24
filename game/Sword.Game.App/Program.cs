@@ -60,6 +60,8 @@ public static partial class Program
         public double FrameSeconds;
         public double MaxFps;
         public bool NoHud;
+        /// <summary>Диагностический режим причинности (<c>--causality</c>, 6д): <c>state.why</c> агента; хеш и реплей не меняет.</summary>
+        public bool Causality;
         public double Bench;
         public string? Screenshots;
         public bool Agent;
@@ -104,6 +106,8 @@ public static partial class Program
                             снимаются виды фичи с оверлеем (views[].overlays манифеста)
           --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
                             снимок кадра; порт — --agent-port N (по умолчанию 47813)
+          --causality       диагностический режим причинности (state.why агента): причина, родитель, система и источник
+                            команд, событий и Set/Add/Remove — в кольцо; хеш и реплей не меняет
           --bench N         бенч кадра: N с игрового времени (первые 4 — прогрев), затем выход с итогом (кадр ср.,
                             p50, p99, макс, CPU); vsync выключен, справка скрыта, F4 не действует
           --camera Y,P,D[,X,Z]  неподвижная камера (проверочные снимки): поворот и наклон (рад), дистанция (м),
@@ -180,6 +184,7 @@ public static partial class Program
                 throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а пак здесь — {content}: хеши сравнивать бессмысленно");
             var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
             var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
+            if (options.Causality) simulation.EnableCausality();   // 6д: диагностика — хеш и реплей те же
             var playback = replay is null ? null : simulation.Play(replay);
             // Живая игра (исправления после Пд, решение пользователя): тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy).
             // Сверка реплея (--replay: виды фич, проверки) — каждый тик, как Headless и тесты.
@@ -419,6 +424,7 @@ public static partial class Program
                 case "--no-hud": o.NoHud = true; break;
                 case "--overlay": o.Overlays.Add(Next()); break;
                 case "--agent": o.Agent = true; break;
+                case "--causality": o.Causality = true; break;
                 case "--profile":
                     o.Profile = true;
                     if (i + 1 < args.Length && args[i + 1] == "runtime")

@@ -72,6 +72,7 @@ public sealed class AgentHost
         FeatureTools.Register(this);
         ExperimentTools.Register(this);
         ProfileTools.Register(this);
+        CauseTools.Register(this);
     }
 
     public string Mode => _options.Mode;

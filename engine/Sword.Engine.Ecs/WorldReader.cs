@@ -38,6 +38,12 @@ public readonly partial struct WorldReader
 
     public bool IsAlive(Entity e) => _world.IsAlive(e);
 
+    /// <summary>
+    /// Журнал причинности (диагностический режим <c>state.why</c>); null — выключен. Наблюдателю — только чтение (записи, значения,
+    /// связи): мир и хеш от журнала не зависят.
+    /// </summary>
+    public CausalityLog? Causality => _world.Causality;
+
     public bool Has<T>(Entity e) where T : unmanaged => _world.Has<T>(e);
 
     /// <inheritdoc cref="World.Get{T}(Entity)"/>

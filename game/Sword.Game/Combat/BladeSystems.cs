@@ -67,6 +67,7 @@ public sealed class BladeSetupSystem(WeaponTable weapons, int hand, StartPoseMod
             if (!world.IsAlive(a.Entity) || !world.Has<Blade>(a.Entity) || !world.TryGet<Transform>(a.Entity, out var root)
                 || !world.TryGet<WeaponSlot>(a.Entity, out var slot) || (uint)slot.Index >= (uint)weapons.Count)
                 continue;
+            ctx.Cause = a.Cause;   // причина постройки бойца — родитель клинка (state.why, 6д)
             ctx.Commands.Set(a.Entity, BladePlacement.Built(model, hand, weapons, slot.Index, root.Position, root.Facing));
         }
     }

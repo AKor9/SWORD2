@@ -196,6 +196,21 @@ public readonly struct SystemContext
     /// <summary>Буфер команд этой регистрации: применяется на барьере после стадии.</summary>
     public CommandBuffer Commands => _registration.Buffer;
 
+    /// <summary>
+    /// Причина — родитель всего, что система запишет дальше (<see cref="CommandBuffer.Cause"/>; <c>state.why</c>, 6д): реактивная
+    /// система ставит её по срабатыванию, которое обрабатывает (<c>ctx.Cause = c.Cause</c>), непрерывный производитель — явно
+    /// (причина начала удара из <see cref="CausalityLog.Linked"/>). Перед запуском системы — пусто; у реактивной с одним
+    /// срабатыванием в диагностическом режиме — его причина.
+    /// </summary>
+    public CauseId Cause
+    {
+        get => _registration.Buffer.Cause;
+        set => _registration.Buffer.Cause = value;
+    }
+
+    /// <summary>Журнал причинности (диагностический режим); null — выключен: всё, что только для него, пропускается.</summary>
+    public CausalityLog? Causality => World.Causality;
+
     public ulong Tick { get; }
 
     /// <summary>Чанки запроса; внутри — <see cref="ChunkView.Read{T}"/> и <see cref="ChunkView.Write{T}"/>.</summary>

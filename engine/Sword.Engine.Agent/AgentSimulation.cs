@@ -29,8 +29,16 @@ public sealed class AgentSimulation
         _build = build;
         _load = load;
         Current = initial;
+        Causality = initial.Causality is not null;
         if (initial.Recorder is null && initial.Tick == 0) initial.Record(info);
     }
+
+    /// <summary>
+    /// Диагностический режим причинности у симуляций сеанса (6д; ключ <c>--causality</c>, <c>session.start {causality}</c>): новая
+    /// симуляция сеанса (<c>session.start</c>, перемотка назад) включает журнал причинности до первого тика. Хеш и реплей от него не
+    /// зависят.
+    /// </summary>
+    public bool Causality { get; set; }
 
     public ReplayInfo Info { get; }
 
@@ -132,6 +140,7 @@ public sealed class AgentSimulation
     public Simulation Start(ConfigSet config, Replay? replay, string? file)
     {
         var sim = Build(config);
+        if (Causality) sim.EnableCausality();
         Preparing?.Invoke(sim);
         try
         {
@@ -165,6 +174,7 @@ public sealed class AgentSimulation
         var timeline = sim.Recorder.ToReplay();
         if (sim.Player is { } player && player.Length > sim.Tick) timeline = Replay.Splice(timeline, player.Replay, sim.Tick);
         var fresh = Build(timeline.CreateConfig());
+        if (Causality) fresh.EnableCausality();
         Preparing?.Invoke(fresh);
         try
         {

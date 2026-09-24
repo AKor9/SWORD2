@@ -81,7 +81,8 @@
                             artifacts/bench/ecs.json; пара Begin/End профайлера CPU (этап П) — выключенного не дороже
                             1,5 нс, 0 байт с ним и без; счётчики среды, период, снимок машины, строка HUD (точка Пб) —
                             0 байт — artifacts/bench/profiler.json;
-      line-endings          все текстовые файлы — CRLF (соглашение AGENTS.md);
+      line-endings          все текстовые файлы — CRLF (соглашение AGENTS.md); рабочие деревья других агентов
+                            (.claude\worktrees\) не проверяются;
       reference             SHA-256 эталонного пака совпадает с tests/reference/reference.json;
       processes             идёт всегда, последним (точка 6а): после verify не осталось процессов SWORD — ни в его
                             задании Windows (фоновые запуски Sword.Headless --agent и Sword.exe --agent — в задании с
@@ -1227,9 +1228,11 @@ else {
 Add-Step 'line-endings' {
     $extensions = @('.cs', '.csproj', '.props', '.targets', '.slnx', '.md', '.json', '.ps1', '.xml', '.hlsl', '.hlsli', '.swreplay',
         '.editorconfig', '.gitattributes', '.gitignore', '.txt', '.yml', '.yaml', '.cmd')
-    $skip = '\\(bin|obj|\.git|\.vs|artifacts|TestResults)\\'
+    # Путь — от корня репозитория: .claude\worktrees\ — рабочие деревья git других агентов (у каждого свой verify.ps1),
+    # остальной .claude\ (settings.local.json) проверяется; verify.ps1 внутри рабочего дерева проверяет его файлы.
+    $skip = '\\(bin|obj|\.git|\.vs|artifacts|TestResults)\\|^\\\.claude\\worktrees\\'
     $bad = @(Get-ChildItem $root -Recurse -File -Force | Where-Object {
-            ($extensions -contains $_.Extension.ToLowerInvariant()) -and ($_.FullName -notmatch $skip) -and
+            ($extensions -contains $_.Extension.ToLowerInvariant()) -and ($_.FullName.Substring($root.Length) -notmatch $skip) -and
             [regex]::IsMatch([System.IO.File]::ReadAllText($_.FullName), '(?<!\r)\n')
         } | ForEach-Object { $_.FullName.Substring($root.Length + 1) })
     if ($bad.Count -eq 0) { @{ ok = $true; detail = 'все текстовые файлы — CRLF' } }

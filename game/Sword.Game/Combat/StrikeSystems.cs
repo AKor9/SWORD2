@@ -92,7 +92,11 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         _contacts = 0;
         for (int i = 0; i < Slots; i++)
             if (_alive[i] && _kind[i] == ActionKind.Attack && _blade[i].Weapon >= 0) Attacker(ctx, i, time, rules);
-        foreach (var p in probes) Probe(ctx, p.Value, time.Tick);
+        foreach (var p in probes)
+        {
+            ctx.Cause = p.Cause;   // касание пробы — от её команды (state.why, 6д)
+            Probe(ctx, p.Value, time.Tick);
+        }
         foreach (var chunk in ctx.Iterate(_pairs))
         {
             var pairs = chunk.Write<StrikePairs>();
@@ -205,6 +209,8 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         var axis = Vector3.Normalize(blade.Tip - blade.Base);
         var move = blade.Tip - blade.PrevTip;
         var dir = move.LengthSquared() > 1e-8f ? Vector3.Normalize(move) : axis;
+        // Проход клинка — непрерывный производитель: родитель касания — начало удара этого номера (побочная таблица, 6д).
+        if (ctx.Causality is { } log) ctx.Cause = log.Linked(_entity[att], CombatCauses.Attack, _serial[att]);
         ctx.Commands.Emit(new StrikeContact
         {
             Id = new ContactId(time.Tick, _contacts++), Attacker = _entity[att], Victim = _entity[vic], Part = BodySegs.Segment(body),

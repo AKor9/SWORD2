@@ -180,7 +180,8 @@ internal static class ObservationTools
                 "types — типы (PlayerCommand, Added<Fighter>; без них — все), entity — только записи про эту сущность, where — " +
                 "условие на поля записи (с types). Видны журналы, у которых в мире есть потребитель. Нарушения инвариантов — тип " +
                 "InvariantViolation (поля id, entity, details). Посреди тика (time.break) — и записи идущего тика до этой стадии " +
-                "(window — только сыгранные тики).",
+                "(window — только сыгранные тики). В диагностическом режиме причинности (session.start {causality:true}) у записи — " +
+                "cause: номер причины, родитель, вид, система, источник (цепочка целиком — state.why).",
             Arguments = CoreTools.Props(
                 ("types", CoreTools.StrArray("типы: PlayerCommand, Added<Fighter>, InvariantViolation… (world.types; без них — все)")),
                 ("entity", CoreTools.Str("только записи с этой сущностью в полях (номер или имя)")),
@@ -223,7 +224,9 @@ internal static class ObservationTools
                         var filter = where is null ? null : ObservationPredicate.Compile(where, ctx, host.Catalog, host.Names, PredicateScope.Record, j);
                         selected[j.Id] = (filter, byEntity);
                     }
-                    var rows = new List<(ulong Tick, int Stage, int Journal, byte[] Bytes, InvariantViolation? Violation)>();
+                    var rows = new List<(ulong Tick, int Stage, int Journal, byte[] Bytes, InvariantViolation? Violation, CauseStep? Cause)>();
+                    // Причина записи (6д): только в диагностическом режиме; поле Cause — последнее у всех записей журналов.
+                    var causes = ctx.World.Causality is null ? null : CausalityQuery.SystemNames(ctx.World);
                     int total = 0;
                     void Consider(in ServiceContext ctx, ulong t, int journal, int stage, ReadOnlySpan<byte> bytes)
                     {
@@ -231,13 +234,13 @@ internal static class ObservationTools
                         if (f.Entity is not null && !f.Entity.MatchesRecord(ctx, bytes)) return;
                         if (f.Where is not null && !f.Where.MatchesRecord(ctx, bytes, history)) return;
                         if (total++ < skip || rows.Count >= take) return;
-                        rows.Add((t, stage, journal, bytes.ToArray(), null));
+                        rows.Add((t, stage, journal, bytes.ToArray(), null, causes is null ? null : CauseOf(ctx, journals[journal], bytes, causes, host.Names)));
                     }
                     void ConsiderViolation(in InvariantViolation v)
                     {
                         if (!violations || violationEntity is { } only && v.Entity != only) return;
                         if (total++ < skip || rows.Count >= take) return;
-                        rows.Add((v.Tick, -1, -1, [], v));
+                        rows.Add((v.Tick, -1, -1, [], v, null));
                     }
                     if (history.Oldest is { } oldest && history.Newest is { } newest)
                         for (ulong t = Math.Max(oldest, from); t <= Math.Min(newest, to); t++)
@@ -265,7 +268,7 @@ internal static class ObservationTools
                 }, call.Cancel);
 
                 var list = new JsonArray();
-                foreach (var (tick, stage, journal, bytes, violation) in r.Rows)
+                foreach (var (tick, stage, journal, bytes, violation, cause) in r.Rows)
                 {
                     if (violation is { } v)
                     {
@@ -273,13 +276,24 @@ internal static class ObservationTools
                         continue;
                     }
                     var info = r.Journals[journal];
-                    list.Add(new JsonObject
+                    var row = new JsonObject
                     {
                         ["tick"] = tick,
                         ["stage"] = r.Stages[stage],
                         ["type"] = Catalog.ShortName(info.EntryType),
                         ["fields"] = info.EntrySize > 0 ? FieldCodec.Decode(info.EntryType, bytes) : null,
-                    });
+                    };
+                    if (cause is not null)
+                        row["cause"] = new JsonObject
+                        {
+                            ["id"] = cause.Record.Id.Value,
+                            ["parent"] = cause.Record.Parent.Value == 0 ? null : cause.Record.Parent.Value,
+                            ["kind"] = cause.Record.Kind.ToString(),
+                            ["system"] = cause.System,
+                            ["source"] = CausalityQuery.Source(cause.Record),
+                            ["note"] = cause.Record.Note,
+                        };
+                    list.Add(row);
                 }
                 bool truncated = skip + r.Rows.Count < r.Total;
                 return new ToolOutput(new JsonObject
@@ -455,6 +469,18 @@ internal static class ObservationTools
         ["oldestTickId"] = w.OldestTick,
         ["newestTickId"] = w.NewestTick,
     };
+
+    /// <summary>Причина записи журнала (поле <c>Cause</c>) в журнале причинности; нет поля, пусто или вытеснена — null.</summary>
+    private static CauseStep? CauseOf(in ServiceContext ctx, JournalInfo journal, ReadOnlySpan<byte> bytes, Dictionary<int, string> systems,
+        IEntityNames? names)
+    {
+        if (journal.EntrySize == 0) return null;
+        var layout = FieldLayout.Of(journal.EntryType);
+        for (int i = 0; i < layout.Leaves.Count; i++)
+            if (layout.Leaves[i].Path == "Cause.Value" && bytes.Length >= layout.Size)
+                return CausalityQuery.Step(ctx, new CauseId((int)layout.Bits(bytes, i)), systems, names);
+        return null;
+    }
 
     internal static Entity ResolveEntity(in ServiceContext ctx, string which, IEntityNames? names)
     {

@@ -172,6 +172,18 @@ public sealed class ReplayToolsTests : IDisposable
         Assert.EndsWith("base.swreplay", status["source"]!.GetValue<string>());
         Assert.True(status["playback"]!["finished"]!.GetValue<bool>());
         Assert.True(status["playback"]!["match"]!.GetValue<bool>());
+        Assert.False((await Tool("session.status"))["causality"]!.GetValue<bool>());
+
+        // режим причинности (6д): та же запись — те же хеши; журнал пишется; режим переживает перемотку назад
+        var caused = await Tool("session.start", new JsonObject { ["replay"] = "base.swreplay", ["causality"] = true });
+        Assert.True(caused["causality"]!.GetValue<bool>());
+        await Step(40);
+        Assert.Equal(hashes[40], await Hash());
+        Assert.True((await Tool("session.status"))["causality"]!["written"]!.GetValue<long>() > 0);
+        await Tool("time.seek", new JsonObject { ["tick"] = 10 });
+        Assert.True((await Tool("session.status"))["causality"] is JsonObject);
+        await Tool("session.start", new JsonObject { ["replay"] = "base.swreplay", ["causality"] = false });
+        Assert.False((await Tool("session.status"))["causality"]!.GetValue<bool>());
 
         // ветвление: команда агента в тике 30 перебивает команду реплея — расхождение ровно после тика 30
         await Tool("session.start", new JsonObject { ["replay"] = "base.swreplay" });

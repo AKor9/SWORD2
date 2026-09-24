@@ -122,6 +122,26 @@ public sealed partial class World
     /// </summary>
     public long Barrier => _barrier;
 
+    /// <summary>
+    /// Журнал причинности — диагностический режим <c>state.why</c> (6д); null — выключен (по умолчанию): записи команд и событий
+    /// несут в <see cref="CauseId"/> то, что задала система, и ничего не стоят.
+    /// </summary>
+    public CausalityLog? Causality { get; private set; }
+
+    /// <summary>
+    /// Включить (<paramref name="log"/>) или выключить (null) журнал причинности — между тиками. Состояние мира и хеш от него
+    /// не зависят: причина в журналах срабатываний вне хеша записей, журнал — не ресурс.
+    /// </summary>
+    public void SetCausality(CausalityLog? log)
+    {
+        NotInTick(nameof(SetCausality));
+        log?.Attach(_types.Length, _registrations.Count);
+        Causality = log;
+    }
+
+    /// <summary>Номер идущего (или последнего сыгранного) тика — для записей журнала причинности.</summary>
+    internal ulong CurrentTick;
+
     /// <summary>Команд, отброшенных на барьере: цель к тому времени удалена, <c>Set</c> несуществующего компонента.</summary>
     public long IgnoredCommands { get; private set; }
 
@@ -351,6 +371,7 @@ public sealed partial class World
     {
         NotInTick(nameof(RunTick));
         _inTick = true;
+        CurrentTick = tick;
         // Профайлер (точка Па): зоны стадии (системы, барьер и наблюдатель после него), каждой регистрации и барьера — по
         // номерам, заведённым в AttachProfiler; выключенный — проверка флага на зону.
         var profiler = _profiler;
@@ -680,6 +701,7 @@ public sealed partial class World
                 var t = _eventTypes[ev.Type];
                 var payload = b.Payload.AsSpan(ev.PayloadOffset, ev.PayloadSize);
                 Resolve(b, t, payload);
+                Causality?.Values(ev.Cause, default, false, payload, true);
                 t.Writer?.Event(payload, ev.Cause, _barrier);
             }
             b.Clear();
@@ -688,9 +710,11 @@ public sealed partial class World
 
     private void Play(CommandBuffer b, ref CommandRecord c)
     {
+        var log = Causality;
         if (c.Op == CommandOp.Create)
         {
             b.Drafts[c.Target.DraftIndex] = AllocateEntity();
+            log?.Resolve(c.Cause, b.Drafts[c.Target.DraftIndex]);
             return;
         }
         if (c.Op == CommandOp.SetResource)
@@ -700,6 +724,7 @@ public sealed partial class World
         }
 
         var e = c.Target.IsDeferred ? b.Drafts[c.Target.DraftIndex] : c.Target;
+        if (log is not null && c.Target.IsDeferred) log.Resolve(c.Cause, e);
         if (!IsAlive(e))
         {
             IgnoredCommands++;
@@ -735,11 +760,13 @@ public sealed partial class World
                 {
                     if (Checks)
                         throw new InvalidOperationException($"Add<{t.Type.Name}>({e}): компонент уже есть — замена только командой Set");
+                    log?.Values(c.Cause, t.IsTag ? [] : CellOf(e, t), true, payload, true);
                     if (!t.IsTag) payload.CopyTo(CellOf(e, t));
                     if (_tracked[t.Id]) NoteSet(e, t.Id, c.Cause);
                     break;
                 }
                 if (_tracked[t.Id]) Touch(e, t.Id).Cause = c.Cause;
+                log?.Values(c.Cause, default, false, payload, true);
                 Move(e, WithType(a, t.Id));
                 if (!t.IsTag) payload.CopyTo(CellOf(e, t));
                 if (_hooked[t.Id]) NoteHookAdd(e, t.Id);
@@ -750,6 +777,7 @@ public sealed partial class World
             {
                 var t = _types[c.Type];
                 if (!a.Has[t.Id]) break;
+                log?.Values(c.Cause, t.IsTag ? [] : CellOf(e, t), true, default, false);
                 if (_tracked[t.Id]) NoteRemoval(e, t.Id, c.Cause);
                 if (_hooked[t.Id]) NoteHookRemoval(e, t.Id);
                 Move(e, WithoutType(a, t.Id));
@@ -766,6 +794,7 @@ public sealed partial class World
                 }
                 var payload = b.Payload.AsSpan(c.PayloadOffset, c.PayloadSize);
                 Resolve(b, t, payload);
+                log?.Values(c.Cause, t.IsTag ? [] : CellOf(e, t), true, payload, true);
                 if (!t.IsTag) payload.CopyTo(CellOf(e, t));
                 if (_tracked[t.Id]) NoteSet(e, t.Id, c.Cause);
                 break;

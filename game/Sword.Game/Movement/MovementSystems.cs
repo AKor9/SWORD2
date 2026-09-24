@@ -95,6 +95,8 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
         var commands = ctx.Journal<Event<PlayerCommand>>();
         bool has = !commands.IsEmpty;
         var command = has ? commands[^1].Value : default;   // несколько на тик — действует последняя
+        var log = ctx.Causality;
+        var press = log is null ? CauseId.None : Press(commands);
         for (int c = commands.Length - 2; c >= 0; c--)
         {
             // фронты прежних команд тика не теряются; жест — последнего удара (обход с конца: первый найденный — последний)
@@ -125,11 +127,30 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
             {
                 Apply(command, t[i], ref intent[i], ref gaze[i]);
                 PlayerActions.Press(command, ref control[i]);
-                int stabRoll = rng.Index(PlayerControlRules.PickStream, time.Tick, entities[i], stabs);
+                int stabRoll = rng.Index(PlayerControlRules.PickStream, time.Tick, entities[i], stabs), serial = action[i].AttackSerial;
                 PlayerActions.Think(ref control[i], ref combo[i], ref action[i], t[i], intent[i].DesiredVelocity, time.Time, time.Dt, stabRoll,
                     rules, attacks, slashes, clips, actions);
+                if (log is not null) Caused(ctx, log, entities[i], press, serial, action[i].AttackSerial);
             }
         }
+    }
+
+    /// <summary>Причина нажатия удара тика — последняя команда с <c>Attack</c> или <c>Stab</c> (диагностический режим, 6д); нет — пусто.</summary>
+    private static CauseId Press(ReadOnlySpan<Event<PlayerCommand>> commands)
+    {
+        for (int c = commands.Length - 1; c >= 0; c--)
+            if (commands[c].Value.Attack || commands[c].Value.Stab) return commands[c].Cause;
+        return CauseId.None;
+    }
+
+    /// <summary>
+    /// Диагностический режим (6д): нажатие удара — в таблицу связей (удар выходит из буфера, может быть и тиками позже); удар начался —
+    /// шаг «начало удара» с родителем «последнее нажатие».
+    /// </summary>
+    private static void Caused(in SystemContext ctx, CausalityLog log, Entity e, CauseId press, int before, int serial)
+    {
+        if (press.Value != 0) log.Link(e, CombatCauses.Swing, press);
+        CombatCauses.Started(ctx, log, e, before, serial, log.Linked(e, CombatCauses.Swing));
     }
 
     public static void Apply(in PlayerCommand c, in Transform t, ref FighterCommand intent, ref GazeTarget gaze)

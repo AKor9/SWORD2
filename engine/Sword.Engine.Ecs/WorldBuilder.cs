@@ -182,11 +182,13 @@ public sealed class WorldBuilder
 
     private static void RunContinuous(World world, Registration r, ulong tick)
     {
+        r.Buffer.Cause = CauseId.None;
         ((IContinuousSystem)r.System).Run(new SystemContext(world, r, tick));
+        r.Buffer.Cause = CauseId.None;
         r.AdvanceCursors();
     }
 
-    private static void RunReactive<TTrigger>(World world, Registration r, ulong tick) where TTrigger : struct
+    private static void RunReactive<TTrigger>(World world, Registration r, ulong tick) where TTrigger : struct, ICaused
     {
         var c = r.Cursors[0];
         var triggers = ((Journal<TTrigger>)c.Journal).Since(c.Cursor);
@@ -197,7 +199,10 @@ public sealed class WorldBuilder
             if (r.Cursors.Count > 1) r.AdvanceCursors();
             return;
         }
+        // Причина по умолчанию (6д): одно срабатывание — его причина; несколько — система ставит ctx.Cause сама на каждое.
+        r.Buffer.Cause = world.Causality is not null && triggers.Length == 1 ? triggers[0].Cause : CauseId.None;
         ((IReactiveSystem<TTrigger>)r.System).React(new SystemContext(world, r, tick), triggers);
+        r.Buffer.Cause = CauseId.None;
         r.AdvanceCursors();
     }
 

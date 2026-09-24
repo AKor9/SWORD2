@@ -234,7 +234,7 @@
    `Part`, сегмент `BodySegs`: 1 торс, 2 голова…; урон, вид, точка, `Killed`, `LethalThrust` — смертельный укол, `SeverAt`, `Probe`) и тик
    смерти (`Added<Dead>` на барьере Resolve — от попадания, Aftermath — от кровопотери). Касание без попадания (неуязвимость, труп) —
    `{"types":["StrikeContact"]}`. Старше кольца истории (1200 тиков) — `replay.observe {"path":"session","events":["Event<Hit>",
-   "Added<Dead>"]}`. Причинность одним вызовом (`state.why`) — 6д.
+   "Added<Dead>"]}`. Цепочка одним вызовом — `state.why` (6д, рецепт «Понять, почему поле такое»).
 2. Здоровье по тикам: `watch.add {"entities":["player"],"fields":["Health.Hp","Health.Bleed"]}` → `time.step` → `entity.history`;
    сейчас — `entity.get {"entity":"player","components":["Health","Dead","Flinch"]}`; статистика — `state.describe ecs` (`ArenaStats`).
 3. Ударить без клинка — проба: `command.send {"command":"StrikeProbe","fields":{"Attacker":0,"Victim":1,"Part":1,"Damage":30,
@@ -455,9 +455,17 @@
    GPU дольше: сравнивать прогоны одной машины подряд (`machine` — загрузка CPU другими процессами; GPU — `nvidia-smi`), машина
    занята — перемерить, сообщить пользователю. Проход без своих замеров внутри (`scene.opaque`) — одно число: делить — проходами.
 
-**Понять, почему поле такое.** `ecs.componentUsage {"name":"Transform"}` — кто пишет; `ecs.explainSystem` писателя —
-его входы (`upstream`, с пометкой «в этом тике» или «с прошлого тика» и причиной `why`: команды той же стадии —
-только в следующем тике) и место регистрации (`source`).
+**Понять, почему поле такое.** Сначала — режим причинности (6д): `session.start {"causality":true}` (или сервер с ключом
+`--causality`; хеш и реплей он не меняет), воспроизвести (реплей: `session.start {"replay":…, "causality":true}`) → `state.why
+{"entity":"player","field":"Health.Hp"}`: последнее изменение поля (тик, `Set`/`Add`/`Remove`, система `метка@стадия`, `source` —
+файл:строка команды, `before`/`after`) и `chain` до корня: `Hit (enemy 3 → player)` ← `StrikeContact` ← «начало удара» (враг, номер
+удара) ← «решение core.enemy-ai: ИИ: удар по таймеру» (или команда игрока, арены, пробы, агента — `note`: клиент, агент, реплей);
+`summary` — одной строкой. Смерть — `{"field":"Dead"}` (от удара — Resolve, от кровопотери — `core.bleed`), возрождение —
+`Health.Hp` после него (шаг «возрождение» ← `Add<Dead>` ← …); `changes: N` — N последних изменений; `events.history` в режиме даёт
+`cause` каждой записи. Непрерывное поле (`Transform`, пишут на месте) — честно грубо: `writers` — какая регистрация писала столбец
+в каком тике; дальше — `ecs.componentUsage {"name":"Transform"}` (кто пишет), `ecs.explainSystem` писателя (входы `upstream` с
+«в этом тике»/«с прошлого тика» и `why`, место регистрации `source`), `watch.add` + `entity.history`, `time.break`,
+`experiment.fork`. `complete: false` — родитель вытеснен из кольца (65 536 записей): смотреть ближе к событию.
 
 **Посмотреть на кадр живой игры.** `time.pause` (кадр показывает ровно последний тик) → `capture.bundle
 {"name":"look"}` → открыть `color` и `depth` из ответа; `entities[].rect` — где на картинке кто. `render.graph` — какие

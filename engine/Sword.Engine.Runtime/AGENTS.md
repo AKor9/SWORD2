@@ -122,6 +122,12 @@
   нарушение, которое держится, в живой игре видно не позже чем через 3 тика, короче периода — может не попасть в проверку. Тесты —
   `InvariantTests.Periodic_AndThrowing_Invariants`, `LiveGame_HeavyInvariant_CatchesPersistentViolationWithinPeriod`.
 
+- Причинность (6д): поле причины записей журналов (`Cause`) — вне хеша `ecs` и его описания (`FieldLayout.Without`): хеш — только
+  данные записи. `Simulation.EnableCausality`/`DisableCausality` — диагностический режим (владелец, между тиками; ключ
+  `--causality` Headless и App, `session.start {causality}`): хеш, реплей и выделения тика те же (`CausalityTests`). Команда тика в
+  `runtime.commands` — корень (`CommandBuffer.EmitCommand`) с пояснением очереди: `клиент` (`Enqueue`), `агент` (`EnqueueRaw`),
+  `реплей` — любая зарегистрированная команда, в том числе ручки 6е, корень автоматически.
+
 Не сделано: деактивация модуля командой тика.
 
 Проверка: `tests/Sword.Engine.Runtime.Tests` (`InvariantTests` — модуль-неисправность ловится на своём тике после своей

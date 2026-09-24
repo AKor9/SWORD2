@@ -132,6 +132,7 @@ public sealed class LegacyLocomotionSetupSystem : IReactiveSystem<Added<Fighter>
             // Боец построен дважды за срабатывание (создан при сборке мира и сразу построен заново сбросом в тике 0) —
             // одна команда, по последней записи: состояния ещё нет, второе Add было бы ошибкой.
             if (!ctx.World.IsAlive(a.Entity) || Later(added, i)) continue;
+            ctx.Cause = a.Cause;   // причина постройки бойца — родитель состояния локомоции (state.why, 6д)
             if (ctx.World.TryGet<LegacyLocomotionState>(a.Entity, out var old))
             {
                 var fresh = LegacyLocomotion.Start(actions);

@@ -388,6 +388,30 @@ public sealed class Simulation
     /// <summary>Профайлер CPU тиков (<see cref="AttachProfiler"/>); <see cref="CpuProfiler.Off"/> — не подключён.</summary>
     public CpuProfiler Profiler => _profiler;
 
+    /// <summary>Журнал причинности — диагностический режим <c>state.why</c> (6д); null — выключен (по умолчанию).</summary>
+    public CausalityLog? Causality => _world.Causality;
+
+    /// <summary>
+    /// Включить диагностический режим причинности (только владелец, между тиками; ключ <c>--causality</c> Headless и App,
+    /// <c>session.start {causality}</c>): команды, события, решения и записи <c>Set/Add/Remove</c> получают причину, родителя, тик,
+    /// стадию, регистрацию и источник в кольцо <paramref name="log"/> (null — новое по умолчанию). Состояние и хеш не меняются
+    /// (причина — вне хеша записей журналов), реплей — тоже: это диагностика, не команда симуляции.
+    /// </summary>
+    public CausalityLog EnableCausality(CausalityLog? log = null)
+    {
+        if (Stage is not null) throw new InvalidOperationException("журнал причинности включается между тиками");
+        log ??= _world.Causality ?? new CausalityLog();
+        _world.SetCausality(log);
+        return log;
+    }
+
+    /// <summary>Выключить диагностический режим причинности (между тиками): записи команд снова без причины, журнал отпускается.</summary>
+    public void DisableCausality()
+    {
+        if (Stage is not null) throw new InvalidOperationException("журнал причинности выключается между тиками");
+        _world.SetCausality(null);
+    }
+
     /// <summary>
     /// Подключить профайлер CPU (точка Па; только владелец, между тиками): тик — период профайлера (зона <c>tick</c>), в нём
     /// зоны стадий, систем и барьеров мира (<see cref="Ecs.World.AttachProfiler"/>), проверок инвариантов

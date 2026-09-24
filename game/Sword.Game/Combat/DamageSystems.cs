@@ -35,7 +35,11 @@ public sealed class HitApplySystem : IReactiveSystem<Event<StrikeContact>>
         var time = world.Resource<SimTime>();
         var rules = world.Resource<CombatRules>();
         _count = _requests = 0;
-        foreach (var c in contacts) Apply(ctx, c.Value, time, rules);
+        foreach (var c in contacts)
+        {
+            ctx.Cause = c.Cause;   // всё, что даёт касание, — от него (state.why, 6д)
+            Apply(ctx, c.Value, time, rules);
+        }
     }
 
     private void Apply(in SystemContext ctx, in StrikeContact c, in SimTime time, in CombatRules rules)
@@ -51,24 +55,33 @@ public sealed class HitApplySystem : IReactiveSystem<Event<StrikeContact>>
         DamageRules.Apply(ref h, c.Part, c.Damage);
         float severAt = DamageRules.SeverThreshold(c.Part, world.Has<PlayerTag>(c.Attacker), rules.PlayerSharpness);
         var cmd = ctx.Commands;
+        bool killed = DamageRules.Killed(h, lethal);
+        // Попадание — первым (журналы разные: порядок событий Hit и SeverRequested между собой ничего не меняет): в диагностическом
+        // режиме оно родитель всего, что следует, — StrikeContact → Hit → Health, Dead, SeverRequested (state.why, 6д).
+        cmd.Emit(new Hit
+        {
+            Contact = c.Id, Attacker = c.Attacker, Victim = c.Victim, Part = c.Part, Damage = c.Damage, Point = c.Point, Dir = c.Dir, Kind = c.Kind,
+            Killed = killed, LethalThrust = lethal, SeverAt = severAt, Probe = c.Probe,
+        });
+        var log = ctx.Causality;
+        if (log is not null)
+        {
+            ctx.Cause = cmd.LastCause;
+            log.Link(c.Victim, CombatCauses.Bleed, cmd.LastCause);   // родитель кровопотери — последнее попадание
+        }
         if (c.Damage > severAt)
             cmd.Emit(new SeverRequested
             {
                 Id = new RequestId(time.Tick, _requests++), Contact = c.Id, Victim = c.Victim, Part = c.Part, Point = c.Point, Blade = c.Blade,
                 Dir = c.Dir, Kind = c.Kind,
             });
-        bool killed = DamageRules.Killed(h, lethal);
         cmd.Set(c.Victim, h);
         if (killed)
         {
             _dead[k] = true;
             cmd.Add(c.Victim, new Dead { Time = time.Time });
+            log?.Link(c.Victim, CombatCauses.Death, cmd.LastCause);
         }
-        cmd.Emit(new Hit
-        {
-            Contact = c.Id, Attacker = c.Attacker, Victim = c.Victim, Part = c.Part, Damage = c.Damage, Point = c.Point, Dir = c.Dir, Kind = c.Kind,
-            Killed = killed, LethalThrust = lethal, SeverAt = severAt, Probe = c.Probe,
-        });
     }
 
     /// <summary>Жертва в накоплении тика: здоровье — итог прошлых попаданий тика; не боец (снят, без <see cref="Health"/>) — −1.</summary>
@@ -112,6 +125,7 @@ public sealed class HitReactionSystem : IReactiveSystem<Event<Hit>>
             if (Later(hits, i)) continue;   // реакция — по последнему попаданию тика
             var e = hit.Victim;
             if (!world.IsAlive(e) || world.Has<Dead>(e) || !world.TryGet<Transform>(e, out var t)) continue;
+            ctx.Cause = hits[i].Cause;   // реакция — от этого попадания (state.why, 6д)
             var forward = new Vector3(MathF.Sin(t.Facing), 0, MathF.Cos(t.Facing));
             var toHit = hit.Point - t.Position;
             toHit.Y = 0;
@@ -158,6 +172,7 @@ public sealed class BleedSystem : IContinuousSystem
     public void Run(in SystemContext ctx)
     {
         var time = ctx.World.Resource<SimTime>();
+        var log = ctx.Causality;
         foreach (var chunk in ctx.Iterate(_query))
         {
             var health = chunk.Read<Health>();
@@ -167,8 +182,14 @@ public sealed class BleedSystem : IContinuousSystem
                 if (!(health[i].Bleed > 0)) continue;
                 var h = health[i];
                 DamageRules.Bleed(ref h, time.Dt);
+                // Кровопотеря — непрерывный производитель: родитель — попадание, от которого кровотечение (побочная таблица, 6д).
+                if (log is not null) ctx.Cause = log.Linked(entities[i], CombatCauses.Bleed);
                 ctx.Commands.Set(entities[i], h);
-                if (h.Hp <= 0) ctx.Commands.Add(entities[i], new Dead { Time = time.Time });
+                if (h.Hp <= 0)
+                {
+                    ctx.Commands.Add(entities[i], new Dead { Time = time.Time });
+                    log?.Link(entities[i], CombatCauses.Death, ctx.Commands.LastCause);
+                }
             }
         }
     }
@@ -216,6 +237,8 @@ public sealed class RespawnSystem(int weapons) : IContinuousSystem
         var world = ctx.World;
         var spawn = ArenaRules.Enemy(world.Resource<SimRandom>(), time.Tick, ArenaRules.RespawnBatch, slot, center, weapons);
         var action = world.TryGet<AnimatorAction>(e, out var a) ? a : AnimatorAction.None;
+        // Возрождение по времени — шаг с родителем «смерть» (побочная таблица, 6д): постройка места — от него.
+        if (ctx.Causality is { } log) ctx.Cause = ctx.Commands.Note(CombatCauses.RespawnDue, e, log.Linked(e, CombatCauses.Death));
         Fighters.Rebuild(ctx.Commands, e, spawn, Fighters.Standing(spawn), default, action, dead: true);
     }
 }
@@ -237,6 +260,8 @@ public sealed class ArenaStatsSystem : IContinuousSystem
         if (hits.IsEmpty && deaths.IsEmpty) return;
         var world = ctx.World;
         var stats = world.Resource<ArenaStats>();
+        // Причина замены статистики — последняя запись тика (смерть или попадание; state.why, 6д).
+        if (ctx.Causality is not null) ctx.Cause = !deaths.IsEmpty ? deaths[^1].Cause : hits[^1].Cause;
         foreach (var h in hits)
         {
             stats.Hits++;

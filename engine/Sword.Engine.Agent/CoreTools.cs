@@ -21,10 +21,12 @@ internal static class CoreTools
         host.Add(new AgentTool
         {
             Name = "session.status", Title = "Состояние сеанса",
-            Description = "Сеанс: вид процесса, сборка, контент, тик, пауза, модули, команды тика, каталог артефактов.",
+            Description = "Сеанс: вид процесса, сборка, контент, тик, пауза, модули, команды тика, каталог артефактов; causality — " +
+                "диагностический режим причинности (state.why): записей сделано и ёмкость кольца, false — выключен.",
             Run = async call =>
             {
-                var s = await host.Serve(ctx => (ctx.Point, ctx.Dt, ctx.World.EntityCount, ctx.ActiveModules, ctx.InactiveModules), call.Cancel);
+                var s = await host.Serve(ctx => (ctx.Point, ctx.Dt, ctx.World.EntityCount, ctx.ActiveModules, ctx.InactiveModules,
+                    Causality: ctx.World.Causality is { } log ? (log.Written, log.Capacity) : ((long, int)?)null), call.Cancel);
                 return new ToolOutput(new JsonObject
                 {
                     ["mode"] = host.Mode,
@@ -39,6 +41,9 @@ internal static class CoreTools
                     ["namedEntities"] = Strings(host.Names?.Known ?? []),
                     ["artifacts"] = host.Artifacts,
                     ["tools"] = host.Tools.Count,
+                    ["causality"] = s.Causality is { } c
+                        ? new JsonObject { ["written"] = c.Item1, ["capacity"] = c.Item2 }
+                        : JsonValue.Create(false),
                 }) { Point = s.Point };
             },
         });
