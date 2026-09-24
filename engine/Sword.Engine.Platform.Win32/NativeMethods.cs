@@ -222,6 +222,13 @@ internal static class Win32
     public static extern bool SetWindowPos(
         nint hWnd, nint hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
+    /// <summary>Показать свёрнутым, не активируя (6ж: окно проверочного прогона, показанное свёрнутым — <c>--minimized</c>).</summary>
+    public const int SW_SHOWMINNOACTIVE = 7;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindow(nint hWnd, int nCmdShow);
+
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
 

@@ -44,6 +44,11 @@
   vsync выключен, F4 не действует, с `MaxFps` не задаётся, выход `bench`, итог в `ClientRunReport.Bench`;
   `ScreenshotPath` — последний кадр замера, его шаг в замер не идёт (как в SWORD).
 - `Dispose` освобождает игру и рендер, даже если ожидание GPU упало (потеря устройства).
+- Свёрнутое окно (6ж): живая игра ждёт разворота (кадров нет, инструменты обслуживаются); проверочный прогон (`MaxFrames`, бенч) рисует
+  и свёрнутым — в прежнем размере, показ отбрасывает DXGI (`ClientRunReport.MinimizedFrames`), иначе бенч по игровому времени висел без
+  конца. Сторож кадров — `FrameWatchdog` (`ClientOptions.StallSeconds`, `Stalled`: нет кадров N с — один вызов из потока таймера со словами
+  и тем, свёрнуто ли окно; exe выходит с ошибкой); тест `FrameToolsTests.Watchdog_SilentWhileFrames_FiresOnceWhenFramesStop`, вживую —
+  `verify.ps1` `app-smoke` (`Sword.exe --minimized`).
 - `Run` — `[MethodImpl(AggressiveOptimization)]`: иначе через ~4 с многоуровневый JIT заменяет на ходу (OSR) его долгий
   цикл — разовый кадр 6–8 мс между кадрами (найдено и исправлено в точке Па).
 

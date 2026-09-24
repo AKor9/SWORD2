@@ -76,7 +76,8 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.StrikeDetection).ReadsJournal<Event<StrikeProbe>>().Reads<FighterSlot>().Reads<Transform>().Reads<AnimatorAction>()
-            .Reads<Blade>().Reads<BodyRef>().Writes<StrikePairs>().Emits<StrikeContact>();
+            .Reads<Blade>().Reads<BodyRef>().Writes<StrikePairs>().Emits<StrikeContact>()
+            .ReserveCommands(0, CombatReserve.Contacts, CombatReserve.Contacts * 128);
         _fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
         _dead = s.Query().With<Fighter>().With<Dead>().Read<FighterSlot>();
         _pairs = s.Query().With<Fighter>().With<EnemyTag>().Without<Dead>().Read<FighterSlot>().Write<StrikePairs>();

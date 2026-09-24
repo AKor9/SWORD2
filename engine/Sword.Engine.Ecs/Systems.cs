@@ -158,6 +158,18 @@ public sealed class SystemSetup
     }
 
     /// <summary>
+    /// Ёмкость буфера команд системы заранее (6ж): команд (<c>Add/Remove/Set/Create/Destroy</c>, замена ресурса), событий и байт их значений
+    /// за один запуск в худшем случае — чтобы пик (бой полной арены: касания, попадания, смерти и возрождения в одном тике) не растил буфер
+    /// посреди игры. Логики не меняет; сверх запаса буфер растёт удвоением, как без него.
+    /// </summary>
+    public SystemSetup ReserveCommands(int commands, int events, int payloadBytes)
+    {
+        if (commands < 0 || events < 0 || payloadBytes < 0) throw new ArgumentOutOfRangeException(nameof(commands), "запас — не меньше 0");
+        Registration.Buffer.Reserve(commands, events, payloadBytes);
+        return this;
+    }
+
+    /// <summary>
     /// Система читает журнал срабатываний своим курсором (<see cref="SystemContext.Journal{T}"/>). Непрерывная видит каждую
     /// запись ровно один раз. У реактивной это контекст срабатывания: в тике, где она сработала, — записи с её прошлого
     /// места в тике; записи тиков без срабатывания ей не адресованы и пропускаются.

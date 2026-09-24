@@ -33,7 +33,9 @@
                             порядке, предупреждений и ошибок D3D12 и предупреждений шейдеров нет, проход
                             scene.opaque нарисовал арену и Manny, снимок не пустой, тиков ровно 180, корень игрока
                             совпал с Headless на 180 тиках; прогон с удержанием действия move_forward (--hold) —
-                            игрок бежит по направлению камеры; прогон --fps 45 — ровно 242 тика, доля тика 2/3,
+                            игрок бежит по направлению камеры; 6ж — окно, показанное свёрнутым (--minimized), —
+                            60 кадров идут и свёрнутыми; каждый запуск Sword.exe — с пределом 300 с (процесс снимается,
+                            ошибка называет, свёрнуто ли окно); прогон --fps 45 — ровно 242 тика, доля тика 2/3,
                             показанный игрок интерполирован; HUD — проход hud нарисовал фигуры и текст, шаг кадра
                             посчитан; действия screenshot и hud_help (F4, F1, --hold) — один снимок в --screenshots и
                             справка скрыта; debug_bodies (F7, 5в) — капсулы тел 11 бойцов проходом debug.bodies;
@@ -206,6 +208,11 @@ public static class SwordVerifyJob
     }
 
     public static bool Terminate(IntPtr job) { return job != IntPtr.Zero && TerminateJobObject(job, 1); }
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr window);
+
+    public static bool Minimized(IntPtr window) { return window != IntPtr.Zero && IsIconic(window); }
 }
 '@
 }
@@ -213,6 +220,24 @@ $script:job = [SwordVerifyJob]::Create()
 $script:jobAdded = 0
 function Add-ToJob($Process) {
     if ([SwordVerifyJob]::Add($script:job, $Process.Handle)) { $script:jobAdded++ }
+}
+
+# 6ж: каждый запуск Sword.exe — с пределом времени (бенч в свёрнутом окне висел 28 мин: кадров нет, игровое время бенча стоит).
+# Не закончил — процесс снят, ошибка словами: окно свёрнуто или нет. Сам Sword.exe рисует проверочный прогон и в свёрнутом окне и
+# снимает его сторожем кадров («нет кадров N с», код 5) — предел здесь только страховка.
+$script:swordSeconds = 300
+function Start-Sword([string]$Exe, [string[]]$Arguments, [string]$Stdout, [string]$Stderr, [int]$Seconds = $script:swordSeconds) {
+    $p = Start-Process -FilePath $Exe -NoNewWindow -PassThru -RedirectStandardOutput $Stdout -RedirectStandardError $Stderr -ArgumentList $Arguments
+    Add-ToJob $p   # и ручка процесса: без неё PowerShell теряет код выхода
+    if (-not $p.WaitForExit($Seconds * 1000)) {
+        $p.Refresh()
+        $state = if ([SwordVerifyJob]::Minimized($p.MainWindowHandle)) { 'окно свёрнуто' } else { 'окно не свёрнуто' }
+        try { $p.Kill() } catch { }
+        $null = $p.WaitForExit(5000)
+        return [pscustomobject]@{ ExitCode = -1; TimedOut = $true; Error = "Sword.exe не закончил за $Seconds с ($state) — процесс снят" }
+    }
+    $p.WaitForExit()
+    return [pscustomobject]@{ ExitCode = $p.ExitCode; TimedOut = $false; Error = $null }
 }
 
 function Add-Step([string]$Name, [scriptblock]$Body) {
@@ -500,12 +525,11 @@ else {
         if (Test-Path $shot) { Remove-Item $shot }
         $frames = 90
         $ticksPerFrame = 2
-        $process = Start-Process -FilePath $exe.FullName -NoNewWindow -Wait -PassThru `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
-            -ArgumentList @('--windowed', '800x600', '--frames', "$frames", '--resize-cycle', '--no-activate', '--gpu-validation',
-                '--move', '1,0', '--ticks-per-frame', "$ticksPerFrame", '--json', '--shot', "`"$shot`"")
+        $process = Start-Sword $exe.FullName @('--windowed', '800x600', '--frames', "$frames", '--resize-cycle', '--no-activate', '--gpu-validation',
+                '--move', '1,0', '--ticks-per-frame', "$ticksPerFrame", '--json', '--shot', "`"$shot`"") $stdout $stderr
+        if ($process.TimedOut) { return @{ ok = $false; detail = $process.Error } }
         $text = [System.IO.File]::ReadAllText($stdout).Trim()
-        if ($process.ExitCode -ne 0 -or -not $text) { return @{ ok = $false; detail = "код выхода $($process.ExitCode); $([System.IO.File]::ReadAllText($stderr).Trim())" } }
+        if ($process.ExitCode -ne 0 -or -not $text) { return @{ ok = $false; detail = "код выхода $($process.ExitCode); $text $([System.IO.File]::ReadAllText($stderr).Trim())" } }
         $result = $text | ConvertFrom-Json
         # Сведения слоя («Message:», например «GPU-валидация включена») — не проблема; всё остальное от D3D12 — отказ.
         $d3d12 = @(Get-Content $stderr -Encoding UTF8 | Where-Object { $_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:' })
@@ -540,12 +564,20 @@ else {
                 function Invoke-App([string]$Name, [string[]]$Arguments) {
                     $out = Join-Path $dir "$Name.json"
                     $err = Join-Path $dir "$Name.log"
-                    $p = Start-Process -FilePath $exe.FullName -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err `
-                        -ArgumentList (@('--windowed', '640x480', '--no-activate', '--json') + $Arguments)
+                    $p = Start-Sword $exe.FullName (@('--windowed', '640x480', '--no-activate', '--json') + $Arguments) $out $err
+                    if ($p.TimedOut) { return @{ ok = $false; error = $p.Error } }
                     $text = [System.IO.File]::ReadAllText($out).Trim()
-                    if ($p.ExitCode -ne 0 -or -not $text) { return @{ ok = $false; error = "код выхода $($p.ExitCode); $([System.IO.File]::ReadAllText($err).Trim())" } }
+                    if ($p.ExitCode -ne 0 -or -not $text) { return @{ ok = $false; error = "код выхода $($p.ExitCode); $text $(Get-Lines ([System.IO.File]::ReadAllText($err)) '.' 3)" } }
                     return ($text | ConvertFrom-Json)
                 }
+                # 6ж: окно, показанное свёрнутым (--minimized, без фокуса), — проверочный прогон всё равно рисует все кадры и выходит сам
+                # (бенч в свёрнутом окне висел 28 мин); итог — кадров, нарисованных свёрнутыми.
+                $mini = Invoke-App 'minimized' @('--frames', '60', '--ticks-per-frame', '2', '--minimized', '--stall', '30')
+                if (-not $mini.ok) { $problems += "прогон в свёрнутом окне (--minimized): $($mini.error)" }
+                elseif ($mini.report.frames -ne 60 -or $mini.report.simTicks -ne 120 -or [int]$mini.report.minimizedFrames -lt 55) {
+                    $problems += "--minimized: кадров $($mini.report.frames) (свёрнутыми $($mini.report.minimizedFrames)), тиков $($mini.report.simTicks); ждали 60 (свёрнутыми почти все) и 120"
+                }
+                else { $script:miniNote = "окно свёрнуто — $($mini.report.frames) кадров (свёрнутыми $($mini.report.minimizedFrames)), $($mini.report.simTicks) тиков" }
                 # Точка 1г: ввод действиями (move_forward удерживается), — игрок бежит «от камеры»: по её
                 # GroundForward = (−sin yaw, −cos yaw).
                 $held = Invoke-App 'hold' @('--frames', '60', '--hold', 'move_forward', '--ticks-per-frame', '2')
@@ -721,7 +753,7 @@ else {
             elseif ((Get-Item $shot).Length -lt 50KB) { $problems += "снимок подозрительно мал: $((Get-Item $shot).Length) Б — пустой кадр?" }
         }
         if ($problems.Count -eq 0) {
-            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless; с удержанием move_forward бежит от камеры; при --fps 45 — 242 тика, доля 2/3, интерполяция; HUD $($result.hud.quads) квадов; F4 — снимок; $($script:gpuNote); $($script:benchNote); $($script:profileNote); кадр $($result.report.averageFrameMs) мс, снимок $shot" }
+            @{ ok = $true; detail = "$($result.report.adapter): $($result.report.frames) кадров, изменений размера $($result.report.resizes), $($result.report.simTicks) тиков, игрок в x = $([math]::Round($result.player.x, 3)) как в Headless; с удержанием move_forward бежит от камеры; при --fps 45 — 242 тика, доля 2/3, интерполяция; $($script:miniNote); HUD $($result.hud.quads) квадов; F4 — снимок; $($script:gpuNote); $($script:benchNote); $($script:profileNote); кадр $($result.report.averageFrameMs) мс, снимок $shot" }
         }
         else { @{ ok = $false; detail = $problems -join '; ' } }
     }
@@ -746,8 +778,9 @@ Add-Step 'replay-smoke' {
         $by = 'Sword.exe'
         $exe = Get-ChildItem (Join-Path $root "game\Sword.Game.App\bin\$Configuration") -Recurse -Filter 'Sword.exe' | Select-Object -First 1
         $stdout = Join-Path $dir 'app.json'
-        $process = Start-Process -FilePath $exe.FullName -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError (Join-Path $dir 'app.log') `
-            -ArgumentList @('--windowed', '640x480', '--no-activate', '--frames', '135', '--fps', '45', '--hold', 'move_forward,walk', '--record', "`"$file`"", '--json')
+        $process = Start-Sword $exe.FullName @('--windowed', '640x480', '--no-activate', '--frames', '135', '--fps', '45', '--hold', 'move_forward,walk',
+            '--record', "`"$file`"", '--json') $stdout (Join-Path $dir 'app.log')
+        if ($process.TimedOut) { return @{ ok = $false; detail = "запись Sword.exe: $($process.Error)" } }
         $rec = [System.IO.File]::ReadAllText($stdout).Trim() | ConvertFrom-Json
         if ($process.ExitCode -ne 0 -or -not $rec.ok -or -not $rec.recorded) { return @{ ok = $false; detail = "запись Sword.exe: код $($process.ExitCode), $($rec.error)" } }
     }

@@ -628,3 +628,65 @@ public sealed class DamageTests
         Assert.Contains("мёртвый", first.Details);
     }
 }
+
+/// <summary>
+/// 6ж на эталонном паке (категория Content): бой толпы без выделений — 32 бьющих врага против неуязвимого игрока, он рубит связкой без
+/// перерыва и поворачивается (сценарий <c>crowd</c> манифеста <c>combat</c>): касания, попадания, реакции, смерти и возрождения идут после
+/// прогрева, а тик — 0 байт. Нашло 6г: 539 Б/тик — рост пула поз посреди боя (~3,8 МБ: слои действий, снимки, память смешивания);
+/// исправлено запасом пула на полную арену (<see cref="PosePool.Reserve"/>, <see cref="GameCore.PosesPerFighter"/>).
+/// </summary>
+[Trait("Category", "Content")]
+public sealed class DamageContentTests
+{
+    private static readonly Lazy<CharacterAssets> Reference = new(() =>
+    {
+        using var pak = Sword.Engine.Content.PakSource.Open(ReferenceTraceTests.ReferencePak());
+        return CharacterAssets.Load(pak);
+    });
+
+    /// <summary>Команда толпы: ЛКМ каждый тик, взгляд поворачивается на 45° каждые 300 тиков (как сценарий <c>crowd</c>).</summary>
+    private static PlayerCommand Crowd(int tick)
+    {
+        float angle = tick / 300 * MathF.PI / 4;
+        return new PlayerCommand { Attack = true, HasGaze = true, Gaze = new Vector3(3 * MathF.Cos(angle), 0, 3 * MathF.Sin(angle)) };
+    }
+
+    /// <summary>
+    /// Прогрев — до первого возрождения (тик 1231): первая смерть и первая постройка заново выделяют разово (~46 КБ на мир: чанки новых
+    /// архетипов — боец с меткой <see cref="Dead"/> и боец, снятый и поставленный заново на барьере; рост буферов команд боя, ~3 КБ) —
+    /// README Combat, «Бюджеты и замеры». Замер — ещё 1080 тиков боя: попадания, кровопотеря, новые смерти и возрождения.
+    /// </summary>
+    [Fact]
+    public void Fight_32AttackingEnemies_RealPack_AfterWarmup_DoesNotAllocate()
+    {
+        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=32", "combat.playerInvulnerable=true", "sim.invariants=false"), Reference.Value);
+        int tick = 0;
+        void Step()
+        {
+            sim.Export.BeginFrame();
+            sim.Enqueue(Crowd(tick));
+            sim.Step();
+            tick++;
+        }
+        while (tick < Warmup) Step();
+        var dead = new List<Entity>();
+        foreach (var chunk in sim.World.Iterate(sim.World.Query().With<EnemyTag>().With<Dead>()))
+            for (int i = 0; i < chunk.Count; i++) dead.Add(chunk.Entities[i]);
+        var before = sim.World.Resource<ArenaStats>();
+        long allocated = 0;
+        while (tick < 2400)
+        {
+            long bytes = GC.GetAllocatedBytesForCurrentThread();
+            Step();
+            allocated += GC.GetAllocatedBytesForCurrentThread() - bytes;
+        }
+        var after = sim.World.Resource<ArenaStats>();
+        Assert.True(before.Kills >= 2 && after.Kills - before.Kills >= 3, $"убито до замера {before.Kills}, в замере {after.Kills - before.Kills}: смертей мало");
+        Assert.True(after.Hits - before.Hits >= 10, $"попаданий в замере {after.Hits - before.Hits}");
+        Assert.Contains(dead, e => !sim.World.Has<Dead>(e));   // возрождения — в замере
+        Assert.Equal(0, allocated);
+    }
+
+    /// <summary>Прогрев замера — с первым возрождением толпы (сценарий crowd: тик 1231) — как бюджет crowd манифеста combat.</summary>
+    private const int Warmup = 1320;
+}

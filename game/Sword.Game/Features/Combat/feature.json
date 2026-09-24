@@ -1,5 +1,11 @@
 {
-  // Приёмка фичи «Бой» (этап 6) — по точкам; принимается целиком на 6ж (раздел 13 плана). 6г «Урон, смерть, реакции,
+  // Приёмка фичи «Бой» (этап 6) — полный манифест на 6ж (раздел 13 плана): сценарии дуэли (удары игрока командами до смерти врага),
+  // толпы 32 бьющих врагов против неуязвимого игрока (игрок бьёт без перерыва и поворачивается — бюджеты тика, стадий боя, байтов и
+  // кадра App), смерти игрока, кровопотери, возрождения через 8 с, смены меча (T и «взять меч N» — EquipWeapon), рывка сквозь удар,
+  // ручки «урон» посреди прогона (TuningCommand), мирных врагов; сверка со SWORD — метрики source «sword» (общая схожесть, решение
+  // пользователя): урон за удар по формуле KinematicStrikes, число попаданий до смерти по частям тела (HpMul), темп ударов ИИ (таймер
+  // EnemyAi), дистанция рывка против root motion клипов уклонения; побитовые трассы (таблица ударов, клинки, слой действий) — тесты
+  // ReferenceTraceTests. Числа SWORD и откуда они — README, «Сверка с SWORD». 6г «Урон, смерть, реакции,
   // возрождение»: дуэль (удары игрока командами до смерти врага, урон по формуле SWORD, 3–5 попаданий), смерть стоящего игрока от
   // ударов ИИ (замер, команды не действуют, враги не бьют), смерть от кровопотери (проба удара командой StrikeProbe), возрождение
   // ровно через 8 с (смертельный укол пробой), рывок сквозь удар (касание есть, попадания нет); инварианты combat.health,
@@ -16,7 +22,7 @@
   "format": "sword-feature",
   "version": 1,
   "id": "combat",
-  "title": "Бой (этап 6; 6б — подготовка и оружие: команды арены в Begin, мечи, инвентарь и T, клинок каждого тика, таблица ударов; 6в — удар, связка, укол, рывок, удар ИИ; 6г — урон, смерть, реакции, возрождение)",
+  "title": "Бой (этап 6; 6б — подготовка и оружие: команды арены в Begin, мечи, инвентарь и T, клинок каждого тика, таблица ударов; 6в — удар, связка, укол, рывок, удар ИИ; 6г — урон, смерть, реакции, возрождение; 6д — причинность; 6е — HUD, инвентарь, ручки, F3; 6ж — сверка со SWORD и приёмка)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Combat",
@@ -38,13 +44,14 @@
   "scenarios": [
     {
       "id": "weapons",
-      "title": "16 врагов сходятся к игроку в центре: мечи в руках у всех, у врагов разные; T на тике 60 — sword_1h → sword_dss; R на тике 150 — враги заново со своими мечами, игрок — с мечом инвентаря; T на тике 200 — по кругу к первому (combat_sword)",
+      "title": "16 врагов сходятся к игроку в центре: мечи в руках у всех, у врагов разные; T на тике 60 — sword_1h → sword_dss; R на тике 150 — враги заново со своими мечами, игрок — с мечом инвентаря; T на тике 200 — по кругу к первому (combat_sword); «взять меч 3» (инвентарь: 3 или щелчок — команда арены EquipWeapon) на тике 220 — katana_v2",
       "set": ["arena.enemies=16"],
-      "ticks": 240,
+      "ticks": 260,
       "commands": [
         { "command": "ArenaCommand", "fields": { "Action": "NextWeapon" }, "from": 60, "to": 61 },
         { "command": "ArenaCommand", "fields": { "Action": "Reset" }, "from": 150, "to": 151 },
-        { "command": "ArenaCommand", "fields": { "Action": "NextWeapon" }, "from": 200, "to": 201 }
+        { "command": "ArenaCommand", "fields": { "Action": "NextWeapon" }, "from": 200, "to": 201 },
+        { "command": "ArenaCommand", "fields": { "Action": "EquipWeapon", "Weapon": 2 }, "from": 220, "to": 221 }
       ],
       "checks": [
         {
@@ -83,8 +90,15 @@
           "condition": { "all": [{ "entity": "player" }, { "field": "WeaponSlot.Index", "equals": 5 }, { "field": "Transform.Position.X", "between": [-0.5, 0.5] }] }
         },
         {
-          "id": "t-wrap", "title": "T после последнего меча — первый (combat_sword)", "expect": "always", "from": 202,
+          "id": "t-wrap", "title": "T после последнего меча — первый (combat_sword)", "expect": "always", "from": 202, "to": 220,
           "condition": { "all": [{ "entity": "player" }, { "field": "WeaponSlot.Index", "equals": 0 }, { "field": "Blade.Weapon", "equals": 0 }] }
+        },
+        {
+          "id": "equip", "title": "«взять меч 3» — katana_v2 в руке, клинок им, выбран в инвентаре", "expect": "always", "from": 222,
+          "condition": { "all": [{ "entity": "player" }, { "field": "WeaponSlot.Index", "equals": 2 }, { "field": "Blade.Weapon", "equals": 2 }] }
+        },
+        {
+          "id": "inventory", "title": "инвентарь: выбран katana_v2", "expect": "atEnd", "condition": { "resource": "PlayerInventory.Equipped", "equals": 2 }
         }
       ]
     },
@@ -365,9 +379,228 @@
           "condition": { "all": [{ "exists": { "all": [{ "entity": "player" }, { "field": "Health.Hp", "equals": 100 }] } }, { "resource": "ArenaStats.Hits", "equals": 0 }] }
         }
       ]
+    },
+    {
+      "id": "crowd",
+      "title": "6ж: толпа — 32 бьющих врага против неуязвимого игрока (combat.playerInvulnerable): игрок жмёт ЛКМ каждый тик (связка без перерыва) и поворачивается на 45° раз в 2,5 с — клинки врагов входят в игрока без урона, удары игрока убивают врагов, убитые возрождаются через 8 с; по ходу — ручка «урон» 2 → 3 (тик 700), T (тик 900), «взять меч 5» — sword_1h (тик 1100): до конца прогрева бюджета; бюджеты тика, стадий боя, байтов и кадра App; предложен эталоном SWORD2 combat.swreplay",
+      "set": ["arena.enemies=32", "combat.playerInvulnerable=true"],
+      "ticks": 2400,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": 3, "Y": 0, "Z": 0 } }, "from": 0, "to": 300 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": 2.1, "Y": 0, "Z": 2.1 } }, "from": 300, "to": 600 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 3 } }, "from": 600, "to": 900 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -2.1, "Y": 0, "Z": 2.1 } }, "from": 900, "to": 1200 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -3, "Y": 0, "Z": 0 } }, "from": 1200, "to": 1500 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -2.1, "Y": 0, "Z": -2.1 } }, "from": 1500, "to": 1800 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": -3 } }, "from": 1800, "to": 2100 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": 2.1, "Y": 0, "Z": -2.1 } }, "from": 2100, "to": 2400 },
+        { "command": "TuningCommand", "fields": { "Knob": "combat.playerDamage", "Value": 3 }, "from": 700, "to": 701 },
+        { "command": "ArenaCommand", "fields": { "Action": "NextWeapon" }, "from": 900, "to": 901 },
+        { "command": "ArenaCommand", "fields": { "Action": "EquipWeapon", "Weapon": 4 }, "from": 1100, "to": 1101 }
+      ],
+      "checks": [
+        {
+          "id": "thirty-three", "title": "33 бойца всё время (возрождение — постройка места заново, не новая сущность)", "expect": "always",
+          "condition": { "count": { "component": "Fighter" }, "equals": 33 }
+        },
+        {
+          "id": "swing", "title": "враги бьют: больше восьми уже ударили", "expect": "eventually", "to": 900,
+          "condition": { "count": { "all": [{ "component": "EnemyTag" }, { "field": "AnimatorAction.AttackSerial", "greaterThan": 0 }] }, "greaterThan": 8 }
+        },
+        {
+          "id": "blades-in", "title": "клинки врагов входят в игрока (касание — StrikeContact), а попадания нет", "expect": "eventually",
+          "condition": { "event": "StrikeContact", "where": { "field": "Victim", "equals": "player" } }
+        },
+        {
+          "id": "invulnerable", "title": "игрок неуязвим: очки жизни 100, жив", "expect": "always",
+          "condition": { "all": [{ "entity": "player" }, { "not": { "component": "Dead" } }, { "field": "Health.Hp", "equals": 100 }] }
+        },
+        {
+          "id": "kills", "title": "удары игрока убивают врагов", "expect": "eventually", "to": 1200,
+          "condition": { "resource": "ArenaStats.Kills", "greaterOrEqual": 2 }
+        },
+        {
+          "id": "respawn", "title": "убитые возрождаются через 8 с — постройка места заново (Added<Fighter> без команд арены)", "expect": "eventually", "from": 960, "to": 1500,
+          "condition": { "event": "Added<Fighter>" }
+        },
+        {
+          "id": "knob", "title": "ручка «урон» посреди боя: CombatRules.PlayerDamage = 3", "expect": "always", "from": 701,
+          "condition": { "resource": "CombatRules.PlayerDamage", "equals": 3 }
+        },
+        {
+          "id": "weapons", "title": "T на тике 900 — sword_dss; «взять меч 5» на тике 1100 — sword_1h", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "player" }, { "field": "WeaponSlot.Index", "equals": 4 }, { "field": "Blade.Weapon", "equals": 4 }] }
+        },
+        {
+          "id": "t", "title": "между T и «взять меч» — sword_dss в руке", "expect": "always", "from": 902, "to": 1100,
+          "condition": { "all": [{ "entity": "player" }, { "field": "WeaponSlot.Index", "equals": 5 }] }
+        }
+      ]
+    },
+    {
+      "id": "knob",
+      "title": "6ж: ручка посреди прогона — дуэль (как duel), и на тике 354 ручка «урон» (combat.playerDamage) 2 → 5 командой TuningCommand (F3, в реплее): удар игрока до неё — 2·(8 + 16·1,4) = 60,8, после — 5·30,4 = 152; враг умирает быстрее",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "ticks": 720,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 0, "to": 720 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 240, "to": 241 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 300, "to": 301 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 360, "to": 361 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 420, "to": 421 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 480, "to": 481 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 540, "to": 541 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "HasGaze": true, "Gaze": { "X": -10, "Y": 0, "Z": -3 } }, "from": 600, "to": 601 },
+        { "command": "TuningCommand", "fields": { "Knob": "combat.playerDamage", "Value": 5 }, "from": 354, "to": 355 }
+      ],
+      "checks": [
+        {
+          "id": "before", "title": "до ручки — урон 2·30,4 = 60,8 (кончик быстрее 16 м/с)", "expect": "never", "to": 354,
+          "condition": { "event": "StrikeContact", "where": { "all": [{ "field": "Speed", "greaterOrEqual": 16 }, { "not": { "field": "Damage", "between": [60.79, 60.81] } }] } }
+        },
+        {
+          "id": "hit-before", "title": "до ручки удар игрока попал", "expect": "eventually", "to": 354,
+          "condition": { "event": "Hit", "where": { "field": "Probe", "equals": false } }
+        },
+        {
+          "id": "rules", "title": "ручка применена в тике команды: CombatRules.PlayerDamage = 5 до конца", "expect": "always", "from": 355,
+          "condition": { "resource": "CombatRules.PlayerDamage", "equals": 5 }
+        },
+        {
+          "id": "after", "title": "после ручки — урон 5·30,4 = 152", "expect": "never", "from": 355,
+          "condition": { "event": "StrikeContact", "where": { "all": [{ "field": "Speed", "greaterOrEqual": 16 }, { "not": { "field": "Damage", "between": [151.99, 152.01] } }] } }
+        },
+        {
+          "id": "hit-after", "title": "после ручки удар попал", "expect": "eventually", "from": 355,
+          "condition": { "event": "Hit", "where": { "all": [{ "field": "Probe", "equals": false }, { "field": "Damage", "greaterThan": 100 }] } }
+        },
+        {
+          "id": "dies", "title": "враг убит", "expect": "atEnd", "condition": { "resource": "ArenaStats.Kills", "equals": 1 }
+        }
+      ]
+    },
+    {
+      "id": "hits-to-death",
+      "title": "6ж: попаданий до смерти по частям тела — пробы удара командой по 60,8 (удар игрока по формуле SWORD с кончиком быстрее 16 м/с: 2·(8 + 16·1,4)) каждый тик с тика 60 в голову врага 1, торс врага 2, левое бедро врага 3, левое плечо врага 4, левую стопу врага 5: очки жизни 100 × множитель части (HpMul) — 2, 2, 4, 5, 6 попаданий (метрики sword-hits-*); проба в труп — без попадания",
+      "set": ["arena.enemies=5", "combat.enemiesAttack=false"],
+      "ticks": 90,
+      "commands": [
+        { "command": "StrikeProbe", "fields": { "Attacker": 0, "Victim": 1, "Part": 2, "Damage": 60.8, "Kind": "Slash" }, "from": 60, "to": 68 },
+        { "command": "StrikeProbe", "fields": { "Attacker": 0, "Victim": 2, "Part": 1, "Damage": 60.8, "Kind": "Slash" }, "from": 60, "to": 68 },
+        { "command": "StrikeProbe", "fields": { "Attacker": 0, "Victim": 3, "Part": 7, "Damage": 60.8, "Kind": "Slash" }, "from": 60, "to": 68 },
+        { "command": "StrikeProbe", "fields": { "Attacker": 0, "Victim": 4, "Part": 3, "Damage": 60.8, "Kind": "Slash" }, "from": 60, "to": 68 },
+        { "command": "StrikeProbe", "fields": { "Attacker": 0, "Victim": 5, "Part": 12, "Damage": 60.8, "Kind": "Slash" }, "from": 60, "to": 68 }
+      ],
+      "checks": [
+        {
+          "id": "all-dead", "title": "все пятеро убиты", "expect": "atEnd",
+          "condition": { "all": [{ "count": { "all": [{ "component": "EnemyTag" }, { "component": "Dead" }] }, "equals": 5 }, { "resource": "ArenaStats.Kills", "equals": 5 }] }
+        },
+        {
+          "id": "hits", "title": "попаданий всего 2 + 2 + 4 + 5 + 6 = 19: пробы в трупы не засчитаны", "expect": "atEnd",
+          "condition": { "resource": "ArenaStats.Hits", "equals": 19 }
+        }
+      ]
+    },
+    {
+      "id": "tempo",
+      "title": "6ж: темп ударов ИИ — один враг против стоящего неуязвимого игрока 30 с: подходит (до 2,3 м — Reach EnemyAi) и бьёт по таймеру SWORD: первый удар — таймер 1 + ГСЧ·2 с при постройке, дальше 1,1 + ГСЧ·1,4 с после каждого удара (в среднем 1,8 с); игрок не бьёт — реакций нет (метрики sword-ai-*)",
+      "set": ["arena.enemies=1", "combat.playerInvulnerable=true"],
+      "ticks": 3600,
+      "checks": [
+        {
+          "id": "close", "title": "бьёт только подошедший: в тике удара — ближе 2,3 м", "expect": "always",
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "AnimatorAction.Kind", "equals": "Attack" }, { "field": "AnimatorAction.Time", "lessThan": 0.01 }, { "field": "EnemyAiTerms.Distance", "greaterThan": 2.3 }] } }
+        },
+        {
+          "id": "timer", "title": "таймер удара — не больше 1 + 2 (постройка) и 1,1 + 1,4 (после удара) с", "expect": "always",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "EnemyAttack.Timer", "lessOrEqual": 3 }] }
+        }
+      ]
+    },
+    {
+      "id": "dash-back",
+      "title": "6ж: рывок стоя — Пробел без хода на тике 30: назад от курса (−Z) на прибавку 9,5 м/с, гаснущую за 0,3 с — 1,46 м; сверка с root motion клипа уклонения назад SWORD (метрика sword-dash-back)",
+      "ticks": 120,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Dash": true }, "from": 30, "to": 31 }],
+      "checks": [
+        {
+          "id": "dash", "title": "рывок назад: прибавка против курса", "expect": "eventually", "from": 30, "to": 33,
+          "condition": { "all": [{ "entity": "player" }, { "field": "PlayerControl.Dashing", "equals": true }, { "field": "PlayerControl.Boost.Z", "lessThan": -9 }] }
+        },
+        {
+          "id": "stopped", "title": "после рывка стоит: скорость хода 0", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "player" }, { "field": "PlayerControl.Dashing", "equals": false }, { "field": "RootVelocity.Value.Z", "equals": 0 }] }
+        }
+      ]
     }
   ],
-  "invariants": ["combat.blade", "combat.weapons", "combat.control", "combat.health", "combat.dead", "combat.hits", "combat.respawn", "animation.actions", "physics.kinematicPose", "physics.kinematicSpeed", "ecs.finite", "ecs.entityRefs", "arena.slots"],
+  // 6ж: инварианты боя, анимации, физики и движения — все (было по списку): combat.blade, weapons, control, health, dead, hits, respawn;
+  // animation.* (слой действий, позы, владельцы); physics.* (тела, капсулы на суставах, скорости); movement.rootOverlap; arena.slots;
+  // locomotion.poses; ecs.*.
+  "invariants": ["combat.*", "animation.*", "physics.*", "movement.rootOverlap", "locomotion.poses", "arena.slots", "ecs.*"],
+  "metrics": [
+    {
+      "id": "sword-strike-damage", "scenario": "duel", "source": "sword",
+      "reference": "урон за удар — формула SWORD 2eab13b DuelArena.KinematicStrikes (src/Sword.Game/Gameplay/Ragdoll/DuelArena.Kinematic.cs: damage = ((thrust ? 12 : 8) + min(speed, 16)·(thrust ? 1,2 : 1,4))·(игрок ? PlayerCutPower : 1), PlayerCutPower = SWORD_PLAYER_CUT = 2): последний удар игрока в дуэли — рубящий, кончик быстрее 16 м/с — 2·(8 + 16·1,4) = 60,8 (ArenaStats.LastDamage = LastPlayerDamage SWORD); все касания быстрее 16 м/с — проверка formula сценария",
+      "resource": "ArenaStats.LastDamage", "expected": 60.8, "tolerance": 0.001
+    },
+    {
+      "id": "sword-duel-hits", "scenario": "duel", "source": "sword",
+      "reference": "попаданий игрока до смерти врага в дуэли — очки жизни 100 (Fighter.Build SWORD), урон 60,8 × множитель части Fighter.HpMul (src/Sword.Game/Gameplay/Ragdoll/Fighter.cs: таз 0,9, торс 1, голова 1,6, руки 0,4, бёдра и голени 0,5, стопы 0,3), смерть — Hp ≤ 0 или рана торса ≥ 1,4 (DuelArena.ApplyHit): удары пака по стоящему врагу — в торс, руки и голову — 2…5 попаданий; замер SWORD2 — 4",
+      "resource": "ArenaStats.Hits", "expected": 4, "tolerance": 1
+    },
+    {
+      "id": "sword-hits-head", "scenario": "hits-to-death", "source": "sword",
+      "reference": "голова (HpMul 1,6 — Fighter.cs SWORD): 60,8·1,6 = 97,3 < 100 — смерть на 2-м попадании; пробы каждый тик с тика 60 — смерть в тике 61, Dead.Time = 62/120 с (DeadTime SWORD — время арены)",
+      "entity": "enemy 1", "field": "Dead.Time", "expected": 0.516667, "tolerance": 0.001
+    },
+    {
+      "id": "sword-hits-torso", "scenario": "hits-to-death", "source": "sword",
+      "reference": "торс (HpMul 1; рана + урон/45, смерть при ране торса ≥ 1,4 — DuelArena.ApplyHit SWORD): 60,8 и рана 1,35 — жив, 2-е попадание убивает; Dead.Time = 62/120 с",
+      "entity": "enemy 2", "field": "Dead.Time", "expected": 0.516667, "tolerance": 0.001
+    },
+    {
+      "id": "sword-hits-thigh", "scenario": "hits-to-death", "source": "sword",
+      "reference": "бедро (HpMul 0,5): 30,4 за попадание — 4-е убивает (3 — 91,2); Dead.Time = 64/120 с",
+      "entity": "enemy 3", "field": "Dead.Time", "expected": 0.533333, "tolerance": 0.001
+    },
+    {
+      "id": "sword-hits-arm", "scenario": "hits-to-death", "source": "sword",
+      "reference": "плечо (HpMul 0,4): 24,32 за попадание — 5-е убивает (4 — 97,3); Dead.Time = 65/120 с",
+      "entity": "enemy 4", "field": "Dead.Time", "expected": 0.541667, "tolerance": 0.001
+    },
+    {
+      "id": "sword-hits-foot", "scenario": "hits-to-death", "source": "sword",
+      "reference": "стопа (HpMul 0,3): 18,24 за попадание — 6-е убивает (5 — 91,2); Dead.Time = 66/120 с",
+      "entity": "enemy 5", "field": "Dead.Time", "expected": 0.55, "tolerance": 0.001
+    },
+    {
+      "id": "sword-ai-first-timer", "scenario": "tempo", "source": "sword",
+      "reference": "таймер удара врага при постройке — EnemyAi.Built SWORD (src/Sword.Game/Gameplay/Ai/EnemyAi.cs): 1 + rnd·2 с, 1…3 (после первого тика — минус 1/120)",
+      "entity": "enemy 1", "field": "EnemyAttack.Timer", "at": 1, "expected": 2, "tolerance": 1
+    },
+    {
+      "id": "sword-ai-timer-max", "scenario": "tempo", "source": "sword",
+      "reference": "таймер после удара — EnemyAi.Think SWORD: timer = 1,1 + rnd·1,4 (1,1…2,5 с); наибольший за 30 с после первого удара (~16 выборок) — близко к 2,5",
+      "entity": "enemy 1", "field": "EnemyAttack.Timer", "stat": "max", "from": 480, "to": 3600, "expected": 2.5, "tolerance": 0.3
+    },
+    {
+      "id": "sword-ai-attacks", "scenario": "tempo", "source": "sword",
+      "reference": "темп ударов врага — EnemyAi.Think SWORD: timer -= dt; удар при dist < Reach 2,3 м, timer ≤ 0 и CanAct, затем timer = 1,1 + rnd·1,4 (среднее 1,8 с; CanAct не-Agile — через 0,1 с после окна урона, раньше таймера): за 30 с при первом ударе на ~2 с — 1 + 28/1,8 ≈ 16,5 удара; допуск ±3 — разброс ГСЧ (σ ≈ 0,9)",
+      "entity": "enemy 1", "field": "AnimatorAction.AttackSerial", "expected": 16.5, "tolerance": 3
+    },
+    {
+      "id": "sword-dash-back", "scenario": "dash-back", "source": "sword",
+      "reference": "рывок стоя назад против уклонения назад SWORD (PlayerController.Evade → FighterAnimator.Evade: корень ведёт root motion клипа уклонения до FindRecoverTime, src/Sword.Combat/FighterAnimator.cs): root motion клипа уклонения назад на эталонном паке — 1,50 м (вперёд 1,61, вбок 1,29, среднее 1,42 — замер 6в); рывок SWORD2 — прибавка 9,5·0,3/2 (1,46 м по тикам) в любую сторону",
+      "entity": "player", "field": "Transform.Position.Z", "expected": -1.5, "tolerance": 0.15
+    },
+    {
+      "id": "sword-dash-forward", "scenario": "dash", "source": "sword",
+      "reference": "рывок на бегу вперёд против уклонения вперёд SWORD: бег 4,2 м/с (LegacyLocomotion, трассы 2–5 побитовы) за 240 тиков — 8,13 м, плюс root motion клипа уклонения вперёд 1,61 м (замер 6в на эталонном паке) — 9,74; SWORD2 — 8,13 + 1,46 (рывок не трогает скорость хода)",
+      "entity": "player", "field": "Transform.Position.Z", "expected": 9.74, "tolerance": 0.2
+    }
+  ],
   "views": [
     {
       "id": "blades", "title": "16 врагов обступили игрока (тик 140) — мечи в руках у всех, разные; оверлей клинков: отрезок тика, прошлого тика и пройденное за тик, имя меча у кончика",
@@ -376,33 +609,50 @@
     {
       "id": "strike", "title": "6в: удар slash2 связки в окне урона (тик 110) — меч в замахе, клинок и пройденное за тик (оранжевые стороны)",
       "scenario": "strike-combo", "tick": 110, "camera": "0.6,0.6,5,0,0", "overlays": ["blades"]
+    },
+    {
+      "id": "duel", "title": "6ж: дуэль — клинок игрока проходит сквозь врага (касание, 60,8 урона), враг отшатывается; оверлей клинков: клинок тика, прошлого тика и пройденное за тик",
+      "scenario": "duel", "tick": 336, "camera": "0.9,0.55,4.5,-0.9,-0.3", "overlays": ["blades"]
+    },
+    {
+      "id": "crowd", "title": "6ж: толпа 32 бьющих врагов обступила неуязвимого игрока, он рубит связкой; убитые замерли в позе последнего тика; оверлей клинков у всех 33",
+      "scenario": "crowd", "tick": 900, "camera": "0.6,0.8,9,0,0", "overlays": ["blades"]
+    },
+    {
+      "id": "fallen", "title": "6ж: игрок убит тремя врагами (сценарий player-dies, тик 1100) — HUD: затемнение, «ПАЛ», «убито 0 · R — снова в бой», полоса HP пуста, враги подходят медленно и не бьют",
+      "scenario": "player-dies", "tick": 1100, "hud": true
+    }
+  ],
+  "budgets": [
+    // 6ж: пределы — около 2× к медиане замера на этой машине (AMD Ryzen 7 7800X3D, NVIDIA RTX 5070, Release; README.md, «Бюджеты и
+    // замеры»). Сценарий crowd — 32 бьющих врага, неуязвимый игрок рубит связкой без перерыва, смерти и возрождения по ходу. Замер
+    // (5 повторов): тик 0,1137…0,1148 мс (предел 0,23), Animation 0,075 (0,15), PrePhysics 0,0206 (0,04), Combat 0,0101 (0,02), Movement
+    // 0,0028 (0,006), Intent 0,0021 (0,004), Gameplay 0,0016 (0,0035), Aftermath 0,00065 (0,0015), Resolve 0,00016 и React 0,00012 (0,0005 —
+    // малые стадии не меньше 0,5 мкс: пустая стадия с таймером — 0,07 мкс); 0 Б/тик. Прогрев 1320 тиков — бой до первого возрождения
+    // (тик 1231): первая смерть и первая постройка заново выделяют разово ~44 КБ на мир (чанки новых архетипов ECS — README, «Известные
+    // ошибки»); замер — 1080 тиков боя с новыми смертями и возрождениями. Кадр App на записи сценария (640×480, vsync выкл.): средний
+    // 0,443 мс, p99 1,52; с клинками (оверлей blades) — 0,441 и 1,55; пределы 0,9 и 2,5 (p99 — как у enemies и bodies).
+    {
+      "id": "crowd", "scenario": "crowd", "msPerTick": 0.23,
+      "stages": { "Animation": 0.15, "Movement": 0.006, "Intent": 0.004, "Gameplay": 0.0035, "PrePhysics": 0.04, "Combat": 0.02, "Resolve": 0.0005, "React": 0.0005, "Aftermath": 0.0015 },
+      "allocatedBytesPerTick": 0, "repeats": 5, "warmup": 1320,
+      "frame": { "averageMs": 0.9, "p99Ms": 2.5, "seconds": 5 }
+    },
+    {
+      "id": "crowd-blades", "scenario": "crowd",
+      "frame": { "averageMs": 0.9, "p99Ms": 2.5, "seconds": 5, "overlays": ["blades"] }
     }
   ],
   "checklist": [
-    "`Sword.exe` — у каждого бойца меч в правой руке; меч идёт с кистью без отставания и дрожи: стойка, бег, повороты, враги, обступившие игрока.",
-    "У врагов разные мечи (катаны, широкие мечи, одноручный); R — враги строятся заново со своими новыми мечами.",
-    "T — меч игрока меняется на следующий по кругу (6 мечей пака, после последнего — первый); R меч игрока не сбрасывает; справка F1 называет T.",
-    "F7 — поверх капсул тел отрезки клинков: у врагов белые, у игрока жёлтый, клинок прошлого тика серый, пройденное за тик — оранжевые стороны; клинок лежит вдоль меча.",
-    "PageUp / PageDown / R работают как раньше: враги прибавляются по одному, убавляются, арена сбрасывается.",
-    "ЛКМ — удар; нажать ЛКМ ещё раз во время удара — следующий удар связки начинается сразу после окна урона: 4 разных удара подряд; пауза дольше 1,6 с — связка с начала.",
-    "Жест: быстро повести мышью (влево, вправо, вниз) и сразу нажать ЛКМ — удар идёт в ту сторону, куда вела мышь на экране; повернуть камеру (Z/C) и повторить — направление на экране то же.",
-    "Q — укол.",
-    "Бег (WASD) и ЛКМ — бег не замедляется: руки бьют, ноги бегут; после удара на бегу руки сразу уходят в бег.",
-    "Пробел — быстрый рывок в сторону хода (стоя — назад); после рывка бег продолжается с той же скоростью, без провала и рывка назад; чаще раза в 0,6 с рывок не выходит.",
-    "Пробел и сразу ЛКМ — удар из рывка без задержки, рывок доезжает.",
-    "Враги, подошедшие вплотную, замахиваются на игрока (рубящие и уколы, каждый раз в 1–2,5 с); справка F1 называет ЛКМ, Q и Пробел.",
-    "Удары игрока убивают врагов: после 3–5 попаданий враг замирает на месте в позе последнего тика (рэгдолла пока нет — этап 7); живые враги проходят сквозь замерший труп; удары по трупу его больше не задевают.",
-    "Попадание во врага — он отшатывается (клип реакции спереди или сзади — по месту попадания), несколько мгновений не бьёт и почти не идёт.",
-    "Попадание в игрока — верх тела вздрагивает, а бег, поворот, удар и рывок слушаются без задержки.",
-    "Враги убивают стоящего игрока за несколько секунд: игрок замирает, WASD и ЛКМ не действуют, враги подходят медленно и больше не бьют; R — игрок заново, живой.",
-    "Пробел в тот момент, когда клинок врага идёт в игрока, — урона нет (неуязвимость рывка 0,3 с); `Sword.exe --set combat.playerInvulnerable=true` — игрок не получает урона вовсе.",
-    "Убитый враг через 8 с появляется заново на кольце вокруг игрока (с новым мечом) и снова идёт в бой.",
-    "Внизу по центру — полоса здоровья «HP 100»; враг попал — полоса короче, кольцо под игроком из зелёного становится жёлтым, затем красным; над полосой — последний удар игрока («голова 61»), R — строка пропадает.",
-    "Слева вверху, в панели — секция «ФИЗИКА И БОЙ»: враги (живых / всего), убито, попаданий; PageUp / PageDown меняют «всего», убитый враг — минус один живой и плюс один в «убито» (и от кровопотери), R — «убито» и «попаданий» с нуля.",
-    "Игрока убили — экран темнеет, крупно «ПАЛ», ниже «убито N · R — снова в бой»; R — затемнение уходит, игрок живой, полоса полная.",
-    "Справа внизу — «оружие: sword_1h    I — инвентарь»; I — панель справа: строка на меч с номером, у выбранного зелёная точка; 1–9 и щелчок по строке меняют меч в руке; щелчок по панели не бьёт; I — панель закрывается; справка F1 называет ЛКМ, Q, Пробел, T, I, 1–9 и F3.",
-    "F3 — панель ручек слева под HUD, вкладка «Бой»: «урон» 5 — враги умирают с 1–2 ударов, 0,2 — почти не ранятся (строки «последний удар» и «максимум удара» меняются); «враги нападают» выкл — враги перестают замахиваться; «игрок неуязвим» — клинки врагов проходят, а HP не убывает; ползунки рывка меняют рывок (Пробел); щелчок и протяжка по панели не бьют.",
-    "ПКМ по подписи ручки — к значению по умолчанию; «сброс» — все ручки по умолчанию.",
-    "«сохранить» — внизу панели «сохранено значений: N (sword.user.json)»; закрыть игру и запустить снова — ручки те же; изменить и нажать «загрузить» — вернулись сохранённые; прочее содержимое sword.user.json на месте."
+    "Мечи: `Sword.exe` — у каждого бойца меч в правой руке, у врагов разные (катаны, широкие, одноручный); меч идёт с кистью без отставания и дрожи в стойке, на бегу и в ударах. F7 — поверх капсул тел отрезки клинков (враги — белые, игрок — жёлтый, клинок прошлого тика — серый, пройденное за тик — оранжевые стороны), клинок лежит вдоль меча. PageUp / PageDown / R — как раньше; R строит врагов заново с новыми мечами.",
+    "Оружие игрока: T — следующий меч по кругу (6 мечей пака); справа внизу «оружие: sword_1h    I — инвентарь»; I — панель справа (строка на меч с номером, зелёная точка у выбранного), 1–9 и щелчок по строке меняют меч в руке, щелчок по панели не бьёт, I — закрыть; R меч игрока не сбрасывает.",
+    "Удары: ЛКМ — удар, нажатия во время удара — связка из 4 разных ударов, каждый сразу после окна урона прошлого (пауза дольше 1,6 с — связка с начала); Q — укол; быстро повести мышью (влево, вправо, вниз) и сразу ЛКМ — удар идёт в ту сторону экрана, и после поворота камеры (Z/C) тоже.",
+    "Отзывчивость: бег (WASD) и ЛКМ — ноги бегут, руки бьют, бег не замедляется, после удара руки сразу уходят в бег; Пробел — быстрый рывок в сторону хода (стоя — назад), после него бег с той же скоростью, без провала; чаще раза в 0,6 с рывок не выходит; Пробел и сразу ЛКМ — удар из рывка без задержки.",
+    "Враги бьют: подошедшие вплотную замахиваются (рубящие и уколы, раз в 1–2,5 с); попадание в игрока — верх тела вздрагивает, а бег, поворот, удар и рывок слушаются без задержки; полоса «HP 100» внизу укорачивается, кольцо под игроком из зелёного — жёлтое, затем красное; Пробел в тот миг, когда клинок врага идёт в игрока, — урона нет (неуязвимость рывка 0,3 с).",
+    "Смерть врага: попадание — враг отшатывается (клип спереди или сзади по месту попадания), несколько мгновений не бьёт и почти не идёт; после 3–5 попаданий замирает в позе последнего тика (рэгдолла нет — этап 7), живые проходят сквозь труп, удары по трупу не задевают; над полосой — последний удар игрока («голова 61»); через 8 с убитый появляется на кольце вокруг игрока с новым мечом и снова идёт в бой.",
+    "HUD боя: слева вверху «ФИЗИКА И БОЙ» — враги (живых / всего), убито (и от кровопотери), попаданий; PageUp / PageDown меняют «всего»; R — «убито», «попаданий» и строка последнего удара — с нуля.",
+    "Смерть игрока: стоять и не отвечать — враги убивают за несколько секунд: экран темнеет, крупно «ПАЛ», ниже «убито N · R — снова в бой»; WASD и ЛКМ не действуют, враги подходят медленно и не бьют; R — игрок живой, полоса полная. `Sword.exe --set combat.playerInvulnerable=true` — урона нет вовсе.",
+    "F3 — панель ручек слева под HUD, вкладка «Бой»: «урон» 5 — враги умирают с 1–2 ударов, 0,2 — почти не ранятся (строки «последний удар» и «максимум удара» меняются); «враги нападают» выкл — не замахиваются; «игрок неуязвим» — клинки проходят, HP не убывает; ползунки рывка меняют рывок; ПКМ по подписи — к значению по умолчанию, «сброс» — все; щелчок и протяжка по панели не бьют.",
+    "«сохранить» в F3 — «сохранено значений: N (sword.user.json)»; перезапустить игру — ручки те же; изменить и «загрузить» — вернулись сохранённые, прочее в sword.user.json на месте. Справка F1 называет ЛКМ, Q, Пробел, T, I, 1–9 и F3. Толпа: `Sword.exe --replay artifacts/features/combat/scenario-crowd.swreplay --overlay blades` (после verify.ps1) — 32 врага рубят неуязвимого игрока, он рубит в ответ, убитые замирают и через 8 с возрождаются; кадр плавный."
   ]
 }

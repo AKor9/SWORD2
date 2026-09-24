@@ -210,8 +210,11 @@ public static partial class Program
         string passes = report["report"]?["passes"] is JsonArray list ? string.Join(", ", list.Select(p => p?["name"]?.GetValue<string>())) : "?";
         // Машина за замер App (точка Пб): вердикт «код или машина» — в подробностях и в отчёте бюджета.
         var machine = report["report"]?["machine"] as JsonObject;
+        // 6ж: окно свернули во время бенча — прогон дорисован, но кадры без компоновки DWM (быстрее обычных): сказать словами.
+        int minimized = report["report"]?["minimizedFrames"]?.GetValue<int>() ?? 0;
         return new FrameResult(true, $"кадров замера {frames}: ср {avg} мс, p99 {p99} мс, макс {max} мс; хеши App совпали с записью " +
             $"(сверено {replay["hashesChecked"]}); проходы: {passes}; {report["report"]?["adapter"]}" +
+            (minimized > 0 ? $"; окно было свёрнуто — {minimized} кадров прогона без компоновки DWM, время кадра занижено" : "") +
             (machine?["text"] is { } text ? $"; {text}" : ""), frames, avg, p99, max)
         {
             Machine = machine?.DeepClone().AsObject(),
@@ -241,7 +244,17 @@ public static partial class Program
         {
             process.Kill(entireProcessTree: true);
             if (cancel.IsCancellationRequested) throw;
-            return (null, "Sword.exe не закончил за 180 с");
+            // 6ж: предел запуска — страховка поверх сторожа кадров самого Sword.exe (--stall: «нет кадров N с», код 5).
+            string last = "";
+            try
+            {
+                process.WaitForExit(5000);
+                last = LastLine(stderr.GetAwaiter().GetResult());
+            }
+            catch (Exception e) when (e is InvalidOperationException or OperationCanceledException or IOException)
+            {
+            }
+            return (null, $"Sword.exe не закончил за 180 с — процесс снят; последняя строка журнала: {last}");
         }
         string line = LastLine(stdout.GetAwaiter().GetResult());
         JsonNode? report = null;

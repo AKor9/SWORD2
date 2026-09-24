@@ -13,13 +13,18 @@ namespace Sword.Engine.Platform;
 /// Окно с рамой, заголовком и изменяемым размером (инструменты, отладка). Только вместе с
 /// <paramref name="Fullscreen"/> = ложь. Игровое окно рамы не имеет: за неё платит вся картинка.
 /// </param>
+/// <param name="Minimized">
+/// Окно показано сразу свёрнутым и без фокуса (6ж: проверка, что проверочный прогон идёт и в свёрнутом окне); размер клиентской
+/// части — заданный, как у развёрнутого.
+/// </param>
 public sealed record WindowOptions(
     string Title,
     int Width = 1920,
     int Height = 1080,
     bool Activate = true,
     bool Fullscreen = false,
-    bool Resizable = false);
+    bool Resizable = false,
+    bool Minimized = false);
 
 /// <summary>
 /// Окно платформы. Клиент движка работает только с этим интерфейсом; конкретную платформу (Win32) создаёт exe

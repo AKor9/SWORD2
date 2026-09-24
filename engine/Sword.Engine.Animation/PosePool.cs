@@ -108,7 +108,7 @@ public sealed class PosePool
     /// <summary>Итог последнего <see cref="Tick"/>.</summary>
     public PoseTickStats LastTick { get; private set; }
 
-    /// <summary>Слотов в пуле (живых и свободных).</summary>
+    /// <summary>Слотов в пуле (живых и свободных) — логическая ёмкость: растёт удвоением, память под неё может быть заведена заранее (<see cref="Reserve"/>).</summary>
     public int Capacity => _capacity;
 
     /// <summary>Живая поза в слоте <paramref name="index"/>; слот свободен — <see cref="PoseHandle.None"/> (обход по слотам — стабильный порядок).</summary>
@@ -124,14 +124,40 @@ public sealed class PosePool
     /// <summary>Поколение слота: у живого — поколение позы, у свободного — со знаком минус, у ни разу не выданного — 0.</summary>
     public int GenerationAt(int index) => _generation[index];
 
+    /// <summary>Слотов, под которые уже есть память (<see cref="Reserve"/>); не меньше <see cref="Capacity"/>.</summary>
+    public int Reserved => _generation.Length;
+
+    /// <summary>Мест в очереди заданий без роста.</summary>
+    public int JobsReserved => _jobs.Length;
+
+    /// <summary>
+    /// Память заранее (6ж): массивы — под <paramref name="poses"/> живых поз (с округлением до ёмкости, до которой пул дорастёт удвоением:
+    /// 363 позы — 512 слотов) и <paramref name="jobs"/> заданий тика, чтобы рост пула посреди игры (действия, снимки, вздрагивания толпы)
+    /// не выделял памяти. Логика пула не меняется: <see cref="Capacity"/>, номера будущих поз, порядок свободных слотов и поколения — те же,
+    /// что без запаса (растут удвоением, как раньше), поэтому и хеш состояния тот же; удвоение в пределах запаса только открывает слоты.
+    /// Меньше уже заведённого — ничего.
+    /// </summary>
+    public void Reserve(int poses, int jobs = 0)
+    {
+        int slots = Math.Max(_capacity, 1);
+        while (slots < poses) slots *= 2;
+        if (slots > _generation.Length) Resize(slots);
+        if (jobs > _jobs.Length) Array.Resize(ref _jobs, jobs);
+    }
+
+    private void Resize(int slots)
+    {
+        Array.Resize(ref _rot, slots * _jc);
+        Array.Resize(ref _pos, slots * _jc);
+        Array.Resize(ref _model, slots * _jc);
+        Array.Resize(ref _generation, slots);
+        Array.Resize(ref _free, slots);
+    }
+
     private void Grow(int capacity)
     {
         int old = _capacity;
-        Array.Resize(ref _rot, capacity * _jc);
-        Array.Resize(ref _pos, capacity * _jc);
-        Array.Resize(ref _model, capacity * _jc);
-        Array.Resize(ref _generation, capacity);
-        Array.Resize(ref _free, capacity);
+        if (capacity > _generation.Length) Resize(capacity);   // в пределах запаса (Reserve) — без выделений
         // свободные — с конца списка, чтобы первыми выдавались младшие номера
         for (int i = capacity - 1; i >= old; i--) _free[_freeCount++] = i;
         _capacity = capacity;
@@ -245,6 +271,25 @@ public sealed class PosePool
         }
         if ((uint)mask.Index >= (uint)_masks.Count) throw new ArgumentOutOfRangeException(nameof(mask), mask, $"масок в пуле {_masks.Count}");
         Push(new Job { Op = Op.BlendMasked, Dst = dst, Src = src, Clip = mask.Index, Value = weight, Stand = stand, Memory = memory });
+    }
+
+    /// <summary>
+    /// Память смешивания ещё догоняет кратчайшую дугу (6ж): после последнего исполненного смешивания с ней итог хоть одного сустава не
+    /// равен итогу по кратчайшей дуге. Владелец смешивания продолжает его с весом 0, пока догон не кончится — иначе конец смешивания
+    /// (переход от снимка погас) вернул бы сустав на кратчайшую дугу скачком.
+    /// </summary>
+    public bool Following(BlendMemory memory)
+    {
+        if (memory.IsNone || !IsAlive(memory.Output) || !IsAlive(memory.Shortest)) return false;
+        return Differ(_rot.AsSpan(memory.Output.Index * _jc, _jc), _rot.AsSpan(memory.Shortest.Index * _jc, _jc));
+    }
+
+    /// <summary>Повороты хоть одного сустава различаются (оператором, без упаковки — <c>SequenceEqual</c> в Debug упаковывал Quaternion).</summary>
+    private static bool Differ(ReadOnlySpan<Quaternion> a, ReadOnlySpan<Quaternion> b)
+    {
+        for (int j = 0; j < a.Length; j++)
+            if (a[j] != b[j]) return true;
+        return false;
     }
 
     /// <summary>

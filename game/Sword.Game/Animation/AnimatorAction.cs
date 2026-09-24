@@ -160,6 +160,16 @@ public struct ActionPoses
     /// вздрагивании.
     /// </summary>
     public PoseHandle FlinchRef, FlinchPose;
+
+    /// <summary>
+    /// Память перехода от снимка (6ж): итог перехода прошлого тика и его итог по кратчайшей дуге — как <see cref="BlendOutput"/>, но для
+    /// смешивания со снимком всем телом: снимок укола (таз и плечи до 165° от стойки) и поза реакции на попадание расходятся через 180°, и
+    /// кратчайшая дуга перескакивала посреди перехода (плечо 45…66 м/с за тик — <c>physics.kinematicSpeed</c>, толпа 6ж). Берутся при
+    /// первом переходе от снимка. <see cref="SnapBlend"/> — номер снимка (<see cref="Snapped"/>), чей переход смешан в прошлом тике; 0 —
+    /// перехода не было.
+    /// </summary>
+    public PoseHandle SnapOutput, SnapShortest;
+    public int SnapBlend;
 }
 
 /// <summary>Константы слоя действий — <c>FighterAnimator</c> и <c>CharacterRig</c> SWORD 2eab13b.</summary>
@@ -468,9 +478,11 @@ public static class ActionLayer
     /// клипа в позу слоя и смешивание в позу бойца со сглаженным весом — всем телом или по маске верха
     /// (<paramref name="upper"/>, доля клипа вне маски — <see cref="AnimatorAction.Stand"/>; с памятью смешивания
     /// <see cref="ActionPoses.BlendOutput"/> — отличие от SWORD: перескок кратчайшей дуги сустава доворачивается не больше 8° за тик);
-    /// затем переход от снимка позы. Позы слоя и памяти берутся при первом действии.
+    /// затем переход от снимка позы — смешиванием по маске всего тела <paramref name="full"/> с памятью
+    /// (<see cref="ActionPoses.SnapOutput"/>, 6ж: без перескока дуги — побитово как <c>Blend</c> SWORD). Позы слоя и памяти берутся при
+    /// первом действии и первом переходе.
     /// </summary>
-    public static void Pose(in AnimatorAction a, ref ActionPoses poses, PoseHandle pose, PosePool pool, PoseMask upper)
+    public static void Pose(in AnimatorAction a, ref ActionPoses poses, PoseHandle pose, PosePool pool, PoseMask upper, PoseMask full)
     {
         bool masked = a.Kind != ActionKind.None && a.Upper;
         if (a.Kind != ActionKind.None)
@@ -494,7 +506,25 @@ public static class ActionLayer
             else pool.Blend(pose, poses.Layer, w);
         }
         if (!masked) poses.BlendClip = -1;
-        if (a.SnapFade < 1 && !poses.Snap.IsNone) pool.Blend(pose, poses.Snap, Smooth(1 - a.SnapFade));
+        if (a.SnapFade < 1 && !poses.Snap.IsNone)
+        {
+            // память — прошлый тик перехода от того же снимка (новый снимок — только записать)
+            bool continuous = !poses.SnapOutput.IsNone && poses.SnapBlend == poses.Snapped;
+            if (poses.SnapOutput.IsNone)
+            {
+                poses.SnapOutput = pool.Alloc();
+                poses.SnapShortest = pool.Alloc();
+            }
+            pool.BlendMasked(pose, poses.Snap, Smooth(1 - a.SnapFade), full, 1, new BlendMemory(poses.SnapOutput, poses.SnapShortest, continuous));
+            poses.SnapBlend = poses.Snapped;
+        }
+        else if (poses.SnapBlend != 0 && poses.SnapBlend == poses.Snapped && !poses.Snap.IsNone
+            && pool.Following(new BlendMemory(poses.SnapOutput, poses.SnapShortest, true)))
+        {
+            // переход погас, а сустав ещё догоняет кратчайшую дугу после перескока: догон — дальше (вес 0: цель — поза без снимка)
+            pool.BlendMasked(pose, poses.Snap, 0, full, 1, new BlendMemory(poses.SnapOutput, poses.SnapShortest, true));
+        }
+        else poses.SnapBlend = 0;
     }
 }
 
@@ -548,7 +578,7 @@ public sealed class ActionSnapshotSystem : IContinuousSystem
     }
 }
 
-/// <summary>End: снятые позы слоя действий (слой, снимок, память смешивания, вздрагивание; боец удалён или компонент снят) возвращаются в пул.</summary>
+/// <summary>End: снятые позы слоя действий (слой, снимок, память смешивания и перехода от снимка, вздрагивание; боец удалён или компонент снят) возвращаются в пул.</summary>
 public sealed class ActionPoseReleaseSystem : IReactiveSystem<Removed<ActionPoses>>
 {
     public void Setup(SystemSetup s) => s.Label(GameLabels.ActionRelease);
@@ -564,6 +594,8 @@ public sealed class ActionPoseReleaseSystem : IReactiveSystem<Removed<ActionPose
             if (pool.IsAlive(r.Value.BlendShortest)) pool.Free(r.Value.BlendShortest);
             if (pool.IsAlive(r.Value.FlinchRef)) pool.Free(r.Value.FlinchRef);
             if (pool.IsAlive(r.Value.FlinchPose)) pool.Free(r.Value.FlinchPose);
+            if (pool.IsAlive(r.Value.SnapOutput)) pool.Free(r.Value.SnapOutput);
+            if (pool.IsAlive(r.Value.SnapShortest)) pool.Free(r.Value.SnapShortest);
         }
     }
 }

@@ -164,24 +164,28 @@ public sealed class Win32Window : IWindow
         // WS_VISIBLE ставится ТОЛЬКО активному окну: он показывает окно прямо в CreateWindowEx — с активацией.
         // Неактивное создаётся скрытым и показывается ниже одним SetWindowPos — тем же вызовом, что кладёт его в низ
         // порядка перекрытия; показ и опускание по очереди давали заметное мелькание наверху.
+        bool activate = options.Activate && !options.Minimized;
         Handle = Win32.CreateWindowEx(
             0, _className, options.Title,
-            _style | (options.Activate ? Win32.WS_VISIBLE : 0),
+            _style | (activate ? Win32.WS_VISIBLE : 0),
             x, y, w, h,
             nint.Zero, nint.Zero, _hInstance, nint.Zero);
 
         if (Handle == nint.Zero)
             throw new InvalidOperationException($"CreateWindowEx failed: {Marshal.GetLastWin32Error()}");
 
-        if (!options.Activate)
-            Win32.SetWindowPos(Handle, Win32.HWND_BOTTOM, 0, 0, 0, 0,
-                Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
-
+        // Размер клиентской части — до показа: у свёрнутого окна она нулевая (6ж — окно, показанное свёрнутым).
         Dpi = (int)Math.Max(96, Win32Ui.GetDpiForWindow(Handle));
         ReadRefreshRate(Handle);
         Win32.GetClientRect(Handle, out var client);
         Width = Math.Max(1, client.Right - client.Left);
         Height = Math.Max(1, client.Bottom - client.Top);
+
+        // Свёрнутым и без фокуса (SW_SHOWMINNOACTIVE): WM_SIZE со SIZE_MINIMIZED ставит Minimized, размер остаётся заданным.
+        if (options.Minimized) Win32.ShowWindow(Handle, Win32.SW_SHOWMINNOACTIVE);
+        else if (!activate)
+            Win32.SetWindowPos(Handle, Win32.HWND_BOTTOM, 0, 0, 0, 0,
+                Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
 
         // Игровое окно держит дисплей включённым: на игру смотрят минутами, ничего не нажимая. Проверочный прогон
         // (неактивное окно) дисплей не держит — он идёт в фоне. Окну инструмента дисплей держать незачем.

@@ -10,6 +10,23 @@ using Sword.Game.Data;
 namespace Sword.Game.Combat;
 
 /// <summary>
+/// Запас буферов команд систем боя (6ж, <see cref="SystemSetup.ReserveCommands"/>): пик полной арены — касания, попадания, смерти и
+/// возрождения в одном тике — без роста буферов посреди боя (было: рост буферов hit-apply, bleed, respawn, strike-detection в бою после
+/// прогрева — байты бюджета crowd). Сверх запаса буфер растёт, как раньше.
+/// </summary>
+public static class CombatReserve
+{
+    /// <summary>Касаний за тик: по два на бойца (его клинок и клинок в него) — с запасом.</summary>
+    public const int Contacts = ArenaRules.MaxFighters * 2;
+
+    /// <summary>Команд постройки места заново (<see cref="Fighters.Rebuild"/>: снять и поставить метку, снять смерть, полтора десятка Set).</summary>
+    public const int RebuildCommands = 24;
+
+    /// <summary>Байт значений одной постройки заново (компоненты бойца — с запасом).</summary>
+    public const int RebuildBytes = 1024;
+}
+
+/// <summary>
 /// Resolve (<see cref="GameLabels.HitApply"/>), реактивная по <see cref="StrikeContact"/> (<c>ApplyHits</c>, <c>ApplyHit</c> SWORD 2eab13b):
 /// касания тика по порядку. Жертва мертва (в том числе убита прошлым касанием этого тика) — касание не засчитывается: трупы — не
 /// цели до этапа 7. Игрок неуязвим (<c>combat.playerInvulnerable</c> или неуязвимость рывка) — тоже. Иначе — очки жизни, рана части,
@@ -26,8 +43,10 @@ public sealed class HitApplySystem : IReactiveSystem<Event<StrikeContact>>
     private readonly bool[] _dead = new bool[Max];
     private int _count, _requests;
 
+    // 6ж: буфер — на пик полной арены (по два касания на бойца за тик: Set<Health>, Add<Dead>, Hit, SeverRequested) — без роста посреди боя.
     public void Setup(SystemSetup s) =>
-        s.Label(GameLabels.HitApply).Reads<Health>().Reads<PlayerControl>().Sets<Health>().Adds<Dead>().Emits<Hit>().Emits<SeverRequested>();
+        s.Label(GameLabels.HitApply).Reads<Health>().Reads<PlayerControl>().Sets<Health>().Adds<Dead>().Emits<Hit>().Emits<SeverRequested>()
+            .ReserveCommands(CombatReserve.Contacts * 2, CombatReserve.Contacts * 2, CombatReserve.Contacts * 384);
 
     public void React(in SystemContext ctx, ReadOnlySpan<Event<StrikeContact>> contacts)
     {
@@ -110,7 +129,8 @@ public sealed class HitReactionSystem : IReactiveSystem<Event<Hit>>
     public static readonly uint Stream = SimRandom.Stream("combat.hit-react");
 
     public void Setup(SystemSetup s) =>
-        s.Label(GameLabels.HitReaction).Reads<Transform>().Reads<AnimatorAction>().Reads<Flinch>().Sets<AnimatorAction>().Sets<Flinch>();
+        s.Label(GameLabels.HitReaction).Reads<Transform>().Reads<AnimatorAction>().Reads<Flinch>().Sets<AnimatorAction>().Sets<Flinch>()
+            .ReserveCommands(CombatReserve.Contacts, 0, CombatReserve.Contacts * 256);
 
     public void React(in SystemContext ctx, ReadOnlySpan<Event<Hit>> hits)
     {
@@ -165,7 +185,8 @@ public sealed class BleedSystem : IContinuousSystem
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.Bleed).Reads<Health>().Sets<Health>().Adds<Dead>();
+        s.Label(GameLabels.Bleed).Reads<Health>().Sets<Health>().Adds<Dead>()
+            .ReserveCommands(ArenaRules.MaxFighters * 2, 0, ArenaRules.MaxFighters * 128);
         _query = s.Query().With<Fighter>().Without<Dead>().Read<Health>();
     }
 
@@ -209,7 +230,8 @@ public sealed class RespawnSystem(int weapons) : IContinuousSystem
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.Respawn).After(GameLabels.Bleed).Reads<Dead>().Reads<FighterSlot>().Reads<Transform>().Reads<AnimatorAction>()
-            .DeclaresRebuild();
+            .DeclaresRebuild()
+            .ReserveCommands(ArenaRules.MaxFighters * CombatReserve.RebuildCommands, 0, ArenaRules.MaxFighters * CombatReserve.RebuildBytes);
         _dead = s.Query().With<Fighter>().With<EnemyTag>().Read<Dead>().Read<FighterSlot>();
         _player = s.Query().With<Fighter>().With<PlayerTag>().Read<Transform>();
     }

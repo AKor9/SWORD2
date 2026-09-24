@@ -307,12 +307,14 @@ public static class FeatureVerifier
             // Метрики сценария — ряды значений по тикам (с тика 0).
             var probes = new List<(FieldProbe Probe, double[] Values)>();
             foreach (var m in manifest.Metrics.Where(m => m.Scenario == scenario.Id))
-                foreach (string field in m.Series?.Values ?? [m.Field!])
+                foreach (string field in m.Series?.Values ?? [m.Field ?? ""])
                 {
-                    if (_series.ContainsKey((m.Entity, field))) continue;
+                    var key = m.SeriesKey(field);
+                    if (_series.ContainsKey(key)) continue;
                     var values = new double[ticks + 1];
-                    _series[(m.Entity, field)] = values;
-                    probes.Add((new FieldProbe(catalog, env.Names, m.Entity, field, $"метрика {m.Id}", env.Fields), values));
+                    _series[key] = values;
+                    probes.Add((m.Resource is { } resource ? FieldProbe.OfResource(catalog, resource, $"метрика {m.Id}")
+                        : new FieldProbe(catalog, env.Names, m.Entity, field, $"метрика {m.Id}", env.Fields), values));
                 }
             foreach (var (p, values) in probes) values[0] = p.Read(ctx);
 
@@ -399,8 +401,8 @@ public static class FeatureVerifier
         {
             var json = new JsonObject
             {
-                ["id"] = m.Id, ["scenario"] = m.Scenario, ["source"] = m.Source, ["reference"] = m.Reference, ["entity"] = m.Entity,
-                ["tolerance"] = m.Tolerance,
+                ["id"] = m.Id, ["scenario"] = m.Scenario, ["source"] = m.Source, ["reference"] = m.Reference,
+                [m.Resource is null ? "entity" : "resource"] = m.Resource ?? m.Entity, ["tolerance"] = m.Tolerance,
             };
             (bool ok, string detail) = Evaluate(m, repoRoot, json);
             json["ok"] = ok;
@@ -412,8 +414,8 @@ public static class FeatureVerifier
         {
             if (!Completed) return (false, "сценарий не сыгран");
             if (m.Trace is not null) return Trace(m, repoRoot, json);
-            if (!_series.TryGetValue((m.Entity, m.Field!), out var values)) return (false, "ряда нет — сценарий не сыгран");
-            json["field"] = m.Field;
+            if (!_series.TryGetValue(m.SeriesKey(m.Field ?? ""), out var values)) return (false, "ряда нет — сценарий не сыгран");
+            if (m.Field is not null) json["field"] = m.Field;
             json["stat"] = m.Stat;
             json["expected"] = m.Expected;
             double value;
@@ -528,6 +530,21 @@ public static class FeatureVerifier
     {
         var failures = new List<string>();
         var json = new JsonObject { ["id"] = budget.Id, ["scenario"] = budget.Scenario, ["repeats"] = budget.Repeats, ["warmup"] = budget.Warmup };
+        // 6ж: до повторов — прогрев до затишья JIT (сценарий бюджета без замера, по концу — заново): фиксированный прогрев в тиках — доли
+        // секунды, а фоновая перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты первого повтора (JitWarmup).
+        Simulation? warm = null;
+        var jit = JitWarmup.Run(() =>
+        {
+            if (warm is null || warm.Tick >= (scenario.Ticks ?? warm.Player?.Length ?? 0))
+            {
+                (warm, _) = Prepare(manifest, scenario, env, ["sim.invariants=false"], [], hashes: false);
+                if (warm is null) return false;
+            }
+            warm.Export.BeginFrame();
+            warm.Step();
+            return true;
+        });
+        json["jitWarmup"] = new JsonObject { ["ticks"] = jit.Steps, ["seconds"] = Math.Round(jit.Seconds, 3), ["settled"] = jit.Settled };
         var runs = new List<SimulationMeasure>();
         for (int r = 0; r < budget.Repeats; r++)
         {
@@ -793,9 +810,52 @@ public sealed class FieldProbe
     public string EntityName { get; }
     public string FieldPath { get; }
 
+    /// <summary>Ресурс поля (<see cref="OfResource"/>); −1 — поле сущности.</summary>
+    private readonly int _resource = -1;
+
+    private FieldProbe(int resource, FieldLayout layout, int[] leaves, string path)
+    {
+        _resource = resource;
+        _layout = layout;
+        _leaves = leaves;
+        _entityText = "";
+        EntityName = "";
+        FieldPath = path;
+    }
+
+    /// <summary>
+    /// Поле ресурса мира (метрики фич, 6ж): путь — имя ресурса и поле (<c>ArenaStats.LastDamage</c>, как у условия <c>{resource:…}</c>);
+    /// несколько листьев — длина вектора. Ресурса нет — NaN.
+    /// </summary>
+    public static FieldProbe OfResource(Catalog catalog, string path, string at)
+    {
+        var parts = path.Split('.');
+        for (int n = parts.Length; n >= 1; n--)
+        {
+            ResourceInfo info;
+            try
+            {
+                info = catalog.Resource(string.Join('.', parts[..n]));
+            }
+            catch (ArgumentException) when (n > 1)
+            {
+                continue;
+            }
+            if (info.Size == 0) throw new ArgumentException($"{at}: ресурс {info.Name} со ссылками — полями не читается");
+            var layout = FieldLayout.Of(info.Type);
+            int[] leaves = ObservationPredicate.LeavesOf(layout, string.Join('.', parts[n..]), $"{at} ({path})");
+            foreach (int leaf in leaves)
+                if (layout.Leaves[leaf].Kind is FieldLayout.Kind.Entity or FieldLayout.Kind.Bool or FieldLayout.Kind.Char)
+                    throw new ArgumentException($"{at}: {path} — не число");
+            return new FieldProbe(info.Id, layout, leaves, path);
+        }
+        throw new ArgumentException($"{at}: нет ресурса в пути «{path}»");
+    }
+
     public double Read(in ServiceContext ctx)
     {
         var world = ctx.World;
+        if (_resource >= 0) return world.TryReadResource(_resource, out var data) ? Leaves(data) : double.NaN;
         if (_entity is not { } e || !world.IsAlive(e))
         {
             _entity = _entityText.Length > 0 && char.IsDigit(_entityText[0]) ? FieldCodec.ParseEntity(_entityText) : _names?.Resolve(ctx, _entityText);
@@ -803,7 +863,12 @@ public sealed class FieldProbe
             e = found;
         }
         if (_computed is not null) return _computed(ctx, e);
-        if (!world.TryRead(e, _component, out var bytes)) return double.NaN;
+        return world.TryRead(e, _component, out var bytes) ? Leaves(bytes) : double.NaN;
+    }
+
+    /// <summary>Лист поля — число, несколько листьев — длина вектора.</summary>
+    private double Leaves(ReadOnlySpan<byte> bytes)
+    {
         if (_leaves.Length == 1) return ObservationPredicate.Number(_layout.Leaves[_leaves[0]].Kind, _layout.Bits(bytes, _leaves[0]));
         double sum = 0;
         foreach (int leaf in _leaves)

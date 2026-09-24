@@ -124,7 +124,8 @@ public sealed class FeatureTests : IDisposable
     [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": [\"capsules\", \"capsules\"]", "views[0].overlays[1]: capsules дважды")]
     [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": \"capsules\"", "views[0].overlays: массив строк")]
     [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": [\"\"]", "views[0].overlays[0]: непустая строка")]
-    [InlineData("\"at\": 5, \"expected\": 5", "\"at\": 5", "нужно field и expected")]
+    [InlineData("\"at\": 5, \"expected\": 5", "\"at\": 5", "нужно field (или resource) и expected")]
+    [InlineData("\"source\": \"sword2\", \"reference\": \"тест\", \"entity\"", "\"source\": \"sword2\", \"reference\": \"тест\", \"resource\": \"SimTime.Time\", \"entity\"", "metrics[0]: resource — поле ресурса мира, без entity, field")]
     [InlineData("\"stat\": \"max\", \"from\": 1", "\"stat\": \"max\", \"at\": 3, \"from\": 1", "at — только со stat value")]
     [InlineData("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }", "{ \"id\": \"rec\" }", "без реплея нужно ticks")]
     [InlineData("\"msPerTick\": 5", "\"msPerTick\": -5", "пределы — положительные")]
@@ -184,6 +185,37 @@ public sealed class FeatureTests : IDisposable
         var none = FeatureVerifier.Verify(m, new FeatureEnvironment { RepoRoot = _root, Build = Build, Info = Info, Optimized = false },
             new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out4"), Views = false, Budgets = false });
         Assert.False(none.Ok);
+    }
+
+    /// <summary>
+    /// 6ж: метрика поля ресурса мира (<c>resource</c> вместо сущности: статистика арены игры — <c>ArenaStats.LastDamage</c>) — значение после
+    /// тика и статистика окна; нет ресурса в пути — провал метрики словами.
+    /// </summary>
+    [Fact]
+    public void Verify_Metric_ReadsResourceField()
+    {
+        string json = """
+            {
+              "format": "sword-feature", "version": 1, "id": "clock", "title": "время", "doc": "README.md", "sourceRoots": ["feat"],
+              "scenarios": [{ "id": "run", "ticks": 24 }],
+              "metrics": [
+                { "id": "time", "scenario": "run", "source": "sword2", "reference": "тест", "resource": "SimTime.Time", "at": 12, "expected": 0.1, "tolerance": 1e-5 },
+                { "id": "max", "scenario": "run", "source": "sword", "reference": "тест", "resource": "SimTime.Time", "stat": "max", "expected": 0.2, "tolerance": 1e-5 }
+              ],
+              "checklist": ["посмотреть"]
+            }
+            """;
+        var m = FeatureManifest.Load(Manifest(json));
+        Assert.Equal(("SimTime.Time", ""), (m.Metrics[0].Resource, m.Metrics[0].Entity));
+        var report = FeatureVerifier.Verify(m, Env(), new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Views = false, Budgets = false });
+        Assert.True(report.Ok, string.Join('|', report.Failures));
+        Assert.Equal("SimTime.Time", report.Json["metrics"]![0]!["resource"]!.GetValue<string>());
+        Assert.Equal(0.1, report.Json["metrics"]![0]!["value"]!.GetValue<double>(), 5);
+        Assert.Equal(0.2, report.Json["metrics"]![1]!["value"]!.GetValue<double>(), 5);
+
+        var bad = FeatureManifest.Load(Manifest(json.Replace("\"SimTime.Time\", \"at\"", "\"NoSuch.Value\", \"at\"")));
+        var failed = FeatureVerifier.Verify(bad, Env(), new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out2"), Views = false, Budgets = false });
+        Assert.Contains(failed.Failures, f => f.Contains("нет ресурса") || f.Contains("NoSuch"));
     }
 
     [Fact]
@@ -417,13 +449,18 @@ public sealed class FeatureTests : IDisposable
             return sim;
         }
         var (warmed, _) = Experiments.Sweep(null, 20, [("sim.tickRate", ["60", "120"]), ("sim.seed", ["1", "2"])], 2, 5, Logged);
-        // Точка Па: после повторов — ещё круг с профайлером CPU (время систем); медианы — только из повторов.
-        Assert.Equal(["60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2", "60/1", "60/2", "120/1", "120/2",
-            "60/1", "60/2", "120/1", "120/2"], order);
+        // Точка Па: после повторов — ещё круг с профайлером CPU (время систем); медианы — только из повторов. 6ж: между кругом прогрева и
+        // повторами — прогрев до затишья JIT (комбинации по кругу, без замера; сколько — решает JIT).
+        string[] round = ["60/1", "60/2", "120/1", "120/2"];
+        Assert.Equal(round, order[..4]);
+        Assert.Equal([.. round, .. round, .. round], order[^12..]);
+        var jit = order[4..^12];
+        Assert.NotEmpty(jit);
+        for (int i = 0; i < jit.Count; i++) Assert.Equal(round[i % 4], jit[i]);
         Assert.All(warmed, r => Assert.Equal(["runtime.commands@runtime.commands", "runtime.export@runtime.export", "test.mover@S1", "test.reader@S2"], r.Systems!.Select(p => p.Key).Order()));
         order.Clear();
         var (bare, _) = Experiments.Sweep(null, 20, [("sim.seed", ["1"])], 1, 5, Logged, systems: false);
-        Assert.Equal(["120/1", "120/1"], order);   // круг прогрева и повтор, без прогона с профайлером
+        Assert.True(order.Count >= 3 && order.All(o => o == "120/1"), string.Join(", ", order));   // круг прогрева, затишье JIT и повтор, без профайлера
         Assert.Null(Assert.Single(bare).Systems);
         Assert.All(warmed, r => Assert.True(r.Repeats == 2 && r.Deterministic, string.Join(",", r.Sets)));
 

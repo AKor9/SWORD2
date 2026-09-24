@@ -457,4 +457,37 @@ public class ProfilerRuntimeTests
         Assert.True(meter.Line.Ready);
         Assert.InRange(meter.Line.OthersBusy, 0, 1);
     }
+
+    /// <summary>
+    /// 6ж: прогрев до затишья JIT — шаги, пока методы процесса компилируются, затем ещё <c>quietMs</c> тишины; JIT не утихает (каждый шаг —
+    /// новый метод) — упор в предел по времени; шагов нет — сразу, «не утих».
+    /// </summary>
+    [Fact]
+    public void JitWarmup_WaitsForQuietJit_StopsAtLimit()
+    {
+        int compiled = 0;
+        var busy = JitWarmup.Run(() =>
+        {
+            var method = new DynamicMethod($"warm{compiled++}", typeof(int), Type.EmptyTypes);   // новый метод — JIT на каждом шаге
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4, compiled);
+            il.Emit(OpCodes.Ret);
+            ((Func<int>)method.CreateDelegate(typeof(Func<int>)))();
+            return true;
+        }, quietMs: 1000, maxSeconds: 0.3);
+        Assert.False(busy.Settled);
+        Assert.InRange(busy.Seconds, 0.3, 5);
+        Assert.True(busy.Steps > 1);
+
+        var quiet = JitWarmup.Run(() =>
+        {
+            Thread.Sleep(1);
+            return true;
+        }, quietMs: 60, maxSeconds: 5);
+        Assert.True(quiet.Settled, quiet.ToString());
+        Assert.InRange(quiet.Seconds, 0.06, 5);
+
+        var none = JitWarmup.Run(() => false);
+        Assert.Equal((0, false), (none.Steps, none.Settled));
+    }
 }

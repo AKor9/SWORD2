@@ -298,9 +298,10 @@ public sealed record FeatureCheck(string Id, string Expect, JsonNode Condition, 
 
 /// <summary>
 /// Метрика фичи с ожиданием, допуском и источником эталона (<c>sword</c> — SWORD 2eab13b, <c>sword2</c> — эталон SWORD2):
-/// значение поля сущности (<see cref="Field"/>; несколько листьев — длина вектора) после тика <see cref="At"/> (по
-/// умолчанию — последнего) или <see cref="Stat"/> по тикам окна; либо ряд полей тик за тиком против трассы
-/// (<see cref="Trace"/> — файл <c>{ticks:[{tick, ключ: число | [числа]}]}</c>, <see cref="Series"/> — ключ трассы → поле).
+/// значение поля сущности (<see cref="Field"/>; несколько листьев — длина вектора) или поля ресурса мира (<see cref="Resource"/>,
+/// 6ж: <c>ArenaStats.LastDamage</c> — вместо сущности) после тика <see cref="At"/> (по умолчанию — последнего) или <see cref="Stat"/>
+/// по тикам окна; либо ряд полей сущности тик за тиком против трассы (<see cref="Trace"/> — файл <c>{ticks:[{tick, ключ: число |
+/// [числа]}]}</c>, <see cref="Series"/> — ключ трассы → поле).
 /// </summary>
 public sealed record FeatureMetric
 {
@@ -314,8 +315,15 @@ public sealed record FeatureMetric
     /// <summary>Откуда ожидание — для людей (файл и константа SWORD, реплей SWORD2).</summary>
     public required string Reference { get; init; }
 
+    /// <summary>Сущность (номер «12v3» или имя); у метрики ресурса — пусто.</summary>
     public required string Entity { get; init; }
     public string? Field { get; init; }
+
+    /// <summary>Поле ресурса мира (<c>ArenaStats.Hits</c>; путь — как у условия <c>{resource:…}</c>); null — метрика сущности.</summary>
+    public string? Resource { get; init; }
+
+    /// <summary>Что читает метрика: поле ресурса или поле сущности (ключ ряда значений сценария).</summary>
+    internal (string Entity, string Field) SeriesKey(string field) => Resource is { } r ? ("", "resource:" + r) : (Entity, field);
     public string Stat { get; init; } = "value";
     public ulong? At { get; init; }
     public ulong? From { get; init; }
@@ -327,15 +335,19 @@ public sealed record FeatureMetric
 
     internal static FeatureMetric Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "scenario", "source", "reference", "entity", "field", "stat", "at", "from", "to", "expected", "tolerance", "trace", "series");
+        r.Only("id", "scenario", "source", "reference", "entity", "resource", "field", "stat", "at", "from", "to", "expected", "tolerance", "trace", "series");
         string source = r.String("source");
         if (!Sources.Contains(source)) throw new ArgumentException($"{r.At}.source «{source}»: {string.Join(", ", Sources)}");
         double tolerance = r.OptionalNumber("tolerance") ?? 0;
         if (tolerance < 0) throw new ArgumentException($"{r.At}.tolerance: не меньше 0");
+        string? resource = r.OptionalString("resource");
+        if (resource is not null && (r.Has("entity") || r.Has("field") || r.Has("trace") || r.Has("series")))
+            throw new ArgumentException($"{r.At}: resource — поле ресурса мира, без entity, field, trace и series");
         var m = new FeatureMetric
         {
             Id = r.String("id"), Scenario = r.String("scenario"), Source = source, Reference = r.String("reference"),
-            Entity = r.String("entity"), Field = r.OptionalString("field"), Stat = r.OptionalString("stat") ?? "value",
+            Entity = resource is null ? r.String("entity") : "", Resource = resource,
+            Field = r.OptionalString("field"), Stat = r.OptionalString("stat") ?? "value",
             At = r.OptionalInteger("at", 0) is { } at ? (ulong)at : null,
             From = r.OptionalInteger("from", 0) is { } f ? (ulong)f : null, To = r.OptionalInteger("to", 0) is { } t ? (ulong)t : null,
             Expected = r.OptionalNumber("expected"), Tolerance = tolerance, Trace = r.OptionalString("trace"),
@@ -353,7 +365,8 @@ public sealed record FeatureMetric
                 throw new ArgumentException($"{r.At}: с trace — только series и tolerance (без field, expected, stat, at)");
             return m with { Series = map };
         }
-        if (m.Field is null || m.Expected is null) throw new ArgumentException($"{r.At}: нужно field и expected (или trace и series)");
+        if (m.Field is null && m.Resource is null || m.Expected is null)
+            throw new ArgumentException($"{r.At}: нужно field (или resource) и expected (или trace и series)");
         if (m.Stat == "value" && (m.From is not null || m.To is not null)) throw new ArgumentException($"{r.At}: from/to — только со stat min, max, mean");
         if (m.Stat != "value" && m.At is not null) throw new ArgumentException($"{r.At}: at — только со stat value");
         return m;

@@ -20,8 +20,13 @@ namespace Sword.Game.Bodies;
 /// </summary>
 public static class FighterShape
 {
-    /// <summary>Радиусы капсул по номерам сегментов 0…13 (<c>Fighter.Radii</c>; 11 — клинок, у бойца его тела нет).</summary>
-    public static ReadOnlySpan<float> Radii => [.15f, .17f, .13f, .065f, .055f, .065f, .055f, .09f, .07f, .09f, .07f, .03f, .045f, .045f];
+    /// <summary>
+    /// Радиусы капсул по номерам сегментов 0…13 (<c>Fighter.Radii</c>; 11 — клинок, у бойца его тела нет). Массив, а не выражение коллекции
+    /// в свойстве: в Debug оно выделяло новый массив на каждое чтение (216 Б на постройку бойца — возрождения толпы 6ж).
+    /// </summary>
+    public static ReadOnlySpan<float> Radii => RadiiValues;
+
+    private static readonly float[] RadiiValues = [.15f, .17f, .13f, .065f, .055f, .065f, .055f, .09f, .07f, .09f, .07f, .03f, .045f, .045f];
 
     // Fighter SWORD: рост таза; Fighter.Locomotion: голеностоп, стопа, развод носков; SwordBody: звенья ноги.
     private const float StandHeight = 0.95f;

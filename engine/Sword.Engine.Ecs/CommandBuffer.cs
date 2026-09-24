@@ -198,6 +198,20 @@ public sealed class CommandBuffer
             Owner?.Id ?? 0, target, type, file, line, note, 0);
     }
 
+    /// <summary>
+    /// Ёмкость заранее (<see cref="SystemSetup.ReserveCommands"/>, 6ж): записей команд, событий и байт значений за один барьер — пик
+    /// (бой полной арены) не растит буфер посреди игры. Меньше заведённого — ничего; больше запаса — рост удвоением, как раньше.
+    /// </summary>
+    internal void Reserve(int commands, int events, int payloadBytes)
+    {
+        if (commands > Commands.Length) Array.Resize(ref Commands, commands);
+        if (events > Events.Length) Array.Resize(ref Events, events);
+        if (payloadBytes > Payload.Length) Array.Resize(ref Payload, payloadBytes);
+    }
+
+    /// <summary>Ёмкость буфера: записей команд, событий, байт значений (тесты, 6ж).</summary>
+    internal (int Commands, int Events, int PayloadBytes) Capacity => (Commands.Length, Events.Length, Payload.Length);
+
     private int Store<T>(in T value) where T : unmanaged
     {
         int size = Unsafe.SizeOf<T>();

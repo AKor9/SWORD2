@@ -109,6 +109,52 @@ public class EdgeCaseTests
         Assert.Equal(entities, w.EntityCount);
     }
 
+    /// <summary>
+    /// 6ж: запас буфера команд (<see cref="SystemSetup.ReserveCommands"/>) — первый пик (много Set и событий за один запуск после долгой тишины)
+    /// не растит буфер посреди игры; без запаса тот же пик выделяет. Результат барьера тот же.
+    /// </summary>
+    [Fact]
+    public void ReserveCommands_PeakAfterQuietTicks_DoesNotGrowBuffer()
+    {
+        long Peak(bool reserve)
+        {
+            Entity[] targets = [];
+            var w = Worlds.Builder()
+                .System("Early", new Sys("peak", s =>
+                {
+                    s.Sets<Health>().Emits<Pinged>();
+                    if (reserve) s.ReserveCommands(400, 400, 400 * 16);
+                }, (in SystemContext ctx) =>
+                {
+                    if (ctx.Tick != 60) return;   // тишина, затем пик
+                    for (int i = 0; i < targets.Length; i++)
+                    {
+                        ctx.Commands.Set(targets[i], new Health { Value = i });
+                        ctx.Commands.Emit(new Pinged { Who = targets[i], Code = i });
+                    }
+                }))
+                .Build();   // без потребителей: журналов нет — растёт только буфер команд
+            targets = [.. Enumerable.Range(0, 300).Select(_ =>
+            {
+                var e = w.CreateImmediate();
+                w.AddImmediate(e, new Health());
+                return e;
+            })];
+            for (ulong t = 0; t < 60; t++) w.RunTick(t);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            w.RunTick(60);
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Equal(299, w.Get<Health>(targets[^1]).Value);
+            return bytes;
+        }
+        Peak(reserve: true);   // прогрев JIT
+        Peak(reserve: false);
+        Assert.True(Peak(reserve: false) > 0, "без запаса пик должен растить буфер — тест ничего не проверял бы");
+        Assert.Equal(0, Peak(reserve: true));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Worlds.Builder()
+            .System("Early", new Sys("bad", s => s.ReserveCommands(-1, 0, 0), (in SystemContext _) => { })).Build());
+    }
+
     [Fact]
     public void ChurnLargerThanAChunk_DoesNotAllocate()
     {

@@ -231,6 +231,10 @@ public static class Experiments
         // разным повторам — медиана его отбрасывает.
         var runs = Combinations(parameters).Select(c => new SweepRun(c.Select(p => $"{p.Key}={p.Value}").ToList())).ToList();
         for (int r = -1; r < repeats; r++)
+        {
+            // 6ж: после круга прогрева — ещё до затишья JIT (комбинации по кругу, без замера): круг лёгких комбинаций — доли мс, а фоновая
+            // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты повторов (JitWarmup).
+            if (r == 0) WarmJit(runs, scenario, ticks, build);
             foreach (var run in runs)
             {
                 if (run.Error is not null) continue;
@@ -252,6 +256,7 @@ public static class Experiments
                     run.Error = e.Message;
                 }
             }
+        }
         if (systems)
             foreach (var run in runs)
             {
@@ -281,6 +286,31 @@ public static class Experiments
             });
         }
         return (rows, Scaling(parameters, rows));
+    }
+
+    /// <summary>Прогрев до затишья JIT (6ж, <see cref="Sword.Engine.Diagnostics.JitWarmup"/>): комбинации без ошибок по кругу, каждая — до конца сценария.</summary>
+    private static Sword.Engine.Diagnostics.JitWarmupResult WarmJit(List<SweepRun> runs, Replay? scenario, ulong ticks, Func<ConfigSet, Simulation> build)
+    {
+        Simulation? sim = null;
+        int next = 0;
+        return Sword.Engine.Diagnostics.JitWarmup.Run(() =>
+        {
+            if (sim is null || sim.Tick >= ticks)
+            {
+                sim = null;
+                for (int i = 0; i < runs.Count && sim is null; i++, next++)
+                {
+                    var run = runs[next % runs.Count];
+                    if (run.Error is not null) continue;
+                    sim = build(scenario?.CreateConfig(run.Sets) ?? ConfigSet.Empty([.. run.Sets]));
+                    if (scenario is not null) sim.Play(scenario.Head(scenario.Ticks, hashes: false));
+                }
+                if (sim is null) return false;
+            }
+            sim.Export.BeginFrame();
+            sim.Step();
+            return true;
+        });
     }
 
     /// <summary>Комбинация перебора: замеры повторов, хеши итога (с кругом прогрева), сущностей, нарушения, ошибка.</summary>

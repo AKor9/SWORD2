@@ -165,6 +165,64 @@ public sealed class PoseTests
         // Вход веса за 4 задания (быстро, но непрерывно) — без ограничения, побитово.
         Func<int, float> fadeIn = f => MathF.Min(1, f * 0.25f);
         Assert.Equal(Run(false, fadeIn)[..8], Run(true, fadeIn)[..8]);
+
+        // 6ж: смешивание погасло посреди догона (переход от снимка кончился) — PosePool.Following: догон идёт; владелец продолжает с весом 0,
+        // и сустав доходит до позы без смешивания шагами не больше 8°, а не скачком; догнал — Following ложно.
+        {
+            var pool = new PosePool(lib);
+            var mask = pool.AddMask(new float[jc]);
+            var (a, b, output, shortest) = (pool.Alloc(), pool.Alloc(), pool.Alloc(), pool.Alloc());
+            var memory = new BlendMemory(output, shortest, true);
+            Quaternion prev = default;
+            bool followed = false;
+            float jump = 0;
+            for (int f = 0; f < frames + 30; f++)
+            {
+                bool tail = f >= 22;   // перескок — у кадра 20; с 22-го смешивания «нет»: вес 0, пока идёт догон
+                if (tail && !pool.Following(memory)) break;
+                followed |= tail;
+                pool.Sample(a, still, 0);
+                pool.Sample(b, spinClip, Math.Min(f, frames - 1) / 30f);
+                pool.BlendMasked(a, b, tail ? 0 : 0.9f, mask, 1, memory with { Continuous = f > 0 });
+                pool.Tick();
+                var q = pool.LocalRot(a)[0];
+                if (f > 0) jump = MathF.Max(jump, Step(prev, q));
+                prev = q;
+            }
+            Assert.True(followed, "после перескока догон не шёл — тест ничего не проверял бы");
+            Assert.False(pool.Following(memory));
+            Assert.True(jump <= PosePool.MaxArcStep + 0.02f, $"конец смешивания посреди догона: скачок {jump} рад");
+            var plainPose = pool.Alloc();
+            pool.Sample(plainPose, still, 0);
+            pool.Tick();
+            Assert.Equal(pool.LocalRot(plainPose)[0], prev);   // догнал: сустав — поза без смешивания
+        }
+    }
+
+    /// <summary>
+    /// 6ж: переход от снимка — смешивание по маске всего тела (вес 1 у каждого сустава) с памятью: без перескока дуги — побитово как
+    /// <see cref="PosePool.Blend"/> (<c>SkeletalClips.Blend</c> SWORD) на гаснущем весе перехода.
+    /// </summary>
+    [Fact]
+    public void BlendMasked_FullMaskWithMemory_EqualsBlend_BitForBit()
+    {
+        var lib = TwoClips();
+        var pool = new PosePool(lib);
+        var full = pool.AddMask([.. Enumerable.Repeat(1f, pool.JointCount)]);
+        var (a, b, snap, output, shortest) = (pool.Alloc(), pool.Alloc(), pool.Alloc(), pool.Alloc(), pool.Alloc());
+        pool.Sample(snap, 1, 0.4f);
+        for (int t = 0; t < 18; t++)
+        {
+            float w = 1 - t / 18f;
+            w = w * w * (3 - 2 * w);
+            pool.Sample(a, 0, t / 60f);
+            pool.Sample(b, 0, t / 60f);
+            pool.Blend(a, snap, w);
+            pool.BlendMasked(b, snap, w, full, 1, new BlendMemory(output, shortest, t > 0));
+            pool.Tick();
+            Assert.Equal(pool.LocalRot(a).ToArray(), pool.LocalRot(b).ToArray());
+            Assert.Equal(pool.LocalPos(a).ToArray(), pool.LocalPos(b).ToArray());
+        }
     }
 
     [Fact]
@@ -381,5 +439,55 @@ public sealed class PoseTests
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int t = 0; t < 1000; t++) Tick(t);
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    /// <summary>
+    /// 6ж: запас памяти пула (<see cref="PosePool.Reserve"/>) — рост посреди игры (выдача, освобождение, удвоение ёмкости, очередь заданий) не
+    /// выделяет памяти, а логика та же, что без запаса: ёмкость, номера и поколения поз, порядок свободных слотов — шаг в шаг.
+    /// </summary>
+    [Fact]
+    public void Reserve_GrowthWithoutAllocations_SameLogicAsWithout()
+    {
+        var plain = new PosePool(TwoClips());
+        var reserved = new PosePool(TwoClips());
+        reserved.Reserve(300, jobs: 4096);
+        Assert.Equal(plain.Capacity, reserved.Capacity);
+        Assert.True(reserved.Reserved >= 300 && reserved.JobsReserved >= 4096);
+        var rng = new Random(5);
+        var a = new List<PoseHandle>();
+        var b = new List<PoseHandle>(512);   // список теста не растёт в замере
+        long allocated = 0;
+        for (int step = 0; step < 4000; step++)
+        {
+            bool alloc = a.Count == 0 || a.Count < 250 && rng.Next(3) > 0;
+            int victim = alloc ? -1 : rng.Next(a.Count);
+            if (alloc) a.Add(plain.Alloc());
+            else
+            {
+                plain.Free(a[victim]);
+                a.RemoveAt(victim);
+            }
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            if (alloc)
+            {
+                var h = reserved.Alloc();
+                reserved.Sample(h, 0, 0.1f);
+                b.Add(h);
+            }
+            else
+            {
+                reserved.Free(b[victim]);
+                b.RemoveAt(victim);
+            }
+            if (step % 50 == 0) reserved.Tick();
+            allocated += GC.GetAllocatedBytesForCurrentThread() - before;
+            if (!alloc) continue;
+            Assert.Equal(a[^1], b[^1]);
+            Assert.Equal(plain.Capacity, reserved.Capacity);
+            Assert.Equal(plain.FreeSlots.ToArray(), reserved.FreeSlots.ToArray());
+        }
+        Assert.Equal(256, reserved.Capacity);   // ёмкость росла удвоением, как без запаса
+        Assert.Equal(0, allocated);
+        for (int i = 0; i < plain.Capacity; i++) Assert.Equal(plain.GenerationAt(i), reserved.GenerationAt(i));
     }
 }

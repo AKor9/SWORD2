@@ -355,7 +355,7 @@ public static class AnimationInvariants
                 _owner[snap.Index] = e;
             }
             else if (a.SnapFade < 1 && !core.IsNone && !reacting) return $"идёт переход от снимка ({a.SnapFade}), а позы снимка нет";
-            foreach (var memory in (ReadOnlySpan<PoseHandle>)[poses.BlendOutput, poses.BlendShortest, poses.FlinchRef, poses.FlinchPose])
+            foreach (var memory in (ReadOnlySpan<PoseHandle>)[poses.BlendOutput, poses.BlendShortest, poses.FlinchRef, poses.FlinchPose, poses.SnapOutput, poses.SnapShortest])
             {
                 if (memory.IsNone) continue;
                 if (!pool.IsAlive(memory)) return $"поза памяти смешивания или вздрагивания {memory} не жива";

@@ -175,3 +175,64 @@ public sealed record FrameBenchReport(double Seconds, int Frames, double Average
         $"кадров {Frames}, кадр ср {AverageMs:F2} мс ({Fps:F0} FPS), p50 {P50Ms:F2}, p99 {P99Ms:F2}, макс {MaxMs:F2}; " +
         $"CPU {CpuMs:F2} мс, ожидание GPU {WaitMs:F2} мс" + (GpuFrames > 0 ? $"; GPU {GpuMs:F2} мс, p99 {GpuP99Ms:F2}" : "");
 }
+
+/// <summary>
+/// Сторож кадров проверочного прогона (6ж): кадров нет дольше <c>seconds</c> (зависло ожидание GPU, цикл встал) — один раз зовёт
+/// <c>stalled</c> со словами «нет кадров N с» и тем, свёрнуто ли окно, из своего потока (таймер): владелец снимает прогон — бенч и
+/// снимки не висят часами. Главный поток отмечает кадр <see cref="Frame"/> (запись метки времени, без выделений). Без GPU и окна —
+/// тестируется сам по себе.
+/// </summary>
+public sealed class FrameWatchdog : IDisposable
+{
+    private readonly double _seconds;
+    private readonly Func<bool> _minimized;
+    private readonly Action<string> _stalled;
+    private readonly Timer _timer;
+    private long _last = System.Diagnostics.Stopwatch.GetTimestamp();
+    private int _frames, _fired;
+
+    /// <param name="seconds">Сколько секунд без кадра — «встал».</param>
+    /// <param name="minimized">Свёрнуто ли окно сейчас (для слов сообщения).</param>
+    /// <param name="stalled">Что делать, когда встал: сообщение словами; зовётся один раз, из потока таймера.</param>
+    public FrameWatchdog(double seconds, Func<bool> minimized, Action<string> stalled)
+    {
+        if (!(seconds > 0) || !double.IsFinite(seconds)) throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "секунды — больше 0");
+        _seconds = seconds;
+        _minimized = minimized;
+        _stalled = stalled;
+        var period = TimeSpan.FromSeconds(Math.Clamp(seconds / 4, 0.02, 1));
+        _timer = new Timer(_ => Check(), null, period, period);
+    }
+
+    /// <summary>Сработал ли сторож.</summary>
+    public bool Fired => Volatile.Read(ref _fired) != 0;
+
+    /// <summary>Кадр готов (главный поток): отсчёт — заново.</summary>
+    public void Frame()
+    {
+        Volatile.Write(ref _last, System.Diagnostics.Stopwatch.GetTimestamp());
+        _frames++;
+    }
+
+    /// <summary>Начать отсчёт заново (перед главным циклом: загрузка и первая компиляция — не простой кадров).</summary>
+    public void Restart() => Volatile.Write(ref _last, System.Diagnostics.Stopwatch.GetTimestamp());
+
+    private void Check()
+    {
+        double idle = System.Diagnostics.Stopwatch.GetElapsedTime(Volatile.Read(ref _last)).TotalSeconds;
+        if (idle < _seconds || Interlocked.Exchange(ref _fired, 1) != 0) return;
+        bool minimized;
+        try
+        {
+            minimized = _minimized();
+        }
+        catch (Exception)
+        {
+            minimized = false;
+        }
+        _stalled(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"нет кадров {_seconds:0.#} с (кадров до того {Volatile.Read(ref _frames)}; окно {(minimized ? "свёрнуто" : "не свёрнуто")}) — прогон снят"));
+    }
+
+    public void Dispose() => _timer.Dispose();
+}

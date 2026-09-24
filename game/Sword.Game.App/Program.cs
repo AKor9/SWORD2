@@ -82,6 +82,10 @@ public static partial class Program
         public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
         public readonly List<string> Overlays = [];
+        /// <summary>Окно показано свёрнутым, без фокуса (<c>--minimized</c>, 6ж): проверка, что прогон идёт и в свёрнутом окне.</summary>
+        public bool Minimized;
+        /// <summary>Сторож кадров проверочного прогона (<c>--stall</c>, 6ж): нет кадров столько секунд — выход с ошибкой.</summary>
+        public double StallSeconds = 60;
     }
 
     private const string Usage = """
@@ -105,6 +109,10 @@ public static partial class Program
           --resize-cycle    менять размер окна по кругу (проверка пересоздания задних буферов)
           --no-activate     не отбирать фокус: окно показано внизу порядка перекрытия (и с --fullscreen, --borderless)
           --activate        окно с фокусом, даже если задана SWORD_NO_ACTIVATE (из двух ключей действует последний)
+          --minimized       окно показано свёрнутым, без фокуса: проверка, что прогон (--frames, --bench) идёт и в свёрнутом окне —
+                            проверочный прогон рисует и свёрнутым (итог --json — report.minimizedFrames)
+          --stall N         сторож проверочного прогона (--frames, --bench): нет кадров N с (по умолчанию 60) — итог-ошибка
+                            «нет кадров N с» и выход с кодом 5, а не прогон без конца
           --shot FILE.png   снять кадр в PNG: последний кадр прогона (--frames), без него — 30-й; с --bench — последний
                             кадр замера
           --screenshots DIR куда класть снимки F4 (по умолчанию screenshots в текущем каталоге)
@@ -215,9 +223,10 @@ public static partial class Program
                 Title: "SWORD",
                 Width: options.Width,
                 Height: options.Height,
-                Activate: options.Activate,
+                Activate: options.Activate && !options.Minimized,
                 Fullscreen: options.Fullscreen,
-                Resizable: !options.Fullscreen && !options.Borderless));
+                Resizable: !options.Fullscreen && !options.Borderless,
+                Minimized: options.Minimized));
 
             ClientRunReport report;
             CpuProfiler profiler;
@@ -241,6 +250,10 @@ public static partial class Program
                 HeldActions = options.Hold,
                 Profile = options.Profile,
                 ProfileEvents = options.ProfileEvents,
+                // 6ж: проверочный прогон (кадры, бенч) — со сторожем: нет кадров StallSeconds — итог-ошибка и выход (код StalledExit),
+                // а не бенч без конца. Свёрнутое окно такой прогон и так рисует (ClientHost).
+                StallSeconds = options.Frames > 0 || options.Bench > 0 ? options.StallSeconds : 0,
+                Stalled = message => Stalled(message, options.Json),
             }, arena, simulation))
             {
                 profiler = client.Profiler;
@@ -387,6 +400,21 @@ public static partial class Program
         }
     }
 
+    /// <summary>Код выхода прогона, снятого сторожем кадров (6ж): кадров нет дольше <c>--stall</c> секунд.</summary>
+    internal const int StalledExit = 5;
+
+    /// <summary>
+    /// Сторож кадров сработал (поток таймера, 6ж): итог-ошибка словами (с <c>--json</c> — строкой JSON в stdout, как любая ошибка
+    /// прогона) и выход процесса с кодом <see cref="StalledExit"/> — главный поток может стоять в ожидании GPU, ждать его нельзя.
+    /// </summary>
+    private static void Stalled(string message, bool json)
+    {
+        if (json) Console.WriteLine(JsonSerializer.Serialize(new { ok = false, error = message, stalled = true }, JsonOptions));
+        Console.Out.Flush();
+        Console.Error.Flush();
+        Environment.Exit(StalledExit);
+    }
+
     // Кириллица в сообщениях — как есть, без \uXXXX, перечисления — словами: итог читают и люди.
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -435,6 +463,12 @@ public static partial class Program
                 case "--resize-cycle": o.ResizeCycle = true; break;
                 case "--no-activate": (o.Activate, o.ActivateBy) = (false, a); break;
                 case "--activate": (o.Activate, o.ActivateBy) = (true, a); break;
+                case "--minimized": o.Minimized = true; break;
+                case "--stall":
+                    if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out o.StallSeconds)
+                        || !(o.StallSeconds >= 1 && o.StallSeconds <= 3600))
+                        throw new ArgumentException($"{a}: ожидается число секунд 1…3600");
+                    break;
                 case "--json": o.Json = true; break;
                 case "--shot": o.Shot = Next(); break;
                 case "--screenshots": o.Screenshots = Next(); break;

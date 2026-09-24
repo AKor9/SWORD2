@@ -99,6 +99,15 @@ public sealed record ClientOptions
     /// JIT — с кадром, тиком и зоной (<see cref="CpuProfiler.SetEvents"/>); включает и профайлер. Дорогой: JIT медленнее.
     /// </summary>
     public bool ProfileEvents { get; init; }
+
+    /// <summary>
+    /// Сторож кадров (6ж, <see cref="FrameWatchdog"/>): кадров нет дольше стольких секунд — <see cref="Stalled"/> со словами; 0 — без
+    /// сторожа. Для проверочных прогонов (exe: <c>--frames</c>, <c>--bench</c>), чтобы бенч и снимки не висели без конца.
+    /// </summary>
+    public double StallSeconds { get; init; }
+
+    /// <summary>Что делать, когда сторож сработал (из потока таймера): exe пишет итог-ошибку и выходит.</summary>
+    public Action<string>? Stalled { get; init; }
 }
 
 /// <summary>
@@ -118,7 +127,8 @@ public sealed record ClientOptions
 /// кадра с GPU-временем того же кадра (после ожидания простоя GPU в конце прогона), <see cref="Gpu"/> — GPU-время этого кадра
 /// целиком и сумма проходов. После Пв (решение пользователя): служебные — ещё кадры инструментов (<see cref="ToolFrames"/>:
 /// точка обслуживания выполняла запросы агента — выделения и время агента, а не игры); <see cref="DisplayHz"/> — частота
-/// монитора окна в конце прогона (0 — неизвестна), по ней профайлер судит «заметность» аномалии кадра.
+/// монитора окна в конце прогона (0 — неизвестна), по ней профайлер судит «заметность» аномалии кадра. 6ж: <see cref="MinimizedFrames"/> —
+/// кадров, нарисованных в свёрнутом окне (проверочный прогон рисует и так; показ отбрасывает DXGI — время кадра без компоновки DWM).
 /// </summary>
 public sealed record ClientRunReport(
     string ExitReason,
@@ -147,7 +157,8 @@ public sealed record ClientRunReport(
     MachineReport? Machine = null,
     GpuFrameReport? Gpu = null,
     int ToolFrames = 0,
-    int DisplayHz = 0);
+    int DisplayHz = 0,
+    int MinimizedFrames = 0);
 
 /// <summary>
 /// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
@@ -196,6 +207,14 @@ public sealed class ClientHost : IDisposable
     /// <summary>Исключение кадра, нарисованного из системного цикла перетаскивания; бросается в главном цикле.</summary>
     private ExceptionDispatchInfo? _liveResizeError;
 
+    /// <summary>
+    /// Проверочный прогон (<see cref="ClientOptions.MaxFrames"/> или бенч) рисует и в свёрнутом окне (6ж): иначе свёрнутое окно не даёт
+    /// кадров, а бенч считает игровое время — прогон висел без конца (28 мин). Живая игра в свёрнутом окне по-прежнему ждёт.
+    /// </summary>
+    private readonly bool _drawMinimized;
+
+    private readonly FrameWatchdog? _watchdog;
+
     public ClientHost(IWindow window, ClientOptions options, IClientGame game, Simulation? simulation = null)
     {
         if (options.ResizeCycle && (options.ResizeCycleFrames < 1 || options.ResizeCycleSizes.Count == 0))
@@ -221,8 +240,11 @@ public sealed class ClientHost : IDisposable
         _held = held.Count > 0 ? new HashSet<string>(held, StringComparer.Ordinal) : null;
         if (options.CloseOnEscape && _bindings.ActionsOn(Key.Escape).FirstOrDefault() is { } onEscape)
             throw new ArgumentException($"действие {onEscape} привязано к Escape, а Escape закрывает окно (CloseOnEscape)", nameof(options));
+        if (options.StallSeconds < 0 || !double.IsFinite(options.StallSeconds))
+            throw new ArgumentException($"StallSeconds — не меньше 0, задано {options.StallSeconds}", nameof(options));
         _window = window;
         _options = options;
+        _drawMinimized = options.MaxFrames > 0 || options.BenchSeconds > 0;
         _vsync = options.Vsync && options.BenchSeconds <= 0;
         _view = new FrameView(1, 0, 0, _meter.Stats(0, _vsync));
         _game = game;
@@ -265,6 +287,12 @@ public sealed class ClientHost : IDisposable
             throw;
         }
         _window.LiveResize += OnLiveResize;
+        if (options.StallSeconds > 0)
+            _watchdog = new FrameWatchdog(options.StallSeconds, () => _window.Minimized, message =>
+            {
+                Log.Error("client", message);
+                options.Stalled?.Invoke(message);
+            });
         Log.Info("input", "привязки: " + string.Join(", ", _bindings.Keys.Select(p => $"{p.Key}={p.Value}")));
         Log.Info("client", $"{_renderer.AdapterName}, {_renderer.AdapterVramMb} МБ, {window.Width}×{window.Height}, " +
             $"вертикальная синхронизация {(_vsync ? "вкл" : "выкл")}, монитор {(_displayHz > 0 ? $"{_displayHz} Гц" : "— Гц (неизвестно)")}" +
@@ -281,11 +309,12 @@ public sealed class ClientHost : IDisposable
     public ClientRunReport Run()
     {
         _running = true;
+        _watchdog?.Restart();
         var total = Stopwatch.StartNew();
         long last = Stopwatch.GetTimestamp(), lastSim = last;
         long lastAllocated = GC.GetAllocatedBytesForCurrentThread();
         int lastGen0 = GC.CollectionCount(0), lastResizes = _resizes;
-        int frames = 0, serviceFrames = 0, toolFrames = 0, cycle = 0;
+        int frames = 0, serviceFrames = 0, toolFrames = 0, cycle = 0, minimizedFrames = 0;
         double firstFrameMs = 0, frameMsSum = 0, frameMsMax = 0;
         long allocatedSum = 0;
         int gen0Sum = 0;
@@ -320,10 +349,12 @@ public sealed class ClientHost : IDisposable
                 break;
             }
 
-            if (_window.Minimized)
+            bool minimized = _window.Minimized;
+            if (minimized && !_drawMinimized)
             {
                 // Свёрнутое окно не рисуется: DXGI ответил бы «перекрыто», а цикл крутился бы впустую. Инструменты
-                // обслуживаются и так — агент не ждёт, пока окно развернут. Кадра нет — и у профайлера.
+                // обслуживаются и так — агент не ждёт, пока окно развернут. Кадра нет — и у профайлера. Проверочный прогон
+                // (кадры, бенч; 6ж) рисует и свёрнутым — в прежнем размере, показ DXGI отбрасывает.
                 profiler.AbandonFrame();
                 ServeTools();
                 Thread.Sleep(16);
@@ -333,7 +364,7 @@ public sealed class ClientHost : IDisposable
                 continue;
             }
 
-            if (_options.ResizeCycle && frames > 0 && frames % _options.ResizeCycleFrames == 0)
+            if (_options.ResizeCycle && !minimized && frames > 0 && frames % _options.ResizeCycleFrames == 0)
             {
                 var (w, h) = _options.ResizeCycleSizes[cycle++ % _options.ResizeCycleSizes.Count];
                 _window.SetClientSize(w, h);
@@ -452,6 +483,8 @@ public sealed class ClientHost : IDisposable
             lastGen0 = gen0;
             lastResizes = _resizes;
             frames++;
+            if (minimized) minimizedFrames++;
+            _watchdog?.Frame();
             if (takeMachine)
             {
                 // Снимок — после отметок кадра и вне кадров: его ~50 мкс (проба частоты) не идут ни в шаг, ни в байты кадра.
@@ -516,7 +549,8 @@ public sealed class ClientHost : IDisposable
             Machine: machine,
             Gpu: _renderer.Gpu.Report(),
             ToolFrames: toolFrames,
-            DisplayHz: _displayHz);
+            DisplayHz: _displayHz,
+            MinimizedFrames: minimizedFrames);
     }
 
     private long _benchGpu;
@@ -765,6 +799,7 @@ public sealed class ClientHost : IDisposable
 
     public void Dispose()
     {
+        _watchdog?.Dispose();
         _window.LiveResize -= OnLiveResize;
         // Ресурсы кадра освобождаются только после того, как GPU их отпустил: сначала ожидание, затем сцена игры,
         // затем рендер с устройством. Ожидание может упасть (потеря устройства) — освобождение всё равно идёт.

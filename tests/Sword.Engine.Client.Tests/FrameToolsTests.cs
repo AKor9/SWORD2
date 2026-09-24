@@ -103,4 +103,35 @@ public class FrameToolsTests
         Assert.Equal("F4", bindings.Keys["screenshot"]);
         Assert.Throws<ArgumentException>(() => InputBindings.Resolve([new InputAction("screenshot", "F5"), .. ClientHost.Actions], null));
     }
+
+    /// <summary>
+    /// 6ж: сторож кадров — кадры идут, он молчит; кадров нет дольше срока — ровно один вызов со словами «нет кадров N с» и тем, свёрнуто ли
+    /// окно (бенч в свёрнутом окне висел 28 мин: кадров нет, игровое время бенча стоит).
+    /// </summary>
+    [Fact]
+    public void Watchdog_SilentWhileFrames_FiresOnceWhenFramesStop()
+    {
+        var calls = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        bool minimized = false;
+        using (var w = new FrameWatchdog(1, () => minimized, calls.Enqueue))
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.Elapsed.TotalSeconds < 2)
+            {
+                w.Frame();
+                Thread.Sleep(10);
+            }
+            Assert.Empty(calls);
+            Assert.False(w.Fired);
+            minimized = true;
+            clock.Restart();
+            while (calls.IsEmpty && clock.Elapsed.TotalSeconds < 5) Thread.Sleep(10);
+            Thread.Sleep(1200);   // второго вызова нет
+            Assert.True(w.Fired);
+            string message = Assert.Single(calls);
+            Assert.Contains("нет кадров 1 с", message);
+            Assert.Contains("окно свёрнуто", message);
+        }
+        Assert.Throws<ArgumentOutOfRangeException>(() => new FrameWatchdog(0, () => false, _ => { }));
+    }
 }

@@ -49,10 +49,25 @@ namespace Sword.Game;
 /// </summary>
 public static class GameCore
 {
+    /// <summary>
+    /// Поз пула на бойца в худшем случае (запас пула, 6ж): поза бойца, слой и снимок локомоции (модуль Locomotion), слой, снимок, две позы
+    /// памяти смешивания действий и две — перехода от снимка, две позы вздрагивания (игрок).
+    /// </summary>
+    public const int PosesPerFighter = 11;
+
+    /// <summary>
+    /// Заданий пула на бойца за тик в худшем случае (запас очереди, 6ж): локомоция — до 4 (снимок, сэмпл, переход, копия), действие — до 3
+    /// (сэмпл, смешивание, переход от снимка), снимок — 1, вздрагивание — до 6 (два слота по 3), прямая кинематика — 1; с запасом — 16.
+    /// </summary>
+    public const int PoseJobsPerFighter = 16;
+
     /// <summary>Регистрации ядра — в <c>Simulation.Build</c> до модулей.</summary>
     public static void Configure(SimulationBuilder b, CharacterAssets assets)
     {
         var poses = new PosePool(assets.Clips);   // пул поз — у каждой симуляции свой: ассеты только читаются
+        // 6ж: память пула — сразу на полную арену с боем (рост посреди боя выделял ~3,8 МБ на настоящем паке — 539 Б/тик бюджета толпы);
+        // логика пула (ёмкость, номера поз, хеш animation) — та же.
+        poses.Reserve(ArenaRules.MaxFighters * PosesPerFighter, ArenaRules.MaxFighters * PoseJobsPerFighter);
         // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 13 тел), дальше растёт удвоением.
         var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies);
         var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
@@ -63,6 +78,7 @@ public static class GameCore
         var weapons = assets.Weapons;
         var strikes = assets.Strikes;
         var upper = poses.AddMask(ActionRules.UpperMask(assets.Clips.Skeleton));   // слой верха тела (удары): CharacterRig.UpperMask
+        var full = poses.AddMask(Enumerable.Repeat(1f, assets.Clips.JointCount).ToArray());   // всё тело: переход от снимка с памятью (6ж)
         var combat = b.Config.Section<CombatSettings>("combat");
         int playerWeapon = weapons.Find(combat.PlayerWeapon);
         if (playerWeapon < 0) throw new InvalidDataException($"combat.playerWeapon = «{combat.PlayerWeapon}»: такого меча нет; есть: {weapons.Names}");
@@ -107,7 +123,7 @@ public static class GameCore
             .System(GameStages.Gameplay, new RootSteerSystem(strikes))
             .System(GameStages.Gameplay, new AnimatorInputSystem(strikes))
             .System(GameStages.Animation, new ActionSnapshotSystem())
-            .System(GameStages.Animation, new AnimatorPoseSystem(upper))
+            .System(GameStages.Animation, new AnimatorPoseSystem(upper, full))
             .System(GameStages.Animation, new AnimationTickSystem())
             .System(GameStages.Movement, new RootControlSystem())
             .System(GameStages.Movement, new RootCollisionSystem())

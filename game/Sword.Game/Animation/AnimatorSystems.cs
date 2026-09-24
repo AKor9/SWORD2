@@ -101,8 +101,9 @@ public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
 /// локомоции (модуль Locomotion) ставит свои задания раньше (<see cref="GameLabels.AnimatorPose"/>), снимок — ещё раньше
 /// (<see cref="ActionSnapshotSystem"/>); без слоёв поза остаётся позой привязки. У игрока после слоя действий — вздрагивание (6г,
 /// <see cref="FlinchLayer.Pose"/>: добавка поворотов по той же маске верха). Мёртвому (<see cref="Dead"/>) заданий нет — его поза стоит.
+/// <paramref name="full"/> — маска всего тела (6ж): переход от снимка — смешивание по ней с памятью (перескок дуги — догон по 8° за тик).
 /// </summary>
-public sealed class AnimatorPoseSystem(PoseMask upper) : IContinuousSystem
+public sealed class AnimatorPoseSystem(PoseMask upper, PoseMask full) : IContinuousSystem
 {
     private Query _plain = null!, _acting = null!, _flinching = null!;
 
@@ -130,7 +131,7 @@ public sealed class AnimatorPoseSystem(PoseMask upper) : IContinuousSystem
             {
                 if (refs[i].Generation == 0) continue;
                 var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
-                ActionLayer.Pose(a[i], ref poses[i], pose, pool, upper);
+                ActionLayer.Pose(a[i], ref poses[i], pose, pool, upper, full);
                 pool.ToModel(pose);
             }
         }
@@ -144,7 +145,7 @@ public sealed class AnimatorPoseSystem(PoseMask upper) : IContinuousSystem
             {
                 if (refs[i].Generation == 0) continue;
                 var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
-                ActionLayer.Pose(a[i], ref poses[i], pose, pool, upper);
+                ActionLayer.Pose(a[i], ref poses[i], pose, pool, upper, full);
                 FlinchLayer.Pose(f[i], ref poses[i], pose, pool, upper);
                 pool.ToModel(pose);
             }

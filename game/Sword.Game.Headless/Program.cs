@@ -219,6 +219,11 @@ public static partial class Program
             var trajectory = new List<object>();
             // Выделения — только тиков (без записи траектории) и после прогрева: раздел 12 плана — 0 байт на тик.
             int warmup = Math.Min(WarmupTicks, ticks / 2);
+            // 6ж: сначала JIT утихает на отдельной симуляции той же композиции (тот же конфиг и те же команды; по концу — заново): прогрев
+            // 120 тиков — ~15 мс, а фоновая перекомпиляция идёт ~100 мс спустя, и её разовое выделение среды попадало в замер. Замеряемая
+            // симуляция, её тики и хеши — те же.
+            var jitWarmup = ticks > 0 ? WarmJit(() => replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets), Build, replay,
+                command, ticks) : default;
             // Профайлер CPU (точка Па): итоги — тики после прогрева, как байты на тик; байты тика с ним — те же 0.
             var profiler = profile ? new CpuProfiler() : null;
             string profileDir = ProfileDir("headless");
@@ -277,6 +282,8 @@ public static partial class Program
                 seconds = Math.Round(sim.Tick * (double)sim.Dt, 6),
                 msPerTick = ticks > 0 ? Math.Round(ms / ticks, 4) : 0,
                 allocatedBytesPerTick = ticks > warmup ? Math.Round(allocated / (double)(ticks - warmup), 3) : 0,
+                // Прогрев JIT до прогона (6ж): тиков отдельной симуляции, секунд, утих ли JIT.
+                jitWarmup = new { ticks = jitWarmup.Steps, seconds = Math.Round(jitWarmup.Seconds, 3), settled = jitWarmup.Settled },
                 command = new { move = new[] { command.Move.X, command.Move.Y }, command.Walk, gaze = command.HasGaze ? new[] { command.Gaze.X, command.Gaze.Z } : null },
                 player = State(sim),
                 pose = Pose(sim, GameCore.Player(sim.World)),
@@ -440,6 +447,27 @@ public static partial class Program
     private static int Count(string key, string text, int min) =>
         int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int n) && n >= min
             ? n : throw new ArgumentException($"{key}: ожидается целое число не меньше {min}");
+
+    /// <summary>
+    /// Прогрев JIT до прогона (6ж, <see cref="JitWarmup"/>): отдельная симуляция той же композиции — тот же конфиг, реплей или команда
+    /// игрока каждый тик — играет до затишья JIT; дошла до <paramref name="ticks"/> — строится заново. Замеряемая симуляция её не видит.
+    /// </summary>
+    private static JitWarmupResult WarmJit(Func<ConfigSet> config, Func<ConfigSet, Simulation> build, Replay? replay, PlayerCommand command, int ticks)
+    {
+        Simulation? warm = null;
+        return JitWarmup.Run(() =>
+        {
+            if (warm is null || warm.Tick >= (ulong)ticks)
+            {
+                warm = build(config());
+                if (replay is not null) warm.Play(replay);
+            }
+            warm.Export.BeginFrame();
+            if (replay is null) warm.Enqueue(command);
+            warm.Step();
+            return true;
+        });
+    }
 
     /// <summary>
     /// Корень игрока после тика. Игрока ищем каждый раз, а не держим сущность с начала прогона (сброс арены — команда R
