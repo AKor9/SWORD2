@@ -7,6 +7,8 @@ rem Folders of finished sessions are removed: a folder written to in the last 15
 rem may be building into it right now), and of the older ones only those whose exe is not running (a running exe is
 rem locked). Every command here keeps stdout clean: del prints the name of a locked file to stdout, which would break
 rem the protocol.
+rem The server exits on its own (stage 6a): end of stdin, end of this cmd (a client may kill only the wrapper and keep
+rem the pipe open), 15 minutes without tool calls (--idle-exit MIN, passed through from the args in .mcp.json), session.stop.
 rem Used by .mcp.json; see docs/agent-playbook.md.
 setlocal
 set "ROOT=%~dp0..\.."

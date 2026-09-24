@@ -14,18 +14,39 @@ namespace Sword.Game.Headless;
 /// <c>Sword.Headless --agent</c> (раздел 8 плана): сервер MCP на stdio — клиент (Claude Code, Codex) сам запускает
 /// процесс. Симуляция стоит на паузе, время двигает агент; поток симуляции — главный: после каждого тика и на паузе он
 /// обслуживает очередь запросов агента (точка обслуживания), протокол — на своём потоке. stdout занят протоколом —
-/// журнал уходит в stderr и в кольцо <c>log.tail</c>. Конец stdin (клиент ушёл) или <c>session.stop</c> — выход.
-/// В сборке без агента (<c>-p:WithoutAgent=true</c>) этого файла нет.
+/// журнал уходит в stderr и в кольцо <c>log.tail</c>. Выход (точка 6а) — конец stdin (клиент ушёл), конец родителя
+/// (обёртки клиента: клиент мог убить её, а вход держать), <c>session.stop</c>, простой без вызовов (<c>--idle-exit</c>:
+/// клиент держит сервер, пока открыт его сеанс, а сеансы настольных клиентов открыты часами); не вышел за
+/// <see cref="ExitDeadline"/> — сторож завершает процесс. Дети (Sword.exe видов и бюджетов) — в задании
+/// <see cref="KillOnCloseJob"/>: умирают вместе с процессом. В сборке без агента (<c>-p:WithoutAgent=true</c>) этого файла нет.
 /// </summary>
 public static partial class Program
 {
+    /// <summary>Сколько после решения выйти ждать обычный выход (запись реплея сеанса), прежде чем завершить процесс.</summary>
+    private static readonly TimeSpan ExitDeadline = TimeSpan.FromSeconds(20);
+
     static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, double profileThreshold,
-        ref int? exit)
+        double idleMinutes, ref int? exit)
     {
         var ring = new LogRing();
         Log.SetSinks(new ConsoleLogSink(allToStandardError: true), ring);
         var stop = new CancellationTokenSource();
         var service = new ServiceQueue();
+        string? reason = null;
+        // Решение выйти — одно, по первой причине; дальше — обычный выход (реплей сеанса в артефакты) под сторожем.
+        void Shutdown(string why)
+        {
+            if (Interlocked.CompareExchange(ref reason, why, null) is not null) return;
+            Log.Info("agent", $"выход: {why}");
+            stop.Cancel();
+            service.Wake();
+            new Thread(() =>
+            {
+                Thread.Sleep(ExitDeadline);
+                Log.Warning("agent", $"не вышел за {ExitDeadline.TotalSeconds:0} с после решения выйти ({why}) — процесс завершается");
+                Environment.Exit(0);
+            }) { IsBackground = true, Name = "sword.agent.exit" }.Start();
+        }
         var time = new TimeControl(paused: true, sim.Tick);
         var host = new AgentHost(new AgentHostOptions
         {
@@ -36,11 +57,7 @@ public static partial class Program
             Service = service,
             Log = ring,
             ArtifactsRoot = ArtifactsRoot(),
-            Stop = () =>
-            {
-                stop.Cancel();
-                service.Wake();
-            },
+            Stop = () => Shutdown("session.stop"),
         });
         SwordAgent.Register(host);
         host.Features = Features();
@@ -64,17 +81,35 @@ public static partial class Program
         {
             protocol = Task.Run(async () =>
             {
+                string end = "клиент закрыл вход (stdin)";
                 try
                 {
                     await StdioTransport.Run(host.Server, Console.OpenStandardInput(), Console.OpenStandardOutput(), stop.Token);
                 }
+                catch (Exception e)
+                {
+                    end = $"транспорт stdio: {e.GetType().Name}: {e.Message}";
+                }
                 finally
                 {
-                    stop.Cancel();   // клиент ушёл — выходим
-                    service.Wake();
+                    Shutdown(end);
                 }
             });
-            Log.Info("agent", $"MCP на stdio: сеанс {host.SessionId}, {host.Tools.Count} инструментов, симуляция на паузе (тик {sim.Tick})");
+            // Родитель — обёртка клиента (cmd /c agent-headless.cmd) или сам клиент: его нет — клиента нет, даже если
+            // вход открыт (клиент убил обёртку, а ручку входа держит — конца stdin не будет).
+            var parent = ProcessLifetime.WhenParentExited(out string watching, stop.Token);
+            _ = parent.ContinueWith(t =>
+            {
+                if (t.IsCompletedSuccessfully) Shutdown($"родитель закончился ({watching})");
+            }, TaskScheduler.Default);
+            if (idleMinutes > 0)
+                _ = host.Server.WhenIdle(TimeSpan.FromMinutes(idleMinutes), stop.Token).ContinueWith(t =>
+                {
+                    if (t.IsCompletedSuccessfully)
+                        Shutdown($"простой — нет вызовов {idleMinutes:0.##} мин (--idle-exit); следующий вызов клиент исполнит на новом сервере");
+                }, TaskScheduler.Default);
+            Log.Info("agent", $"MCP на stdio: сеанс {host.SessionId}, {host.Tools.Count} инструментов, симуляция на паузе (тик {sim.Tick}); " +
+                $"родитель — {watching}; простой — {(idleMinutes > 0 ? $"выход через {idleMinutes:0.##} мин без вызовов" : "без выхода (--idle-exit 0)")}");
         });
         protocol?.Wait(TimeSpan.FromSeconds(2));
         // Сеанс агента воспроизводим и проверяем человеком: запись последней симуляции — в артефакты.
@@ -88,7 +123,7 @@ public static partial class Program
             Log.Info("profile", $"профайлер: {host.Profiler.Write(Path.Combine(profileDir, "profile.json"), ProfileHeader("headless-agent", Environment.GetCommandLineArgs()[1..]))}");
         if (host.Profiler.Anomalies is { Detected: > 0 } anomalies) Log.Info("profile", anomalies.Summary());
         host.Profiler.StopAnomalies();
-        Log.Info("agent", $"сеанс {host.SessionId} закончен на тике {session.Current.Tick} (симуляция №{session.Run})");
+        Log.Info("agent", $"сеанс {host.SessionId} закончен на тике {session.Current.Tick} (симуляция №{session.Run}): {reason}");
         exit = 0;
     }
 
@@ -186,12 +221,17 @@ public static partial class Program
         };
     }
 
-    /// <summary>Запустить Sword.exe и прочитать итог JSON (последняя строка stdout); ошибка — словами.</summary>
+    /// <summary>
+    /// Запустить Sword.exe и прочитать итог JSON (последняя строка stdout); ошибка — словами. Sword.exe — в задании
+    /// <see cref="KillOnCloseJob.Shared"/> (точка 6а): Headless снят или упал — Sword.exe не остаётся сиротой.
+    /// </summary>
     private static (JsonNode? Report, string? Error) RunApp(string exe, IEnumerable<string> args, CancellationToken cancel)
     {
         var start = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (string a in args) start.ArgumentList.Add(a);
         using var process = Process.Start(start) ?? throw new InvalidOperationException($"не запустился {exe}");
+        if (KillOnCloseJob.Shared is not { } job || !job.Add(process))
+            Log.Warning("feature", $"Sword.exe ({process.Id}) не в задании процесса — переживёт Headless, если тот снят: {KillOnCloseJob.LastError}");
         var stdout = process.StandardOutput.ReadToEndAsync(cancel);
         var stderr = process.StandardError.ReadToEndAsync(cancel);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancel);

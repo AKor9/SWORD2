@@ -70,7 +70,9 @@
                             рамкой; 5в — ID-буфер: сегменты игрока в его рамке с легендой, оверлей капсул), render.graph,
                             replay.status (запись с тика 0), profile.stages (кадры: фазы, тики, проходы; точка Пг — gpu),
                             точка Пг — gpuMs проходов в render.graph и gpu снимка (отставание 0), session.stop — выход
-                            closed-by-tool (с -SkipGpu — только Headless);
+                            closed-by-tool (с -SkipGpu — только Headless); точка 6а — время жизни сервера: конец stdin
+                            посреди долгого time.runUntil — выход за секунды, снятая обёртка cmd (вход открыт) — выход,
+                            --idle-exit 0.05 — выход после простоя;
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
                             плана); сэмплинг поз (1 и 33 бойца, кроссфейд) — 0 байт на тик; итог —
@@ -78,7 +80,10 @@
                             1,5 нс, 0 байт с ним и без; счётчики среды, период, снимок машины, строка HUD (точка Пб) —
                             0 байт — artifacts/bench/profiler.json;
       line-endings          все текстовые файлы — CRLF (соглашение AGENTS.md);
-      reference             SHA-256 эталонного пака совпадает с tests/reference/reference.json.
+      reference             SHA-256 эталонного пака совпадает с tests/reference/reference.json;
+      processes             идёт всегда, последним (точка 6а): после verify не осталось процессов SWORD — ни в его
+                            задании Windows (фоновые запуски Sword.Headless --agent и Sword.exe --agent — в задании с
+                            KILL_ON_JOB_CLOSE: verify снят или упал — они завершаются с ним), ни среди его потомков.
 
 .PARAMETER Json
     Итог одним JSON-объектом в stdout, UTF-8 (для агентов). Код выхода: 0 — всё прошло, 1 — нет.
@@ -121,7 +126,7 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 $OutputEncoding = [Console]::OutputEncoding
 
 $knownSteps = @('build', 'test', 'forbidden-references', 'without-agent', 'without-modules', 'headless-smoke', 'app-smoke',
-    'replay-smoke', 'features', 'agent-smoke', 'ecs-bench', 'line-endings', 'reference')
+    'replay-smoke', 'features', 'agent-smoke', 'ecs-bench', 'line-endings', 'reference', 'processes')
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($name in $Only) {
     if ($knownSteps -notcontains $name) { throw "-Only: неизвестный шаг «$name»; шаги: $($knownSteps -join ', ')" }
@@ -131,8 +136,83 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $solution = Join-Path $root 'SWORD.slnx'
 $steps = New-Object System.Collections.Generic.List[object]
 
+# Точка 6а: процессы SWORD, которые verify запускает в фоне (Sword.Headless --agent, Sword.exe --agent), — в задании
+# Windows (Job Object) с KILL_ON_JOB_CLOSE: verify снят или упал — ОС закрывает ручку задания, они завершаются. Сам
+# verify в задание не входит: узлы MSBuild и сервер компилятора, общие с другими сборками пользователя, оно не трогает.
+# Шаг processes в конце — процессов SWORD не осталось.
+if (-not ('SwordVerifyJob' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SwordVerifyJob
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Basic
+    {
+        public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass, SchedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Extended
+    {
+        public Basic Basic;
+        public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes;
+        public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+    }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref Extended info, int size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr info, int size, IntPtr returned);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+
+    public static IntPtr Create()
+    {
+        IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) return IntPtr.Zero;
+        Extended info = new Extended();
+        info.Basic.LimitFlags = 0x2000;   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        return SetInformationJobObject(job, 9, ref info, Marshal.SizeOf(typeof(Extended))) ? job : IntPtr.Zero;
+    }
+
+    public static bool Add(IntPtr job, IntPtr process) { return job != IntPtr.Zero && AssignProcessToJobObject(job, process); }
+
+    public static int[] Processes(IntPtr job)
+    {
+        if (job == IntPtr.Zero) return new int[0];
+        int size = 8 + IntPtr.Size * 1024;
+        IntPtr buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (!QueryInformationJobObject(job, 3, buffer, size, IntPtr.Zero)) return new int[0];
+            int count = Marshal.ReadInt32(buffer, 4);
+            int[] ids = new int[count];
+            for (int i = 0; i < count; i++) ids[i] = (int)Marshal.ReadIntPtr(buffer, 8 + IntPtr.Size * i).ToInt64();
+            return ids;
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    public static bool Terminate(IntPtr job) { return job != IntPtr.Zero && TerminateJobObject(job, 1); }
+}
+'@
+}
+$script:job = [SwordVerifyJob]::Create()
+$script:jobAdded = 0
+function Add-ToJob($Process) {
+    if ([SwordVerifyJob]::Add($script:job, $Process.Handle)) { $script:jobAdded++ }
+}
+
 function Add-Step([string]$Name, [scriptblock]$Body) {
-    if ($Only.Count -gt 0 -and $Name -ne 'build' -and $Only -notcontains $Name) {
+    if ($Only.Count -gt 0 -and $Name -ne 'build' -and $Name -ne 'processes' -and $Only -notcontains $Name) {
         $steps.Add([ordered]@{ name = $Name; ok = $true; seconds = 0; detail = 'пропущено (-Only)' })
         if (-not $Json) { Write-Host ('SKIP {0,-22} пропущено (-Only)' -f $Name) }
         return
@@ -709,6 +789,7 @@ Add-Step 'agent-smoke' {
     $psi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
     $psi.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
     $proc = [System.Diagnostics.Process]::Start($psi)
+    Add-ToJob $proc
     $stderr = $proc.StandardError.ReadToEndAsync()
     $script:rpcId = 0
     $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -875,7 +956,74 @@ Add-Step 'agent-smoke' {
     }
     catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
     finally { if (-not $proc.HasExited) { $proc.Kill() } }
-    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают; инварианты не нарушены, свой инвариант агента встал на нарушении посреди тика; feature.verify movement зелёный, ветка experiment.fork разошлась после 61 тика, experiment.compare назвал участника; profile.stages — зоны 30 тиков"
+
+    # Точка 6а: сервер выходит сам. Три сервера сразу: (1) конец stdin посреди долгого time.runUntil — за секунды;
+    # (2) клиент снял обёртку cmd, а вход держит открытым — сервер видит конец родителя; (3) --idle-exit 0.05 (3 с) —
+    # выход после простоя без вызовов.
+    $lifeNote = ''
+    $life = @()
+    try {
+        function Start-Agent([string]$Extra, [switch]$ViaCmd) {
+            $p = New-Object System.Diagnostics.ProcessStartInfo
+            if ($ViaCmd) { $p.FileName = 'cmd.exe'; $p.Arguments = "/c `"`"$($headless.FullName)`" --agent $Extra`"" }
+            else { $p.FileName = $headless.FullName; $p.Arguments = "--agent $Extra" }
+            $p.UseShellExecute = $false
+            $p.RedirectStandardInput = $true
+            $p.RedirectStandardOutput = $true
+            $p.RedirectStandardError = $true
+            $p.StandardOutputEncoding = $utf8
+            $p.StandardErrorEncoding = $utf8
+            $started = [System.Diagnostics.Process]::Start($p)
+            Add-ToJob $started
+            $null = $started.StandardError.ReadToEndAsync()
+            return $started
+        }
+        function Send-Line($p, [string]$line) {
+            $bytes = $utf8.GetBytes($line + "`n")
+            $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+            $p.StandardInput.BaseStream.Flush()
+        }
+        function Read-Line($p) {
+            $t = $p.StandardOutput.ReadLineAsync()
+            if (-not $t.Wait(60000)) { throw 'сервер не ответил за 60 с' }
+            return $t.Result
+        }
+        $eof = Start-Agent ''
+        $wrapped = Start-Agent '' -ViaCmd
+        $idle = Start-Agent '--idle-exit 0.05'
+        $life = @($eof, $wrapped, $idle)
+        foreach ($p in $life) {
+            Send-Line $p '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify-lifetime"}}}'
+            if (-not (Read-Line $p)) { throw "сервер $($p.Id) закрыл вывод на initialize" }
+        }
+        $inner = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($wrapped.Id)" | Where-Object { $_.Name -eq 'Sword.Headless.exe' } | Select-Object -First 1
+        if (-not $inner) { throw 'под cmd нет Sword.Headless.exe' }
+        $innerProc = Get-Process -Id $inner.ProcessId
+        $life += $innerProc
+        Send-Line $idle '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"session.status","arguments":{}}}'
+        $null = Read-Line $idle
+        $idleWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        # Долгий вызов без нагрузки: runUntil к далёкому тику, затем пауза — вызов ждёт (до 600 с), тики не идут.
+        Send-Line $eof '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"time.runUntil","arguments":{"tick":10000000,"timeoutSeconds":600}}}'
+        Start-Sleep -Milliseconds 200
+        Send-Line $eof '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"time.pause","arguments":{}}}'
+        if ((Read-Line $eof) -notmatch '"id":3') { throw 'time.pause: ответ не на тот запрос (runUntil закончился раньше?)' }
+        $eofWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $eof.StandardInput.Close()
+        $wrapWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        Stop-Process -Id $wrapped.Id -Force                   # только обёртка: наш конец входа сервера открыт
+        $eofOut = $eof.WaitForExit(8000); $eofSec = [math]::Round($eofWatch.Elapsed.TotalSeconds, 1)
+        $wrapOut = $innerProc.WaitForExit(8000); $wrapSec = [math]::Round($wrapWatch.Elapsed.TotalSeconds, 1)
+        $idleOut = $idle.WaitForExit(20000); $idleSec = [math]::Round($idleWatch.Elapsed.TotalSeconds, 1)
+        if (-not $eofOut) { $problems += 'Headless: конец stdin посреди time.runUntil — не вышел за 8 с' }
+        if (-not $wrapOut) { $problems += 'Headless: обёртка cmd снята, вход открыт — не вышел за 8 с (слежение за родителем)' }
+        if (-not $idleOut) { $problems += 'Headless: --idle-exit 0.05 — не вышел за 20 с простоя' }
+        $lifeNote = "; время жизни (6а): конец stdin посреди runUntil — выход за $eofSec с, снятая обёртка — за $wrapSec с, простой 3 с — выход через $idleSec с"
+    }
+    catch { $problems += "Headless (время жизни): $($_.Exception.Message)" }
+    finally { foreach ($p in $life) { if ($p -and -not $p.HasExited) { $p.Kill() } } }
+
+    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают; инварианты не нарушены, свой инвариант агента встал на нарушении посреди тика; feature.verify movement зелёный, ветка experiment.fork разошлась после 61 тика, experiment.compare назвал участника; profile.stages — зоны 30 тиков$lifeNote"
 
     $appNote = 'живая игра — пропущено (-SkipGpu)'
     if (-not $SkipGpu) {
@@ -887,6 +1035,7 @@ Add-Step 'agent-smoke' {
         $err = Join-Path $dir 'app.log'
         $app = Start-Process -FilePath $exe.FullName -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err `
             -ArgumentList @('--windowed', '640x480', '--no-activate', '--json', '--gpu-validation', '--agent-port', "$port")
+        Add-ToJob $app
         $url = "http://127.0.0.1:$port/mcp"
         $script:httpId = 0
         function Send-Http($method, $params) {
@@ -1059,9 +1208,51 @@ else {
     }
 }
 
+Add-Step 'processes' {
+    # Точка 6а: после verify не остаётся процессов SWORD — ни в его задании (фоновые запуски; их дети — там же), ни среди
+    # потомков. Снятые шагами процессы исчезают не мгновенно — ждём до 5 с; оставшиеся — провал, задание их завершает.
+    function Get-SwordLeft {
+        $all = @(Get-CimInstance Win32_Process)
+        $children = @{}
+        $created = @{}
+        foreach ($p in $all) { $children[[int]$p.ParentProcessId] += @($p); $created[[int]$p.ProcessId] = $p.CreationDate }
+        $tree = New-Object System.Collections.Generic.List[object]
+        $queue = New-Object System.Collections.Generic.Queue[int]
+        $queue.Enqueue($PID)
+        while ($queue.Count -gt 0) {
+            $parent = $queue.Dequeue()
+            foreach ($c in @($children[$parent])) {
+                # ParentProcessId сироты указывает на умершего родителя, чей номер мог достаться нашему процессу:
+                # потомок — только запущенный не раньше родителя (чужие серверы других сеансов не трогаем).
+                if (-not $c -or $c.ProcessId -eq $PID -or $c.CreationDate -lt $created[$parent]) { continue }
+                $tree.Add($c)
+                $queue.Enqueue([int]$c.ProcessId)
+            }
+        }
+        $inJob = @([SwordVerifyJob]::Processes($script:job))
+        $all | Where-Object { $_.ProcessId -ne $PID -and ($inJob -contains [int]$_.ProcessId -or $tree.ProcessId -contains $_.ProcessId) -and
+            $_.Name -match '^Sword(\.Headless)?\.exe$' }
+    }
+    $left = @()
+    for ($i = 0; $i -lt 50; $i++) {
+        $left = @(Get-SwordLeft)
+        if ($left.Count -eq 0) { break }
+        Start-Sleep -Milliseconds 100
+    }
+    $jobNote = if ($script:job -eq [IntPtr]::Zero) { 'задания Windows нет (Add-Type или CreateJobObject не удались) — только потомки' }
+               else { "в задании побывало фоновых запусков: $($script:jobAdded)" }
+    if ($left.Count -eq 0) { @{ ok = $true; detail = "процессов SWORD после verify не осталось; $jobNote" } }
+    else {
+        $names = ($left | ForEach-Object { "$($_.Name) $($_.ProcessId) ($($_.CommandLine))" }) -join '; '
+        [void][SwordVerifyJob]::Terminate($script:job)
+        foreach ($p in $left) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+        @{ ok = $false; detail = "остались процессы SWORD (завершены): $names" }
+    }
+}
+
 $allOk = @($steps | Where-Object { -not $_.ok }).Count -eq 0
 # -Only: итог — только выбранных шагов (остальные — «пропущено (-Only)»); это видно и в JSON (only), и в последней строке.
-$onlySteps = if ($Only.Count -gt 0) { @('build') + @($Only | Where-Object { $_ -ne 'build' }) } else { @() }
+$onlySteps = if ($Only.Count -gt 0) { @('build') + @($Only | Where-Object { $_ -ne 'build' -and $_ -ne 'processes' }) + @('processes') } else { @() }
 $onlyNote = if ($onlySteps.Count -gt 0) { " (только шаги -Only: $($onlySteps -join ', '))" } else { '' }
 if ($Json) {
     $summary = [ordered]@{ ok = $allOk; configuration = $Configuration }

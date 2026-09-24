@@ -11,12 +11,19 @@ namespace Sword.Engine.Agent;
 /// Транспорт stdio (MCP): сообщение JSON-RPC — одна строка UTF-8 во входе, ответ — одна строка в выходе. Так агента
 /// подключают к <c>Sword.Headless --agent</c>: клиент сам запускает процесс. stdout занят протоколом — журнал идёт в
 /// stderr. Запросы исполняются параллельно, строки ответов не перемешиваются. Конец входа (клиент ушёл) — конец работы:
-/// вызовы, не закончившиеся за <see cref="EofGrace"/>, отменяются (долгий <c>time.runUntil</c> не держит процесс).
+/// вызовы, не закончившиеся за <see cref="EofGrace"/>, отменяются (долгий <c>time.runUntil</c> не держит процесс), а
+/// не ответившие на отмену за <see cref="CancelGrace"/> бросаются — транспорт возвращается за секунды при любом вызове.
 /// </summary>
 public static class StdioTransport
 {
     /// <summary>Сколько после конца входа ждать исполняемые вызовы, прежде чем отменить.</summary>
     public static readonly TimeSpan EofGrace = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Сколько после отмены ждать вызовы, прежде чем бросить их (вызов, не проверяющий отмену, не держит выход; ответ
+    /// всё равно некому писать).
+    /// </summary>
+    public static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(2);
 
     public static async Task Run(McpServer server, Stream input, Stream output, CancellationToken stop)
     {
@@ -65,9 +72,18 @@ public static class StdioTransport
         {
         }
         // Конец входа: быстрые вызовы успевают ответить (клиент мог закрыть вход сразу после запросов), долгие —
-        // отменяются через секунды, а не держат процесс.
+        // отменяются через секунды, а не держат процесс; не ответившие на отмену — бросаются (точка 6а).
         var all = Task.WhenAll(running);
-        if (await Task.WhenAny(all, Task.Delay(EofGrace, stop)).ConfigureAwait(false) != all) calls.Cancel();
+        if (await Task.WhenAny(all, Task.Delay(EofGrace, stop)).ConfigureAwait(false) != all)
+        {
+            calls.Cancel();
+            if (await Task.WhenAny(all, Task.Delay(CancelGrace)).ConfigureAwait(false) != all)
+            {
+                Log.Warning("agent", $"stdio: вызовов, не ответивших на отмену за {CancelGrace.TotalSeconds:0.#} с, — " +
+                    $"{running.Count(t => !t.IsCompleted)}: брошены");
+                return;
+            }
+        }
         await all.ConfigureAwait(false);
     }
 }

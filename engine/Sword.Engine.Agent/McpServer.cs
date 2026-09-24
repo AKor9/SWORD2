@@ -32,6 +32,31 @@ public sealed class McpServer(AgentHost host)
     private static readonly TimeSpan EarlyCancelTtl = TimeSpan.FromSeconds(10);
     private const int MaxEarlyCancels = 256;
 
+    /// <summary>Исполняемых вызовов инструментов (<c>tools/call</c>).</summary>
+    private int _calls;
+
+    /// <summary>Когда вызов инструмента последний раз начался или закончился (<see cref="Environment.TickCount64"/>).</summary>
+    private long _lastCall = Environment.TickCount64;
+
+    /// <summary>
+    /// Сколько сервер без вызовов инструментов: с конца последнего вызова (или с создания); пока вызов исполняется — ноль.
+    /// <c>initialize</c>, <c>tools/list</c>, <c>ping</c> и уведомления простоя не прерывают: клиент, который только
+    /// держит соединение, агентом не пользуется (точка 6а — выход сервера после простоя).
+    /// </summary>
+    public TimeSpan IdleFor => Volatile.Read(ref _calls) > 0
+        ? TimeSpan.Zero
+        : TimeSpan.FromMilliseconds(Math.Max(0, Environment.TickCount64 - Interlocked.Read(ref _lastCall)));
+
+    /// <summary>
+    /// Задача, которая завершается, когда простой (<see cref="IdleFor"/>) дошёл до <paramref name="idle"/>; опрос — не
+    /// реже раза в 5 с. Отмена — <paramref name="cancel"/>.
+    /// </summary>
+    public async Task WhenIdle(TimeSpan idle, CancellationToken cancel)
+    {
+        var poll = TimeSpan.FromMilliseconds(Math.Clamp(idle.TotalMilliseconds / 4, 50, 5000));
+        while (IdleFor < idle) await Task.Delay(poll, cancel).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Сообщение клиента → ответ; null — ответа нет (уведомление, ответ клиента, отменённый вызов).
     /// <paramref name="session"/> — сеанс транспорта (HTTP: <c>Mcp-Session-Id</c>), для отмены вызовов.
@@ -176,6 +201,8 @@ public sealed class McpServer(AgentHost host)
         string key = Key(session, id);
         _running[key] = cts;
         if (_earlyCancels.TryRemove(key, out _)) cts.Cancel();   // отмена обогнала вызов
+        Interlocked.Increment(ref _calls);
+        Interlocked.Exchange(ref _lastCall, Environment.TickCount64);
         try
         {
             CheckArguments(tool, arguments);
@@ -208,6 +235,8 @@ public sealed class McpServer(AgentHost host)
         finally
         {
             _running.TryRemove(new KeyValuePair<string, CancellationTokenSource>(key, cts));
+            Interlocked.Exchange(ref _lastCall, Environment.TickCount64);
+            Interlocked.Decrement(ref _calls);
         }
     }
 

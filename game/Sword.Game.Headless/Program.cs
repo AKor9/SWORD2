@@ -51,7 +51,12 @@ public static partial class Program
                               Без ключа итог --json всё равно несёт machine: машина за тики после прогрева (поток на
                               CPU, загрузка системы другими процессами, частота, GC, JIT) и вердикт «код или машина»
           --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
-                              двигает агент; stdout — только протокол, журнал — в stderr
+                              двигает агент; stdout — только протокол, журнал — в stderr. Выход: конец stdin,
+                              конец процесса-родителя (обёртки клиента), session.stop, простой (--idle-exit)
+          --idle-exit MIN     с --agent: выйти, если MIN минут не было вызовов инструментов (по умолчанию 15;
+                              0 — не выходить): клиент держит сервер, пока открыт его сеанс; вызов после выхода
+                              клиент (Claude Code, Codex) запускает на новом сервере — сеанс с тика 0, реплей прежнего
+                              — в его артефактах
           --feature ID|all    приёмка фичи по манифесту feature.json (feature.verify): сценарии, инварианты,
                               метрики, бюджеты, виды (кадры Sword.exe --replay); артефакты — artifacts/features/ID;
                               код выхода 4 — провал. --no-views — без видов, --no-budgets — без бюджетов
@@ -62,7 +67,10 @@ public static partial class Program
     /// <paramref name="build"/> — симуляция из конфига той же композицией (<c>session.start</c>, <c>time.seek</c> назад).
     /// </summary>
     static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, double profileThreshold,
-        ref int? exit);
+        double idleMinutes, ref int? exit);
+
+    /// <summary>Простой сервера агента без вызовов, после которого он выходит (<c>--idle-exit</c>, точка 6а), мин.</summary>
+    private const double DefaultIdleExitMinutes = 15;
 
     /// <summary>Приёмка фич (<c>--feature</c>, AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
     static partial void RunFeatures(string which, Func<ConfigSet, Simulation> build, string content, bool views, bool budgets, bool json,
@@ -78,7 +86,8 @@ public static partial class Program
         bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
         bool json = false, agent = false, profile = false, profileEvents = false, profileTrace = false;
-        double profileThreshold = 0;
+        double profileThreshold = 0, idleExit = DefaultIdleExitMinutes;
+        bool idleExitSet = false;
         string? record = null, replayPath = null, feature = null;
         bool views = true, budgets = true;
         var sets = new List<string>();
@@ -133,6 +142,12 @@ public static partial class Program
                             || !(profileThreshold >= 0 && profileThreshold <= 60_000))
                             throw new ArgumentException($"{a}: ожидается порог в мс 0…60000 (0 — по медиане)");
                         break;
+                    case "--idle-exit":
+                        if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out idleExit)
+                            || !(idleExit >= 0 && idleExit <= 24 * 60))
+                            throw new ArgumentException($"{a}: ожидаются минуты 0…1440 (0 — не выходить)");
+                        idleExitSet = true;
+                        break;
                     case "--feature": feature = Next(); break;
                     case "--no-views": views = false; break;
                     case "--no-budgets": budgets = false; break;
@@ -146,6 +161,7 @@ public static partial class Program
                 throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set, --units, --profile нельзя " +
                     "(время систем бюджеты мерят сами — отдельным прогоном с профайлером)");
             if (feature is null && (!views || !budgets)) throw new ArgumentException("--no-views и --no-budgets — только с --feature");
+            if (idleExitSet && !agent) throw new ArgumentException("--idle-exit — только с --agent");
         }
         catch (ArgumentException ex)
         {
@@ -190,7 +206,7 @@ public static partial class Program
             if (agent)
             {
                 int? exit = null;
-                RunAgent(sim, Build, profile, profileEvents, profileThreshold, ref exit);
+                RunAgent(sim, Build, profile, profileEvents, profileThreshold, idleExit, ref exit);
                 if (exit is { } code) return code;
                 Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
                 return 2;
