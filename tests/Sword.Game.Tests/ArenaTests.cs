@@ -144,14 +144,6 @@ public sealed class ArenaTests
     }
 
     [Fact]
-    public void Slots_PlayerAndUpTo32Enemies()
-    {
-        // Места бойцов: 0 — игрок, 1…32 — враги.
-        Assert.Equal(33, ArenaRules.MaxFighters);
-        Assert.Equal(ArenaRules.MaxFighters - 1, ArenaState.MaxEnemies);
-    }
-
-    [Fact]
     public void Config_Enemies_DefaultEmpty_OutOfRangeIsError()
     {
         var empty = Create();

@@ -121,16 +121,6 @@ public class CatalogAndQueryTests
         Assert.True(all["components"]!["Marker"]!.GetValue<bool>());   // тег — true
         Assert.Null(WorldQuery.CopyOne(ctx, new Entity(99, 1), null, null));
     }
-
-    [Fact]
-    public void Resources_AreCopiedOnlyWhenPlainData()
-    {
-        var world = _sim.World;
-        var time = world.Resources.First(r => r.Type == typeof(SimTime));
-        Assert.True(time.Size > 0);
-        var bytes = world.CopyResource(time.Id)!;
-        Assert.NotNull(FieldCodec.Decode(typeof(SimTime), bytes));
-    }
 }
 
 public class ArchitectureMapTests

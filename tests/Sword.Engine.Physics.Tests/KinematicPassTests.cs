@@ -264,20 +264,6 @@ public class KinematicPassTests
         Assert.Throws<InvalidOperationException>(() => w.ApplyHit(part, Vector3.Zero, Vector3.UnitZ, 1, blade));
     }
 
-    [Fact]
-    public void SteadyState_PushesPassesAndHits_DoNotAllocate()
-    {
-        var w = World();
-        var (pushers, targets) = Crowd(w);
-        float sink = 0;
-        for (int t = 0; t < 100; t++) sink += CrowdTick(w, pushers, targets, t);
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int t = 100; t < 1100; t++) sink += CrowdTick(w, pushers, targets, t);
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Assert.True(allocated == 0, $"1000 тиков толчков, проходов и ударов выделили {allocated} Б");
-        Assert.True(float.IsFinite(sink) && sink > 0);
-    }
-
     /// <summary>
     /// Два толкающих по 13 тел и две цели по 14 тел внахлёст (шары вдоль X); земля — плоскость на 1 мм выше низа целей (цели
     /// чуть в земле: касание и трение есть, толчкам не мешает).

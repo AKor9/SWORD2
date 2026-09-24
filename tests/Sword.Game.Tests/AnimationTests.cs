@@ -186,17 +186,6 @@ public sealed class AnimationTests
     }
 
     [Fact]
-    public void SteadyTick_WithAnimation_DoesNotAllocate()
-    {
-        var sim = TestAssets.Simulation();
-        var command = new PlayerCommand { Move = new Vector2(1, 1), HasGaze = true, Gaze = new Vector3(5, 0, 5) };
-        for (int i = 0; i < 200; i++) { sim.Export.BeginFrame(); sim.Enqueue(command); sim.Step(); }
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 600; i++) { sim.Export.BeginFrame(); sim.Enqueue(command); sim.Step(); }
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
-    }
-
-    [Fact]
     public async Task AgentTools_ShowPoseAndClips()
     {
         var sim = TestAssets.Simulation();

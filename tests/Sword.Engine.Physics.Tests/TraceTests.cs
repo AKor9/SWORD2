@@ -61,7 +61,7 @@ public class TraceTests
         for (int t = 100; t < 1100; t++) sink += KinematicPassTests.CrowdTick(w, pushers, targets, t);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(allocated == 0, $"трасса {(on ? "включена" : "выключена")}: 1000 тиков выделили {allocated} Б");
-        Assert.True(float.IsFinite(sink));
+        Assert.True(float.IsFinite(sink) && sink > 0);
         if (!on) return;
         var run = w.Trace!.Run;
         Assert.Equal(1100, run.Steps);
