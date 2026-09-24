@@ -42,7 +42,8 @@
 
 Порядок работ: **этап 0** (каркас, эталон) → **этап 1** (прототип без механик и агентский доступ, точки 1а–1е) →
 **фичи по одной** (этапы 2–14); следующая фича начинается после подтверждения предыдущей в игре. Пекарня —
-параллельно после прототипа.
+параллельно после прототипа. Отложены — не в рамках текущей работы: этап 10 (блок, Guard — решение 16), 11 и 13
+(расчленение и внутренности, Cutting и Innards — решение 17), 12 (кровь — решение 15); после этапа 9 — этап 14.
 
 ---
 
@@ -65,6 +66,8 @@
 | 13 | **Агентский API ориентирован не на выгрузку внутренностей движка, а на проверяемые вопросы, причинные связи, сравнения и воспроизводимые эксперименты:** условия и инварианты, `state.why`, снимки и их сравнение, ветвления и перебор параметров, минимизация ошибки, дифференциальные прогоны (раздел 8) | тысяча строк состояния не объясняет ошибку; структурированный факт, причина и минимальный воспроизводимый пример — объясняют |
 | 14 | **С этапа 7 — свой путь** (пользователь, 2026-09-24; уточняет решения 1 и 4): SWORD — источник идей, а не образец. Со SWORD не сравниваем (ни трасс, ни чисел сцен), тесты SWORD не переносим — свои тесты свойств; решения свои, отличия от SWORD не ошибка, а выбор. Сравнения этапов 2–6 со SWORD снимаются точкой 7а. Живой рэгдолл по-прежнему не переносится | игра идёт своим путём; держать её вровень со SWORD больше не нужно, а сравнения стоят времени на каждой точке |
 | 15 | **Кровь отложена полностью** (пользователь, 2026-09-24): модуль Blood из SWORD не переносится — ни GPU-симуляция крови, ни пятна, ни кровь на клинке и теле, ни `ArenaWorld` (его единственный потребитель в SWORD); кровь будет сделана заново своим путём позже, отдельным решением. Кровопотеря (очки жизни, этап 6) — механика боя, остаётся | кровь будет переделана; переносить старую — лишняя работа |
+| 16 | **Блок отложен — модуль Guard** (пользователь, 2026-09-24): в текущей работе блока нет — ни блока ПКМ (`Block`, `Blocked`, `Parry`, `Stagger`, слой кисти, `ForecastBlade`, `BlockTimings`), ни выносливости (`Stamina`), ни столкновений клинков (`BladeClash`, событие `Clash`), ни блока врагов по конусу (`FacingGuard`). Guard SWORD сейчас не переносится; блок будет сделан сильно позже, своим путём (решение 14), отдельным решением. Этап 10 отложен; стадия Defense остаётся пустой точкой протокола боя — удары проходят всегда | как и кровь — сильно позже, не в рамках текущей работы |
+| 17 | **Расчленение и внутренности отложены — модули Cutting и Innards** (пользователь, 2026-09-24): в текущей работе нет ни отделения частей (разрез, отрыв по суставу `JointDetachment`), ни разреза мешей и срезов, ни обломков (их создаёт только разрез) и `FollowSevered`, ни внутренностей. Модули SWORD сейчас не переносятся; будут сделаны сильно позже, своим путём (решение 14), отдельным решением. Этапы 11 и 13 отложены; стадия Dismember остаётся пустой: заявка `SeverRequested` (этап 6) остаётся без ответа — конечности на месте, удары ранят и убивают, труп падает целым | как кровь и блок — сильно позже, не в рамках текущей работы |
 
 ---
 
@@ -185,13 +188,13 @@ SWORD2/
     Sword.Game/                    симуляция игры: системы и правила
     Sword.Game.Client/             представление: ввод → команды, камера, Extract, проходы сцены, HUD
     modules/
-      Sword.Game.Guard/            (+ Sword.Game.Guard.Client — HUD выносливости, когда понадобится)
+      Sword.Game.Guard/            (отложен — решение 16; + Sword.Game.Guard.Client — HUD выносливости)
       Sword.Game.FootPlacement/
       Sword.Game.Locomotion/       (+ Sword.Game.Locomotion.Client — диагностика MM, когда понадобится)
-      Sword.Game.Cutting/          отделение частей, капсулы
-      Sword.Game.Cutting.Client/   разрез мешей
+      Sword.Game.Cutting/          отделение частей, капсулы (отложен — решение 17)
+      Sword.Game.Cutting.Client/   разрез мешей (отложен — решение 17)
       Sword.Game.Blood.Client/     (отложен — решение 15; кровь будет сделана заново)
-      Sword.Game.Innards.Client/
+      Sword.Game.Innards.Client/   (отложен — решение 17)
       Sword.Game.Faults/           модули-неисправности для оценки агента (только разработка, раздел 8)
     Sword.Game/Features/<Id>/      md и feature.json фич ядра (анимация, бой, рэгдолл…); у модулей — в папке модуля
     Sword.Game.Bootstrap/          единая композиция симуляции: ядро + модули симуляции — одна для App и Headless
@@ -650,15 +653,15 @@ public interface IGpuSimulation
 Тик — после каждой стадии барьер (раздел 5)
 ├─ Begin       время тика, Prev* для интерполяции
 ├─ Intent      команды игрока (из клиента или реплея), ИИ, сценарии → FighterCommand; команды арены → спаун, Set<WeaponSlot>
-├─ Gameplay    смерти до физики → рэгдолл; настройка новых бойцов; смена оружия; решения боя, аниматор; Guard: выносливость
+├─ Gameplay    смерти до физики → рэгдолл; настройка новых бойцов; смена оружия; решения боя, аниматор; Guard: выносливость (отложен — решение 16)
 ├─ Animation   Push → Animation.Tick → Pull: позы, корневое движение
 ├─ Movement    корни-контроллеры, постановка стоп (FootPlacement)
 ├─ PrePhysics  кинематические капсулы по позе
 ├─ Physics     Push → XPBD, подшаги → Pull
 ├─ Combat      проходы клинков → StrikeContact
-├─ Defense     блок и столкновения клинков (Guard) → StrikeBlocked, Clash
+├─ Defense     блок и столкновения клинков (Guard) → StrikeBlocked, Clash — пуста: Guard отложен (решение 16)
 ├─ Resolve     урон по неотбитым контактам → Hit, Dead, SeverRequested
-├─ Dismember   расчленение отвечает на заявки (Cutting) → LimbDetached, обломки
+├─ Dismember   расчленение отвечает на заявки (Cutting) → LimbDetached, обломки — пуста: Cutting отложен (решение 17)
 ├─ React       отдача и реакции на удары; последствия отруба (маска Severed, кровотечение)
 ├─ Aftermath   кровопотеря (→ Dead), возрождение, пересборка разбитых, политика обломков
 ├─ Settle      смерти тика → рэгдолл; «усадка» свежих отрубов (Cutting); статистика
@@ -1207,12 +1210,12 @@ lod      = [hero, hybrid, crowd]
 | PrePhysics | `KinematicPlacementSystem`, `BladePlacementSystem` (6б: клинок тика и прошлый) | непрерывные | `PlaceBodies` (с клинком `anim.Blade`), `PrepareKinematicContacts` |
 | Physics | Push/Pull физики | непрерывные | подшаги `DuelArena.Tick` |
 | Combat | `StrikeDetectionSystem` | непрерывная → `StrikeContact` | `KinematicStrikes` |
-| Resolve | `HitApplySystem` | реактивная: `Event<StrikeContact>` (+ журнал `StrikeBlocked` из Defense) → `Hit`, `Dead`, `SeverRequested` | `ApplyHits`, `ApplyHit` |
-| React | `HitReactionSystem`, `ClashReactionSystem` | реактивные: `Event<Hit>`; `Event<Clash>` | `ApplyReactions`, `KinematicReactions` |
-| React | `SeverAftermathSystem` | реактивная: `Event<LimbDetached>` — маска `Severed`, `Bleeding` | `Fighter.Sever`, `DetachBranch` |
+| Resolve | `HitApplySystem` | реактивная: `Event<StrikeContact>` (+ журнал `StrikeBlocked` из Defense — с Guard, отложен: решение 16) → `Hit`, `Dead`, `SeverRequested` | `ApplyHits`, `ApplyHit` |
+| React | `HitReactionSystem`, `ClashReactionSystem` (с Guard — отложен, решение 16) | реактивные: `Event<Hit>`; `Event<Clash>` | `ApplyReactions`, `KinematicReactions` |
+| React | `SeverAftermathSystem` (с Cutting — отложен, решение 17) | реактивная: `Event<LimbDetached>` — маска `Severed`, `Bleeding` | `Fighter.Sever`, `DetachBranch` |
 | Aftermath | `BleedSystem` | непрерывная по `Bleeding` → `Dead` | `AfterTick` (кровопотеря) |
 | Aftermath | `RespawnSystem`, `RebuildSystem` | непрерывные: мёртвые дольше 8 с; тела с нечисловыми координатами | `Spawn`, проверка `IsFinite` в `DuelArena.Tick` |
-| Aftermath | `DebrisPolicySystem` | реактивная `Added<Debris>` (из Dismember) + непрерывная по `Lifetime` | `Debris.RemoveAll`, `MaxDebris` |
+| Aftermath | `DebrisPolicySystem` (с Cutting — отложен, решение 17) | реактивная `Added<Debris>` (из Dismember) + непрерывная по `Lifetime` | `Debris.RemoveAll`, `MaxDebris` |
 | Settle | `DeathToRagdollSystem@Settle` | реактивная: `Added<Dead>` — смерти от ударов и кровопотери | `SettleDeaths()` в конце тика |
 | Settle | `ArenaStatsSystem` | реактивные: `Event<Hit>`, `Added<Dead>`, `Event<LimbDetached>` | `Kills`, `Hits`, `Severs` |
 
@@ -1240,7 +1243,9 @@ Settle     Dead → рэгдолл; Cutting «усаживает» свежие 
 ```
 
 Без Guard не появляется `StrikeBlocked` — удар проходит. Без Cutting заявка на отруб остаётся без ответа — конечность
-на месте. Это не запасной алгоритм, а естественная обработка фактов: ядро не ждёт ни ответа, ни модуля.
+на месте. Это не запасной алгоритм, а естественная обработка фактов: ядро не ждёт ни ответа, ни модуля. Guard и
+Cutting отложены (решения 16, 17): стадии Defense и Dismember пока пусты — удары проходят всегда, заявки на отруб
+остаются без ответа.
 
 ### Контракт расчленения
 
@@ -1249,7 +1254,7 @@ Settle     Dead → рэгдолл; Cutting «усаживает» свежие 
 В `Game.Contracts` уходят **только данные и события**: заявка на отруб, событие отделения, компоненты отрубленной
 части, описание поверхности среза. Логика — в модуле: отделение и капсулы (`FighterCutter`, `MeshCutter`,
 `JointDetachment`) — в `Sword.Game.Cutting`, разрез мешей (`SkinMeshCutter`, `SkinCutMeshes`) — в
-`Sword.Game.Cutting.Client`. Точное деление — при переносе модуля (этап 11).
+`Sword.Game.Cutting.Client`. Точное деление — при переносе модуля (этап 11 — отложен, решение 17).
 
 ### Что не переносится (живой рэгдолл)
 
@@ -1270,12 +1275,12 @@ Settle     Dead → рэгдолл; Cutting «усаживает» свежие 
 
 | модуль | сборки | что внутри | без модуля |
 |---|---|---|---|
-| Guard | `Sword.Game.Guard` (+ `.Client` — HUD выносливости, когда понадобится) | `AutoGuard`, `BladeGuard`, `BladeClash`, `Stamina` + блок врагов по конусу (`FacingGuard`, сейчас в ядре) | блока нет ни у кого: удары проходят всегда |
+| Guard (отложен — решение 16) | `Sword.Game.Guard` (+ `.Client` — HUD выносливости, когда понадобится) | `AutoGuard`, `BladeGuard`, `BladeClash`, `Stamina` + блок врагов по конусу (`FacingGuard`, сейчас в ядре) | блока нет ни у кого: удары проходят всегда |
 | FootPlacement | `Sword.Game.FootPlacement` | постановка стоп и тела на рельеф поверх IK `Animation` | стопы там, где их поставила анимация; тело на высоте корня |
 | Locomotion | `Sword.Game.Locomotion` (+ `.Client` — диагностика MM, когда понадобится) | MM игрока (`LocoController`, `LocoPoseSource`) + локомоция клипами (`LegacyLocomotion`, сейчас в `Sword.Combat` — ею ходят враги) | ходьбы нет ни у кого: корень движется без шагов, удары и реакции играют поверх позы привязки |
-| Cutting | `Sword.Game.Cutting` + `Sword.Game.Cutting.Client` | отделение частей и капсулы + разрез мешей; отрыв по суставу (`JointDetachment`, сейчас в ядре) | конечности не отделяются: удары ранят и убивают, труп падает целым |
+| Cutting (отложен — решение 17) | `Sword.Game.Cutting` + `Sword.Game.Cutting.Client` | отделение частей и капсулы + разрез мешей; отрыв по суставу (`JointDetachment`, сейчас в ядре) | конечности не отделяются: удары ранят и убивают, труп падает целым |
 | Blood (отложен — решение 15) | `Sword.Game.Blood.Client` | GPU-симуляция на `IGpuSimulation`, пятна, кровь оружия и тела | нет крови |
-| Innards | `Sword.Game.Innards.Client` | внутренности, поле, кишки | нет внутренностей |
+| Innards (отложен — решение 17) | `Sword.Game.Innards.Client` | внутренности, поле, кишки | нет внутренностей |
 | DevTools | `Sword.Game.DevTools` | редактор анимаций (F6), аудит локомоции | не входит в сборку игры (`-p:WithoutDevTools=true`) |
 
 Blood и Innards — представление: на игру не влияют, поэтому целиком клиентские. Если при переносе найдётся влияние
@@ -1428,13 +1433,13 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 | 5 · сделан | Физика и тела, по точкам (ниже): подсистема Physics (кинематические тела-капсулы за хэндлами), хуки ECS, капсулы по позе, debug draw капсул; инварианты физики, оверлеи и ID-буфер в `capture.bundle` | `Sword.Physics` (форма капсулы), `PlaceBodies`, форма тела при постройке (`Fighter.Build`) | капсулы тел поверх персонажей |
 | П · ждёт подтверждения | Диагностический профайлер, по точкам (ниже; поднят с этапа 14 по решению пользователя при приёмке этапа 5): зоны CPU с выделениями (кадр, тик, стадии, системы, инварианты, проходы графа), GC, JIT и нагрузка машины, захват аномального кадра или тика, GPU-время проходов графа; агенту — `profile.*`; разбор открытых вопросов производительности этапов 4–5 | `GpuProfiler`, `SWORD_JERKTRACE`, `BenchRecorder`, профайлер F2 `Hud` | F2 — время зон и GPU в HUD, аномалии в журнале |
 | 6 · ждёт подтверждения | Бой, по точкам (ниже): оружие в руке и разметка ударов, слой действий аниматора (удар, рывок Пробелом, реакции; игрок не теряет управления), выбор удара, проходы клинков, урон, смерть, кровопотеря, возрождение врагов, инвентарь (T, I), HUD боя; стадии Combat → Resolve → React → Aftermath → Settle, команды арены в Begin; журнал причинности и `state.why`; ручки (`TuningGroup`, команда ручки в реплее) и панель F3 — первая группа «Бой» (перенесено с этапа 5) | `FighterAnimator`, `PlayerAttackPicker`, `StrikeWindows`, `CharacterRig` (удары, оружие), `KinematicStrikes`, `ApplyHit`, `EnemyAi` (удар), `PlayerController`, `WeaponInventory`, `Hud`, `InventoryUi`, `Tuning`, `TuningPanel`, `CombatTuning`, `Xpbd.SegSeg` | удары, рывок, попадания, реакции, смерть (до этапа 7 труп замирает), возрождение врагов, HUD, F3 |
-| 7 · идёт | Смерть и рэгдолл, по точкам (ниже): сначала снятие сравнений со SWORD (решение 14), затем физика трупов (динамика, XPBD, суставы, контакты, толчки живых) в `Engine.Physics`, переход в труп, тело клинка по мечу, меч выпадает при смерти, возрождение, удары по трупам, труп на экране, ручки «Рэгдолл»; обломки — этап 11 | идеи (не образец): подшаги и контакты `DuelArena`, `Xpbd` и `RigidBody`, `KinematicContacts`, `Fighter.Joints`, суставная часть `Fighter.Muscles`, `RagTrace`, постановки `RagdollScene` | трупы падают и лежат, живые расталкивают трупы, удары по трупам, меч выпадает |
+| 7 · идёт | Смерть и рэгдолл, по точкам (ниже): сначала снятие сравнений со SWORD (решение 14), затем физика трупов (динамика, XPBD, суставы, контакты, толчки живых) в `Engine.Physics`, переход в труп, тело клинка по мечу, меч выпадает при смерти, возрождение, удары по трупам, труп на экране, ручки «Рэгдолл»; обломки — с Cutting (отложен — решение 17) | идеи (не образец): подшаги и контакты `DuelArena`, `Xpbd` и `RigidBody`, `KinematicContacts`, `Fighter.Joints`, суставная часть `Fighter.Muscles`, `RagTrace`, постановки `RagdollScene` | трупы падают и лежат, живые расталкивают трупы, удары по трупам, меч выпадает |
 | 8 | Модуль Locomotion, часть 2 — Motion Matching игрока | `Sword.Anim/Loco`, `LocoController`, `LocoPoseSource`, `MotionMatchingDiagnostics` | походка игрока на MM |
 | 9 | Модуль FootPlacement | `FootPlacementModule`, `FootPlacement`, `LegIk`, `FootLock` | стопы на ступенях и склонах |
-| 10 | Модуль Guard; стадия Defense (блок — здесь или позже: решается ближе к этапу 10) | `AutoGuard`, `BladeGuard`, `BladeClash`, `Stamina`, `FacingGuard`, `BlockTimings`, блок и слой кисти `FighterAnimator` | блок ПКМ, выносливость, столкновения клинков |
-| 11 | Модуль Cutting; стадия Dismember | `Cutting/*`, `MeshCutter`, `SkinMeshCutter`, `SkinCutMeshes`, `FighterCutter`, `JointDetachment` | отрубание конечностей, срезы |
+| 10 · отложен | ~~Модуль Guard; стадия Defense~~ — **отложен** (решение 16): блок ПКМ, выносливость, столкновения клинков — сильно позже, своим путём, не в рамках текущей работы; стадия Defense пуста | — (`AutoGuard`, `BladeGuard`, `BladeClash`, `Stamina`, `FacingGuard`, `BlockTimings`, блок и слой кисти `FighterAnimator` сейчас не переносятся) | — |
+| 11 · отложен | ~~Модуль Cutting; стадия Dismember~~ — **отложен** (решение 17): отрубание конечностей, срезы, обломки — сильно позже, своим путём, не в рамках текущей работы; стадия Dismember пуста, `SeverRequested` без ответа | — (`Cutting/*`, `MeshCutter`, `SkinMeshCutter`, `SkinCutMeshes`, `FighterCutter`, `JointDetachment` сейчас не переносятся) | — |
 | 12 · отложен | ~~Модуль Blood~~ — **отложен полностью** (решение 15): кровь не переносится, будет сделана заново своим путём позже. Первая GPU-симуляция (`IGpuSimulation`, заявки по тикам, отдельная compute-очередь) — с первым потребителем (кровь заново, песок или частицы огня и дыма) | — (`Modules/Fx/Blood`, `ArenaWorld` SWORD не переносятся) | — |
-| 13 | Модуль Innards | `Modules/Fx/Innards` | внутренности |
+| 13 · отложен | ~~Модуль Innards~~ — **отложен** (решение 17): внутренности — сильно позже, вместе с расчленением | — (`Modules/Fx/Innards` сейчас не переносится) | — |
 | 14 | Инструменты: редактор анимаций (F6), инспектор сущностей и панель профайлера (дерево, история, графики — поверх профайлера этапа П) — на той же интроспекции, что и агент | `AnimEditor`, `LocoAudit` | F6, панели |
 
 **Точки этапа 3** (каждая собирается и проверяется автоматически; в игре этап ничего не меняет):
@@ -1597,7 +1602,7 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 - Время жизни позы (`PoseRef`) остаётся на реактивных системах 2–4 этапов; хуки — для тел (`BodyRef`), где создание и
   удаление на одном барьере иначе оставили бы висячее тело. Перевод поз на хуки — отдельным решением, если понадобится.
 - Капсула клинка, `KinBase/KinTip`, `PrepareKinematicContacts`, `Center/BoundR` — этап 6; `VisualOffset`, `DecayVisualOffset` —
-  этап 8; `BodyPlacer`, `BodyY`, `PinFeet`, `BodiesPlaced` — этап 9; пропуск `Severed/Detached` — этап 11.
+  этап 8; `BodyPlacer`, `BodyY`, `PinFeet`, `BodiesPlaced` — этап 9; пропуск `Severed/Detached` — этап 11 (отложен — решение 17).
 - Не переносятся: `SWORD_POSEHASH` (`HashPose`, `HashBodies` — их место занимают участник `physics` и трасса SWORD), флаг
   `SEG_SKINNED` (капсулы в SWORD2 — отладочный оверлей, а не проход сцены).
 
@@ -1928,7 +1933,8 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 
 Решено при разбивке этапа 6 (ответы пользователя 2026-09-24):
 - Не входит: блок ПКМ целиком (Block, Blocked, Parry, Stagger, слой кисти, `ForecastBlade`, `BlockTimings`, `FacingGuard`) —
-  этап 10 или позже; отруб (`JointDetachment`, `Sever`) — этап 11, на 6 только заявка `SeverRequested`; импульс удара в часть,
+  этап 10 или позже (**изменено:** отложен — решение 16); отруб (`JointDetachment`, `Sever`) — этап 11 (**изменено:** отложен —
+  решение 17), на 6 только заявка `SeverRequested`; импульс удара в часть,
   `KinematicContacts` (бюджет прохода, отдача), выпадение меча у трупа и физическое тело клинка — этап 7 (клинок на 6 — отрезок в
   компоненте бойца); `WoundLocal` — этап 12 (отложен вместе с кровью — решение 15); `Knockdown`, `Blackout`, `Stun` — живой рэгдолл, не переносятся; `BenchAutopilot` не
   переносится (бюджеты — на записях сценариев).
@@ -2050,7 +2056,7 @@ SWORD) — догон по 8° за тик (память смешивания п
   источник идей, а не образец…», раздел «Эталон SWORD» → «Пак контента».
 - Тело клинка — 14-е тело по мечу в руке (в SWORD — капсула 0,575 м при любом мече); масса 1,4 кг для всех мечей (массы в паке нет).
 - Меч выпадает при каждой смерти (удар, кровопотеря, проба, команда), без ГСЧ; лежит свободным телом трупа, пока труп не исчезнет.
-- Обломки — этап 11 (их создаёт только разрез). Труп врага исчезает при возрождении, труп игрока лежит до R.
+- Обломки — этап 11 (их создаёт только разрез; **изменено:** отложены вместе с Cutting — решение 17). Труп врага исчезает при возрождении, труп игрока лежит до R.
 - Земля физики — аналитическая функция рельефа игры и ярусы пирамиды точными ящиками через интерфейс земли `IGround` физики (реализация
   — игра), а не `HeightField`: живые бойцы и так стоят на `ArenaTerrain.Height`, сетка линейна между узлами и скругляет ступени;
   `HeightField` остаётся рендеру (уточнение раздела 6).
@@ -2058,7 +2064,7 @@ SWORD) — догон по 8° за тик (память смешивания п
   вокруг оси остаётся — ограничение угловой скорости при переходе в труп её гасит (оно же закрывает скорость 35 м/с на спауне, открытую
   с этапа 5); 4 подшага на тик (h = 1/480), одна итерация, без сна; хрупкие места SWORD — исправлять, где это делает поведение лучше
   (знак сгиба колена и локтя — анатомический, нечисловые координаты — у всех тел, отсев пар по свежим границам, 0 Б/тик).
-- Не входит: живой рэгдолл; отрубы и `FollowSevered` (этап 11; тег источника «за отрубом» в API — есть); физический путь удара SWORD —
+- Не входит: живой рэгдолл; отрубы и `FollowSevered` (этап 11 — отложен, решение 17; тег источника «за отрубом» в API — есть); физический путь удара SWORD —
   `HitKind.Blunt` не появится; сон тел, острова, SoA, параллельный шаг — «Дальше»; заготовка архетипов ECS (решение после 6ж).
 - **Ход работ — параллельно**: волны 7а → 7б → (7в, 7г, 7д, 7е, 7ж) → (7з, 7и) → 7к → 7л; критический путь 7а → 7б → 7г → 7з → 7к → 7л.
   7б фиксирует весь API физики и раскладку `partial`-файлов («контракт вперёд»), чтобы 7в/7г/7д писали разные файлы одного проекта.
@@ -2163,7 +2169,7 @@ Begin; намерение игрока — Gameplay) — в реплей и `com
 | этап | сцены |
 |---|---|
 | 7 | s1 (удары по трупу), s3 (проход сквозь труп), s4 (два трупа внахлёст), s6 (постройка бойца на трупе), s8 (труп на ступенях, 5 мест) |
-| 11 | s2 (отруб у живого), s5 (лёгкий отрезанный кусок); тесты отделения и ограничения кусков |
+| 11 (отложен — решение 17) | s2 (отруб у живого), s5 (лёгкий отрезанный кусок); тесты отделения и ограничения кусков |
 
 ### Пекарня — M, параллельно после этапа 1
 
@@ -2171,9 +2177,12 @@ Begin; намерение игрока — Gameplay) — в реплей и `com
 
 ### Дальше — уже новая работа
 
-- `replay.minimize` — первым делом: к этому моменту бой, рэгдолл и расчленение дают сложные ошибки;
+- `replay.minimize` — первым делом: к этому моменту бой и рэгдолл дают сложные ошибки;
 - параллельный планировщик систем (включить флаг, замерить `experiment.sweep`);
 - **кровь** — заново, своим путём (решение 15: модуль Blood SWORD не переносится);
+- **блок** — блок ПКМ, выносливость, столкновения клинков, своим путём (решение 16: модуль Guard отложен);
+- **расчленение и внутренности** — отрубы, срезы, обломки, внутренности, своим путём (решение 17: модули Cutting и Innards
+  отложены);
 - **песок** — модуль на `IGpuSimulation`;
 - SoA и острова в физике, SIMD-сэмплинг поз — с `differential.run` против первой реализации;
 - LOD-уровни симуляции (hero / near / far / crowd) и GPU-толпа — переборы масштабирования на 1 000 и 10 000 бойцов;
@@ -2216,7 +2225,7 @@ Begin; намерение игрока — Gameplay) — в реплей и `com
 - Шейдеры: компиляция DXC при запуске (сейчас) или запекание пекарней в пак?
 - Уровни как данные (из пака), а не код (`ArenaLayout`) — когда появится второй уровень.
 - Общие данные представления для клиентов модулей (например, производные меши разреза): если им понадобятся типы
-  Render, чистых данных в `Game.Contracts` не хватит — отдельная сборка `Game.Client.Contracts`? Решается на этапе 11.
+  Render, чистых данных в `Game.Contracts` не хватит — отдельная сборка `Game.Client.Contracts`? Решается на этапе 11 (отложен — решение 17: вернуться вместе с расчленением).
 - Где жить сырью ассетов и паку (сейчас — вне git, путь в `bake.user.json`).
 - Транспорт агента к живому `Game.App`: MCP по localhost (с токеном сеанса) или именованный канал с мостом stdio —
   решается на точке 1е; для `Game.Headless` — stdio.
@@ -2258,13 +2267,13 @@ Begin; намерение игрока — Gameplay) — в реплей и `com
 | `Sword.Game/Env.cs` | `Engine.Runtime` (слой конфига из переменных окружения) |
 | `Sword.Game/Bench/BenchRecorder` | `Engine.Client` (бенч кадра) + `Engine.Runtime` (бенч симуляции) + `Sword.Game` (метрики арены) |
 | `Sword.Game/Bench/RagdollScene` | `Sword.Game` сценарии (`IScenario`), идут и в `Headless` |
-| `Sword.Game/Cutting/*` | данные и события → `Game.Contracts`; `JointDetachment`, `ChainedDetachment`, отделение → `Sword.Game.Cutting`; производные меши → `Sword.Game.Cutting.Client`; `ILimbDetachmentStrategy` исчезает |
+| `Sword.Game/Cutting/*` | отложен (решение 17); заявка `SeverRequested` уже в `Game.Contracts` (этап 6); при возврате: данные и события → `Game.Contracts`; `JointDetachment`, `ChainedDetachment`, отделение → `Sword.Game.Cutting`; производные меши → `Sword.Game.Cutting.Client`; `ILimbDetachmentStrategy` исчезает |
 | `Sword.Game/Gameplay/Ai/*` | `Sword.Game` — системы стадии Intent |
 | `Sword.Game/Gameplay/Control/PlayerController` | ввод → команды — `Sword.Game.Client`; команда → боец — `Sword.Game` |
 | `Sword.Game/Gameplay/Ragdoll/DuelArena*` | правила и бой → системы `Sword.Game`; контакты и подшаги → `Engine.Physics`; обломки → политика `Sword.Game` |
 | `Sword.Game/Gameplay/Ragdoll/Fighter.*` | компоненты и системы `Sword.Game`; суставы трупа → `Engine.Physics`; живой рэгдолл не переносится |
 | `Sword.Game/Gameplay/Ragdoll/Body, KinematicContacts, RagTrace` | `Engine.Physics` |
-| `Sword.Game/Gameplay/Ragdoll/StrikeGuard` | `FacingGuard` → модуль Guard (блок врагов); `IStrikeGuard` исчезает |
+| `Sword.Game/Gameplay/Ragdoll/StrikeGuard` | ~~`FacingGuard` → модуль Guard (блок врагов)~~ — отложен (решение 16); `IStrikeGuard` исчезает |
 | `Sword.Game/Gameplay/Ragdoll/ArenaHit, CombatTuning, RagdollTuning` | `Sword.Game` |
 | `Sword.Game/Gameplay/Ragdoll/Fighter.Anim` (`IBodyPlacer`) | исчезает: FootPlacement правит позу системой в стадии Movement |
 | `Sword.Game/Gameplay/ArenaLayout, ArenaWorld, Terrain` | `Sword.Game` (описание уровня) → `HeightField` (`Engine.Geometry`) |
@@ -2276,9 +2285,9 @@ Begin; намерение игрока — Gameplay) — в реплей и `com
 | `Sword.Game/Sim/SimLayout` (`GpuUnit`, `GpuSeg`) | раскладки → `Game.Contracts`; проверка раскладки → `Sword.Game.Client` |
 | `Sword.Game/Shaders/*` | `Sword.Game.Client`; `sim_common` → чтение `HeightField` |
 | `Sword.Game/Modules/GameModules, IGameModule` | `Engine.Runtime` (`IModule`, хост, токены) + `Engine.Client` (`IClientModule`) |
-| `Sword.Game/Modules/Gameplay/Guard, FootPlacement, Locomotion` | `Sword.Game.Guard`, `Sword.Game.FootPlacement`, `Sword.Game.Locomotion` |
-| `Sword.Game/Modules/Gameplay/Cutting` | `Sword.Game.Cutting` + `Sword.Game.Cutting.Client` |
-| `Sword.Game/Modules/Fx/Blood`, `Modules/Fx/Innards` | ~~`Sword.Game.Blood.Client`~~ — не переносится (решение 15), `Sword.Game.Innards.Client` |
+| `Sword.Game/Modules/Gameplay/Guard, FootPlacement, Locomotion` | ~~`Sword.Game.Guard`~~ — отложен (решение 16), `Sword.Game.FootPlacement`, `Sword.Game.Locomotion` |
+| `Sword.Game/Modules/Gameplay/Cutting` | ~~`Sword.Game.Cutting` + `Sword.Game.Cutting.Client`~~ — отложен (решение 17) |
+| `Sword.Game/Modules/Fx/Blood`, `Modules/Fx/Innards` | ~~`Sword.Game.Blood.Client`~~ — не переносится (решение 15), ~~`Sword.Game.Innards.Client`~~ — отложен (решение 17) |
 | `Sword.Game/Modules/Tools/Tuning` | `Engine.DevTools` (панель) + `Engine.Introspection` (данные ручек для панели и агента) |
 | `Sword.Game/Modules/Tools/AnimEditor` | `Game.DevTools` |
 | `tools/Sword.Bake.Sword/*` | `Bake.Engine` / `Bake.Game` (раздел 11) |
@@ -2296,11 +2305,11 @@ Begin; намерение игрока — Gameplay) — в реплей и `com
 | `Sword.Physics.Tests/XpbdTests` | `Engine.Physics.Tests` |
 | `Sword.Game.Tests/ContactRateLimit, GroundFriction, JointGround, KinematicContacts, TerrainContact, RagTrace` | `Engine.Physics.Tests` |
 | `Sword.Game.Tests/ArenaWorld, HitImpulse, PieceLimits` | `Sword.Game.Tests` |
-| `Sword.Game.Tests/LimbDetachment` (цепочка стратегий, `JointDetachment`) | `Sword.Game.Cutting.Tests` — переписать под заявки и события, цепочки больше нет |
-| `Sword.Game.Tests/Guard` | `Sword.Game.Guard.Tests` |
-| `Sword.Game.Tests/CuttingDetachment, CuttingModule` | `Sword.Game.Cutting.Tests` |
+| `Sword.Game.Tests/LimbDetachment` (цепочка стратегий, `JointDetachment`) | `Sword.Game.Cutting.Tests` — переписать под заявки и события, цепочки больше нет (отложен — решение 17) |
+| `Sword.Game.Tests/Guard` | `Sword.Game.Guard.Tests` (отложен — решение 16) |
+| `Sword.Game.Tests/CuttingDetachment, CuttingModule` | `Sword.Game.Cutting.Tests` (отложен — решение 17) |
 | `Sword.Game.Tests/BloodSim` | `Sword.Game.Blood.Client.Tests` |
-| `Sword.Game.Tests/InnardsField, InnardsGuts` | `Sword.Game.Innards.Client.Tests` |
+| `Sword.Game.Tests/InnardsField, InnardsGuts` | `Sword.Game.Innards.Client.Tests` (отложен — решение 17) |
 | `Sword.Anim.Tests/FootPlacement, Library, Loco, Math, RootMotion, Route` | `Engine.Animation.Tests` |
 | `Sword.Anim.Tests/Gltf, SpineChain, ManifestWriter, SynthSkeleton` | `Bake.Engine.Tests` |
 | `Sword.Anim.Tests/Pak` | `Engine.Content.Tests` |
