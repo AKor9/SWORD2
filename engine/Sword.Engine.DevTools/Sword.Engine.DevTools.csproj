@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Инструменты разработчика в клиенте: панели поверх кадра — ручки (F3), позже инспектор сущностей и профайлер.
+       Только из exe; в сборке без DevTools (-p:WithoutDevTools=true) их нет (раздел 4). -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Client\Sword.Engine.Client.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Ui\Sword.Engine.Ui.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>

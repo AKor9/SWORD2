@@ -53,7 +53,7 @@ public static class ArchitectureRules
         [Introspection] = [Diag, Ecs, Runtime],
         [Agent] = [Introspection, Runtime, Ecs, Diag],
         [AgentClient] = [Agent, Introspection, Client, Render, Runtime, Ecs],
-        [DevTools] = [Client, Ui, Ecs, Introspection],
+        [DevTools] = [Client, Ui, Ecs, Introspection, Diag],
 
         [Contracts] = [Ecs],
         [Data] = [Formats],
@@ -86,6 +86,12 @@ public static class ArchitectureRules
 
     /// <summary>Сборки агента: на них ссылаются только exe (и они друг на друга).</summary>
     private static readonly HashSet<string> AgentFamily = [Agent, AgentClient, GameAgent];
+
+    /// <summary>
+    /// Сборки инструментов разработчика: на них ссылаются только exe (и они друг на друга) — иначе сборка без DevTools
+    /// (<c>-p:WithoutDevTools=true</c>) не смогла бы их убрать.
+    /// </summary>
+    public static readonly IReadOnlySet<string> DevToolsFamily = new HashSet<string>([DevTools, GameDevTools]);
 
     public static IReadOnlyList<Violation> Check(IReadOnlyList<ProjectNode> projects)
     {
@@ -179,6 +185,9 @@ public static class ArchitectureRules
 
         if (AgentFamily.Contains(to.Name) && !from.IsExe && !AgentFamily.Contains(from.Name))
             violations.Add(new("agent-exe-only", from.Name, $"{edge}: сборки агента — только из exe"));
+
+        if (DevToolsFamily.Contains(to.Name) && !from.IsExe && !DevToolsFamily.Contains(from.Name))
+            violations.Add(new("devtools-exe-only", from.Name, $"{edge}: сборки DevTools — только из exe"));
 
         if (from.IsModule && (to.Name is Game or GameClient || (to.IsModule && !IsOwnSimulationPart(from, to))))
             violations.Add(new("modules-isolated", from.Name, $"{edge}: модуль видит только контракты игры, не ядро игры и не другие модули"));

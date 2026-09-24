@@ -29,6 +29,7 @@
     <Project Path="engine/Sword.Engine.Introspection/Sword.Engine.Introspection.csproj" />
     <Project Path="engine/Sword.Engine.Agent/Sword.Engine.Agent.csproj" />
     <Project Path="engine/Sword.Engine.Agent.Client/Sword.Engine.Agent.Client.csproj" />
+    <Project Path="engine/Sword.Engine.DevTools/Sword.Engine.DevTools.csproj" />
   </Folder>
   <Folder Name="/game/">
     <Project Path="game/Sword.Game.Contracts/Sword.Game.Contracts.csproj" />
@@ -57,6 +58,7 @@
     <Project Path="tests/Sword.Engine.Ui.Tests/Sword.Engine.Ui.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Introspection.Tests/Sword.Engine.Introspection.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Agent.Tests/Sword.Engine.Agent.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.DevTools.Tests/Sword.Engine.DevTools.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Content.Tests/Sword.Engine.Content.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Render.Tests/Sword.Engine.Render.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Platform.Tests/Sword.Engine.Platform.Tests.csproj" />

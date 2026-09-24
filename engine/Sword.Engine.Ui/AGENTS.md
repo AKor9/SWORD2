@@ -65,9 +65,9 @@
 - `UiTextEdit`: каретка не встаёт внутрь пары UTF-16; ←/→, Backspace и Delete проходят пару целиком.
 - `InfoRow` — новое: оформление строки `TuningInfo` панели ручек SWORD (`TuningPanel.DrawItem`).
 
-Не перенесено: адаптер окна → `UiInput` (`UiInputWin32` SWORD; в `Engine.Client`, точка 6е) и панели (F3, инвентарь —
-6е); `UiRenderer` (его место занял UI-проход рендера); растровые шрифты `UiFontRaster` и запекание `UiFontBaker`
-(пекарня, этап 3). `UiKey` — набор SWORD целиком: клавиши его редакторов сопоставит тот же адаптер.
+Не перенесено: панель инвентаря (6е); `UiRenderer` (его место занял UI-проход рендера); растровые шрифты `UiFontRaster` и
+запекание `UiFontBaker` (пекарня, этап 3). Адаптер окна → `UiInput` (`UiInputWin32` SWORD) — `Engine.Client/UiInputSource`
+(весь набор `UiKey` SWORD), панель ручек F3 — `Engine.DevTools/TuningPanel` (обе — часть точки 6е).
 
 Агентский доступ (раздел 8 плана): виджеты — библиотека без своего экрана; их проверяют тесты без видеокарты — тест
 заполняет `UiInput` (помощник `UiDriver` в тестах), смотрит возвращаемые значения, `ActiveId`, `FocusId`,

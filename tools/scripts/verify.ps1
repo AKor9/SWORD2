@@ -11,6 +11,8 @@
       forbidden-references  заготовки tests/fixtures/forbidden-references/SWORD00N-*: каждая обязана упасть со своим
                             кодом — иначе проверка ссылок в сборке сломана;
       without-agent         App и Headless с -p:WithoutAgent=true собираются и не содержат сборок агента;
+      without-devtools      App с -p:WithoutDevTools=true собирается без сборок DevTools (ни DLL в выходе, ни записи в
+                            Sword.deps.json), а в обычной сборке Engine.DevTools есть (проверка не пуста);
       without-modules       Headless с -p:Without<Модуль>=true для каждого модуля game/modules по очереди: собирается
                             без ссылки на модуль, DLL модуля нет в выходе, 10 с игрового времени без ошибок, модуля нет
                             в составе; своё поведение без модуля — по таблице $expect (Locomotion: корень ушёл по +X,
@@ -125,7 +127,7 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
 
-$knownSteps = @('build', 'test', 'forbidden-references', 'without-agent', 'without-modules', 'headless-smoke', 'app-smoke',
+$knownSteps = @('build', 'test', 'forbidden-references', 'without-agent', 'without-devtools', 'without-modules', 'headless-smoke', 'app-smoke',
     'replay-smoke', 'features', 'agent-smoke', 'ecs-bench', 'line-endings', 'reference', 'processes')
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($name in $Only) {
@@ -287,6 +289,30 @@ Add-Step 'without-agent' {
         if ($leaked.Count -gt 0) { $failures += "$exe без агента содержит: $($leaked -join ', ')" }
     }
     if ($failures.Count -eq 0) { @{ ok = $true; detail = 'App и Headless без агента собрались и не содержат его сборок' } }
+    else { @{ ok = $false; detail = $failures -join '; ' } }
+}
+
+Add-Step 'without-devtools' {
+    # Сборка без инструментов разработчика (-p:WithoutDevTools=true, раздел 4 плана): Sword.exe собирается без Engine.DevTools
+    # (и Game.DevTools, когда появится) — ни DLL в выходе, ни записи в Sword.deps.json. Обычная сборка (шаг build) их
+    # содержит — иначе проверка была бы пустой.
+    $failures = @()
+    $normal = Get-ChildItem (Join-Path $root "game\Sword.Game.App\bin\$Configuration") -Recurse -Filter 'Sword.Engine.DevTools.dll' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $normal) { $failures += "в обычной сборке Sword.exe нет Sword.Engine.DevTools.dll — проверка без DevTools пуста" }
+    $project = Join-Path $root 'game\Sword.Game.App\Sword.Game.App.csproj'
+    $output = Join-Path $root 'artifacts\verify\without-devtools\Sword.Game.App'
+    if (Test-Path $output) { Remove-Item $output -Recurse -Force }
+    $out = & dotnet build $project -c $Configuration -nologo -v:minimal -p:WithoutDevTools=true -o $output | Out-String
+    if ($LASTEXITCODE -ne 0) { $failures += "Sword.exe не собрался без DevTools: $(Get-Lines $out ': error ' 3)" }
+    else {
+        $leaked = @(Get-ChildItem $output -Filter '*DevTools*.dll' | ForEach-Object { $_.Name })
+        if ($leaked.Count -gt 0) { $failures += "без DevTools в выходе: $($leaked -join ', ')" }
+        $deps = Join-Path $output 'Sword.deps.json'
+        if (-not (Test-Path $deps)) { $failures += 'нет Sword.deps.json' }
+        elseif ((Get-Content $deps -Raw) -match 'DevTools') { $failures += 'Sword.deps.json без DevTools упоминает DevTools' }
+    }
+    if ($failures.Count -eq 0) { @{ ok = $true; detail = 'Sword.exe без DevTools собрался без их сборок; в обычной сборке Engine.DevTools есть' } }
     else { @{ ok = $false; detail = $failures -join '; ' } }
 }
 

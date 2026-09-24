@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Панели DevTools без окна и GPU: логика панели ручек на UiContext (ввод — UiInput от теста), кадр без выделений;
+       панель с текстом — на шрифтах эталонного пака (категория Content). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\engine\Sword.Engine.DevTools\Sword.Engine.DevTools.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+  </ItemGroup>
+
+</Project>

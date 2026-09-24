@@ -153,7 +153,8 @@ public sealed record ClientRunReport(
 /// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
 /// (<see cref="SimulationClock"/>: очередь кадра, накопитель, команды тиков от игры) → мир представления с долей тика
 /// (<see cref="FrameView"/>, с числами кадра <see cref="FrameStats"/> для HUD) → кадр (проходы игры, её UI-проход) → показ;
-/// снимок по действию <see cref="Screenshot"/> (F4), бенч кадра (<see cref="ClientOptions.BenchSeconds"/>).
+/// снимок по действию <see cref="Screenshot"/> (F4), бенч кадра (<see cref="ClientOptions.BenchSeconds"/>); панели интерфейса
+/// поверх кадра (<see cref="AddPanel"/>, DevTools: 6е) — в шаге ввода, до ввода игры, их квады — UI-проходом «panels» после игры.
 /// Окно и симуляцию создаёт exe и отдаёт сюда: клиент знает <see cref="IWindow"/>, API рендера (устройство D3D12 —
 /// внутри рендера) и симуляцию; клиентской части игры он отдаёт только <see cref="SimulationLink"/>.
 /// </summary>
@@ -211,11 +212,12 @@ public sealed class ClientHost : IDisposable
         _bindings = options.Bindings ?? InputBindings.Resolve(actions, null);
         foreach (var a in actions)
             if (!_bindings.Has(a.Name)) throw new ArgumentException($"привязки не знают действия {a.Name}", nameof(options));
-        // Имена действий — строчные (правило ключей конфига): регистр в --hold не важен, как и в конфиге.
+        // Имена действий — строчные (правило ключей конфига): регистр в --hold не важен, как и в конфиге. Удерживать можно любое
+        // привязанное действие — и действие панели (--hold tuning открывает панель ручек: в первом кадре действие ещё и нажато).
         var held = options.HeldActions.Select(n => n.ToLowerInvariant()).ToList();
         foreach (var name in held)
-            if (!actions.Any(a => a.Name == name))
-                throw new ArgumentException($"удерживаемое действие {name}: такого нет; есть: {string.Join(", ", actions.Select(a => a.Name))}");
+            if (!_bindings.Has(name))
+                throw new ArgumentException($"удерживаемое действие {name}: такого нет; есть: {string.Join(", ", _bindings.Actions.Select(a => a.Name))}");
         _held = held.Count > 0 ? new HashSet<string>(held, StringComparer.Ordinal) : null;
         if (options.CloseOnEscape && _bindings.ActionsOn(Key.Escape).FirstOrDefault() is { } onEscape)
             throw new ArgumentException($"действие {onEscape} привязано к Escape, а Escape закрывает окно (CloseOnEscape)", nameof(options));
@@ -228,7 +230,7 @@ public sealed class ClientHost : IDisposable
         _edges = new InputEdges(_bindings);
         _clock = simulation is null ? null
             : new SimulationClock(simulation, (link, input) => game.BeforeTick(link, input), options.TicksPerFrame, _edges);
-        _buildFrame = game.BuildFrame;
+        _buildFrame = BuildFrame;
         _screenshotFrame = options.ScreenshotFrame > 0 ? options.ScreenshotFrame : options.MaxFrames > 0 ? options.MaxFrames : 30;
         var contract = new ShaderContract();
         Renderer.Contribute(contract);
@@ -311,7 +313,8 @@ public sealed class ClientHost : IDisposable
                 reason = "closed-by-tool";
                 break;
             }
-            if (_options.CloseOnEscape && _window.Input.WasPressed(Key.Escape))
+            // Escape у поля ввода панели — отмена правки, а не выход.
+            if (_options.CloseOnEscape && _window.Input.WasPressed(Key.Escape) && _panels?.WantsKeyboard != true)
             {
                 reason = "escape";
                 break;
@@ -348,6 +351,8 @@ public sealed class ClientHost : IDisposable
             float frameSeconds = _clock?.FrameSeconds(seconds) ?? (float)Math.Max(seconds, 0);
             var input = new FrameInput(_window.Input, _bindings, _held, heldPressed: frames == 0, _window.MouseInside,
                 _renderer.Width, _renderer.Height, frameSeconds);
+            // Панели (DevTools) — до ввода игры: мышь и клавиатура интерфейса в этом же кадре не уходят игре.
+            if (_panels is { } panels) input = PanelsFrame(panels, input);
             _game.Input(input);
             _edges.Note(input);   // фронты кадра — до ближайшего тика (раздел 7)
             profiler.End(_zones.Input);
@@ -627,6 +632,55 @@ public sealed class ClientHost : IDisposable
         _tools.Add(tool);
     }
 
+    /// <summary>
+    /// Подключить панель интерфейса (DevTools) — до <see cref="Run"/>. Её действия (<see cref="IClientPanel.Actions"/>)
+    /// должны быть в привязках: композиция разрешает их вместе с действиями игры и клиента движка. Первая панель заводит слой
+    /// панелей (<see cref="Panels"/>: шрифты UI-прохода, буфер обмена окна, зона профайлера <c>frame.panels</c>).
+    /// </summary>
+    public void AddPanel(IClientPanel panel)
+    {
+        ArgumentNullException.ThrowIfNull(panel);
+        if (_running) throw new InvalidOperationException("панели подключаются до Run");
+        foreach (var a in panel.Actions)
+            if (!_bindings.Has(a.Name))
+                throw new ArgumentException($"привязки не знают действия {a.Name} панели: разрешите их вместе с действиями игры", nameof(panel));
+        if (_panels is null)
+        {
+            _panels = new ClientPanels(() => _renderer.Ui.Fonts);   // UI-проход — когда панель впервые видна
+            _panels.Source.Input.GetClipboard = _window.GetClipboardText;
+            _panels.Source.Input.SetClipboard = _window.SetClipboardText;
+            _panelsZone = Profiler.Zone("frame.panels");
+        }
+        _panels.Add(panel);
+    }
+
+    /// <summary>Слой панелей (масштаб интерфейса — <see cref="ClientPanels.Scale"/>); null — панелей нет.</summary>
+    public ClientPanels? Panels => _panels;
+
+    private ClientPanels? _panels;
+    private int _panelsZone;
+
+    /// <summary>Часы интерфейса панелей (каретка, двойной щелчок, подсказки).</summary>
+    private readonly long _uiStart = Stopwatch.GetTimestamp();
+
+    /// <summary>Кадр панелей (шаг ввода кадра, до ввода игры) и курсор окна по интерфейсу.</summary>
+    private FrameInput PanelsFrame(ClientPanels panels, in FrameInput input)
+    {
+        Profiler.Begin(_panelsZone);
+        var framed = panels.Frame(input, _window.Input, _window.MouseInside, Stopwatch.GetElapsedTime(_uiStart).TotalSeconds);
+        var cursor = panels.Cursor;
+        if (!_window.CursorLock && _window.Cursor != cursor) _window.Cursor = cursor;
+        Profiler.End(_panelsZone);
+        return framed;
+    }
+
+    /// <summary>Проходы кадра: игра, поверх — квады панелей последнего кадра панелей (и в кадре перетаскивания рамки).</summary>
+    private void BuildFrame(RenderFrame frame)
+    {
+        _game.BuildFrame(frame);
+        if (_panels is { Shown: true } panels) _renderer.Ui.Add(frame, panels.Ui.Output, "panels");
+    }
+
     /// <summary>Ворота тиков (пауза и шаги инструмента); null — тики по часам. Нужна симуляция.</summary>
     public ITickGate? TickGate
     {
@@ -639,7 +693,8 @@ public sealed class ClientHost : IDisposable
 
     /// <summary>
     /// Профайлер CPU потока кадра (точка Па): кадр — период (зона <c>frame</c>) с фазами <c>frame.messages</c>,
-    /// <c>frame.resize</c>, <c>frame.input</c>, <c>frame.simulate</c> (в нём тики — зона <c>tick</c>, стадии, системы,
+    /// <c>frame.resize</c>, <c>frame.input</c> (в нём кадр панелей — <c>frame.panels</c>, если они подключены),
+    /// <c>frame.simulate</c> (в нём тики — зона <c>tick</c>, стадии, системы,
     /// инварианты), <c>frame.tools</c>, <c>frame.extract</c> (зоны игры), <c>frame.render</c> (зоны рендера и
     /// проходов графа, <c>frame.presented</c> — итог кадра инструментам), <c>frame.wait</c> (ограничитель кадров). Включают
     /// <see cref="ClientOptions.Profile"/> и инструмент агента (<c>profile.stages</c>) — с начала следующего кадра.

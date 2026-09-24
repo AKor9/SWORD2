@@ -5,10 +5,11 @@
     <SwordSide>Client</SwordSide>
   </PropertyGroup>
 
-  <!-- Ввод кадра (FrameInput) собирают тесты клиента и игры: без окна и клавиатуры. -->
+  <!-- Ввод кадра (FrameInput) собирают тесты клиента, игры и панелей DevTools: без окна и клавиатуры. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Sword.Engine.Client.Tests" />
     <InternalsVisibleTo Include="Sword.Game.Tests" />
+    <InternalsVisibleTo Include="Sword.Engine.DevTools.Tests" />
   </ItemGroup>
 
   <ItemGroup>

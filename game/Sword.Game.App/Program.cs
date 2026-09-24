@@ -18,12 +18,19 @@ namespace Sword.Game.App;
 /// (<see cref="ArenaClient"/>) и привязок ввода (секция конфига <c>input</c>: действия игры и клиента движка). Точка 1г:
 /// WASD относительно камеры, курсор — взгляд, колесо — зум; <c>--move</c> заменяет ввод заданной командой (проверочные
 /// прогоны). Точка 1д: HUD (FPS, справка — F1), снимок F4, бенч кадра (<c>--bench</c>). Точка 1е: <c>--agent</c> — сервер
-/// MCP для агента (AgentMode.cs; в сборке без агента его нет).
+/// MCP для агента (AgentMode.cs; в сборке без агента его нет). Точка 6е: панели DevTools поверх кадра (DevToolsMode.cs; в
+/// сборке без DevTools его нет).
 /// </summary>
 public static partial class Program
 {
     /// <summary>Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="agent"/> остаётся null.</summary>
     static partial void StartAgent(ClientHost client, Simulation sim, int port, ref IDisposable? agent);
+
+    /// <summary>
+    /// Панели DevTools (DevToolsMode.cs); в сборке без DevTools (<c>-p:WithoutDevTools=true</c>) вызова нет — список пуст.
+    /// Их действия привязываются вместе с действиями игры, панели подключаются к клиенту до его <c>Run</c>.
+    /// </summary>
+    static partial void AddDevTools(List<IClientPanel> panels, bool bench);
 
     /// <summary>
     /// Переменная окружения: окно без фокуса по умолчанию (как <c>--no-activate</c>). Её задают настройки Claude Code
@@ -181,7 +188,9 @@ public static partial class Program
                 throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
                 showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay));
-            var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions], config);
+            var panels = new List<IClientPanel>();
+            AddDevTools(panels, bench: options.Bench > 0);
+            var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions, .. panels.SelectMany(p => p.Actions)], config);
             arena.UseBindings(bindings.Keys);
             if (options.Bench > 0) arena.Hud.ShowHelp = false;   // SWORD: ShowHelp = !bench
             config.Complete();   // композиция закончена (симуляция, клиент, ввод): неизвестная секция конфига — ошибка
@@ -220,6 +229,8 @@ public static partial class Program
             }, arena, simulation))
             {
                 profiler = client.Profiler;
+                foreach (var panel in panels) client.AddPanel(panel);
+                if (client.Panels is { } layer) layer.Scale = Hud.Scale;   // панели — в масштабе HUD (SWORD: Hud.UiScale)
                 // Захват аномалий (точка Пв): судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.
                 profiler.CaptureAnomalies(new AnomalyOptions
                 {

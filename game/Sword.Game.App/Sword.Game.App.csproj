@@ -33,6 +33,14 @@
     <Compile Remove="AgentMode.cs" />
   </ItemGroup>
 
+  <!-- Инструменты разработчика (панели DevTools, раздел 4): в сборке без них (-p:WithoutDevTools=true) их нет. -->
+  <ItemGroup Condition="'$(WithoutDevTools)' != 'true'">
+    <ProjectReference Include="..\..\engine\Sword.Engine.DevTools\Sword.Engine.DevTools.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(WithoutDevTools)' == 'true'">
+    <Compile Remove="DevToolsMode.cs" />
+  </ItemGroup>
+
   <!-- App-local Agility SDK: D3D12Core.dll и слой отладки — в D3D12\ рядом с exe. -->
   <ItemGroup>
     <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\D3D12Core.dll"

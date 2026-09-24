@@ -255,7 +255,7 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 | Engine.Introspection | Core, Diagnostics, Ecs, Runtime — сторона симуляции |
 | Engine.Agent | Introspection, Runtime, Ecs, Diagnostics — сторона симуляции; MCP — свой минимальный JSON-RPC, без пакета (точка 1е) |
 | Engine.Agent.Client | Agent, Introspection, Client, Render, Runtime, Ecs — точка обслуживания в кадре клиента (1е) |
-| Engine.DevTools | Client, Ui, Ecs, Introspection |
+| Engine.DevTools | Client, Ui, Ecs, Introspection, Diagnostics — `TuningGroup` панели ручек (6е) |
 | Game.Contracts | Core, Ecs |
 | Game.Data | Core, Formats |
 | Sword.Game | Contracts, Data, Runtime, Physics, Animation, Geometry, Ecs, Content, Diagnostics |
@@ -288,6 +288,8 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 - Engine.Client → Ecs — разрешённая граница только для чтения: Extract читает мир через `SimulationLink`
   (`WorldReader`), исполнения симуляции клиент не получает (подтверждено на точке 1е);
 - сборка без агента (`-p:WithoutAgent=true`, как для DevTools) не содержит ни одной сборки агента;
+- сборки DevTools (Engine.DevTools, Game.DevTools) — только из exe (и друг из друга); сборка без них
+  (`-p:WithoutDevTools=true`) не содержит ни одной (тест ссылок exe под условием, шаг `verify.ps1` `without-devtools`);
 - сборки `Vortice.*` — только у Rhi и Render (временный список исключений **может только сокращаться**).
 
 **Как проверяется:**
@@ -298,7 +300,7 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 2. `Sword.Architecture.Tests` — по графу `ProjectReference` из `SWORD.slnx` и `.csproj`: матрица выше
    (`ArchitectureRules.Matrix`), транзитивное замыкание сборок симуляции без клиентских, модули не видят друг друга
    и ядро игры, `Vortice.*` только у Rhi и Render и с `PrivateAssets=compile` (типы D3D12 не утекают к ссылающимся),
-   Platform.Win32 и сборки агента — только из exe, каждый проект — в решении.
+   Platform.Win32, сборки агента и DevTools — только из exe, каждый проект — в решении.
 3. Тест на сам тест: `RuleTests` строят заведомо запрещённые графы и требуют нарушения; заготовки
    `tests/fixtures/forbidden-references/SWORD00N-*` обязаны уронить сборку своим кодом (`verify.ps1`).
 

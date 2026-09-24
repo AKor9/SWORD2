@@ -60,6 +60,32 @@ public sealed class SolutionTests
         Assert.True(client.Count == 0, "Game.Headless транзитивно достаёт до клиентских сборок: " + string.Join(", ", client));
     }
 
+    /// <summary>
+    /// Сборка без DevTools (<c>-p:WithoutDevTools=true</c>, раздел 4): каждая ссылка exe на сборку DevTools — под условием
+    /// <c>'$(WithoutDevTools)' != 'true'</c> (других ссылающихся нет — правило <c>devtools-exe-only</c>). Что такая сборка
+    /// собирается и DevTools в ней нет — шаг <c>without-devtools</c> verify.ps1.
+    /// </summary>
+    [Fact]
+    public void DevToolsReferences_AreRemovedWithoutDevTools()
+    {
+        var problems = new List<string>();
+        int conditioned = 0;
+        foreach (var p in SolutionModel.Load(Root).Where(p => p.IsExe))
+        {
+            var doc = System.Xml.Linq.XDocument.Load(Path.Combine(Root, p.RelativePath));
+            foreach (var reference in doc.Descendants("ProjectReference"))
+            {
+                string name = Path.GetFileNameWithoutExtension(((string?)reference.Attribute("Include") ?? "").Replace('\\', '/'));
+                if (!ArchitectureRules.DevToolsFamily.Contains(name)) continue;
+                string condition = string.Concat(((string?)reference.Parent?.Attribute("Condition") ?? "").Where(c => !char.IsWhiteSpace(c)));
+                if (condition == "'$(WithoutDevTools)'!='true'") conditioned++;
+                else problems.Add($"{p.Name} → {name}: ссылка не под условием '$(WithoutDevTools)' != 'true'");
+            }
+        }
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+        Assert.True(conditioned > 0, "ни один exe не ссылается на DevTools — проверка пуста (Sword.Game.App должен)");
+    }
+
     /// <summary>Каждый проект репозитория — в решении; заготовки запрещённых ссылок (tests/fixtures) — нет.</summary>
     [Fact]
     public void EveryProject_IsInSolution()

@@ -123,6 +123,21 @@ public sealed class RuleTests
         P("engine/Sword.Engine.Agent/Sword.Engine.Agent.csproj", Sides.Simulation),
         P("game/Sword.Game/Sword.Game.csproj", Sides.Simulation, ["Sword.Engine.Agent"]));
 
+    /// <summary>Клиент игры с панелью DevTools: без DevTools его уже не собрать — ссылка только из exe.</summary>
+    [Fact]
+    public void DevToolsFromLibrary_IsViolation() => AssertViolates("devtools-exe-only",
+        P("engine/Sword.Engine.DevTools/Sword.Engine.DevTools.csproj", Sides.Client),
+        P("game/Sword.Game.Client/Sword.Game.Client.csproj", Sides.Client, ["Sword.Engine.DevTools"]));
+
+    [Fact]
+    public void DevToolsFromExeAndGameDevTools_IsAllowed()
+    {
+        var devTools = P("engine/Sword.Engine.DevTools/Sword.Engine.DevTools.csproj", Sides.Client, ["Sword.Engine.Core"]);
+        var gameDevTools = P("game/Sword.Game.DevTools/Sword.Game.DevTools.csproj", Sides.Client, ["Sword.Engine.DevTools"]);
+        var app = P("game/Sword.Game.App/Sword.Game.App.csproj", Sides.Client, ["Sword.Engine.DevTools", "Sword.Game.DevTools"], exe: true);
+        Assert.DoesNotContain(Check(Core, devTools, gameDevTools, app), v => v.Rule == "devtools-exe-only");
+    }
+
     [Fact]
     public void ModuleReferencingGameCore_IsViolation() => AssertViolates("modules-isolated",
         P("game/Sword.Game/Sword.Game.csproj", Sides.Simulation),

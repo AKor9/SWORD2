@@ -126,6 +126,11 @@ public sealed class InputBindings
 /// <summary>
 /// Ввод кадра для клиентской части игры (шаг Input кадра, раздел 7): действия по привязкам, мышь, колесо, размер кадра и
 /// шаг кадра. Снимается раз в кадр, до тиков кадра.
+///
+/// Панели интерфейса (<see cref="IClientPanel"/>) видят ввод кадра первыми: мышь у панели (<see cref="UiMouse"/>) —
+/// действия на кнопках мыши игре не нажаты и не удержаны, колеса нет; клавиатура у поля ввода панели
+/// (<see cref="UiKeyboard"/>) — то же с действиями на клавишах. Отпускания доходят всегда (у действия нет нажатия без
+/// пары); удержание заданием прогона (<see cref="ClientOptions.HeldActions"/>) — тоже.
 /// </summary>
 public readonly struct FrameInput
 {
@@ -149,25 +154,46 @@ public readonly struct FrameInput
     }
 
     /// <summary>Действие удерживается (клавишей или заданием прогона — <see cref="ClientOptions.HeldActions"/>).</summary>
-    public bool IsDown(InputAction action) => _bindings.Of(action).IsDown(_state) || _held?.Contains(action.Name) == true;
+    public bool IsDown(InputAction action)
+    {
+        var b = _bindings.Of(action);
+        return (!TakenByUi(b) && b.IsDown(_state)) || _held?.Contains(action.Name) == true;
+    }
 
     /// <summary>
     /// Действие нажато в этом кадре (фронт); удерживаемое заданием прогона — в первом кадре. Для представления (камера,
     /// интерфейс); в команды симуляции фронты идут через <see cref="TickInput"/> — ровно одним тиком.
     /// </summary>
-    public bool WasPressed(InputAction action) =>
-        _bindings.Of(action).WasPressed(_state) || (_heldPressed && _held?.Contains(action.Name) == true);
+    public bool WasPressed(InputAction action)
+    {
+        var b = _bindings.Of(action);
+        return (!TakenByUi(b) && b.WasPressed(_state)) || (_heldPressed && _held?.Contains(action.Name) == true);
+    }
 
-    /// <summary>Действие отпущено в этом кадре (фронт).</summary>
+    /// <summary>Действие отпущено в этом кадре (фронт). Отпускание доходит и тогда, когда ввод у интерфейса.</summary>
     public bool WasReleased(InputAction action) => _bindings.Of(action).WasReleased(_state);
+
+    /// <summary>
+    /// Мышь у панели интерфейса в этом кадре (курсор над ней или тянут её виджет): действия на кнопках мыши и колесо игре
+    /// не достаются («мышь над панелью не бьёт»). Курсор (<see cref="MouseX"/>, <see cref="MouseY"/>) виден как есть.
+    /// </summary>
+    public bool UiMouse { get; private init; }
+
+    /// <summary>Клавиатура у поля ввода панели: действия на клавишах игре не достаются (набор числа — не горячие клавиши).</summary>
+    public bool UiKeyboard { get; private init; }
+
+    /// <summary>Тот же ввод с отметками интерфейса (<see cref="ClientPanels.Frame"/>).</summary>
+    internal FrameInput WithUi(bool mouse, bool keyboard) => this with { UiMouse = mouse, UiKeyboard = keyboard };
+
+    private bool TakenByUi(InputBindings.Binding b) => b.Mouse is null ? UiKeyboard : UiMouse;
 
     public float MouseX => _state.MouseX;
     public float MouseY => _state.MouseY;
     public float MouseDeltaX => _state.MouseDeltaX;
     public float MouseDeltaY => _state.MouseDeltaY;
 
-    /// <summary>Щелчки колеса за кадр (вперёд — плюс).</summary>
-    public float Wheel => _state.Wheel;
+    /// <summary>Щелчки колеса за кадр (вперёд — плюс); мышь у интерфейса — 0 (колесо прокручивает панель).</summary>
+    public float Wheel => UiMouse ? 0 : _state.Wheel;
 
     /// <summary>Курсор над клиентской областью окна.</summary>
     public bool MouseInside { get; }

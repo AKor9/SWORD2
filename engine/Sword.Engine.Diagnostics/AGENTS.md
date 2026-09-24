@@ -4,7 +4,19 @@
 Neutral, зависит только от Core. Сейчас: журнал (`Log`, `LogRing` — `log.tail`), профайлер CPU (`CpuProfiler`, этап П,
 точка Па), счётчики среды и машины (точка Пб: `ProfileCounters`, `MachineSample`/`MachineReport`, `RuntimeMeter`,
 `RuntimeEvents`), захват аномалий, Chrome Trace и сводка HUD (точка Пв: `ProfileAnomalies`, `AnomalyReport`, `ChromeTrace`,
-`ProfileDigest`), GPU-время проходов в профайлере кадра (точка Пг: зоны вида `Gpu`, `CpuProfilerGpu.cs`). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
+`ProfileDigest`), GPU-время проходов в профайлере кадра (точка Пг: зоны вида `Gpu`, `CpuProfilerGpu.cs`), ручки (`TuningGroup`,
+`Tuning.cs`, часть точки 6е). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
+
+- Ручки — `TuningGroup` (перенос `Diagnostics/Tuning.cs` SWORD 2eab13b): группа (вкладка панели F3 `Engine.DevTools`) из
+  заголовков, чисел (`Float`, `Int` — запись округлена), флагов (`Bool`), кнопок (`Button`) и строк состояния (`Info`). Значение —
+  живые делегаты `Get`/`Set`: группа не знает, откуда оно; привязку к объектам настроек и команду ручки на ходу делает
+  композиция (раздел 7 плана, точка 6е). Значение по умолчанию — `defaultValue` или текущее при создании (SWORD); `ResetAll`,
+  `Changed`, `Describe` (журнал). Сохранения файла в группе нет (решение пользователя: ручки — в `sword.user.json`, пишет хост):
+  `Values(changedOnly)` — словарь ключ → число (float — кратчайшей записью, флаг — 1/0), `Apply` — обратно (прижатие к
+  диапазону `TuningFloat.Clamp`, не числа пропускаются, незнакомые ключи — в список). Ключи в группе уникальны, пустой ключ —
+  не сохраняется; диапазон — конечные min < max. Строка состояния пишет текст на стек (`TuningText`) — кадр панели без
+  выделений; `Info(label, Func<string>)` (как SWORD) выделяет строку в кадре. Проверка —
+  `tests/Sword.Engine.Runtime.Tests/TuningGroupTests`.
 
 - `Log` не без выделений (строки, запись): из горячего пути (тик, кадр) в него не писать — только события и ошибки.
 - Профайлер CPU — `CpuProfiler`: однопоточный, у владельца потока (главный поток App — `ClientHost.Profiler`; Headless —
