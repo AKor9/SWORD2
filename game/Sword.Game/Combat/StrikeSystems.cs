@@ -220,7 +220,10 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         });
     }
 
-    /// <summary>Капсулы жертвы этого тика, их центр и радиус охвата (<c>Fighter.UpdateBounds</c> по 13 капсулам; раз за тик).</summary>
+    /// <summary>
+    /// Капсулы плоти жертвы этого тика, их центр и радиус охвата (<c>Fighter.UpdateBounds</c> по 13 капсулам; раз за тик). С 7ж тела
+    /// сочленения идут по номерам сегментов и среди них тело клинка (11) — оно не цель: пропускается (порядок сложения тот же).
+    /// </summary>
     private void Bound(int vic)
     {
         if (_bounded[vic]) return;
@@ -228,15 +231,17 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         var sum = Vector3.Zero;
         for (int k = 0; k < Bodies; k++)
         {
+            if (!BodySegs.IsFlesh(BodySegs.Segment(k))) continue;   // 7ж: тело клинка жертвы — не цель и не охват
             var s = physics.Get(physics.Body(_body[vic], k));
             int at = vic * Bodies + k;
             (_endA[at], _endB[at], _bodyCenter[at], _bodyRadius[at], _bodyHalf[at]) = (s.EndA, s.EndB, s.Position, s.Radius, s.HalfLength);
             sum += s.Position;
         }
-        var center = sum / Bodies;
+        var center = sum / BodySegs.Flesh;
         float r = 0;
         for (int k = 0; k < Bodies; k++)
         {
+            if (!BodySegs.IsFlesh(BodySegs.Segment(k))) continue;
             int at = vic * Bodies + k;
             r = MathF.Max(r, Vector3.Distance(_bodyCenter[at], center) + _bodyHalf[at] + _bodyRadius[at]);
         }
@@ -259,6 +264,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
             var b = Vector3.Lerp(blade.PrevTip, blade.Tip, t);
             for (int body = 0; body < Bodies; body++)
             {
+                if (!BodySegs.IsFlesh(BodySegs.Segment(body))) continue;
                 int at = vic * Bodies + body;
                 float d2 = Segments.SegSeg(a, b, _endA[at], _endB[at], out var c1, out var c2);
                 float r = _bodyRadius[at] + DamageRules.SweepPad;
@@ -279,7 +285,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
     private void Probe(in SystemContext ctx, in StrikeProbe p, ulong tick)
     {
         if ((uint)p.Attacker >= Slots || (uint)p.Victim >= Slots || p.Attacker == p.Victim || !_present[p.Attacker] || !_present[p.Victim]
-            || (uint)p.Part >= BodySegs.Count || BodySegs.Body(p.Part) < 0 || !float.IsFinite(p.Damage) || p.Damage < 0
+            || !BodySegs.IsFlesh(p.Part) || !float.IsFinite(p.Damage) || p.Damage < 0
             || (byte)p.Kind > (byte)HitKind.Blunt || !_placeable[p.Victim])
             return;
         var point = physics.Get(physics.Body(_body[p.Victim], BodySegs.Body(p.Part))).Position;

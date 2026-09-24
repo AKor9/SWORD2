@@ -543,3 +543,22 @@ capsules`).
   ~150–200 МБ, до 8 штук) и `VBCSCompiler` — не зависание: общие для всех сборок пользователя, выходят сами через
   10–15 мин простоя; `dotnet build-server shutdown` снимает их сразу, в том числе посреди чужой сборки, — не звать,
   пока работают другие сеансы.
+
+## Команды сцен и привязка скина (7ж)
+
+Постановки сцен рэгдолла (s1–s8) — командой `SceneCommand` (Intent того же тика; фича «Рэгдолл», `game/Sword.Game/Features/Ragdoll/README.md`):
+1. Поставить бойца места в точку курсом (постройка заново: тело без скорости, мёртвый оживает): `command.send {"command":"SceneCommand",
+   "fields":{"Action":"Place","Slot":1,"Position":{"X":-13,"Y":0},"Facing":1.5708}}` (`Position.Y` — это z).
+2. Убить без удара: `{"Action":"Kill","Slot":1}` → `entity.get {"entity":"enemy 1","components":["Dead"]}` — `Cause: Command`, `Time`
+   (другие причины — `Hit`, `Probe`, `Bleed`).
+3. Сдвинуть тела трупа без скорости (два трупа внахлёст, s4) — тиком позже смерти: `{"Action":"ShiftBodies","Slot":2,"Offset":{"X":0.2,"Y":0,"Z":0}}`.
+4. Меч места: `{"Action":"Weapon","Slot":3,"Weapon":0}` (номер — `combat.weapons`; игроку — через инвентарь).
+5. Намерение игрока (s3 — идти сквозь труп): `{"Action":"PlayerIntent","Velocity":{"X":0,"Y":4.2},"Facing":0}` с `"repeat":360` —
+   поверх команды игрока каждый тик.
+Команды — в реплее (`replay.save`, `session.start` с ним повторяет сцену).
+
+Тело бойца — 14 тел (`physics.bodies`: тело 11 — `blade`, капсула от хвата до кончика меча; масса каждого тела, `mode`, `profile`,
+сводка `mass` — 74,8). Привязка скина мёртвого — `physics.bodies {"entity":"enemy 1"}` → `skin`: `captured`, `time` (смерти), `joints`,
+`drift` — насколько скин (привязка × тело) ушёл от застывшей позы бойца: 0, пока тела стоят; после `ShiftBodies` — длина сдвига; у трупа
+на физике (7з) — сколько он сместился. Матрицы — `state.describe {"part":"skin"}` (часть на привязку — сочленение из `BodyRef`,
+`3v1`). Нет привязки у мёртвого — нарушение `ragdoll.skin` (`invariant.list`, `time.breakOnInvariant {"ids":["ragdoll.skin"]}`).

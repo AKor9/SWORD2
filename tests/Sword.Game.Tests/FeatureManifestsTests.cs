@@ -47,14 +47,28 @@ public sealed class FeatureManifestsTests
         return items;
     }
 
+    /// <summary>
+    /// Фичи в работе — README есть, манифест ещё не написан (этап идёт точками): «Рэгдолл» — манифест <c>ragdoll</c> на 7л (7ж завела
+    /// README фичи). Приёмки у них нет, пока нет манифеста.
+    /// </summary>
+    private static readonly string[] InProgress = ["Ragdoll"];
+
     [Fact]
     public void EveryFeature_HasManifest_ChecklistMatchesReadme()
     {
         var manifests = All();
         var features = Directory.GetDirectories(Path.Combine(RepoRoot(), "game", "Sword.Game", "Features")).Select(d => Path.GetFileName(d)).Order().ToList();
         foreach (string feature in features)
-            Assert.True(File.Exists(Path.Combine(RepoRoot(), "game", "Sword.Game", "Features", feature, FeatureManifest.FileName)),
-                $"у фичи {feature} нет {FeatureManifest.FileName} (раздел 12 плана: без манифеста фича не принимается)");
+        {
+            bool manifest = File.Exists(Path.Combine(RepoRoot(), "game", "Sword.Game", "Features", feature, FeatureManifest.FileName));
+            // Фича в работе (этап идёт точками) — README есть, манифеста ещё нет; появится он — строку убрать.
+            if (InProgress.Contains(feature))
+            {
+                Assert.False(manifest, $"у фичи {feature} уже есть манифест — уберите её из «в работе»");
+                continue;
+            }
+            Assert.True(manifest, $"у фичи {feature} нет {FeatureManifest.FileName} (раздел 12 плана: без манифеста фича не принимается)");
+        }
         Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "movement", "profiler", "tools"], manifests.Select(m => m.Id));
         foreach (var m in manifests)
         {

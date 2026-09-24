@@ -30,7 +30,7 @@ public sealed class DeterminismTests
     {
         var a = TestAssets.Simulation();
         var b = TestAssets.Simulation();
-        Assert.Equal(["animation", "ecs", "physics"], a.StateParts);
+        Assert.Equal(["animation", "ecs", "physics", "skin"], a.StateParts);   // skin — привязки скина мёртвых (7ж)
         var seen = new HashSet<ulong>();
         for (int t = 0; t < 400; t++)
         {
@@ -57,7 +57,7 @@ public sealed class DeterminismTests
             a.Step();
         }
         var replay = Replay.Parse(recorder.ToReplay().ToJson());
-        Assert.Equal(["animation", "ecs", "physics"], replay.Parts);
+        Assert.Equal(["animation", "ecs", "physics", "skin"], replay.Parts);
         Assert.Equal(5, replay.Runs.Count);   // сценарий — пять отрезков одинаковых команд
 
         var b = TestAssets.Simulation(replay.CreateConfig());

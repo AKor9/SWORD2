@@ -341,7 +341,9 @@ public class ArenaViewTests
                 var bodyRef = sim.World.Get<BodyRef>(f.Entity);
                 for (int i = 0; i < body.Length; i++)
                 {
-                    var (a, b) = Sword.Game.Bodies.BodyPlacement.Ends(pose, joints, f.World, body[i].Segment);
+                    // 7ж: тело клинка — от хвата (начало кисти) до кончика меча в руке, как показан боец
+                    var (a, b) = body[i].Segment == BodySegs.Weapon ? BladeEnds(pose, f)
+                        : Sword.Game.Bodies.BodyPlacement.Ends(pose, joints, f.World, body[i].Segment);
                     worstShown = MathF.Max(worstShown, Vector3.Distance(body[i].Center, (a + b) * 0.5f));
                     Assert.True(Vector3.Dot(body[i].Axis, Vector3.Normalize(b - a)) > 1 - 1e-4f, $"{f.Entity} {BodySegs.Name(body[i].Segment)}: ось не вдоль суставов");
                     // Для сравнения — интерполяция прошлой и нынешней постановки (BodyMatrix(b, α) SWORD): отстаёт от меша.
@@ -354,10 +356,17 @@ public class ArenaViewTests
         Assert.True(worstLerp > 0.01f, $"интерполяция постановок отстаёт от меша лишь на {worstLerp} м — тест ничего не различает");
     }
 
+    /// <summary>Хват и кончик меча бойца кадра в показанном мире (7ж: ось тела клинка).</summary>
+    private static (Vector3 A, Vector3 B) BladeEnds(ReadOnlySpan<Matrix4x4> pose, in FighterView f)
+    {
+        var hand = pose[TestAssets.Assets.Hand] * f.World;
+        return (hand.Translation, Vector3.Transform(TestAssets.Assets.Weapons.Weapons[f.Weapon].BladeTip, hand));
+    }
+
     [Fact]
     public void Extract_WithBodiesOf33Fighters_AllocatesNothing()
     {
-        // 5в: мир представления с капсулами 33 бойцов (429 капсул) — без выделений в установившемся кадре.
+        // 5в: мир представления с капсулами 33 бойцов (с 7ж — 462 капсулы: и тело клинка) — без выделений в установившемся кадре.
         var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32"));
         var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new PlayerCommand { Move = new Vector2(1, 0) }), ticksPerFrame: 2);
         var view = new ArenaView(Field);

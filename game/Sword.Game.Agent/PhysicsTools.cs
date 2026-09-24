@@ -4,15 +4,17 @@ using System.Text.Json.Nodes;
 using Sword.Engine.Agent;
 using Sword.Engine.Ecs;
 using Sword.Engine.Introspection;
+using Sword.Game.Bodies;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Agent;
 
 /// <summary>
 /// Инструменты тел (5б): <c>physics.bodies</c> — капсулы тела бойца по сегментам (имена «левое предплечье» и т. п.,
-/// центр, концы, поворот, скорость, прошлая постановка, форма) через вид только для чтения <see cref="IBodyView"/>, и
+/// центр, концы, поворот, скорость, прошлая постановка, форма; с 7ж — тело клинка, масса, режим, профиль, касание земли, поза
+/// начала тика и привязка скина мёртвого) через виды только для чтения <see cref="IBodyView"/>, <see cref="ISkinView"/>, и
 /// вычисляемые поля тела для метрик манифестов (<see cref="BodyFields"/>: <c>Body.pelvis.Position.Y</c>,
-/// <c>Body.MaxSpeed</c>…). Слоты и поколения тел — участник хеша <c>physics</c> (<c>state.describe physics</c>).
+/// <c>Body.MaxSpeed</c>…). Слоты и поколения тел — участник хеша <c>physics</c> (<c>state.describe physics</c>), привязки — <c>skin</c>.
 /// </summary>
 public static class PhysicsTools
 {
@@ -21,17 +23,20 @@ public static class PhysicsTools
         host.Add(new AgentTool
         {
             Name = "physics.bodies", Title = "Тело бойца",
-            Description = "Капсулы тела бойца после последнего тика по сегментам: номер тела в сочленении, сегмент SWORD (0…13, 11 — " +
-                "клинок, у бойца его нет), имя (forearm.l) и название («левое предплечье»), центр, концы оси A и B, поворот, " +
-                "скорость и её модуль, угловая скорость и её модуль, прошлая постановка, радиус, полудлина, м; сводка — самая быстрая " +
-                "капсула. segments — имена сегментов (по умолчанию все 13). Слоты и поколения тел — state.describe physics.",
+            Description = "Капсулы тела бойца после последнего тика по сегментам: номер тела в сочленении (= сегмент SWORD 0…13; 11 — " +
+                "клинок: капсула от хвата до кончика меча в руке, хват — конец A), имя (forearm.l) и название («левое предплечье»), центр, " +
+                "концы оси A и B, поворот, скорость и её модуль, угловая скорость и её модуль, прошлая постановка, поза начала тика, радиус, " +
+                "полудлина, м, масса, кг, режим (kinematic — ставит поза, simulated — на физике), профиль динамики, касание земли; сводка — " +
+                "самая быстрая капсула, масса тела, привязка скина (skin: есть ли, время смерти, суставов, drift — насколько скин, " +
+                "привязка × тело, ушёл от позы бойца, м). segments — имена сегментов (по умолчанию все 14, blade — клинок). Слоты и " +
+                "поколения тел — state.describe physics, привязки скина — state.describe skin.",
             Arguments = new JsonObject
             {
                 ["entity"] = new JsonObject { ["type"] = "string", ["description"] = "номер «12v3» или имя (по умолчанию player)" },
                 ["segments"] = new JsonObject
                 {
                     ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string" },
-                    ["description"] = "имена сегментов: pelvis, torso, head, upperarm.l, forearm.l, upperarm.r, forearm.r, thigh.l, shin.l, thigh.r, shin.r, foot.l, foot.r",
+                    ["description"] = "имена сегментов: pelvis, torso, head, upperarm.l, forearm.l, upperarm.r, forearm.r, thigh.l, shin.l, thigh.r, shin.r, blade, foot.l, foot.r",
                 },
             },
             Run = async call =>
@@ -74,9 +79,13 @@ public static class PhysicsTools
                 ["position"] = Vec(b.Position), ["endA"] = Vec(b.EndA), ["endB"] = Vec(b.EndB), ["rotation"] = Quat(b.Rotation),
                 ["velocity"] = Vec(b.Velocity), ["speed"] = Round(b.Velocity.Length()),
                 ["angularVelocity"] = Vec(b.AngularVelocity), ["angularSpeed"] = Round(b.AngularVelocity.Length()),
-                ["prevPosition"] = Vec(b.PrevPosition), ["radius"] = Round(b.Radius), ["halfLength"] = Round(b.HalfLength),
+                ["prevPosition"] = Vec(b.PrevPosition), ["startPosition"] = Vec(b.StartPosition), ["radius"] = Round(b.Radius),
+                ["halfLength"] = Round(b.HalfLength), ["mass"] = Round(b.Mass), ["mode"] = b.Simulated ? "simulated" : "kinematic",
+                ["profile"] = b.Profile, ["grounded"] = b.Grounded,
             });
         }
+        float mass = 0;
+        for (int k = 0; k < count; k++) mass += view.Body(body, k).Mass;
         int fastest = 0;
         float max = -1;
         for (int k = 0; k < count; k++)
@@ -91,8 +100,33 @@ public static class PhysicsTools
             ["articulation"] = string.Create(CultureInfo.InvariantCulture, $"{body.Index}v{body.Generation}"),
             ["bodyCount"] = count,
             ["fastest"] = new JsonObject { ["name"] = BodySegs.Name(BodySegs.Segment(fastest)), ["title"] = BodySegs.Title(BodySegs.Segment(fastest)), ["speed"] = Round(max) },
+            ["mass"] = Round(mass),
+            ["skin"] = Skin(world, e, body, view),
             ["capsules"] = list,
         };
+    }
+
+    /// <summary>
+    /// Привязка скина тела (7ж): есть ли, время смерти, суставов и насколько скин (привязка × тело сегмента) ушёл от позы бойца
+    /// (модельная матрица × мир бойца): пока тела мёртвого стоят — 0; тела двинулись (сдвиг командой сцены, труп на физике) — больше.
+    /// </summary>
+    private static JsonObject Skin(WorldReader world, Entity e, BodyRef body, IBodyView bodies)
+    {
+        if (!world.TryView<ISkinView>(out var skins) || !skins.TryGet(body, out var binding, out float time))
+            return new JsonObject { ["captured"] = false };
+        float drift = float.NaN;
+        if (world.TryView<IAnimationView>(out var poses) && world.TryGet<PoseRef>(e, out var pose) && poses.Model(pose) is { Length: > 0 } model
+            && world.TryGet<Transform>(e, out var root))
+        {
+            var fighter = BodyPlacement.World(root.Position, root.Facing);
+            drift = 0;
+            for (int j = 0; j < Math.Min(binding.Length, model.Length); j++)
+            {
+                var skin = binding[j] * bodies.Body(body, BodySegs.Body(bodies.JointSegment(j))).World;
+                drift = MathF.Max(drift, Vector3.Distance(skin.Translation, (model[j] * fighter).Translation));
+            }
+        }
+        return new JsonObject { ["captured"] = true, ["time"] = Round(time), ["joints"] = binding.Length, ["drift"] = float.IsNaN(drift) ? null : Round(drift) };
     }
 
     private static JsonArray Vec(Vector3 v) => [Round(v.X), Round(v.Y), Round(v.Z)];
@@ -105,18 +139,18 @@ public static class PhysicsTools
 /// <summary>
 /// Вычисляемые поля тела бойца (<see cref="IEntityFields"/>, 5б) — по <see cref="IBodyView"/>: <c>Body.&lt;сегмент&gt;.&lt;поле&gt;[.X|.Y|.Z|.W]</c>,
 /// сегмент — имя <see cref="BodySegs.Name"/> (<c>pelvis</c>, <c>forearm.l</c>…), поле — <c>Position</c>, <c>Rotation</c>,
-/// <c>PrevPosition</c>, <c>PrevRotation</c>, <c>Velocity</c>, <c>AngularVelocity</c>, <c>EndA</c>, <c>EndB</c> (без компоненты —
-/// длина вектора), <c>Radius</c>, <c>HalfLength</c>; и по всему телу — <c>Body.MaxSpeed</c>, <c>Body.MaxAngularSpeed</c> (самая
+/// <c>PrevPosition</c>, <c>PrevRotation</c>, <c>Velocity</c>, <c>AngularVelocity</c>, <c>EndA</c>, <c>EndB</c>, <c>StartPosition</c> (7ж)
+/// (без компоненты — длина вектора), <c>Radius</c>, <c>HalfLength</c>, <c>Mass</c> (7ж); сегмент клинка — <c>blade</c> (7ж); и по всему телу — <c>Body.MaxSpeed</c>, <c>Body.MaxAngularSpeed</c> (самая
 /// быстрая капсула, м/с и рад/с). Нет тела — NaN.
 /// </summary>
 public sealed class BodyFields : IEntityFields
 {
     private const string Prefix = "Body.";
-    private static readonly string[] Vectors = ["Position", "PrevPosition", "Velocity", "AngularVelocity", "EndA", "EndB"];
+    private static readonly string[] Vectors = ["Position", "PrevPosition", "Velocity", "AngularVelocity", "EndA", "EndB", "StartPosition"];
     private static readonly string[] Quaternions = ["Rotation", "PrevRotation"];
 
     public IReadOnlyList<string> Known { get; } =
-        ["Body.<сегмент>.Position|Rotation|PrevPosition|PrevRotation|Velocity|AngularVelocity|EndA|EndB[.X|.Y|.Z|.W]", "Body.<сегмент>.Radius|HalfLength", "Body.MaxSpeed", "Body.MaxAngularSpeed"];
+        ["Body.<сегмент>.Position|Rotation|PrevPosition|PrevRotation|Velocity|AngularVelocity|EndA|EndB|StartPosition[.X|.Y|.Z|.W]", "Body.<сегмент>.Radius|HalfLength|Mass", "Body.MaxSpeed", "Body.MaxAngularSpeed"];
 
     public EntityFieldReader? Compile(string path, string at)
     {
@@ -142,13 +176,13 @@ public sealed class BodyFields : IEntityFields
         string name0 = parts[0];
         // Компонента — ровно одна из X, Y, Z, W; иное (x, XY, пусто, лишняя часть) — ошибка, а не длина вектора молча.
         int component = parts.Length == 1 ? -1 : parts.Length == 2 ? parts[1] switch { "X" => 0, "Y" => 1, "Z" => 2, "W" => 3, _ => -2 } : -2;
-        bool vector = Vectors.Contains(name0), quaternion = Quaternions.Contains(name0), scalar = name0 is "Radius" or "HalfLength";
+        bool vector = Vectors.Contains(name0), quaternion = Quaternions.Contains(name0), scalar = name0 is "Radius" or "HalfLength" or "Mass";
         if (!vector && !quaternion && !scalar || component < -1 || scalar && component != -1 || vector && component == 3)
             throw new ArgumentException($"{at}: {path} — поле тела: {string.Join(" | ", Known)}");
         return (in ServiceContext ctx, Entity e) =>
         {
             if (!Snapshot(ctx, e, body, out var b)) return double.NaN;
-            if (scalar) return name0 == "Radius" ? b.Radius : b.HalfLength;
+            if (scalar) return name0 switch { "Radius" => b.Radius, "HalfLength" => b.HalfLength, _ => b.Mass };
             if (quaternion)
             {
                 var q = name0 == "Rotation" ? b.Rotation : b.PrevRotation;
@@ -157,7 +191,7 @@ public sealed class BodyFields : IEntityFields
             var v = name0 switch
             {
                 "Position" => b.Position, "PrevPosition" => b.PrevPosition, "Velocity" => b.Velocity,
-                "AngularVelocity" => b.AngularVelocity, "EndA" => b.EndA, _ => b.EndB,
+                "AngularVelocity" => b.AngularVelocity, "EndA" => b.EndA, "StartPosition" => b.StartPosition, _ => b.EndB,
             };
             return component switch { 0 => v.X, 1 => v.Y, 2 => v.Z, _ => v.Length() };
         };

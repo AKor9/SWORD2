@@ -9,6 +9,7 @@ using Sword.Game.Bodies;
 using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Movement;
+using Sword.Game.Ragdoll;
 
 namespace Sword.Game;
 
@@ -39,7 +40,12 @@ namespace Sword.Game;
 /// статистика (<see cref="ArenaStatsSystem"/>, Settle → <see cref="ArenaStats"/>); мёртвый замирает (системы ядра и модуль локомоции
 /// его пропускают); инварианты <c>combat.health</c>, <c>combat.dead</c>, <c>combat.hits</c>, <c>combat.respawn</c>. Этап 6е: ручки «Бой»
 /// (<see cref="CombatKnobs"/>: поля <see cref="CombatRules"/>, команда ручки — система <c>tuning.combat</c> в Begin; смена правил —
-/// <see cref="CombatRulesChangeSystem"/>). Регистрации ядра — без токена модуля.
+/// <see cref="CombatRulesChangeSystem"/>). Этап 7ж: тело бойца — 14 тел по номерам сегментов с массами (<see cref="FighterShape.Masses"/>),
+/// тело клинка по мечу в руке (<see cref="BladeBody"/>; постройка — <see cref="BladeSetupSystem"/>, тик — <see cref="BladePlacementSystem"/>);
+/// причина смерти (<see cref="DeathCause"/>); команды сцен (<see cref="SceneCommand"/>: <see cref="SceneCommandSystem"/> в Intent,
+/// <see cref="ScenePlayerIntentSystem"/> в Gameplay); привязка скина мёртвого (<see cref="SkinBindings"/>, снимок —
+/// <see cref="SkinCaptureSystem"/> в Gameplay и Settle, сброс — <see cref="SkinReleaseSystem"/> в End; вид <see cref="ISkinView"/>,
+/// участник хеша <c>skin</c>, инвариант <c>ragdoll.skin</c>). Регистрации ядра — без токена модуля.
 ///
 /// Порядок <c>DuelArena.Tick</c> SWORD — по стадиям: команды арены (из цикла кадра SWORD до тика) — Begin; команда игрока и
 /// ИИ врагов — Intent. Порядок <c>KinematicBegin</c> — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
@@ -79,9 +85,11 @@ public static class GameCore
     public static void Configure(SimulationBuilder b, CharacterAssets assets)
     {
         var poses = new PosePool(assets.Clips);   // пул поз — у каждой симуляции свой: ассеты только читаются
-        // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 13 тел), дальше растёт удвоением.
+        // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 14 тел — с 7ж и клинок), дальше растёт удвоением.
         var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies);
         var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
+        var jointSegments = JointSegments.Build(assets.Clips.Skeleton);   // сустав скелета → сегмент тела (ID-буфер 5в, привязка скина 7ж)
+        var skins = new SkinBindings(jointSegments, ArenaRules.MaxFighters);   // 7ж: привязки скина мёртвых — по слотам сочленений
         var start = new StartPoseModel(assets.Clips);   // поза постройки тела: сборка мира, постройка командой, инвариант
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
@@ -103,18 +111,20 @@ public static class GameCore
             .Component<WeaponSlot>().Component<Blade>().Component<PlayerControl>().Component<AttackCombo>().Component<EnemyAttack>()
             .Component<Health>().Component<Dead>().Component<StrikePairs>().Component<Flinch>()
             .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>()
-            .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>()
+            .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>().Command<SceneCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
             .Resource(PlayerInventory.All(weapons.Count, playerWeapon)).Resource(CombatRules.From(combat)).Resource(ArenaStats.Start)
-            .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 })
-            .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, JointSegments.Build(assets.Clips.Skeleton)))
-            .ReadView<ICombatView>(new CombatView(weapons, assets.Strikes, assets.Hand))
+            .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 }).Resource(skins)
+            .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, jointSegments))
+            .ReadView<ICombatView>(new CombatView(weapons, assets.Strikes, assets.Hand)).ReadView<ISkinView>(new SkinView(skins))
             .StateContributor(new AnimationState(poses))
             .StateContributor(new PhysicsState(physics))
+            .StateContributor(new SkinState(skins))
             .Invariants(AnimationInvariants.For(poses, assets.Actions, strikes))
             .Invariant(new ArenaSlotsInvariant())
             .Invariant(new RootOverlapInvariant())
-            .Invariants(PhysicsInvariants.For(physics, poses, joints, start))
+            .Invariants(PhysicsInvariants.For(physics, poses, joints, start, weapons, assets.Hand))
+            .Invariant(new SkinInvariant(physics, skins))
             .Invariants(CombatInvariants.For(poses, weapons, assets.Hand, start, strikes))
             .Invariants(DamageInvariants.For())
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
@@ -128,12 +138,15 @@ public static class GameCore
 
         b.System(GameStages.Begin, new PrevTransformSystem())
             .System(GameStages.Begin, new ArenaCommandSystem(weapons.Count))
+            .System(GameStages.Intent, new SceneCommandSystem(physics, weapons.Count))
             .System(GameStages.Intent, new PlayerCommandSystem(strikes))
             .System(GameStages.Intent, new EnemyAiSystem(strikes))
             .System(GameStages.Gameplay, new FighterSetupSystem())
             .System(GameStages.Gameplay, new BodySetupSystem(physics, joints, start))
-            .System(GameStages.Gameplay, new BladeSetupSystem(weapons, assets.Hand, start))
+            .System(GameStages.Gameplay, new BladeSetupSystem(physics, weapons, assets.Hand, start))
+            .System(GameStages.Gameplay, new SkinCaptureSystem(physics, skins, gameplay: true))
             .System(GameStages.Gameplay, new EnemyCommandSystem())
+            .System(GameStages.Gameplay, new ScenePlayerIntentSystem())
             .System(GameStages.Gameplay, new RootSteerSystem(strikes))
             .System(GameStages.Gameplay, new AnimatorInputSystem(strikes))
             .System(GameStages.Animation, new ActionSnapshotSystem())
@@ -142,15 +155,17 @@ public static class GameCore
             .System(GameStages.Movement, new RootControlSystem())
             .System(GameStages.Movement, new RootCollisionSystem())
             .System(GameStages.PrePhysics, new KinematicPlacementSystem(physics, joints))
-            .System(GameStages.PrePhysics, new BladePlacementSystem(weapons, assets.Hand))
+            .System(GameStages.PrePhysics, new BladePlacementSystem(physics, weapons, assets.Hand))
             .System(GameStages.Combat, new StrikeDetectionSystem(physics, strikes))
             .System(GameStages.Resolve, new HitApplySystem())
             .System(GameStages.React, new HitReactionSystem())
             .System(GameStages.Aftermath, new BleedSystem())
             .System(GameStages.Aftermath, new RespawnSystem(weapons.Count))
             .System(GameStages.Settle, new ArenaStatsSystem())
+            .System(GameStages.Settle, new SkinCaptureSystem(physics, skins, gameplay: false))
             .System(GameStages.End, new PoseReleaseSystem())
-            .System(GameStages.End, new ActionPoseReleaseSystem());
+            .System(GameStages.End, new ActionPoseReleaseSystem())
+            .System(GameStages.End, new SkinReleaseSystem(skins));
 
         b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies, weapons.Count));
         // Тела и клинки бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира (5в, 6б): как PlaceBuilt
@@ -158,7 +173,7 @@ public static class GameCore
         b.OnWorldReady(w =>
         {
             BodySetupSystem.PlaceWorldBuilt(w, physics, joints, start);
-            BladeSetupSystem.PlaceWorldBuilt(w, weapons, assets.Hand, start);
+            BladeSetupSystem.PlaceWorldBuilt(w, physics, weapons, assets.Hand, start);
         });
     }
 

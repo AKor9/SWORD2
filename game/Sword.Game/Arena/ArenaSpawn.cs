@@ -103,6 +103,26 @@ public static class ArenaRules
     /// </summary>
     public static FighterSpawn Player(SimRandom rng, ulong tick, uint batch, int weapon) =>
         new(0, Vector3.Zero, 0, rng.Float(SpawnStream, tick, Entity.Null, Sample(batch, 0, 2)), weapon);
+
+    /// <summary>
+    /// Партия постройки командой сцены (7ж, <see cref="SceneAction.Place"/>): номер, которого нет ни у команд арены (с 1), ни у
+    /// возрождения (<see cref="RespawnBatch"/>) — таймер удара поставленного врага не делит чисел ни с одной постройкой того же тика.
+    /// </summary>
+    public const uint SceneBatch = 2_000_000;
+
+    /// <summary>
+    /// Боец места <paramref name="slot"/>, поставленный командой сцены (7ж; <c>PlaceFighter</c> сцен SWORD — <c>Build</c> в заданной
+    /// точке): корень <paramref name="position"/> (y = 0), курс <paramref name="facing"/>, зерно и меч — прежние бойца (сцена ставит того
+    /// же бойца, а не нового); таймер удара врага — как при постройке (<c>EnemyAi.Built</c>: 1 + ГСЧ·2, своя партия
+    /// <see cref="SceneBatch"/>), у игрока — 0.
+    /// </summary>
+    public static FighterSpawn Placed(SimRandom rng, ulong tick, int slot, Vector2 position, float facing, float seed, int weapon)
+    {
+        if (slot is < 0 or > ArenaState.MaxEnemies) throw new ArgumentOutOfRangeException(nameof(slot), slot, "место — 0…32");
+        float timer = slot == 0 ? 0
+            : EnemyAiRules.FirstTimer + rng.Float(EnemyAiRules.AttackStream, tick, Entity.Null, Sample(SceneBatch, slot, 0)) * EnemyAiRules.FirstTimerSpread;
+        return new FighterSpawn(slot, new Vector3(position.X, 0, position.Y), facing, seed, weapon, timer);
+    }
 }
 
 /// <summary>

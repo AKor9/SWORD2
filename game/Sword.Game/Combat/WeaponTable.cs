@@ -10,6 +10,8 @@ namespace Sword.Game.Combat;
 /// каждого — по его мешу (<see cref="WeaponMesh"/>: <c>MakeWeapon</c>). Меч по умолчанию — <see cref="DefaultName"/>, нет его —
 /// первый: по его клинку размечены окна ударов (<see cref="StrikeTable"/>). Ассет симуляции: неизменяема, общая для всех
 /// симуляций процесса, наружу — только <see cref="ReadOnlySpan{T}"/>. Без оружия игра не стартует (как <c>TryLoad</c> SWORD).
+/// С 7ж — и тело клинка каждого меча (<see cref="Bodies"/>: капсула от хвата до кончика, <see cref="BladeBody"/>), посчитанное
+/// один раз при загрузке.
 /// </summary>
 public sealed class WeaponTable
 {
@@ -17,9 +19,13 @@ public sealed class WeaponTable
     public const string DefaultName = "sword_1h";
 
     private readonly WeaponInfo[] _weapons;
+    private readonly BladeBody[] _bodies;
 
     public ReadOnlySpan<WeaponInfo> Weapons => _weapons;
     public int Count => _weapons.Length;
+
+    /// <summary>Тело клинка меча по номеру (7ж; <see cref="WeaponInfo.Body"/> — то же, посчитанное заранее).</summary>
+    public ReadOnlySpan<BladeBody> Bodies => _bodies;
 
     /// <summary>Номер меча по умолчанию (<c>DefaultWeapon</c>).</summary>
     public int Default { get; }
@@ -30,6 +36,7 @@ public sealed class WeaponTable
         if (weapons.Length > PlayerInventory.MaxWeapons)
             throw new InvalidDataException($"оружия {weapons.Length} — инвентарь игрока держит не больше {PlayerInventory.MaxWeapons}");
         _weapons = weapons.ToArray();
+        _bodies = [.. _weapons.Select(w => w.Body)];
         Default = Math.Max(0, Find(DefaultName));
     }
 

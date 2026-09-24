@@ -106,9 +106,33 @@ public static class GameLabels
 
     /// <summary>
     /// PrePhysics, после <see cref="KinematicPlacement"/> (6б): клинок бойца — по модельной матрице кисти позы тика в мире бойца
-    /// (<c>anim.Blade</c> в <c>PlaceBodies</c> SWORD), прошлый — клинок прошлого тика (сменился меч — прошлое = нынешнему).
+    /// (<c>anim.Blade</c> в <c>PlaceBodies</c> SWORD), прошлый — клинок прошлого тика (сменился меч — прошлое = нынешнему). С 7ж — и
+    /// тело клинка (тело 11 сочленения): кинематическая цель тика по кисти; сменился меч — новая форма и постановка без скорости.
     /// </summary>
     public static readonly SystemLabel BladePlacement = new("core.blade-placement");
+
+    /// <summary>
+    /// Intent, до <see cref="PlayerCommand"/> (7ж): команды сцены тика по порядку (<c>SceneCommand</c>) — расстановка (постройка места
+    /// заново в точке), смерть без удара, сдвиг тел трупа, меч места. Видны с барьера Intent: Gameplay того же тика строит тело и клинок
+    /// поставленному и снимает привязку скина убитому.
+    /// </summary>
+    public static readonly SystemLabel SceneCommand = new("core.scene-command");
+
+    /// <summary>
+    /// Gameplay, после <see cref="EnemyCommand"/>, до <see cref="RootSteer"/> (7ж): намерение игрока командой сцены
+    /// (<c>SceneAction.PlayerIntent</c>) — поверх команды игрока этого тика.
+    /// </summary>
+    public static readonly SystemLabel SceneIntent = new("core.scene-intent");
+
+    /// <summary>
+    /// Gameplay (до <see cref="RootSteer"/>) и Settle (7ж), реактивная по <c>Added&lt;Dead&gt;</c>: снимок привязки скина мёртвого
+    /// (<c>ISkinView</c>) по позе и телам момента смерти. В Gameplay — смерти командой сцены (Intent): тела ещё не двинулись; в Settle —
+    /// попадания и кровопотеря этого тика. Переход в труп (7з) встаёт после неё в обеих стадиях.
+    /// </summary>
+    public static readonly SystemLabel SkinCapture = new("core.skin-capture");
+
+    /// <summary>End (7ж), реактивная по <c>Removed&lt;Dead&gt;</c>: ожившему (постройка заново) или ушедшему мёртвому — привязка скина снята.</summary>
+    public static readonly SystemLabel SkinRelease = new("core.skin-release");
 
     /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
     public static readonly SystemLabel ActionRelease = new("core.action-release");

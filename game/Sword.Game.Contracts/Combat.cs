@@ -18,9 +18,10 @@ public struct WeaponSlot
 /// Клинок бойца в мире после постановки тела тика (<c>KinBase</c>, <c>KinTip</c>, <c>KinPrevBase</c>, <c>KinPrevTip</c> SWORD
 /// 2eab13b; PrePhysics, этап 6б): основание (у гарды, 22 см от кисти) и кончик клинка меча <see cref="WeaponSlot"/>, как
 /// показан боец — модельная матрица кисти (hand_r) позы тика в мире бойца (корень, курс, высота рельефа — тот же мир, что у
-/// капсул тела), — и их положение прошлого тика: отрезок, который клинок заметает за тик (проходы клинка — 6г). Физического
-/// тела у клинка нет (этап 7). Постройка бойца и смена меча — прошлое равно нынешнему (<see cref="Weapon"/> — меч, которым
-/// клинок посчитан): прохода между разными клинками нет (в SWORD смена меча давала один такой фантомный проход).
+/// капсул тела), — и их положение прошлого тика: отрезок, который клинок заметает за тик (проходы клинка — 6г). С 7ж у клинка
+/// есть и тело — капсула 11 сочленения бойца от хвата до кончика (<see cref="BladeBody"/>), её ставят вместе с этим отрезком.
+/// Постройка бойца и смена меча — прошлое равно нынешнему (<see cref="Weapon"/> — меч, которым клинок посчитан): прохода между
+/// разными клинками нет (в SWORD смена меча давала один такой фантомный проход); тело клинка тогда — новой формы, без скорости.
 /// </summary>
 public struct Blade
 {
@@ -100,12 +101,55 @@ public struct PlayerInventory
 /// <summary>
 /// Оружие таблицы (<c>CharacterRig.Weapon</c> SWORD 2eab13b): имя (файл пака без расширения), путь меша в контенте
 /// (<c>weapons/имя.swmesh</c>: статический меш, вершины в системе кисти hand_r) и клинок в системе кисти — кончик — самая
-/// дальняя от кисти вершина меша, основание — 22 см от кисти по той же оси (<c>MakeWeapon</c>).
+/// дальняя от кисти вершина меша, основание — 22 см от кисти по той же оси (<c>MakeWeapon</c>). Тело клинка меча (7ж) —
+/// <see cref="Body"/>.
 /// </summary>
 public readonly record struct WeaponInfo(string Name, string Mesh, Vector3 BladeBase, Vector3 BladeTip)
 {
     /// <summary>Длина клинка от основания до кончика, м.</summary>
     public float Length => Vector3.Distance(BladeBase, BladeTip);
+
+    /// <summary>Тело клинка этого меча в системе кисти (7ж): капсула от хвата до кончика (<see cref="BladeBody.Of"/>).</summary>
+    public BladeBody Body => BladeBody.Of(BladeTip);
+}
+
+/// <summary>
+/// Тело клинка меча (7ж; решение 3 этапа 7: не как в SWORD — там капсула 0,575 м при любом мече) — тело 11 сочленения бойца
+/// (<see cref="BodySegs.Weapon"/>) в системе кисти hand_r: ось капсулы (локальная Y тела) — отрезок от **хвата** до кончика клинка
+/// (<see cref="WeaponInfo.BladeTip"/>). Хват — начало системы кисти (сустав hand_r: там же конец предплечья, <c>lowerarm_r → hand_r</c>),
+/// в системе тела — нижний конец оси (<see cref="GripLocal"/>, конец A капсулы): точка сустава запястья трупа (7з). Центр — середина
+/// отрезка; локальная X тела — <see cref="XHint"/> (ось кисти, самая поперечная к клинку, без продольной части): поворот тела клинка
+/// относительно кисти постоянен, по нему меч рисуется на теле клинка (7и). Масса и радиус — одни для всех мечей (<see cref="Mass"/>,
+/// <see cref="Radius"/>: массы в паке нет); смена меча меняет форму капсулы.
+/// </summary>
+public readonly record struct BladeBody(Vector3 Center, Vector3 Axis, Vector3 XHint, float HalfLength)
+{
+    /// <summary>Масса тела клинка, кг (решение 3: 1,4 кг для всех мечей, как <c>Fighter.Masses[Weapon]</c> SWORD).</summary>
+    public const float Mass = 1.4f;
+
+    /// <summary>Радиус капсулы клинка, м (как <c>Fighter.Radii[Weapon]</c> SWORD; решение 7ж — отправная точка, ручка — 7з).</summary>
+    public const float Radius = 0.03f;
+
+    /// <summary>Хват в системе кисти — её начало: точка сустава запястья трупа (7з).</summary>
+    public static Vector3 Grip => Vector3.Zero;
+
+    /// <summary>Хват в системе тела клинка — нижний конец оси (конец A капсулы).</summary>
+    public Vector3 GripLocal => new(0, -HalfLength, 0);
+
+    /// <summary>
+    /// Тело клинка по кончику <paramref name="tip"/> в системе кисти: ось — от хвата (0) к кончику, центр — середина, полудлина —
+    /// половина расстояния; опорная X — ось кисти (X, Y или Z — самая поперечная к клинку, первая при равенстве) без продольной
+    /// части. Кончик в хвате (длины нет) — ось Y кисти, полудлина 0.
+    /// </summary>
+    public static BladeBody Of(Vector3 tip)
+    {
+        float length = tip.Length();
+        var axis = length > 1e-6f ? tip / length : Vector3.UnitY;
+        var hint = MathF.Abs(axis.X) <= MathF.Abs(axis.Y) && MathF.Abs(axis.X) <= MathF.Abs(axis.Z) ? Vector3.UnitX
+            : MathF.Abs(axis.Y) <= MathF.Abs(axis.Z) ? Vector3.UnitY : Vector3.UnitZ;
+        hint = Vector3.Normalize(hint - axis * Vector3.Dot(hint, axis));
+        return new BladeBody(tip * 0.5f, axis, hint, length * 0.5f);
+    }
 }
 
 /// <summary>

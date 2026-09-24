@@ -4,6 +4,7 @@ using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Bodies;
@@ -14,7 +15,7 @@ namespace Sword.Game.Bodies;
 /// Physics до этапа 7 пуста: после неё видно ровно то, что поставил PrePhysics; шаг физики — этап 7);
 /// <c>physics.kinematicPose</c> и <c>physics.kinematicSpeed</c> — после PrePhysics (5б: капсулы живого бойца стоят на суставах
 /// позы тика, их скорости правдоподобны); <c>physics.bodyRefs</c> — в конце End, когда хуки всех барьеров тика отработали.
-/// Проверки внутри шага — с шагом (этап 7).
+/// Проверки внутри шага — с шагом (этап 7). С 7ж у бойца 14 тел: тело клинка (11) — на мече в кисти позы, массы тел конечны.
 /// </summary>
 public static class PhysicsInvariants
 {
@@ -39,8 +40,16 @@ public static class PhysicsInvariants
     /// </summary>
     public const float MaxRelativeSpeed = 30f, MaxAngularSpeed = 150f;
 
-    public static IEnumerable<IInvariant> For(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start) =>
-        [new Finite(physics), new KinematicPose(physics, poses, joints, start), new KinematicSpeed(physics), new BodyRefs(physics)];
+    /// <summary>
+    /// <c>physics.kinematicSpeed</c> (7ж): предел скорости тела клинка относительно бойца, м/с — центр капсулы клинка в полуметре и дальше от
+    /// кисти, в ударе он быстрее руки. Замер 7ж (эталонный пак, 32 бьющих врага и игрок — удары, уколы, жесты, рывки, смена меча, 4000 тиков,
+    /// зёрна 1–3): до 49,4 м/с относительно бойца (плоть — до 20,2), поперёк оси — до 61,8 рад/с; предел — ~2× к худшему.
+    /// </summary>
+    public const float MaxBladeSpeed = 100f;
+
+    public static IEnumerable<IInvariant> For(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start, WeaponTable weapons,
+        int hand) =>
+        [new Finite(physics), new KinematicPose(physics, poses, joints, start, weapons, hand), new KinematicSpeed(physics), new BodyRefs(physics)];
 
     /// <summary>
     /// Скорость капсулы относительно бойца, м/с: прошлая постановка, перенесённая вместе с миром бойца из прошлого корня и
@@ -60,8 +69,8 @@ public static class PhysicsInvariants
     }
 
     /// <summary>
-    /// <c>physics.finite</c> — у живых тел конечны положение, поворот, прошлая постановка, скорости и форма; поворот —
-    /// единичной длины; форма не отрицательна.
+    /// <c>physics.finite</c> — у живых тел конечны положение, поворот, прошлая постановка, поза начала тика, скорости и форма; повороты —
+    /// единичной длины; форма не отрицательна; с 7ж — масса, обратная масса и обратная инерция конечны и не отрицательны.
     /// </summary>
     private sealed class Finite(IPhysicsWorld physics) : IInvariant
     {
@@ -87,12 +96,17 @@ public static class PhysicsInvariants
         {
             if (!Finite3(s.Position)) return $"положение {Text(s.Position)}";
             if (!Finite3(s.PrevPosition)) return $"прошлое положение {Text(s.PrevPosition)}";
+            if (!Finite3(s.StartPosition)) return $"положение начала тика {Text(s.StartPosition)}";
             if (!Finite3(s.Velocity)) return $"скорость {Text(s.Velocity)}";
             if (!Finite3(s.AngularVelocity)) return $"угловая скорость {Text(s.AngularVelocity)}";
             if (Unit(s.Rotation) is { } rot) return $"поворот {rot}";
             if (Unit(s.PrevRotation) is { } prev) return $"прошлый поворот {prev}";
+            if (Unit(s.StartRotation) is { } start) return $"поворот начала тика {start}";
             if (!float.IsFinite(s.Radius) || !float.IsFinite(s.HalfLength) || s.Radius < 0 || s.HalfLength < 0)
                 return string.Create(CultureInfo.InvariantCulture, $"форма: радиус {s.Radius}, полудлина {s.HalfLength}");
+            if (!(float.IsFinite(s.Mass) && s.Mass >= 0 && float.IsFinite(s.InvMass) && s.InvMass >= 0) || !Finite3(s.InvInertia)
+                || s.InvInertia.X < 0 || s.InvInertia.Y < 0 || s.InvInertia.Z < 0)
+                return string.Create(CultureInfo.InvariantCulture, $"масса {s.Mass}, обратная {s.InvMass}, обратная инерция {Text(s.InvInertia)}");
             return null;
         }
 
@@ -111,13 +125,16 @@ public static class PhysicsInvariants
     /// <summary>
     /// <c>physics.kinematicPose</c> — капсулы живого бойца стоят на суставах его позы этого тика (после PrePhysics): центр
     /// капсулы — середина её двух точек (<see cref="BodyPlacement.Ends"/>) в мире бойца (корень, курс, высота рельефа), ось —
-    /// вдоль направления между ними. Ловит постановку, которая не прошла (капсулы остались на прошлой позе или корне),
-    /// перепутанные тела (<see cref="BodyRef"/> двух бойцов обменялись) и тело, сдвинутое после постановки. Бойцы без живой позы
-    /// или с негодным телом пропускаются (их ловят <c>animation.*</c>, <c>physics.bodyRefs</c>). До первого тика (проверка
-    /// «сейчас» на свежем сеансе, после <c>time.seek 0</c>) капсулы сверяются с позой постройки (<see cref="StartPose"/>): по ней
-    /// их поставила сборка мира (5в), а поза бойца до первого тика — поза привязки (её считает первый тик).
+    /// вдоль направления между ними. С 7ж и тело клинка: его точки — хват (начало кисти) и кончик клинка меча в руке
+    /// (<see cref="BladePlacement.BodyOf"/>), полудлина — половина отрезка меча (смена меча меняет форму). Ловит постановку, которая не
+    /// прошла (капсулы остались на прошлой позе или корне), перепутанные тела (<see cref="BodyRef"/> двух бойцов обменялись) и тело,
+    /// сдвинутое после постановки. Бойцы без живой позы или с негодным телом пропускаются (их ловят <c>animation.*</c>,
+    /// <c>physics.bodyRefs</c>), мёртвые — тоже (7ж): их тела уже не по позе (сдвиг командой сцены, труп на физике — 7з). До первого
+    /// тика (проверка «сейчас» на свежем сеансе, после <c>time.seek 0</c>) капсулы сверяются с позой постройки (<see cref="StartPose"/>):
+    /// по ней их поставила сборка мира (5в), а поза бойца до первого тика — поза привязки (её считает первый тик).
     /// </summary>
-    private sealed class KinematicPose(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start) : IInvariant
+    private sealed class KinematicPose(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start, WeaponTable weapons,
+        int hand) : IInvariant
     {
         private ReadQuery? _query;
 
@@ -133,39 +150,57 @@ public static class PhysicsInvariants
             // До первого тика тела стоят по позе постройки (сборка мира), а не по позе бойца: её ещё не считал ни один тик.
             bool built = BeforeFirstTick(ctx);
             var buildModel = built ? start.Of(world.Resource<StartPose>()) : default;
-            _query ??= world.Query().With<Fighter>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
+            _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<BodyRef>().Read<WeaponSlot>();
             foreach (var chunk in world.Iterate(_query))
             {
                 var entities = chunk.Entities;
                 var bodies = chunk.Read<BodyRef>();
                 var roots = chunk.Read<Transform>();
                 var refs = chunk.Read<PoseRef>();
+                var slots = chunk.Read<WeaponSlot>();
                 for (int i = 0; i < entities.Length; i++)
                 {
                     var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                     var body = FighterBodies.Handle(bodies[i]);
                     if (!poses.IsAlive(pose) || !BodyPlacement.Placeable(physics, body)) continue;
-                    var model = built ? buildModel : poses.Model(pose);
-                    var w = BodyPlacement.World(roots[i].Position, roots[i].Facing);
-                    for (int k = 0; k < BodySegs.Bodies; k++)
-                    {
-                        int segment = BodySegs.Segment(k);
-                        var (a, b) = BodyPlacement.Ends(model, joints, w, segment);
-                        var s = physics.Get(physics.Body(body, k));
-                        var dir = b - a;
-                        if (dir.LengthSquared() < 1e-8f) dir = Vector3.UnitY;
-                        float off = Vector3.Distance(s.Position, (a + b) * 0.5f);
-                        float dot = Vector3.Dot(s.Axis, Vector3.Normalize(dir));
-                        // нечисловое — дело physics.finite (оно же покажет, что именно)
-                        if (off <= CenterTolerance && dot >= 1 - AxisTolerance || !float.IsFinite(off) || !float.IsFinite(dot)) continue;
-                        float angle = MathF.Acos(Math.Clamp(dot, -1, 1)) * 180 / MathF.PI;
-                        violations.Report(entities[i], string.Create(CultureInfo.InvariantCulture,
-                            $"капсула {BodySegs.Name(segment)} ({BodySegs.Title(segment)}) не на суставах позы: центр в {off:G4} м от середины, ось отклонена на {angle:G4}°"));
-                        if (violations.Full) return;
-                        break;   // одна строка на бойца
-                    }
+                    if (Problem(built ? buildModel : poses.Model(pose), roots[i], body, slots[i].Index) is not { } problem) continue;
+                    violations.Report(entities[i], problem);   // одна строка на бойца
+                    if (violations.Full) return;
                 }
             }
+        }
+
+        /// <summary>Первая капсула бойца не на позе (тело цикла по бойцам — свой метод); все на месте — null.</summary>
+        private string? Problem(ReadOnlySpan<Matrix4x4> model, in Transform root, ArticulationHandle body, int weapon)
+        {
+            var w = BodyPlacement.World(root.Position, root.Facing);
+            for (int k = 0; k < BodySegs.Bodies; k++)
+            {
+                int segment = BodySegs.Segment(k);
+                var s = physics.Get(physics.Body(body, k));
+                Vector3 a, b;
+                if (BodySegs.IsFlesh(segment)) (a, b) = BodyPlacement.Ends(model, joints, w, segment);
+                else
+                {
+                    if ((uint)weapon >= (uint)weapons.Count) continue;   // меч вне таблицы — ловит combat.weapons
+                    var handWorld = model[hand] * w;
+                    (a, b) = (handWorld.Translation, Vector3.Transform(weapons.Weapons[weapon].BladeTip, handWorld));
+                    float want = weapons.Bodies[weapon].HalfLength;
+                    if (MathF.Abs(s.HalfLength - want) > CenterTolerance)   // нечисловая — дело physics.finite
+                        return string.Create(CultureInfo.InvariantCulture,
+                            $"капсула blade (клинок): полудлина {s.HalfLength:G6} м, а у меча в руке ({weapons.Weapons[weapon].Name}) — {want:G6}");
+                }
+                var dir = b - a;
+                if (dir.LengthSquared() < 1e-8f) dir = Vector3.UnitY;
+                float off = Vector3.Distance(s.Position, (a + b) * 0.5f);
+                float dot = Vector3.Dot(s.Axis, Vector3.Normalize(dir));
+                // нечисловое — дело physics.finite (оно же покажет, что именно)
+                if (off <= CenterTolerance && dot >= 1 - AxisTolerance || !float.IsFinite(off) || !float.IsFinite(dot)) continue;
+                float angle = MathF.Acos(Math.Clamp(dot, -1, 1)) * 180 / MathF.PI;
+                return string.Create(CultureInfo.InvariantCulture,
+                    $"капсула {BodySegs.Name(segment)} ({BodySegs.Title(segment)}) не на суставах позы: центр в {off:G4} м от середины, ось отклонена на {angle:G4}°");
+            }
+            return null;
         }
 
         /// <summary>
@@ -204,8 +239,8 @@ public static class PhysicsInvariants
     /// <summary>
     /// <c>physics.kinematicSpeed</c> — капсулы живого бойца не перескакивают (после PrePhysics): скорость каждой капсулы
     /// относительно бойца (<see cref="RelativeSpeed"/>: перенос и поворот мира бойца за тик — корень из <see cref="PrevTransform"/>
-    /// в <see cref="Transform"/> — вычтены) не больше <see cref="MaxRelativeSpeed"/>, угловая поперёк оси (<see cref="Swing"/>; 6в) —
-    /// не больше <see cref="MaxAngularSpeed"/>. Ловит скачок, который постановка приняла за движение: постройка или сброс без
+    /// в <see cref="Transform"/> — вычтены) не больше <see cref="MaxRelativeSpeed"/> (тело клинка — <see cref="MaxBladeSpeed"/>, 7ж), угловая
+    /// поперёк оси (<see cref="Swing"/>; 6в) — не больше <see cref="MaxAngularSpeed"/>. Ловит скачок, который постановка приняла за движение: постройка или сброс без
     /// постановки при постройке (прошлая постановка — там, где тело стояло до постройки), чужая или испорченная поза, неверный
     /// шаг. Толчки корней при спауне внахлёст, колонны, ступени и поворот курса — движение мира бойца, их предел не видит.
     /// </summary>
@@ -249,10 +284,11 @@ public static class PhysicsInvariants
                     {
                         var s = physics.Get(physics.Body(body, k));
                         float v = Vector3.Distance(s.Position, Vector3.Transform(s.PrevPosition, carry)) / dt, w = Swing(s);
-                        if (v <= MaxRelativeSpeed && w <= MaxAngularSpeed || !float.IsFinite(v) || !float.IsFinite(w)) continue;   // нечисловое — physics.finite
                         int segment = BodySegs.Segment(k);
+                        float limit = BodySegs.IsFlesh(segment) ? MaxRelativeSpeed : MaxBladeSpeed;
+                        if (v <= limit && w <= MaxAngularSpeed || !float.IsFinite(v) || !float.IsFinite(w)) continue;   // нечисловое — physics.finite
                         violations.Report(entities[i], string.Create(CultureInfo.InvariantCulture,
-                            $"капсула {BodySegs.Name(segment)} ({BodySegs.Title(segment)}): скорость относительно бойца {v:G4} м/с (предел {MaxRelativeSpeed}), угловая {w:G4} рад/с (предел {MaxAngularSpeed}); скорость {s.Velocity.Length():G4} м/с"));
+                            $"капсула {BodySegs.Name(segment)} ({BodySegs.Title(segment)}): скорость относительно бойца {v:G4} м/с (предел {limit}), угловая {w:G4} рад/с (предел {MaxAngularSpeed}); скорость {s.Velocity.Length():G4} м/с"));
                         if (violations.Full) return;
                         break;   // одна строка на бойца
                     }

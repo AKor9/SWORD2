@@ -55,8 +55,9 @@ public static class BodyPlacement
     public static Vector3 Right(float facing) => Vector3.Transform(new Vector3(-1, 0, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitY, facing));
 
     /// <summary>
-    /// Постановка 13 капсул бойца (тела сочленения по порядку, <see cref="BodySegs.Segment"/>) по модельным матрицам позы
-    /// <paramref name="model"/> в корне <paramref name="root"/> курсом <paramref name="facing"/>: центры и повороты.
+    /// Постановка 13 капсул плоти бойца (тела сочленения по номерам сегментов, <see cref="BodySegs.Body"/>; место клинка — тело 11 — не
+    /// трогается: его ставит клинок, <c>Combat.BladePlacement</c>) по модельным матрицам позы <paramref name="model"/> в корне
+    /// <paramref name="root"/> курсом <paramref name="facing"/>: центры и повороты.
     /// </summary>
     public static void Capsules(ReadOnlySpan<Matrix4x4> model, BodyJoints j, Vector3 root, float facing, Span<Vector3> position,
         Span<Quaternion> rotation)
@@ -122,9 +123,10 @@ public static class BodyPlacement
     }
 
     /// <summary>
-    /// Постройка бойца (<c>Fighter.Build</c> → <c>PlaceBuilt</c> SWORD): форма тела от места и курса постройки
-    /// (<see cref="FighterShape"/>) и капсулы без скорости (<see cref="IPhysicsWorld.Place"/>) по позе постройки
-    /// <paramref name="startModel"/> в корне постройки.
+    /// Постройка бойца (<c>Fighter.Build</c> → <c>PlaceBuilt</c> SWORD): форма тела с массой от места и курса постройки
+    /// (<see cref="FighterShape"/>: радиусы, полудлины, массы — 7ж) и капсулы плоти без скорости (<see cref="IPhysicsWorld.Place"/>) по
+    /// позе постройки <paramref name="startModel"/> в корне постройки. Тело клинка (11) — по мечу в руке, его строит клинок
+    /// (<c>Combat.BladeSetupSystem</c>).
     /// </summary>
     public static void Build(IPhysicsWorld physics, ArticulationHandle body, ReadOnlySpan<Matrix4x4> startModel, BodyJoints joints,
         Vector3 root, float facing)
@@ -135,23 +137,29 @@ public static class BodyPlacement
         Span<Quaternion> rot = stackalloc Quaternion[BodySegs.Bodies];
         Capsules(startModel, joints, root, facing, pos, rot);
         var radii = FighterShape.Radii;
+        var masses = FighterShape.Masses;
         for (int i = 0; i < BodySegs.Bodies; i++)
         {
-            var b = physics.Body(body, i);
             int s = BodySegs.Segment(i);
-            physics.SetShape(b, radii[s], half[s]);
+            if (!BodySegs.IsFlesh(s)) continue;
+            var b = physics.Body(body, i);
+            physics.SetShape(b, masses[s], radii[s], half[s]);
             physics.Place(b, pos[i], rot[i]);
         }
     }
 
-    /// <summary>Тик: капсулы — в цели по позе тика (<see cref="IPhysicsWorld.SetKinematicTarget"/>: скорости — разностью за <paramref name="dt"/>).</summary>
+    /// <summary>
+    /// Тик: капсулы плоти — в цели по позе тика (<see cref="IPhysicsWorld.SetKinematicTarget"/>: скорости — разностью за
+    /// <paramref name="dt"/>); тело клинка ставит клинок.
+    /// </summary>
     public static void Tick(IPhysicsWorld physics, ArticulationHandle body, ReadOnlySpan<Matrix4x4> model, BodyJoints joints,
         Vector3 root, float facing, float dt)
     {
         Span<Vector3> pos = stackalloc Vector3[BodySegs.Bodies];
         Span<Quaternion> rot = stackalloc Quaternion[BodySegs.Bodies];
         Capsules(model, joints, root, facing, pos, rot);
-        for (int i = 0; i < BodySegs.Bodies; i++) physics.SetKinematicTarget(physics.Body(body, i), pos[i], rot[i], dt);
+        for (int i = 0; i < BodySegs.Bodies; i++)
+            if (BodySegs.IsFlesh(BodySegs.Segment(i))) physics.SetKinematicTarget(physics.Body(body, i), pos[i], rot[i], dt);
     }
 
     /// <summary>Сочленение годно для постановки бойца: живое и из <see cref="BodySegs.Bodies"/> тел (иначе его ловит <c>physics.bodyRefs</c>).</summary>

@@ -64,7 +64,7 @@ public sealed class HitApplySystem : IReactiveSystem<Event<StrikeContact>>
     private void Apply(in SystemContext ctx, in StrikeContact c, in SimTime time, in CombatRules rules)
     {
         var world = ctx.World;
-        if ((uint)c.Part >= BodySegs.Count || BodySegs.Body(c.Part) < 0 || !float.IsFinite(c.Damage)) return;
+        if (!BodySegs.IsFlesh(c.Part) || !float.IsFinite(c.Damage)) return;   // 7ж: клинок — тело, но не часть тела
         int k = Victim(world, c.Victim);
         if (k < 0 || _dead[k]) return;   // не боец или труп — не цель
         if (world.Has<PlayerTag>(c.Victim) && (rules.PlayerInvulnerable || world.TryGet<PlayerControl>(c.Victim, out var control) && control.Invulnerable > 0))
@@ -98,7 +98,7 @@ public sealed class HitApplySystem : IReactiveSystem<Event<StrikeContact>>
         if (killed)
         {
             _dead[k] = true;
-            cmd.Add(c.Victim, new Dead { Time = time.Time });
+            cmd.Add(c.Victim, new Dead { Time = time.Time, Cause = c.Probe ? DeathCause.Probe : DeathCause.Hit });
             log?.Link(c.Victim, CombatCauses.Death, cmd.LastCause);
         }
     }
@@ -208,7 +208,7 @@ public sealed class BleedSystem : IContinuousSystem
                 ctx.Commands.Set(entities[i], h);
                 if (h.Hp <= 0)
                 {
-                    ctx.Commands.Add(entities[i], new Dead { Time = time.Time });
+                    ctx.Commands.Add(entities[i], new Dead { Time = time.Time, Cause = DeathCause.Bleed });
                     log?.Link(entities[i], CombatCauses.Death, ctx.Commands.LastCause);
                 }
             }

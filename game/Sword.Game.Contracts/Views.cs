@@ -56,7 +56,7 @@ public interface IAnimationView : IReadView
 /// <summary>
 /// Тела для наблюдателей симуляции (агент — 5б, клиент — капсулы на экране и ID-буфер снимка, 5в): вид только для чтения
 /// (<c>WorldReader.View&lt;IBodyView&gt;()</c>) на тела подсистемы Physics по хэндлу сочленения из <see cref="BodyRef"/>.
-/// Тело <c>i</c> сочленения бойца — сегмент <see cref="BodySegs.Segment"/>(i). Прошлая и нынешняя постановка тела — в
+/// Тело <c>i</c> сочленения бойца — сегмент <see cref="BodySegs.Segment"/>(i) (с 7ж — сегмент <c>i</c>, 11 — клинок). Прошлая и нынешняя постановка тела — в
 /// <see cref="BodySnapshot"/>: по ним клиент интерполирует тело по доле тика. Меняют тела только системы тика.
 /// </summary>
 public interface IBodyView : IReadView
@@ -83,10 +83,13 @@ public interface IBodyView : IReadView
 
 /// <summary>
 /// Капсула тела после тика: постановка (центр, поворот; ось капсулы — локальная Y), прошлая постановка (для скорости и
-/// интерполяции), скорость, м/с, угловая скорость, рад/с (мир), радиус и полудлина оси, м.
+/// интерполяции), скорость, м/с, угловая скорость, рад/с (мир), радиус и полудлина оси, м. С 7ж — динамика тела: поза начала
+/// тика (у тела на физике прошлую постановку перезаписывает каждый подшаг — клиент интерполирует от позы начала тика, 7и),
+/// масса, кг (0 — без массы), на физике ли тело (труп, 7з; живое — кинематическое), номер профиля динамики, касание земли.
 /// </summary>
 public readonly record struct BodySnapshot(Vector3 Position, Quaternion Rotation, Vector3 PrevPosition, Quaternion PrevRotation,
-    Vector3 Velocity, Vector3 AngularVelocity, float Radius, float HalfLength)
+    Vector3 Velocity, Vector3 AngularVelocity, float Radius, float HalfLength, Vector3 StartPosition, Quaternion StartRotation,
+    float Mass, bool Simulated, int Profile, bool Grounded)
 {
     /// <summary>Ось капсулы в мире.</summary>
     public Vector3 Axis => Vector3.Transform(Vector3.UnitY, Rotation);
@@ -94,4 +97,36 @@ public readonly record struct BodySnapshot(Vector3 Position, Quaternion Rotation
     /// <summary>Концы оси капсулы: нижний (A) и верхний (B).</summary>
     public Vector3 EndA => Position - Axis * HalfLength;
     public Vector3 EndB => Position + Axis * HalfLength;
+
+    /// <summary>Система тела в мире (вектор слева): поворот, затем перенос в центр.</summary>
+    public Matrix4x4 World
+    {
+        get
+        {
+            var m = Matrix4x4.CreateFromQuaternion(Rotation);
+            m.Translation = Position;
+            return m;
+        }
+    }
+}
+
+/// <summary>
+/// Привязка скина трупа для наблюдателей (7ж; клиент — скин трупа по телам, 7и; агент): вид только для чтения
+/// (<c>WorldReader.View&lt;ISkinView&gt;()</c>) на снимок привязки, который симуляция делает в тик смерти бойца (реактивно по
+/// <c>Added&lt;Dead&gt;</c>; <c>CaptureSkin</c> SWORD 2eab13b). Для каждого сустава скелета <c>j</c> — матрица сустава относительно
+/// тела его сегмента (<see cref="IBodyView.JointSegment"/>) по позе и телам момента смерти:
+/// <c>binding[j] = модельная[j] · мир бойца · (система тела)⁻¹</c>, и потому сустав в мире — <c>binding[j] · система тела</c>
+/// (<see cref="BodySnapshot.World"/>): пока тела трупа стоят, это поза смерти; тела двинулись (7з) — скин идёт за ними. Привязка
+/// есть у мёртвого бойца с телом и пропадает, когда метку смерти сняла постройка заново (возрождение, сброс, команда сцены).
+/// </summary>
+public interface ISkinView : IReadView
+{
+    /// <summary>Суставов скелета — матриц в привязке.</summary>
+    int JointCount { get; }
+
+    /// <summary>
+    /// Привязка тела <paramref name="body"/>: матрицы суставов относительно тел их сегментов и время смерти, с, когда её сняли;
+    /// нет привязки (боец жив, тело не живо) — false.
+    /// </summary>
+    bool TryGet(BodyRef body, out ReadOnlySpan<Matrix4x4> binding, out float time);
 }

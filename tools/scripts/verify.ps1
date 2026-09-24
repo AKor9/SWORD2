@@ -616,8 +616,8 @@ else {
                     elseif ($files[0].Length -lt 20KB) { $problems += "F4: снимок подозрительно мал: $($files[0].Length) Б" }
                     if ($f4.hud.help -ne $false) { $problems += "F1: справка не скрыта (hud.help = $($f4.hud.help))" }
                     $debugPass = @($f4.report.passes | Where-Object { $_.name -eq 'debug.bodies' })
-                    if (-not $f4.bodies.shown -or $f4.bodies.drawn -ne 143 -or $f4.bodies.capsules -ne 143 -or $debugPass.Count -ne 1 -or $debugPass[0].draws -lt 2) {
-                        $problems += "F7: капсулы тел — показаны $($f4.bodies.shown), нарисовано $($f4.bodies.drawn) из $($f4.bodies.capsules), проходов debug.bodies $($debugPass.Count), вызовов $($debugPass[0].draws); ждали 143 капсулы (11 бойцов × 13) и отрезки клинков"
+                    if (-not $f4.bodies.shown -or $f4.bodies.drawn -ne 154 -or $f4.bodies.capsules -ne 154 -or $debugPass.Count -ne 1 -or $debugPass[0].draws -lt 2) {
+                        $problems += "F7: капсулы тел — показаны $($f4.bodies.shown), нарисовано $($f4.bodies.drawn) из $($f4.bodies.capsules), проходов debug.bodies $($debugPass.Count), вызовов $($debugPass[0].draws); ждали 154 капсулы (11 бойцов × 14: с 7ж и тело клинка) и отрезки клинков"
                     }
                     elseif (-not $f4.blades.shown -or $f4.blades.drawn -ne 11) { $problems += "F7: клинки — показаны $($f4.blades.shown), нарисовано $($f4.blades.drawn); ждали 11" }
                 }
@@ -926,10 +926,10 @@ Add-Step 'agent-smoke' {
         if ([int]$described.matched -lt 3 -or -not @($described.items)[0].pelvis) { $problems += "Headless: state.describe animation — поз $($described.matched)" }
         $pelvisY = @($pose.joints)[0].model[1]
         if (-not ($pelvisY -gt 0.5) -or $pose.pool.poses -lt 3) { $problems += "Headless: anim.pose — таз на $pelvisY м, поз в пуле $($pose.pool.poses)" }
-        # Этап 5б: капсулы тела бегущего игрока — на позе (таз над землёй), 13 штук, самая быстрая — не стоит.
+        # Этап 5б: капсулы тела бегущего игрока — на позе (таз над землёй), 14 штук (7ж: и клинок), самая быстрая — не стоит.
         $bodies = Call-Stdio 'physics.bodies' @{ entity = 'player'; segments = @('pelvis') }
         $capsuleY = @($bodies.capsules)[0].position[1]
-        if ($bodies.bodyCount -ne 13 -or -not ($capsuleY -gt 0.5) -or -not ($bodies.fastest.speed -gt 1)) {
+        if ($bodies.bodyCount -ne 14 -or -not ($capsuleY -gt 0.5) -or -not ($bodies.fastest.speed -gt 1)) {
             $problems += "Headless: physics.bodies — тел $($bodies.bodyCount), таз на $capsuleY м, быстрее всех $($bodies.fastest | ConvertTo-Json -Compress)"
         }
         # Точка 6б: меч игрока — sword_1h (combat.playerWeapon по умолчанию), клинок им, кончик бегущего движется; удары slash1–4, stab1–3.

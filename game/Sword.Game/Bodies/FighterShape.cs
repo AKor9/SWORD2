@@ -21,12 +21,21 @@ namespace Sword.Game.Bodies;
 public static class FighterShape
 {
     /// <summary>
-    /// Радиусы капсул по номерам сегментов 0…13 (<c>Fighter.Radii</c>; 11 — клинок, у бойца его тела нет). Массив, а не выражение коллекции
-    /// в свойстве: в Debug оно выделяло новый массив на каждое чтение (216 Б на постройку бойца — возрождения толпы 6ж).
+    /// Радиусы капсул по номерам сегментов 0…13 (<c>Fighter.Radii</c>; 11 — клинок: с 7ж его тело — <see cref="BladeBody.Radius"/>). Массив, а
+    /// не выражение коллекции в свойстве: в Debug оно выделяло новый массив на каждое чтение (216 Б на постройку бойца — возрождения толпы 6ж).
     /// </summary>
     public static ReadOnlySpan<float> Radii => RadiiValues;
 
-    private static readonly float[] RadiiValues = [.15f, .17f, .13f, .065f, .055f, .065f, .055f, .09f, .07f, .09f, .07f, .03f, .045f, .045f];
+    private static readonly float[] RadiiValues = [.15f, .17f, .13f, .065f, .055f, .065f, .055f, .09f, .07f, .09f, .07f, BladeBody.Radius, .045f, .045f];
+
+    /// <summary>
+    /// Массы тел по номерам сегментов 0…13, кг (7ж; <c>Fighter.Masses</c> SWORD — отправная точка): таз 12, торс 20, голова 5, плечо 2,5,
+    /// предплечье 2, бедро 8, голень 4,5, стопа 1,2; клинок — <see cref="BladeBody.Mass"/> (1,4 для всех мечей, решение 3 этапа 7). Всего
+    /// 74,8 кг. Живому бойцу масса ничего не делает (тела кинематические); её берут труп (7з) и толчки (7д, 7к).
+    /// </summary>
+    public static ReadOnlySpan<float> Masses => MassValues;
+
+    private static readonly float[] MassValues = [12f, 20f, 5f, 2.5f, 2f, 2.5f, 2f, 8f, 4.5f, 8f, 4.5f, BladeBody.Mass, 1.2f, 1.2f];
 
     // Fighter SWORD: рост таза; Fighter.Locomotion: голеностоп, стопа, развод носков; SwordBody: звенья ноги.
     private const float StandHeight = 0.95f;
@@ -45,7 +54,7 @@ public static class FighterShape
     /// <summary>
     /// Полудлины капсул бойца, построенного в <paramref name="position"/> (y не важен — корень на земле) курсом
     /// <paramref name="facing"/>, по номерам сегментов (<paramref name="halfLength"/> — не меньше <see cref="BodySegs.Count"/>;
-    /// клинку — 0).
+    /// клинку — 0: форма его тела — по мечу в руке, <see cref="BladeBody"/>).
     /// </summary>
     public static void HalfLengths(Vector3 position, float facing, Span<float> halfLength)
     {
