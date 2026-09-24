@@ -37,8 +37,9 @@ namespace Sword.Game;
 /// <see cref="Dead"/>, <see cref="Hit"/>, <see cref="SeverRequested"/>), реакции (<see cref="HitReactionSystem"/>, React: враг — действие,
 /// игрок — вздрагивание <see cref="Flinch"/>), кровопотеря и возрождение (<see cref="BleedSystem"/>, <see cref="RespawnSystem"/>, Aftermath),
 /// статистика (<see cref="ArenaStatsSystem"/>, Settle → <see cref="ArenaStats"/>); мёртвый замирает (системы ядра и модуль локомоции
-/// его пропускают); инварианты <c>combat.health</c>, <c>combat.dead</c>, <c>combat.hits</c>, <c>combat.respawn</c>. Регистрации ядра — без
-/// токена модуля.
+/// его пропускают); инварианты <c>combat.health</c>, <c>combat.dead</c>, <c>combat.hits</c>, <c>combat.respawn</c>. Этап 6е: ручки «Бой»
+/// (<see cref="CombatKnobs"/>: поля <see cref="CombatRules"/>, команда ручки — система <c>tuning.combat</c> в Begin; смена правил —
+/// <see cref="CombatRulesChangeSystem"/>). Регистрации ядра — без токена модуля.
 ///
 /// Порядок <c>DuelArena.Tick</c> SWORD — по стадиям: команды арены (из цикла кадра SWORD до тика) — Begin; команда игрока и
 /// ИИ врагов — Intent. Порядок <c>KinematicBegin</c> — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
@@ -92,6 +93,8 @@ public static class GameCore
             // подписчика у события нет журнала).
             .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>();
         FighterBodies.Register(b, physics);
+        // 6е: ручки «Бой» — поля правил боя (ресурс из секции combat), изменение на ходу — команда ручки (система tuning.combat в Begin).
+        CombatKnobs.Register(b);
 
         b.System(GameStages.Begin, new PrevTransformSystem())
             .System(GameStages.Begin, new ArenaCommandSystem(weapons.Count))

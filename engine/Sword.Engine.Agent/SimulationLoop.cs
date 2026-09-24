@@ -38,7 +38,7 @@ public static class SimulationLoop
         void Changed(Simulation sim)
         {
             context = new ServiceContext(sim);
-            host.Catalog = new Catalog(sim.World, sim.CommandTypes);
+            host.Catalog = new Catalog(sim);
             if (host.Observation.Simulation != sim) host.Observe(sim);
             host.Time.Reset(sim.Tick);
         }

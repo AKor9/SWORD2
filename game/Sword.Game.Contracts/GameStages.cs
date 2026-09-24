@@ -26,6 +26,13 @@ public static class GameLabels
     public static readonly SystemLabel PlayerCommand = new("core.player-command");
 
     /// <summary>
+    /// Intent, до <see cref="PlayerCommand"/> (6е), реактивная по <c>ResourceChanged&lt;CombatRules&gt;</c>: ручки «Бой» сменили правила
+    /// боя (команда ручки, система <c>tuning.combat</c> в Begin) — таймеры управления игрока прижимаются к новым пределам
+    /// (перезарядка и неуязвимость рывка не длиннее новых).
+    /// </summary>
+    public static readonly SystemLabel CombatRules = new("core.combat-rules");
+
+    /// <summary>
     /// Intent, после <see cref="PlayerCommand"/>: ИИ врагов (<c>EnemyAi.Think</c>) — намерение (<c>FighterCommand</c>) и
     /// точка взгляда каждого врага по корням до движения тика.
     /// </summary>

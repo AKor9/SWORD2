@@ -65,7 +65,8 @@
 - `UiTextEdit`: каретка не встаёт внутрь пары UTF-16; ←/→, Backspace и Delete проходят пару целиком.
 - `InfoRow` — новое: оформление строки `TuningInfo` панели ручек SWORD (`TuningPanel.DrawItem`).
 
-Не перенесено: панель инвентаря (6е); `UiRenderer` (его место занял UI-проход рендера); растровые шрифты `UiFontRaster` и
+Не перенесено сюда: панель инвентаря — игры (6е: `Sword.Game.Client/Hud/InventoryPanel`, панель клиента на этих виджетах); `UiRenderer`
+(его место занял UI-проход рендера); растровые шрифты `UiFontRaster` и
 запекание `UiFontBaker` (пекарня, этап 3). Адаптер окна → `UiInput` (`UiInputWin32` SWORD) — `Engine.Client/UiInputSource`
 (весь набор `UiKey` SWORD), панель ручек F3 — `Engine.DevTools/TuningPanel` (обе — часть точки 6е).
 

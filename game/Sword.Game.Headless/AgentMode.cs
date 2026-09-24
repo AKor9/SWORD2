@@ -52,7 +52,7 @@ public static partial class Program
         {
             Mode = "headless",
             ContentHash = ContentHash(),
-            Catalog = new Catalog(sim.World, sim.CommandTypes),
+            Catalog = new Catalog(sim),
             Time = time,
             Service = service,
             Log = ring,

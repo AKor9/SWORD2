@@ -10,7 +10,8 @@ namespace Sword.Game.Client;
 /// WASD — ход относительно камеры, Shift — шагом, F — камера за игроком / свободная, Z/C — поворот, +/− — зум, средняя
 /// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD; PageUp/PageDown —
 /// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены), T — следующий меч игрока (6б, команда арены);
-/// ЛКМ — рубящий удар (жест мышью перед кликом — направление), Q — укол, Пробел — рывок (6в, фронты команды игрока);
+/// ЛКМ — рубящий удар (жест мышью перед кликом — направление), Q — укол, Пробел — рывок (6в, фронты команды игрока); I — инвентарь,
+/// 1–9 при открытом инвентаре — взять меч (6е, команда арены);
 /// F7 — капсулы тел и клинки поверх персонажей (5в, 6б; отладочный вид SWORD2); F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
@@ -74,11 +75,24 @@ public static class ArenaInput
     /// </summary>
     public static readonly InputAction DebugBodies = new("debug_bodies", "F7");
 
+    /// <summary>
+    /// Инвентарь (SWORD: I, <c>InventoryUi</c>; 6е): открыть / закрыть панель мечей (<see cref="InventoryPanel"/>). Действие
+    /// представления: в команды и реплей идёт только выбор меча.
+    /// </summary>
+    public static readonly InputAction Inventory = new("inventory", "I");
+
+    /// <summary>
+    /// Меч инвентаря 1–9 (SWORD: цифры при открытом инвентаре — <c>EquipPlayerWeapon(Owned[k])</c>; 6е): при открытой панели — команда
+    /// арены «взять меч» (<see cref="ArenaAction.EquipWeapon"/>) ровно одним тиком, после PageUp, PageDown, R, T.
+    /// </summary>
+    public static readonly IReadOnlyList<InputAction> Weapons =
+        [.. Enumerable.Range(1, 9).Select(k => new InputAction($"weapon_{k}", $"D{k}"))];
+
     public static readonly IReadOnlyList<InputAction> All =
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
-        HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies, Attack, Stab, Dash,
+        HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies, Attack, Stab, Dash, Inventory, .. Weapons,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>

@@ -9,14 +9,26 @@ namespace Sword.Engine.Introspection;
 /// </summary>
 public sealed class Catalog
 {
-    public Catalog(WorldReader world, IReadOnlyList<Type> commandTypes)
+    public Catalog(WorldReader world, IReadOnlyList<Type> commandTypes, IReadOnlyList<Runtime.TuningKnob>? tuning = null)
     {
         Components = world.Components;
         Events = world.Events;
         Resources = world.Resources;
         Commands = commandTypes;
         Stages = world.Stages;
+        Tuning = tuning ?? [];
     }
+
+    /// <summary>Имена данных мира симуляции — с её командами и ручками.</summary>
+    public Catalog(Runtime.Simulation simulation) : this(simulation.World, simulation.CommandTypes, simulation.Tuning)
+    {
+    }
+
+    /// <summary>
+    /// Ручки симуляции (6е; <c>world.types</c> — у ресурса, в котором живут: имя, поле, диапазон, значение по умолчанию; изменение —
+    /// <c>command.send TuningCommand</c>).
+    /// </summary>
+    public IReadOnlyList<Runtime.TuningKnob> Tuning { get; }
 
     public IReadOnlyList<DataTypeInfo> Components { get; }
     public IReadOnlyList<DataTypeInfo> Events { get; }

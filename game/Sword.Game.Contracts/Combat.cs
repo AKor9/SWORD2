@@ -38,7 +38,7 @@ public struct Blade
 /// Инвентарь игрока (<c>WeaponInventory</c> SWORD 2eab13b) — ресурс-значение (хешируется): доступное оружие — битами номеров
 /// таблицы оружия (пока всё оружие пака сразу, как <c>DuelArena.AttachRig</c>; до 64 мечей) и выбранное — меч в руке игрока
 /// (<see cref="WeaponSlot"/> игрока равен ему; постройка игрока заново — с ним). Меняют его команды арены
-/// (<see cref="ArenaAction.NextWeapon"/>, <see cref="ArenaAction.EquipWeapon"/>); панель инвентаря (I, 1–9) — этап 6е.
+/// (<see cref="ArenaAction.NextWeapon"/>, <see cref="ArenaAction.EquipWeapon"/>: T; с 6е — панель инвентаря клиента, I, 1–9 и щелчок).
 /// </summary>
 public struct PlayerInventory
 {
@@ -55,6 +55,18 @@ public struct PlayerInventory
 
     /// <summary>Сколько оружия доступно.</summary>
     public readonly int Count => BitOperations.PopCount(Owned);
+
+    /// <summary>
+    /// Оружие <paramref name="index"/>-е по порядку получения (<c>Owned[index]</c> SWORD: строка панели инвентаря и клавиша 1–9,
+    /// 6е) — номер в таблице; такого нет — −1.
+    /// </summary>
+    public readonly int OwnedAt(int index)
+    {
+        ulong rest = Owned;
+        for (int i = 0; rest != 0; i++, rest &= rest - 1)
+            if (i == index) return BitOperations.TrailingZeroCount(rest);
+        return -1;
+    }
 
     /// <summary>Взять оружие <paramref name="weapon"/> (<c>WeaponInventory.Equip</c>); нет его — false, выбор прежний.</summary>
     public bool Equip(int weapon)

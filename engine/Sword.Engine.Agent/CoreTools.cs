@@ -133,7 +133,10 @@ internal static class CoreTools
         host.Add(new AgentTool
         {
             Name = "world.types", Title = "Типы данных мира",
-            Description = "Компоненты, события, ресурсы и команды тика мира — короткие имена и поля (схема полей для command.send и fields).",
+            Description = "Компоненты, события, ресурсы и команды тика мира — короткие имена и поля (схема полей для command.send и fields). " +
+                "Ручки (knobs) — у ресурса, в полях которого живут, и у TuningCommand: с name — диапазон, значение по умолчанию, подсказка; " +
+                "изменить — command.send {\"command\":\"TuningCommand\",\"fields\":{\"Knob\":\"combat.playerDamage\",\"Value\":3}} (флаг — 1/0), " +
+                "значение сейчас — state.describe ecs с filter по имени ресурса.",
             Arguments = Props(("name", Str("только этот тип (имя компонента, события или команды), с полной схемой полей"))),
             Run = call => Task.FromResult(new ToolOutput(Types(host.Catalog, call.String("name")))),
         });
@@ -556,13 +559,21 @@ internal static class CoreTools
 
     private static JsonObject Types(Catalog catalog, string? only)
     {
-        JsonObject Entry(Type t, string kind, bool full) => new()
+        JsonObject Entry(Type t, string kind, bool full)
         {
-            ["name"] = Catalog.ShortName(t),
-            ["kind"] = kind,
-            ["stableName"] = t.FullName,
-            ["fields"] = full || only is not null ? FieldCodec.Schema(t) : new JsonArray([.. FieldCodec.Fields(t).Select(f => (JsonNode?)JsonValue.Create(f.Name))]),
-        };
+            var entry = new JsonObject
+            {
+                ["name"] = Catalog.ShortName(t),
+                ["kind"] = kind,
+                ["stableName"] = t.FullName,
+                ["fields"] = full || only is not null ? FieldCodec.Schema(t) : new JsonArray([.. FieldCodec.Fields(t).Select(f => (JsonNode?)JsonValue.Create(f.Name))]),
+            };
+            // Ручки (6е): у ресурса — те, что живут в его полях (с диапазоном — в полном описании), у команды ручки — все.
+            var knobs = catalog.Tuning.Where(k => kind == "resource" ? k.Resource == t : t == typeof(Runtime.TuningCommand)).ToList();
+            if (knobs.Count > 0)
+                entry["knobs"] = new JsonArray([.. knobs.Select(k => (JsonNode?)(full || only is not null ? Knob(k) : JsonValue.Create(k.Name)))]);
+            return entry;
+        }
         var all = catalog.Components.Select(c => (c.Type, Kind: c.IsTag ? "tag" : "component"))
             .Concat(catalog.Commands.Select(t => (Type: t, Kind: "command")))
             .Concat(catalog.Events.Where(e => !catalog.Commands.Contains(e.Type)).Select(e => (e.Type, Kind: "event")))
@@ -577,6 +588,25 @@ internal static class CoreTools
         }
         return new JsonObject { ["types"] = new JsonArray([.. all.Select(m => (JsonNode?)Entry(m.Type, m.Kind, false))]) };
     }
+
+    /// <summary>
+    /// Ручка для агента (6е): имя (ключ конфига и поле <c>Knob</c> команды <c>TuningCommand</c>), поле ресурса, вид, подпись и подсказка,
+    /// диапазон, значение по умолчанию (в коде), шкала, владелец. Значение сейчас — <c>state.describe ecs</c> (ресурс).
+    /// </summary>
+    private static JsonObject Knob(Runtime.TuningKnob k) => new()
+    {
+        ["name"] = k.Name,
+        ["resource"] = Catalog.ShortName(k.Resource),
+        ["field"] = k.Field,
+        ["kind"] = k.Kind == Runtime.TuningKind.Bool ? "bool" : "number",
+        ["label"] = k.Label,
+        ["hint"] = k.Hint,
+        ["min"] = k.Min,
+        ["max"] = k.Max,
+        ["default"] = k.Default,
+        ["log"] = k.Log,
+        ["owner"] = k.Module ?? "core",
+    };
 
     /// <summary>Потолок ответа state.describe в знаках — больше уходит в файл артефакта.</summary>
     internal const int MaxDescribeChars = 60_000;

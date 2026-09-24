@@ -119,6 +119,14 @@ public sealed class ArenaView
     public int WeaponCount { get; private set; }
     public int BladeCount { get; private set; }
 
+    /// <summary>
+    /// Бой последнего тика (6е, HUD): очки жизни игрока (нет игрока или здоровья — полные), мёртв ли он, живых врагов кадра (бойцы не на
+    /// месте 0 без метки <see cref="Dead"/>).
+    /// </summary>
+    public float PlayerHp { get; private set; } = Health.Full;
+    public bool PlayerDead { get; private set; }
+    public int AliveEnemies { get; private set; }
+
     /// <summary>Модельная матрица кисти позы привязки — меч бойца, у которого позы ещё нет (до первого тика).</summary>
     private Matrix4x4 _referenceHand = Matrix4x4.Identity;
 
@@ -166,7 +174,9 @@ public sealed class ArenaView
         int hand = combat?.HandJoint ?? -1;
         if (hand >= 0 && poses is not null && poses.ReferenceModel() is var reference && hand < reference.Length) _referenceHand = reference[hand];
         var profiler = _profiler;
-        int posed = 0, bodied = 0, armed = 0, bladed = 0;
+        int posed = 0, bodied = 0, armed = 0, bladed = 0, alive = 0;
+        PlayerHp = Health.Full;
+        PlayerDead = false;
         foreach (var e in _fighters)
         {
             if (!world.TryGet<Transform>(e, out var cur) || !world.TryGet<PrevTransform>(e, out var prev))
@@ -176,6 +186,14 @@ public sealed class ArenaView
             }
             var view = Interpolate(e, world.Has<PlayerTag>(e), prev, cur, alpha, _height);
             if (world.TryGet<FighterSlot>(e, out var slot)) view = view with { Slot = slot.Index };
+            // Бой (6е, HUD): здоровье и смерть игрока, живые враги — снимок последнего тика.
+            bool dead = world.Has<Dead>(e);
+            if (view.IsPlayer)
+            {
+                PlayerHp = world.TryGet<Health>(e, out var health) ? health.Hp : Health.Full;
+                PlayerDead = dead;
+            }
+            else if (!dead) alive++;
             // Поза — последнего тика, без интерполяции между тиками (как SkinnedCharacters SWORD): плавно идёт корень.
             profiler.Begin(_posesZone);
             if (poses is not null && world.TryGet<PoseRef>(e, out var poseRef) && poses.Model(poseRef) is { Length: > 0 } model)
@@ -232,6 +250,7 @@ public sealed class ArenaView
         BodyCount = bodied;
         WeaponCount = armed;
         BladeCount = bladed;
+        AliveEnemies = alive;
     }
 
     /// <summary>Клинок тика и прошлого тика в показанном мире бойца (<see cref="ShownBlade"/>).</summary>

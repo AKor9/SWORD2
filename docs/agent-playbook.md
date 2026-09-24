@@ -246,6 +246,21 @@
    `feature.verify {"id":"combat"}` (сценарии 6г: `duel`, `player-dies`, `bleed`, `respawn`, `dash-through`); тест
    `DamageTests.Agent_ProbeByCommand_WhyDiedByEventsHistory`.
 
+**Изменить ручку и увидеть эффект (точка 6е; ручки «Бой», панель F3).** Ручка — поле ресурса мира (ручки «Бой» — `CombatRules`), имя —
+ключ конфига (`combat.playerDamage`); изменение на ходу — команда `TuningCommand` (в реплее, как любая команда).
+1. Какие ручки и пределы: `world.types {"name":"CombatRules"}` → `knobs`: имя, поле, вид (`number`/`bool`), подпись, подсказка, `min`,
+   `max`, `default` (значение в коде), `log`, владелец. Значения сейчас — `state.describe {"part":"ecs","filter":"CombatRules"}`.
+2. Изменить: `command.send {"command":"TuningCommand","fields":{"Knob":"combat.playerDamage","Value":4}}` (флаг — `1`/`0`; вне
+   диапазона — прижимается; незнакомое имя — ошибка с перечнем). Применяется в тике команды (система `tuning.combat`, Begin): с Intent этого
+   тика правила новые. Проверить — `time.step 1` → `state.describe` (как выше); история — `events.history {"types":["TuningCommand"]}`.
+3. Эффект: урон — `command.send PlayerCommand {"Attack":true}` рядом с врагом (или `EnemyCommand`/проба) → `events.history
+   {"types":["Hit"]}` — `Damage` удара игрока ∝ `playerDamage` (клинок быстрее 16 м/с — 2·(8+16·1,4)=60,8 при 2); «враги нападают» 0 —
+   `EnemyAttack` врагов тикает, но ударов нет (`AnimatorAction.Kind` врагов не `Attack`); «игрок неуязвим» 1 — `StrikeContact` в игрока
+   есть, `Hit` нет. Сравнить с ручкой и без — `experiment.fork` (ветки с `TuningCommand` на одном тике) → `experiment.compare`.
+4. Начать с другого значения без команды — `session.start {"set":["combat.playerDamage=4"]}` (конфиг). В живой игре то же видно на экране:
+   `Sword.exe --json` → `combat` (HUD: здоровье, убито, попаданий, последний удар), `panels`; снимок панели — `--hold tuning`.
+   Тесты — `CombatUiTests.Agent_KnobByName_RangesInWorldTypes_ValueInStateDescribe`, `KnobCommand_ChangesRulesSameTick_ReplayRepeats`.
+
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;
    `animation` — пул поз; `physics` — тела и сочленения, с 5а).

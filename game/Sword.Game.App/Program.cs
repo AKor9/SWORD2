@@ -33,6 +33,12 @@ public static partial class Program
     static partial void AddDevTools(List<IClientPanel> panels, bool bench);
 
     /// <summary>
+    /// Связать панели DevTools с игрой (DevToolsMode.cs, 6е): группы ручек клиента игры (заводятся в его <c>Initialize</c> — после
+    /// создания клиента движка), сохранение и загрузка, край под HUD. В сборке без DevTools вызова нет.
+    /// </summary>
+    static partial void ConnectDevTools(IReadOnlyList<IClientPanel> panels, ArenaClient arena);
+
+    /// <summary>
     /// Переменная окружения: окно без фокуса по умолчанию (как <c>--no-activate</c>). Её задают настройки Claude Code
     /// проекта (<c>.claude/settings.local.json</c>, <c>env</c>) — окна прогонов агентов не встают поверх приложений
     /// пользователя; ручной запуск из обычного терминала её не видит. <c>--activate</c> / <c>--no-activate</c> главнее.
@@ -85,7 +91,9 @@ public static partial class Program
           F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, последняя
           аномалия, строка среды; включает профайлер); F4 — снимок; Esc — выход;
           PageUp/PageDown — врагов ±1, R — сброс арены, T — следующий меч (команды арены — в реплее); F7 — капсулы тел
-          и клинки поверх персонажей.
+          и клинки поверх персонажей; ЛКМ — удар, Q — укол, Пробел — рывок; I — инвентарь (1–9 и щелчок — взять меч);
+          F3 — ручки «Бой» (урон, острота, враги нападают, игрок неуязвим, рывок; изменение — команда в реплее, «сохранить» —
+          секция combat в sword.user.json).
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
@@ -193,7 +201,8 @@ public static partial class Program
                 throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
                 showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay));
-            var panels = new List<IClientPanel>();
+            // Панели поверх кадра: инвентарь игры (6е: I — открыть, мышь над ним не бьёт) и DevTools (F3 — ручки).
+            var panels = new List<IClientPanel> { arena.Inventory };
             AddDevTools(panels, bench: options.Bench > 0);
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions, .. panels.SelectMany(p => p.Actions)], config);
             arena.UseBindings(bindings.Keys);
@@ -212,6 +221,7 @@ public static partial class Program
 
             ClientRunReport report;
             CpuProfiler profiler;
+            bool panelsShown;
             // Каталог прогона профайлера — один на прогон: аномалии (по ходу) и profile.json, trace.json (в конце).
             string profileDir = ProfileDir();
             using (var client = new ClientHost(window, new ClientOptions
@@ -236,6 +246,7 @@ public static partial class Program
                 profiler = client.Profiler;
                 foreach (var panel in panels) client.AddPanel(panel);
                 if (client.Panels is { } layer) layer.Scale = Hud.Scale;   // панели — в масштабе HUD (SWORD: Hud.UiScale)
+                ConnectDevTools(panels, arena);
                 // Захват аномалий (точка Пв): судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.
                 profiler.CaptureAnomalies(new AnomalyOptions
                 {
@@ -259,6 +270,7 @@ public static partial class Program
                 {
                     agent?.Dispose();
                 }
+                panelsShown = client.Panels?.Shown ?? false;
             }
 
             Replay? recorded = null;
@@ -316,6 +328,11 @@ public static partial class Program
                         skinned = arena.SkinnedFighters,
                     },
                     hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, profiler = arena.Hud.ShowProfiler, quads = arena.HudQuads, lines = arena.HelpLines },
+                    // Бой в HUD последнего кадра (6е): здоровье и смерть игрока, враги, убито, попаданий, последний удар, меч.
+                    combat = arena.Combat,
+                    // Панели поверх кадра (6е): видна ли хоть одна в последнем кадре (F3 — ручки, I — инвентарь), открыт ли инвентарь, вкладки
+                    // ручек игры.
+                    panels = new { shown = panelsShown, inventory = arena.Inventory.Open, tuning = arena.TuningGroups.Select(g => g.Title).ToArray() },
                     // Капсулы тел (5в): показаны ли поверх персонажей (F7, --overlay capsules), сколько нарисовано в последнем
                     // кадре и сколько капсул у бойцов кадра.
                     bodies = new { shown = arena.ShowBodies, drawn = arena.DrawnCapsules, capsules = arena.View.BodyCount },

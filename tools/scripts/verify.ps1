@@ -37,7 +37,8 @@
                             показанный игрок интерполирован; HUD — проход hud нарисовал фигуры и текст, шаг кадра
                             посчитан; действия screenshot и hud_help (F4, F1, --hold) — один снимок в --screenshots и
                             справка скрыта; debug_bodies (F7, 5в) — капсулы тел 11 бойцов проходом debug.bodies;
-                            --no-hud — HUD не показан, прохода hud нет; этап П — --profile: те же байты на кадр, что без него,
+                            --no-hud — HUD не показан, прохода hud нет; точка 6е — I и F3 (--hold inventory,tuning) —
+                            панели инвентаря и ручек видны, вкладка «Бой», HUD боя в итоге (combat); этап П — --profile: те же байты на кадр, что без него,
                             profile.json с фазами кадра, тиками, проходами графа и зонами игры; точка Пб — среда кадра и тика,
                             машина в отчёте, report.machine в итоге и бенче; точка Пв — --profile с захватом аномалий: те же
                             байты на кадр, секция anomalies (аномалии под нагрузкой машины — сообщение, не провал); F2
@@ -594,6 +595,16 @@ else {
                 elseif ($bare.hud.shown -ne $false -or @($bare.report.passes | Where-Object { $_.name -eq 'hud' }).Count -ne 0) { $problems += "--no-hud: HUD показан ($($bare.hud.shown)) или проход hud есть" }
                 # Исправления после Пд: без F7 и заказанного слоя капсулы тел не снимаются (только таз игрока) — 0 в итоге.
                 elseif ($bare.bodies.shown -ne $false -or [int]$bare.bodies.capsules -ne 0 -or [int]$bare.bodies.drawn -ne 0) { $problems += "без F7: капсулы сняты — $($bare.bodies | ConvertTo-Json -Compress)" }
+                # Точка 6е: I и F3 (удержание нажимает их в первом кадре) — панели инвентаря и ручек видны, вкладка «Бой»; HUD боя — в итоге
+                # (здоровье полное, врагов 10, меч игрока — по умолчанию).
+                $panelsRun = Invoke-App 'panels' @('--frames', '5', '--hold', 'inventory,tuning')
+                if (-not $panelsRun.ok) { $problems += "прогон с --hold inventory,tuning: $($panelsRun.error)" }
+                elseif (-not $panelsRun.panels.shown -or -not $panelsRun.panels.inventory -or @($panelsRun.panels.tuning) -notcontains 'Бой') {
+                    $problems += "I, F3: панели — $($panelsRun.panels | ConvertTo-Json -Compress)"
+                }
+                elseif ($panelsRun.combat.enemies -ne 10 -or $panelsRun.combat.playerHp -ne 100 -or $panelsRun.combat.playerDead -or $panelsRun.combat.weapon -ne 'sword_1h') {
+                    $problems += "HUD боя в итоге — $($panelsRun.combat | ConvertTo-Json -Compress)"
+                }
                 # Точка 4а: PageUp и R (удержание нажимает их в первом кадре) — команды арены в записи Sword.exe; Headless
                 # повторяет запись с теми же хешами; врагов 11, кадр рисует 12 бойцов. Точка 6б: T — меч игрока следующий
                 # (эталонный пак: sword_1h → sword_dss), в руках у всех 12.

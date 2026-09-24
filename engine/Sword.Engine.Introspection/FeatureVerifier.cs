@@ -240,7 +240,7 @@ public static class FeatureVerifier
         foreach (string m in manifest.RequiredModules.Where(m => !sim.ActiveModules.Contains(m)))
             failures.Add($"модуль {m} не активен (активны: {string.Join(", ", sim.ActiveModules)})");
         if (replay is not null) sim.Play(hashes ? replay : replay.Head(replay.Ticks, hashes: false));
-        var catalog = new Catalog(sim.World, sim.CommandTypes);
+        var catalog = new Catalog(sim);
         foreach (var c in scenario.Commands)
         {
             var type = catalog.Command(c.Command);
@@ -294,7 +294,7 @@ public static class FeatureVerifier
                     sim.Invariants.SetEnabled(id, true);
 
             var recorder = sim.Record(env.Info);
-            var catalog = new Catalog(sim.World, sim.CommandTypes);
+            var catalog = new Catalog(sim);
             var hub = new ObservationHub(new TimeControl(paused: false), historyTicks: 256);
             hub.Attach(sim, catalog, env.Names);
             var ctx = new ServiceContext(sim);

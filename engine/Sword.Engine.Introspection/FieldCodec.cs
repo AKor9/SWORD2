@@ -12,7 +12,8 @@ namespace Sword.Engine.Introspection;
 /// (раздел 8 плана: «компоненты по стабильным именам и полям»). Поля — экземплярные поля структуры в порядке
 /// объявления (у автосвойства — имя свойства); вложенные структуры — объекты, <c>[InlineArray]</c> и <c>fixed</c>-буферы —
 /// массивы, перечисления — именем (необъявленное значение разбор показывает числом, а сборка его не принимает: записать
-/// можно только объявленное), <see cref="Entity"/> — строкой <c>12v3</c>, нечисловые float — строками <c>NaN</c>,
+/// можно только объявленное), <see cref="Entity"/> — строкой <c>12v3</c>, ключ ручки (<see cref="Runtime.TuningKey"/>, 6е) — именем
+/// ручки <c>combat.playerDamage</c> (незаведённая — ошибка с перечнем; число — как есть), нечисловые float — строками <c>NaN</c>,
 /// <c>Infinity</c>, <c>-Infinity</c> (в JSON их нет). Байты разбираются через упакованную копию значения — раскладку
 /// считает сама среда, смещения полей не вычисляются.
 /// </summary>
@@ -110,6 +111,8 @@ public static class FieldCodec
             case float f: return float.IsFinite(f) ? JsonValue.Create(f) : Number(f);
             case double d: return Number(d);
             case Entity e: return JsonValue.Create(e.ToString());
+            // Ручка (6е) — именем «секция.ключ»; ключ, которого в процессе не заводили, — числом.
+            case Runtime.TuningKey k: return k.Name is { } knob ? JsonValue.Create(knob) : JsonValue.Create((decimal)k.Hash);
             case char c: return JsonValue.Create(c.ToString());
             // Необъявленное значение (у [Flags] — с необъявленными битами) ToString печатает числом: оно и уходит числом, а
             // не строкой-числом, похожей на имя.
@@ -139,6 +142,7 @@ public static class FieldCodec
         t == typeof(bool) ? "bool" :
         t == typeof(float) || t == typeof(double) ? "number" :
         t == typeof(Entity) ? "entity (\"12v3\")" :
+        t == typeof(Runtime.TuningKey) ? $"knob: {string.Join(" | ", Runtime.TuningKey.Known)}" :
         t == typeof(char) ? "char" :
         t.IsEnum ? $"enum: {string.Join(" | ", Enum.GetNames(t))}" :
         t.IsPrimitive ? $"integer ({t.Name})" : null;
@@ -176,6 +180,14 @@ public static class FieldCodec
             }
             if (t == typeof(double)) return Double(node, path);
             if (t == typeof(Entity)) return ParseEntity(node!.GetValue<string>(), path);
+            if (t == typeof(Runtime.TuningKey))
+            {
+                if (node!.GetValueKind() == System.Text.Json.JsonValueKind.Number)
+                    return new Runtime.TuningKey((ulong)Integral(node, path, 0, ulong.MaxValue));
+                string name = node.GetValue<string>();
+                return Runtime.TuningKey.TryParse(name, out var key) ? key
+                    : throw new ArgumentException($"{path}: нет ручки «{name}»; есть: {string.Join(", ", Runtime.TuningKey.Known)}");
+            }
             if (t == typeof(char)) return node!.GetValue<string>() is [var c] ? c : throw new ArgumentException($"{path}: ожидается один символ");
             if (t.IsEnum)
             {

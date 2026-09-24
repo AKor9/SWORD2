@@ -28,7 +28,7 @@ public static partial class Program
         {
             Mode = "app",
             ContentHash = ContentHash(),
-            Catalog = new Catalog(sim.World, sim.CommandTypes),
+            Catalog = new Catalog(sim),
             Time = new TimeControl(paused: false, sim.Tick),
             Service = service,
             Log = ring,

@@ -42,4 +42,10 @@ public sealed class SimulationLink
 
     /// <summary>Команда на ближайший тик (удерживаемые действия клиент ставит в каждый тик кадра).</summary>
     public void Enqueue<T>(in T command) where T : unmanaged => _simulation.Enqueue(command);
+
+    /// <summary>
+    /// Ручки симуляции (точка 6е): описание, значение в мире (<see cref="TuningKnob.Read"/>); изменение — команда
+    /// <see cref="TuningCommand"/> на ближайший тик (<see cref="Enqueue{T}"/>). Панель F3 привязывает их через <see cref="TuningBinding"/>.
+    /// </summary>
+    public IReadOnlyList<TuningKnob> Tuning => _simulation.Tuning;
 }

@@ -135,7 +135,7 @@ public sealed class AgentHost
 
     /// <summary>Наблюдать за симуляцией <paramref name="simulation"/> (поток симуляции, до её тиков или между ними).</summary>
     public void Observe(Runtime.Simulation simulation) =>
-        Observation.Attach(simulation, new Catalog(simulation.World, simulation.CommandTypes), Names);
+        Observation.Attach(simulation, new Catalog(simulation), Names);
     public LogRing LogRing => _options.Log;
 
     /// <summary>Предел <c>timeoutSeconds</c> инструментов, с (<see cref="AgentHostOptions.MaxWait"/>).</summary>

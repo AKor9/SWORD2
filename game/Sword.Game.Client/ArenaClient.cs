@@ -32,6 +32,11 @@ namespace Sword.Game.Client;
 /// боец (<see cref="FighterView.WeaponWorld"/>; <c>SkinnedCharacters.Submit</c> SWORD); в ID-буфере пиксели меча — сегмент 11
 /// «клинок»; клинки (отрезок тика и прошлого тика) — F7 вместе с капсулами, <c>--overlay blades</c> и слой снимка
 /// <see cref="BladesOverlay"/>.
+///
+/// 6е: HUD боя (<see cref="CombatHud"/> — снимок мира последнего тика: здоровье и смерть игрока, живые враги, статистика арены
+/// <see cref="ArenaStats"/>, меч; кольцо игрока — цветом по здоровью), инвентарь (<see cref="Inventory"/> — панель клиента: I
+/// открывает, 1–9 и щелчок — команда арены «взять меч» после команд PageUp, PageDown, R, T тика), ручки «Бой» (<see cref="TuningGroups"/>
+/// над привязкой <see cref="Tuning"/> — панель F3 подключает exe). Симуляцию клиент не пишет: только читает мир и ставит команды.
 /// </summary>
 public sealed class ArenaClient : IClientGame, IClientObservable
 {
@@ -159,6 +164,12 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private FrameStats _stats;
     private IReadOnlyList<string> _help = Hud.HelpLines(new Dictionary<string, string>());
 
+    /// <summary>Бой для HUD последнего кадра (6е); null — до первого Extract.</summary>
+    private CombatHud? _combat;
+    private readonly InventoryPanel _inventory = new();
+    private TuningBinding? _tuning;
+    private readonly List<TuningGroup> _groups = [];
+
     /// <param name="camera">Неподвижный ракурс вместо камеры SWORD (проверочные снимки); null — камера за игроком.</param>
     /// <param name="scripted">Команда игрока на каждый тик вместо ввода (проверочные прогоны); null — клавиатура и мышь.</param>
     /// <param name="hud">HUD поверх сцены; false — кадр без интерфейса (снимки, сравнимые между прогонами).</param>
@@ -233,6 +244,24 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Строки справки HUD.</summary>
     public IReadOnlyList<string> HelpLines => _help;
 
+    /// <summary>Бой в HUD последнего кадра (6е; итог Sword.exe, тесты); null — кадра ещё не было.</summary>
+    public CombatHud? Combat => _combat;
+
+    /// <summary>
+    /// Панель инвентаря (6е) — панель клиента: exe подключает её к клиенту движка (<c>ClientHost.AddPanel</c>); открывает её I, выбор
+    /// меча уходит командой арены из <see cref="BeforeTick"/>.
+    /// </summary>
+    public InventoryPanel Inventory => _inventory;
+
+    /// <summary>Привязка ручек симуляции для панели F3 (6е); null — до <see cref="Initialize"/>.</summary>
+    public TuningBinding? Tuning => _tuning;
+
+    /// <summary>Группы ручек игры (вкладки панели F3: «Бой») — заводятся в <see cref="Initialize"/>.</summary>
+    public IReadOnlyList<TuningGroup> TuningGroups => _groups;
+
+    /// <summary>Нижний край панели производительности HUD в последнем кадре, пиксели (под ней — панель ручек, как в SWORD); без HUD — 0.</summary>
+    public float HudBottom => _showHud ? _hud.PerfBottom : 0;
+
     /// <summary>Камера показанного кадра — для пакета наблюдения агента.</summary>
     CameraView IClientObservable.Camera =>
         new(_camera.ViewProj, _camera.Eye, _camera.Target, _camera.Yaw, _camera.Pitch, _camera.Distance, _camera.Follow);
@@ -270,8 +299,18 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         return null;
     }
 
-    /// <summary>Справка — по действующим привязкам (действие → клавиша): композиция отдаёт их после разрешения конфига.</summary>
-    public void UseBindings(IReadOnlyDictionary<string, string> keys) => _help = Hud.HelpLines(keys);
+    /// <summary>
+    /// Справка, подписи HUD и подсказка инвентаря — по действующим привязкам (действие → клавиша): композиция отдаёт их после
+    /// разрешения конфига.
+    /// </summary>
+    public void UseBindings(IReadOnlyDictionary<string, string> keys)
+    {
+        _help = Hud.HelpLines(keys);
+        string K(InputAction a) => Hud.Show(keys.TryGetValue(a.Name, out var k) ? k : a.DefaultKey);
+        _hud.InventoryKey = K(ArenaInput.Inventory);
+        _hud.ResetKey = K(ArenaInput.ArenaReset);
+        _inventory.UseKeys(K(ArenaInput.Weapons[0]), K(ArenaInput.Weapons[^1]), K(ArenaInput.Inventory));
+    }
 
     /// <summary>Корень игрока в симуляции на последнем тике кадра (итог Sword.exe, сверка с Headless); нет игрока — null.</summary>
     public Transform? LastPlayer => _view.PlayerAtTick;
@@ -336,6 +375,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         foreach (var a in _simulation.World.View<ICombatView>().Attacks)
             if (!a.Thrust) swings.Add(a.SwingDir);
         _swings = [.. swings];
+        // 6е: инвентарь — имена мечей таблицы; ручки «Бой» — привязка к ручкам симуляции (панель F3 подключает exe).
+        _inventory.Attach(_simulation, _weaponNames);
+        _tuning = new TuningBinding(_simulation);
+        _groups.Clear();
+        _groups.Add(CombatTuning.Build(_tuning, _simulation));
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -351,6 +395,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         if (input.WasPressed(ArenaInput.HudHelp)) _hud.ShowHelp = !_hud.ShowHelp;
         if (input.WasPressed(ArenaInput.HudProfiler)) ToggleProfiler();
         if (input.WasPressed(ArenaInput.DebugBodies)) ShowBodies = !ShowBodies;
+        // Инвентарь (6е; SWORD: I, если не набирается текст) — панель видна со следующего кадра панелей.
+        if (input.WasPressed(ArenaInput.Inventory)) _inventory.Open = !_inventory.Open;
         // Камера — до тиков, за тазом игрока, каким его показал прошлый кадр (Program.cs SWORD: focus — таз по renderAlpha
         // прошлого кадра).
         if (_fixedCamera) _camera.Rebuild(input.Width, input.Height);
@@ -401,7 +447,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// </summary>
     public void BeforeTick(SimulationLink simulation, in TickInput input)
     {
-        if (!_playerCommands) return;
+        if (!_playerCommands)
+        {
+            _inventory.TakeClicked();   // реплей: выбор меча не ставится (увёл бы реплей в сторону)
+            return;
+        }
         // Удар, укол, рывок (6в) — фронты: ровно в одном тике, первом после кадра нажатия; жест — клика.
         var command = _frameCommand;
         if (input.WasPressed(ArenaInput.Attack))
@@ -415,6 +465,15 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         Span<ArenaCommand> arena = stackalloc ArenaCommand[ArenaIntent.Max];
         int n = ArenaIntent.Commands(input, arena);
         for (int i = 0; i < n; i++) simulation.Enqueue(arena[i]);
+        // Инвентарь (6е; Program.cs SWORD — после PageUp, PageDown, R, T): щелчок по строке и 1–9 при открытой панели — «взять меч»
+        // (k-й по порядку получения, Owned[k] SWORD); меча с таким номером нет — ничего.
+        int clicked = _inventory.TakeClicked();
+        if (clicked >= 0) simulation.Enqueue(new ArenaCommand { Action = ArenaAction.EquipWeapon, Weapon = clicked });
+        if (!_inventory.Open) return;
+        var weapons = ArenaInput.Weapons;
+        for (int k = 0; k < weapons.Count; k++)
+            if (input.WasPressed(weapons[k]) && simulation.World.Resource<PlayerInventory>().OwnedAt(k) is >= 0 and var weapon)
+                simulation.Enqueue(new ArenaCommand { Action = ArenaAction.EquipWeapon, Weapon = weapon });
     }
 
     public void Extract(in FrameView view)
@@ -425,6 +484,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _view.Extract(_simulation!, view.Alpha, allBodies: ShowBodies || view.Capture?.WantsLayer(CapsulesOverlay) == true,
             blades: ShowBodies || ShowBlades || view.Capture?.WantsLayer(BladesOverlay) == true);
         _stats = view.Stats;
+        // Бой для HUD (6е): мир последнего тика кадра — только чтение.
+        var world = _simulation!.World;
+        var stats = world.Resource<ArenaStats>();
+        _combat = new CombatHud(_view.PlayerHp, _view.PlayerDead, _view.AliveEnemies, world.Resource<ArenaState>().Enemies, stats.Kills,
+            stats.Hits, stats.LastPart, stats.LastDamage, PlayerWeapon, _inventory.Open);
     }
 
     public void BuildFrame(RenderFrame frame)
@@ -569,7 +633,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _ui!.Clear();
         // Сводка F2 — раз в 0,25 с из итогов профайлера (в остальных кадрах — сравнение времени), только когда секция видна.
         if (_hud.ShowProfiler) _digest?.Update(System.Diagnostics.Stopwatch.GetTimestamp());
-        _hud.Draw(_ui, frame.Width, frame.Height, new HudData(_stats, draws, renderer.Ui.LastQuads, renderer.AdapterName, _digest), _help);
+        _hud.Draw(_ui, frame.Width, frame.Height, new HudData(_stats, draws, renderer.Ui.LastQuads, renderer.AdapterName, _digest, _combat), _help);
         HudQuads = _ui.Count;
         renderer.Ui.Add(frame, _ui, "hud");
     }
@@ -609,9 +673,12 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             Pillar4 = pl[4], Pillar5 = pl[5], Pillar6 = pl[6], Pillar7 = pl[7],
             LightDir = Vector3.Normalize(new Vector3(-0.45f, -1f, -0.3f)),
             PlayerPos = _view.PlayerMarker ?? NoPlayer,
-            PlayerHpFrac = 1f,
+            PlayerHpFrac = PlayerHpFrac(_view.PlayerHp),
         };
     }
+
+    /// <summary>Цвет кольца игрока (6е; <c>Program.Fill</c> SWORD): доля здоровья <c>clamp(Hp / 100, 0, 1)</c> — от красного к зелёному.</summary>
+    public static float PlayerHpFrac(float hp) => Math.Clamp(hp / Health.Full, 0, 1);
 
     public void Dispose()
     {

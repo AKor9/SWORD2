@@ -62,7 +62,7 @@ public static class ReplayObservation
     {
         if (options.To < options.From) throw new ArgumentException($"to {options.To} меньше from {options.From}");
         var player = simulation.Play(replay);
-        var catalog = new Catalog(simulation.World, simulation.CommandTypes);
+        var catalog = new Catalog(simulation);
         var hub = new ObservationHub(new TimeControl(paused: false), historyTicks: 1024) { Fields = fields };
         hub.Attach(simulation, catalog, names);
         var ctx = new ServiceContext(simulation);

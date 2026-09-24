@@ -211,8 +211,17 @@ public sealed class Simulation
             [.. EcsInvariants.For(built.Reader).Select(i => (i, "engine")), .. b.Registered]);
         Log.Info("runtime", $"симуляция: {settings.TickRate} тиков/с, модули: {string.Join(", ", active)}" +
             (inactive.Count > 0 ? $"; выключены: {string.Join(", ", inactive)}" : ""));
-        return new Simulation(built, settings, commands, export, active, inactive, config, state, invariants);
+        return new Simulation(built, settings, commands, export, active, inactive, config, state, invariants) { Tuning = [.. b.Knobs] };
     }
+
+    /// <summary>
+    /// Ручки симуляции (ядра и активных модулей) по порядку регистрации (<see cref="SimulationBuilder.Tuning{T}"/>): значение —
+    /// в ресурсе мира (<see cref="TuningKnob.Read"/>), изменение — команда <see cref="TuningCommand"/>.
+    /// </summary>
+    public IReadOnlyList<TuningKnob> Tuning { get; private init; } = [];
+
+    /// <summary>Ручка по полному имени «секция.ключ» (регистр не важен); нет — null.</summary>
+    public TuningKnob? Knob(string name) => Tuning.FirstOrDefault(k => string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Принимает ли симуляция команду <typeparamref name="T"/>: её регистрирует модуль, и без модуля команды нет.
@@ -628,6 +637,33 @@ public sealed class SimulationBuilder
             throw new ArgumentException($"{system.GetType().Name}: нет стадии игры {stage}; есть: {string.Join(", ", Stages)}");
         _world.System(stage, system, Module, file.Length > 0 ? $"{file}:{line}" : null);
         return this;
+    }
+
+    internal readonly List<TuningKnob> Knobs = [];
+    private readonly HashSet<string> _tuningSections = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Ручки секции конфига <paramref name="section"/> над ресурсом мира <typeparamref name="T"/> (раздел 7 плана, «Конфигурация»;
+    /// точка 6е): ручка — поле ресурса (значение в мире — ресурс, собранный из секции конфига при композиции), изменение на ходу —
+    /// команда <see cref="TuningCommand"/> (заводится с первой секцией ручек), её применяет система секции
+    /// <c>tuning.&lt;секция&gt;</c> в первой стадии игры (владелец — настраиваемый модуль или ядро). Секция — один раз.
+    /// </summary>
+    public TuningSection<T> Tuning<T>(string section) where T : unmanaged
+    {
+        Open();
+        if (!IModule.IsValidId(section)) throw new ArgumentException($"секция ручек «{section}»: нужно {IModule.IdRule}", nameof(section));
+        if (!_tuningSections.Add(section)) throw new InvalidOperationException($"ручки секции {section} уже заведены");
+        if (_tuningSections.Count == 1) Command<TuningCommand>();
+        var system = new TuningSystem<T>(section);
+        System(Stages[0], system);
+        return new TuningSection<T>(this, section, system);
+    }
+
+    internal void AddKnob(TuningKnob knob)
+    {
+        Open();
+        if (Knobs.Any(k => k.Id == knob.Id)) throw new InvalidOperationException($"ручка {knob.Name} дважды");
+        Knobs.Add(knob);
     }
 
     /// <summary>Срабатывание уходит клиенту: экспорт тика копирует записи с номером тика (<see cref="Simulation.Export"/>).</summary>

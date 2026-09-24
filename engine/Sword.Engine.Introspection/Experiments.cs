@@ -103,7 +103,7 @@ public static class Experiments
             var sim = build(replay.CreateConfig(v?.Sets ?? []));
             var player = sim.Play(v is { Cut: true } ? replay.Head(at) : replay);
             var recorder = sim.Record(info);
-            var catalog = new Catalog(sim.World, sim.CommandTypes);
+            var catalog = new Catalog(sim);
             foreach (var c in v?.Commands ?? [])
             {
                 var type = catalog.Command(c.Command);
