@@ -494,7 +494,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     // ── ручки, реплей, пересборка ───────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Ручки «Рэгдолл» — секция ragdoll (8 ручек, значения по умолчанию — правила), система tuning.ragdoll в Begin; команда ручки посреди
+    /// Ручки «Рэгдолл» — секция ragdoll (8 ручек 7з и 3 ручки отдачи 7к, значения по умолчанию — правила), система tuning.ragdoll в Begin; команда ручки посреди
     /// прогона с трупами меняет правила (ресурс), настройки физики и профиль трупа до шага того же тика и воспроизводится реплеем — те же
     /// хеши всех участников.
     /// </summary>
@@ -504,7 +504,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         var (sim, physics) = Create("arena.enemies=2;combat.enemiesAttack=false");
         var knobs = sim.Tuning.Where(k => k.Section == RagdollKnobs.Section).ToList();
         Assert.Equal(["ragdoll.friction", "ragdoll.pushForce", "ragdoll.popSpeed", "ragdoll.jointCompliance", "ragdoll.corpseMaxSpeed",
-            "ragdoll.corpseMaxAngularSpeed", "ragdoll.deathMaxSpeed", "ragdoll.deathMaxAngularSpeed"], knobs.Select(k => k.Name));
+            "ragdoll.corpseMaxAngularSpeed", "ragdoll.deathMaxSpeed", "ragdoll.deathMaxAngularSpeed", "ragdoll.enemyRecoil", "ragdoll.playerRecoil",
+            "ragdoll.recoilMaxSpeed"], knobs.Select(k => k.Name));   // 7к: отдача — доли врагу и игроку, предел
         var d = new RagdollSettings();
         Assert.Equal(d.PopSpeed, sim.Knob(RagdollKnobs.PopSpeed)!.Read(sim.World));
         Assert.Equal((d.PopSpeed, d.Friction, d.JointCompliance), (physics.Settings.PopSpeed, physics.Settings.StaticFriction, physics.Settings.JointLimitCompliance));

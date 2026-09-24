@@ -160,19 +160,32 @@ public static class GameLabels
     /// </summary>
     public static readonly SystemLabel BodyRebuild = new("core.body-rebuild");
 
+    /// <summary>
+    /// PrePhysics, после <see cref="BladePlacement"/> (7к): чем толкают тела живых в шаге физики — тело клинка бойца в ударе толкает
+    /// проходом, остальные тела — телом (<c>KinSource</c> SWORD); потенциал прохода бьющего — по скорости кончика клинка тика
+    /// (<c>PrepareKinematicContacts</c> SWORD).
+    /// </summary>
+    public static readonly SystemLabel KinematicSource = new("core.kinematic-source");
+
+    /// <summary>
+    /// React (7к): отдача толчков и ударов по трупам (накоплена физикой за тик) — горизонталью в скорость корня живого бойца
+    /// (<c>ApplyReactions</c> SWORD), затем конец тика проходов (<c>EndTick</c>).
+    /// </summary>
+    public static readonly SystemLabel RootRecoil = new("core.root-recoil");
+
     /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
     public static readonly SystemLabel ActionRelease = new("core.action-release");
 
     /// <summary>
-    /// Combat (6г): проходы клинка (<c>KinematicStrikes</c> SWORD) — клинок бойца в ударе против капсул живой жертвы (пары игрок ↔
-    /// враг), касание — событие <c>StrikeContact</c>; затем пробы удара командой (<c>StrikeProbe</c>) тем же событием.
+    /// Combat (6г): проходы клинка (<c>KinematicStrikes</c> SWORD) — клинок бойца в ударе против капсул жертвы — живой или трупа (7к)
+    /// (пары игрок ↔ враг), касание — событие <c>StrikeContact</c>; затем пробы удара командой (<c>StrikeProbe</c>) тем же событием.
     /// </summary>
     public static readonly SystemLabel StrikeDetection = new("core.strike-detection");
 
     /// <summary>
     /// Resolve (6г), реактивная по <c>Event&lt;StrikeContact&gt;</c> (<c>ApplyHits</c>, <c>ApplyHit</c> SWORD): урон и раны
-    /// (<c>Health</c>), смерть (<c>Dead</c>), события <c>Hit</c> и <c>SeverRequested</c>. Модули защиты (этап 10) встанут в стадию
-    /// Defense между Combat и Resolve.
+    /// (<c>Health</c>), смерть (<c>Dead</c>), события <c>Hit</c> и <c>SeverRequested</c>; с 7к — попадания по трупам и импульс удара в
+    /// часть через физику (<c>HitImpulse</c>). Модули защиты (отложены — решение 16) встанут в стадию Defense между Combat и Resolve.
     /// </summary>
     public static readonly SystemLabel HitApply = new("core.hit-apply");
 

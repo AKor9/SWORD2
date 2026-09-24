@@ -166,14 +166,15 @@ public static class DamageInvariants
     }
 
     /// <summary>
-    /// <c>combat.hits</c> — попадания тика (<see cref="Hit"/>, после Resolve) по правилам: атакующий и жертва — живые до тика бойцы
-    /// (жертва могла умереть этим попаданием — тогда оно последнее по ней в тике и единственное убившее); жертва не неуязвима
+    /// <c>combat.hits</c> — попадания тика (<see cref="Hit"/>, после Resolve) по правилам: атакующий касания клинком — не труп; жертва — живая
+    /// (могла умереть этим попаданием — тогда оно последнее по ней в тике и единственное убившее) или труп (мёртвая до тика — 7к: попадание
+    /// по трупу, <see cref="Hit.Corpse"/>, никого не убивает); жертва не неуязвима
     /// (<c>combat.playerInvulnerable</c>, неуязвимость рывка). Касание клинка (не проба): пара игрок ↔ враг (враг не бьёт врага),
     /// атакующий — в ударе; проход клинка засчитан этим тиком (пара врага <see cref="StrikePairs"/>: клинок в теле, касание сейчас,
     /// номер удара — атакующего), а в прошлом тике клинок был вне тела или удар был другой, и прошлое касание пары — не ближе 0,1 с.
     /// Память пар — с прошлого тика (пропуск тиков — без сверки с прошлым).
     /// </summary>
-    private sealed class Hits : IInvariant
+    internal sealed class Hits : IInvariant
     {
         private record struct Pass(Entity Enemy, StrikePairs Pairs);
 
@@ -215,6 +216,7 @@ public static class DamageInvariants
             if (journal < 0) return;
             var rules = world.Resource<CombatRules>();
             _seen.Clear();
+            Killed(world, journal, _killed);
             for (int i = 0, n = world.JournalLength(journal); i < n; i++)
             {
                 var bytes = world.JournalEntry(journal, i, out long age);
@@ -236,21 +238,44 @@ public static class DamageInvariants
             return -1;
         }
 
+        private readonly List<Entity> _killed = [];
+
+        /// <summary>Жертвы, которых убили попадания этого тика (журнал попаданий <paramref name="journal"/>, возраст 1) — в <paramref name="into"/>.</summary>
+        internal static void Killed(WorldReader world, int journal, List<Entity> into)
+        {
+            into.Clear();
+            for (int i = 0, n = world.JournalLength(journal); i < n; i++)
+            {
+                var bytes = world.JournalEntry(journal, i, out long age);
+                if (age != 1 || bytes.IsEmpty) continue;
+                var hit = MemoryMarshal.Read<Event<Hit>>(bytes).Value;
+                if (hit.Killed) into.Add(hit.Victim);
+            }
+        }
+
+        /// <summary>
+        /// Жертва — труп для попаданий этого тика (7к): мертва до Resolve — смерть прошлых тиков или команда сцены этого тика (Intent), а не
+        /// попадание этого тика (<paramref name="killed"/>).
+        /// </summary>
+        internal static bool IsCorpse(WorldReader world, Entity victim, float now, List<Entity> killed) =>
+            world.TryGet<Dead>(victim, out var dead) && (dead.Time < now || !killed.Contains(victim));
         private string? Problem(WorldReader world, in Hit hit, in SimTime time, in CombatRules rules, bool continuous)
         {
             if (!world.IsAlive(hit.Attacker) || !world.Has<Fighter>(hit.Attacker) || !world.IsAlive(hit.Victim) || !world.Has<Fighter>(hit.Victim))
                 return Text($"попадание {hit.Attacker} → {hit.Victim}: не бойцы");
-            // труп — не цель: жертва мертва до этого тика или уже убита прошлым попаданием тика
+            // жертва, убитая прошлым попаданием тика, — не цель (тело ещё не труп); мёртвая до тика — труп, снова цель (7к)
             foreach (var (victim, killed) in _seen)
                 if (victim == hit.Victim && killed) return Text($"попадание в {hit.Victim} после убившего его попадания того же тика");
             _seen.Add((hit.Victim, hit.Killed));
-            if (world.TryGet<Dead>(hit.Victim, out var dead) && dead.Time < time.Time)
-                return Text($"попадание в труп {hit.Victim} (мёртв с {dead.Time} с)");
+            bool corpse = IsCorpse(world, hit.Victim, time.Time, _killed);
+            if (corpse != hit.Corpse) return Text($"попадание в {hit.Victim}: «по трупу» {hit.Corpse}, а мёртв до попаданий тика — {corpse}");
+            if (hit.Corpse && hit.Killed) return Text($"попадание по трупу {hit.Victim} убило его второй раз");
             if (hit.Killed && !world.Has<Dead>(hit.Victim)) return Text($"попадание убило {hit.Victim}, а метки смерти нет");
             if (world.TryGet<PlayerControl>(hit.Victim, out var control) && world.Has<PlayerTag>(hit.Victim)
                 && (rules.PlayerInvulnerable || control.Invulnerable > 0))
                 return Text($"попадание в неуязвимого игрока (combat.playerInvulnerable {rules.PlayerInvulnerable}, рывок {control.Invulnerable} с)");
-            if (hit.Probe) return null;
+            if (hit.Probe) return null;   // проба — синтетическое касание: атакующий может быть и мёртвым
+            if (IsCorpse(world, hit.Attacker, time.Time, _killed)) return Text($"попадание клинком от трупа {hit.Attacker}");
             bool fromPlayer = world.Has<PlayerTag>(hit.Attacker), toPlayer = world.Has<PlayerTag>(hit.Victim);
             if (fromPlayer == toPlayer) return Text($"попадание {hit.Attacker} → {hit.Victim}: пары — только игрок ↔ враг");
             var action = world.Get<AnimatorAction>(hit.Attacker);

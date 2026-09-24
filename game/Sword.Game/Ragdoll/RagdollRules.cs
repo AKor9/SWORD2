@@ -35,6 +35,19 @@ public sealed record RagdollSettings
     /// <summary>Ограничение скоростей тел при переходе в труп (скорости последней постановки живого): м/с и рад/с.</summary>
     public float DeathMaxSpeed { get; init; } = 6f;
     public float DeathMaxAngularSpeed { get; init; } = 20f;
+
+    /// <summary>
+    /// Доля отдачи в скорость корня живого (7к; <c>EnemyReact</c>, <c>PlayerReact</c> SWORD — отправные): горизонталь отдачи тика (толчки
+    /// трупов и удары по ним) × доля / масса бойца. Игроку — четверть: отзывчивость (игрок не теряет управления).
+    /// </summary>
+    public float EnemyRecoil { get; init; } = 1f;
+    public float PlayerRecoil { get; init; } = 0.25f;
+
+    /// <summary>
+    /// Предел отдачи, м/с (7к): отдача не уводит скорость корня от заданной (намерение × масштаб хода действия) вдоль себя дальше этого —
+    /// сквозь кучу трупов боец идёт, теряя не больше предела; дальше скорость возвращает разгон бойца (14 1/с).
+    /// </summary>
+    public float RecoilMaxSpeed { get; init; } = 1f;
 }
 
 /// <summary>
@@ -63,6 +76,12 @@ public struct RagdollRules
     /// <summary>Ограничение скоростей при переходе в труп, м/с и рад/с.</summary>
     public float DeathMaxSpeed, DeathMaxAngularSpeed;
 
+    /// <summary>Доля отдачи в скорость корня врага и игрока (7к).</summary>
+    public float EnemyRecoil, PlayerRecoil;
+
+    /// <summary>Предел отдачи — наибольшее отклонение скорости корня от заданной вдоль отдачи, м/с (7к).</summary>
+    public float RecoilMaxSpeed;
+
     /// <summary>Правила из секции конфига; числа вне пределов — ошибка конфига.</summary>
     public static RagdollRules From(RagdollSettings s)
     {
@@ -82,6 +101,9 @@ public struct RagdollRules
             CorpseMaxAngularSpeed = Check(s.CorpseMaxAngularSpeed, "corpseMaxAngularSpeed", true),
             DeathMaxSpeed = Check(s.DeathMaxSpeed, "deathMaxSpeed", false),
             DeathMaxAngularSpeed = Check(s.DeathMaxAngularSpeed, "deathMaxAngularSpeed", false),
+            EnemyRecoil = Check(s.EnemyRecoil, "enemyRecoil", false),
+            PlayerRecoil = Check(s.PlayerRecoil, "playerRecoil", false),
+            RecoilMaxSpeed = Check(s.RecoilMaxSpeed, "recoilMaxSpeed", false),
         };
     }
 
@@ -96,7 +118,8 @@ public struct RagdollRules
 }
 
 /// <summary>
-/// Ручки «Рэгдолл» (7з; механизм 6е — как «Бой»): поля <see cref="RagdollRules"/> — ресурса мира из секции конфига <c>ragdoll</c>.
+/// Ручки «Рэгдолл» (7з; механизм 6е — как «Бой»; 7к — отдача: доли врагу и игроку, предел): поля <see cref="RagdollRules"/> — ресурса
+/// мира из секции конфига <c>ragdoll</c>.
 /// Изменение на ходу — команда ручки (система <c>tuning.ragdoll</c> в Begin), в реплее; замену настроек физики и профиля трупа делает
 /// <see cref="RagdollRulesChangeSystem"/> (Intent) — до шага физики того же тика. Группа F3 «Рэгдолл» — клиент (7и).
 /// </summary>
@@ -107,7 +130,8 @@ public static class RagdollKnobs
     /// <summary>Полные имена ручек (ключи конфига).</summary>
     public const string Friction = "ragdoll.friction", PushForce = "ragdoll.pushForce", PopSpeed = "ragdoll.popSpeed",
         JointCompliance = "ragdoll.jointCompliance", CorpseMaxSpeed = "ragdoll.corpseMaxSpeed", CorpseMaxAngularSpeed = "ragdoll.corpseMaxAngularSpeed",
-        DeathMaxSpeed = "ragdoll.deathMaxSpeed", DeathMaxAngularSpeed = "ragdoll.deathMaxAngularSpeed";
+        DeathMaxSpeed = "ragdoll.deathMaxSpeed", DeathMaxAngularSpeed = "ragdoll.deathMaxAngularSpeed", EnemyRecoil = "ragdoll.enemyRecoil",
+        PlayerRecoil = "ragdoll.playerRecoil", RecoilMaxSpeed = "ragdoll.recoilMaxSpeed";
 
     public static void Register(SimulationBuilder b, IPhysicsWorld physics, int corpseProfile)
     {
@@ -132,7 +156,16 @@ public static class RagdollKnobs
                 0, 20, d.DeathMaxSpeed, format: "0.0", hint: "м/с: скорость тел живого (разность постановок) при переходе в труп урезается до неё")
             .Float("deathMaxAngularSpeed", "вращение при смерти", (in RagdollRules r) => r.DeathMaxAngularSpeed,
                 (ref RagdollRules r, float v) => r.DeathMaxAngularSpeed = v, 0, 60, d.DeathMaxAngularSpeed, format: "0",
-                hint: "рад/с: угловая скорость тел при переходе в труп (ложная закрутка кинематических капсул) урезается до неё");
+                hint: "рад/с: угловая скорость тел при переходе в труп (ложная закрутка кинематических капсул) урезается до неё")
+            .Float("enemyRecoil", "отдача врагу", (in RagdollRules r) => r.EnemyRecoil, (ref RagdollRules r, float v) => r.EnemyRecoil = v,
+                0, 4, d.EnemyRecoil, format: "0.00",
+                hint: "доля отдачи толчков и ударов по трупам в скорость корня врага (импульс / масса бойца × доля)")
+            .Float("playerRecoil", "отдача игроку", (in RagdollRules r) => r.PlayerRecoil, (ref RagdollRules r, float v) => r.PlayerRecoil = v,
+                0, 4, d.PlayerRecoil, format: "0.00",
+                hint: "доля отдачи толчков и ударов по трупам в скорость корня игрока: меньше — игрок увереннее идёт сквозь трупы")
+            .Float("recoilMaxSpeed", "предел отдачи", (in RagdollRules r) => r.RecoilMaxSpeed, (ref RagdollRules r, float v) => r.RecoilMaxSpeed = v,
+                0, 10, d.RecoilMaxSpeed, format: "0.00",
+                hint: "м/с: дальше этого отдача не уводит скорость корня от заданной — сквозь кучу трупов боец не останавливается");
         b.System(GameStages.Intent, new RagdollRulesChangeSystem(physics, corpseProfile));
     }
 }

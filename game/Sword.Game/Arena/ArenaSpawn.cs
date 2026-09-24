@@ -7,6 +7,7 @@ using Sword.Game.Animation;
 using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Movement;
+using Sword.Game.Ragdoll;
 
 namespace Sword.Game.Arena;
 
@@ -175,6 +176,8 @@ public static class Fighters
             world.AddImmediate(e, StrikePairs.None);
         }
         world.AddImmediate(e, Health.Fresh);
+        world.AddImmediate(e, HitImpulse.None);   // 7к: импульс удара в тело и отдача корню — последние
+        world.AddImmediate(e, Recoil.None);
         world.AddImmediate(e, AnimatorAction.None);
         world.AddImmediate(e, new ActionPoses());
         world.AddImmediate(e, new WeaponSlot { Index = s.Weapon });
@@ -220,6 +223,8 @@ public static class Fighters
             c.Add(d, StrikePairs.None);
         }
         c.Add(d, Health.Fresh);
+        c.Add(d, HitImpulse.None);   // 7к: импульс удара в тело и отдача корню — последние
+        c.Add(d, Recoil.None);
         c.Add(d, AnimatorAction.None);
         c.Add(d, new ActionPoses());
         c.Add(d, new WeaponSlot { Index = s.Weapon });
@@ -256,6 +261,8 @@ public static class Fighters
         // 6г: здоровье — полное, мёртвый оживает (возрождение врага, сброс арены), вздрагивание игрока и пары удара врага — с нуля
         if (dead) c.Remove<Dead>(e);
         c.Set(e, Health.Fresh);
+        c.Set(e, HitImpulse.None);   // 7к: импульс удара и отдача — с нуля
+        c.Set(e, Recoil.None);
         c.Set(e, new FighterSeed { Value = s.Seed });
         var root = new Transform { Position = s.Position, Facing = s.Facing };
         c.Set(e, root);
@@ -286,12 +293,13 @@ public static class Fighters
         .Adds<PrevTransform>().Adds<RootVelocity>().Adds<FighterCommand>().Adds<GazeTarget>().Adds<AnimatorMotion>()
         .Adds<PoseRef>().Adds<BodyRef>().Adds<EnemyAiTerms>().Adds<RootContacts>().Adds<AnimatorAction>().Adds<ActionPoses>()
         .Adds<WeaponSlot>().Adds<Blade>().Adds<PlayerControl>().Adds<AttackCombo>().Adds<EnemyAttack>()
-        .Adds<Health>().Adds<StrikePairs>().Adds<Flinch>()
+        .Adds<Health>().Adds<StrikePairs>().Adds<Flinch>().Adds<HitImpulse>().Adds<Recoil>()
         .DeclaresRebuild();
 
     /// <summary>Объявления системы, которая только строит бойцов заново (<see cref="Rebuild"/>: возрождение врага, 6г).</summary>
     public static SystemSetup DeclaresRebuild(this SystemSetup s) => s
         .Adds<Fighter>().Removes<Fighter>().Removes<Dead>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>().Sets<AnimatorAction>()
-        .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>().Sets<Health>().Sets<StrikePairs>().Sets<Flinch>();
+        .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>().Sets<Health>().Sets<StrikePairs>().Sets<Flinch>()
+        .Sets<HitImpulse>().Sets<Recoil>();
 }

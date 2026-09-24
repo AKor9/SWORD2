@@ -18,7 +18,7 @@ namespace Sword.Game.Tests;
 /// <summary>
 /// Точка 6г «Урон, смерть, реакции, возрождение»: правила урона числами (<see cref="DamageRules"/>), проба удара командой
 /// тем же путём Resolve (урон, раны, кровотечение, заявка на отруб, смертельный укол только остриём, реакция, статистика),
-/// неуязвимость (настройка и рывок), трупы — не цели и замирают (капсулы хранят скорости), кровопотеря, возрождение ровно через 8 с,
+/// неуязвимость (настройка и рывок), трупы — цели (7к: попадание по трупу) и не действуют, кровопотеря, возрождение ровно через 8 с,
 /// мёртвый игрок (команды не действуют, враги ×0,2 и не бьют, R — заново), вздрагивание игрока (только верх, управление не отнимается),
 /// инварианты урона на неисправностях. Контент — синтетический (<see cref="TestAssets"/>); касания настоящих ударов пака — сценарии
 /// манифеста <c>combat</c> (дуэль, смерть игрока, рывок сквозь удар) и инвариант <c>combat.hits</c>.
@@ -207,12 +207,13 @@ public sealed class DamageTests
     }
 
     /// <summary>
-    /// Труп — не цель (до 7к) и не действует: после смерти проба не даёт попадания; курс, действие, поза и клинок-отрезок стоят, хотя ИИ
-    /// живого вёл бы его к игроку. С 7з тела — труп на физике: в тик смерти (Settle) скорости последней постановки живого урезаны переходом
-    /// (≤ 6 м/с), дальше труп падает; корень идёт за тазом трупа.
+    /// Труп — снова цель (7к) и не действует: проба в труп — попадание по трупу (<see cref="Hit.Corpse"/>: урон и рана трупу, смерти и
+    /// реакции нет, «убито» не растёт, в статистике — <see cref="ArenaStats.CorpseHits"/>, не <c>Hits</c>; импульса у пробы нет — скорости
+    /// удара нет); курс, действие, поза и клинок-отрезок стоят, хотя ИИ живого вёл бы его к игроку. С 7з тела — труп на физике: в тик смерти
+    /// (Settle) скорости последней постановки живого урезаны переходом (≤ 6 м/с), дальше труп падает; корень идёт за тазом трупа.
     /// </summary>
     [Fact]
-    public void Corpse_NotTarget_DoesNotAct_OnPhysics_RootFollowsPelvis()
+    public void Corpse_Target_DoesNotAct_OnPhysics_RootFollowsPelvis()
     {
         var sim = Create("arena.enemies=1", "combat.enemiesAttack=false");
         var enemy = Enemy(sim);
@@ -232,11 +233,20 @@ public sealed class DamageTests
         var anim = sim.World.View<IAnimationView>();
         var poseRef = sim.World.Get<PoseRef>(enemy);
         var pose = anim.Model(poseRef).ToArray();
+        var health = sim.World.Get<Health>(enemy);
+        var stats = sim.World.Resource<ArenaStats>();
         sim.Export.BeginFrame();
         Probe(sim, 0, 1, BodySegs.Torso, 50);
         Step(sim, 120);
-        Assert.True(sim.Export.Frame<Event<Hit>>().IsEmpty);
-        Assert.Single(sim.Export.Frame<Event<StrikeContact>>().ToArray());   // касание есть, попадания нет — труп
+        var hit = Assert.Single(sim.Export.Frame<Event<Hit>>().ToArray()).Record.Value;   // 7к: попадание по трупу
+        Assert.Equal((true, false, BodySegs.Torso, 50f), (hit.Corpse, hit.Killed, hit.Part, hit.Damage));
+        Assert.Single(sim.Export.Frame<Event<StrikeContact>>().ToArray());
+        var wounded = sim.World.Get<Health>(enemy);
+        Assert.Equal((health.Hp - 50, health.Wounds[BodySegs.Torso] + 50f / 45), (wounded.Hp, wounded.Wounds[BodySegs.Torso]));
+        Assert.Equal(health.Bleed + 50 * 0.02f, wounded.Bleed);   // кровотечение трупа не течёт (кровопотеря — только живых)
+        var after = sim.World.Resource<ArenaStats>();
+        Assert.Equal((stats.Kills, stats.Hits, stats.CorpseHits + 1, BodySegs.Torso), (after.Kills, after.Hits, after.CorpseHits, after.LastPart));
+        Assert.Equal(-1, sim.World.Get<HitImpulse>(enemy).Part);   // проба — без скорости удара: импульса нет (смерть от пробы — тоже)
         var now = sim.World.Get<Transform>(enemy);
         Assert.Equal((root.Facing, Capsule().Position.X, Capsule().Position.Z), (now.Facing, now.Position.X, now.Position.Z));   // корень — за тазом
         Assert.Equal((action.Kind, action.Time, action.Weight), (sim.World.Get<AnimatorAction>(enemy).Kind, sim.World.Get<AnimatorAction>(enemy).Time, sim.World.Get<AnimatorAction>(enemy).Weight));
@@ -660,7 +670,8 @@ public sealed class DamageContentTests
     /// <summary>
     /// Прогрев — до первого возрождения (тик 1231): первая смерть и первая постройка заново выделяют разово (~46 КБ на мир: чанки новых
     /// архетипов — боец с меткой <see cref="Dead"/> и боец, снятый и поставленный заново на барьере; рост буферов команд боя, ~3 КБ) —
-    /// README Combat, «Бюджеты и замеры». Замер — ещё 1080 тиков боя: попадания, кровопотеря, новые смерти и возрождения.
+    /// README Combat, «Бюджеты и замеры». Замер — ещё 1080 тиков боя: попадания, кровопотеря, новые смерти и возрождения; с 7к — и удары по
+    /// трупам (импульс в часть, проход) и толчки трупов живыми с отдачей в корень.
     /// </summary>
     [Fact]
     public void Fight_32AttackingEnemies_RealPack_AfterWarmup_DoesNotAllocate()
@@ -680,16 +691,25 @@ public sealed class DamageContentTests
             for (int i = 0; i < chunk.Count; i++) dead.Add(chunk.Entities[i]);
         var before = sim.World.Resource<ArenaStats>();
         long allocated = 0;
+        int recoils = 0;
+        var recoiled = sim.World.Query().With<Fighter>().Read<Ragdoll.Recoil>();
         while (tick < 2400)
         {
             long bytes = GC.GetAllocatedBytesForCurrentThread();
             Step();
             allocated += GC.GetAllocatedBytesForCurrentThread() - bytes;
+            ulong now = sim.World.Resource<SimTime>().Tick;
+            foreach (var chunk in sim.World.Iterate(recoiled))
+                foreach (var r in chunk.Read<Ragdoll.Recoil>())
+                    if (r.Tick == now) recoils++;
         }
         var after = sim.World.Resource<ArenaStats>();
         Assert.True(before.Kills >= 2 && after.Kills - before.Kills >= 3, $"убито до замера {before.Kills}, в замере {after.Kills - before.Kills}: смертей мало");
         Assert.True(after.Hits - before.Hits >= 10, $"попаданий в замере {after.Hits - before.Hits}");
         Assert.Contains(dead, e => !sim.World.Has<Dead>(e));   // возрождения — в замере
+        // 7к: в замере и удары по трупам (импульс в часть, проход, отдача), и толчки трупов живыми (отдача в корень)
+        Assert.True(after.CorpseHits - before.CorpseHits >= 1, $"попаданий по трупам в замере {after.CorpseHits - before.CorpseHits}");
+        Assert.True(recoils > 100, $"отдач корню в замере {recoils}");
         Assert.Equal(0, allocated);
     }
 

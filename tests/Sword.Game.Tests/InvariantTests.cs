@@ -435,7 +435,7 @@ public sealed class GameInvariantTests
     public void FairGame_NoViolations_AllCoreInvariantsChecked()
     {
         var sim = TestAssets.Simulation();
-        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "ragdoll.skin", "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena", "physics.energy", "physics.pushes", "combat.blade", "combat.weapons", "combat.control", "combat.health", "combat.dead", "combat.hits", "combat.respawn", "locomotion.poses"],
+        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "ragdoll.skin", "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena", "physics.energy", "physics.pushes", "physics.sources", "ragdoll.hitSource", "ragdoll.hitImpulse", "combat.blade", "combat.weapons", "combat.control", "combat.health", "combat.dead", "combat.hits", "combat.respawn", "locomotion.poses"],
             sim.Invariants.List().Select(i => i.Id));
         for (int t = 0; t < 400; t++)
         {

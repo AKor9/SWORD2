@@ -585,7 +585,7 @@ capsules`).
    Трасса выключена — слой пуст, в `notes` — почему. Числа контактов по источникам — `physics.bodies {"trace":"show"}` → `trace.contacts`.
 5. Виды фич с оверлеями: `views[].overlays` — `capsules`, `blades`, `joints`, `contacts` (Sword.exe `--overlay contacts` включает трассу с
    первого кадра — и при `--replay`).
-6. Часть 2 (после 7з): у человека — панель F3, вкладка «Рэгдолл» (восемь ручек секции `ragdoll` и строки трупов кадра: трупов и в покое,
+6. Часть 2 (после 7з): у человека — панель F3, вкладка «Рэгдолл» (все ручки секции `ragdoll` — восемь 7з и три отдачи 7к — и строки трупов кадра: трупов и в покое,
    тел на физике и на земле, быстрейшее тело). Агенту — те же ручки командой (раздел 7з, п. 5: `command.send TuningCommand`, в реплее),
    те же числа — из симуляции: мёртвые — `world.query {"with":["Dead"],"take":0}`, тела — `physics.bodies {"entity":"enemy 1"}`
    (`mode`, `grounded`, скорости), быстрейшее и упоры в потолок — `physics.bodies {"trace":"show"}` (`speed.max`, `capped`), покой —
@@ -619,3 +619,27 @@ capsules`).
 6. Сцены фичи: s8 — `Place` врага на ступени пирамиды (`{"X":-16,"Y":0}`), тиком позже `Kill`; s4 — два `Place` в (±0,36; 1,5), `Kill`
    обоим, тиком позже `ShiftBodies` второго на `{"X":-0.52,"Y":0,"Z":0}`; приёмка — `feature.verify {"id":"ragdoll"}` (сценарии включают
    режим `physics.trace` ключом `diagnostics`).
+
+## Толчки живых и удары по трупам (7к)
+
+Живые толкают трупы телами и клинком, отдача идёт в их корень, трупы — снова цели ударов (фича «Рэгдолл», раздел «7к»; бой — README «Бой», «7к»):
+1. Проход сквозь труп (s3): `command.send SceneCommand {"Action":"Place","Slot":1,"Position":{"X":0,"Y":4}}`, тиком позже `{"Action":"Kill",
+   "Slot":1}`, через 2 с — `{"Action":"PlayerIntent","Velocity":{"X":0,"Y":4.2},"Facing":0}` с `"repeat":360`; смотреть `watch.add
+   {"entities":["player"],"fields":["RootVelocity.Value.Z","Recoil.Velocity.Z","Recoil.Tick"]}` и `{"entities":["enemy 1"],"fields":
+   ["Body.ComVelocity"]}` → `entity.history`: у трупа скорость корня падает на сотые доли, `Recoil` — отдача тика.
+2. Толчки по трассе: `physics.bodies {"trace":"on"}` → тики → `physics.bodies {"trace":"show"}` — `sources` `push.body`/`push.pass` (импульс,
+   псевдоимпульс), доля бюджета пары и прохода, выталкивание сверх толкающей точки (≤ `PopSpeed`, 1 м/с у трупа), отдача; картинкой — оверлей
+   `contacts` (оранжевые — толчок телом, красные — клинком).
+3. Метки и проходы: `state.describe {"part":"physics","filter":"<сочленение из BodyRef>"}` — у тела `source` (`Pass` — клинок в ударе),
+   `reaction`; `{"filter":"passes"}` — проходы пар толкающий → труп (удар, номер, открыт, бюджет, остаток).
+4. Удар по трупу (s1): `Kill` врага рядом с игроком, `PlayerCommand {"Attack":true,"Gesture":{"X":1,"Y":-1},"HasGaze":true,"Gaze":{...}}` —
+   `events.history {"types":["Hit"]}` (`Corpse: true`), `entity.get {"entity":"enemy 1","components":["HitImpulse","Health"]}` (часть,
+   импульс, Δv, из прохода ли), `state.describe ecs` — `ArenaStats.CorpseHits`. Почему труп дёрнулся — `state.why {"entity":"enemy 1",
+   "field":"HitImpulse"}` (нужен `session.start {causality:true}`): импульс ← попадание ← касание ← начало удара ← команда; отдача игроку —
+   `state.why {"entity":"player","field":"Recoil"}`.
+5. Инварианты: `physics.sources`, `ragdoll.hitSource` («физический клинок попаданий не даёт»), `ragdoll.hitImpulse` — `invariant.list`,
+   `time.breakOnInvariant`; толчки по трассе — диагностический `physics.pushes` (п. 2 и `invariant.enable`).
+6. Ручки отдачи: `command.send {"command":"TuningCommand","fields":{"Knob":"ragdoll.playerRecoil","Value":1}}` (`ragdoll.enemyRecoil`,
+   `ragdoll.recoilMaxSpeed`; у человека — F3 «Рэгдолл», раздел «ТОЛЧОК ЖИВОГО»); приёмка — `feature.verify {"id":"ragdoll"}` (сценарии s3, s6, s1).
+   Эксперимент без сеанса: `Sword.Headless --replay artifacts/features/ragdoll/scenario-s3.swreplay --set ragdoll.playerRecoil=4 --sample 1 --json`
+   — `trajectory[].speed` игрока у трупа (0,25 — 4,15 м/с; 4 — 3,19).

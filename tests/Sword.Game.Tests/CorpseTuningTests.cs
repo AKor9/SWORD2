@@ -17,8 +17,8 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 7и, часть 2 — группа F3 «Рэгдолл» без окна и шрифтов (свои тесты свойств): восемь ручек секции <c>ragdoll</c> с подписями,
-/// подсказками, пределами и значениями по умолчанию из их регистрации (7з), строки трупов кадра (сколько, в покое, тел на физике и на земле,
+/// Точка 7и, часть 2 — группа F3 «Рэгдолл» без окна и шрифтов (свои тесты свойств): все ручки секции <c>ragdoll</c> (восемь 7з и три
+/// отдачи 7к) с подписями, подсказками, пределами и значениями по умолчанию из их регистрации, строки трупов кадра (сколько, в покое, тел на физике и на земле,
 /// быстрейшее тело); изменение ручки из группы (как ползунок панели) — команда ручки на ближайший тик, в реплее, реплей воспроизводит те же
 /// хеши; «сброс», «сохранить» и «загрузить» — секция <c>ragdoll</c> в <c>sword.user.json</c>, её читает конфиг после перезапуска.
 /// Контент — синтетический (<see cref="TestAssets"/>).
@@ -45,17 +45,20 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
 
     private static SceneCommand Kill(int slot) => new() { Action = SceneAction.Kill, Slot = slot };
 
-    /// <summary>Порядок ручек в группе: разделы «труп на земле», «потолки трупа», «переход в труп», «толчок живого».</summary>
+    /// <summary>
+    /// Порядок ручек в группе: разделы «труп на земле», «потолки трупа», «переход в труп», «толчок живого» (сила толчка и отдача живому — 7к).
+    /// </summary>
     private static readonly string[] Keys =
-        ["friction", "popSpeed", "jointCompliance", "corpseMaxSpeed", "corpseMaxAngularSpeed", "deathMaxSpeed", "deathMaxAngularSpeed", "pushForce"];
+        ["friction", "popSpeed", "jointCompliance", "corpseMaxSpeed", "corpseMaxAngularSpeed", "deathMaxSpeed", "deathMaxAngularSpeed", "pushForce",
+            "enemyRecoil", "playerRecoil", "recoilMaxSpeed"];
 
     /// <summary>
-    /// Группа «Рэгдолл»: Id — секция конфига (<c>ragdoll</c>), все восемь ручек секции, каждая строка — подпись, подсказка, пределы,
-    /// логарифмическая шкала, формат и значение по умолчанию ручки симуляции (<see cref="RagdollKnobs"/>); разделы — заголовками, строки трупов
-    /// кадра — первыми (без прокрутки).
+    /// Группа «Рэгдолл»: Id — секция конфига (<c>ragdoll</c>), все ручки секции (восемь 7з и три отдачи 7к), каждая строка — подпись, подсказка,
+    /// пределы, логарифмическая шкала, формат и значение по умолчанию ручки симуляции (<see cref="RagdollKnobs"/>); разделы — заголовками,
+    /// строки трупов кадра — первыми (без прокрутки).
     /// </summary>
     [Fact]
-    public void RagdollGroup_EightKnobsOfSection_FromRegistration()
+    public void RagdollGroup_AllKnobsOfSection_FromRegistration()
     {
         var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=0"));
         var link = new SimulationLink(sim);
@@ -63,7 +66,7 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
         Assert.Equal(("ragdoll", "Рэгдолл", RagdollKnobs.Section), (group.Id, group.Title, RagdollTuning.Id));
         Assert.Equal(Keys, group.Values().Keys);
         var knobs = sim.Tuning.Where(k => k.Section == RagdollKnobs.Section).ToList();
-        Assert.Equal(8, knobs.Count);
+        Assert.Equal(11, knobs.Count);
         Assert.Equal(knobs.Select(k => k.Key).Order(), Keys.Order());
         foreach (var k in knobs)
         {

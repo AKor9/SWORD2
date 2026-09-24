@@ -1,14 +1,16 @@
 // Приёмка фичи «Рэгдолл» (этап 7). 7з — сценарии командами сцен (SceneCommand), инварианты и проверки: s8 — труп на ступенях
 // пирамиды в 5 местах (покой: центр масс, кинетическая энергия — вычисляемые поля тела Body.ComVelocity, Body.KineticEnergy,
 // Game.Agent.CorpseFields), s4 — два трупа внахлёст, толпа 32 трупов. Диагностический режим physics.trace (ключ сценария
-// diagnostics) — с тика 0: по трассе физики проверяются инварианты physics.energy и physics.pushes. Метрики, виды и бюджеты — 7л.
+// diagnostics) — с тика 0: по трассе физики проверяются инварианты physics.energy и physics.pushes. 7к — толчки живых и удары по трупам:
+// s3 (проход сквозь труп), s6 (постройка бойца на трупе), s1 (удары по трупу серией); инварианты physics.sources, ragdoll.hitSource,
+// ragdoll.hitImpulse, combat.hits, combat.health. Метрики, виды и бюджеты — 7л.
 // Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature ragdoll). Ослабить
 // ожидания — только правкой с сообщением пользователю.
 {
   "format": "sword-feature",
   "version": 1,
   "id": "ragdoll",
-  "title": "Рэгдолл (этап 7; 7ж — команды сцен и привязка скина, 7и — труп на экране, 7з — труп на физике: переход в труп, суставы, корень за тазом, ручки «Рэгдолл», инварианты трупа)",
+  "title": "Рэгдолл (этап 7; 7ж — команды сцен и привязка скина, 7и — труп на экране, 7з — труп на физике: переход в труп, суставы, корень за тазом, ручки «Рэгдолл», инварианты трупа; 7к — толчки живых и удары по трупам)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Ragdoll",
@@ -19,6 +21,9 @@
     "game/Sword.Game/Bodies/PhysicsInvariants.cs",
     "game/Sword.Game/Bodies/PhysicsDebug.cs",
     "game/Sword.Game/Combat/DamageInvariants.cs",
+    "game/Sword.Game/Combat/HitImpulse.cs",
+    "game/Sword.Game/Combat/StrikeSystems.cs",
+    "game/Sword.Game/Combat/DamageSystems.cs",
     "game/Sword.Game/GameCore.cs",
     "game/Sword.Game.Agent/CorpseFields.cs",
     "game/Sword.Game.Agent/PhysicsTools.cs",
@@ -278,14 +283,149 @@
           "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "Body.KineticEnergy", "greaterThan": 1 }] } }
         }
       ]
+    },
+    {
+      "id": "s3",
+      "title": "s3 (7к): проход сквозь труп — враг в (0; 4) убит командой; через 2 с игрок бежит вперёд 3 с (намерение сцены 4,2 м/с, курс 0): у трупа скорость корня падает немного (не ниже 4,1 м/с; замер 4,15), но падает, курс прежний, игрок пробегает труп; труп сдвигается (центр масс быстрее 0,1 м/с; замер 0,54) без разлёта; толчок пары за подшаг — не больше бюджета, точка трупа — не быстрее толкающей + PopSpeed (physics.pushes по трассе)",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 602,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": 0, "Y": 4 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 },
+        { "command": "SceneCommand", "fields": { "Action": "PlayerIntent", "Velocity": { "X": 0, "Y": 4.2 }, "Facing": 0 }, "from": 241, "to": 601 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг мёртв с тика смерти", "expect": "always", "from": 2,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
+        },
+        {
+          "id": "speed-kept", "title": "игрок бежит сквозь труп: скорость корня не ниже 4,1 м/с (разогнался к тику 320; замер у трупа — 4,15)", "expect": "always", "from": 320, "to": 601,
+          "condition": { "all": [{ "entity": "player" }, { "field": "RootVelocity.Value.Z", "greaterOrEqual": 4.1 }] }
+        },
+        {
+          "id": "slowed", "title": "у трупа скорость корня падает (толчок трупа отдаёт игроку): ниже 4,19 м/с", "expect": "eventually", "from": 320, "to": 601,
+          "condition": { "all": [{ "entity": "player" }, { "field": "RootVelocity.Value.Z", "lessThan": 4.19 }] }
+        },
+        {
+          "id": "control", "title": "управление не теряется: курс — заданный (0)", "expect": "always", "from": 241,
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Facing", "between": [-0.001, 0.001] }] }
+        },
+        {
+          "id": "recoil", "title": "отдача толчков — в корень игрока (компонент Recoil)", "expect": "eventually", "from": 320, "to": 601,
+          "condition": { "all": [{ "entity": "player" }, { "field": "Recoil.Tick", "greaterThan": 320 }] }
+        },
+        {
+          "id": "pushed", "title": "труп сдвигается: центр масс быстрее 0,1 м/с (замер — до 0,54)", "expect": "eventually", "from": 320, "to": 601,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "greaterThan": 0.1 }] }
+        },
+        {
+          "id": "no-scatter", "title": "без разлёта: центр масс трупа — в 1 м от места покоя (0,28; 4,18)", "expect": "always", "from": 241,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.Com.X", "between": [-0.72, 1.28] }, { "field": "Body.Com.Z", "between": [3.18, 5.18] }] }
+        },
+        {
+          "id": "through", "title": "игрок пробежал труп", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.Z", "greaterThan": 11 }] }
+        }
+      ]
+    },
+    {
+      "id": "s6",
+      "title": "s6 (7к): постройка бойца на трупе — враг 1 в (0; 1,5) убит командой; через 2 с враг 2 поставлен в место наибольшего пересечения с телами трупа — (0,26; 2,02): перебор ±0,4 м шагом 0,2 вокруг центра масс трупа (тест KinematicPushContentTests.S6_…) — и стоит (команда врагу): его тела расталкивают труп не быстрее своей точки + PopSpeed (стоит — 1 м/с) — без разлёта, покой через 4 с; враг 2 не отброшен (предел отдачи)",
+      "set": ["arena.enemies=2", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 722,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 2, "Position": { "X": 6, "Y": 6 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": 0, "Y": 1.5 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 },
+        { "command": "EnemyCommand", "fields": { "Slot": 2, "Velocity": { "X": 0, "Y": 0 }, "FacingGoal": 0 }, "from": 0, "to": 722 },
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 2, "Position": { "X": 0.26, "Y": 2.02 }, "Facing": 0 }, "from": 241, "to": 242 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг 1 мёртв с тика смерти, враг 2 жив", "expect": "always", "from": 2,
+          "condition": { "all": [{ "exists": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] } }, { "none": { "all": [{ "entity": "enemy 2" }, { "component": "Dead" }] } }] }
+        },
+        {
+          "id": "pushed", "title": "тела поставленного расталкивают труп: центр масс трупа быстрее 0,1 м/с (замер — до 0,48)", "expect": "eventually", "from": 242, "to": 300,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "greaterThan": 0.1 }] }
+        },
+        {
+          "id": "no-scatter", "title": "без разлёта: центр масс трупа не быстрее 1 м/с (замер 0,48) и в 0,5 м от места покоя (0,26; 1,82)", "expect": "always", "from": 242,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "lessOrEqual": 1 }, { "field": "Body.Com.X", "between": [-0.24, 0.76] }, { "field": "Body.Com.Z", "between": [1.32, 2.32] }] }
+        },
+        {
+          "id": "stands", "title": "враг 2 не отброшен: отдача уводит его скорость не дальше предела 1 м/с", "expect": "always", "from": 242,
+          "condition": { "all": [{ "entity": "enemy 2" }, { "field": "RootVelocity.Value.X", "between": [-1, 1] }, { "field": "RootVelocity.Value.Z", "between": [-1, 1] }] }
+        },
+        {
+          "id": "calm", "title": "через 4 с труп успокоился: кинетическая энергия ≤ 0,1 Дж (замер 0,04)", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "lessOrEqual": 0.1 }] }
+        }
+      ]
+    },
+    {
+      "id": "s1",
+      "title": "s1 (7к): удары по трупу — враг в (0; 1,4) курсом к игроку убит командой и падает к нему; с 2 с игрок рубит его вправо-вниз (ЛКМ с жестом (1; −1)) раз в 0,5 с 6 с: попадания по трупу (урон и раны трупу, смерти и реакции нет, «убито» — 1, в статистике — CorpseHits; замер 7), импульс в часть — Δv точки ≤ 0,5 × скорость удара, из бюджета прохода (ragdoll.hitImpulse, physics.pushes), отдача — игроку; труп сдвигается и переворачивается (тест: центр масс ~1 м, таз ~2,3 рад), тела — в потолках профиля (physics.simulatedSpeed)",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 961,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": 0, "Y": 1.4 }, "Facing": 3.14159265 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 },
+        { "command": "PlayerCommand", "fields": { "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 2, "to": 961 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 241, "to": 242 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 301, "to": 302 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 361, "to": 362 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 421, "to": 422 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 481, "to": 482 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 541, "to": 542 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 601, "to": 602 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 661, "to": 662 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 721, "to": 722 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 781, "to": 782 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 841, "to": 842 },
+        { "command": "PlayerCommand", "fields": { "Attack": true, "Gesture": { "X": 1, "Y": -1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 1.4 } }, "from": 901, "to": 902 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг мёртв с тика смерти", "expect": "always", "from": 2,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
+        },
+        {
+          "id": "hit-corpse", "title": "удар игрока попадает по трупу (Hit.Corpse)", "expect": "eventually", "from": 241,
+          "condition": { "event": "Hit", "where": { "all": [{ "field": "Corpse", "equals": true }, { "field": "Probe", "equals": false }, { "field": "Killed", "equals": false }] } }
+        },
+        {
+          "id": "counted", "title": "попаданий по трупу не меньше 3 (замер 7); «убито» — 1 (второй смерти нет), попаданий по живым — 0", "expect": "atEnd",
+          "condition": { "all": [{ "resource": "ArenaStats.CorpseHits", "greaterOrEqual": 3 }, { "resource": "ArenaStats.Kills", "equals": 1 }, { "resource": "ArenaStats.Hits", "equals": 0 }] }
+        },
+        {
+          "id": "impulse", "title": "импульс удара в тело трупа — из прохода (HitImpulse.Corpse)", "expect": "eventually", "from": 241,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "HitImpulse.Corpse", "equals": true }] }
+        },
+        {
+          "id": "moves", "title": "удары сдвигают труп: центр масс быстрее 0,5 м/с", "expect": "eventually", "from": 241,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "greaterThan": 0.5 }] }
+        },
+        {
+          "id": "no-scatter", "title": "без разлёта: центр масс трупа — в 3 м от места покоя (−0,25; 1,08)", "expect": "always", "from": 241,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.Com.X", "between": [-3.25, 2.75] }, { "field": "Body.Com.Z", "between": [-1.92, 4.08] }] }
+        }
+      ]
     }
   ],
-  "invariants": ["ecs.*", "physics.*", "ragdoll.*", "combat.dead", "arena.slots"],
+  "invariants": ["ecs.*", "physics.*", "ragdoll.*", "combat.dead", "combat.hits", "combat.health", "arena.slots"],
   "checklist": [
     "Бой: убить врага ударами — труп падает под тяжестью и ложится на землю (не проваливается, не подпрыгивает, не улетает); меч выпадает из руки и лежит на земле отдельно от трупа.",
     "Убить врага на ступенях пирамиды (к западу от центра, около (−16; 0)) — труп ложится на ступени и за 2–3 с затихает: не сползает без конца и не дрожит.",
     "Убить нескольких врагов рядом, чтобы трупы упали друг на друга, — расходятся спокойно, без разлёта; в куче из многих трупов стопы и мечи могут вздрагивать — известная ошибка (README «Рэгдолл», «7з»): отметить, насколько это заметно.",
     "Через 8 с убитый враг возрождается и стоит, как живой, без рывка тел; R — все встают; умереть игроком — камера и кольцо остаются на тазу трупа игрока.",
-    "F7 — капсулы трупа с крестом в центре (тела на физике); J — суставы трупа: зелёные шарики, запястье серое (меч выпал); K — контакты трупа с землёй."
+    "F7 — капсулы трупа с крестом в центре (тела на физике); J — суставы трупа: зелёные шарики, запястье серое (меч выпал); K — контакты трупа с землёй.",
+    "(7к) Пробежать (WASD) сквозь лежащий труп — игрок почти не замедляется и слушается управления (свернуть, остановиться, ударить — сразу), ноги отталкивают конечности трупа, труп сдвигается; враги, идущие к игроку через трупы, проходят, чуть замедляясь. K — оранжевые контакты толчка живого телом. F3 → «Рэгдолл», «отдача игроку» 4 — игрок тормозит о труп заметно, примерно на 1 м/с (упор в «предел отдачи»), и сразу разгоняется снова; 0 — не тормозит.",
+    "(7к) Рубить лежащий труп (ЛКМ, лучше с жестом вниз-вправо) — удары попадают: труп дёргается, сдвигается, от серии переворачивается, тела не улетают; «убито» не растёт, строка последнего удара показывает удар по трупу; K — красные контакты клинка.",
+    "(7к) Убивающий удар — труп падает по направлению удара (отлетает от клинка, а не оседает на месте); клинки врагов, рубящих рядом с трупом, толкают его без урона; возрождённый враг, вставший на трупе, спокойно расталкивает его, без разлёта."
   ]
 }

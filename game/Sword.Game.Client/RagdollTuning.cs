@@ -5,8 +5,9 @@ using Sword.Game.Ragdoll;
 namespace Sword.Game.Client;
 
 /// <summary>
-/// Вкладка «Рэгдолл» панели ручек F3 (7и, часть 2; механизм 6е — как <see cref="CombatTuning"/>): восемь ручек симуляции секции
-/// <c>ragdoll</c> (<see cref="RagdollKnobs"/>, 7з; подписи, подсказки, пределы и значения по умолчанию — из их регистрации) через привязку
+/// Вкладка «Рэгдолл» панели ручек F3 (7и, часть 2; механизм 6е — как <see cref="CombatTuning"/>): все ручки симуляции секции
+/// <c>ragdoll</c> (<see cref="RagdollKnobs"/>: восемь 7з и три отдачи живому 7к; подписи, подсказки, пределы и значения по умолчанию — из
+/// их регистрации) через привязку
 /// клиента (<see cref="TuningBinding"/>: значение — ожидающее или мира, изменение — команда ручки на ближайший тик, в реплее; замену настроек
 /// физики и профиля трупа делает симуляция в том же тике) и строки трупов кадра (<see cref="ArenaView.CorpseStats"/>): сколько трупов и в
 /// покое, тел на физике и на земле, быстрейшее тело — видно, как ручка меняет падение и покой. Ключи группы — ключи секции
@@ -40,6 +41,9 @@ public static class RagdollTuning
         tuning.Add(g, RagdollKnobs.DeathMaxAngularSpeed);
         g.Header("ТОЛЧОК ЖИВОГО");
         tuning.Add(g, RagdollKnobs.PushForce);
+        tuning.Add(g, RagdollKnobs.EnemyRecoil);
+        tuning.Add(g, RagdollKnobs.PlayerRecoil);
+        tuning.Add(g, RagdollKnobs.RecoilMaxSpeed);
         return g;
     }
 
