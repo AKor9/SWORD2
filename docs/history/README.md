@@ -13,3 +13,12 @@
 - [combat.md](combat.md) — «Бой» (этап 6: точки 6б–6ж; 7к — трупы снова цели), из `game/Sword.Game/Features/Combat/README.md`, 2026-09-25.
 - [bodies.md](bodies.md) — «Физика и тела» (этап 5: точки 5а–5г, приёмка; 7ж, 7з), из `game/Sword.Game/Features/Bodies/README.md`, 2026-09-25.
 - [enemies.md](enemies.md) — «Враги и ИИ» (этап 4: точки 4а–4д, приёмка), из `game/Sword.Game/Features/Enemies/README.md`, 2026-09-25.
+- [profiler.md](profiler.md) — диагностический профайлер (этап П): точки Па–Пд, решения, цена, «Первый взгляд», «Разбор Пд», исправления после Пд.
+- [determinism.md](determinism.md) — детерминизм и реплеи (этап 3): точки 3а–3д, устройство по точкам, замеры, анализ и проверки по точкам.
+- [movement.md](movement.md) — движение игрока (1в, 4в): ограничения до 6в, сверки со SWORD до 7а.
+- [control.md](control.md) — управление и камера (1г): отличия до 5в и 6е, ограничения этапа 1.
+- [tools.md](tools.md) — HUD, снимок, бенч (1д): HUD до 6е, каркас панелей.
+- [animation.md](animation.md) — анимация (этап 2): точки 2а–2в, сверки со SWORD до 7а, агентский доступ этапа 2.
+- [locomotion.md](locomotion.md) — модуль Locomotion: сверки с трассами SWORD до 7а, `FootDown` до решения 15.
+- [arena.md](arena.md) — арена: спаун по точкам 4а–6б, инструменты точки 1б.
+- [engine-agent.md](engine-agent.md) — агентский доступ (1е): подробные протокол и транспорты, ограничения 1е, проверки.
