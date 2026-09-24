@@ -58,6 +58,14 @@ public readonly record struct ShownJoint(int Parent, int Child, Vector3 Point, V
     float Excess);
 
 /// <summary>
+/// Трупы кадра (7и, часть 2 — строки группы F3 «Рэгдолл»): трупов, нарисованных по телам, из них в покое (скорость центра масс тел ≤
+/// <see cref="ArenaView.RestSpeed"/>), тел трупов на физике и из них касающихся земли, наибольшие скорость, м/с, и вращение, рад/с, тела
+/// трупа на физике — по телам тика (поза тика, не показанная).
+/// </summary>
+public readonly record struct CorpseFrameStats(int Corpses, int AtRest, int SimulatedBodies, int GroundedBodies, float MaxSpeed,
+    float MaxAngularSpeed);
+
+/// <summary>
 /// Мир представления арены (Extract, раздел 7 плана): что рисует кадр. Бойцы появляются и уходят по экспорту тика
 /// (<c>Added&lt;Fighter&gt;</c>/<c>Removed&lt;Fighter&gt;</c> из очереди кадра), их корни — из мира симуляции между
 /// прошлым и последним тиком по доле тика (<c>SkinCutPose.DrawnJoints</c> SWORD: корень — линейно, курс — по короткой
@@ -163,6 +171,16 @@ public sealed class ArenaView
     /// <summary>Трупов кадра, нарисованных по телам (7и: мёртвые с привязкой скина).</summary>
     public int CorpseCount { get; private set; }
 
+    /// <summary>Скорость центра масс тел трупа, м/с, до которой труп — в покое (рецепт «труп лёг» playbook, 7з: ≤ 0,05 м/с).</summary>
+    public const float RestSpeed = 0.05f;
+
+    /// <summary>Трупы кадра (7и, часть 2): в покое, тела на физике и на земле, наибольшие скорости — строки группы F3 «Рэгдолл».</summary>
+    public CorpseFrameStats CorpseStats { get; private set; }
+
+    // Накопители трупов кадра (Extract → CorpseStats).
+    private int _restCorpses, _simulatedBodies, _groundedBodies;
+    private float _maxSpeed, _maxAngularSpeed;
+
     /// <summary>Суставов тел, снятых кадром для оверлея <c>joints</c> (7и; 0 — не снимались).</summary>
     public int JointTotal { get; private set; }
 
@@ -235,6 +253,8 @@ public sealed class ArenaView
         if (_hand >= 0 && _poseView is not null && _poseView.ReferenceModel() is var reference && _hand < reference.Length) _referenceHand = reference[_hand];
         PrepareRig();
         _posed = _bodied = _jointed = 0;
+        _restCorpses = _simulatedBodies = _groundedBodies = 0;
+        _maxSpeed = _maxAngularSpeed = 0;
         int armed = 0, bladed = 0, alive = 0, corpses = 0;
         PlayerHp = Health.Full;
         PlayerDead = false;
@@ -269,6 +289,7 @@ public sealed class ArenaView
         BladeCount = bladed;
         AliveEnemies = alive;
         CorpseCount = corpses;
+        CorpseStats = new CorpseFrameStats(corpses, _restCorpses, _simulatedBodies, _groundedBodies, _maxSpeed, _maxAngularSpeed);
         ExtractContacts(contacts);
     }
 
@@ -385,6 +406,8 @@ public sealed class ArenaView
     {
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
+        var momentum = Vector3.Zero;
+        float mass = 0;
         for (int k = 0; k < BodySegs.Bodies; k++)
         {
             ref readonly var b = ref _snapshots[k];
@@ -395,7 +418,16 @@ public sealed class ArenaView
             var r = new Vector3(b.Radius);
             min = Vector3.Min(min, Vector3.Min(center - axis, center + axis) - r);
             max = Vector3.Max(max, Vector3.Max(center - axis, center + axis) + r);
+            // Трупы кадра (строки F3 «Рэгдолл»): тела на физике, на земле, наибольшие скорости, импульс — для скорости центра масс.
+            momentum += b.Velocity * b.Mass;
+            mass += b.Mass;
+            if (!b.Simulated) continue;
+            _simulatedBodies++;
+            if (b.Grounded) _groundedBodies++;
+            _maxSpeed = MathF.Max(_maxSpeed, b.Velocity.Length());
+            _maxAngularSpeed = MathF.Max(_maxAngularSpeed, b.AngularVelocity.Length());
         }
+        if (mass > 0 && (momentum / mass).Length() <= RestSpeed) _restCorpses++;
         if (_poses.Length < _posed + binding.Length) Array.Resize(ref _poses, Math.Max(_poses.Length * 2, _posed + binding.Length));
         SkinJoints(binding, _poses.AsSpan(_posed, binding.Length));
         view = view with { PoseStart = _posed, PoseCount = binding.Length, Corpse = true, BoundsMin = min, BoundsMax = max };

@@ -423,8 +423,9 @@ public sealed class Hud
     public static IReadOnlyList<string> HelpLines(IReadOnlyDictionary<string, string> keys)
     {
         string K(InputAction a) => keys.TryGetValue(a.Name, out var k) ? Show(k) : Show(a.DefaultKey);
-        // Панель ручек (DevTools, 6е) — в справке, только когда её действие привязано (сборки без DevTools его нет).
-        string tuning = keys.TryGetValue(TuningAction, out var t) ? $"    {Show(t)} — ручки (урон, враги, рывок)" : "";
+        // Панель ручек (DevTools, 6е) — в справке, только когда её действие привязано (сборки без DevTools его нет); вкладки — «Бой»
+        // и (7и, часть 2) «Рэгдолл».
+        string tuning = keys.TryGetValue(TuningAction, out var t) ? $"    {Show(t)} — ручки (бой, рэгдолл)" : "";
         return
         [
             $"курсор — поворот    {K(ArenaInput.MoveForward)} {K(ArenaInput.MoveLeft)} {K(ArenaInput.MoveBack)} {K(ArenaInput.MoveRight)} — движение ({K(ArenaInput.Walk)} — шагом)",

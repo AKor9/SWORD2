@@ -243,7 +243,7 @@ public class CombatUiTests
         Assert.Contains("Q — укол", lines[4]);
         Assert.Contains("Пробел — рывок", lines[4]);
         Assert.Contains("T — следующий меч", lines[3]);
-        Assert.Equal("Tab — инвентарь (1–9, щелчок — взять меч)    F3 — ручки (урон, враги, рывок)", lines[5]);
+        Assert.Equal("Tab — инвентарь (1–9, щелчок — взять меч)    F3 — ручки (бой, рэгдолл)", lines[5]);
         // Без панели ручек (сборка без DevTools) — F3 в справке нет.
         Assert.Equal("I — инвентарь (1–9, щелчок — взять меч)", Hud.HelpLines(new Dictionary<string, string>())[5]);
         Assert.Equal(("1", "Пробел", "ЛКМ", "Tab"), (Hud.Show("D1"), Hud.Show("Space"), Hud.Show("MouseLeft"), Hud.Show("Tab")));

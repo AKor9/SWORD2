@@ -585,6 +585,13 @@ capsules`).
    Трасса выключена — слой пуст, в `notes` — почему. Числа контактов по источникам — `physics.bodies {"trace":"show"}` → `trace.contacts`.
 5. Виды фич с оверлеями: `views[].overlays` — `capsules`, `blades`, `joints`, `contacts` (Sword.exe `--overlay contacts` включает трассу с
    первого кадра — и при `--replay`).
+6. Часть 2 (после 7з): у человека — панель F3, вкладка «Рэгдолл» (восемь ручек секции `ragdoll` и строки трупов кадра: трупов и в покое,
+   тел на физике и на земле, быстрейшее тело). Агенту — те же ручки командой (раздел 7з, п. 5: `command.send TuningCommand`, в реплее),
+   те же числа — из симуляции: мёртвые — `world.query {"with":["Dead"],"take":0}`, тела — `physics.bodies {"entity":"enemy 1"}`
+   (`mode`, `grounded`, скорости), быстрейшее и упоры в потолок — `physics.bodies {"trace":"show"}` (`speed.max`, `capped`), покой —
+   `Body.ComVelocity` (раздел 7з, п. 2). Вкладки панели — итог `Sword.exe --json` (`panels.tuning`); переключать вкладку агент не
+   может (группу проверяют тесты `CorpseTuningTests`). Падающий и лежащий труп картинкой — `capture.bundle {"overlays":["capsules",
+   "joints","contacts"]}` при включённой трассе: кресты тел на физике (зелёные — на земле), 13 суставов, контакты с землёй.
 
 ## Труп на физике (7з)
 

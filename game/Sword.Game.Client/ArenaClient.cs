@@ -36,7 +36,8 @@ namespace Sword.Game.Client;
 /// 6е: HUD боя (<see cref="CombatHud"/> — снимок мира последнего тика: здоровье и смерть игрока, живые враги, статистика арены
 /// <see cref="ArenaStats"/>, меч; кольцо игрока — цветом по здоровью), инвентарь (<see cref="Inventory"/> — панель клиента: I
 /// открывает, 1–9 и щелчок — команда арены «взять меч» после команд PageUp, PageDown, R, T тика), ручки «Бой» (<see cref="TuningGroups"/>
-/// над привязкой <see cref="Tuning"/> — панель F3 подключает exe). Симуляцию клиент не пишет: только читает мир и ставит команды.
+/// над привязкой <see cref="Tuning"/> — панель F3 подключает exe; 7и, часть 2 — и «Рэгдолл», <see cref="RagdollTuning"/>). Симуляцию
+/// клиент не пишет: только читает мир и ставит команды.
 ///
 /// 7и: труп — по телам (<see cref="ArenaView"/>: скин = привязка × тело, меч — на теле клинка, рамка — по телам), темнее живого
 /// (<see cref="DeadShade"/>), в ID-буфере — «голова трупа врага 3»; оверлеи <see cref="JointsOverlay"/> (J) и <see cref="ContactsOverlay"/>
@@ -276,6 +277,13 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Капсул, отданных отладочному рисованию в последнем кадре (0 — капсулы не рисовались).</summary>
     public int DrawnCapsules { get; private set; }
 
+    /// <summary>
+    /// Из них с крестом тела на физике (7и: тела трупа — <see cref="SimulatedMark"/>) и из них касающихся земли (<see cref="GroundedMark"/>)
+    /// — в последнем кадре (0 — капсулы не рисовались).
+    /// </summary>
+    public int DrawnMarks { get; private set; }
+    public int DrawnGroundedMarks { get; private set; }
+
     /// <summary>Клинки поверх персонажей (<c>--overlay blades</c>; F7 — вместе с капсулами).</summary>
     public bool ShowBlades { get; set; }
 
@@ -317,7 +325,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Привязка ручек симуляции для панели F3 (6е); null — до <see cref="Initialize"/>.</summary>
     public TuningBinding? Tuning => _tuning;
 
-    /// <summary>Группы ручек игры (вкладки панели F3: «Бой») — заводятся в <see cref="Initialize"/>.</summary>
+    /// <summary>Группы ручек игры (вкладки панели F3: «Бой», «Рэгдолл») — заводятся в <see cref="Initialize"/>.</summary>
     public IReadOnlyList<TuningGroup> TuningGroups => _groups;
 
     /// <summary>Нижний край панели производительности HUD в последнем кадре, пиксели (под ней — панель ручек, как в SWORD); без HUD — 0.</summary>
@@ -447,11 +455,13 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         foreach (var a in _simulation.World.View<ICombatView>().Attacks)
             if (!a.Thrust) swings.Add(a.SwingDir);
         _swings = [.. swings];
-        // 6е: инвентарь — имена мечей таблицы; ручки «Бой» — привязка к ручкам симуляции (панель F3 подключает exe).
+        // 6е: инвентарь — имена мечей таблицы; ручки «Бой» — привязка к ручкам симуляции (панель F3 подключает exe). 7и, часть 2 — ручки
+        // «Рэгдолл» (секция ragdoll) и трупы кадра.
         _inventory.Attach(_simulation, _weaponNames);
         _tuning = new TuningBinding(_simulation);
         _groups.Clear();
         _groups.Add(CombatTuning.Build(_tuning, _simulation));
+        _groups.Add(RagdollTuning.Build(_tuning, _view));
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -671,7 +681,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         bool capsulesLayer = frame.WantsLayer(CapsulesOverlay), bladesLayer = frame.WantsLayer(BladesOverlay);
         bool contactsLayer = frame.WantsLayer(ContactsOverlay), jointsLayer = frame.WantsLayer(JointsOverlay);
         bool screenBlades = ShowBodies || ShowBlades, screen = screenBlades || ShowJoints || ShowContacts;
-        DrawnCapsules = DrawnBlades = DrawnJoints = DrawnContacts = 0;
+        DrawnCapsules = DrawnBlades = DrawnJoints = DrawnContacts = DrawnMarks = DrawnGroundedMarks = 0;
         if (!screen && !capsulesLayer && !bladesLayer && !contactsLayer && !jointsLayer) return;
         var debug = _renderer!.Debug;
         if (capsulesLayer)
@@ -727,23 +737,29 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         frame.CaptureLayer(name, target);
     }
 
-    /// <summary>Капсулы тел всех бойцов кадра (цвет — сегмент); тела на физике (труп, 7и) — с крестом в центре. Вернёт, сколько капсул.</summary>
+    /// <summary>
+    /// Капсулы тел всех бойцов кадра (цвет — сегмент); тела на физике (труп, 7и) — с крестом в центре (<see cref="DrawnMarks"/>). Вернёт,
+    /// сколько капсул.
+    /// </summary>
     private int DrawCapsules(DebugDraw debug)
     {
         int drawn = 0;
+        DrawnMarks = DrawnGroundedMarks = 0;
         var fighters = _view.Fighters;
         for (int i = 0; i < fighters.Count; i++) drawn += DrawBody(debug, _view.Body(fighters[i]));
         return drawn;
     }
 
     /// <summary>Капсулы одного тела (тело цикла по бойцам — свой метод).</summary>
-    private static int DrawBody(DebugDraw debug, ReadOnlySpan<ShownCapsule> body)
+    private int DrawBody(DebugDraw debug, ReadOnlySpan<ShownCapsule> body)
     {
         for (int k = 0; k < body.Length; k++)
         {
             ref readonly var c = ref body[k];
             debug.Capsule(c.Center, c.Rotation, c.Radius, c.HalfLength, CapsuleColour(c.Segment));
             if (!c.Simulated) continue;
+            DrawnMarks++;
+            if (c.Grounded) DrawnGroundedMarks++;
             uint mark = c.Grounded ? GroundedMark : SimulatedMark;
             float s = MathF.Max(c.Radius, 0.04f);
             debug.Line(c.Center - new Vector3(s, 0, 0), c.Center + new Vector3(s, 0, 0), mark);

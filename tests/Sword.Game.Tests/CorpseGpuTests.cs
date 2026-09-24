@@ -16,10 +16,12 @@ namespace Sword.Game.Tests;
 
 /// <summary>
 /// Труп на экране (7и) на настоящем устройстве (слой отладки D3D12 с GPU-валидацией) и настоящем контенте (Manny из пака): враг убит
-/// командой сцены, его тела сдвинуты («сдвинуть тела») — скин трупа идёт за телами; ID-буфер: пиксель головы трупа — его сущность и
-/// сегмент «голова», легенда — «голова трупа врага 1», меч на теле клинка — «клинок трупа врага 1», все пиксели трупа — в его рамке по
-/// телам; слои снимка капсул, суставов и контактов сняты, у пустого — заметка (трасса выключена; суставы трупа с 7з есть); K включает трассу физики
-/// и выключает только включённую сам; кадр с трупами и всеми оверлеями на экране — 0 Б. Любое предупреждение D3D12 — провал.
+/// командой сцены и падает (труп на физике, 7з), его тела сдвинуты («сдвинуть тела») — скин трупа идёт за телами; ID-буфер: пиксель головы
+/// трупа — его сущность и сегмент «голова», легенда — «голова трупа врага 1», меч на теле клинка — «клинок трупа врага 1», все пиксели
+/// трупа — в его рамке по телам; слои снимка капсул, суставов и контактов сняты, у пустого — заметка (трасса выключена; суставы трупа с 7з
+/// есть); K включает трассу физики и выключает только включённую сам; кадр с трупами и всеми оверлеями на экране — 0 Б. 7и, часть 2 — вкладки
+/// F3 «Бой» и «Рэгдолл»; труп лёг (300 тиков после смерти, трасса по K): слои с данными — у капсул трупа кресты тел на физике (14, на земле
+/// — часть), суставов 13, контакты с землёй есть, заметок нет; «клинок трупа» — в ID-буфере. Любое предупреждение D3D12 — провал.
 /// </summary>
 [Collection("game-gpu")]
 [Trait("Category", "Gpu")]
@@ -69,7 +71,7 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
     [Fact]
     public void CorpseSkin_IdBufferAndOverlays_TraceByKey()
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=3"), CharacterAssets.LoadFromPak());
+        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=3", "combat.enemiesAttack=false"), CharacterAssets.LoadFromPak());
         var pending = new List<SceneCommand>();
         var clock = new SimulationClock(sim, (link, _) =>
         {
@@ -91,6 +93,7 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
         try
         {
             arena.Initialize(renderer, clock.Link);
+            Assert.Equal(["Бой", "Рэгдолл"], arena.TuningGroups.Select(g => g.Title));   // вкладки F3 (7и, часть 2)
             // Бойцы приходят очередью кадра — Extract каждый кадр.
             void Frames(int n)
             {
@@ -190,6 +193,31 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
             }
             Assert.Contains(renderer.Graph.LastFrame, p => p.Name == "debug.bodies");
             Assert.Equal(0, bytes);
+            Assert.Equal(BodySegs.Bodies, arena.DrawnMarks);   // крест — у каждого тела трупа (живые — кинематические)
+
+            // Труп лёг (7и, часть 2): 300 тиков после смерти, трасса физики включена K (ShowContacts). Слои снимка — с данными.
+            Frames(300);
+            Assert.True(sim.Diagnostics.IsEnabled(trace));
+            var lying = new FrameCapture(Path.Combine(_dir, "lying.png"))
+            {
+                IdsPath = Path.Combine(_dir, "lying-ids.png"),
+                Layers = [Layer(ArenaClient.CapsulesOverlay), Layer(ArenaClient.JointsOverlay), Layer(ArenaClient.ContactsOverlay)],
+            };
+            arena.Extract(new FrameView(1, 0, 0, default) { Capture = lying });
+            _window.PumpMessages();
+            renderer.Render(arena.BuildFrame, vsync: false, lying);
+            var after = renderer.LastCapture!;
+            Assert.Equal(3, after.Layers.Count);
+            Assert.Empty(after.Notes);   // трасса включена, суставы есть
+            Assert.Equal(BodySegs.Bodies, arena.DrawnMarks);
+            Assert.InRange(arena.DrawnGroundedMarks, 3, BodySegs.Bodies);   // лежит: кресты касающихся земли — зелёные
+            Assert.Equal(13, arena.DrawnJoints);
+            var body = sim.World.Get<BodyRef>(corpse);
+            Assert.True(arena.View.Contacts.ToArray().Count(c => c.Source == PhysicsContactSource.Ground && c.Body.Index == body.Index) >= 3,
+                "у лежащего трупа нет контактов с землёй");
+            Assert.True(arena.DrawnContacts >= 3);
+            Assert.Equal((1, BodySegs.Bodies), (arena.View.CorpseStats.Corpses, arena.View.CorpseStats.SimulatedBodies));
+            Assert.Contains(after.Ids, c => c.Id == SkinnedMeshes.IdOf(owner, BodySegs.Weapon));   // выпавший меч виден — «клинок трупа»
             Assert.True(_d3d12.Count == 0, "сообщения отладочного слоя D3D12:\n" + string.Join("\n", _d3d12));
         }
         finally
