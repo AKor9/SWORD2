@@ -31,8 +31,14 @@ namespace Sword.Game;
 /// тик — <see cref="BladePlacementSystem"/> в PrePhysics), вид <see cref="ICombatView"/>, инварианты <c>combat.*</c>. Этап 6в: удар
 /// и вид рывка в слое действий (<see cref="ActionLayer"/>; снимок позы — <see cref="ActionSnapshotSystem"/>, слой верха — маска
 /// пула <c>ActionRules.UpperMask</c>), бой игрока (<see cref="PlayerControl"/>, <see cref="AttackCombo"/>), удар ИИ
-/// (<see cref="EnemyAttack"/>), правила боя <see cref="CombatRules"/> из секции <c>combat</c>, инвариант <c>combat.control</c>.
-/// Регистрации ядра — без токена модуля.
+/// (<see cref="EnemyAttack"/>), правила боя <see cref="CombatRules"/> из секции <c>combat</c>, инвариант <c>combat.control</c>. Этап 6г:
+/// урон по протоколу боя — проходы клинка (<see cref="StrikeDetectionSystem"/>, Combat → <see cref="StrikeContact"/>; пары
+/// <see cref="StrikePairs"/>; проба <see cref="StrikeProbe"/>), урон и смерть (<see cref="HitApplySystem"/>, Resolve → <see cref="Health"/>,
+/// <see cref="Dead"/>, <see cref="Hit"/>, <see cref="SeverRequested"/>), реакции (<see cref="HitReactionSystem"/>, React: враг — действие,
+/// игрок — вздрагивание <see cref="Flinch"/>), кровопотеря и возрождение (<see cref="BleedSystem"/>, <see cref="RespawnSystem"/>, Aftermath),
+/// статистика (<see cref="ArenaStatsSystem"/>, Settle → <see cref="ArenaStats"/>); мёртвый замирает (системы ядра и модуль локомоции
+/// его пропускают); инварианты <c>combat.health</c>, <c>combat.dead</c>, <c>combat.hits</c>, <c>combat.respawn</c>. Регистрации ядра — без
+/// токена модуля.
 ///
 /// Порядок <c>DuelArena.Tick</c> SWORD — по стадиям: команды арены (из цикла кадра SWORD до тика) — Begin; команда игрока и
 /// ИИ врагов — Intent. Порядок <c>KinematicBegin</c> — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
@@ -64,9 +70,11 @@ public static class GameCore
             .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>().Component<RootContacts>()
             .Component<PoseRef>().Component<AnimatorMotion>().Component<AnimatorAction>().Component<ActionPoses>().Component<BodyRef>()
             .Component<WeaponSlot>().Component<Blade>().Component<PlayerControl>().Component<AttackCombo>().Component<EnemyAttack>()
-            .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>()
+            .Component<Health>().Component<Dead>().Component<StrikePairs>().Component<Flinch>()
+            .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>()
+            .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
-            .Resource(PlayerInventory.All(weapons.Count, playerWeapon)).Resource(CombatRules.From(combat))
+            .Resource(PlayerInventory.All(weapons.Count, playerWeapon)).Resource(CombatRules.From(combat)).Resource(ArenaStats.Start)
             .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 })
             .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, JointSegments.Build(assets.Clips.Skeleton)))
             .ReadView<ICombatView>(new CombatView(weapons, assets.Strikes, assets.Hand))
@@ -77,8 +85,12 @@ public static class GameCore
             .Invariant(new RootOverlapInvariant())
             .Invariants(PhysicsInvariants.For(physics, poses, joints, start))
             .Invariants(CombatInvariants.For(poses, weapons, assets.Hand, start, strikes))
+            .Invariants(DamageInvariants.For())
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
-            .Export<Added<Fighter>>().Export<Removed<Fighter>>();
+            .Export<Added<Fighter>>().Export<Removed<Fighter>>()
+            // Бой (6г): касания, попадания, заявки на отруб и смерти — клиенту (HUD 6е, кровь — этап 12) и агенту (events.history: без
+            // подписчика у события нет журнала).
+            .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>();
         FighterBodies.Register(b, physics);
 
         b.System(GameStages.Begin, new PrevTransformSystem())
@@ -98,6 +110,12 @@ public static class GameCore
             .System(GameStages.Movement, new RootCollisionSystem())
             .System(GameStages.PrePhysics, new KinematicPlacementSystem(physics, joints))
             .System(GameStages.PrePhysics, new BladePlacementSystem(weapons, assets.Hand))
+            .System(GameStages.Combat, new StrikeDetectionSystem(physics, strikes))
+            .System(GameStages.Resolve, new HitApplySystem())
+            .System(GameStages.React, new HitReactionSystem())
+            .System(GameStages.Aftermath, new BleedSystem())
+            .System(GameStages.Aftermath, new RespawnSystem(weapons.Count))
+            .System(GameStages.Settle, new ArenaStatsSystem())
             .System(GameStages.End, new PoseReleaseSystem())
             .System(GameStages.End, new ActionPoseReleaseSystem());
 

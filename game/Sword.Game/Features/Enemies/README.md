@@ -45,20 +45,20 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
 | расхождение: по местам j = 1…`EnemyCount`, кроме себя и мёртвых: `d = f.Root − o.Root`, `d.Y = 0`; `l < Personal 1,4 && l > 1e-3` → `desired += d/l·(Personal − l)·2` | `EnemyCrowd` — корни по местам, сумма — в порядке мест (порядок сложения float); `DesiredVel = desired` → `FighterCommand.DesiredVelocity` |
 | `DuelArena.Tick`: `Time += dt` первым делом; `PlayerBrain.Think`, затем `Think` врагов по местам 1…`EnemyCount`, затем `KinematicBegin` всех | `SimTime.Time` (Runtime: `_time += Dt` во float в начале тика — те же биты); `EnemyAiSystem` (Intent, после `core.player-command`) — корни до движения тика (Movement — позже) |
 | `DuelArena.Tick` (4в): `ResolveRoots()` — после `KinematicBegin` всех бойцов, до `PlaceBodies` | `RootCollisionSystem` (Movement, после `RootControlSystem` — переноса корней всех бойцов); тел до этапа 5 нет |
-| `ResolveRoots`: `const r = 0.35f`; 2 прохода; в каждом бойцы `i` = 0…`ActiveCount − 1` (игрок 0, враги по местам), мёртвые пропускаются | `RootCollision.Resolve` по местам 0…32 (`FighterSlot`): корни и скорости собраны в массивы мест, пустое место пропускается (как неактивное в SWORD); мёртвых нет до этапа 6 |
+| `ResolveRoots`: `const r = 0.35f`; 2 прохода; в каждом бойцы `i` = 0…`ActiveCount − 1` (игрок 0, враги по местам), мёртвые пропускаются | `RootCollision.Resolve` по местам 0…32 (`FighterSlot`): корни и скорости собраны в массивы мест, пустое место пропускается (как неактивное в SWORD); мёртвый (6г) — тоже (его место не отмечено) |
 | пары с последующими `j > i`: `d = a.Root − b.Root` (`d.Y` не обнуляется, `Root.Y = 0` у всех), `l = \|d\|`; `l ≥ 2r` или `l < 1e-4` — мимо; `n = d/l`, `push = n·((2r − l)·0,5)`, `a.Root += push`, `b.Root −= push`; `va = a.RootVel·n < 0` → `a.RootVel −= n·va`, `vb = b.RootVel·n > 0` → `b.RootVel −= n·vb` | `RootCollision.Pair` — то же выражение в том же порядке; `2r` — `2 * MovementRules.RootRadius` (0,7f, как константа SWORD) |
 | затем колонны бойца `a`, затем край арены — до бойца `i + 1` | `RootCollisionSystem.PushOutOfPillar`, `KeepInsideArena` (с 1в) — в том же месте прохода |
 | `new FighterAnimator(rig) { Agile = f.IsPlayer }` (4г) | `Agile` — боец с `PlayerTag`, отдельно не хранится; слой действий аниматора (`AnimatorAction` и его поза `ActionPoses`) — у бойцов не-`Agile` (враги), у игрока до этапа 6 его нет |
-| `KinematicSteer`: `df = IEEERemainder(FacingGoal − Facing, τ)`; `standing` — `\|DesiredVel.xz\|² < 0,09` и `\|RootVel.xz\|² < 0,25`; `idleTurn = !Agile && standing && Kind == None`; `idleTurn && \|df\| > 45°` → `StartTurn(df)`; `!TurnDrivesYaw` → `Facing += clamp(df, ±turn·dt)`, `turn = idleTurn ? 2,5 : 12·TurnScale`; разгон — `desired·MoveScale` | `RootSteerSystem.SteerSteady` (Gameplay, запрос `Without<PlayerTag>`); `TurnScale` и `MoveScale` при `Kind` None и Turn — 1 (ветки удара, блока и реакций — этап 6); константы — `MovementRules.IdleTurnRate`, `TurnAnimMin`, `StandingDesiredSq`, `StandingSpeedSq` |
+| `KinematicSteer`: `df = IEEERemainder(FacingGoal − Facing, τ)`; `standing` — `\|DesiredVel.xz\|² < 0,09` и `\|RootVel.xz\|² < 0,25`; `idleTurn = !Agile && standing && Kind == None`; `idleTurn && \|df\| > 45°` → `StartTurn(df)`; `!TurnDrivesYaw` → `Facing += clamp(df, ±turn·dt)`, `turn = idleTurn ? 2,5 : 12·TurnScale`; разгон — `desired·MoveScale` | `RootSteerSystem.SteerSteady` (Gameplay, запрос `Without<PlayerTag>`); `TurnScale` и `MoveScale` при `Kind` None и Turn — 1 (удар — 6в: 0,35 и 0,35; реакция на попадание — 6г: 0,35 и 0,15; блок — этап 10); константы — `MovementRules.IdleTurnRate`, `TurnAnimMin`, `StandingDesiredSq`, `StandingSpeedSq` |
 | `StartTurn(delta)`: из `TurnLeft`, `TurnRight`, `Turn180` рига — клип с `\|total yaw\| ≥ 0,3`, 90° — только в свою сторону, разворот (`> 2,4`) — в обе; растяжение `\|delta/total\|` в 0,5…1,6, наименьшее `\|ln\|`; `Begin(Turn, clip)`, `_turnScale = delta/total` | `ActionLayer.StartTurn` (`game/Sword.Game/Animation/AnimatorAction.cs`), клипы — `ActionTable.TurnLeft/TurnRight/Turn180` (слоты `turn_left`, `turn_right`, `turn_180`); константы — `ActionRules` |
 | `FighterAnimator.Tick`: слой движения, `LocoInput(…, !FullBodyAction)`; `TickActions`: `ActionTime += dt`; `RootDelta = ΔRootMotion·weight` (всё тело); `TurnDrivesYaw` (`Turn && !_moving`) → `YawDelta = ΔRootYaw·_turnScale`; выход — за `ActionOut` 0,2 с до конца или `Turn && _moving`; вес — `−dt/0,2` или `+dt/ActionInSoft 0,15`; кончился — `Kind = None` | `AnimatorInputSystem` (Gameplay): `AnimatorRules.Step(…, search: !FullBody)`, затем `ActionLayer.Tick` — состояние действия — компонент `AnimatorAction` |
 | `TickActions`: `clips.Sample(_actionClip, ActionTime)`, `Blend(_rot, act, w·w·(3 − 2w))` всем телом поверх локомоции, затем `ToComponent` | `AnimatorPoseSystem` (Animation, после локомоции): `ActionLayer.Pose` — задания пулу `Sample` в позу слоя (`ActionPoses.Layer`), `Blend` в позу бойца; затем `ToModel` |
 | `KinematicBegin`: `anim.Tick`, `Facing += YawDelta`, `Root += RootVel·(dt·control)` (`control = 1` без уклонения), `Root += Transform(RootDelta, Facing)`, `Root.Y = 0` | `RootControlSystem.Move(…, AnimatorAction, dt)` (Movement) — у бойцов со слоем действий |
 
-Не переносятся в 4б (решено при разбивке этапа 4): удар по таймеру (`Reach = 2.3f`, `_attackTimer`, `Built`), блок
-(`SetBlock(false)`), `p.Dead` (`desired *= 0.2f`), пропуск мёртвых в расхождении и `DesiredVel = 0` мёртвому — этап 6.
-В 4в — пропуск мёртвых в `ResolveRoots` (`a.Dead`, `b.Dead`) и в инварианте перекрытия: мёртвых нет, код «на случай
-мёртвых» не пишется; место, где этап 6 добавит пропуск, отмечено в `RootCollision.Resolve` и `RootOverlapInvariant`.
+Не переносились в 4б (решено при разбивке этапа 4): удар по таймеру (`Reach = 2.3f`, `_attackTimer`, `Built`) — перенесён на 6в, блок
+(`SetBlock(false)`) — этап 10; `p.Dead` (`desired *= 0.2f`, удара нет), пропуск мёртвых в расхождении и мёртвый не думает (вместо
+`DesiredVel = 0` — замер) — 6г (`EnemyCrowd.PlayerDead`, запросы без `Dead`). Пропуск мёртвых в `ResolveRoots` (`a.Dead`, `b.Dead`) и в
+инварианте перекрытия — 6г: `RootCollisionSystem` и `RootOverlapInvariant` не видят мёртвых (живые проходят сквозь замерший труп).
 
 Намеренные отличия:
 - **Расстановка не та же, что в SWORD** — другой ГСЧ (решено при разбивке этапа 4); сверка толпы с SWORD — от одной
@@ -230,8 +230,8 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
   манифеста, `Sword.exe --replay` его записи, агент `command.send EnemyCommand`). Принято при приёмке этапа 4: в обычной
   игре поворот клипом почти не наблюдается, как в SWORD, и проверяется по записи сценария `turn`.
 - Снимка позы и прерывания действия нет (выше, «Намеренные отличия»; этап 6).
-- Удара, блока, таймера удара (`EnemyAi.Built`), смерти и возрождения нет (этап 6: 6в, 6г). Оружие врагов — с 6б: случайный меч
-  пака при каждой постройке ([«Бой»](../Combat/README.md)).
+- Блока нет (этап 10). Удар по таймеру — с 6в, урон, смерть (замирание до рэгдолла — этап 7), реакция на попадание и возрождение через
+  8 с — с 6г, оружие — с 6б: случайный меч пака при каждой постройке ([«Бой»](../Combat/README.md)).
 - Условие агента, в котором сущность названа именем (`enemy 5`), разрешает имя один раз: после PageDown и PageUp того же
   места враг — новая сущность, и условие смотрит на ушедшую. Сброс (R) сущности не меняет. Надёжно — по месту полем:
   `{"exists":{"all":[{"component":"EnemyTag"},{"field":"FighterSlot.Index","equals":5},…]}}`.

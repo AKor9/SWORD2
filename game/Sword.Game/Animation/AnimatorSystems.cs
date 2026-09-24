@@ -41,21 +41,23 @@ public static class AnimatorRules
 /// SWORD) — вход слоя локомоции: скорость корня в системе бойца (по новому курсу), сглаженная, и «идёт»
 /// (<see cref="AnimatorMotion"/>); у бойца со слоем действий (<see cref="AnimatorAction"/>: с 6б — все бойцы) затем шаг действия
 /// (<see cref="ActionLayer.Tick"/>): время, доля клипа в ногах (слой верха), вес, поворот курса и сдвиг корня клипом, обрезка
-/// хвоста удара на бегу (игрок — <c>Agile</c>), переход от снимка. Позу по ним ставят <see cref="ActionSnapshotSystem"/> и
-/// <see cref="AnimatorPoseSystem"/>, курс и корень двигает <c>RootControlSystem</c>.
+/// хвоста удара на бегу (игрок — <c>Agile</c>), переход от снимка; вздрагивание игрока (6г, <see cref="Flinch"/>) — время слотов.
+/// Позу по ним ставят <see cref="ActionSnapshotSystem"/> и <see cref="AnimatorPoseSystem"/>, курс и корень двигает
+/// <c>RootControlSystem</c>. Мёртвый (<see cref="Dead"/>, 6г) замирает — его аниматор стоит.
 /// </summary>
 public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
 {
-    private Query _plain = null!, _agile = null!, _steady = null!;
+    private Query _plain = null!, _agile = null!, _steady = null!, _flinch = null!;
 
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.AnimatorInput).After(GameLabels.RootSteer).Reads<Transform>().Reads<RootVelocity>().Writes<AnimatorMotion>()
-            .Writes<AnimatorAction>();
-        _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>();
-        var acting = s.Query().With<Fighter>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>().Write<AnimatorAction>();
+            .Writes<AnimatorAction>().Writes<Flinch>();
+        _plain = s.Query().With<Fighter>().Without<Dead>().Without<AnimatorAction>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>();
+        var acting = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>().Write<AnimatorAction>();
         _agile = acting.With<PlayerTag>();
         _steady = acting.Without<PlayerTag>();
+        _flinch = s.Query().With<Fighter>().Without<Dead>().Write<Flinch>();
     }
 
     public void Run(in SystemContext ctx)
@@ -71,6 +73,8 @@ public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
         var clips = ctx.World.Resource<PosePool>().Clips;
         foreach (var chunk in ctx.Iterate(_agile)) Act(chunk, dt, clips, true);
         foreach (var chunk in ctx.Iterate(_steady)) Act(chunk, dt, clips, false);
+        foreach (var chunk in ctx.Iterate(_flinch))
+            foreach (ref var f in chunk.Write<Flinch>()) FlinchLayer.Tick(ref f, dt);
     }
 
     private void Act(ChunkView chunk, float dt, ClipLibrary clips, bool agile)
@@ -95,17 +99,20 @@ public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
 /// поверх локомоции (<see cref="ActionLayer.Pose"/>: сэмпл клипа действия и смешивание всем телом или по маске верха
 /// <paramref name="upper"/>, затем переход от снимка позы), затем у всех — прямая кинематика (<c>clips.ToComponent</c>). Слой
 /// локомоции (модуль Locomotion) ставит свои задания раньше (<see cref="GameLabels.AnimatorPose"/>), снимок — ещё раньше
-/// (<see cref="ActionSnapshotSystem"/>); без слоёв поза остаётся позой привязки.
+/// (<see cref="ActionSnapshotSystem"/>); без слоёв поза остаётся позой привязки. У игрока после слоя действий — вздрагивание (6г,
+/// <see cref="FlinchLayer.Pose"/>: добавка поворотов по той же маске верха). Мёртвому (<see cref="Dead"/>) заданий нет — его поза стоит.
 /// </summary>
 public sealed class AnimatorPoseSystem(PoseMask upper) : IContinuousSystem
 {
-    private Query _plain = null!, _acting = null!;
+    private Query _plain = null!, _acting = null!, _flinching = null!;
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.AnimatorPose).Reads<PoseRef>().Reads<AnimatorAction>().Writes<ActionPoses>();
-        _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<PoseRef>();
-        _acting = s.Query().With<Fighter>().Read<PoseRef>().Read<AnimatorAction>().Write<ActionPoses>();
+        s.Label(GameLabels.AnimatorPose).Reads<PoseRef>().Reads<AnimatorAction>().Reads<Flinch>().Writes<ActionPoses>();
+        _plain = s.Query().With<Fighter>().Without<Dead>().Without<AnimatorAction>().Read<PoseRef>();
+        var acting = s.Query().With<Fighter>().Without<Dead>().Read<PoseRef>().Read<AnimatorAction>().Write<ActionPoses>();
+        _acting = acting.Without<Flinch>();
+        _flinching = acting.Read<Flinch>();
     }
 
     public void Run(in SystemContext ctx)
@@ -124,6 +131,21 @@ public sealed class AnimatorPoseSystem(PoseMask upper) : IContinuousSystem
                 if (refs[i].Generation == 0) continue;
                 var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                 ActionLayer.Pose(a[i], ref poses[i], pose, pool, upper);
+                pool.ToModel(pose);
+            }
+        }
+        foreach (var chunk in ctx.Iterate(_flinching))
+        {
+            var poses = chunk.Write<ActionPoses>();
+            var refs = chunk.Read<PoseRef>()[..poses.Length];
+            var a = chunk.Read<AnimatorAction>()[..poses.Length];
+            var f = chunk.Read<Flinch>()[..poses.Length];
+            for (int i = 0; i < poses.Length; i++)
+            {
+                if (refs[i].Generation == 0) continue;
+                var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
+                ActionLayer.Pose(a[i], ref poses[i], pose, pool, upper);
+                FlinchLayer.Pose(f[i], ref poses[i], pose, pool, upper);
                 pool.ToModel(pose);
             }
         }

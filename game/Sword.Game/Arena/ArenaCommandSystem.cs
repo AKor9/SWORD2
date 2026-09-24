@@ -22,7 +22,9 @@ namespace Sword.Game.Arena;
 /// команд, как <c>PlayerController.Think</c> и <c>EnemyAi.Think</c> SWORD после <c>SetEnemyCount</c>/<c>Reset</c> (в SWORD команды
 /// арены — из цикла кадра до <c>arena.Tick</c>). Подпорки 4а и 4б (команда игрока и ИИ всех врагов, посчитанные здесь в тике
 /// команды) сняты: Intent их больше не нуждается. Игрок после сброса — с прежней точкой взгляда (<c>_cursor</c> контроллера SWORD
-/// сброс не трогает) и мечом инвентаря; враг при каждой постройке — со случайным мечом (<see cref="ArenaRules.Enemy"/>).
+/// сброс не трогает) и мечом инвентаря; враг при каждой постройке — со случайным мечом (<see cref="ArenaRules.Enemy"/>). С 6г
+/// постройка оживляет мёртвого (метка <see cref="Dead"/> снимается, здоровье полное), сброс обнуляет статистику арены
+/// (<see cref="ArenaStats"/>).
 /// </summary>
 public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<ArenaCommand>>
 {
@@ -36,7 +38,7 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
     {
         s.Label(GameLabels.ArenaCommand).After(GameLabels.PrevTransform).Reads<FighterSlot>().Reads<Transform>().Reads<GazeTarget>()
             .Reads<AnimatorAction>()
-            .SetsResource<ArenaState>().SetsResource<PlayerInventory>().DeclaresFighters();
+            .SetsResource<ArenaState>().SetsResource<PlayerInventory>().SetsResource<ArenaStats>().DeclaresFighters();
         _fighters = s.Query().With<Fighter>().Read<FighterSlot>();
     }
 
@@ -99,7 +101,8 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
             var playerSpawn = ArenaRules.Player(rng, tick, resetBatch, inventory.Equipped);
             var gaze = world.TryGet<GazeTarget>(player, out var g) ? g : default;
             if (player.IsNull) Fighters.Create(cmd, playerSpawn, Fighters.Standing(playerSpawn), gaze);
-            else Fighters.Rebuild(cmd, player, playerSpawn, Fighters.Standing(playerSpawn), gaze, Action(world, player));
+            else Fighters.Rebuild(cmd, player, playerSpawn, Fighters.Standing(playerSpawn), gaze, Action(world, player), dead: world.Has<Dead>(player));
+            cmd.SetResource(ArenaStats.Start);   // 6г: сброс — статистика и последний удар с нуля (Kills = Hits = 0 SWORD)
         }
         for (int slot = 1; slot < ArenaRules.MaxFighters; slot++)
         {
@@ -112,7 +115,7 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
             if (_batch[slot] == 0) continue;
             var spawn = ArenaRules.Enemy(rng, tick, _batch[slot], slot, _center[slot], weapons);
             if (e.IsNull) Fighters.Create(cmd, spawn, Fighters.Standing(spawn), default);
-            else Fighters.Rebuild(cmd, e, spawn, Fighters.Standing(spawn), default, Action(world, e));
+            else Fighters.Rebuild(cmd, e, spawn, Fighters.Standing(spawn), default, Action(world, e), dead: world.Has<Dead>(e));
         }
         if (enemies != state.Enemies) cmd.SetResource(new ArenaState { Enemies = enemies });
     }

@@ -187,6 +187,77 @@ public sealed class PoseTests
         Assert.Equal(new PoseTickStats(0, 0, 0, 0, 1), pool.Tick());
     }
 
+    /// <summary>
+    /// Добавка поворотов по маске (6г, вздрагивание игрока): <c>rot[j] = normalize(rot[j]·slerp(identity, conj(ref[j])·pose[j],
+    /// mask[j]·вес))</c> — побитово с <c>CharacterRig.AddUpper</c> SWORD; суставы с весом маски 0 и смещения не меняются; вес 0 —
+    /// ничего; две добавки подряд — по порядку заданий (как два слота вздрагивания SWORD).
+    /// </summary>
+    [Fact]
+    public void AddMasked_MatchesAddUpper_BitForBit()
+    {
+        var lib = TwoClips();
+        int jc = lib.JointCount;
+        float[] weights = [.. Enumerable.Range(0, jc).Select(j => (j % 5) * 0.25f)];
+        // AddUpper SWORD 2eab13b (CharacterRig) — копия для сверки
+        static void AddUpper(Quaternion[] rot, Quaternion[] reference, Quaternion[] pose, float[] mask, float weight)
+        {
+            if (weight <= 0) return;
+            for (int j = 0; j < rot.Length; j++)
+            {
+                float k = mask[j] * weight;
+                if (k <= 0) continue;
+                var delta = Quaternion.Conjugate(reference[j]) * pose[j];
+                rot[j] = Quaternion.Normalize(rot[j] * Quaternion.Slerp(Quaternion.Identity, delta, k));
+            }
+        }
+        foreach (float weight in new[] { 0.8f, 0.37f, 0f, -0.2f })
+        {
+            var pool = new PosePool(lib);
+            var mask = pool.AddMask(weights);
+            var (main, reference, pose) = (pool.Alloc(), pool.Alloc(), pool.Alloc());
+            pool.Sample(main, 0, 0.29f);
+            // два слота подряд: первый — клип 1 от 0 к 0,13 с, второй — к 0,41 с с другим весом
+            pool.Sample(reference, 1, 0);
+            pool.Sample(pose, 1, 0.13f);
+            pool.AddMasked(main, reference, pose, weight, mask);
+            pool.Sample(reference, 1, 0);
+            pool.Sample(pose, 1, 0.41f);
+            pool.AddMasked(main, reference, pose, weight * 0.5f, mask);
+            Assert.Equal(new PoseTickStats(5, 2, 0, 0, 0), pool.Tick());
+
+            var rot = new Quaternion[jc];
+            var pos = new Vector3[jc];
+            var refRot = new Quaternion[jc];
+            var poseRot = new Quaternion[jc];
+            var scratch = new Vector3[jc];
+            lib.Sample(0, 0.29f, rot, pos);
+            var before = (Quaternion[])rot.Clone();
+            lib.Sample(1, 0, refRot, scratch);
+            lib.Sample(1, 0.13f, poseRot, scratch);
+            AddUpper(rot, refRot, poseRot, weights, weight);
+            lib.Sample(1, 0.41f, poseRot, scratch);
+            AddUpper(rot, refRot, poseRot, weights, weight * 0.5f);
+            Assert.Equal(rot, pool.LocalRot(main).ToArray());
+            Assert.Equal(pos, pool.LocalPos(main).ToArray());   // смещения не трогаются
+            for (int j = 0; j < jc; j++)
+                if (weights[j] == 0 || weight <= 0) Assert.Equal(before[j], pool.LocalRot(main)[j]);
+        }
+    }
+
+    [Fact]
+    public void AddMasked_BadMaskOrStalePoses()
+    {
+        var pool = new PosePool(TwoClips());
+        int jc = pool.JointCount;
+        var (a, r, p) = (pool.Alloc(), pool.Alloc(), pool.Alloc());
+        Assert.Throws<ArgumentOutOfRangeException>(() => pool.AddMasked(a, r, p, 1, new PoseMask(0)));
+        var mask = pool.AddMask(new float[jc]);
+        pool.AddMasked(a, r, p, 1, mask);
+        pool.Free(r);   // поза отсчёта освобождена до Tick — задание пропускается
+        Assert.Equal(new PoseTickStats(0, 0, 0, 0, 1), pool.Tick());
+        Assert.Throws<InvalidOperationException>(() => pool.AddMasked(a, r, p, 1, mask));
+    }
+
     [Fact]
     public void ToModel_ParentAfterChild_MatchesRecursiveOrder()
     {
@@ -301,6 +372,7 @@ public sealed class PoseTests
                 pool.Sample(p, 0, t * 0.01f);
                 pool.Blend(p, poses[0], 0.5f);
                 pool.BlendMasked(p, poses[1], 0.5f, mask, t * 0.001f);
+                pool.AddMasked(p, poses[2], poses[3], 0.4f, mask);
                 pool.ToModel(p);
             }
             pool.Tick();

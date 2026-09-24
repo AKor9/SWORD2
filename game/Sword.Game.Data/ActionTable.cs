@@ -48,6 +48,14 @@ public static class ActionSlots
     public static int EvadeLeft { get; }
     public static int EvadeRight { get; }
 
+    /// <summary>
+    /// Слоты реакции на попадание (<c>CharacterRig.HitFront1/HitFront2/HitBack</c> SWORD, 6г): спереди — два клипа (выбор — ГСЧ),
+    /// сзади — один; враг играет реакцию действием (слой — слота), игрок — вздрагиванием (добавка поворотов по маске верха).
+    /// </summary>
+    public static int HitFront1 { get; }
+    public static int HitFront2 { get; }
+    public static int HitBack { get; }
+
     static ActionSlots()
     {
         var names = new List<string> { "idle" };
@@ -77,6 +85,9 @@ public static class ActionSlots
         EvadeBack = Index("evade_back");
         EvadeLeft = Index("evade_left");
         EvadeRight = Index("evade_right");
+        HitFront1 = Index("hit_front1");
+        HitFront2 = Index("hit_front2");
+        HitBack = Index("hit_back");
     }
 
     /// <summary>Номер слота по ключу; нет — −1.</summary>

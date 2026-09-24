@@ -118,7 +118,8 @@ public sealed class KinematicPlacementSystem(IPhysicsWorld physics, BodyJoints j
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>();
-        _query = s.Query().With<Fighter>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
+        // Мёртвый (6г) замирает до рэгдолла (этап 7): капсулы стоят, скорости последнего тика жизни не обнуляются — их возьмёт рэгдолл.
+        _query = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
     }
 
     public void Run(in SystemContext ctx)

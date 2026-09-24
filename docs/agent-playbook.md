@@ -203,7 +203,7 @@
    (`tests/reference/combat-strikes.trace.json`, сценарий `strikes` программы трассы), побитово. Приёмка — `feature.verify
    {"id":"combat"}` (сценарий `weapons`, вид `blades`).
 
-**Удар, связка, рывок (точка 6в).** Урона нет (6г); удар — действие слоя действий `AnimatorAction` (`Kind` = `Attack`, `Attack` —
+**Удар, связка, рывок (точка 6в).** Урон — 6г (ниже); удар — действие слоя действий `AnimatorAction` (`Kind` = `Attack`, `Attack` —
 номер удара таблицы: 0–3 slash1–4, 4–6 stab1–3), рывок — `PlayerControl` игрока (вид — `Kind` = `Dash`).
 1. Ударить, уколоть, рывок: `command.send {"command":"PlayerCommand","fields":{"Attack":true}}` (`"Stab":true`, `"Dash":true`;
    жест — `"Gesture":{"X":1,"Y":-0.2}` в системе бойца: x — вправо бойца, y — вверх; ход — `Move` той же командой: без него рывок
@@ -225,6 +225,26 @@
 5. Сверка с SWORD: `ReferenceTraceTests.Actions_MatchSwordTickByTick` — трасса настоящего `FighterAnimator` (`anim-actions`,
    сценарий `actions` программы трассы), побитово. Приёмка — `feature.verify {"id":"combat"}` (сценарии 6в: `strike-combo`,
    `stab`, `run-strike`, `dash`, `strike-from-dash`, `enemies-swing`, `peaceful`; вид `strike`).
+
+**Урон, смерть, реакции, возрождение (точка 6г). Почему боец умер.** Протокол боя — событиями: `StrikeContact` (Combat: клинок бойца в
+ударе прошёл сквозь капсулу, урон посчитан) → `Hit`, `Dead`, `SeverRequested` (Resolve) → реакция (React) → кровопотеря, возрождение
+(Aftermath) → `ArenaStats` (Settle). Компоненты: `Health` (очки жизни, кровотечение, раны по сегментам), `Dead` (время смерти),
+`StrikePairs` врага (проход клинка игрока во враге и врага в игроке), `Flinch` игрока.
+1. **Почему умер:** `events.history {"types":["Hit","Added<Dead>"],"entity":"enemy 1"}` — попадания в бойца (кто — `Attacker`, часть —
+   `Part`, сегмент `BodySegs`: 1 торс, 2 голова…; урон, вид, точка, `Killed`, `LethalThrust` — смертельный укол, `SeverAt`, `Probe`) и тик
+   смерти (`Added<Dead>` на барьере Resolve — от попадания, Aftermath — от кровопотери). Касание без попадания (неуязвимость, труп) —
+   `{"types":["StrikeContact"]}`. Старше кольца истории (1200 тиков) — `replay.observe {"path":"session","events":["Event<Hit>",
+   "Added<Dead>"]}`. Причинность одним вызовом (`state.why`) — 6д.
+2. Здоровье по тикам: `watch.add {"entities":["player"],"fields":["Health.Hp","Health.Bleed"]}` → `time.step` → `entity.history`;
+   сейчас — `entity.get {"entity":"player","components":["Health","Dead","Flinch"]}`; статистика — `state.describe ecs` (`ArenaStats`).
+3. Ударить без клинка — проба: `command.send {"command":"StrikeProbe","fields":{"Attacker":0,"Victim":1,"Part":1,"Damage":30,
+   "Kind":"Thrust"}}` (места: 0 — игрок; тот же путь Resolve: неуязвимость, труп, смерть, отруб, реакция). Неуязвимый игрок —
+   `session.start {"set":["combat.playerInvulnerable=true"]}`; мирные враги — `combat.enemiesAttack=false`.
+4. Что держится: `combat.health` (живой — очки > 0, рана торса < 1,4), `combat.dead` (мёртвый не действует и не движется),
+   `combat.hits` (попадание — от бойца в ударе, пара игрок ↔ враг, раз за проход, не чаще 0,1 с; не в неуязвимого и не в труп),
+   `combat.respawn` (мёртвый враг — не дольше 8 с). Встать — `time.breakOnInvariant {"ids":["combat.hits"]}`. Приёмка —
+   `feature.verify {"id":"combat"}` (сценарии 6г: `duel`, `player-dies`, `bleed`, `respawn`, `dash-through`); тест
+   `DamageTests.Agent_ProbeByCommand_WhyDiedByEventsHistory`.
 
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;

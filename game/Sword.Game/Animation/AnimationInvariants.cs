@@ -321,6 +321,15 @@ public static class AnimationInvariants
                         return $"вид рывка клипом {a.Clip} — не клип уклонения";
                     if (a.Upper || a.RootDelta != Vector3.Zero) return $"вид рывка — слоем верха ({a.Upper}) или со сдвигом клипом {a.RootDelta}";
                     break;
+                case ActionKind.HitReact:
+                    if (world.Has<PlayerTag>(e)) return "реакция на попадание действием у игрока — игрок вздрагивает (Flinch)";
+                    if (a.Attack != -1) return $"реакция на попадание, а удар {a.Attack}";
+                    int slot = a.Clip == actions.Clip[ActionSlots.HitBack] ? ActionSlots.HitBack
+                        : a.Clip == actions.Clip[ActionSlots.HitFront1] ? ActionSlots.HitFront1
+                        : a.Clip == actions.Clip[ActionSlots.HitFront2] ? ActionSlots.HitFront2 : -1;
+                    if (slot < 0) return $"реакция на попадание клипом {a.Clip} — не клип реакции";
+                    if (a.Upper != actions.Upper[slot]) return $"реакция на попадание слоем верха {a.Upper}, а у слота {ActionSlots.Names[slot]} — {actions.Upper[slot]}";
+                    break;
                 case ActionKind.Turn:
                     if ((uint)a.Clip >= (uint)pool.Clips.ClipCount) return $"поворот: клипа {a.Clip} нет в библиотеке";
                     if (a.Clip != actions.TurnLeft && a.Clip != actions.TurnRight && a.Clip != actions.Turn180)
@@ -332,7 +341,11 @@ public static class AnimationInvariants
                     return $"неизвестное действие {(byte)a.Kind}";
             }
             var core = world.TryGet<PoseRef>(e, out var r) ? new PoseHandle(r.Index, r.Generation) : PoseHandle.None;
-            if (!core.IsNone && poses.Snapped != a.Snapshots) return $"снимков запрошено {a.Snapshots}, скопировано {poses.Snapped}";
+            // Реакция на попадание (6г) начинается в стадии React, после Animation: её снимок скопирует и позу слоя возьмёт Animation
+            // следующего тика — до того время реакции 0 (шаг действия — в Gameplay следующего тика).
+            bool reacting = a.Kind == ActionKind.HitReact && a.Time == 0;
+            if (!core.IsNone && poses.Snapped != a.Snapshots && !(reacting && poses.Snapped == a.Snapshots - 1))
+                return $"снимков запрошено {a.Snapshots}, скопировано {poses.Snapped}";
             var snap = poses.Snap;
             if (!snap.IsNone)
             {
@@ -341,17 +354,17 @@ public static class AnimationInvariants
                 if (!_owner[snap.Index].IsNull) return $"поза снимка {snap} — ещё и у {_owner[snap.Index]}";
                 _owner[snap.Index] = e;
             }
-            else if (a.SnapFade < 1 && !core.IsNone) return $"идёт переход от снимка ({a.SnapFade}), а позы снимка нет";
-            foreach (var memory in (ReadOnlySpan<PoseHandle>)[poses.BlendOutput, poses.BlendShortest])
+            else if (a.SnapFade < 1 && !core.IsNone && !reacting) return $"идёт переход от снимка ({a.SnapFade}), а позы снимка нет";
+            foreach (var memory in (ReadOnlySpan<PoseHandle>)[poses.BlendOutput, poses.BlendShortest, poses.FlinchRef, poses.FlinchPose])
             {
                 if (memory.IsNone) continue;
-                if (!pool.IsAlive(memory)) return $"поза памяти смешивания {memory} не жива";
-                if (memory == core || memory == poses.Layer || memory == snap) return $"поза памяти смешивания {memory} — это итоговая поза, слой или снимок";
-                if (!_owner[memory.Index].IsNull) return $"поза памяти смешивания {memory} — ещё и у {_owner[memory.Index]}";
+                if (!pool.IsAlive(memory)) return $"поза памяти смешивания или вздрагивания {memory} не жива";
+                if (memory == core || memory == poses.Layer || memory == snap) return $"поза памяти смешивания или вздрагивания {memory} — это итоговая поза, слой или снимок";
+                if (!_owner[memory.Index].IsNull) return $"поза памяти смешивания или вздрагивания {memory} — ещё и у {_owner[memory.Index]}";
                 _owner[memory.Index] = e;
             }
             var h = poses.Layer;
-            if (h.IsNone) return a.Kind != ActionKind.None && !core.IsNone ? $"действие {a.Kind} идёт, а позы слоя действий нет" : null;
+            if (h.IsNone) return a.Kind != ActionKind.None && !core.IsNone && !reacting ? $"действие {a.Kind} идёт, а позы слоя действий нет" : null;
             if (!pool.IsAlive(h)) return $"поза слоя действий {h} не жива";
             if (h == core) return $"поза слоя действий {h} — это итоговая поза бойца";
             if (!_owner[h.Index].IsNull) return $"поза слоя действий {h} — ещё и у {_owner[h.Index]}";

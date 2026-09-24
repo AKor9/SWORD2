@@ -22,7 +22,7 @@ namespace Sword.Game.Movement;
 /// </list>
 /// Пара — по местам <see cref="FighterSlot"/>; пара, где у бойца места нет (нарушение <c>arena.slots</c>), проверяется
 /// без счёта — сразу. Совпавшие корни (ближе 1e-4 м) SWORD не разводит вовсе: если их не растолкают соседи, сработает
-/// первое правило. Мёртвых ещё нет: этап 6 исключит их здесь так же, как в <see cref="RootCollision.Resolve"/>. Счёт тиков
+/// первое правило. Мёртвые (6г) исключены, как в <see cref="RootCollision.Resolve"/>: живые проходят сквозь замерший труп. Счёт тиков
 /// подряд ведут плановые проверки после Movement: проверка по запросу (<c>invariant.run</c>) и повтор того же тика его не
 /// сдвигают, пропуск тиков (инвариант выключали) начинает заново. Без нарушений не выделяет памяти.
 /// </summary>
@@ -59,7 +59,7 @@ public sealed class RootOverlapInvariant : IInvariant
     public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
     {
         var world = ctx.World;
-        _fighters ??= world.Query().With<Fighter>().Read<Transform>();
+        _fighters ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>();   // мёртвые (6г) — вне столкновений корней
         int n = 0;
         foreach (var chunk in world.Iterate(_fighters))
         {

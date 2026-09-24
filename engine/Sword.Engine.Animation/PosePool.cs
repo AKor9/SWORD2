@@ -40,20 +40,21 @@ public readonly record struct PoseTickStats(int Samples, int Blends, int Copies,
 /// и смещения всех суставов и модельные матрицы (итог прямой кинематики). Слоты лежат подряд в общих массивах.
 ///
 /// Позы меняются только заданиями: системы тика ставят <see cref="Sample"/>, <see cref="Blend"/>, <see cref="BlendMasked"/>,
-/// <see cref="Copy"/>, <see cref="ToModel"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
+/// <see cref="AddMasked"/>, <see cref="Copy"/>, <see cref="ToModel"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
 /// Animation), дальше позы читают (Pull, клиент). Порядок заданий одной позы сохраняется, поэтому итог совпадает
 /// с последовательными вызовами <c>SkeletalClips</c> SWORD. Задание к позе, освобождённой до <see cref="Tick"/>,
 /// пропускается (<see cref="PoseTickStats.Stale"/>). Установившийся тик не выделяет памяти.
 /// </summary>
 public sealed class PosePool
 {
-    private enum Op : byte { Sample, Blend, BlendMasked, Copy, ToModel }
+    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel }
 
     private struct Job
     {
         public Op Op;
         public PoseHandle Dst, Src;
-        public int Clip;      // клип сэмпла или маска смешивания по маске
+        public PoseHandle Ref;   // добавка по маске: поза, от которой считается отклонение
+        public int Clip;      // клип сэмпла или маска смешивания (добавки) по маске
         public float Value;   // время клипа или вес смешивания
         public float Stand;   // смешивание по маске: доля клипа в суставах вне маски
         public BlendMemory Memory;   // смешивание по маске: память (None — без неё)
@@ -246,6 +247,22 @@ public sealed class PosePool
         Push(new Job { Op = Op.BlendMasked, Dst = dst, Src = src, Clip = mask.Index, Value = weight, Stand = stand, Memory = memory });
     }
 
+    /// <summary>
+    /// Задание (6г): добавка поворотов по маске — к позе <paramref name="dst"/> отклонение позы <paramref name="pose"/> от
+    /// <paramref name="reference"/> с весом сустава <c>mask[j]·weight</c>: <c>rot[j] = normalize(rot[j]·slerp(identity,
+    /// conj(ref[j])·pose[j], k))</c>; сустав с k ≤ 0 и смещения не трогаются (<c>CharacterRig.AddUpper</c> SWORD 2eab13b, побитово:
+    /// вздрагивание игрока — первые кадры клипа реакции поверх любой позы). Вес не больше 0 — задание ничего не меняет.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Маски нет в пуле.</exception>
+    public void AddMasked(PoseHandle dst, PoseHandle reference, PoseHandle pose, float weight, PoseMask mask)
+    {
+        Check(dst);
+        Check(reference);
+        Check(pose);
+        if ((uint)mask.Index >= (uint)_masks.Count) throw new ArgumentOutOfRangeException(nameof(mask), mask, $"масок в пуле {_masks.Count}");
+        Push(new Job { Op = Op.AddMasked, Dst = dst, Src = pose, Ref = reference, Clip = mask.Index, Value = weight });
+    }
+
     /// <summary>Задание: локальная поза <paramref name="src"/> — в <paramref name="dst"/>.</summary>
     public void Copy(PoseHandle dst, PoseHandle src)
     {
@@ -275,7 +292,8 @@ public sealed class PosePool
         for (int n = 0; n < _jobCount; n++)
         {
             ref readonly var job = ref _jobs[n];
-            if (!IsAlive(job.Dst) || job.Op is Op.Blend or Op.BlendMasked or Op.Copy && !IsAlive(job.Src))
+            if (!IsAlive(job.Dst) || job.Op is Op.Blend or Op.BlendMasked or Op.AddMasked or Op.Copy && !IsAlive(job.Src)
+                || job.Op == Op.AddMasked && !IsAlive(job.Ref))
             {
                 stale++;
                 continue;
@@ -307,6 +325,12 @@ public sealed class PosePool
                     blends++;
                     break;
                 }
+                case Op.AddMasked:
+                    if (job.Value > 0)
+                        AddRotations(_rot.AsSpan(d, _jc), _rot.AsSpan(job.Ref.Index * _jc, _jc), _rot.AsSpan(job.Src.Index * _jc, _jc),
+                            _masks[job.Clip], job.Value);
+                    blends++;
+                    break;
                 case Op.Copy:
                 {
                     int s = job.Src.Index * _jc;
@@ -335,6 +359,22 @@ public sealed class PosePool
     private static void LayerMask(ReadOnlySpan<float> mask, float stand, Span<float> into)
     {
         for (int j = 0; j < mask.Length; j++) into[j] = mask[j] + (1 - mask[j]) * stand;
+    }
+
+    /// <summary>
+    /// Добавка поворотов по маске (<see cref="AddMasked"/>, <c>CharacterRig.AddUpper</c> SWORD): выражения и порядок — SWORD. Цикл
+    /// по суставам — свой метод: <see cref="Tick"/> зовётся раз в тик.
+    /// </summary>
+    private static void AddRotations(Span<Quaternion> rot, ReadOnlySpan<Quaternion> reference, ReadOnlySpan<Quaternion> pose,
+        ReadOnlySpan<float> mask, float weight)
+    {
+        for (int j = 0; j < rot.Length; j++)
+        {
+            float k = mask[j] * weight;
+            if (k <= 0) continue;
+            var delta = Quaternion.Conjugate(reference[j]) * pose[j];
+            rot[j] = Quaternion.Normalize(rot[j] * Quaternion.Slerp(Quaternion.Identity, delta, k));
+        }
     }
 
     /// <summary>

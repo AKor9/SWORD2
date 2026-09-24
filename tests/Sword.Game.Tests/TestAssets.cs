@@ -92,6 +92,27 @@ public static class TestAssets
         return clip;
     }
 
+    /// <summary>Сустав корпуса (<c>spine_05</c>, маска верха 1), которым отклоняется реакция на попадание (6г).</summary>
+    public const int HitJoint = 10;
+
+    /// <summary>
+    /// Клип реакции на попадание (6г): не цикл, корпус (<see cref="HitJoint"/>) отклоняется на 0,5 рад к кадру 6 и возвращается, корень
+    /// отходит на 0,3 м (<paramref name="back"/> = −1 — назад, 1 — вперёд: удар в спину толкает вперёд).
+    /// </summary>
+    private static ClipFile HitClip(int number, float back)
+    {
+        var clip = Clip(number, Vector3.Zero);
+        clip.Loop = false;
+        int jc = Joints.Length;
+        for (int f = 0; f < Frames; f++)
+        {
+            float k = f <= 6 ? f / 6f : Math.Max(0, 1 - (f - 6) / 18f);
+            clip.LocalRot[f * jc + HitJoint] = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -0.5f * back * k);
+            clip.RootMotion[f] = new Vector3(0, 0, 0.3f * back * Math.Min(1, f / 12f));
+        }
+        return clip;
+    }
+
     private static ClipFile Clip(int number, Vector3 velocity)
     {
         uint hash = SkeletonFile.ComputeHash(Joints, Parents);
@@ -151,6 +172,10 @@ public static class TestAssets
             evade.Loop = false;
             content.Add($"anim/test_combat/1HM_Evade_{evades[k]}.swclip", evade.Write);
         }
+        // Реакции на попадание (6г): корпус (spine_05) и плечо отклоняются назад — у вздрагивания игрока есть что добавить к верху тела,
+        // у реакции врага — сдвиг корня назад. Свой источник — после «test_combat»: номера прежних клипов не сдвигаются.
+        string[] hits = ["1HM_HitReact01", "1HM_HitReact02", "1HM_HitReact_Behind01"];
+        for (int k = 0; k < 3; k++) content.Add($"anim/test_hit/{hits[k]}.swclip", HitClip(n++, k == 2 ? 1 : -1).Write);
         if (actionsJson is not null) content.Add("combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
         // Оружие (6б): два статических меша в системе кисти — по алфавиту katana (0), sword_1h (1, меч по умолчанию).
         if (!weapons) return content;

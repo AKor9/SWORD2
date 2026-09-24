@@ -9,7 +9,7 @@ namespace Sword.Game.Animation;
 
 /// <summary>
 /// Действие слоя действий аниматора (<c>FighterAnimator.ActionKind</c> SWORD 2eab13b; номера — те же). С точки 4г — поворот
-/// на месте, с 6в — удар и вид рывка; отбитый удар, блок и реакции — этапы 6г и 10 (тем же слоем).
+/// на месте, с 6в — удар и вид рывка, с 6г — реакция врага на попадание; отбитый удар и блок — этап 10 (тем же слоем).
 /// </summary>
 public enum ActionKind : byte
 {
@@ -18,6 +18,13 @@ public enum ActionKind : byte
 
     /// <summary>Удар (<c>StartAttack</c>): клип удара таблицы ударов, слоем верха тела или всем телом (слой слота).</summary>
     Attack = 1,
+
+    /// <summary>
+    /// Реакция врага на попадание (6г, <c>HitReact</c> не-<c>Agile</c>): клип реакции (сзади — <c>hit_back</c>, спереди — <c>hit_front1</c>
+    /// или <c>hit_front2</c>), слой — слота; мягкий вход, отшатывание — root motion клипа; бить нельзя, ход — 0,15, поворот — 0,35.
+    /// Игрок не играет реакцию действием — он вздрагивает (<see cref="Flinch"/>), управление не отнимается.
+    /// </summary>
+    HitReact = 4,
 
     /// <summary>
     /// Вид рывка (6в; на месте <c>Evade</c> SWORD, но не он): клип уклонения по направлению рывка всем телом, гаснет к концу
@@ -146,6 +153,13 @@ public struct ActionPoses
     public PoseHandle BlendOutput, BlendShortest;
     public int BlendClip;
     public float BlendTime;
+
+    /// <summary>
+    /// Вздрагивание игрока (6г, <see cref="Flinch"/>): первый кадр клипа реакции и его кадр в момент слота — отклонение второго от
+    /// первого добавляется к позе по маске верха. Общие для обоих слотов (задания пула исполняются по порядку); берутся при первом
+    /// вздрагивании.
+    /// </summary>
+    public PoseHandle FlinchRef, FlinchPose;
 }
 
 /// <summary>Константы слоя действий — <c>FighterAnimator</c> и <c>CharacterRig</c> SWORD 2eab13b.</summary>
@@ -179,6 +193,9 @@ public static class ActionRules
 
     /// <summary>Ход во время удара не-<c>Agile</c> (враг) — доля желаемой скорости (<c>MoveScale</c>).</summary>
     public const float AttackMoveScale = 0.35f;
+
+    /// <summary>Ход во время реакции на попадание не-<c>Agile</c> (враг) — доля желаемой скорости (<c>MoveScale</c>, 6г).</summary>
+    public const float HitReactMoveScale = 0.15f;
 
     /// <summary>
     /// Слой верха: скорость (м/с), до которой действие играет всё тело, и с которой ноги полностью у локомоции
@@ -291,6 +308,13 @@ public static class ActionLayer
     }
 
     /// <summary>
+    /// Реакция врага на попадание (6г; <c>HitReact</c> SWORD не-<c>Agile</c> — <c>Begin(HitReact, clip, Upper(slot))</c>): клип реакции
+    /// с начала, слой — слоя слота; прерывает любое действие (снимок позы, если оно видно). Номер удара не меняется.
+    /// </summary>
+    public static void StartHitReact(ref AnimatorAction a, int clip, bool upper, ClipLibrary clips) =>
+        Begin(ref a, ActionKind.HitReact, clip, upper, clips.Duration(clip), -1);
+
+    /// <summary>
     /// Вид рывка (6в): клип уклонения <paramref name="clip"/> всем телом; его отрезок <see cref="ActionRules.DashClipSpan"/> (не
     /// длиннее клипа) проигрывается за <paramref name="dashTime"/> с — время рывка; вес гаснет вместе с прибавкой скорости.
     /// Прерывает любое действие (снимок позы, если оно видно).
@@ -341,8 +365,8 @@ public static class ActionLayer
     public static bool Recovering(in AnimatorAction a, ReadOnlySpan<AttackInfo> attacks) =>
         a.Kind == ActionKind.Attack && a.Time > attacks[a.Attack].ActiveEnd;
 
-    /// <summary>Занят действием, которое замедляет поворот не-<c>Agile</c> (<c>Busy</c>: удар; отбитый удар и реакция — 6г).</summary>
-    public static bool Busy(in AnimatorAction a) => a.Kind == ActionKind.Attack;
+    /// <summary>Занят действием, которое замедляет поворот не-<c>Agile</c> (<c>Busy</c>: удар, реакция на попадание; отбитый удар — этап 10).</summary>
+    public static bool Busy(in AnimatorAction a) => a.Kind is ActionKind.Attack or ActionKind.HitReact;
 
     /// <summary>
     /// Можно начать новое действие (<c>CanAct</c>): свободен, поворот, удар после окна урона (связка: <c>Agile</c> — сразу,
@@ -359,8 +383,8 @@ public static class ActionLayer
     public static bool CanAttack(in AnimatorAction a, bool agile, ReadOnlySpan<AttackInfo> attacks) => CanAct(a, agile, attacks);
 
     /// <summary>
-    /// Доля скорости поворота курса (<c>TurnScale</c>): занятый не-<c>Agile</c> — 0,35; <c>Agile</c> — удар доводится мышью в замахе
-    /// и восстановлении, замедляясь до 0,6 только в окне урона; иначе — 1.
+    /// Доля скорости поворота курса (<c>TurnScale</c>): занятый не-<c>Agile</c> (удар, реакция) — 0,35; <c>Agile</c> — удар доводится
+    /// мышью в замахе и восстановлении, замедляясь до 0,6 только в окне урона; иначе — 1.
     /// </summary>
     public static float TurnScale(in AnimatorAction a, bool agile, ReadOnlySpan<AttackInfo> attacks) =>
         !agile ? Busy(a) ? ActionRules.BusyTurnScale : 1
@@ -368,10 +392,15 @@ public static class ActionLayer
 
     /// <summary>
     /// Доля желаемой скорости хода (<c>MoveScale</c>): у игрока — 1 при любом действии (SWORD2: игрок управляет ходом всегда; в
-    /// SWORD у <c>Agile</c> — 1 только для слоя верха); у врага удар — 0,35, остальное — 1.
+    /// SWORD у <c>Agile</c> — 1 только для слоя верха); у врага удар — 0,35, реакция на попадание — 0,15 (6г), остальное — 1.
     /// </summary>
     public static float MoveScale(in AnimatorAction a, bool agile) =>
-        !agile && a.Kind == ActionKind.Attack ? ActionRules.AttackMoveScale : 1;
+        agile ? 1 : a.Kind switch
+        {
+            ActionKind.Attack => ActionRules.AttackMoveScale,
+            ActionKind.HitReact => ActionRules.HitReactMoveScale,
+            _ => 1,
+        };
 
     /// <summary>
     /// Шаг действия на тик (<c>TickActions</c> без позы) после слоя движения: <paramref name="moving"/> — «идёт» этого тика,
@@ -519,7 +548,7 @@ public sealed class ActionSnapshotSystem : IContinuousSystem
     }
 }
 
-/// <summary>End: снятые позы слоя действий (слой, снимок, память смешивания; боец удалён или компонент снят) возвращаются в пул.</summary>
+/// <summary>End: снятые позы слоя действий (слой, снимок, память смешивания, вздрагивание; боец удалён или компонент снят) возвращаются в пул.</summary>
 public sealed class ActionPoseReleaseSystem : IReactiveSystem<Removed<ActionPoses>>
 {
     public void Setup(SystemSetup s) => s.Label(GameLabels.ActionRelease);
@@ -533,6 +562,8 @@ public sealed class ActionPoseReleaseSystem : IReactiveSystem<Removed<ActionPose
             if (pool.IsAlive(r.Value.Snap)) pool.Free(r.Value.Snap);
             if (pool.IsAlive(r.Value.BlendOutput)) pool.Free(r.Value.BlendOutput);
             if (pool.IsAlive(r.Value.BlendShortest)) pool.Free(r.Value.BlendShortest);
+            if (pool.IsAlive(r.Value.FlinchRef)) pool.Free(r.Value.FlinchRef);
+            if (pool.IsAlive(r.Value.FlinchPose)) pool.Free(r.Value.FlinchPose);
         }
     }
 }

@@ -119,7 +119,9 @@ public static class LegacyLocomotion
 /// </summary>
 public sealed class LegacyLocomotionSetupSystem : IReactiveSystem<Added<Fighter>>
 {
-    public void Setup(SystemSetup s) => s.Label(new SystemLabel("locomotion.setup")).Adds<LegacyLocomotionState>().Sets<LegacyLocomotionState>();
+    // Возрождение врага (ядро, 6г) строит место заново в Aftermath — такой боец начинает локомоцию в следующем тике.
+    public void Setup(SystemSetup s) => s.Label(new SystemLabel("locomotion.setup")).Adds<LegacyLocomotionState>().Sets<LegacyLocomotionState>()
+        .NextTickOk<Added<Fighter>>();
 
     public void React(in SystemContext ctx, ReadOnlySpan<Added<Fighter>> added)
     {
@@ -165,7 +167,8 @@ public sealed class LegacyLocomotionSystem : IContinuousSystem
     public void Setup(SystemSetup s)
     {
         s.Label(Label).After(GameLabels.ActionSnapshot).Before(GameLabels.AnimatorPose).Reads<AnimatorMotion>().Reads<PoseRef>().Writes<LegacyLocomotionState>();
-        _query = s.Query().With<Fighter>().Read<AnimatorMotion>().Read<PoseRef>().Write<LegacyLocomotionState>();
+        // мёртвый (Dead, 6г) замирает: локомоция его позу не трогает (поза стоит до рэгдолла — этап 7)
+        _query = s.Query().With<Fighter>().Without<Dead>().Read<AnimatorMotion>().Read<PoseRef>().Write<LegacyLocomotionState>();
     }
 
     public void Run(in SystemContext ctx)

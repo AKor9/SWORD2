@@ -47,7 +47,7 @@ SWORD 2eab13b. На 5а переносится только то, что нуж�
 
 Не переносятся на 5а (с первыми потребителями): `Integrate`, `UpdateVelocity`, `Correct`, `Rotate`, `InvMassAt`,
 `PointVelocity`, `ToWorld/ToLocal`, `IsFinite` (его место — `physics.finite`), `BodyDynamics`, решатель `Xpbd` и `XpbdTests` —
-этап 7 (трупы); `Xpbd.SegSeg`, `SweepCapsule` — этап 6 (проходы клинка); `Fighter.Masses` — этап 7 (масса — у динамики).
+этап 7 (трупы); `Xpbd.SegSeg` — 6г (`Engine.Geometry/Segments.SegSeg`, проходы клинка; `SweepCapsule` в SWORD 2eab13b нет); `Fighter.Masses` — этап 7 (масса — у динамики).
 
 5б — постановка по позе и форма при постройке (`src/Sword.Game/Gameplay/Ragdoll/DuelArena.Kinematic.cs`, `Fighter.cs`,
 `Fighter.Pose.cs`, `Fighter.Locomotion.cs`, `Fighter.Anim.cs` SWORD 2eab13b):
@@ -119,7 +119,7 @@ SWORD 2eab13b. На 5а переносится только то, что нуж�
 | `Fighter.Build`: `Radii`, полудлины процедурной позы (`ComputeTargets`, `IdealFoot`), `PlaceBuilt` | `FighterShape`, `BodySetupSystem` (Gameplay), `StartPose` | 5б |
 | `Program.cs`: фокус камеры, тень и кольцо от таза; `SkinCutPose.DrawnJoints`; `CharacterRig.JointSegment` | `ArenaView` (`PlayerFocus`, `PlayerMarker`, `Carry`), `JointSegments`, `IBodyView.JointSegment` | 5в |
 | — (отладочного вида капсул в SWORD нет) | `Renderer.Debug`, F7, `--overlay capsules`, ID-буфер и оверлей `capture.bundle` | 5в |
-| отложено | решатель XPBD, динамика, `KinematicContacts`, `XpbdTests` — этап 7; `SegSeg`, `SweepCapsule` — этап 6 (6г); клинок, `KinBase/KinTip` — сделаны на 6б отрезком `Blade` без тела ([«Бой»](../Combat/README.md)); `VisualOffset` — этап 8; `BodyPlacer`, `BodyY`, `PinFeet` — этап 9; `Severed/Detached` — этап 11 | — |
+| отложено | решатель XPBD, динамика, `KinematicContacts`, `XpbdTests` — этап 7; `SegSeg` — перенесён на 6г (`Segments.SegSeg`; `SweepCapsule` в SWORD нет); клинок, `KinBase/KinTip` — сделаны на 6б отрезком `Blade` без тела ([«Бой»](../Combat/README.md)); `VisualOffset` — этап 8; `BodyPlacer`, `BodyY`, `PinFeet` — этап 9; `Severed/Detached` — этап 11 | — |
 | не переносится | живой рэгдолл (кроме длин формы при постройке — «Что взято из живого рэгдолла»), `SWORD_POSEHASH`, `SEG_SKINNED` | — |
 
 ## Устройство

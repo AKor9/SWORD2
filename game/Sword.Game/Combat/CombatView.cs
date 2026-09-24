@@ -28,6 +28,13 @@ public sealed record CombatSettings
     public float DashTime { get; init; } = PlayerControlRules.DashTime;
     public float DashCooldown { get; init; } = PlayerControlRules.DashCooldown;
     public float DashInvulnerable { get; init; } = PlayerControlRules.DashInvulnerable;
+
+    /// <summary>
+    /// Урон ударов игрока — множитель (<c>combat.playerDamage</c>, 6г; <c>SWORD_PLAYER_CUT</c>, ручка «урон» SWORD — по умолчанию 2) и
+    /// острота клинка игрока (<c>combat.playerSharpness</c>, ручка «острота» — 1): порог отруба части делится на неё (не меньше 0,05).
+    /// </summary>
+    public float PlayerDamage { get; init; } = DamageRules.PlayerDamage;
+    public float PlayerSharpness { get; init; } = 1;
 }
 
 /// <summary>Оружие и удары для наблюдателей (<see cref="ICombatView"/>): таблицы — неизменяемые ассеты.</summary>

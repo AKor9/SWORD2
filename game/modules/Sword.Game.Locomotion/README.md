@@ -78,8 +78,9 @@ walk_*, run_*), `Sword.Engine.Animation` (пул поз, клипы), `Sword.Eng
 
 ## Ограничения
 
-- `locomotion.setup` реагирует на `Added<Fighter>` в Gameplay: бойцы, созданные в стадиях позже Gameplay (возрождение в
-  Aftermath — этап 7), потребуют `NextTickOk<Added<Fighter>>` или переноса настройки — сборка мира на это укажет.
+- `locomotion.setup` реагирует на `Added<Fighter>` в Gameplay; с 6г бойцов строит и Aftermath (возрождение врага) — у системы
+  `NextTickOk<Added<Fighter>>`: возрождённый начинает локомоцию со стойки в следующем тике.
+- Мёртвого (`Dead`, 6г) локомоция пропускает — его поза стоит до рэгдолла (этап 7).
 - Поиск кадра (`AnimatorMotion.Search`, с 4г — false, пока поворот на месте ведёт всё тело врага) локомоция клипами не
   использует и в SWORD: под действием она идёт как шла, слой действий смешивается поверх (`core.animator-pose`).
 - Motion Matching игрока — этап 8.

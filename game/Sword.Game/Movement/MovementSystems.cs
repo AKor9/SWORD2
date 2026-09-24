@@ -85,7 +85,8 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
     {
         s.Label(GameLabels.PlayerCommand).ReadsJournal<Event<PlayerCommand>>().Reads<Transform>().Writes<FighterCommand>()
             .Writes<GazeTarget>().Writes<AnimatorAction>().Writes<PlayerControl>().Writes<AttackCombo>();
-        _query = s.Query().With<PlayerTag>().Read<Transform>().Write<FighterCommand>().Write<GazeTarget>().Write<AnimatorAction>()
+        // мёртвый игрок (6г) замирает: команды игрока на него не действуют, пока сброс арены (R) не построит его заново
+        _query = s.Query().With<PlayerTag>().Without<Dead>().Read<Transform>().Write<FighterCommand>().Write<GazeTarget>().Write<AnimatorAction>()
             .Write<PlayerControl>().Write<AttackCombo>();
     }
 
@@ -174,9 +175,9 @@ public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
     {
         s.Label(GameLabels.RootSteer).Reads<FighterCommand>().Reads<AnimatorMotion>().Writes<Transform>().Writes<RootVelocity>()
             .Writes<AnimatorAction>().Writes<PlayerControl>();
-        _agile = s.Query().With<Fighter>().With<PlayerTag>().Read<FighterCommand>().Read<AnimatorAction>().Write<Transform>()
+        _agile = s.Query().With<Fighter>().Without<Dead>().With<PlayerTag>().Read<FighterCommand>().Read<AnimatorAction>().Write<Transform>()
             .Write<RootVelocity>().Write<PlayerControl>();
-        _steady = s.Query().With<Fighter>().Without<PlayerTag>().Read<FighterCommand>().Read<AnimatorMotion>().Write<Transform>()
+        _steady = s.Query().With<Fighter>().Without<Dead>().Without<PlayerTag>().Read<FighterCommand>().Read<AnimatorMotion>().Write<Transform>()
             .Write<RootVelocity>().Write<AnimatorAction>();
     }
 
@@ -268,9 +269,9 @@ public sealed class RootControlSystem : IContinuousSystem
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.RootControl).Reads<RootVelocity>().Reads<AnimatorAction>().Reads<PlayerControl>().Writes<Transform>();
-        _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<RootVelocity>().Write<Transform>();
-        _acting = s.Query().With<Fighter>().Without<PlayerControl>().Read<RootVelocity>().Read<AnimatorAction>().Write<Transform>();
-        _controlled = s.Query().With<Fighter>().Read<RootVelocity>().Read<AnimatorAction>().Read<PlayerControl>().Write<Transform>();
+        _plain = s.Query().With<Fighter>().Without<Dead>().Without<AnimatorAction>().Read<RootVelocity>().Write<Transform>();
+        _acting = s.Query().With<Fighter>().Without<Dead>().Without<PlayerControl>().Read<RootVelocity>().Read<AnimatorAction>().Write<Transform>();
+        _controlled = s.Query().With<Fighter>().Without<Dead>().Read<RootVelocity>().Read<AnimatorAction>().Read<PlayerControl>().Write<Transform>();
     }
 
     public void Run(in SystemContext ctx)
@@ -363,8 +364,8 @@ public static class RootCollision
 {
     /// <summary>
     /// Корни и скорости по местам (0 — игрок, 1…32 — враги); <paramref name="present"/> — место занято. Пустое место
-    /// пропускается, как неактивное в SWORD (<c>i &lt; ActiveCount</c>); этап 6 добавит сюда пропуск мёртвых
-    /// (<c>a.Dead</c>, <c>b.Dead</c>). <paramref name="contacts"/> — толчки пар, колонн и края за вызов по местам
+    /// пропускается, как неактивное в SWORD (<c>i &lt; ActiveCount</c>); мёртвый (<c>a.Dead</c>, <c>b.Dead</c> SWORD, 6г) — тоже:
+    /// <see cref="RootCollisionSystem"/> не отмечает его место занятым. <paramref name="contacts"/> — толчки пар, колонн и края за вызов по местам
     /// (перезаписываются; только учёт — корни и скорости он не трогает).
     /// </summary>
     /// <remarks>
@@ -456,8 +457,9 @@ public sealed class RootCollisionSystem : IContinuousSystem
     {
         s.Label(GameLabels.RootCollision).After(GameLabels.RootControl).Reads<FighterSlot>().Writes<Transform>()
             .Writes<RootVelocity>().Writes<RootContacts>();
-        _fighters = s.Query().With<Fighter>().Read<FighterSlot>().Write<Transform>().Write<RootVelocity>();
-        _viewers = s.Query().With<Fighter>().Read<FighterSlot>().Write<RootContacts>();
+        // мёртвые (6г) из столкновений выпадают целиком, как в ResolveRoots SWORD (a.Dead, b.Dead): их корень стоит, живые проходят сквозь
+        _fighters = s.Query().With<Fighter>().Without<Dead>().Read<FighterSlot>().Write<Transform>().Write<RootVelocity>();
+        _viewers = s.Query().With<Fighter>().Without<Dead>().Read<FighterSlot>().Write<RootContacts>();
     }
 
     public void Run(in SystemContext ctx)

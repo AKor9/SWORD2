@@ -232,7 +232,8 @@ public static class PhysicsInvariants
         {
             var world = ctx.World;
             float dt = world.Resource<SimTime>().Dt;
-            _query ??= world.Query().With<Fighter>().Read<Transform>().Read<PrevTransform>().Read<BodyRef>();
+            // мёртвый (6г) замер: его капсулы хранят скорости последнего тика жизни (для рэгдолла) — это не скачок постановки
+            _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PrevTransform>().Read<BodyRef>();
             foreach (var chunk in world.Iterate(_query))
             {
                 var entities = chunk.Entities;

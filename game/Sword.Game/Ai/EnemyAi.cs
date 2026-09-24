@@ -82,7 +82,17 @@ public sealed class EnemyCrowd
     public readonly float[] Seeds = new float[ArenaRules.MaxFighters];
     public readonly bool[] Present = new bool[ArenaRules.MaxFighters];
 
-    public void Clear() => Array.Clear(Present);
+    /// <summary>Игрок мёртв (6г, <c>p.Dead</c> SWORD): враги подходят ×0,2 и не бьют.</summary>
+    public bool PlayerDead;
+
+    /// <summary>Множитель желаемой скорости врага при мёртвом игроке (<c>desired *= 0.2f</c> SWORD).</summary>
+    public const float DeadPlayerCalm = 0.2f;
+
+    public void Clear()
+    {
+        Array.Clear(Present);
+        PlayerDead = false;
+    }
 
     public void Put(int slot, Vector3 root, float seed)
     {
@@ -92,12 +102,21 @@ public sealed class EnemyCrowd
     }
 
     /// <summary>
-    /// Толпа мира до движения тика: все бойцы с местом (<see cref="FighterSlot"/>) — корень и зерно. Запрос —
-    /// <c>With&lt;Fighter&gt;().Read&lt;FighterSlot&gt;().Read&lt;Transform&gt;().Read&lt;FighterSeed&gt;()</c>.
+    /// Толпа мира до движения тика: все живые бойцы с местом (<see cref="FighterSlot"/>) — корень и зерно (мёртвые враги в
+    /// расхождении не участвуют — <c>o.Dead</c> SWORD, 6г); мёртвый игрок — тоже цель (враги идут к нему ×0,2), отмечен
+    /// <see cref="PlayerDead"/>. Запросы — <c>With&lt;Fighter&gt;().Without&lt;Dead&gt;().Read&lt;FighterSlot&gt;().Read&lt;Transform&gt;().Read&lt;FighterSeed&gt;()</c>
+    /// и тот же у игрока <c>With&lt;Dead&gt;()</c>.
     /// </summary>
-    public void Gather(in SystemContext ctx, Query fighters)
+    public void Gather(in SystemContext ctx, Query fighters, Query deadPlayer)
     {
         Clear();
+        Put(ctx, fighters);
+        foreach (var chunk in ctx.Iterate(deadPlayer)) PlayerDead |= chunk.Count > 0;
+        if (PlayerDead) Put(ctx, deadPlayer);
+    }
+
+    private void Put(in SystemContext ctx, Query fighters)
+    {
         foreach (var chunk in ctx.Iterate(fighters))
         {
             var slots = chunk.Read<FighterSlot>();
@@ -109,13 +128,14 @@ public sealed class EnemyCrowd
     }
 
     /// <summary>
-    /// Намерение врага места <paramref name="slot"/> по этой толпе (<see cref="EnemyAi.Think"/>); игрока (место 0) нет —
-    /// false, намерение не трогается.
+    /// Намерение врага места <paramref name="slot"/> по этой толпе (<see cref="EnemyAi.Think"/>; игрок мёртв — желаемая скорость
+    /// ×0,2, как в SWORD); игрока (место 0) нет — false, намерение не трогается.
     /// </summary>
     public bool Think(int slot, float time, ref FighterCommand intent, ref GazeTarget gaze, ref EnemyAiTerms terms)
     {
         if (!Present[0]) return false;
         intent = EnemyAi.Think(slot, Roots[slot], Seeds[slot], Roots[0], time, Roots, Present, out terms);
+        if (PlayerDead) intent.DesiredVelocity *= DeadPlayerCalm;
         gaze = new GazeTarget { Point = Roots[0], Has = true };
         return true;
     }
@@ -187,7 +207,7 @@ public struct EnemyAttack
 /// </summary>
 public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
 {
-    private Query _fighters = null!, _enemies = null!;
+    private Query _fighters = null!, _deadPlayer = null!, _enemies = null!;
     private readonly EnemyCrowd _crowd = new();
 
     public void Setup(SystemSetup s)
@@ -195,8 +215,11 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
         s.Label(GameLabels.EnemyAi).After(GameLabels.PlayerCommand).ReadsJournal<Event<EnemyCommand>>().Reads<FighterSlot>()
             .Reads<Transform>().Reads<FighterSeed>().Writes<FighterCommand>().Writes<GazeTarget>().Writes<EnemyAiTerms>()
             .Writes<AnimatorAction>().Writes<EnemyAttack>();
-        _fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<FighterSeed>();
-        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Read<FighterSlot>().Write<FighterCommand>().Write<GazeTarget>()
+        var fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<FighterSeed>();
+        _fighters = fighters.Without<Dead>();
+        _deadPlayer = fighters.With<PlayerTag>().With<Dead>();
+        // мёртвый враг (6г) не думает — он замер
+        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Without<Dead>().Read<FighterSlot>().Write<FighterCommand>().Write<GazeTarget>()
             .Write<EnemyAiTerms>().Write<AnimatorAction>().Write<EnemyAttack>();
     }
 
@@ -208,7 +231,8 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
         var rules = world.Resource<CombatRules>();
         var clips = world.Resource<PosePool>().Clips;
         var commands = ctx.Journal<Event<EnemyCommand>>();
-        _crowd.Gather(ctx, _fighters);
+        _crowd.Gather(ctx, _fighters, _deadPlayer);
+        bool strike = rules.EnemiesAttack && !_crowd.PlayerDead;   // мёртвого игрока не бьют (!p.Dead SWORD)
         foreach (var chunk in ctx.Iterate(_enemies))
         {
             var intent = chunk.Write<FighterCommand>();
@@ -222,7 +246,7 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
             {
                 int slot = slots[i].Index;
                 if ((uint)slot >= ArenaRules.MaxFighters || !_crowd.Think(slot, time.Time, ref intent[i], ref gaze[i], ref terms[i])) continue;
-                Attack(ref action[i], ref attack[i], terms[i].Distance, Commanded(commands, slot), rules.EnemiesAttack, entities[i], time, rng, clips);
+                Attack(ref action[i], ref attack[i], terms[i].Distance, Commanded(commands, slot), strike, entities[i], time, rng, clips);
             }
         }
     }
@@ -238,8 +262,9 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
     /// <summary>
     /// Удар врага (<c>EnemyAi.Think</c> SWORD, конец): таймер минус тик; удар команды — если враг может действовать (<c>CanAct</c>
     /// не-<c>Agile</c>), таймер не трогается; иначе ИИ: игрок ближе <see cref="EnemyAiRules.Reach"/>, таймер вышел, может
-    /// действовать — рубящий (0,75; случайный из связки) или укол (случайный), таймер 1,1 + ГСЧ·1,4. <c>f.CanAttack</c> SWORD
-    /// (жив, рука и меч целы) и «игрок жив» — с 6г.
+    /// действовать — рубящий (0,75; случайный из связки) или укол (случайный), таймер 1,1 + ГСЧ·1,4. <paramref name="enemiesAttack"/> —
+    /// враги нападают и игрок жив (6г, <c>!p.Dead</c> SWORD); мёртвый враг сюда не приходит (<c>f.CanAttack</c> SWORD: жив; рука и меч
+    /// целы — этап 11). Удар командой при мёртвом игроке начинается (вид), но трупы — не цели.
     /// </summary>
     public void Attack(ref AnimatorAction action, ref EnemyAttack state, float distance, int commanded, bool enemiesAttack, Entity e,
         in SimTime time, SimRandom rng, ClipLibrary clips)
@@ -276,7 +301,7 @@ public sealed class EnemyCommandSystem : IContinuousSystem
     {
         s.Label(GameLabels.EnemyCommand).Before(GameLabels.RootSteer).ReadsJournal<Event<EnemyCommand>>().Reads<FighterSlot>()
             .Writes<FighterCommand>();
-        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Read<FighterSlot>().Write<FighterCommand>();
+        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Without<Dead>().Read<FighterSlot>().Write<FighterCommand>();
     }
 
     public void Run(in SystemContext ctx)

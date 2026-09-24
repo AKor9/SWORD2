@@ -105,4 +105,29 @@ public static class GameLabels
 
     /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
     public static readonly SystemLabel ActionRelease = new("core.action-release");
+
+    /// <summary>
+    /// Combat (6г): проходы клинка (<c>KinematicStrikes</c> SWORD) — клинок бойца в ударе против капсул живой жертвы (пары игрок ↔
+    /// враг), касание — событие <c>StrikeContact</c>; затем пробы удара командой (<c>StrikeProbe</c>) тем же событием.
+    /// </summary>
+    public static readonly SystemLabel StrikeDetection = new("core.strike-detection");
+
+    /// <summary>
+    /// Resolve (6г), реактивная по <c>Event&lt;StrikeContact&gt;</c> (<c>ApplyHits</c>, <c>ApplyHit</c> SWORD): урон и раны
+    /// (<c>Health</c>), смерть (<c>Dead</c>), события <c>Hit</c> и <c>SeverRequested</c>. Модули защиты (этап 10) встанут в стадию
+    /// Defense между Combat и Resolve.
+    /// </summary>
+    public static readonly SystemLabel HitApply = new("core.hit-apply");
+
+    /// <summary>React (6г), реактивная по <c>Event&lt;Hit&gt;</c>: реакция живой жертвы на последнее попадание тика.</summary>
+    public static readonly SystemLabel HitReaction = new("core.hit-reaction");
+
+    /// <summary>Aftermath (6г): кровопотеря живых (<c>Fighter.AfterTick</c> SWORD) — очки жизни, кровотечение, смерть.</summary>
+    public static readonly SystemLabel Bleed = new("core.bleed");
+
+    /// <summary>Aftermath (6г), после <see cref="Bleed"/>: возрождение врага через 8 с после смерти — постройка места заново.</summary>
+    public static readonly SystemLabel Respawn = new("core.respawn");
+
+    /// <summary>Settle (6г): статистика арены (<c>ArenaStats</c>) — попадания и смерти врагов тика.</summary>
+    public static readonly SystemLabel ArenaStats = new("core.arena-stats");
 }

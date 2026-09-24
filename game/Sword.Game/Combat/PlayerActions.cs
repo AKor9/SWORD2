@@ -11,7 +11,7 @@ namespace Sword.Game.Combat;
 /// <summary>
 /// Правила боя тика — ресурс-значение (хешируется участником <c>ecs</c>) из секции конфига <c>combat</c> (6в; ручки «Бой» и
 /// изменение командой — 6е): нападают ли враги, неуязвим ли игрок (действует с 6г), рывок — пиковая прибавка скорости, время,
-/// перезарядка и неуязвимость.
+/// перезарядка и неуязвимость; урон ударов игрока и острота его клинка (6г).
 /// </summary>
 public struct CombatRules
 {
@@ -23,6 +23,9 @@ public struct CombatRules
 
     /// <summary>Рывок: пиковая прибавка скорости, м/с, время, с, перезарядка, с, и неуязвимость с начала рывка, с.</summary>
     public float DashSpeed, DashTime, DashCooldown, DashInvulnerable;
+
+    /// <summary>Урон ударов игрока — множитель, и острота его клинка (порог отруба ÷ острота; 6г).</summary>
+    public float PlayerDamage, PlayerSharpness;
 
     /// <summary>Дистанция прибавки рывка, м: скорость·время·½ (<see cref="DashRules.Fade"/>).</summary>
     public readonly float DashDistance => DashSpeed * DashTime * 0.5f;
@@ -44,6 +47,8 @@ public struct CombatRules
             DashTime = Check(s.DashTime, "dashTime", true),
             DashCooldown = Check(s.DashCooldown, "dashCooldown", false),
             DashInvulnerable = Check(s.DashInvulnerable, "dashInvulnerable", false),
+            PlayerDamage = Check(s.PlayerDamage, "playerDamage", false),
+            PlayerSharpness = Check(s.PlayerSharpness, "playerSharpness", false),
         };
     }
 }

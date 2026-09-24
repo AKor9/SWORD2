@@ -68,6 +68,13 @@ public static class ArenaRules
     public const uint WeaponSampleBase = 1u << 31;
 
     /// <summary>
+    /// Партия постройки при возрождении врага (6г, стадия Aftermath): номер, которого нет у команд арены (партия — номер команды тика
+    /// с 1), поэтому возрождение не делит чисел ни с одной постройкой того же тика; номера выборки угла, радиуса и зерна
+    /// (до 99 миллионов) не доходят до номеров меча (<see cref="WeaponSampleBase"/>).
+    /// </summary>
+    public const uint RespawnBatch = 1_000_000;
+
+    /// <summary>
     /// Враг на месте <paramref name="slot"/> (<c>DuelArena.Spawn</c>): угол a = ГСЧ·τ, радиус r = 5 + ГСЧ·4 вокруг
     /// <paramref name="center"/> (корня игрока — в SWORD таз его тела, тел до этапа 5 нет); дальше радиуса арены − 3 м —
     /// на этот радиус; курс — на центр (<c>atan2(p.X − pos.X, p.Z − pos.Z)</c>); зерно — третьим числом (в SWORD — в
@@ -127,6 +134,7 @@ public static class Fighters
             world.AddImmediate(e, new PlayerTag());
             world.AddImmediate(e, PlayerControl.Idle);
             world.AddImmediate(e, AttackCombo.Start);
+            world.AddImmediate(e, Flinch.None);
         }
         else
         {
@@ -134,7 +142,9 @@ public static class Fighters
             world.AddImmediate(e, new EnemyAiTerms());
             world.AddImmediate(e, RootContacts.None);
             world.AddImmediate(e, new EnemyAttack { Timer = s.AttackTimer });
+            world.AddImmediate(e, StrikePairs.None);
         }
+        world.AddImmediate(e, Health.Fresh);
         world.AddImmediate(e, AnimatorAction.None);
         world.AddImmediate(e, new ActionPoses());
         world.AddImmediate(e, new WeaponSlot { Index = s.Weapon });
@@ -169,6 +179,7 @@ public static class Fighters
             c.Add(d, new PlayerTag());
             c.Add(d, PlayerControl.Idle);
             c.Add(d, AttackCombo.Start);
+            c.Add(d, Flinch.None);
         }
         else
         {
@@ -176,7 +187,9 @@ public static class Fighters
             c.Add(d, terms);
             c.Add(d, RootContacts.None);
             c.Add(d, new EnemyAttack { Timer = s.AttackTimer });
+            c.Add(d, StrikePairs.None);
         }
+        c.Add(d, Health.Fresh);
         c.Add(d, AnimatorAction.None);
         c.Add(d, new ActionPoses());
         c.Add(d, new WeaponSlot { Index = s.Weapon });
@@ -206,10 +219,13 @@ public static class Fighters
     /// <c>ResetAnimator</c> SWORD), имя и номер сущности у агента не меняются.
     /// </summary>
     public static void Rebuild(CommandBuffer c, Entity e, in FighterSpawn s, in FighterCommand intent, in GazeTarget gaze,
-        in AnimatorAction action, in EnemyAiTerms terms = default)
+        in AnimatorAction action, in EnemyAiTerms terms = default, bool dead = false)
     {
         c.Remove<Fighter>(e);
         c.Add(e, new Fighter());
+        // 6г: здоровье — полное, мёртвый оживает (возрождение врага, сброс арены), вздрагивание игрока и пары удара врага — с нуля
+        if (dead) c.Remove<Dead>(e);
+        c.Set(e, Health.Fresh);
         c.Set(e, new FighterSeed { Value = s.Seed });
         var root = new Transform { Position = s.Position, Facing = s.Facing };
         c.Set(e, root);
@@ -221,11 +237,16 @@ public static class Fighters
         c.Set(e, action.Rebuilt());   // без действия и снимка; номер удара и счёт снимков — прежние
         c.Set(e, new WeaponSlot { Index = s.Weapon });
         c.Set(e, Blade.None);
-        if (s.IsPlayer) c.Set(e, PlayerControl.Idle);   // буферы, перезарядка и рывок — с нуля; связка — прежняя (как в SWORD)
+        if (s.IsPlayer)
+        {
+            c.Set(e, PlayerControl.Idle);   // буферы, перезарядка и рывок — с нуля; связка — прежняя (как в SWORD)
+            c.Set(e, Flinch.None);
+        }
         else
         {
             c.Set(e, terms);
             c.Set(e, new EnemyAttack { Timer = s.AttackTimer });
+            c.Set(e, StrikePairs.None);
         }
     }
 
@@ -235,7 +256,12 @@ public static class Fighters
         .Adds<PrevTransform>().Adds<RootVelocity>().Adds<FighterCommand>().Adds<GazeTarget>().Adds<AnimatorMotion>()
         .Adds<PoseRef>().Adds<BodyRef>().Adds<EnemyAiTerms>().Adds<RootContacts>().Adds<AnimatorAction>().Adds<ActionPoses>()
         .Adds<WeaponSlot>().Adds<Blade>().Adds<PlayerControl>().Adds<AttackCombo>().Adds<EnemyAttack>()
-        .Removes<Fighter>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
+        .Adds<Health>().Adds<StrikePairs>().Adds<Flinch>()
+        .DeclaresRebuild();
+
+    /// <summary>Объявления системы, которая только строит бойцов заново (<see cref="Rebuild"/>: возрождение врага, 6г).</summary>
+    public static SystemSetup DeclaresRebuild(this SystemSetup s) => s
+        .Adds<Fighter>().Removes<Fighter>().Removes<Dead>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>().Sets<AnimatorAction>()
-        .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>();
+        .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>().Sets<Health>().Sets<StrikePairs>().Sets<Flinch>();
 }

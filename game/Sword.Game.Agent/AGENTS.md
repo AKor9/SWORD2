@@ -10,7 +10,9 @@
 (`BodyFields`: `Body.<сегмент>.<поле>`, `Body.MaxSpeed`); инструмент боя (`CombatTools`, 6б): `combat.weapons` — таблица мечей,
 инвентарь игрока, меч и клинок каждого бойца, таблица ударов через `ICombatView`; поиск Sword.exe для видов фич (`AppLocator`, 6б:
 конфигурация — по папке за `bin` или, вне `bin` — сервер агента в `artifacts/agent-bin`, — по оптимизации сборки Headless).
-Ядро игры и модули об агенте не знают; сценарии и пробы боя — со своими этапами.
+Ядро игры и модули об агенте не знают; урон и смерть (6г) агент видит без своих инструментов — компоненты (`Health`, `Dead`,
+`StrikePairs`, `Flinch`), события (`events.history`: `Hit`, `StrikeContact`, `SeverRequested`, `Added<Dead>`) и проба удара командой
+(`command.send StrikeProbe`), тест `DamageTests.Agent_ProbeByCommand_WhyDiedByEventsHistory`.
 
 - Имя — подсказка, не идентичность: в ответах сущность всегда и номером.
 - Исполняется в точке обслуживания: только чтение мира. Данные вне ECS — только через виды только для чтения
