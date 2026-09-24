@@ -21,7 +21,10 @@ public sealed record PhysicsSettings
     /// </summary>
     public float PopSpeed { get; init; } = 3f;
 
-    /// <summary>Трение покоя μs тел на физике о землю («всё или ничего» по Кулону, <c>Xpbd.Friction</c>). Читает 7г.</summary>
+    /// <summary>
+    /// Трение тел на физике о землю, μ (7г): трение покоя «всё или ничего» (<c>Xpbd.Friction</c>) с общим бюджетом на тело
+    /// (μ·Σλn по всем касаниям подшага) и тот же μ — трение скольжения по Кулону в скоростном проходе.
+    /// </summary>
     public float StaticFriction { get; init; } = 0.7f;
 
     /// <summary>
