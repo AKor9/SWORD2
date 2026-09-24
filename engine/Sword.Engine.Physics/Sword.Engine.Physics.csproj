@@ -1,9 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Физика: тела-капсулы и сочленения за хэндлами; с этапа 5 — только кинематические (форма, постановка, концы). -->
+  <!-- Физика: тела-капсулы и сочленения за хэндлами; кинематические (этап 5) и на физике (этап 7: динамика, XPBD, суставы, контакты, шаг). -->
   <PropertyGroup>
     <SwordSide>Neutral</SwordSide>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Тесты точек 7в/7г/7д проверяют внутренние помощники (контакт с землёй, толчок пары) без шага целиком. -->
+    <InternalsVisibleTo Include="Sword.Engine.Physics.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
