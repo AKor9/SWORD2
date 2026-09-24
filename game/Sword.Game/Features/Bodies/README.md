@@ -1,709 +1,235 @@
-# Физика и тела (этап 5) — точки 5а (подсистема Physics, хуки ECS, тела бойцов), 5б (капсулы по позе), 5в (капсулы на экране и агенту) и 5г (рельеф и приёмка); точка 7ж этапа 7 — тело клинка, массы, хеш и вид тел; 7з — шаг физики, земля арены, хеш суставов
+# Физика и тела (этап 5; с этапа 7 — тело клинка, массы, шаг физики)
 
-Тело бойца — сочленение из 13 кинематических капсул (с 7ж — 14: тела по номерам сегментов, 11 — тело клинка по мечу в руке, у
-каждого тела масса; раздел «7ж») в подсистеме Physics (`engine/Sword.Engine.Physics`); в ECS у бойца —
-только хэндл `BodyRef` (раздел 6 плана: подсистема владеет данными, ECS — хэндлами). Тело заводится и освобождается
-**хуками ECS** — на том же барьере, где у сущности появился или пропал `BodyRef` (раздел 5 плана). С 5б капсулы тела
-стоят на суставах позы: при постройке бойца — форма (радиусы и длины, как `Fighter.Build` SWORD) и постановка без скорости
-по позе постройки (`PlaceBuilt`), каждый тик — постановка по позе тика в корне после Movement с разностными скоростями
-(`PlaceBodies`, стадия PrePhysics). С 5в тела бойцов сборки мира стоят уже до первого тика, капсулы видны поверх
-персонажей по F7 (отладочное рисование рендера, фаза Debug) и агенту — оверлеем и ID-буфером снимка `capture.bundle`
-(сущность и сегмент тела на пиксель); камера, тень и кольцо игрока идут от таза. Часть ядра игры (`GameCore`), не модуль:
-тело — то, без чего нет боя и рэгдолла (принцип 4). Код — `engine/Sword.Engine.Physics/` (подсистема), `engine/Sword.Engine.Ecs/WorldHooks.cs`,
-`Hooks.cs` (хуки), `game/Sword.Game/Bodies/` (`FighterBodies.cs` — хуки тела бойца, `FighterShape.cs` — форма при постройке,
-`BodyPlacement.cs` — суставы тела и постановка капсул, `BodySystems.cs` — `BodySetupSystem` и `KinematicPlacementSystem`,
-`BodyView.cs` — вид `IBodyView`, `PhysicsState.cs` — участник хеша `physics`, `PhysicsInvariants.cs` — `physics.*`),
-контракты — `game/Sword.Game.Contracts/` (`BodyRef`, `StartPose` в `Components.cs`, `BodySegs.cs`, `IBodyView` в `Views.cs`),
-постройка бойца — `game/Sword.Game/Arena/ArenaSpawn.cs`, рельеф — `ArenaTerrain.cs` (`Height`, `Normal`), поза постройки
-от модуля Locomotion — `game/modules/Sword.Game.Locomotion/LegacyLocomotion.cs`, агенту — `game/Sword.Game.Agent/PhysicsTools.cs`.
-5в: сустав → сегмент — `game/Sword.Game/Bodies/JointSegments.cs`, поза постройки — `StartPoseModel` в `BodySystems.cs`; на
-экране — `game/Sword.Game.Client/` (`ArenaView.cs` — капсулы, как показан боец, таз для камеры и кольца; `ArenaClient.cs` —
-F7, отладочное рисование, ID-проход, слой снимка; `ArenaInput.cs` — действие `debug_bodies`; `Shaders/scene.hlsl` —
-`PsSkinId`), рендер — `engine/Sword.Engine.Render/` (`DebugDraw.cs`, `Shaders/common/debug.hlsl`, ID-буфер и слои снимка
-в `Renderer.cs`/`Screenshot.cs`, части суставов скиннинга в `SkinnedMeshes.cs`/`skin.hlsli`), агенту —
-`engine/Sword.Engine.Agent.Client/ClientAgent.cs` (`capture.bundle`: `ids`, `overlays`), виды манифеста —
-`engine/Sword.Engine.Introspection/FeatureManifest.cs` (`views[].overlays`).
+Тело бойца — сочленение из 14 тел-капсул подсистемы Physics: тело i — сегмент i (`BodySegs`), 11 — тело клинка по мечу в руке, у каждого
+тела масса; в ECS у бойца — только хэндл `BodyRef` (раздел 6 плана: подсистема владеет данными, ECS — хэндлами). Тело заводят и
+освобождают хуки ECS (раздел 5 плана). Живой — кинематический: 13 капсул плоти стоят на суставах позы тика, тело клинка — на мече в руке;
+мёртвый — труп на физике (шаг физики в стадии Physics; переход в труп, суставы, ручки — фича [«Рэгдолл»](../Ragdoll/README.md)). Капсулы
+видны по F7 и агенту (оверлей и ID-буфер `capture.bundle`); камера, тень и кольцо игрока — от таза. Часть ядра игры (`GameCore`), не
+модуль: без тела нет боя и рэгдолла (принцип 4). Этап 5 принят пользователем (эталон `bodies.swreplay`); тело клинка, массы, хеш и вид тел
+(7ж) и шаг физики с землёй арены (7з) — точки этапа 7, их приёмка — вместе с «Рэгдоллом» (7л). История точек 5а–5г, 7ж, 7з — журналы,
+решения, замеры, сверка с SWORD, доказательства перезаписи эталонов — [docs/history/bodies.md](../../../../docs/history/bodies.md).
 
-Точки этапа 5 — таблица раздела 13 [плана](../../../../ARCHITECTURE_PLAN.md); фича `bodies` принимается целиком на 5г.
-Сделано: 5а, 5б, 5в, 5г. **Этап принят**: пользователь проверил «Что проверить в игре» и подтвердил (раздел 12 плана,
-п. 4–5); зафиксирован эталон SWORD2 `tests/reference/replays/bodies.swreplay` («Эталон SWORD2»), решения по вопросам
-приёмки — «Решено при приёмке этапа 5».
+Код: подсистема — `engine/Sword.Engine.Physics/` ([README](../../../../engine/Sword.Engine.Physics/README.md)); хуки —
+`Sword.Engine.Ecs/WorldHooks.cs`, `Hooks.cs`; игра — `game/Sword.Game/Bodies/` (`FighterBodies` — хуки, `FighterShape` — форма и массы,
+`BodyPlacement`, `BodySystems`, `JointSegments`, `BodyView`, `PhysicsState` — участник хеша, `PhysicsInvariants`, `PhysicsDebug`), тело
+клинка — `Combat/BladeSystems.cs`; контракты — `BodyRef`, `StartPose`, `BodySegs`, `BladeBody`, `IBodyView`; `Arena/ArenaSpawn.cs`,
+`ArenaTerrain.cs`, `ArenaGround.cs`; клиент — `ArenaView`, `ArenaClient`, `ArenaInput`, `Shaders/scene.hlsl`; рендер — `DebugDraw`,
+`debug.hlsl`, ID-буфер и слои снимка (`Renderer`, `Screenshot`, `SkinnedMeshes`); агенту — `Game.Agent/PhysicsTools.cs`,
+`Engine.Agent.Client/ClientAgent.cs`, `Engine.Introspection/FeatureManifest.cs` (`views[].overlays`, `budgets[].frame.overlays`).
+
+Манифест — [feature.json](feature.json): сценарии `arena`, `terrain`, `crowd`, `turn`, `reference` (эталон `enemies.swreplay`),
+`reference-terrain` (эталон `bodies.swreplay`); инварианты `ecs.*`, `physics.*`, `animation.*`, `locomotion.poses`, `arena.slots`,
+`movement.rootOverlap`; 7 метрик-замеров (`run-capsule-speed`, `slope-pelvis-height`, `steps-top-foot`, `step-edge-speed`,
+`idle-capsule-speed`, `crowd-capsule-speed`, `turn-angular-speed`); 5 видов с оверлеем капсул; бюджеты `crowd`, `crowd-capsules`.
 
 ## Откуда логика
 
-SWORD 2eab13b. На 5а переносится только то, что нужно кинематической капсуле (решено при разбивке этапа 5):
-
-| SWORD | SWORD2 |
-|---|---|
-| `Sword.Physics/RigidBody`: капсула вдоль локальной Y — `Pos, PrevPos, Vel, AngVel, Rot, PrevRot, Radius, HalfLen` | `BodyState` (`Position, PrevPosition, Velocity, AngularVelocity, Rotation, PrevRotation, Radius, HalfLength`) + режим `BodyMode.Kinematic`; тело за `BodyHandle` (индекс + поколение) |
-| `new RigidBody()` (до `SetShape` и `Place`): `Rot = PrevRot = Identity`, остальное 0 | `BodyState.New` — таким тело выдаёт `CreateArticulation` |
-| `SetShape(mass, radius, halfLen)` | `IPhysicsWorld.SetShape(body, radius, halfLength)` — без массы и инерции (`Mass`, `InvMass`, `InvInertia` — у динамики, этап 7) |
-| `Place(pos, rot)`: `Pos = PrevPos = pos`, `Rot = PrevRot = rot`, скорости 0 | `IPhysicsWorld.Place` (без `RenderPos/RenderRot` — поза отрисовки у клиента, 5в) |
-| кинематическая ветка `Place` в `DuelArena.PlaceBodies`: `PrevPos = Pos; PrevRot = Rot; Vel = (pos − Pos)/dt; AngVel = Xpbd.RotationVector(Rot, rot)/dt; Pos = pos; Rot = rot` | `IPhysicsWorld.SetKinematicTarget(body, pos, rot, dt)` — те же выражения в том же порядке (саму постановку по суставам делает 5б) |
-| `Xpbd.RotationVector` | `PhysicsMath.RotationVector` — дословно |
-| `RigidBody.Axis`, `EndA`, `EndB` | `BodyState.Axis`, `EndA`, `EndB` |
-| `Sword.Combat/BodySegs` (14 номеров: Pelvis 0 … ShinR 10, Weapon 11, FootL 12, FootR 13) | `Game.Contracts/BodySegs` — те же номера; `Weapon` не объявлен (клинок — этап 6), номер 11 не занят; с 6б `Weapon` = 11 объявлен — отрезок клинка `Blade` и пиксели меча в ID-буфере, тела у клинка нет (этап 7) |
-| `Fighter.Bodies` — 14 `Body` на бойца, создаются в конструкторе `Fighter`, `Build` их переставляет | сочленение из 13 тел (без клинка) за `BodyRef`: заводит хук добавления, освобождает хук снятия; постройка заново (R) — те же тела |
-| `Body : RigidBody` — `Seg, Owner, Detached, Wound, Mesh…` (игровые данные поверх тела) | в подсистему не переносятся: сегмент тела — его номер в сочленении (`BodySegs.Segment`), владелец — сущность с `BodyRef`; раны, отруб, сетки — со своими этапами (6, 11) |
-
-Не переносятся на 5а (с первыми потребителями): `Integrate`, `UpdateVelocity`, `Correct`, `Rotate`, `InvMassAt`,
-`PointVelocity`, `ToWorld/ToLocal`, `IsFinite` (его место — `physics.finite`), `BodyDynamics`, решатель `Xpbd` и `XpbdTests` —
-этап 7 (трупы); `Xpbd.SegSeg` — 6г (`Engine.Geometry/Segments.SegSeg`, проходы клинка; `SweepCapsule` в SWORD 2eab13b нет); `Fighter.Masses` — этап 7 (масса — у динамики).
-
-5б — постановка по позе и форма при постройке (`src/Sword.Game/Gameplay/Ragdoll/DuelArena.Kinematic.cs`, `Fighter.cs`,
-`Fighter.Pose.cs`, `Fighter.Locomotion.cs`, `Fighter.Anim.cs` SWORD 2eab13b):
-
-| SWORD | SWORD2 |
-|---|---|
-| `DuelArena.PlaceBodies(f, dt)` после `ResolveRoots` в `DuelArena.Tick` | `KinematicPlacementSystem` (PrePhysics, `core.kinematic-placement`): у каждого бойца с живой позой и телом — `BodyPlacement.Tick` |
-| мир бойца `f.PoseWorld` = `KinWorld(PoseRoot, PoseFacing, BodyY ?? Terrain.Height(root))` | `BodyPlacement.World(root, facing)`: поворот на курс, перенос в корень, высота — `ArenaTerrain.Height` под корнем; `PoseRoot`/`PoseFacing` — корень и курс (`Transform`: визуального смещения нет — этап 8, `BodyY` — этап 9) |
-| `right` = (−1, 0, 0), повёрнутый на `PoseFacing`; `P(j)` = `comp[j].Translation` × мир | `BodyPlacement.Right`, `P` — модельные матрицы позы тика из пула поз |
-| 13 капсул: таз (pelvis → spine_01), торс (spine_01 → neck_01), голова (head → head + 0,22·норм(head − neck)), плечо и предплечье (upperarm → lowerarm → hand), бедро, голень, стопа (thigh → calf → foot → ball) | `BodyPlacement.Capsules` — те же точки и порядок; суставы — `BodyJoints` (имена `CharacterRig`; нет сустава — игра не стартует) |
-| внутренняя `Place`: `dir` (меньше 1e-4 м — `UnitY`), центр — середина, `rot = AnimMath.FromBasis(dir, right)`; первая постановка — `body.Place`, иначе `PrevPos/PrevRot` ← старые, `Vel` = Δpos/dt, `AngVel = Xpbd.RotationVector/dt` | центр и поворот — `BodyPlacement.Place`; скорости — `IPhysicsWorld.SetKinematicTarget` (5а: те же выражения); первая постановка — `IPhysicsWorld.Place` при постройке |
-| `PlaceBuilt` → `PlaceBodies(f, 0)` после `Fighter.Build` (`Reset`, `Spawn`): поза — `FighterAnimator.Reset()` → `Tick(0)` | `BodySetupSystem` (Gameplay, по `Added<Fighter>`, до `core.root-steer`): форма и `BodyPlacement.Build` — капсулы без скорости по позе постройки (`StartPose`: клип и момент, с которых начинает слой позы; модуль Locomotion — стойка с нулевого момента, без модуля — поза привязки) в корне и курсом постройки |
-| `Fighter.Build`: `Radii` и `SetShape(Masses[s], Radii[s], half)`, `half` = ½·расстояние между `_a[s]` и `_b[s]` процедурной позы (`ComputeTargets(new Vector3(pos.X, _groundY, pos.Z))` после `_foot[leg] = IdealFoot(leg, 0)`) | `FighterShape.Radii`, `FighterShape.HalfLengths(корень, курс)` — только это вычисление (ниже); `IPhysicsWorld.SetShape(радиус, полудлина)` без массы |
-| `Terrain.Normal` (ступня постройки по склону) | `ArenaTerrain.Normal` — дословно |
-
-**Что взято из живого рэгдолла и почему это не он.** Из `Fighter.Build`/`ComputeTargets`/`IdealFoot` перенесено ровно
-вычисление концов сегментов `_a/_b` процедурной позы постройки — ради формы капсул (полудлин). Решение 2 (живой рэгдолл не
-переносится) не нарушено: не переносятся ни ориентации целей мышц (`TargetRot`, `_x`), ни мышцы, суставы, сглаживание целей,
-шаги и фазы ног, равновесие, наклоны, поворот головы, `BeginTick`; состояние, которое `ComputeTargets` читает, взято таким,
-каким оно у кинематического бойца сразу после `Build`: наклоны `_leanFwd/_leanSide`, опережение верха `_upperLead`, поворот
-торса `_torsoYaw`, план шага `PlanVel`, скорость корня, сдвиг захвата — 0 (у кинематического бойца живой рэгдолл не тикает,
-а `AttachRig` в SWORD — до первого тика); цель кисти `HandLocal` = (0,25; 1,3; 0,35), клинок `BladeDir` = норм(0,1; 0,9; 0,4),
-двуручный хват `TwoHanded` = true — значения `Build` и полей по умолчанию; стопы в опоре (`Stance`) с курсом постройки.
-Процедурная поза нужна только своими длинами — ставит капсулы поза аниматора. Концы клинка (`_a/_b[Weapon]`) не считаются
-(этап 6). Формулы — выражения SWORD в том же порядке: длины считаются в мировых координатах от точки постройки, поэтому
-последние биты формы зависят от места и курса спауна (полудлина таза — 0,07999998, а не 0,08).
-
-**Отличия от SWORD** (записанные): 1) (5б; с 5в снято) постройка сборки мира ставилась в тике 1, а не при сборке: до первого
-тика тело было без формы в начале координат. С 5в тела бойцов сборки мира ставит сборка мира — после наполнения мира модулями
-(`OnWorldReady` ядра: поза постройки от модуля Locomotion уже задана), как `PlaceBuilt` SWORD после `Reset`/`AttachRig`; тик 1
-ставит их при постройке ещё раз теми же значениями (ниже, «Решено на 5в»). Отличие осталось одно: поза бойца до первого тика
-— поза привязки (её считает первый тик), а тела стоят по позе постройки. 2) Поза постройки — ресурс `StartPose` (клип и момент), его задаёт модуль Locomotion при сборке мира; её модельные матрицы
-`BodySetupSystem` считает своим маленьким пулом поз теми же заданиями, что поза тика (`Sample`, `ToModel`) — общий пул поз не
-трогается. Пока все слои позы начинают одинаково (стойка с нуля, без действия), поза постройки одна на всех; этап 6 (оружие,
-хват) может сделать её своей у бойца. 3) `PoseRoot` SWORD — корень плюс нулевое визуальное смещение, повёрнутое на курс:
-прибавление нуля меняет только знак нулевой координаты корня (−0 → +0); SWORD2 берёт корень как есть (трасса SWORD
-подтверждала побитово; снята на 7а). 4) Постановка процедурной позы внутри `Fighter.Build` (`b.Place(…, TargetRot)`) не
-переносится: `PlaceBuilt` тут же ставит те же тела заново, а `Place` переписывает все поля постановки и скорости.
-5) Клинок (`anim.Blade`, `KinBase/KinTip`, капсула 11), `PinFeet`, `BodyPlacer`, `VisualOffset`, `JerkTrace`,
-`SWORD_POSEHASH`, `BodiesPlaced`, пропуск `Detached/Severed` — со своими этапами (решено при разбивке этапа 5).
-
-5в — капсулы на экране и агенту (`src/Sword.Game/Program.cs`, `Shaders/scene.hlsl`, `Sim/ArenaExport.cs`,
-`Cutting/SkinCutPose.cs`, `Gameplay/Ragdoll/Fighter.Anim.cs`, `Sword.Combat/CharacterRig.cs` SWORD 2eab13b):
-
-| SWORD | SWORD2 |
-|---|---|
-| капсулы — проход сцены `VsSeg`/`PsLit` (`GpuSeg`: центр и `PrevPos` = `RenderPos`, поворот — `nlerp` по `gAlpha`); у живого бойца скрыты (`SEG_SKINNED`) — отладочного вида капсул нет | отладочный оверлей (решено при разбивке этапа 5): `Renderer.Debug` (движок, фаза Debug), по F7 у всех бойцов; `SEG_SKINNED` не переносится |
-| `Fighter.BodyMatrix(b, alpha)`: `Lerp(RenderPos, Pos)`, `Slerp(RenderRot, Rot)`; `KinematicBegin`: `RenderPos = Pos` до постановки тика | `ArenaView.Lerp` (прошлая постановка кинематического тела = `RenderPos`) — фокус камеры и будущие тела без позы |
-| `SkinCutPose.DrawnJoints`: поза тика `comp[j] · KinWorld(lerp корня, курса)` — так рисуется живой боец | `ArenaView.Carry` — капсулы живого бойца так же: постановка тика в показанном мире бойца |
-| `Program.cs`: `focus = Lerp(pel.RenderPos, pel.Pos, renderAlpha) with { Y = 0 }` — до тиков кадра, по доле прошлого кадра | `ArenaView.PlayerFocus` → `RtsCamera.Update` в `Input` следующего кадра |
-| `Program.Fill`: `PlayerPos` = таз `Pos` последнего тика, `Y = 0` (тень и кольцо) | `ArenaView.PlayerMarker` — таз, как его показывает кадр (записанное отличие фичи «Управление»: без интерполяции кольцо дрожит) |
-| `CharacterRig.JointSegment`: ключевые кости → по имени (`SegmentByName`) → по родителям → таз | `JointSegments.Build` — дословно; `IBodyView.JointSegment` |
-| `DuelArena.Reset` → `Build` → `AttachRig` → `PlaceBuilt` — до первого тика | `OnWorldReady` ядра → `BodySetupSystem.PlaceWorldBuilt` (5в) |
-| F1 справка, F2 профайлер, F3 ручки, F4 снимок, F5 шейдеры, F6 редактор анимаций | F7 — капсулы тел (`debug_bodies`), свободная клавиша |
-
-5г — новой логики SWORD не переносит: рельеф и приёмка. Мир бойца `KinWorld` на высоте `Terrain.Height` под корнем — на
-склоне 1,6 м, на кромках ступеней вверх и вниз (скачок 12 см за тик), на ухабах, в шаге и в стойке — держат сценарий
-`terrain`, его метрики-замеры и эталон SWORD2 `bodies.swreplay` (на 5г его ещё сверяла побитово трасса рельефа SWORD —
-снята на 7а, «Сравнения со SWORD»).
-
-**Итог переноса этапа 5** (что из SWORD 2eab13b где теперь и что отложено):
-
-| SWORD | SWORD2 | точка |
-|---|---|---|
-| `Sword.Physics/RigidBody` (поля, `SetShape`, `Place`, `Axis/EndA/EndB`), `Xpbd.RotationVector` | `Sword.Engine.Physics`: `BodyState`, `IPhysicsWorld`/`PhysicsWorld`, `PhysicsMath` — тела и сочленения за хэндлами | 5а |
-| `Fighter.Bodies` (14 тел в конструкторе бойца) | сочленение из 13 тел за `BodyRef`, хуки ECS `OnAdd/OnRemove` | 5а |
-| `Sword.Combat/BodySegs` | `Game.Contracts/BodySegs` (номера те же, 11 — место клинка) | 5а |
-| `DuelArena.PlaceBodies` (кинематическая ветка), `KinWorld`, `Terrain.Height` | `KinematicPlacementSystem` (PrePhysics), `BodyPlacement`, `ArenaTerrain` | 5б |
-| `Fighter.Build`: `Radii`, полудлины процедурной позы (`ComputeTargets`, `IdealFoot`), `PlaceBuilt` | `FighterShape`, `BodySetupSystem` (Gameplay), `StartPose` | 5б |
-| `Program.cs`: фокус камеры, тень и кольцо от таза; `SkinCutPose.DrawnJoints`; `CharacterRig.JointSegment` | `ArenaView` (`PlayerFocus`, `PlayerMarker`, `Carry`), `JointSegments`, `IBodyView.JointSegment` | 5в |
-| — (отладочного вида капсул в SWORD нет) | `Renderer.Debug`, F7, `--overlay capsules`, ID-буфер и оверлей `capture.bundle` | 5в |
-| отложено | решатель XPBD, динамика, `KinematicContacts`, `XpbdTests` — этап 7; `SegSeg` — перенесён на 6г (`Segments.SegSeg`; `SweepCapsule` в SWORD нет); клинок, `KinBase/KinTip` — сделаны на 6б отрезком `Blade` без тела ([«Бой»](../Combat/README.md)); `VisualOffset` — этап 8; `BodyPlacer`, `BodyY`, `PinFeet` — этап 9; `Severed/Detached` — этап 11 | — |
-| не переносится | живой рэгдолл (кроме длин формы при постройке — «Что взято из живого рэгдолла»), `SWORD_POSEHASH`, `SEG_SKINNED` | — |
+SWORD 2eab13b; с 7а — источник идей (решение 14). Таблицы переноса 5а–5в и итог этапа 5 — история («Откуда логика»).
+- 5а: `Sword.Physics/RigidBody` (поля, `SetShape`, `Place`, `Axis`/`EndA`/`EndB`), `Xpbd.RotationVector`, `Sword.Combat/BodySegs`,
+  `Fighter.Bodies` → `BodyState`, `IPhysicsWorld`/`PhysicsWorld`, `PhysicsMath`, `Game.Contracts/BodySegs`, сочленение за `BodyRef`.
+- 5б: `DuelArena.PlaceBodies` (кинематическая ветка), `KinWorld`, `Terrain.Height`, `Fighter.Build` (`Radii`, полудлины процедурной позы
+  постройки, `PlaceBuilt`) → `KinematicPlacementSystem`, `BodyPlacement`, `ArenaTerrain`, `FighterShape`, `BodySetupSystem`, `StartPose`.
+  Из живого рэгдолла взято ровно вычисление концов сегментов процедурной позы постройки (`ComputeTargets`, `IdealFoot`) — ради полудлин
+  капсул; мышцы, суставы, цели, равновесие не переносятся (решение 2 не нарушено).
+- 5в: `Program.cs` (фокус камеры, тень и кольцо от таза), `SkinCutPose.DrawnJoints`, `CharacterRig.JointSegment` → `ArenaView`
+  (`PlayerFocus`, `PlayerMarker`, `Carry`), `JointSegments`. Отладочного вида капсул и ID-буфера в SWORD нет — свои.
+- 7ж (идеи): массы, радиусы, клинок — `Fighter.cs:34,37,170-175`; тело клинка своё — по мечу в руке (у SWORD — 0,575 м при любом мече).
 
 ## Устройство
 
-**Подсистема Physics** (`Sword.Engine.Physics`, сторона Neutral, ссылки — Diagnostics и Geometry по матрице раздела 4) —
-API `IPhysicsWorld`, реализация `PhysicsWorld` (эталонная, AoS). Подробно — [README подсистемы](../../../../engine/Sword.Engine.Physics/README.md):
-- тела-капсулы за `BodyHandle`, сочленение — набор тел за одним `ArticulationHandle` (индекс + поколение; поколение 0 —
-  «нет»); устаревший хэндл — `InvalidOperationException` в любом вызове, кроме `IsAlive`;
-- только режим `Kinematic`: `SetShape`, `Place`, `SetKinematicTarget`, концы капсулы; шага физики нет (стадия Physics до
-  этапа 7 пуста — принцип 9);
-- интерфейс, а не класс: две реализации в одном процессе (дифференциальный прогон, раздел 8), у каждой симуляции свой
-  экземпляр; выдача слотов — часть договора (свободные — с конца списка, младшие номера первыми; удалённое сочленение
-  возвращает тела так, что следующее того же размера берёт те же слоты тем же порядком);
-- без выделений в установившемся режиме: постановка всех тел, создание и удаление сочленений прежних размеров — 0 байт
-  (массив тел сочленения остаётся за его слотом).
+**Подсистема Physics** (`Sword.Engine.Physics`, сторона Neutral, ссылки — Diagnostics и Geometry; подробно — README подсистемы): API
+`IPhysicsWorld`, реализация `PhysicsWorld`. Тела-капсулы за `BodyHandle`, сочленение — набор тел за `ArticulationHandle` (индекс +
+поколение; 0 — «нет»); устаревший хэндл — `InvalidOperationException` в любом вызове, кроме `IsAlive`. Режимы — `Kinematic` (живые:
+`SetShape`, `Place`, `SetKinematicTarget`) и `Simulated` (трупы: `Step(dt)`, суставы, контакты, толчки). Интерфейс, а не класс: у каждой
+симуляции свой экземпляр; выдача слотов — часть договора (свободные — с конца списка, младшие первыми; удалённое сочленение возвращает тела
+так, что следующее того же размера берёт те же слоты тем же порядком). В установившемся режиме — 0 байт.
 
-**Хуки ECS** (`WorldBuilder.OnAdd<T>/OnRemove<T>`, `SimulationBuilder.OnAdd/OnRemove`) — только время жизни ресурсов
-подсистем. Барьер: 1) команды буферов по порядку — каждое настоящее добавление и снятие компонента с хуком (удаление
-сущности — снятие каждого её компонента) идёт в очередь хуков, значение снятия копируется; 2) нормализованные
-срабатывания — в журналы; 3) хуки по порядку команд; 4) события. Хуки не нормализуются: «добавлен и снят на одном
-барьере» — в журналах ничего, а хуки отработали оба (добавления — над копией, которую получит и хук снятия, поэтому
-заведённое освобождается); «снят и добавлен заново» — снятия (старое значение), затем добавления. Хук добавления получает
-компонент на месте (`ref T`) и пишет в него хэндл; структуру мира не меняет — команд у него нет, немедленные операции,
-тик и переключение систем из хука — исключение (повторного входа нет). Один хук каждого вида на тип (у ресурса один
-владелец). Правила — [AGENTS.md ECS](../../../../engine/Sword.Engine.Ecs/AGENTS.md).
+**Хуки ECS** (`WorldBuilder.OnAdd<T>/OnRemove<T>`, `SimulationBuilder.OnAdd/OnRemove`) — только время жизни ресурсов подсистем. Барьер:
+команды буферов → журналы → хуки по порядку команд (каждое настоящее добавление и снятие; значение снятия копируется) → события. Хуки не
+нормализуются («добавлен и снят на одном барьере» — журналы пусты, хуки отработали оба). Хук добавления пишет хэндл в компонент на месте
+(`ref T`) и структуру мира не меняет; один хук каждого вида на тип. Правила — [AGENTS.md ECS](../../../../engine/Sword.Engine.Ecs/AGENTS.md).
 
-**Тело бойца** (`FighterBodies`): боец появляется с пустым `BodyRef` (`Fighters.Create` — и при сборке мира немедленными
-операциями, и командами арены); хук добавления заводит сочленение из `BodySegs.Bodies` = 13 тел (с 7ж — 14) и пишет хэндл в
-компонент; хук снятия (боец ушёл — PageDown, `SetEnemies` меньше, компонент снят) его освобождает. Непустой `BodyRef` при
-добавлении хук не трогает, а не живой при снятии — не освобождает: испорченный хэндл не чинится молча, его ловит
-`physics.bodyRefs`. Физика — ресурс мира `IPhysicsWorld` (для систем 5б и тестов-неисправностей), слотов — на полную
-арену: 33 сочленения и 429 тел (с 7ж — 462).
+**Тело бойца** (`FighterBodies`): боец появляется с пустым `BodyRef` (`Fighters.Create` — при сборке мира и командами арены); хук
+добавления заводит сочленение из `BodySegs.Bodies` = 14 тел и пишет хэндл; хук снятия (боец ушёл) освобождает. Непустой `BodyRef` при
+добавлении хук не трогает, не живой при снятии — не освобождает: испорченный хэндл ловит `physics.bodyRefs`. Постройка заново (R,
+возрождение, команда сцены) — то же тело. Физика — ресурс мира `IPhysicsWorld`; слотов — на полную арену (33 сочленения, 462 тела; дальше —
+удвоением); место под суставы — за слотом сочленения с его создания (`JointsReserve`: первая смерть на слоте не выделяет памяти).
 
-**Участник хеша `physics`** (`PhysicsState`): слоты сочленений (поколения, у живого — число и слоты тел), порядок
-свободных; слоты тел (поколения, у живого — сочленение, режим, форма, положение, поворот, прошлая постановка, скорости; с 7ж
-— поза начала тика, масса, обратные масса и инерция, касание земли, профиль динамики, вид толчка), порядок свободных; с 7ж —
-профили динамики мира. `Describe` — ровно эти поля: сводка, сочленения по слотам (`0v1` — тела 0…13), части `slots` и `dynamics`.
+**Тела по номерам и массы.** Тело i — сегмент i (`BodySegs.Segment`/`Body` — тождество); плоть — `BodySegs.IsFlesh` (все, кроме 11;
+`Flesh` = 13): проходы клинка и урон тело клинка пропускают. Массы (`FighterShape.Masses`): таз 12, торс 20, голова 5, плечо 2,5,
+предплечье 2, бедро 8, голень 4,5, клинок 1,4, стопа 1,2 — 74,8 кг; обратная инерция — точная капсулы (`Dynamics.CapsuleInvInertia`).
+Живому масса ничего не делает — её берут труп и толчки.
 
-**Постройка (5б, `BodySetupSystem`, Gameplay).** Реактивная по `Added<Fighter>`, до курса и разгона (`core.root-steer`):
-бойцу, построенному командой арены в этом тике (новому или заново — R), и бойцам сборки мира в тике 1 (5в: их уже поставила
-сборка мира — `BodySetupSystem.PlaceWorldBuilt` в `OnWorldReady` ядра; тик 1 ставит их ещё раз теми же значениями) — форма (радиусы
-`FighterShape.Radii`, полудлины `FighterShape.HalfLengths` от корня и курса постройки — `Transform` до `core.root-steer`) и
-капсулы без скорости по позе постройки в корне постройки (`BodyPlacement.Build`). Поза постройки — `StartPose` (ресурс-значение:
-клип и момент; −1 — поза привязки): модуль Locomotion при сборке мира ставит стойку с нулевого момента (`LegacyLocomotion.Start`
-— `FighterAnimator.Reset` → `Tick(0)` SWORD); матрицы — свой пул поз из одной позы, пересчёт только при смене ресурса (`StartPoseModel`, 5в: один на симуляцию — его
-берут постройка сборки мира, постройка командой и инвариант `physics.kinematicPose` до первого тика).
-Удалённый на том же барьере боец и боец без годного тела (не живое сочленение или не 13 тел; с 7ж — 14) пропускаются — их ловит
-`physics.bodyRefs`. С 7ж форма — с массой (`SetShape(тело, масса, радиус, полудлина)`, массы — `FighterShape.Masses`), а тело
-клинка строит постройка клинка (`core.blade-setup`) по мечу в руке (раздел «7ж»).
+**Тело клинка** (`BladeBody`): капсула от хвата — начала системы кисти hand_r (там же кончается предплечье) — до кончика клинка меча в
+руке (`WeaponInfo.BladeTip`); центр — середина, полудлина — половина (мечи пака 0,46…0,62 м, sword_1h — 0,53), радиус 0,03 м, 1,4 кг для
+всех мечей. Ось Y — вдоль клинка, X — ось кисти, самая поперечная к клинку (`BladeBody.XHint`): тело повёрнуто относительно кисти всегда
+одинаково, меч рисуется на теле клинка без снимка. Хват в системе тела — `BladeBody.GripLocal` = (0, −полудлина, 0): точка сустава
+запястья трупа. Ставится вместе с отрезком `Blade`: постройка — `core.blade-setup` (форма и `Place` без скорости по позе постройки), тик —
+`core.blade-placement` в PrePhysics (кинематическая цель по той же кисти); смена меча — новая форма и `Place` без скорости в тот же тик.
+У трупа — свободное тело: сустав запястья выключен при каждой смерти, меч падает отдельно от кисти.
 
-**Постановка тика (5б, `KinematicPlacementSystem`, PrePhysics).** Непрерывная: у каждого бойца с живой позой и годным телом
-— 13 капсул (плоти; тело клинка с 7ж ставит `core.blade-placement` вместе с отрезком клинка) на суставах позы этого тика (после
-Animation) в корне после Movement (`BodyPlacement.Tick` → `IPhysicsWorld.SetKinematicTarget`: прошлая постановка ← нынешняя,
-скорость — разность за тик, угловая — `RotationVector`/dt). 0 байт на тик; через интерфейс физики — 13 вызовов цели на бойца.
+**Постройка** (`BodySetupSystem`, Gameplay, реактивная по `Added<Fighter>`, до `core.root-steer`): бойцу, построенному в этом тике (новому
+или заново), и бойцам сборки мира в тике 1 (их уже поставила сборка мира — `BodySetupSystem.PlaceWorldBuilt` в `OnWorldReady` ядра; тик 1
+ставит их теми же значениями): тела — кинематические, профиль 0, без касания земли, суставы включены (`Ragdoll.Corpse.Revive`); форма с
+массой (`SetShape(тело, масса, радиус, полудлина)`: радиусы `FighterShape.Radii`, полудлины `FighterShape.HalfLengths` от корня и курса
+постройки — `Transform` до `core.root-steer`) и капсулы без скорости по позе постройки в корне постройки (`BodyPlacement.Build`). Поза
+постройки — ресурс-значение `StartPose` (клип и момент; −1 — поза привязки): модуль Locomotion при сборке мира ставит стойку с нулевого
+момента; матрицы — свой пул поз из одной позы (`StartPoseModel`, пересчёт только при смене ресурса; его берут постройка и
+`physics.kinematicPose` до первого тика). Удалённый на том же барьере боец и боец без годного тела (не живое сочленение или не 14 тел)
+пропускаются — их ловит `physics.bodyRefs`. Нечисловое тело трупа — постройка места заново (`core.body-rebuild`, Aftermath; «Рэгдолл»).
 
-**Вид тел** `IBodyView` (`Game.Contracts`, `ReadView`): число тел и копия капсулы (`BodySnapshot`: центр, поворот, прошлая
-постановка, скорости, радиус, полудлина; ось и концы) по `BodyRef`; с 5в — сегмент каждого сустава скелета (`JointSegment`,
-`JointCount`: `CharacterRig.JointSegment` SWORD — `JointSegments`). Для агента (5б) и клиента (5в). Метода «все тела разом в
-буфер» нет: вид только для чтения не принимает `Span` (`PublicSurfaceTests.ReadViews_OnlyRead`) — клиент берёт 13 копий
-вызовами `Body`, без выделений.
+**Постановка тика** (`KinematicPlacementSystem`, PrePhysics, непрерывная): у каждого живого бойца с позой и годным телом — 13 капсул плоти
+на суставах позы этого тика (после Animation) в корне после Movement (`BodyPlacement.Tick` → `SetKinematicTarget`: прошлая постановка ←
+нынешняя, скорость — разность за тик, угловая — `RotationVector`/dt); тело клинка — `core.blade-placement`. Мир бойца —
+`BodyPlacement.World(корень, курс)`: поворот на курс, перенос в корень, высота — `ArenaTerrain.Height` под корнем. Капсулы (суставы —
+`BodyJoints`): таз (pelvis → spine_01), торс (spine_01 → neck_01), голова (head → head + 0,22·норм(head − neck)), плечо и предплечье
+(upperarm → lowerarm → hand), бедро, голень, стопа (thigh → calf → foot → ball); центр — середина, поворот — `FromBasis(dir, right)`
+(`right` — «вправо» бойца). 0 байт на тик.
 
-**Капсулы на экране (5в).** Мир представления (`ArenaView.Extract`) снимает у каждого бойца кадра 13 капсул «как показан
-боец» (`ArenaView.Carry`): постановка последнего тика переносится из мира бойца на тике (`KinWorld`: корень, курс, рельеф под
-корнем — `Transform`) в показанный мир бойца (корень и курс между прошлым и последним тиком по доле тика) — той же позой тика в
-том же мире рисуется меш (`SkinCutPose.DrawnJoints` SWORD), поэтому капсулы стоят на Manny при любой доле тика (тест: 1,9 мкм
-против 3,1 см у интерполяции постановок). Интерполяция прошлой и нынешней постановки (`ArenaView.Lerp` — `BodyMatrix(b, α)`
-SWORD) — для камеры (ниже) и тел, которые позе не следуют (трупы, обрубки — этапы 7, 11). Рисует их отладочное рисование
-рендера (`Renderer.Debug`, ниже) в фазе Debug — после сцены и интерфейса: полупрозрачные капсулы без глубины сцены
-(«рентген»: видны поверх персонажа, персонаж — сквозь них), кромка плотнее середины; цвет — по сегменту (`ArenaClient.CapsuleColour`:
-таз, торс, голова — жёлтые; левые конечности — голубые, правые — красные; плечо и бедро темнее, стопа светлее). Показ —
-действие `debug_bodies` (F7, секция конфига `input`; F2, F3, F5, F6 заняты по SWORD) или `Sword.exe --overlay capsules` с
-первого кадра; строка в справке F1. В команды и реплей не идёт — это представление. **С 7и капсулы трупа** — его показанные тела
-(`ArenaView.Shown`: тело на физике — поза начала тика → поза тика по доле тика, застывшее кинематическое — поза тика), те же, по
-которым рисуется скин трупа; **тело на физике — с крестом в центре** (белый, касается земли — зелёный; `ArenaClient.SimulatedMark`);
-суставы тел (J) и контакты физики (K) — оверлеи `joints`, `contacts` (фича [«Рэгдолл»](../Ragdoll/README.md), «7и»).
+**Шаг физики** (7з). Стадия Physics — `core.physics-step` (`IPhysicsWorld.Step(dt)` каждый тик), затем `core.corpse-root` (корень
+мёртвого — за тазом трупа). Мир физики строится с землёй арены (`ArenaGround`: рельеф, ступени, ухабы), стеной и колоннами и двумя
+профилями динамики: 0 — по умолчанию (живые), 1 — труп (потолки 15 м/с и 40 рад/с); настройки физики — из правил рэгдолла (`RagdollRules`,
+ручки `ragdoll.*`). Живому шаг ничего не делает: его тела кинематические, их ставит поза в PrePhysics.
 
-**Камера, тень и кольцо — от таза (5в, `Program.cs` SWORD).** Фокус камеры — центр капсулы таза между прошлой и нынешней
-постановкой по доле тика (`Lerp(pel.RenderPos, pel.Pos, renderAlpha) with { Y = 0 }` SWORD; у кинематического тела
-`RenderPos` — прошлая постановка), камера следующего кадра идёт за фокусом прошлого кадра, как в SWORD. Тень и кольцо —
-центр таза, как его показывает кадр (`ArenaView.PlayerMarker`), с `Y = 0`: в SWORD — таз последнего тика без интерполяции
-(кольцо дрожит относительно плавно идущего бойца) — записанное отличие фичи «Управление» сохранено, сменилась только точка.
-Симуляцию это не меняет (клиент): хеши эталонов не зависят от камеры.
+**Участник хеша `physics`** (`PhysicsState`): слоты сочленений (поколения; у живого — число и слоты тел, суставы — родитель, ребёнок, точка
+на ребёнке, вид, пределы, ось и знак шарнира, податливость, привязка — точка на родителе и покой, включён ли; отдача `Reaction`), порядок
+свободных; слоты тел (поколения; у живого — сочленение, режим, форма, положение, поворот, прошлая постановка, скорости, поза начала тика,
+масса, обратные масса и инерция, касание земли, профиль, вид толчка), порядок свободных; профили динамики мира; проходы (`Pass`) всех
+живых пар. `state.describe physics` — ровно эти поля: сводка, сочленения по слотам (`0v1` — тела 0…13; `reaction`, `jointCount`, `jointN`
+с замером `measure`), части `slots`, `dynamics`, `passes`.
 
-**ID-буфер снимка (5в, раздел 8 плана).** Только в кадре снимка, который его заказал (`capture.bundle {"ids": true}` →
-`FrameCapture.IdsPath` → `RenderFrame.Capture`): проход `scene.ids` после `scene.opaque` рисует скинированные меши в цель
-`R32Uint` тем же вершинным шейдером (`VsSkin`: та же глубина до бита) с тестом по глубине сцены (равная проходит) —
-пиксель получает код ближайшей поверхности: `(владелец << 8) | часть` (`SkinnedMeshes.IdOf`). Владелец — поле `Owner`
-экземпляра скиннинга: номер сущности бойца + 1 (`ArenaClient.OwnerOf`; поколения в коде нет — в кадре номер у живых один, легенда
-ищет бойца кадра; номер, не помещающийся в 24 бита, — без владельца, 0, а не чужой код: `IdBufferOwner_FitsTheCode_…`); часть — сегмент тела по суставу вершины с
-наибольшим весом (`SkinnedMeshes.SetJointParts` — таблица «сустав → сегмент» из `IBodyView.JointSegment`). Земля, колонны,
-небо — 0. Рендер читает цель обратно: PNG для глаз (код — свой цвет), сырые коды (`.bin`, uint32 на пиксель) и сводку кодов
-(пикселей и рамка); легенду словами даёт игра (`IClientObservable.DescribeId`: сущность, `player`/`enemy`, сегмент,
-«левое предплечье врага 3»). Обычный кадр прохода не рисует.
+**Вид тел** `IBodyView` (`Game.Contracts`, `ReadView`): число тел и копия тела (`BodySnapshot`: центр, поворот, прошлая постановка,
+скорости, радиус, полудлина, ось и концы, поза начала тика, масса, режим, профиль, касание земли; `World` — система тела), сегмент каждого
+сустава скелета (`JointSegment`, `JointCount`). Для агента и клиента. Метода «все тела разом в буфер» нет (вид только для чтения не
+принимает `Span`) — клиент берёт копии вызовами `Body`, без выделений.
 
-**Оверлей капсул снимка.** `capture.bundle {"overlays": ["capsules"]}` (и виды манифеста — `views[].overlays`, App рисует их
-поверх кадра — `--overlay`): игра рисует капсулы и подписи бойцов («игрок», «враг 3») в отдельный слой снимка (`Rgba8`,
-прозрачный), рендер кладёт его поверх цвета кадра в свой PNG (`…overlay-capsules.png`); цвет кадра остаётся без него.
-Капсулы на снимке — «как показан боец»: при доле тика 1 (пауза агента, виды фичи — ровно K тиков на кадр) это ровно постановка
-последнего тика (`physics.bodies`, тест `ShownCapsules_AtAlphaOne_…`), при дробной — она же в показанном мире бойца
-(сдвиг и поворот бойца за долю тика); сверять оверлей с числами `physics.bodies` — на паузе (`docs/agent-playbook.md`).
+**Капсулы на экране.** Мир представления (`ArenaView.Extract`) снимает капсулы бойцов «как показан боец» (`ArenaView.Carry`): постановка
+последнего тика, перенесённая из мира бойца на тике в показанный мир (корень и курс между прошлым и последним тиком по доле тика), — той же
+позой в том же мире рисуется меш, поэтому капсулы стоят на Manny при любой доле тика (1,9 мкм). Капсулы трупа — его показанные тела
+(`ArenaView.Shown`: тело на физике — поза начала тика → поза тика по доле тика, застывшее — поза тика), тело на физике — с крестом в центре
+(белый, касается земли — зелёный). Рисует отладочное рисование рендера (`Renderer.Debug`, фаза Debug, после сцены и интерфейса):
+полупрозрачные капсулы без глубины сцены («рентген»), кромка плотнее середины; цвет по сегменту (`ArenaClient.CapsuleColour`: таз, торс,
+голова — жёлтые, левые конечности — голубые, правые — красные, плечо и бедро темнее, стопа светлее; клинок — белый). Показ — действие
+`debug_bodies` (F7) или `Sword.exe --overlay capsules` с первого кадра; в команды и реплей не идёт. Без F7 и без заказанного слоя капсул
+`Extract` читает только таз игрока (тень, кольцо, камера). Суставы (J) и контакты (K) — «Рэгдолл».
 
-**Инварианты**: `physics.finite` (после Physics: у живых тел всё конечно, повороты единичные, форма не отрицательна; стадия
-Physics до этапа 7 пуста — после неё видно ровно то, что поставили Gameplay и PrePhysics, поэтому второй проверки после
-PrePhysics не нужно); `physics.kinematicPose` (5б, после PrePhysics: центр каждой капсулы живого бойца — не дальше 0,1 мм от
-середины её суставов в мире бойца, ось — вдоль них: косинус не меньше 1 − 10⁻⁶); `physics.kinematicSpeed` (5б, после
-PrePhysics: скорость капсулы относительно бойца — прошлая постановка, перенесённая вместе с миром бойца из `PrevTransform` в
-`Transform`, против нынешней — не больше 30 м/с, угловая поперёк оси капсулы — не больше 150 рад/с: с 6в вращение вокруг своей
-оси не считается — капсулу оно не сдвигает, а в ударах пака доходит до 333 рад/с из-за вырожденной опорной оси поворота капсулы:
-плечо вдоль «вправо» бойца, ниже — «Известные ошибки»); `physics.bodyRefs` (после End: у каждого
-бойца есть `BodyRef` из 13 тел, каждый `BodyRef` — на живом сочленении, у сочленения ровно один владелец — нет общих и ничьих).
-Нечисловые значения `kinematic*` пропускают — их называет `physics.finite`. Проверка «сейчас» (`invariant.run`) посреди тика
-до PrePhysics (`time.break` на Begin…Movement — корень, курс и поза уже этого тика, капсулы — прошлого) `physics.kinematicPose`
-не сверяет (найдено при проверке 5б). До первого тика (свежий сеанс, `time.seek 0`) с 5в сверяет — с позой постройки
-(`StartPose`), по которой тела поставила сборка мира: поза бойца до первого тика — поза привязки (её считает тик 1). На 5б до
-первого тика проверка пропускалась (тела ставил тик 1) — пропуск убран, тест-неисправность `RunNow_BeforeFirstTick_ChecksWorldBuiltBodies`.
-Исправления после Пд (решение пользователя): `physics.finite`, `physics.kinematicPose`, `physics.kinematicSpeed` — тяжёлые
-(`InvariantCost.Heavy`: медиана в тике толпы 0,0045, 0,0116, 0,0099 мс) — **в живой игре раз в 4 тика** (Sword.exe; в тестах,
-`feature.verify`, Headless и `--replay` — каждый тик, неисправности `GameInvariantTests` ловятся на своём тике); `physics.bodyRefs`
-(0,0004) — каждый тик. Все три без состояния между тиками (скорость — по `PrevPosition` тела и `PrevTransform`), поэтому период их
-не ломает; нарушение, которое держится, в живой игре видно не позже чем через 3 тика
-(`GameInvariantTests.LiveGame_HeavyEveryFourTicks_PersistentFaultCaughtWithinPeriod`). Капсулы в кадре App без F7 не читаются
-(`ArenaView.Extract` — только таз игрока: тень, кольцо, камера; итог `--json` `bodies.capsules` — 0), с F7, `--overlay capsules`
-и в снимке со слоем `capsules` (`capture.bundle` — заказ известен до Extract) — все, как раньше («Разбор Пд», вопрос 5).
-С 7ж: `physics.finite` проверяет и позу начала тика, массу, обратные массу и инерцию; `physics.kinematicPose` сверяет и тело клинка
-(хват — начало кисти, конец — кончик меча в руке, полудлина — меча в руке) и пропускает мёртвых (их тела уже не по позе: сдвиг
-командой сцены, труп — 7з); `physics.kinematicSpeed` — тело клинка со своим пределом 100 м/с («7ж»); `physics.bodyRefs` — 14 тел.
-С 7з `physics.kinematicPose` и `physics.kinematicSpeed` проверяют только кинематические тела (тела трупа — на физике; их скорости и
-суставы — инварианты трупа `physics.simulatedSpeed`, `physics.joints` и др., фича «Рэгдолл», «7з»).
+**Камера, тень и кольцо — от таза.** Фокус камеры — центр капсулы таза между прошлой и нынешней постановкой по доле тика (`Lerp`, как
+SWORD; у кинематического тела прошлая постановка — `RenderPos`), камера следующего кадра идёт за фокусом прошлого кадра. Тень и кольцо —
+центр таза, как его показывает кадр (`ArenaView.PlayerMarker`), `Y = 0`. Симуляцию это не меняет.
 
-## 7ж: тело клинка, массы, хеш и вид тел
+**ID-буфер снимка** (только в кадре, который его заказал — `capture.bundle {"ids": true}`): проход `scene.ids` после `scene.opaque`
+рисует скинированные меши в `R32Uint` тем же вершинным шейдером с тестом по глубине сцены — пиксель получает код `(владелец << 8) |
+часть` (`SkinnedMeshes.IdOf`): владелец — номер сущности бойца + 1 (не помещается в 24 бита — 0), часть — сегмент по суставу вершины с
+наибольшим весом (`IBodyView.JointSegment`); земля, колонны, небо — 0. Итог — PNG, сырые коды (`.bin`), сводка кодов; легенду словами даёт
+игра (`IClientObservable.DescribeId`: «левое предплечье врага 3»). **Оверлей капсул снимка** (`{"overlays": ["capsules"]}`, виды манифеста —
+`views[].overlays`): капсулы и подписи бойцов — отдельным прозрачным слоем поверх цвета кадра в свой PNG; при доле тика 1 (пауза агента,
+виды фичи) — ровно постановка последнего тика (`physics.bodies`).
 
-Точка 7ж этапа 7 (план этапа — `artifacts/plans/stage-7/PLAN.md` §4; решение 3 этапа; SWORD — источник идей, не образец:
-`Fighter.cs:34,37,170-175` — массы, радиусы, клинок). Команды сцен и привязка скина той же точки — фича [«Рэгдолл»](../Ragdoll/README.md).
+**Инварианты тел** (инварианты трупа — «Рэгдолл»):
+- `physics.finite` (после Physics): у живых тел всё конечно (и поза начала тика, масса, обратные масса и инерция), повороты единичные,
+  форма не отрицательна.
+- `physics.kinematicPose` (после PrePhysics; кинематические тела живых): центр капсулы плоти — не дальше 0,1 мм от середины её суставов в
+  мире бойца, ось — вдоль них (косинус ≥ 1 − 10⁻⁶); тело клинка — хват в начале кисти, конец — кончик меча в руке, полудлина — меча в руке.
+  До первого тика сверяет с позой постройки; проверка «сейчас» посреди тика до PrePhysics — не сверяет.
+- `physics.kinematicSpeed` (после PrePhysics; кинематические тела): скорость капсулы относительно бойца (прошлая постановка перенесена
+  вместе с миром бойца из `PrevTransform` в `Transform`) — не больше 30 м/с (тело клинка — 100 м/с), угловая поперёк оси — не больше
+  150 рад/с (вращение вокруг своей оси капсулу не сдвигает и не считается).
+- `physics.bodyRefs` (после End): у каждого бойца `BodyRef` из 14 тел на живом сочленении, у сочленения ровно один владелец.
 
-- **Тела — по номерам сегментов.** Сочленение бойца — 14 тел, тело `i` — сегмент `i` (`BodySegs.Segment`/`Body` — тождество,
-  `BodySegs.Bodies` = 14); 11 — тело клинка. Плоть (цели ударов и проб, раны) — `BodySegs.IsFlesh` (все, кроме 11; `BodySegs.Flesh`
-  = 13): проходы клинка (`StrikeSystems`) и урон (`DamageSystems`) пропускают тело клинка — порядок сложения охвата жертвы тот
-  же (сегменты 0…10, 12, 13), поведение боя не изменилось (доказано, «Эталоны и хеши»). `BodySegs.Find("blade")` — 11.
-- **Тело клинка — капсула по мечу в руке** (`BladeBody` в `Game.Contracts`; не как в SWORD — там 0,575 м при любом мече): ось —
-  отрезок от **хвата** до кончика клинка меча (`WeaponInfo.BladeTip`) в системе кисти hand_r. Хват — начало системы кисти (сустав
-  hand_r — там же кончается предплечье: `lowerarm_r → hand_r`), в системе тела — нижний конец оси `BladeBody.GripLocal` = (0, −полудлина, 0):
-  **точка сустава запястья трупа для 7з** (родитель — предплечье, ребёнок — клинок). Центр — середина, полудлина — половина длины
-  (мечи пака: хват — кончик 0,93…1,23 м, полудлина 0,46…0,62; sword_1h — 1,07 и 0,53), радиус 0,03 м (отправная точка SWORD; ручка — 7з), масса 1,4 кг для всех мечей (решение 3). Поворот тела —
-  ось Y вдоль клинка, X — ось кисти, самая поперечная к клинку (`BladeBody.XHint`, `AnimMath.FromBasis`): тело клинка повёрнуто
-  относительно кисти всегда одинаково — меч рисуется на теле клинка без снимка (7и: кисть = (тело клинка в кисти)⁻¹ × тело).
-  Почему так: хват в начале кисти совпадает с концом капсулы предплечья — сустав запястья без смещения; ось по самому мечу — выпавший
-  меч лежит там, где лежит его меш; капсула закрывает и ладонь (у предплечья её нет).
-- **Постановка — вместе с отрезком `Blade`**: постройка — `core.blade-setup` (форма меча и `Place` без скорости по позе постройки,
-  сразу после тел плоти), тик — `core.blade-placement` в PrePhysics (кинематическая цель по той же кисти — скорость разностью, как у
-  тел плоти). Смена меча (T, «взять меч», меч места сцены) — в тот же тик новая форма и `Place` без скорости: фантомной скорости от
-  старого меча к новому нет (как у отрезка). Мёртвый замирает: тело клинка не ставится (меч в руке до перехода в труп, выпадение — 7з).
-  С 7з тело клинка трупа — свободное тело на физике: сустав запястья выключен при каждой смерти, меч падает отдельно от кисти.
-  Отрезок `Blade` — те же выражения, что до 7ж (эталоны: клинки всех бойцов тик в тик).
-- **Массы — `FighterShape.Masses`** (отправные — массы SWORD): таз 12, торс 20, голова 5, плечо 2,5, предплечье 2, бедро 8, голень 4,5,
-  клинок 1,4, стопа 1,2 — 74,8 кг; обратная инерция — точная капсулы (`Dynamics.CapsuleInvInertia`, 7б). Живому масса ничего не делает
-  (тела кинематические) — её возьмут труп (7з) и толчки (7д, 7к). Перегрузка `SetShape` без массы игрой больше не используется.
-- **Хеш и описание `physics`** — все поля тела 7б (поза начала тика, масса, обратные масса и инерция, касание земли, профиль, вид
-  толчка) и профили динамики мира (часть `dynamics` в `Describe`); суставы, проходы и отдача (7в, 7д) — на 7з (до слияния их члены —
-  заготовки; с 7з — в хеше и описании, ниже «7з»). Новый участник хеша `skin` — привязки скина мёртвых (фича «Рэгдолл»).
-- **Вид тел** — `BodySnapshot` + поза начала тика (для интерполяции тела на физике клиентом, 7и), масса, режим (`Simulated`), профиль,
-  касание земли; `BodySnapshot.World` — система тела (привязка скина × тело).
-- **`physics.kinematicSpeed` — свой предел тела клинка 100 м/с.** Центр капсулы клинка — в полуметре от кисти и дальше: в ударе он
-  быстрее руки. Замер 7ж (эталонный пак, 32 бьющих врага и игрок: удары, уколы, жесты, рывки, смена меча; 4000 тиков, зёрна 1–3):
-  до 49,4 м/с относительно бойца (плоть — до 20,2 при пределе 30), поперёк оси — до 61,8 рад/с (предел 150 общий); предел — ~2× к
-  худшему. Предел 30 м/с плоти дал бы 36 нарушений в `duel` и 529 в `crowd` фичи `combat`.
-
-Отличия от плана этапа и почему: хват — начало кисти, а не основание клинка (22 см, у гарды): сустав запястья трупа — в конце
-предплечья; «кинематически вместе с `Blade`» — та же система, а не соседняя: одна кисть на тик; смена меча — постановка без скорости,
-а не цель (иначе одна фантомная скорость до 30 м/с).
-
-## 7з: шаг физики, земля арены, хеш суставов
-
-Точка 7з этапа 7 — труп на физике; устройство перехода в труп, суставы бойца, ручки и инварианты трупа — фича
-[«Рэгдолл»](../Ragdoll/README.md), «7з». Здесь — что изменилось у тел:
-
-- **Стадия Physics больше не пуста**: `core.physics-step` — `IPhysicsWorld.Step(dt)` каждый тик, затем `core.corpse-root` (корень
-  мёртвого — за тазом трупа). Мир физики строится с землёй арены (`ArenaGround`: рельеф, ступени, ухабы), стеной и колоннами и двумя
-  профилями динамики: 0 — по умолчанию (живые, кинематика), 1 — профиль трупа (потолки 15 м/с и 40 рад/с — ручки «Рэгдолл»).
-  Настройки физики (трение, бюджет толчка, скорость выталкивания, податливость пределов) — из правил рэгдолла (ресурс `RagdollRules`,
-  ручки `ragdoll.*`). Живому шаг ничего не делает: его тела кинематические, их ставит поза в PrePhysics, как раньше (эталоны — ниже).
-- **Возрождение и постройка заново** (`core.body-setup`): тела — кинематические, профиль 0, без касания земли, суставы включены
-  (`Ragdoll.Corpse.Revive`), затем постановка по позе без скорости. Нечисловое тело трупа — постройка места заново
-  (`core.body-rebuild`, Aftermath).
-- **Хеш `physics`** — у каждого живого сочленения суставы (число; у каждого — родитель, ребёнок, точка на ребёнке, вид, пределы, ось и
-  знак шарнира, податливость; привязка — точка на родителе и покой; включён ли) и отдача (`Reaction`); проходы (`Pass`) всех живых пар
-  `i ≠ j`. `state.describe physics` — то же: у сочленения `reaction`, `jointCount`, `jointN` (с замером `measure`: ошибка точки, сгиб,
-  наклон, скручивание, выход), часть `passes` (непустые проходы).
-- **Место под суставы — за слотом сочленения с его создания** (физика, `JointsReserve`): первый `SetJoints` бойца посреди игры (первая
-  смерть на слоте) не выделяет памяти — иначе 3,5 КБ на первую смерть каждого слота (`DamageContentTests.Fight_…_DoesNotAllocate`,
-  бюджет `crowd` фичи «Бой»: 19,6 Б/тик); тест физики `JointsSolverTests.FirstSetJoints_OfTree_AfterCreation_DoesNotAllocate`.
-
-## Решено на 5а
-
-- **Хуки — после журналов, до событий** (раздел 5: «записи в журналы; хуки»). Хук видит мир после всех команд барьера
-  (у нового бойца уже все компоненты), и ему не нужна нормализация: очередь в порядке команд. Цена: запись журнала
-  `Removed<T>` делается при проигрывании команды, поэтому в случае «был до барьера — снят — добавлен — снят» на одном
-  барьере её значение — последнего снятия по командам, без того, что туда записал хук добавления того же барьера
-  (для журналов этого добавления не было). Подписчиков `Removed<BodyRef>` нет; хэндл в такой записи всё равно мёртвый.
-- **Постройка заново (R) — то же тело.** `Fighters.Rebuild` снимает и ставит метку `Fighter`, а `BodyRef` не трогает:
-  как `Fighter.Build` SWORD над теми же `Fighter.Bodies` (тела переставляются, а не создаются), а имя и номер сущности у
-  агента переживают сброс — их переживает и хэндл тела. Новое тело дало бы лишний оборот слотов и хешей без смысла:
-  «чистое» состояние при постройке — это форма и постановка без скорости (`PlaceBuilt`), их даёт 5б по `Added<Fighter>`.
-  Место, убавленное и прибавленное снова (PageDown → PageUp), — новая сущность и новое тело (тот же слот, новое поколение).
-- **Форма до 5б не задаётся.** Тело без формы стоит в начале координат — это состояние тела SWORD между конструктором
-  `Fighter` и `Build` (`new RigidBody()`), а не временное значение: форму (радиусы `Fighter.Radii`, длины из `Build`) и
-  первую постановку задаёт постройка — 5б. Выдумывать форму до постройки, чтобы потом её «подменить», не стали.
-- **Место под клинок.** Номера сегментов — SWORD (от них зависят маски отрубленного, попадания, ID-буфер и трассы — сняты на 7а),
-  поэтому 11 остаётся за клинком, но `Weapon` не объявлен и тела клинка у бойца нет: сочленение — 13 тел по возрастанию
-  номеров (`BodySegs.Segment`, `BodySegs.Body`). Где будет капсула клинка (в сочленении бойца или у сущности оружия,
-  раздел 9), решит этап 6; тела бойца при этом не перенумеровываются. Решено при разбивке этапа 6: физического тела у клинка
-  до этапа 7 нет — на 6б клинок — отрезок `Blade` в компоненте бойца (PrePhysics, после капсул), `Weapon` = 11 объявлен.
-- **Позы остаются на реактивных системах** (решено при разбивке): хуки — только для тел.
-- **Физика — ресурс мира.** Системам 5б она нужна как ресурс; на 5а его берут тесты-неисправности. Наружу (клиенту,
-  агенту) — только хеш-участник и инварианты; вид тел для клиента (`IBodyView`) — 5в.
-
-## Решено на 5б
-
-- **Постройка — в Gameplay по `Added<Fighter>`, тик — в PrePhysics.** Постановка при постройке (`PlaceBuilt`) — отдельная
-  реактивная система `BodySetupSystem` до `core.root-steer` (корень и курс постройки — ещё в `Transform`), как предлагает
-  раздел 9 плана (`FighterSetupSystem` ← `PlaceBuilt`); тик — `KinematicPlacementSystem` в PrePhysics (раздел 9).
-  Постройка сборки мира ставится в тике 1 — поза постройки к моменту сборки мира ещё не задана модулем (его `OnWorldBuilt`
-  идёт после ядра), а поза бойца до первого тика и так — поза привязки. (Пересмотрено на 5в: хук `OnWorldReady` ставит тела
-  сборки мира до первого тика.)
-- **Поза постройки — ресурс `StartPose` от слоя позы.** SWORD ставит тело при постройке по позе `FighterAnimator.Reset()` →
-  `Tick(0)` (стойка с нулевого момента); в SWORD2 её знает слой позы — модуль Locomotion, ядро — нет. Модуль при сборке мира
-  задаёт клип и момент (`LegacyLocomotion.Start`), ядро считает по ним матрицы своим пулом; без модуля — поза привязки (не
-  код «на случай отсутствия»: это поза без слоёв, как у позы тика без модуля). От неё зависит скорость капсул в тике постройки
-  — трасса SWORD сверяла её побитово (проверено порчей момента на 0,001 с — трасса падала на тике 1; снята на 7а, теперь
-  её держат эталоны SWORD2 — хеш `physics` тика 1).
-- **Форма — только вычисление длин из `Fighter.Build`** (`FighterShape`), с состоянием кинематического бойца после `Build`
-  (выше). Расхождение появится, когда в SWORD2 будут смерти: у SWORD мёртвый боец тикает живым рэгдоллом (`BeginTick` меняет
-  `_torsoYaw`, `HandLocal`) и возрождённый после смерти получает форму с этим состоянием (`Build` не сбрасывает `_torsoYaw`).
-  Решать на этапе 7 (трупы — без живого рэгдолла): открытый вопрос.
-- **Инварианты `physics.kinematicPose` и `physics.kinematicSpeed` добавлены, `physics.finite` не перенесён.** Поза ловит
-  пропущенную постановку и тело, сдвинутое после неё (тест-неисправность `BodyMovedAfterPlacement`); скорость относительно
-  бойца — постройку без постановки (`BodyJumpBeforePlacement`: тело «прилетает» на 5 м — 600 м/с) и обменявшиеся `BodyRef`
-  двух бойцов (`SwappedBodyRefs` — `physics.bodyRefs` его не видит: у каждого по одному телу). Абсолютная скорость капсулы для
-  инварианта не годится: толчок корней при спауне внахлёст, колонна или ступень — законный скачок мира бойца (в первой версии
-  предел 30 м/с на абсолютную скорость ловил спаун внахлёст). Пределы — по замеру толпы SWORD2 (3000 тиков, до 33 бойцов):
-  относительно бойца до 11,0 м/с, угловая до 40,3 рад/с; пределы — около 3×.
-- **Вид тел `IBodyView` — уже на 5б**, а не на 5в: агенту нужен инструмент тела по сегментам (ниже), а данные тел вне ECS
-  агент видит только через вид только для чтения. Клиент 5в берёт тот же вид (прошлая и нынешняя постановка — в
-  `BodySnapshot`).
-- **Вычисляемые поля для метрик** — `IEntityFields` в Introspection (`FeatureEnvironment.Fields`, `AgentHost.Fields`),
-  у игры — `BodyFields`: метрики манифеста читают `Body.<сегмент>.<поле>` как поле компонента. Иначе метрику против трассы
-  SWORD по капсулам не записать: тела — не компоненты (метрики против трассы сняты на 7а; вычисляемые поля читают свои
-  метрики-замеры). В условия проверок и `watch.add` не расширено (не понадобилось: проверки капсул — инварианты).
-- **Трасса SWORD — хеш тела на бойце-тик плюс выборка**, а не все числа (README трассы: 5,4 МБ вместо ~160 МБ); побитовость та
-  же — хеш по битам всех 22 чисел 13 капсул. (Трассы и программа трассы сняты на 7а.)
-
-## Решено на 5в
-
-- **Тела сборки мира — при сборке мира.** Хук Runtime `SimulationBuilder.OnWorldReady` (после всех `OnWorldBuilt` ядра и
-  модулей): ядро ставит тела по позе постройки, которую модуль Locomotion задаёт при сборке мира, — как `PlaceBuilt` SWORD
-  после `Reset`/`AttachRig`. `BodySetupSystem` в тике 1 видит записи `Added<Fighter>` сборки мира и ставит тех же бойцов ещё
-  раз: корень, курс и поза постройки те же, `Place` переписывает все поля — итог тот же. Меняется только участник `physics`
-  на тике 0 (доказано против `04cf57e`, «Эталоны и хеши»). Пропуск `physics.kinematicPose` до первого тика убран: до первого
-  тика сверка с позой постройки. На экране тел до первого тика нет и так: клиент узнаёт о бойцах из очереди кадра, записи
-  сборки мира приходят с экспортом тика 1 (`Fighters_ComeFromFrameQueue_AfterFirstTick`).
-- **Капсулы — «как показан боец», а не интерполяция постановок.** Интерполяция прошлой и нынешней постановки (`BodyMatrix(b, α)`
-  SWORD) отстаёт от меша на (1 − доля тика) изменения позы за тик — до 3,1 см на стопах при беге (тест), и отставание меняется
-  от кадра к кадру (дрожь при 144 кадрах/с). Меш рисуется позой последнего тика в интерполированном мире бойца
-  (`SkinCutPose.DrawnJoints`), капсулы — так же: постановка тика, перенесённая в показанный мир (1,9 мкм от суставов меша).
-  Прошлая постановка в виде нужна камере (фокус — `Lerp` таза, как SWORD) и телам без позы (этапы 7, 11).
-- **Отладочное рисование — движка** (`Renderer.Debug`: отрезки, капсулы, текст в мире), фаза Debug после интерфейса (раздел 6):
-  копит примитивы прямо в кольца кадра (65 536 отрезков, 4096 капсул, 512 подписей), проход — «всё накопленное поверх цели»
-  (задний буфер или слой снимка), капсула — сетка из `SV_VertexID` (16 × 9 полос, 864 вершины), один вызов на все капсулы и один
-  на все отрезки; текст — проекцией точки мира, UI-проходом. Без глубины сцены («рентген»), видимая сторона — по нормали (не по
-  обходу треугольников). Полупрозрачные капсулы, а не проволочные: читаются поверх персонажей и друг сквозь друга.
-- **ID-буфер — владелец и часть, коды легенды даёт игра.** Движок знает только `Owner` экземпляра и часть сустава; сущность,
-  сегмент и название по коду — `IClientObservable.DescribeId` игры (клиент движка об игре не знает). Глубина — тот же вершинный
-  шейдер и тест «равная проходит» по глубине сцены: без своей цели глубины и без повторной отрисовки сцены. Непрозрачные
-  конвейеры — без смешивания вовсе (`BlendDescription.Opaque` Vortice включал его как One/Zero, и конвейер с целью `R32_UINT`
-  не создавался).
-- **Слой снимка, а не второй кадр:** оверлей рисуется в отдельную прозрачную цель того же кадра и накладывается при записи
-  PNG — снимок цвета остаётся как видит игрок.
-
-## Решено на 5г
-
-- **Трасса рельефа SWORD, а не только замеры.** Сценарий `terrain` манифеста (склон, ступени, ухабы) был на 5б сверен лишь
-  замерами SWORD2; на 5г та же программа трассы в режиме толпы по своему входу (`terrain.input.json`, ноль врагов) сняла
-  `anim-terrain.trace.json` — без изменения кода программы. Сценарий `terrain` расширен (спуск шагом по ступеням, бег по
-  ухабам, 2800 тиков) и теперь совпадает со сценарием трассы: метрика `sword-terrain-pelvis` (таз игрока, 8400 значений,
-  допуск 0) и тест трассы рельефа (хеш 13 капсул каждого тика, выборка, форма). Совпало
-  с первого снятия. Тест толпы переписан на общий `VerifyAgainstTrace` (сценарий — запись `CrowdScenario`) без изменения
-  проверок; прежние трассы после пересборки программы — побайтно те же. (Снято на 7а: трассы, программа трассы, метрика
-  `sword-terrain-pelvis`, тесты трасс — «Сравнения со SWORD»; сценарий `terrain` остался со своими проверками и
-  метриками-замерами.)
-- **Бюджет кадра с оверлеем — поле `budgets[].frame.overlays`** (расширение манифеста). Без него бюджет кадра фичи `bodies`
-  повторял бы бюджет `enemies`: всё, что фича добавляет в кадр, — проход капсул `debug.bodies`, а он рисуется только с
-  оверлеем. Разбор — как у `views[].overlays`, App — `--overlay` на весь замер; итог замера называет проходы последнего кадра
-  (видно, что `debug.bodies` нарисован). Два бюджета на одной записи сценария `crowd` — без капсул и с капсулами.
-- **История капсул по тикам — вычисляемые поля в наблюдениях** (`watch.add`, `replay.observe`, `entity.history`): на 5б это
-  было отложено «до первой надобности»; на 5г окна метрик (скачки капсул на кромках ступеней, наибольшая угловая скорость на
-  развороте, стойка) иначе пришлось бы искать шагами `time.step` + `physics.bodies` и выписывать числа руками — признак
-  нехватки инструмента («Агентский доступ»).
-- **Инварианты манифеста** — все, что держатся у бойцов с телами: `ecs.*`, `physics.*`, `animation.*`, `locomotion.poses`,
-  `arena.slots`, `movement.rootOverlap` (было `ecs.finite`, `physics.*` — ужесточено).
-- **Скачок капсул на кромке ступени — записанное поведение SWORD**, а не ошибка: мир бойца стоит на высоте рельефа под корнем,
-  ступень — разрыв высоты, за тик капсулы (и меш) переходят на 12 см (14,4 м/с поверх шага; метрика `step-edge-speed`).
-  Так SWORD без модуля постановки стоп (`SWORD_FOOTIK=off` — путь трасс, снятых на 7а; по умолчанию модуль FootPlacement
-  SWORD сглаживает высоту тела на кромках): плавность даст перенос постановки стоп и высоты тела (`BodyPlacer`, `BodyY` — этап 9).
-  `physics.kinematicSpeed` меряет скорость относительно бойца, поэтому скачок мира его не нарушает.
-- **Эталон SWORD2 `bodies.swreplay`** — предложение (запись сценария `terrain`) и команды; зафиксирован после подтверждения
-  («Эталон SWORD2», «Решено при приёмке этапа 5»).
-
-## Решено при приёмке этапа 5
-
-Пользователь проверил этап в игре и принял рекомендации отчёта 5г:
-- **Эталон `bodies.swreplay`** — запись сценария `terrain` (склон, ступени вверх бегом и вниз шагом, стойка на ярусе, ухабы);
-  толпу с телами и команды арены покрывает `enemies.swreplay`, поэтому `arena`/`crowd` не записываются. Зафиксирован
-  («Эталон SWORD2»).
-- **Капсулы «как показан боец»** — постановка последнего тика в интерполированном мире бойца, а не интерполяция двух
-  постановок `BodyMatrix(b, α)` SWORD (она отстаёт от меша до 3,1 см; «Решено на 5в») — подтверждено.
-- **Рывок бойца и капсул на кромке ступени** (12 см за тик, как SWORD без модуля постановки стоп, `SWORD_FOOTIK=off`) —
-  принят до этапа 9 (`BodyPlacer`, `BodyY`; «Ограничения», метрика `step-edge-speed`).
-- **Скорость капсул от выталкивания корня при расстановке внахлёст** (до 35 м/с на тике 1, «Ограничения») — кинематическим
-  телам безвредна; решить на этапе 7: её унаследуют трупы.
-- **Значение `Removed<T>` при «снят — добавлен — снят» на одном барьере** («Решено на 5а»), **дословный
-  `FighterShape.IdealFoot`** (форма при постройке, «Откуда логика») и **хуки модуля при выключении модуля на ходу** — не
-  менять: изменение сейчас не даёт пользы, но может незаметно изменить поведение журналов ECS. Хуки при выключении модуля —
-  решить вместе с первой деактивацией модуля на ходу (Runtime, «Не сделано»).
-- **Разовые ~4 МБ выделений App при дробной доле тика** («Бюджеты и замеры», 5в), **чтение 429 капсул каждый кадр, когда они
-  скрыты** (мир представления снимает их всегда, 0 Б; разница кадра с капсулами и без — ~0,01 мс вместе с рисованием) и
-  **разовый кадр JIT ~6,5 мс** (с этапа 4, «Известные ошибки» фичи [`enemies`](../Enemies/README.md)) — в этап П плана
-  («Диагностический профайлер», перед этапом 6). 0 Б на тик — держится.
-
-## Сравнения со SWORD
-
-Сравнения со SWORD сняты на 7а (решение 14, свой путь). Было (5б–5г, приёмка): программа трассы SWORD
-(настоящий код SWORD 2eab13b на эталонном паке), трассы `anim-crowd.trace.json` (толпа до 33 бойцов с командами арены —
-53 400 бойце-тиков) и `anim-terrain.trace.json` (игрок на рельефе — 2800 тиков), тесты трасс толпы и
-рельефа (хеш 13 капсул каждого бойца каждого тика, таз, выборка, формы построек), метрики
-`sword-crowd-pelvis-player`, `sword-crowd-pelvis-enemy-1`, `sword-crowd-pelvis-enemy-12` (на `enemies.swreplay`),
-`sword-terrain-pelvis` (сценарий `terrain`) и `sword-terrain-pelvis-reference` (на `bodies.swreplay`) — таз против трассы
-побитово; тесты «как код SWORD» (`PhysicsWorldTests` — новое тело `new RigidBody()`, форма и концы `RigidBody`, цель тика
-`PlaceBodies`; `BodiesTests.SegmentNumbering_…`) переписаны своими ожиданиями. Поведение на 7а не менялось — хеши
-эталонов SWORD2 те же.
-
-Регрессию теперь держат: эталоны SWORD2 `bodies.swreplay` (рельеф) и `enemies.swreplay` (толпа, команды арены) — хеши
-участников `animation`, `ecs`, `physics` каждого тика (`ReferenceReplaysTests`, `verify.ps1` `replay-smoke`, сценарии
-`reference-terrain` и `reference` манифеста); проверки сценариев `arena`, `terrain`, `crowd`, `turn`; свои метрики-замеры
-(скорости капсул на бегу, на кромке ступени, в стойке, в толпе, угловая на развороте; высота таза на склоне и стопы на
-ярусе); инварианты `physics.*` и тесты свойств (`PhysicsWorldTests`, `BodiesTests`).
+Нечисловые значения `kinematic*` пропускают — их называет `physics.finite`. Тяжёлые (`finite`, `kinematicPose`, `kinematicSpeed`) в живой
+игре — раз в 4 тика (в тестах, `feature.verify`, Headless и `--replay` — каждый тик); состояния между тиками у них нет, поэтому период их
+не ломает: нарушение, которое держится, видно не позже чем через 3 тика.
 
 ## Настройки
 
-Действие `debug_bodies` (секция конфига `input`, по умолчанию F7) — капсулы тел поверх персонажей; `Sword.exe --overlay
-capsules` — с первого кадра. Других настроек нет. Слотов физики на старте — на полную арену (`ArenaRules.MaxFighters` × `BodySegs.Bodies`), дальше — удвоением. Поза
-постройки — ресурс `StartPose` (задаёт модуль Locomotion при сборке мира; не ручка).
+Действие `debug_bodies` (секция `input`, по умолчанию F7) — капсулы тел поверх персонажей; `Sword.exe --overlay capsules` — с первого
+кадра. Слотов физики на старте — на полную арену (`ArenaRules.MaxFighters` × `BodySegs.Bodies`), дальше — удвоением. Поза постройки —
+ресурс `StartPose` (задаёт модуль Locomotion; не ручка). Настройки физики (трение, выталкивание, бюджет толчка, потолки трупа, ограничения
+при смерти) — ручки «Рэгдолл» (секция `ragdoll`).
 
 ## Зависимости
 
-Ядро игры (`GameCore`): бойцы (`Fighters.Create`), арена, рельеф (`ArenaTerrain`), поза бойца (пул поз). Подсистемы —
-Physics, ECS (хуки), Animation (пул поз, `AnimMath`). Скелет — с суставами капсул (`BodyJoints`: pelvis, spine_01, neck_01,
-head, upperarm/lowerarm/hand, thigh/calf/foot/ball обеих сторон; нет — игра не стартует). Модулей не требует: с выключенным
-Locomotion капсулы стоят на позе привязки (поза постройки — тоже привязки). Runtime — хук `OnWorldReady` (5в). На экране
-(5в): рендер (`Renderer.Debug`, ID-буфер и слои снимка `FrameCapture`, части суставов скиннинга), клиент движка
-(`IClientObservable.Overlays`/`DescribeId`, `RenderFrame.Capture`), агент клиента (`capture.bundle`: `ids`, `overlays`),
-Introspection (`views[].overlays`), клиент игры (`ArenaView`, `ArenaClient`) — симуляцию не трогают.
+Ядро игры (`GameCore`): бойцы, арена, рельеф и земля физики, поза бойца (пул поз), клинок (`Blade`, таблица мечей), правила рэгдолла.
+Подсистемы — Physics, ECS (хуки), Animation (пул поз, `AnimMath`); Runtime — хук `OnWorldReady`. Скелет — с суставами капсул
+(`BodyJoints`; нет — игра не стартует). Модулей не требует: с выключенным Locomotion капсулы стоят на позе привязки. На экране — рендер
+(`Renderer.Debug`, ID-буфер, слои снимка), клиент движка (`IClientObservable.Overlays`/`DescribeId`), агент клиента (`capture.bundle`),
+Introspection (`views[].overlays`), клиент игры — симуляцию не трогают.
 
-## Ограничения (намеренные, до своих точек)
+## Ограничения
 
-- До первого тика поза бойца — поза привязки, а тела стоят по позе постройки (стойка): расходятся, пока тик 1 не посчитает позу
-  (на экране бойцов до тика 1 нет; `physics.kinematicPose` до первого тика сверяет тела с позой постройки).
-- Капсулы на экране — «рентген» без глубины сцены: видны и сквозь колонны и других бойцов. Тень и кольцо — по `x, z` таза
-  (`Y = 0`), шейдер земли кладёт их на рельеф (на склоне и ступенях — там же, где у SWORD).
-- На кромке ступени боец и его капсулы переходят на 12 см за один тик (мир бойца — на высоте рельефа под корнем, как в SWORD
-  без модуля постановки стоп, `SWORD_FOOTIK=off`; по умолчанию SWORD сглаживает) — плавность даст этап 9 (`BodyPlacer`, `BodyY`);
-  принято при приёмке этапа 5.
-- Сдвиг корня — скорость капсул: постановка берёт скорость разностью за тик, поэтому корень, вытолкнутый `ResolveRoots` (враг,
-  построенный внахлёст с соседом, толчок колонной), даёт капсулам скорость сдвига — как `PlaceBodies` SWORD. Пример (проверка 5г):
-  `arena.enemies=32`, `sim.seed=4` — враг 1 построен внахлёст с врагом 7 (0,54 м), на тике 1 корень уходит на 0,29 м, скорость
-  капсул — 35 м/с (на зёрнах 1, 2, 3, 5 наибольшая за 900 тиков — 7,2…10,1 м/с). Кинематическим телам это ничего не делает;
-  тела с динамикой (трупы, этап 7) унаследуют скорость — решить там (решено при приёмке этапа 5). Решено на 7з: при переходе в труп
-  скорости тел урезаются до 6 м/с и 20 рад/с (ручки `ragdoll.deathMaxSpeed`, `ragdoll.deathMaxAngularSpeed`).
-- ID-буфер — только скинированные меши; у колонн, земли и будущих мешей без частей кода нет (0) или часть 255.
-- Отладочное рисование — один «рентген»-режим; глубины сцены и толщины отрезков нет (понадобятся — проходы клинка, этап 6).
-- Нет фиксации и постановки стоп (`PinFeet`, `BodyPlacer`), визуального смещения, отрубленных частей — этапы 9, 8, 11 (капсула
-  клинка есть с 7ж; у живого она кинематическая, у трупа, 7з, — свободное тело: меч выпадает).
-- Поза постройки — одна на всех (`StartPose`): своей позы постройки у бойца (оружие, хват) нет — этап 6, если понадобится.
-- Форма возрождённого после смерти бойца в SWORD зависит от живого рэгдолла мёртвого (решено на 5б) — этап 7. Решено на 7з: живого
-  рэгдолла нет, возрождённый строится по позе постройки без скорости, от трупа не зависит.
-- Шаг физики, режим `Simulated` и контакты — с 7з только у трупов; толчки трупов живыми и удары по трупам — 7к; стадия Physics — шаг и
-  корень мёртвого (7з).
-- Хуки не выключаются вместе с модулем (деактивации модуля командой ещё нет — Runtime, «Не сделано»); как быть с ними —
-  решить вместе с первой деактивацией модуля на ходу (решено при приёмке этапа 5).
-- Мир представления снимает 429 капсул каждый кадр и тогда, когда они скрыты (0 Б, ~0,01 мс вместе с рисованием), — смотреть
-  с профайлером, этап П плана (решено при приёмке этапа 5).
+- До первого тика поза бойца — поза привязки, а тела стоят по позе постройки (стойка): расходятся, пока тик 1 не посчитает позу (на экране
+  бойцов до тика 1 нет).
+- Капсулы на экране — «рентген» без глубины сцены: видны и сквозь колонны и других бойцов; толщины отрезков нет. Тень и кольцо — по `x, z`
+  таза (`Y = 0`), шейдер земли кладёт их на рельеф.
+- На кромке ступени боец и его капсулы переходят на 12 см за один тик (мир бойца — на высоте рельефа под корнем; SWORD по умолчанию
+  сглаживает постановкой стоп) — плавность даст этап 9 (`BodyPlacer`, `BodyY`); принято при приёмке этапа 5.
+- Сдвиг корня — скорость капсул (разность за тик): корень, вытолкнутый столкновениями (спаун внахлёст, колонна), даёт капсулам скорость
+  сдвига — до 35 м/с на тике 1 (`arena.enemies=32`, `sim.seed=4`). Кинематическим телам безвредно; при переходе в труп скорости тел
+  урезаются до 6 м/с и 20 рад/с (ручки `ragdoll.deathMaxSpeed`, `ragdoll.deathMaxAngularSpeed`).
+- ID-буфер — только скинированные меши; у колонн, земли и мешей без частей кода нет (0) или часть 255.
+- Нет фиксации и постановки стоп (`PinFeet`, `BodyPlacer`) — этап 9, визуального смещения — этап 8, отрубленных частей — отложено
+  (решение 17).
+- Поза постройки — одна на всех (`StartPose`). Возрождённый строится по позе постройки без скорости и от трупа не зависит.
+- Хуки не выключаются вместе с модулем (деактивации модуля командой ещё нет) — решить вместе с первой деактивацией модуля на ходу.
 
-## Эталоны и хеши
+## Известные ошибки
 
-7з: все четыре эталона **перезаписаны** теми же командами (`Sword.Headless --replay F --record F`, Debug, пак — эталонный; перед этим
-`reference.ps1 -Check`). Участник `ecs` меняется с тика 0 — новый ресурс-значение `RagdollRules` (секция `ragdoll`), новые системы
-(шаг физики, переход в труп, корень мёртвого, постройка заново, замена правил) и тип команды ручки; `physics` — с тика 0: в хеше
-суставы, проходы и отдача; в конфиге реплея появилась секция `ragdoll` (значения по умолчанию). Смертей в эталонах нет (враги мирные) —
-поведение не изменилось, доказано против сборки master `7176264` (исходники `git archive` во временной папке, собраны отдельно; удалены
-после):
-- сборка `7176264` повторила свои эталоны бит в бит: «реплей совпал» — 751, 2801, 3001, 571 хешей;
-- участник `animation` новой сборки совпал с ней **на каждом тике**: 751 из 751 (`animation`), 2801 из 2801 (`bodies`), 3001 из 3001
-  (`enemies`), 571 из 571 (`prototype`); `skin` — тоже на каждом тике (один хеш пустых привязок); команды, типы команд и модули в
-  перезаписанных файлах те же, конфиг — тот же плюс секция `ragdoll`;
-- траектории **всех бойцов** — программа-свидетель на обеих сборках (реплей → каждый тик: хеш `animation` и по местам бойцов байты
-  `Transform`, `PrevTransform`, `RootVelocity`, `Blade`, `Health`, метка смерти): файлы двух сборок совпали побайтно — 751, 2801, 3001,
-  571 строк (до 33 бойцов в строке).
+- **Ложная закрутка капсулы вокруг своей оси** (как `PlaceBodies` SWORD): поворот капсулы — `FromBasis(dir, right)`; когда сегмент лежит
+  почти вдоль «вправо» бойца (плечо и предплечье в ударах slash2 и уколе пака: |ось·вправо| до 0,9999), опорная ось вырождается и поворот
+  капсулы вокруг оси доходит до 2,8 рад за тик (333 рад/с) при закрутке сустава не быстрее 20 рад/с; у поверхности плеча — до ~18 м/с.
+  Форму капсулы это не меняет (`physics.kinematicSpeed` меряет угловую поперёк оси), но угловая скорость кинематического тела её несёт.
+  Остаётся (решено при разбивке этапа 7): переход в труп ограничивает угловую скорость. Исправление — опорная ось, непрерывная от прошлой
+  постановки, или угловая скорость без составляющей вдоль оси.
 
-Где смерти есть (сценарии фич «Бой» и «Рэгдолл»), поведение меняется намеренно: мёртвый — труп на физике, его корень идёт за тазом,
-меч выпадает; до первой смерти мир тот же — шаг физики двигает только тела на физике, кинематические (живые) не трогает (проверки
-манифеста «Бой» — попадания, смерти, возрождения — зелёные). Реплеи пользователя, записанные до
-7з, расходятся по `ecs` и `physics` с тика 0 (и не несут секции `ragdoll` — берётся по умолчанию); после первой смерти — и поведением.
+## Агентский доступ
 
-7ж: все четыре эталона **перезаписаны** теми же командами (`Sword.Headless --replay F --record F`, Debug, пак — эталонный): участник
-`physics` меняется с тика 0 (14 тел на бойца, массы, поза начала тика, профили в хеше), `ecs` — с тика 0 (новые тип команды
-`SceneCommand`, системы сцен и привязки скина — регистрации систем и журналы хешируются), появился участник `skin` (привязки скина;
-смертей в эталонах нет — хеш пустых привязок, один на все тики). Поведение не изменилось — доказано против сборки master `7ecdeff`
-(исходники `git archive` во временной папке, собраны отдельно; удалены после):
-- сборка `7ecdeff` повторила свои эталоны бит в бит (расхождений нет ни в одном тике);
-- участник `animation` новой сборки совпал с ней **на каждом тике**: 751 из 751 (`animation`), 2801 из 2801 (`bodies`), 3001 из 3001
-  (`enemies`), 571 из 571 (`prototype`); команды, конфиг и модули в перезаписанных файлах те же, в типах команд прибавился `SceneCommand`;
-- траектории **всех бойцов** — программа-свидетель на обеих сборках (реплей → каждый тик по местам: `Transform`, `PrevTransform`,
-  `RootVelocity`, клинок `Blade` — основание, кончик, прошлые, меч, — очки жизни, метка смерти, хеш `animation`; числа — точной
-  записью `R`): файлы двух сборок совпали побайтно — 751, 2801, 3001, 571 строк;
-- то же на всех 18 сценариях фичи `combat`, записанных сборкой `7ecdeff` (`--feature combat`: дуэль, толпа 32 бьющих врагов, смерть
-  игрока, кровопотеря, возрождение, рывки, смена мечей, ручка — 14 790 тиков): побайтно, — попадания, смерти и возрождения те же:
-  тело клинка не цель проходов клинка и проб.
+- **Тела:** `physics.bodies {entity, segments}` — 14 тел бойца по сегментам с именами («левое предплечье», `blade`): центр, концы,
+  поворот, скорости, прошлая постановка, форма, масса, режим (`kinematic`/`simulated`), профиль, касание земли, поза начала тика, самая
+  быстрая капсула, масса тела; привязка скина, суставы и трасса физики трупа — «Рэгдолл». `state.describe physics` (слоты, поколения,
+  `dynamics`, `passes`), `state.hash` — участник `physics`; `BodyRef` — `entity.get`, `world.query`.
+- **Числа во времени:** вычисляемые поля `Body.<сегмент>.<поле>` (`Body.MaxSpeed`, `Body.pelvis.Position.Y`, `Body.blade.*`,
+  `Body.<сегмент>.Mass`, `StartPosition`) — в метриках манифеста, `watch.add`/`entity.history`, `replay.observe`.
+- **Постановка:** `ecs.explainSystem` (`core.body-setup`, `core.kinematic-placement`, `core.blade-placement`, `core.physics-step`),
+  `ecs.componentUsage {"name":"BodyRef"}` — `hooks` (кто заводит и освобождает), `time.break` по стадиям, `StartPose` — `state.describe ecs`.
+- **Проверять:** `physics.finite`, `physics.kinematicPose`, `physics.kinematicSpeed`, `physics.bodyRefs` — `invariant.list`,
+  `invariant.run` (и до первого тика), `time.breakOnInvariant`; `feature.verify bodies`; эталоны — `replay.check`, `replay.diff`.
+- **На экране:** ID-буфер `capture.bundle {"ids": true}` (сущность и сегмент на пиксель, легенда словами), оверлей
+  `{"overlays": ["capsules"]}`, виды манифеста с оверлеем, `Sword.exe --overlay capsules`, `--hold debug_bodies`; `Sword.exe --json` —
+  `bodies`, `camera.target`; `render.graph` — проход `debug.bodies`. Рецепты — playbook («Тела бойцов», «ID-буфер и оверлей капсул»).
+- **Производительность:** `experiment.sweep` по `arena.enemies` и `sim.invariants`.
 
-Реплеи пользователя, записанные до 7ж, расходятся по `ecs` и `physics` с тика 0 и не несут `skin`; поведением — не расходятся.
+Итог анализа (раздел 8 плана; разбор по точкам — история): добавлены `hooks` в `ecs.componentUsage` (5а), `physics.bodies` и вычисляемые
+поля (5б), ID-буфер, оверлей капсул, `views[].overlays` (5в), поля в наблюдениях, `budgets[].frame.overlays` (5г); 7ж — расширения, без
+новых инструментов; 7а — снят вид «метрика против трассы SWORD». Выборки ID-буфера по точке нет — легенда с рамками и сырые коды покрывают.
 
-7а: симуляция не менялась (сняты только сравнения со SWORD — трассы, тесты, метрики) — эталоны SWORD2 **не перезаписаны**,
-все повторяются с теми же хешами.
+## Проверки
 
-6б: все четыре эталона, и `bodies.swreplay`, **перезаписаны** теми же командами; `physics` (тела не менялись — физического тела у
-клинка нет) и `animation` совпали на каждом тике, траектории всех бойцов — тик в тик ([«Бой»](../Combat/README.md), «Эталоны и
-хеши»).
+- `feature.verify bodies`: сценарии (хеши эталонов, проверки), инварианты — 0 нарушений, 7 метрик-замеров, 5 видов (хеши App сверены),
+  бюджеты (время и кадр — в Release).
+- Движок: `PhysicsWorldTests` (слоты и поколения, устаревший хэндл, форма, концы, `SetKinematicTarget`, `RotationVector`, два экземпляра,
+  0 Б; шаг физики — README подсистемы), `HookTests` (граничные случаи хуков), `FeatureTests` и `ObservationTests` (вычисляемые поля,
+  `views[].overlays`, `budgets[].frame.overlays`), Runtime — `OnWorldReady`.
+- Игра: `BodiesTests` (14 тел — форма, масса, инерция, тело клинка; постановка по позе и рельефу; команды арены; сброс; хеш и `Describe`;
+  `physics.bodies`, `Body.*`), `RagdollSceneTests` (`BladeBody_…`, `Masses_AndInertia_…`), `GameInvariantTests` (неисправности `physics.*`
+  на своём тике, честная игра, в живой игре — раз в 4 тика), `ArenaViewTests`, `IdBufferGpuTests`, `HudTests`,
+  `ArenaTests.SteadyTick_With32Enemies_DoesNotAllocate`, `ReferenceReplaysTests`.
+- `verify.ps1`: `app-smoke` (`--hold debug_bodies`), `agent-smoke` (`capture.bundle` с `ids` и `overlays`, 14 тел), `features`, `replay-smoke`.
 
-5а: эталоны SWORD2 `tests/reference/replays/prototype.swreplay`, `animation.swreplay` и `enemies.swreplay` **перезаписаны**
-теми же командами (`Sword.Headless --replay F --record F`): в них появился участник `physics` (тела бойцов), а участник
-`ecs` меняется с тика 0 — у каждого бойца компонент `BodyRef`. Поведение не изменилось — доказано против сборки `41ed2dc`
-(конец этапа 4, собрана в отдельном git worktree во временной папке, пак — эталонный):
-- обе сборки перезаписали каждый эталон (`--replay F --record G`); сборка `41ed2dc` повторила свои эталоны бит в бит,
-  а участник `animation` у новой сборки совпал с ней **на каждом тике**: 571 из 571, 751 из 751, 3001 из 3001; команды,
-  конфиг и типы команд в перезаписанных файлах те же; `ecs` расходится с тика 0 (по причине выше);
-- траектории **всех бойцов** (игрок и до 32 врагов): `replay.observe` на трёх эталонах с наблюдением `FighterSlot`,
-  `Transform`, `PrevTransform`, `RootVelocity` у каждого бойца каждый тик — 570, 750 и 53 400 строк бойце-тиков; файлы
-  двух сборок совпали побайтно (числа — точной записью `R`).
+## Бюджеты
 
-Участник `physics` в `enemies` меняется только в тиках команд арены (11 разных значений за 3000 тиков): на 5а тела
-не движутся. Реплеи пользователя, записанные до 5а, расходятся по `ecs` с тика 0 и не несут `physics` («участника хеша
-physics в реплее нет — не сверяется»); поведением — не расходятся.
-
-5б: эталоны **перезаписаны снова** теми же командами (`Sword.Headless --replay F --record G`, Release, пак — эталонный через
-`SWORD_CONTENT`): тела стоят по позе — участник `physics` меняется каждый тик (571, 751, 3001 разных значений), а `ecs` — с
-тика 0 (новый ресурс-значение `StartPose`). Поведение не изменилось — доказано против сборки `e1da408` (конец 5а, отдельный
-git worktree во временной папке, удалён после):
-- сборка `e1da408` повторила свои эталоны бит в бит (все хеши всех тиков); команды, конфиг, модули и типы команд в
-  перезаписанных файлах те же;
-- участник `animation` новой сборки совпал со сборкой `e1da408` **на каждом тике**: 571 из 571, 751 из 751, 3001 из 3001;
-- все компоненты бойцов — `FighterSlot`, `FighterSeed`, `Transform`, `PrevTransform`, `RootVelocity`, `FighterCommand`,
-  `GazeTarget`, `AnimatorMotion`, `PoseRef`, `BodyRef`, `LegacyLocomotionState` — у каждого бойца каждый тик (`replay.observe`
-  Headless обеих сборок): 570, 750 и 53 400 бойце-тиков, файлы наблюдения двух сборок совпали побайтно (числа — точной
-  записью).
-
-Реплеи пользователя, записанные на 5а, расходятся по `physics` с тика 1 и по `ecs` с тика 0; поведением — не расходятся.
-
-5в: эталоны **перезаписаны** теми же командами (`Sword.Headless --replay F --record G`, Release, пак — эталонный через
-`SWORD_CONTENT`): тела сборки мира стоят до первого тика — участник `physics` на тике 0 другой. Доказано против сборки `04cf57e`
-(конец 5б, отдельный git worktree во временной папке, удалён после): обе сборки перезаписали каждый эталон; сборка `04cf57e`
-повторила свои эталоны бит в бит (все хеши всех тиков), а новая сборка совпала с ней по **всем участникам на всех тиках, кроме
-`physics` на тике 0**: `animation` и `ecs` — 571 из 571, 751 из 751, 3001 из 3001 (участник `ecs` хеширует все компоненты — в
-том числе `Transform`, `PrevTransform`, `RootVelocity` каждого бойца: траектории всех бойцов тик в тик), `physics` — 570 из 571,
-750 из 751, 3000 из 3001 (с тика 1: тик 1 ставит бойцов сборки мира при постройке теми же значениями). Команды, конфиг, модули,
-типы команд в перезаписанных файлах те же; в файлах изменились только сборка, время записи и хеш тика 0. Реплеи пользователя,
-записанные на 5б, расходятся по `physics` на тике 0; дальше — не расходятся.
-
-5г: симуляция не менялась (манифест, тесты, трасса рельефа — снята на 7а, инструменты агента, замер кадра) — эталоны SWORD2 **не
-перезаписаны**, все три повторяются с теми же хешами (`ReferenceReplaysTests`, `verify.ps1` `replay-smoke`).
-
-Приёмка этапа 5: **добавлен** четвёртый эталон `bodies.swreplay` («Эталон SWORD2»); прежние три не перезаписаны.
-
-## Бюджеты и замеры
-
-5г, Release, AMD Ryzen 7 7800X3D, NVIDIA RTX 5070 (план питания «Сбалансированная»). Бюджеты манифеста — сценарий `crowd`
-(32 врага, игрок бежит сквозь кольцо, 900 тиков); пределы — около 2× к медиане (3 прогона `Sword.Headless --feature bodies`):
-
-| что | замер | предел | как |
-|---|---|---|---|
-| мс на тик | 0,1044…0,1055 | 0,21 | 5 повторов без инвариантов, медиана |
-| стадия PrePhysics (постановка 429 капсул) | 0,0269…0,0272 | 0,055 | то же |
-| байт на тик | 0 | 0 | после прогрева 120 тиков |
-| кадр App без капсул, средний / p99 | 0,395…0,398 / 1,00…1,06 мс | 0,8 / 2,5 | запись сценария, `--bench 5`, 640×480, vsync выкл. |
-| кадр App с капсулами (`frame.overlays: ["capsules"]`), средний / p99 | 0,405…0,407 / 1,02…1,05 мс | 0,8 / 2,5 | то же, проход `debug.bodies` — 429 капсул одним вызовом |
-
-Капсулы добавляют к кадру ~0,01 мс (на 5в — 0,015 при окне 1280×720). p99 — шире 2×, как у фичи `enemies`: зависит от фона и
-переходов JIT (худший кадр за замер ~6–7 мс — тот же разовый переход JIT, что и на 4д, «Известные ошибки» фичи `enemies`).
-Бюджет `crowd` фичи `enemies` на том же сценарии (тик 0,16, PrePhysics 0,055, кадр 1,0 / 2,5) не менялся.
-
-`experiment.sweep` по `arena.enemies` (Release, свежий `Sword.Headless --agent`, реплей сценария `crowd` фичи `bodies` — 900
-тиков, прогрев 120, 7 повторов; с инвариантами, как в сеансе агента, и без них, как бюджет; два прогона — числа в пределах 2 %):
-
-| врагов | инварианты | мс на тик (медиана) | Animation | PrePhysics | Physics | Movement | Intent | байт на тик | детерминизм (хеш) |
-|---|---|---|---|---|---|---|---|---|---|
-| 0 | да | 0,0087 | 0,0035 | 0,0017 | 0,0010 | 0,0004 | 0,0002 | 0 | да (`9F1C045F762671A6`) |
-| 0 | нет | 0,0045 | 0,0022 | 0,0009 | 0,0000 | 0,0003 | 0,0002 | 0 | да (тот же) |
-| 8 | да | 0,0513 | 0,0291 | 0,0137 | 0,0020 | 0,0013 | 0,0006 | 0 | да (`F834F06FAE27ACB5`) |
-| 8 | нет | 0,0288 | 0,0185 | 0,0074 | 0,0000 | 0,0010 | 0,0005 | 0 | да (тот же) |
-| 16 | да | 0,0949 | 0,0552 | 0,0257 | 0,0029 | 0,0025 | 0,0011 | 0 | да (`D807D7BC58B39A2B`) |
-| 16 | нет | 0,0529 | 0,0348 | 0,0139 | 0,0000 | 0,0018 | 0,0010 | 0 | да (тот же) |
-| 32 | да | 0,1824 | 0,1072 | 0,0495 | 0,0046 | 0,0055 | 0,0027 | 0 | да (`245761DD8EE019A8`) |
-| 32 | нет | 0,1054 | 0,0691 | 0,0271 | 0,0000 | 0,0041 | 0,0026 | 0 | да (тот же) |
-
-Масштабирование линейное (`scaling` пуст): без инвариантов ~0,0031 мс на бойца, из них постановка тела (PrePhysics) —
-~0,0008 (≈ 63 нс на капсулу), сэмплинг поз (Animation) — ~0,002. Хеш итога не зависит от инвариантов (они только читают).
-Инварианты с телами — около 42 % тика толпы (0,182 против 0,105 мс): `physics.kinematicPose` и `physics.kinematicSpeed` —
-вдвое больше самой постановки (PrePhysics 0,0495 против 0,0271), `physics.finite` — стадия Physics (0,0046), `physics.bodyRefs`
-и инварианты анимации — End. На 4д (без тел) тот же перебор давал 0,127 мс при 32 врагах с инвариантами. После Пд в живой игре
-тяжёлые инварианты — раз в 4 тика: средний тик толпы App 0,196 → 0,137 мс (перебор агента в Headless — каждый тик, числа выше те же).
-
-
-5в, Release, AMD Ryzen 7 7800X3D, RTX 5070, окно 1280×720 без фокуса, vsync выключен. Кадр App с 32 врагами
-(`Sword.exe --bench 15 --units 32`, по 3 прогона): без капсул — средний 0,451 мс, p50 0,423, p99 0,948…0,954 (сборка
-`04cf57e` так же: 0,451…0,452 / 0,423…0,424 / 0,965…0,969 — не ухудшился); с капсулами (`--overlay capsules`, 429 капсул,
-проход `debug.bodies` — один вызов) — средний 0,465…0,466 мс, p50 0,436…0,437, p99 0,991…1,001 (+0,015 мс в среднем). Бюджет
-кадра фичи `enemies` (запись сценария толпы, без капсул): средний 0,378 мс, p99 0,963 (пределы 1,0 и 2,5; на 5б — 0,371 и 0,851, в пределах разброса прогонов: разовый p99 зависит от переходов JIT). Тик не менялся (клиент): бюджет `crowd` — медиана 0,104 мс на тик (0,1036…0,1060, PrePhysics 0,027), 0 Б на тик — `Sword.Headless --feature enemies`, Release.
-Выделения: мир представления с капсулами 33 бойцов — 0 Б на кадр (`Extract_WithBodiesOf33Fighters_AllocatesNothing`),
-построение кадра игры с капсулами (накопление отладочного рисования, регистрация прохода) — 0 Б
-(`IdPass_…` GPU-теста). Кадр App целиком (`allocatedBytesPerFrame` итога `--json`, проверка 5в): с заданным шагом
-(`Sword.exe --frames 600 --units 32 --ticks-per-frame 2 --no-hud`) — `04cf57e` 460 Б, 5в 380 Б, с `--overlay capsules` 596 Б
-(проход `debug.bodies` +216 Б — регистрация прохода графом, как у любого прохода; HUD — ещё +216 Б). По часам (`--frames 600`
-без шага) итог выше — ~7,4 КБ и у `04cf57e` (7392 Б), и у 5в (7498…7580 Б): это не выделения каждого кадра, а разовые ~4 МБ за
-прогон (только при дробной доле тика; с `--ticks-per-frame` их нет), размазанные по окну замера (6000 кадров при `--fps 240` —
-~1,1 КБ, 600 — ~7,3 КБ; на обеих сборках одинаково) — до 5в, источник не найден (искать с профайлером — этап П плана,
-решено при приёмке этапа 5). 0 Б на тик — как было.
-
-5б, Release, AMD Ryzen 7 7800X3D (`Sword.Headless --feature enemies`, 3 прогона): бюджет `crowd` фичи `enemies` (32 врага,
-33 × 13 капсул по позе каждый тик) — медиана 0,104 мс на тик (0,1037…0,1048, предел 0,16; на 5а — 0,078), PrePhysics 0,027
-(предел добавлен — 0,055, ~2×), Animation 0,068, 0 Б на тик (`ArenaTests.SteadyTick_With32Enemies_DoesNotAllocate` — с
-постановкой); `verify.ps1 -Configuration Release` — тик 0,107 мс, PrePhysics 0,028, кадр App на записи сценария — средний
-0,371 мс, p99 0,851 (пределы 1,0 и 2,5). Постановка — ~63 нс на капсулу (13 вызовов цели через интерфейс физики и `FromBasis` на капсулу). Инварианты
-(в бюджете выключены, в игре включены; `Sword.Headless --units 32 --ticks 2400 --move 1,0.3 --json`, Release):
-`physics.kinematicPose` — 32 мкс, `physics.kinematicSpeed` — 21 мкс, `physics.finite` — 15 мкс, `physics.bodyRefs` — 1,7 мкс
-на тик 33 бойцов. Метрики фичи (сценарий `terrain`): самая быстрая капсула игрока на бегу — 9,40 м/с, таз на вершине склона —
-2,504 м; в трассе толпы SWORD (снята на 7а) — до 12,6 м/с.
-
-5а — Release, AMD Ryzen 7 7800X3D, RTX 5070 (`Sword.Headless --feature enemies`): бюджет `crowd` фичи `enemies` (32 врага,
-33 × 13 тел) — медиана 0,078 мс на тик (0,0773…0,0801, предел 0,16; до 5а — 0,077), Animation 0,069, 0 Б на тик; кадр App —
-средний 0,37 мс, p99 0,84 (пределы 1,0 и 2,5). В установившемся тике тела не трогаются (хуки — только при появлении и
-уходе бойцов), поэтому тик не изменился. Инварианты (в бюджете выключены, в игре включены; `Sword.Headless --units 32
---ticks 2400 --json`): `physics.finite` — 13 мкс на 429 тел (через интерфейс, по копии состояния), `physics.bodyRefs` —
-1,9 мкс. 0 Б на тик с 33 × 13 телами — `ArenaTests.SteadyTick_With32Enemies_DoesNotAllocate`, подсистема — 1000 тиков
-постановки 429 тел с удалением и созданием сочленения каждый тик — `PhysicsWorldTests.SteadyState_…`, хуки —
-`HookTests.SteadyState_WithHooks_DoesNotAllocate`.
+Сценарий `crowd` (32 врага, игрок бежит сквозь кольцо, 900 тиков): тик 0,21 мс, PrePhysics 0,055, 0 Б на тик, кадр App средний 0,8 мс и
+p99 2,5; `crowd-capsules` — кадр с оверлеем капсул (проход `debug.bodies`), те же пределы. Пределы — около 2× к медиане приёмки 5г (тик
+0,105 мс, PrePhysics 0,027, кадр 0,40 / 1,0…1,06 мс) на AMD Ryzen 7 7800X3D, RTX 5070, Release, привязаны к машине. Замеры 5а–5в, перебор
+`experiment.sweep` по числу врагов, цена инвариантов — история («Бюджеты и замеры»).
 
 ## Эталон SWORD2
 
-По разделу 12 плана эталон SWORD2 фиксируется **после** подтверждения пользователя — зафиксирован при приёмке этапа 5:
-`tests/reference/replays/bodies.swreplay`.
-
-**Почему рельеф, а не толпа.** Эталон `enemies` (запись сценария `sword-crowd`, с 7а — `crowd-commands`) после
-перезаписей 5а–5в хеширует участника `physics` каждого тика: тела толпы до 33 бойцов, постройку и уход тел при командах
-арены (PageUp, PageDown, 16, R, 32), толчки корней, колонну, пологие холмы. Запись сценариев `arena` или `crowd` этой фичи
-его бы повторила. Не покрыт им рельеф: склон, ступени вверх и вниз, шаг, стойка на ярусе, ухабы — постановка тел в мире
-бойца на разрывах высоты. Поэтому эталон — запись сценария `terrain` (2800 тиков, ноль врагов, зерно 1; на 5г — тот же
-сценарий, что трасса рельефа SWORD, сверен побитово; трасса снята на 7а). Команд арены в нём нет — они есть в
-`enemies.swreplay` (строка «детерминизм» раздела 12 выполняется им).
-
-Как зафиксирован (PowerShell, корень репозитория):
-
-```
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/reference.ps1 -Check
-dotnet build SWORD.slnx
-game\Sword.Game.Headless\bin\Debug\net10.0-windows10.0.22000.0\Sword.Headless.exe --feature bodies --no-views --no-budgets
-Copy-Item artifacts\features\bodies\scenario-terrain.swreplay tests\reference\replays\bodies.swreplay
-game\Sword.Game.Headless\bin\Debug\net10.0-windows10.0.22000.0\Sword.Headless.exe --replay tests\reference\replays\bodies.swreplay
-```
-
-Итог последней команды — «реплей совпал: сверено хешей 2801, последний — после 2800 тиков». Запись — Headless сборки
-`7e17195` на эталонном паке, хеш каждого тика по участникам `animation`, `ecs`, `physics`, JSON в CRLF (180 КБ). Эталон
-подхватывают сами (все файлы папки) `ReferenceReplaysTests` (хеши каждого тика, инвариантов 0) и `verify.ps1` `replay-smoke`;
-в манифесте `bodies` — сценарий `reference-terrain` (`"replay": "tests/reference/replays/bodies.swreplay"`, проверки «одно
-тело — у игрока» и «в конце игрок на ухабах»), поэтому его хеши сверяет и `feature.verify bodies` (метрики против трассы
-рельефа SWORD — `sword-terrain-pelvis-reference` на эталоне и `sword-terrain-pelvis` на живом сценарии `terrain` — сняты на
-7а, «Сравнения со SWORD»). Намеренное изменение поведения — перезапись теми же командами (`Sword.Headless --replay
-tests/reference/replays/bodies.swreplay --record tests/reference/replays/bodies.swreplay`) и причина в «Эталоны и хеши».
+`tests/reference/replays/bodies.swreplay` — запись сценария `terrain` (2800 тиков, ноль врагов, зерно 1: склон, ступени вверх бегом и вниз
+шагом, стойка на ярусе, ухабы), зафиксирован при приёмке этапа 5; толпу с телами и команды арены покрывает `enemies.swreplay`. Хеши каждого
+тика по участникам; сверяют `ReferenceReplaysTests`, `verify.ps1` `replay-smoke` и сценарий `reference-terrain`. Намеренное изменение
+поведения — перезапись теми же командами (`Sword.Headless --replay tests/reference/replays/bodies.swreplay --record
+tests/reference/replays/bodies.swreplay`) с доказательством. Как зафиксирован, перезаписи 5а–7з и их доказательства — история
+(«Эталон SWORD2», «Эталоны и хеши»).
 
 ## Что проверить в игре
 
@@ -717,224 +243,27 @@ tests/reference/replays/bodies.swreplay --record tests/reference/replays/bodies.
 5. Камера следует за тазом игрока (как в SWORD): на бегу и на месте идёт ровно, без рывков; тень и зелёное кольцо — под тазом, идут вместе с Manny (на склоне и ступенях лежат на рельефе).
 6. Поворот врага клипом с капсулами (в обычной игре почти не бывает): после `verify.ps1` (или `Sword.Headless --feature bodies`) — `Sword.exe --replay artifacts/features/bodies/scenario-turn.swreplay --overlay capsules --camera 0.6,0.6,6,-4.95,-4.69` — враг 1 поворачивается на месте влево, вправо и кругом шагами клипа; капсулы рук и ног идут за позой, не отстают и не крутятся отдельно. В журнале App нет строк `[invariant] нарушен physics.…`.
 
-## Агентский доступ
+## Решения и почему
 
-Анализ по чек-листу раздела 8 плана.
-
-7ж:
-
-| что появилось | чем видно и проверяется |
-|---|---|
-| новое состояние — 14-е тело (клинок), массы, поля динамики тела, профили | **расширены** `physics.bodies` (тело `blade` в списке и в `segments`; у капсулы — масса, режим `kinematic`/`simulated`, профиль, касание земли, поза начала тика; сводка — масса тела), вычисляемые поля `Body.<сегмент>.Mass`, `Body.<сегмент>.StartPosition`, `Body.blade.*`; участник `physics` — хеш и `state.describe physics` (все поля тела 7б, часть `dynamics`) |
-| новое свойство — капсула клинка на мече в руке, форма меча | **расширены** инварианты `physics.kinematicPose` (тело клинка: хват, кончик, полудлина меча в руке; мёртвые пропускаются), `physics.kinematicSpeed` (тело клинка — предел 100 м/с), `physics.finite` (масса, инерция, поза начала тика) |
-| новое видимое — капсула клинка на экране | F7 и `capture.bundle {"overlays": ["capsules"]}` рисуют и её (белая: у сегмента 11 своего цвета нет) — клиент берёт все тела вида |
-| новый способ воздействия, привязка скина | команды сцен и вид привязки — фича [«Рэгдолл»](../Ragdoll/README.md), «Агентский доступ» |
-
-Инструменты не добавлялись: тело клинка — такое же тело сочленения, `physics.bodies` и инварианты тел его видят после расширения
-(тест `BodiesTests.AgentTools_BodiesBySegment_AndBodyFieldsForMetrics`, `verify.ps1` `agent-smoke` — 14 тел).
-
-7а (решение 14, свой путь): вид «метрика-ряд против трассы SWORD» (`feature.verify`: `firstMismatch` по ключу трассы) снят
-вместе с трассами, программой трассы, тестами трасс и метриками `sword-*` («Сравнения со SWORD») — нового не
-требуется: регрессию видят `feature.verify bodies` (проверки сценариев, эталоны SWORD2 `bodies.swreplay` и `enemies.swreplay`
-— хеши каждого тика, `replay.check`/`replay.diff`), свои метрики-замеры, `physics.bodies`, инварианты `physics.*`.
-
-Приёмка этапа 5:
-
-| что появилось | чем видно и проверяется |
-|---|---|
-| новый эталон SWORD2 — `bodies.swreplay` (рельеф) | `ReferenceReplaysTests`, `verify.ps1` `replay-smoke` (расхождение называет тик и участника), `replay.check`/`replay.diff`, `Sword.Headless --replay`; в манифесте — сценарий `reference-terrain` (хеши, проверки, инварианты) и метрика `sword-terrain-pelvis-reference` против трассы рельефа SWORD (`firstMismatch`; снята на 7а) |
-
-Инструменты не добавлялись: эталон — файл реплея, его видят и сверяют имеющиеся средства (как `enemies.swreplay` на 4д).
-
-5г:
-
-| что появилось | чем видно и проверяется |
-|---|---|
-| новая сверка — тела на рельефе против SWORD (снята на 7а) | трасса `anim-terrain.trace.json`, тест трассы рельефа (расхождение называет тик и число капсулы), метрика `sword-terrain-pelvis` (`firstMismatch` в `feature.verify`) |
-| новая приёмка — манифест `bodies` целиком | сценарии `arena`, `terrain`, `crowd`, `turn`, `reference`; инварианты `ecs.*`, `physics.*`, `animation.*`, `locomotion.poses`, `arena.slots`, `movement.rootOverlap`; метрики против SWORD (4 ряда таза, допуск 0; сняты на 7а) и по замерам (скорости капсул на бегу, на кромке ступени, в стойке, в толпе, угловая на развороте; высота таза на склоне и стопы на ярусе); виды с оверлеем капсул (толпа, крупно — склон, ступени, толкотня, разворот); бюджеты тика, PrePhysics, байтов и кадра |
-| новое свойство для замера — кадр с капсулами | **добавлено** поле `budgets[].frame.overlays` (тест `FeatureTests.Verify_FrameBudget_…`, разбор — `Manifest_Errors_NamePlace`); итог замера называет проходы кадра |
-| для отладки понадобились числа капсул по тикам (окна метрик) | **добавлены** вычисляемые поля в наблюдениях: `watch.add`/`entity.history`, `replay.observe` понимают `Body.*` (`ObservationHub.Fields`; тесты `ObservationTests.Watch_ComputedFieldsOfTheGame_SampledPerTick`, `BodiesTests.AgentTools_…` — история через MCP совпадает с `physics.bodies`); строка в playbook |
-| перебор производительности с телами | `experiment.sweep` с `sim.invariants` — таблица «Бюджеты и замеры» |
-
-**Итог по этапу 5** (раздел 8, «По этапам»: инварианты физики, оверлей капсул, ID-буфер) — всё, что обещано этапу, есть, и
-агент видит, проверяет и отлаживает тела без выписывания чисел руками:
-- **тела и их форма** — `physics.bodies` (13 капсул по сегментам с именами, центр, концы, скорости, прошлая постановка, форма,
-  самая быстрая), `state.describe physics` (слоты, поколения), участник хеша `physics`;
-- **постановка** — `ecs.explainSystem` (`core.body-setup`, `core.kinematic-placement`), `ecs.componentUsage BodyRef` (хуки),
-  `time.break` по стадиям, `StartPose` в описании `ecs`;
-- **инварианты** — `physics.finite`, `physics.bodyRefs`, `physics.kinematicPose`, `physics.kinematicSpeed` (`invariant.*`,
-  `time.breakOnInvariant`, тесты-неисправности на каждый);
-- **на экране** — ID-буфер (сущность и сегмент на пиксель с легендой словами), оверлей капсул слоем снимка, виды манифеста с
-  оверлеем, кадр с капсулами в бюджете;
-- **числа во времени** — вычисляемые поля `Body.*` в метриках (5б) и в наблюдениях (5г);
-- **сверка с SWORD** — две трассы, побитово (снята на 7а; регрессию держат эталоны SWORD2 — «Сравнения со SWORD»).
-Не сделано и не нужно до своих этапов: инварианты внутри шага физики и оверлей контактов — с шагом физики (этап 7); выборка
-ID-буфера «пиксель → сущность» по точке — легенда с рамками и сырые коды пока покрывают задачу; условия (`time.runUntil`,
-проверки манифеста) по вычисляемым полям — остановиться на скачке капсулы позволяют инварианты.
-
-5в:
-
-| что появилось | чем видно и проверяется |
-|---|---|
-| новое видимое — капсулы тел на экране | **добавлены** оверлей капсул `capture.bundle {"overlays": ["capsules"]}` (снимок цвета с капсулами и подписями бойцов отдельным PNG) и `Sword.exe --overlay capsules` (так снимаются виды манифеста: `views[].overlays` — **добавлено поле**, строгий разбор; у `bodies` — виды `capsules-crowd`, `capsules-close`); итог `Sword.exe --json` — `bodies` (показаны, нарисовано, всего капсул); `render.graph` — проход `debug.bodies` |
-| новое видимое — какая часть тела где на экране | **добавлен** ID-буфер `capture.bundle {"ids": true}`: сущность и сегмент на пиксель (PNG, сырые коды), легенда — код → сущность, имя, `player`/`enemy`, сегмент, «левое предплечье врага 3», пикселей и рамка; раньше агент видел только рамку бойца целиком |
-| новое состояние — тела сборки мира до первого тика | `physics.bodies` на тике 0 (форма и постановка), `physics.kinematicPose` в `invariant.run` до первого тика (сверка с позой постройки — пропуск убран) |
-| новое свойство — капсулы стоят на показанном меше | тест `ShownCapsules_StayOnTheShownPose_AtAnyAlpha` (1,9 мкм при дробной доле тика; интерполяция постановок дала бы 3,1 см); глазами — `capture.bundle` с оверлеем на паузе и без |
-| новое свойство — ID-проход верен | GPU-тест `IdPass_PixelInFighterFrame_IsItsEntityAndSegment_OverlayLayerCaptured`, `verify.ps1` `agent-smoke` (сегменты игрока — внутри его рамки) |
-| новый способ воздействия — F7 | действие `debug_bodies` (секция `input`), `--hold debug_bodies`, `--overlay capsules`; в симуляцию не идёт |
-| новая точка камеры и кольца — таз | итог `Sword.exe --json` — `camera.target`; кольцо — на снимке; тесты `ShownCapsules_AtAlphaOne_…` (фокус — `Lerp` таза), `Shown_Movement_IsSmooth_…` (кольцо — таз, как показан) |
-
-Инструменты 5в: без ID-буфера агент не мог сказать, чья рука на пикселе и что закрывает что, — рамка бойца целиком
-(`entities[].rect`) этого не даёт, а считать проекцию капсул руками из `physics.bodies` и камеры — признак «выписывать числа
-руками» чек-листа. Поэтому добавлены ID-буфер с легендой, оверлей капсул слоем снимка и поле `overlays` у видов манифеста
-(`feature.verify` снимает кадры с капсулами). Рецепт — `docs/agent-playbook.md`, «ID-буфер и оверлей капсул». Отдельного
-инструмента «пиксель → сущность» нет: легенда даёт рамку каждого кода, сырые коды — в `.bin`; понадобится выборка по точке —
-добавить аргумент `capture.bundle`.
-
-5б:
-
-| что появилось | чем видно и проверяется |
-|---|---|
-| новое состояние подсистемы — постановка и форма капсул | участник `physics` (хеш каждого тика, `state.describe physics` — числа тел по слотам); **добавлен** `physics.bodies {entity, segments}` — тело бойца по сегментам с именами («левое предплечье»), центр, концы, поворот, скорости, прошлая постановка, форма, самая быстрая капсула (вид `IBodyView`) |
-| новое состояние ECS — ресурс `StartPose` | `state.describe {"part":"ecs"}` (ресурсы-значения), хеш `ecs` |
-| новые свойства, которые держатся всегда | **добавлены** инварианты `physics.kinematicPose`, `physics.kinematicSpeed` (после PrePhysics) — `invariant.list`, `time.breakOnInvariant`; тесты-неисправности |
-| новые системы | `ecs.explainSystem {"name":"core.body-setup"}`, `core.kinematic-placement`; `ecs.plan` — стадии Gameplay и PrePhysics |
-| новая механика с приёмкой — капсулы по позе | манифест `bodies`: сценарии `arena`, `terrain`, `reference`; метрики против трассы SWORD (таз игрока и врагов 1, 12 — побитово; сняты на 7а) и замеры; **добавлены** вычисляемые поля тела для метрик (`IEntityFields` в Introspection, `BodyFields` игры: `Body.<сегмент>.<поле>`, `Body.MaxSpeed`) |
-| новая трасса | трасса SWORD толпы — тест трассы толпы (хеш тела на бойце-тик, выборка, формы; снято на 7а) |
-| новое видимое (капсулы) | оверлей капсул и ID в `capture.bundle` — 5в (на 5б капсул на экране нет) |
-| новый способ воздействия | нет: тела ставит поза и постройка (команды арены и игрока уже есть) |
-
-Инструменты: `state.describe physics` для работы с телами бойца по сегментам **не достаточно**: он называет сочленения по
-слотам (`3v1`), а не бойцов и сегменты, и не даёт концов и модулей скоростей — их пришлось бы считать руками из поворота и
-полудлины (признак «выписывать числа руками» чек-листа). Поэтому добавлен `physics.bodies` (тест
-`BodiesTests.AgentTools_BodiesBySegment_AndBodyFieldsForMetrics`, `verify.ps1` `agent-smoke`, строка в playbook) и вид
-`IBodyView` (его же возьмёт клиент 5в). Метрике манифеста против трассы нужны числа капсул — добавлены вычисляемые поля
-(`IEntityFields`, тест `FeatureTests.Verify_Metric_ReadsComputedFieldOfTheGame`; с 7а метрики на них — только свои
-замеры). В условия проверок и `watch.add` вычисляемые поля не заведены: проверки капсул — инварианты, а смотреть тело по
-тикам можно `physics.bodies` с `time.step`; если понадобится история капсул по тикам — расширить `watch.add`. Рецепт —
-`docs/agent-playbook.md`, «Тела бойцов».
-
-5а:
-
-| что появилось | чем видно и проверяется |
-|---|---|
-| новое состояние — `BodyRef` бойца | `entity.get {"entity":"enemy 3","components":["BodyRef"]}`, `world.query {"with":["BodyRef"]}`; хеш `ecs` |
-| новое состояние — тела подсистемы Physics | участник `physics`: `state.hash` (хеш по участникам), `state.describe {"part":"physics","filter":"0v1"}` — тела сочленения из `BodyRef` (`Index`v`Generation`), `"filter":"slots"` — свободные слоты |
-| новое свойство, которое держится всегда | инварианты `physics.finite`, `physics.bodyRefs` — `invariant.list`, `invariant.run`, `time.breakOnInvariant {"ids":["physics.bodyRefs"]}` |
-| новый механизм — хуки времени жизни | `ecs.componentUsage {"name":"BodyRef"}` — поле `hooks` (OnAdd/OnRemove, модуль; `null` — ядро): кто заводит и освобождает ресурс за компонентом (добавлено на 5а) |
-| новая подсистема | участник `IStateContributor` и инварианты — есть; API `IPhysicsWorld` допускает вторую реализацию (дифференциальный прогон) |
-| новое видимое (капсулы) | оверлей капсул и ID в `capture.bundle` — 5в (на 5а капсул на экране нет) |
-| новый способ воздействия | нет: тела меняются только постройкой и уходом бойцов (команды арены уже есть) |
-
-Инструменты 5а: добавлено только поле `hooks` в `ecs.componentUsage` (расширение существующего, тест —
-`IntrospectionTests.ComponentUsage_Plan_Modules`, `BodiesTests.PhysicsPart_…`); отдельный инструмент тел на 5а не был нужен
-(тела не двигались) — вопрос решён на 5б (выше).
-
-## Проверки
-
-7ж (тесты свойств — `tests/Sword.Game.Tests/RagdollSceneTests.cs`, команды сцен и привязка — фича «Рэгдолл»):
-- `BladeBody_OfTip_GripAtHandOrigin_AxisToTip` — тело клинка по кончику: хват — начало кисти, ось — к кончику, опорная X поперёк,
-  система тела переводит конец A в хват, B — в кончик; тела мечей таблицы — те же; мечи разной длины.
-- `BladeBody_LiesOnTheSwordInHand_EveryTick_ChangesFormWithWeapon` — 160 тиков бега с ударами у трёх бойцов: конец A капсулы — в
-  кисти (≤ 0,1 мм), B — на кончике `Blade`, основание клинка — на оси; форма и масса — меча в руке; скорость — разность; T и меч места —
-  новая полудлина в тот же тик, без скорости.
-- `Masses_AndInertia_OnEveryBody_ThroughEveryRebuild` — масса каждого из 14 тел по таблице, 1/m, обратная инерция капсулы; после сброса
-  R, постройки командой, смены мечей и возрождения.
-- `BodiesTests` переписаны на 14 тел: постройка — форма, масса, инерция и постановка тела клинка по позе постройки; хеш и `Describe`
-  (поля динамики, `dynamics`); `physics.bodies` — клинок, масса тела 74,8, привязки у живого нет; нумерация — тело = сегмент, плоть.
-- Эталоны SWORD2 перезаписаны с доказательством («Эталоны и хеши»); `feature.verify` всех фич зелёный на эталонном паке.
-
-7а (сравнения со SWORD сняты, решение 14):
-- `feature.verify bodies`: сценарии `arena`, `terrain`, `crowd`, `turn`, `reference` (эталон `enemies.swreplay`),
-  `reference-terrain` (эталон `bodies.swreplay`) — проверки, хеши эталонов, инварианты; 7 своих метрик-замеров
-  (`run-capsule-speed`, `slope-pelvis-height`, `steps-top-foot`, `step-edge-speed`, `idle-capsule-speed`,
-  `crowd-capsule-speed`, `turn-angular-speed`); метрик против трасс SWORD нет.
-- Тесты, которые сверяли код с SWORD, переписаны своими ожиданиями:
-  `PhysicsWorldTests.Articulation_BodiesFromFreeSlotsInOrder_NewBodyIsEmpty`, `ShapePlaceAndEnds_AxisAndEndsFromRotation`,
-  `KinematicTarget_VelocitiesByDifference`; `BodiesTests.SegmentNumbering_BladeNumberReserved`. Тесты трасс SWORD (толпа
-  и рельеф) удалены целиком.
-
-Приёмка этапа 5:
-- `Sword.Headless --replay tests/reference/replays/bodies.swreplay` — «реплей совпал: сверено хешей 2801»;
-  `ReferenceReplaysTests.ReferenceReplay_RepeatsEveryHash(bodies.swreplay)` и `verify.ps1` `replay-smoke` — все файлы папки.
-- `feature.verify bodies`: сценарий `reference-terrain` — хеши 2801 из 2801, проверки «одно тело» и «на ухабах», 0 нарушений
-  инвариантов; метрика `sword-terrain-pelvis-reference` — 8400 значений побитово (всего метрик 12; снята на 7а — метрик 7).
-
-5г:
-- Тест трассы рельефа SWORD (категория Content) — тело игрока на рельефе против трассы SWORD
-  побитово: 2800 тиков, хеш 13 капсул, таз каждого тика, выборка 8 тиков, форма; сценарий дошёл до вершины склона, верхнего
-  яруса, земли за пирамидой и ухабов. тест трассы толпы — на общем `VerifyAgainstTrace`, проверки те же. (Снято
-  на 7а.)
-- `tests/Sword.Engine.Introspection.Tests`: `FeatureTests` — `budgets[].frame.overlays` (разбор, ошибка имени с путём, передача
-  в App, в отчёте); `ObservationTests.Watch_ComputedFieldsOfTheGame_SampledPerTick` — наблюдение пишет вычисляемые поля по
-  тикам (F64, NaN — нет значения, перепривязка к новой симуляции, опечатка — ошибка, без полей игры — компонент).
-- `BodiesTests.AgentTools_BodiesBySegment_AndBodyFieldsForMetrics` — через MCP `watch.add` с `Body.MaxSpeed`,
-  `Body.pelvis.Position.Y` → `entity.history`: те же числа, что `physics.bodies`.
-- `ReferenceReplaysTests.Observe_OnReferenceReplay_WritesBodyFields` (проверка 5г) — `replay.observe` (`ReplayObservation.Run`
-  с `BodyFields`) на эталоне прототипа: `Body.pelvis.Position.Y` игрока каждого тика — те же числа, что `IBodyView`; опечатка
-  в сегменте — ошибка.
-- `feature.verify bodies` (Debug и Release): сценарии `arena`, `terrain`, `crowd`, `turn`, `reference` — проверки, инварианты
-  (0 нарушений), 11 метрик (с 7а — 7), 5 видов (хеши App сверены), бюджеты (время и кадр — в Release).
-
-5в:
-- `tests/Sword.Game.Tests` (`IdBufferGpuTests`, категории Gpu и Content, GPU-валидация D3D12, Manny из пака): пиксель центра
-  головы игрока — код `IdOf(OwnerOf(игрок), Head)`, легенда — «голова игрока»; у игрока видны голова, торс, ноги; каждый код
-  — боец кадра и сегмент с телом; земля — 0; слой капсул снят; обычный кадр ID-прохода не рисует; F7 — проход `debug.bodies`,
-  построение кадра игры с капсулами — 0 Б; сообщений D3D12 нет.
-- `ClientTests` (`ArenaViewTests`): капсулы — на суставах показанной позы при любой доле тика (1,9 мкм; интерполяция
-  постановок — 3,1 см, контроль чувствительности), при доле 1 — постановка тика, фокус — `Lerp` таза; кольцо — таз, как
-  показан; `Extract` с 429 капсулами — 0 Б; F7 переключает капсулы, привязка из конфига. `HudTests` — строка справки «F7 —
-  капсулы тел» по привязке. `BodiesTests`: тела сборки мира стоят до первого тика по позе постройки без скорости, проверка
-  «сейчас» чиста; `JointSegments` как `CharacterRig`. `GameInvariantTests.RunNow_BeforeFirstTick_ChecksWorldBuiltBodies` —
-  сдвинутое тело до первого тика ловится.
-- `tests/Sword.Engine.Runtime.Tests` — `OnWorldReady` после всех `OnWorldBuilt` ядра и модулей;
-  `tests/Sword.Engine.Introspection.Tests` — `views[].overlays` (разбор, ошибки с путём, передача в App).
-- `verify.ps1`: `app-smoke` — `--hold debug_bodies` (143 капсулы, проход `debug.bodies`); `agent-smoke` — `capture.bundle`
-  с `ids` и `overlays` под GPU-валидацией; `features` — виды `bodies` с оверлеем капсул.
-
-- `tests/Sword.Engine.Physics.Tests` (`PhysicsWorldTests`): выдача слотов и поколения, устаревший хэндл — исключение во
-  всех вызовах, тот же размер — те же слоты; новое тело пустое (начало координат, без поворота, скоростей и формы); форма,
-  `Place`, ось и концы — от поворота и полудлины; `SetKinematicTarget` — прошлая постановка и скорости разностью за шаг,
-  побитово (до 7а — «как `RigidBody`/`PlaceBodies` SWORD»); `RotationVector` (кратчайший путь, малый угол);
-  два экземпляра в одном процессе независимы и при одних вызовах одинаковы; 0 байт на 1000 тиков 33 × 13 тел.
-- `tests/Sword.Engine.Ecs.Tests` (`HookTests`) — граничные тесты хуков: хэндл пишется на месте; удаление сущности;
-  «добавлен и снят на одном барьере» (и «создан и удалён», «снят — добавлен — снят») — журналы пусты, хуки оба, ресурс
-  вернулся; «снят и добавлен заново» — снятие, затем добавление; «добавлен — снят — добавлен» — первый ресурс
-  возвращён, второй в ячейке, в журнале одно `Added`; хуки после журналов и до событий, видят мир после всех
-  команд; из хука немедленные операции, тик, ресурс, модуль — исключение, мир после этого жив; исключение в хуке прерывает
-  барьер; `Add` имеющегося без проверок — не добавление; тег; регистрация (один на вид, только зарегистрированный
-  компонент, видны наблюдателям); 0 байт.
-- `tests/Sword.Game.Tests` (`BodiesTests`): у каждого бойца 13 кинематических тел; с 5в уже до первого тика (на 5б — с тика 1)
-  — форма постройки (радиусы `Fighter.Radii`, полудлины от корня и курса постройки); постройка — капсулы по позе постройки без
-  скорости, в тике скорость и угловая скорость — разность с постановкой постройки за тик (с модулем Locomotion — стойка с
-  нуля, без него — поза привязки; при сборке мира и при сбросе R убежавшего игрока); капсулы идут за позой и рельефом (бег на
-  склон); команды арены (PageUp, PageDown, 32, 0, R, прибавили и убавили в одном тике и наоборот) — ни лишних, ни чужих тел,
-  инварианты чисты; сброс — те же тела на тех же сущностях, PageDown → PageUp — новая сущность, тот же слот, новое
-  поколение; сущность с `BodyRef`, созданная и удалённая на одном барьере, тела не оставляет; хеш `physics` и `Describe`;
-  нумерация и названия сегментов; инструмент `physics.bodies` и вычисляемые поля `Body.*` (строгий разбор: компонента —
-  только `X`, `Y`, `Z`, `W`, иное — ошибка).
-  `GameInvariantTests` — неисправности ловятся на своём тике после своей стадии: NaN в теле (`physics.finite`, Physics),
-  тело сдвинуто после постановки (`physics.kinematicPose`, PrePhysics), тело «прилетело» до постановки и обменявшиеся
-  `BodyRef` (`physics.kinematicSpeed`, PrePhysics), испорченный хэндл, общий хэндл, сочленение мимо хука, боец без `BodyRef`
-  (`physics.bodyRefs`, End); честная игра — без нарушений; проверка «сейчас» до первого тика, между тиками и посреди тика
-  после каждой стадии — без нарушений (`RunNow_BeforeFirstTickAndMidTick_NoViolations`).
-- Тест трассы толпы SWORD (категория Content, эталонный пак; снят на 7а): тела всей толпы против
-  трассы SWORD побитово — хеш 13 капсул каждого бойца каждого тика (53 400 бойце-тиков), таз мест 0, 1, 12 каждого тика, все
-  числа капсул на 9 тиках выборки, формы построек. `ArenaTests.SteadyTick_With32Enemies_DoesNotAllocate` — 0 байт с постановкой.
-- `tests/Sword.Engine.Introspection.Tests` (`FeatureTests.Verify_Metric_ReadsComputedFieldOfTheGame`) — метрика читает
-  вычисляемое поле игры.
-- `feature.verify bodies` (`Sword.Headless --feature bodies`, на 5б): сценарии `arena`, `terrain`, `reference`, инварианты `physics.*`,
-  метрики против трассы SWORD (`sword-crowd-pelvis-*`: 3 × 9000 значений побитово; сняты на 7а) и замеры (`run-capsule-speed`,
-  `slope-pelvis-height`).
-- Эталоны SWORD2 (`ReferenceReplaysTests`, `verify.ps1` `replay-smoke`) — с участником `physics`.
-
-## Известные ошибки
-
-- **Поворот капсулы вокруг своей оси при руке вдоль «вправо» бойца** (как в SWORD 2eab13b, `PlaceBodies`): поворот капсулы —
-  `FromBasis(dir, right)`, опорная ось X — «вправо» бойца, спроецированное на плоскость поперёк капсулы. Когда сегмент лежит почти
-  вдоль «вправо» (плечо и предплечье в ударах пака slash2 и уколе: |ось·вправо| до 0,9999), проекция вырождается и поворот капсулы
-  вокруг её оси за тик доходит до 2,8 рад (333 рад/с), хотя сам сустав закручивается не быстрее 20 рад/с (замер проверки 6в
-  настоящим `FighterAnimator` SWORD). Форму капсулы это не меняет — поэтому `physics.kinematicSpeed` с 6в считает угловую
-  скорость поперёк оси; но угловая скорость кинематического тела (`SetKinematicTarget`) несёт эту ложную закрутку (у поверхности
-  плеча — до ~18 м/с). До этапа 7 её никто не читает; на этапе 7 (контакты и трение тел с капсулами бойца) — исправить: опорная
-  ось, непрерывная от прошлой постановки, или угловая скорость без составляющей вдоль оси.
+Подробно — [история](../../../../docs/history/bodies.md) («Решено на 5а…5г», «Решено при приёмке этапа 5», «7ж», «7з»).
+- Тело — в подсистеме, в ECS — хэндл `BodyRef`; время жизни — хуки ECS после журналов и до событий: хук видит мир после всех команд
+  барьера, очередь — в порядке команд (5а).
+- Постройка заново (R) — то же тело: имя и номер у агента переживают сброс, «чистое» состояние — форма и постановка без скорости (5а).
+- Номера сегментов — SWORD (от них зависят маски, попадания, ID-буфер); с 7ж тело i = сегмент i, 11 — клинок (5а, 7ж).
+- Постройка — в Gameplay по `Added<Fighter>`, тик — в PrePhysics; тела сборки мира — при сборке мира (`OnWorldReady`); поза постройки —
+  ресурс `StartPose` от модуля Locomotion; форма — только вычисление длин из `Fighter.Build` (5б, 5в).
+- `kinematicSpeed` — скорость относительно бойца: абсолютная ловила бы законные скачки мира бойца (толчки, колонна, ступень); пределы —
+  ~3× к замеру толпы (5б).
+- Капсулы — «как показан боец», а не интерполяция двух постановок (отстаёт от меша до 3,1 см и дрожит) — подтверждено при приёмке (5в).
+- Отладочное рисование — движка, «рентген» полупрозрачными капсулами; ID-буфер — владелец и часть, легенду даёт игра; оверлей — слой
+  снимка, а не второй кадр; вид тел `IBodyView` — один для агента и клиента (5б, 5в).
+- Скачок капсул на кромке ступени — записанное поведение до этапа 9; бюджет кадра с оверлеем — `budgets[].frame.overlays`; история
+  капсул по тикам — вычисляемые поля в наблюдениях (5г).
+- Эталон — рельеф (`bodies.swreplay`), а не толпа: толпу и команды арены покрывает `enemies.swreplay` (приёмка этапа 5).
+- Не менять: значение `Removed<T>` при «снят — добавлен — снят» на одном барьере, дословный `FighterShape.IdealFoot` (приёмка этапа 5).
+- Тело клинка — по мечу в руке, хват — начало кисти: сустав запястья без смещения, выпавший меч лежит там, где его меш; масса 1,4 кг для
+  всех мечей (7ж, решение этапа 7).
+- Смена меча — постановка без скорости, а не кинематическая цель (иначе фантомная скорость до 30 м/с) (7ж).
+- Свой предел `kinematicSpeed` у тела клинка — 100 м/с: центр клинка быстрее руки (замер до 49,4 м/с) (7ж).
+- Место под суставы — за слотом сочленения с создания: первая смерть на слоте без выделений (7з).
+- Сравнения со SWORD сняты (7а, решение 14); регрессию держат эталоны SWORD2, сценарии, метрики-замеры и инварианты.
