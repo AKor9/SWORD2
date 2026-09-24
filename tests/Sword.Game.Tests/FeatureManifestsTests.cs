@@ -72,7 +72,7 @@ public sealed class FeatureManifestsTests
     /// <summary>Ассеты и отпечаток эталонного пака — один раз на процесс (классы приёмки фич идут параллельно и делят их: только чтение).</summary>
     internal static readonly Lazy<(CharacterAssets Assets, string Content)> Reference = new(() =>
     {
-        using var pak = PakSource.Open(ReferenceTraceTests.ReferencePak());
+        using var pak = PakSource.Open(TestContent.ReferencePak());
         return (CharacterAssets.Load(pak), pak.ContentHash);
     });
 

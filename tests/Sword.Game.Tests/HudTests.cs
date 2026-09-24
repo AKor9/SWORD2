@@ -16,7 +16,7 @@ public class HudTests
     [InlineData(720, 0.75f * 0.7f)]    // ниже 810 пикселей не мельчает
     [InlineData(2160, 2f * 0.7f)]
     [InlineData(4320, 2f * 0.7f)]      // и не растёт больше двух
-    public void Scale_ByWindowHeight_Like_SWORD(int height, float scale) => Assert.Equal(scale, Hud.Scale(height), 5);
+    public void Scale_ByWindowHeight(int height, float scale) => Assert.Equal(scale, Hud.Scale(height), 5);
 
     [Fact]
     public void FpsColour_Thresholds59And45()

@@ -5,13 +5,13 @@ using static Sword.Engine.Animation.Tests.TestClips;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>Пул поз и задания: итог — тот же, что у последовательных вызовов SWORD; хэндлы; память; поза привязки.</summary>
+/// <summary>Пул поз и задания: итог — тот же, что у последовательных вызовов библиотеки клипов; хэндлы; память; поза привязки.</summary>
 public sealed class PoseTests
 {
     private static ClipLibrary TwoClips() => Library(Turning("a", "Walk", 12, 0.2f, loop: true), Turning("a", "Hit", 7, 1.1f, loop: false));
 
-    /// <summary><c>SkeletalClips.ToComponent</c> SWORD: рекурсивно, родитель — по требованию.</summary>
-    private static void SwordToComponent(int[] parents, ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos, Matrix4x4[] component)
+    /// <summary>Модельные матрицы по определению: <c>model[j] = local[j] · model[parent]</c>, рекурсивно, родитель — по требованию.</summary>
+    private static void RecursiveToModel(int[] parents, ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos, Matrix4x4[] component)
     {
         var done = new bool[parents.Length];
         void Resolve(int j, ReadOnlySpan<Quaternion> r, ReadOnlySpan<Vector3> p)
@@ -54,7 +54,7 @@ public sealed class PoseTests
         lib.Sample(1, 0.13f, fromRot, fromPos);
         lib.Sample(0, 0.371f, rot, pos);
         ClipLibrary.Blend(rot, pos, fromRot, fromPos, 0.37f);
-        SwordToComponent(lib.Skeleton.JointParents.ToArray(), rot, pos, model);
+        RecursiveToModel(lib.Skeleton.JointParents.ToArray(), rot, pos, model);
 
         Assert.Equal(rot, pool.LocalRot(main).ToArray());
         Assert.Equal(pos, pool.LocalPos(main).ToArray());
@@ -62,16 +62,16 @@ public sealed class PoseTests
     }
 
     /// <summary>
-    /// Смешивание по маске (6в): вес сустава — <c>w·(mask[j] + (1 − mask[j])·stand)</c>, как <c>CharacterRig.LayerMask</c> и
-    /// <c>SkeletalClips.Blend</c> с маской SWORD — побитово; стоя (stand = 1) маска SWORD — всё тело, на ходу (0) — только маска.
+    /// Смешивание по маске (6в): вес сустава — <c>w·(mask[j] + (1 − mask[j])·stand)</c>, итог — как <see cref="ClipLibrary.Blend"/>
+    /// с этими весами суставов, побитово; стоя (stand = 1) — всё тело, на ходу (0) — только маска.
     /// </summary>
     [Fact]
-    public void BlendMasked_MatchesLayerMaskBlend_BitForBit()
+    public void BlendMasked_EqualsBlendWithJointWeights_BitForBit()
     {
         var lib = TwoClips();
         var pool = new PosePool(lib);
         int jc = lib.JointCount;
-        float[] weights = [.. Enumerable.Range(0, jc).Select(j => (j % 5) * 0.25f)];   // 0, 0,25, 0,5, 0,75, 1 — как маска верха SWORD
+        float[] weights = [.. Enumerable.Range(0, jc).Select(j => (j % 5) * 0.25f)];   // 0, 0,25, 0,5, 0,75, 1 — частичная маска верха
         var mask = pool.AddMask(weights);
         Assert.Equal(new PoseMask(0), mask);
         Assert.Equal(weights, pool.Mask(mask).ToArray());
@@ -91,7 +91,7 @@ public sealed class PoseTests
             var layerMask = new float[jc];
             lib.Sample(0, 0.29f, rot, pos);
             lib.Sample(1, 0.41f, layerRot, layerPos);
-            for (int j = 0; j < jc; j++) layerMask[j] = weights[j] + (1 - weights[j]) * stand;   // LayerMask SWORD
+            for (int j = 0; j < jc; j++) layerMask[j] = weights[j] + (1 - weights[j]) * stand;   // вес сустава слоя
             ClipLibrary.Blend(rot, pos, layerRot, layerPos, 0.8f, layerMask);
             Assert.Equal(rot, pool.LocalRot(main).ToArray());
             Assert.Equal(pos, pool.LocalPos(main).ToArray());
@@ -116,7 +116,7 @@ public sealed class PoseTests
 
     /// <summary>
     /// Память смешивания по маске (6в): повороты сустава в двух позах расходятся через 180° при частичном весе — кратчайшая дуга
-    /// (SWORD) перескакивает ((1 − вес)·360° = 36° при весе 0,9 за задание), с памятью итог доворачивает не больше
+    /// (без памяти) перескакивает ((1 − вес)·360° = 36° при весе 0,9 за задание), с памятью итог доворачивает не больше
     /// <see cref="PosePool.MaxArcStep"/> за задание и догоняет кратчайшую дугу; до перескока и при быстром, но непрерывном движении
     /// (вход веса от 0 до 1 за 4 задания) — побитово как без памяти.
     /// </summary>
@@ -201,7 +201,7 @@ public sealed class PoseTests
 
     /// <summary>
     /// 6ж: переход от снимка — смешивание по маске всего тела (вес 1 у каждого сустава) с памятью: без перескока дуги — побитово как
-    /// <see cref="PosePool.Blend"/> (<c>SkeletalClips.Blend</c> SWORD) на гаснущем весе перехода.
+    /// <see cref="PosePool.Blend"/> на гаснущем весе перехода.
     /// </summary>
     [Fact]
     public void BlendMasked_FullMaskWithMemory_EqualsBlend_BitForBit()
@@ -247,17 +247,17 @@ public sealed class PoseTests
 
     /// <summary>
     /// Добавка поворотов по маске (6г, вздрагивание игрока): <c>rot[j] = normalize(rot[j]·slerp(identity, conj(ref[j])·pose[j],
-    /// mask[j]·вес))</c> — побитово с <c>CharacterRig.AddUpper</c> SWORD; суставы с весом маски 0 и смещения не меняются; вес 0 —
-    /// ничего; две добавки подряд — по порядку заданий (как два слота вздрагивания SWORD).
+    /// mask[j]·вес))</c> — побитово по этой формуле; суставы с весом маски 0 и смещения не меняются; вес 0 и меньше — ничего; две
+    /// добавки подряд — по порядку заданий (два слота вздрагивания).
     /// </summary>
     [Fact]
-    public void AddMasked_MatchesAddUpper_BitForBit()
+    public void AddMasked_FormulaBitForBit_MaskZeroAndOffsetsUntouched()
     {
         var lib = TwoClips();
         int jc = lib.JointCount;
         float[] weights = [.. Enumerable.Range(0, jc).Select(j => (j % 5) * 0.25f)];
-        // AddUpper SWORD 2eab13b (CharacterRig) — копия для сверки
-        static void AddUpper(Quaternion[] rot, Quaternion[] reference, Quaternion[] pose, float[] mask, float weight)
+        // Формула добавки по суставам — ожидание теста.
+        static void AddMasked(Quaternion[] rot, Quaternion[] reference, Quaternion[] pose, float[] mask, float weight)
         {
             if (weight <= 0) return;
             for (int j = 0; j < rot.Length; j++)
@@ -292,9 +292,9 @@ public sealed class PoseTests
             var before = (Quaternion[])rot.Clone();
             lib.Sample(1, 0, refRot, scratch);
             lib.Sample(1, 0.13f, poseRot, scratch);
-            AddUpper(rot, refRot, poseRot, weights, weight);
+            AddMasked(rot, refRot, poseRot, weights, weight);
             lib.Sample(1, 0.41f, poseRot, scratch);
-            AddUpper(rot, refRot, poseRot, weights, weight * 0.5f);
+            AddMasked(rot, refRot, poseRot, weights, weight * 0.5f);
             Assert.Equal(rot, pool.LocalRot(main).ToArray());
             Assert.Equal(pos, pool.LocalPos(main).ToArray());   // смещения не трогаются
             for (int j = 0; j < jc; j++)
@@ -327,7 +327,7 @@ public sealed class PoseTests
         var pos = Enumerable.Range(0, 4).Select(i => new Vector3(0.1f * i, 0.2f, -0.05f * i)).ToArray();
         var expected = new Matrix4x4[4];
         var actual = new Matrix4x4[4];
-        SwordToComponent(parents, rot, pos, expected);
+        RecursiveToModel(parents, rot, pos, expected);
         skeleton.ToModel(rot, pos, actual);
         Assert.Equal(expected, actual);
     }

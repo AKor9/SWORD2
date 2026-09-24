@@ -86,11 +86,11 @@ public sealed class FeatureTests : IDisposable
           ],
           "invariants": ["ecs.*"],
           "metrics": [
-            { "id": "x5", "scenario": "push", "source": "sword2", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X",
+            { "id": "x5", "scenario": "push", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X",
               "at": 5, "expected": 5 },
-            { "id": "xmax", "scenario": "push", "source": "sword", "reference": "тест", "entity": "{{First}}", "field": "Body.Position",
+            { "id": "xmax", "scenario": "push", "reference": "тест", "entity": "{{First}}", "field": "Body.Position",
               "stat": "max", "from": 1, "to": 20, "expected": 10, "tolerance": 0.001 },
-            { "id": "mean", "scenario": "rec", "source": "sword2", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X",
+            { "id": "mean", "scenario": "rec", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X",
               "stat": "mean", "expected": 15.5 }
           ],
           "views": [{ "id": "end", "scenario": "rec", "tick": 30, "camera": "0.6,0.95,24", "overlays": ["capsules"] }],
@@ -125,7 +125,11 @@ public sealed class FeatureTests : IDisposable
     [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": \"capsules\"", "views[0].overlays: массив строк")]
     [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": [\"\"]", "views[0].overlays[0]: непустая строка")]
     [InlineData("\"at\": 5, \"expected\": 5", "\"at\": 5", "нужно field (или resource) и expected")]
-    [InlineData("\"source\": \"sword2\", \"reference\": \"тест\", \"entity\"", "\"source\": \"sword2\", \"reference\": \"тест\", \"resource\": \"SimTime.Time\", \"entity\"", "metrics[0]: resource — поле ресурса мира, без entity, field")]
+    [InlineData("\"reference\": \"тест\", \"entity\"", "\"reference\": \"тест\", \"resource\": \"SimTime.Time\", \"entity\"", "metrics[0]: resource — поле ресурса мира, без entity и field")]
+    // 7а: со SWORD не сравниваем (решение 14) — источника «sword» и рядов против трассы в формате нет.
+    [InlineData("{ \"id\": \"xmax\", \"scenario\": \"push\",", "{ \"id\": \"xmax\", \"scenario\": \"push\", \"source\": \"sword\",", "metrics[1].source: неизвестный ключ")]
+    [InlineData("{ \"id\": \"xmax\", \"scenario\": \"push\",", "{ \"id\": \"xmax\", \"scenario\": \"push\", \"trace\": \"t.json\",", "metrics[1].trace: неизвестный ключ")]
+    [InlineData("{ \"id\": \"xmax\", \"scenario\": \"push\",", "{ \"id\": \"xmax\", \"scenario\": \"push\", \"series\": { \"x\": \"Body.Position.X\" },", "metrics[1].series: неизвестный ключ")]
     [InlineData("\"stat\": \"max\", \"from\": 1", "\"stat\": \"max\", \"at\": 3, \"from\": 1", "at — только со stat value")]
     [InlineData("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }", "{ \"id\": \"rec\" }", "без реплея нужно ticks")]
     [InlineData("\"msPerTick\": 5", "\"msPerTick\": -5", "пределы — положительные")]
@@ -166,8 +170,8 @@ public sealed class FeatureTests : IDisposable
               "format": "sword-feature", "version": 1, "id": "twice", "title": "поля", "doc": "README.md", "sourceRoots": ["feat"],
               "scenarios": [{ "id": "push", "ticks": 5, "commands": [{{Push}}] }],
               "metrics": [
-                { "id": "twice", "scenario": "push", "source": "sword2", "reference": "тест", "entity": "{{First}}", "field": "Twice.X", "expected": 10 },
-                { "id": "plain", "scenario": "push", "source": "sword2", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X", "expected": 5 }
+                { "id": "twice", "scenario": "push", "reference": "тест", "entity": "{{First}}", "field": "Twice.X", "expected": 10 },
+                { "id": "plain", "scenario": "push", "reference": "тест", "entity": "{{First}}", "field": "Body.Position.X", "expected": 5 }
               ],
               "checklist": ["посмотреть"]
             }
@@ -199,8 +203,8 @@ public sealed class FeatureTests : IDisposable
               "format": "sword-feature", "version": 1, "id": "clock", "title": "время", "doc": "README.md", "sourceRoots": ["feat"],
               "scenarios": [{ "id": "run", "ticks": 24 }],
               "metrics": [
-                { "id": "time", "scenario": "run", "source": "sword2", "reference": "тест", "resource": "SimTime.Time", "at": 12, "expected": 0.1, "tolerance": 1e-5 },
-                { "id": "max", "scenario": "run", "source": "sword", "reference": "тест", "resource": "SimTime.Time", "stat": "max", "expected": 0.2, "tolerance": 1e-5 }
+                { "id": "time", "scenario": "run", "reference": "тест", "resource": "SimTime.Time", "at": 12, "expected": 0.1, "tolerance": 1e-5 },
+                { "id": "max", "scenario": "run", "reference": "тест", "resource": "SimTime.Time", "stat": "max", "expected": 0.2, "tolerance": 1e-5 }
               ],
               "checklist": ["посмотреть"]
             }

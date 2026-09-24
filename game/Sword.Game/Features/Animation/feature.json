@@ -1,7 +1,8 @@
 {
   // Приёмка фичи «Анимация и локомоция клипами» (этап 2) — задним числом, этап 3д. Формат — FeatureManifest
   // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature animation). Ослабить ожидания — только
-  // правкой с сообщением пользователю.
+  // правкой с сообщением пользователю. 7а: сравнение со SWORD снято (решение 14) — метрика против трассы SWORD удалена, сценарий
+  // трассы переименован в locomotion (его проверки и виды — свои).
   "format": "sword-feature",
   "version": 1,
   "id": "animation",
@@ -16,8 +17,8 @@
   "requiredModules": ["locomotion"],
   "scenarios": [
     {
-      "id": "sword-trace",
-      "title": "сценарий трассы SWORD: стойка, бег вперёд, шаг вбок, бег назад-влево, стойка, бег к −Z (900 тиков)",
+      "id": "locomotion",
+      "title": "локомоция игрока (до 7а — сценарий трассы SWORD): стойка, бег вперёд, шаг вбок, бег назад-влево, стойка, бег к −Z (900 тиков)",
       "ticks": 900,
       "commands": [
         { "command": "PlayerCommand", "from": 0, "to": 60 },
@@ -62,19 +63,10 @@
     }
   ],
   "invariants": ["animation.*", "locomotion.poses", "ecs.finite"],
-  "metrics": [
-    {
-      "id": "sword-trace", "scenario": "sword-trace", "source": "sword",
-      "reference": "трасса настоящего кода SWORD 2eab13b на эталонном паке (tests/reference/sword-trace): корень и курс тик за тиком, побитово; клип и поза — ReferenceTraceTests",
-      "entity": "player", "trace": "tests/reference/anim-locomotion.trace.json",
-      "series": { "root[0]": "Transform.Position.X", "root[1]": "Transform.Position.Z", "facing": "Transform.Facing" },
-      "tolerance": 0
-    }
-  ],
   "views": [
-    { "id": "idle", "title": "стойка одноручного хвата", "scenario": "sword-trace", "tick": 60, "camera": "0.6,0.9,6,0,0" },
-    { "id": "run", "title": "бег вперёд", "scenario": "sword-trace", "tick": 250, "camera": "0.6,0.9,6,0,6.4" },
-    { "id": "back", "title": "бег назад-влево со взглядом на (30, 0)", "scenario": "sword-trace", "tick": 500, "camera": "0.6,0.9,6,-0.2,6.6" }
+    { "id": "idle", "title": "стойка одноручного хвата", "scenario": "locomotion", "tick": 60, "camera": "0.6,0.9,6,0,0" },
+    { "id": "run", "title": "бег вперёд", "scenario": "locomotion", "tick": 250, "camera": "0.6,0.9,6,0,6.4" },
+    { "id": "back", "title": "бег назад-влево со взглядом на (30, 0)", "scenario": "locomotion", "tick": 500, "camera": "0.6,0.9,6,-0.2,6.6" }
   ],
   "budgets": [
     {

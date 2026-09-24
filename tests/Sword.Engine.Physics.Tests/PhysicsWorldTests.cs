@@ -5,13 +5,13 @@ namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
 /// Физика этапа 5а: хэндлы тел и сочленений (индекс + поколение, устаревший — исключение, выдача слотов по договору),
-/// кинематическая капсула — форма, постановка, цель тика и концы по <c>RigidBody</c> и <c>PlaceBodies</c> SWORD 2eab13b,
+/// кинематическая капсула — форма, постановка, цель тика (скорости — разностью постановок) и концы по оси,
 /// 0 байт в установившемся режиме, две реализации (экземпляра) в одном процессе независимы.
 /// </summary>
 public class PhysicsWorldTests
 {
     [Fact]
-    public void Articulation_BodiesFromFreeSlotsInOrder_NewBodyIsSwordDefault()
+    public void Articulation_BodiesFromFreeSlotsInOrder_NewBodyIsEmpty()
     {
         var w = new PhysicsWorld(articulations: 2, bodies: 4);
         var a = w.CreateArticulation(3);
@@ -23,7 +23,7 @@ public class PhysicsWorldTests
         Assert.Equal((2, 6, 8), (w.ArticulationCount, w.LiveBodyCount, w.BodyCapacity));
         Assert.Equal(b, w.ArticulationOf(w.Body(b, 2)));
 
-        // new RigidBody() SWORD до SetShape и Place: начало координат, без поворота, скоростей и формы.
+        // Новое тело до SetShape и Place: начало координат, без поворота, скоростей и формы.
         var s = w.Get(w.Body(a, 1));
         Assert.Equal((Vector3.Zero, Vector3.Zero, Vector3.Zero, Vector3.Zero), (s.Position, s.PrevPosition, s.Velocity, s.AngularVelocity));
         Assert.Equal((Quaternion.Identity, Quaternion.Identity), (s.Rotation, s.PrevRotation));
@@ -79,7 +79,7 @@ public class PhysicsWorldTests
     }
 
     [Fact]
-    public void ShapePlaceAndEnds_AreRigidBodyOfSword()
+    public void ShapePlaceAndEnds_AxisAndEndsFromRotation()
     {
         var w = new PhysicsWorld();
         var body = w.Body(w.CreateArticulation(1), 0);
@@ -91,7 +91,7 @@ public class PhysicsWorldTests
         Assert.Equal((pos, pos, rot, rot), (s.Position, s.PrevPosition, s.Rotation, s.PrevRotation));
         Assert.Equal((Vector3.Zero, Vector3.Zero), (s.Velocity, s.AngularVelocity));
         Assert.Equal((0.065f, 0.14f), (s.Radius, s.HalfLength));
-        // RigidBody.Axis/EndA/EndB — те же выражения.
+        // Ось — +Y тела в мире, концы — центр ∓ ось · полудлина.
         var axis = Vector3.Transform(Vector3.UnitY, rot);
         Assert.Equal(axis, s.Axis);
         Assert.Equal(pos - axis * 0.14f, s.EndA);
@@ -106,7 +106,7 @@ public class PhysicsWorldTests
     }
 
     [Fact]
-    public void KinematicTarget_VelocitiesByDifference_AsPlaceBodiesOfSword()
+    public void KinematicTarget_VelocitiesByDifference()
     {
         const float dt = 1f / 120;
         var w = new PhysicsWorld();
@@ -118,7 +118,7 @@ public class PhysicsWorldTests
         var r1 = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.05f) * r0;
         w.SetKinematicTarget(body, p1, r1, dt);
         var s = w.Get(body);
-        // Кинематическая ветка Place в PlaceBodies SWORD: те же выражения в том же порядке — побитово.
+        // Кинематическая цель: прошлая постановка — нынешняя до вызова, скорости — разность за шаг (угловая — вектор поворота / dt), побитово.
         Assert.Equal((p0, r0, p1, r1), (s.PrevPosition, s.PrevRotation, s.Position, s.Rotation));
         Assert.Equal((p1 - p0) / dt, s.Velocity);
         Assert.Equal(PhysicsMath.RotationVector(r0, r1) / dt, s.AngularVelocity);

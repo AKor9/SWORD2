@@ -19,8 +19,7 @@ namespace Sword.Game.Tests;
 /// Точка 4г: поворот врага на месте — слой действий аниматора (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>),
 /// ветка не-<c>Agile</c> <c>KinematicSteer</c> (<see cref="RootSteerSystem.SteerSteady"/>), команда врагу
 /// (<see cref="EnemyCommand"/>), инвариант <c>animation.actions</c>. Тестовый контент: клипы поворота — 90° влево и вправо,
-/// разворот, 1 с, корень чуть вперёд (<see cref="TestAssets"/>). Побитовая сверка с SWORD на эталонном паке —
-/// <c>ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick</c>.
+/// разворот, 1 с, корень чуть вперёд (<see cref="TestAssets"/>). На паке контента — сценарий <c>turn</c> манифеста <c>enemies</c>.
 /// </summary>
 public sealed class EnemyTurnTests
 {
@@ -47,16 +46,9 @@ public sealed class EnemyTurnTests
     private static float Lag(float goal, float facing) => MathF.Abs(MathF.IEEERemainder(goal - facing, MathF.Tau));
 
     [Fact]
-    public void Constants_AreSwordLiterals()
+    public void TurnSlots_MapToTurnClips()
     {
-        // FighterAnimator: ActionOut, ActionInSoft, TurnScaleMin/Max, литералы StartTurn; DuelArena.Kinematic: KinIdleTurnRate,
-        // KinTurnAnimMin, «стоит» — 0,09 и 0,25; ActionKind.Turn — седьмой в перечислении SWORD.
-        Assert.Equal((0.2f, 0.15f, 0.5f, 1.6f, 0.3f, 2.4f), (ActionRules.ActionOut, ActionRules.ActionInSoft, ActionRules.TurnScaleMin,
-            ActionRules.TurnScaleMax, ActionRules.TurnClipMin, ActionRules.Turn180Min));
-        Assert.Equal(2.5f, MovementRules.IdleTurnRate);
-        Assert.Equal(45 * MathF.PI / 180, MovementRules.TurnAnimMin);
-        Assert.Equal((0.09f, 0.25f), (MovementRules.StandingDesiredSq, MovementRules.StandingSpeedSq));
-        Assert.Equal(6, (int)ActionKind.Turn);
+        // Слоты поворота таблицы действий и клипы, которые им назначены по именам пака.
         Assert.Equal(("turn_left", "turn_right", "turn_180"),
             (ActionSlots.Names[ActionSlots.TurnLeft], ActionSlots.Names[ActionSlots.TurnRight], ActionSlots.Names[ActionSlots.Turn180]));
         var a = TestAssets.Assets;
@@ -74,7 +66,7 @@ public sealed class EnemyTurnTests
     [InlineData(0.79f, "TurnLeft90")]     // на грани 0,5
     [InlineData(0.7f, null)]              // 0,45 и 0,22 — клипа нет, курс доворачивает контроллер
     [InlineData(-0.7f, null)]
-    public void StartTurn_PicksClipByScale_LikeSword(float delta, string? clip)
+    public void StartTurn_PicksClipByScale(float delta, string? clip)
     {
         var assets = TestAssets.Assets;
         var a = AnimatorAction.None;

@@ -295,7 +295,7 @@ public sealed class PosePool
     /// <summary>
     /// Задание (6г): добавка поворотов по маске — к позе <paramref name="dst"/> отклонение позы <paramref name="pose"/> от
     /// <paramref name="reference"/> с весом сустава <c>mask[j]·weight</c>: <c>rot[j] = normalize(rot[j]·slerp(identity,
-    /// conj(ref[j])·pose[j], k))</c>; сустав с k ≤ 0 и смещения не трогаются (<c>CharacterRig.AddUpper</c> SWORD 2eab13b, побитово:
+    /// conj(ref[j])·pose[j], k))</c>; сустав с k ≤ 0 и смещения не трогаются (идея — <c>CharacterRig.AddUpper</c> SWORD:
     /// вздрагивание игрока — первые кадры клипа реакции поверх любой позы). Вес не больше 0 — задание ничего не меняет.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Маски нет в пуле.</exception>
@@ -399,7 +399,7 @@ public sealed class PosePool
 
     /// <summary>
     /// Маска задания с долей <paramref name="stand"/>: <c>mask[j] + (1 − mask[j])·stand</c> — выражение
-    /// <c>CharacterRig.LayerMask</c> SWORD (побитово). Цикл по суставам — свой метод: <see cref="Tick"/> зовётся раз в тик.
+    /// <c>CharacterRig.LayerMask</c> SWORD (идея). Цикл по суставам — свой метод: <see cref="Tick"/> зовётся раз в тик.
     /// </summary>
     private static void LayerMask(ReadOnlySpan<float> mask, float stand, Span<float> into)
     {

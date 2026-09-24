@@ -491,7 +491,7 @@ public class CombatUiTests
     }
 
     [Fact]
-    public void CombatGroup_InfoRows_LikeSword()
+    public void CombatGroup_InfoRows()
     {
         Span<char> d = stackalloc char[128];
         Assert.Equal("—", d[..CombatTuning.LastStrike(d, ArenaStats.Start)].ToString());

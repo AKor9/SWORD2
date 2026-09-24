@@ -1,4 +1,4 @@
-# Враги и ИИ (этап 4) — точки 4а (спаун и команды арены), 4б (ИИ врагов), 4в (столкновения бойцов), 4г (поворот на месте) и 4д (сверка толпы с SWORD и приёмка)
+# Враги и ИИ (этап 4) — точки 4а (спаун и команды арены), 4б (ИИ врагов), 4в (столкновения бойцов), 4г (поворот на месте) и 4д (толпа с командами арены и приёмка)
 
 Враги на арене: при старте — `arena.enemies` врагов кольцом вокруг игрока, лицом к нему; клавиши PageUp/PageDown —
 врагов на одного больше или меньше, R — сброс арены. Враг — такой же боец, как игрок (корень, намерение, поза, локомоция
@@ -25,8 +25,8 @@
 SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а), `Gameplay/Ai/EnemyAi.cs` (4б),
 `DuelArena.ResolveRoots` (4в), `DuelArena.Kinematic.cs` (`KinematicSteer`, `KinematicBegin`) и `Sword.Combat/FighterAnimator.cs`
 (`StartTurn`, `Begin`, `TickActions`, `TurnDrivesYaw`) (4г); порядок `DuelArena.Tick` целиком и сброс аниматора места
-`FighterAnimator.Reset` — сверка толпы с трассой SWORD (4д, «Сверка толпы с SWORD»). Формулы, константы и порядок
-вычислений float те же:
+`FighterAnimator.Reset` (4д). Формулы, константы и порядок вычислений float перенесены те же (на 4д это проверяла сверка
+толпы с трассой SWORD — снята на 7а, «Сверка толпы с SWORD»):
 
 | SWORD | SWORD2 |
 |---|---|
@@ -36,12 +36,12 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
 | `SetEnemyCount(n)`: `Math.Clamp(n, 0, MaxFighters − 1)`; места old+1…n — `Spawn`; меньше — последние места неактивны | `ArenaAction.ChangeEnemies`/`SetEnemies` → `ArenaCommandSystem` (Intent): новые места — новые сущности, ушедшие — сущности снимаются |
 | `Spawn`: a = rng·τ, r = 5 + rng·4 вокруг таза игрока; дальше `ArenaRadius − 3` — на этот радиус; facing = `atan2(p.X − pos.X, p.Z − pos.Z)` | `ArenaRules.Enemy` — вокруг корня игрока (решено при разбивке этапа 4: тел до этапа 5 нет) |
 | `Fighter.Build`: `Seed = rng.NextSingle()`, `Facing = FacingGoal = facing`, скорость 0, `GazePoint = null`, `ResetAnimator` | `FighterSeed`, `Fighters.Create`/`Rebuild`: намерение — стоять курсом постройки, точки взгляда нет; локомоция — со стойки |
-| `ResetAnimator` → `FighterAnimator.Reset` → `LegacyLocomotion.Reset` (4д): `_clip = −1`, `_fade = 1`, `_run = false`, а сторона ходьбы `_dir` **не сбрасывается** — боец места, построенный заново, пойдёт с клипа прежней стороны, если новое направление в пределах её гистерезиса | `LegacyLocomotionSetupSystem` (модуль Locomotion): боец, построенный заново на той же сущности (сброс R), сохраняет `Dir` (найдено трассой толпы 4д: без этого клип игрока после R расходится с SWORD на 42-м тике — `RunForward` вместо `RunForwardLeft`) |
+| `ResetAnimator` → `FighterAnimator.Reset` → `LegacyLocomotion.Reset` (4д): `_clip = −1`, `_fade = 1`, `_run = false`, а сторона ходьбы `_dir` **не сбрасывается** — боец места, построенный заново, пойдёт с клипа прежней стороны, если новое направление в пределах её гистерезиса | `LegacyLocomotionSetupSystem` (модуль Locomotion): боец, построенный заново на той же сущности (сброс R), сохраняет `Dir` (найдено трассой толпы 4д, снята на 7а: без этого клип игрока после R расходится с SWORD на 42-м тике — `RunForward` вместо `RunForwardLeft`) |
 | `Random(7)` — один поток на угол, радиус, зерно, таймер удара, оружие | счётчиковый ГСЧ SWORD2: поток `arena.spawn`, выборка — по месту и «партии» постройки (0 — сборка мира, дальше — номер команды тика) |
 | `Program.cs`: `Units = 10` (`--units`, clamp 0…32); PageUp → +1, PageDown → −1, R → `Reset(EnemyCount)` — прямо из цикла кадра | `sword.json` `arena.enemies = 10`, `--units N` (App и Headless); клавиши — `ArenaCommand` из фронтов ввода (ровно одним тиком), в реплее — готовой командой |
 | `SkinnedCharacters.EnemyColour(i)` | `ArenaClient.EnemyColour(slot)` |
 | `EnemyAi.Think` (4б): `to = p.Root − f.Root`, `to.Y = 0`; `dist = max(\|to\|, 1e-3)`; `dir = to/dist`; `FacingGoal = atan2(dir.X, dir.Z)`; `GazePoint = p.Root` | `EnemyAi.Think` (`game/Sword.Game/Ai/EnemyAi.cs`) → `FighterCommand.FacingGoal`, `GazeTarget` |
-| `desired = dir·clamp((dist − KeepDistance 1,8)·2,5, −2, 3,2) + side·sin(arena.Time·0,7 + f.Seed·10)·0,7`, `side = (dir.Z, 0, −dir.X)` | то же выражение в том же порядке; константы — `EnemyAiRules` (тест сверяет с литералами SWORD) |
+| `desired = dir·clamp((dist − KeepDistance 1,8)·2,5, −2, 3,2) + side·sin(arena.Time·0,7 + f.Seed·10)·0,7`, `side = (dir.Z, 0, −dir.X)` | то же выражение в том же порядке; константы — `EnemyAiRules` (тест литералов SWORD снят на 7а) |
 | расхождение: по местам j = 1…`EnemyCount`, кроме себя и мёртвых: `d = f.Root − o.Root`, `d.Y = 0`; `l < Personal 1,4 && l > 1e-3` → `desired += d/l·(Personal − l)·2` | `EnemyCrowd` — корни по местам, сумма — в порядке мест (порядок сложения float); `DesiredVel = desired` → `FighterCommand.DesiredVelocity` |
 | `DuelArena.Tick`: `Time += dt` первым делом; `PlayerBrain.Think`, затем `Think` врагов по местам 1…`EnemyCount`, затем `KinematicBegin` всех | `SimTime.Time` (Runtime: `_time += Dt` во float в начале тика — те же биты); `EnemyAiSystem` (Intent, после `core.player-command`) — корни до движения тика (Movement — позже) |
 | `DuelArena.Tick` (4в): `ResolveRoots()` — после `KinematicBegin` всех бойцов, до `PlaceBodies` | `RootCollisionSystem` (Movement, после `RootControlSystem` — переноса корней всех бойцов); тел до этапа 5 нет |
@@ -61,8 +61,8 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
 инварианте перекрытия — 6г: `RootCollisionSystem` и `RootOverlapInvariant` не видят мёртвых (живые проходят сквозь замерший труп).
 
 Намеренные отличия:
-- **Расстановка не та же, что в SWORD** — другой ГСЧ (решено при разбивке этапа 4); сверка толпы с SWORD — от одной
-  расстановки (4д).
+- **Расстановка не та же, что в SWORD** — другой ГСЧ (решено при разбивке этапа 4); сверка толпы с SWORD на 4д шла от
+  одной расстановки (снята на 7а).
 - **Центр спауна — корень игрока, а не таз его тела** (сантиметры; тел до этапа 5 нет — вернуть таз или записать
   почему нет на этапе 5).
 - **Неактивных мест нет**: SWORD держит 32 бойца всегда и перестраивает все места при сбросе; здесь у неактивного места
@@ -72,7 +72,7 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
   трогает); в SWORD2 это новая сущность со стороной 0. Расходится только первый клип ходьбы нового врага и только если
   прежняя сторона ≠ 0, а новое направление — в пределах её гистерезиса (±0,7 сектора 45°). Новый враг бежит к игроку
   лицом (сторона 0, отклонение покачиванием — до 0,27 сектора), поэтому почти всегда выбирают одно и то же: в трассе толпы
-  (PageDown ×3 и PageUp ×3 тех же мест) расхождений нет. Сброс R строит заново ту же сущность — там сторона сохраняется, как
+  4д (PageDown ×3 и PageUp ×3 тех же мест; снята на 7а) расхождений не было. Сброс R строит заново ту же сущность — там сторона сохраняется, как
   в SWORD (выше, «Откуда логика»). «Память места» ради этой разницы не заводится — решено при приёмке этапа 4: не
   делаем, записанное отличие от SWORD.
 - **Значение в коде `arena.enemies` — 0** (пустая арена), 10 — в `sword.json`: мир без `sword.json` (тесты, сценарии
@@ -92,7 +92,7 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
 - **Снимка позы (`Snapshot`, `_snapFade`) в повороте нет.** В `TickActions` он берётся, только если действие кончилось
   при видимом весе (больше 0,05) или прерывается новым (`Begin`). Поворот начинается только из покоя, а выход начинается за
   0,2 с до конца клипа и за эти 24 тика гасит вес целиком (по 1/24 из не больше чем 1) — снимок у поворота недостижим
-  (трасса SWORD: снимков 0 при 42 поворотах). Снимок и прерывания — этап 6, вместе с действиями, которые их дают
+  (трасса SWORD 4г, снята на 7а: снимков 0 при 42 поворотах). Снимок и прерывания — этап 6, вместе с действиями, которые их дают
   (решено при приёмке этапа 4).
 - **Команда врагу `EnemyCommand` — новое, в SWORD её нет.** Способ воздействия агента и сценариев фич (раздел 8 плана):
   намерение врага места на тик вместо ИИ. Без неё поворот клипом не вызвать: ИИ SWORD почти не даёт стоячему врагу
@@ -196,8 +196,8 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
 | `--units N` (Sword.exe, Sword.Headless) | — | то же, что `--set arena.enemies=N`, с пределом 0…32 как `--units` SWORD |
 | `input.enemies_more`, `input.enemies_fewer`, `input.arena_reset` | PageUp, PageDown, R | клавиши команд арены |
 
-У ИИ своих ключей нет: константы SWORD — `EnemyAiRules` (тест `EnemyAiTests.Constants_AreSwordLiterals`). С 6в враги бьют по
-таймеру (фича «Бой»); сценарии этого манифеста, трассы SWORD и эталон `enemies` — на мирных врагах (`combat.enemiesAttack=false`):
+У ИИ своих ключей нет: константы (взяты из SWORD) — `EnemyAiRules` (тест литералов снят на 7а). С 6в враги бьют по
+таймеру (фича «Бой»); сценарии этого манифеста и эталон `enemies` — на мирных врагах (`combat.enemiesAttack=false`):
 это регрессия этапа 4, поведение — как до 6в.
 
 ## Зависимости
@@ -213,7 +213,7 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
   миллиметры (до 0,005 м), а в тик спауна (сборка мира, R, PageUp) — до 0,19 м, если кольцо спауна поставило 3–4 врагов
   кучкой; за 2–3 тика это рассасывается. У края арены кольцо спауна прижато к окружности `ArenaRadius − 3` и ставит
   новых врагов прямо в толпу у игрока: корни сходятся почти в точку и разводятся до 12 тиков. Совпавшие корни (ближе
-  1e-4 м) SWORD не разводит вовсе — их растолкают только соседи (иначе поймает инвариант).
+  1e-4 м) столкновения не разводят вовсе (как `ResolveRoots` SWORD) — их растолкают только соседи (иначе поймает инвариант).
 - Вида толчков у игрока нет — только у врагов (`RootContacts`, выше).
 - **Поворот на месте клипом в обычной игре почти не бывает — так и в SWORD** (перенесена логика, замер 4г). Стоит враг,
   только когда желаемая скорость меньше 0,3 м/с — ИИ даёт это лишь на 1,8 ± 0,12 м от игрока в провале покачивания; чтобы
@@ -236,46 +236,25 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
   места враг — новая сущность, и условие смотрит на ушедшую. Сброс (R) сущности не меняет. Надёжно — по месту полем:
   `{"exists":{"all":[{"component":"EnemyTag"},{"field":"FighterSlot.Index","equals":5},…]}}`.
 
-## Сверка толпы с SWORD (4д)
+## Сверка толпы с SWORD (4д, снята на 7а)
 
-Трасса `tests/reference/anim-crowd.trace.json` снята программой `tests/reference/sword-trace` (сценарий `crowd`; как
-снять — README трассы) с **настоящего кода SWORD 2eab13b** на эталонном паке: у каждого места свой настоящий
-`FighterAnimator` (33 аниматора заводятся сразу, как `AttachRig`; постройка — `Reset`, как `ResetAnimator`: аниматор места
-переживает PageDown/PageUp и сброс), игрок — `Agile`, враги — нет. Копии, сверенные построчно с 2eab13b: `EnemyAi.Think`
-(строки движения, `SetBlock(false)`; без удара, таймера и `Dead` — этап 6), `PlayerController.Think` (движение и взгляд),
-`KinematicSteer`/`KinematicBegin`, `Fighter.DirToLocal`, `ResolveRoots` (с настоящими `ArenaLayout.Pillars` и
-`ArenaRadius` — файл SWORD подключён ссылкой), поля движения `Fighter.Build`; `SetEnemyCount` и `Reset` — до тика, как из
-цикла кадра SWORD. Порядок тика — `DuelArena.Tick`: `Time += dt` → `PlayerController.Think` → `EnemyAi.Think` по местам →
-`KinematicBegin` всех → `ResolveRoots`.
+Сравнения со SWORD сняты на 7а (решение 14, свой путь): трасса толпы `tests/reference/anim-crowd.trace.json` (4д: сценарий
+`sword-crowd`, 3000 тиков, до 33 бойцов — корень, курс, клип, действие и поза каждого бойца побитово против настоящего кода
+SWORD 2eab13b, расхождений 0) и трасса поворота `anim-turn.trace.json` (4г), программа трассы SWORD, тесты трасс (толпа,
+поворот врага), метрики манифеста `sword-crowd-player`, `sword-crowd-enemy-1`, `sword-crowd-enemy-12` и `sword-turn-trace`,
+побитовые тесты против копий кода SWORD (`EnemyAi.Think` в `EnemyAiTests`, `ResolveRoots` в `RootCollisionTests`) и тесты
+литералов SWORD (в `EnemyAiTests`, `ArenaTests`, `EnemyTurnTests`, `MovementTests`). Сценарий
+трассы толпы `sword-crowd` переименован в `crowd-commands`. Поведение не менялось — хеши эталонов SWORD2 те же.
 
-Расстановка SWORD (`Random(7)`) не воспроизводится (решено при разбивке этапа 4), поэтому трасса строит бойцов там же, где
-SWORD2: тест `ReferenceTraceTests.Crowd_MatchesSwordTickByTick` прогоняет сценарий в SWORD2, собирает постройки по тикам
-(место, корень и курс постройки — `PrevTransform`, зерно `FighterSeed`) и пишет вход программы трассы
-`artifacts/reference/crowd.input.json`; трасса хранит его копию (`input`), и тест сверяет, что сценарий и расстановка
-SWORD2 не изменились. Центр спауна при этом — корень игрока SWORD2, а не таз (решено при разбивке): раз корни совпадают
-побитово, совпадает и он.
+Регрессию держат: эталон SWORD2 `tests/reference/replays/enemies.swreplay` — запись сценария `crowd-commands`, хеши каждого
+тика (`ReferenceReplaysTests`, `verify.ps1` `replay-smoke`, сценарий `reference` манифеста); проверки сценариев манифеста
+(`crowd-commands`, `turn`, `surround`, `push` и другие) и своя метрика `keep-distance`; тесты свойств — `EnemyAiTests`
+(слагаемые, порядок мест, намерение каждого тика в мире), `RootCollisionTests` (случайные толпы, в мире каждый тик —
+`Move` + `Resolve`), `EnemyTurnTests`, `ArenaTests` («Проверки»).
 
-Сценарий (`sword-crowd` манифеста, `ReferenceTraceTests.CrowdSegments`/`CrowdArenaCommands`), 3000 тиков, `arena.enemies =
-12`, `sim.seed = 1`: игрок стоит 4 с — враги сходятся и окружают; PageUp, PageUp, 16; разворот взглядом; бег сквозь кольцо;
-круги (8 сторон по 45 тиков); шагом прочь; PageDown ×3 и PageUp ×3 (места 14…16 — заново); бег по диагонали, R, бег в
-сторону (сторона ходьбы после сброса); стоит, пока враги сходятся к центру; бег к колонне 0 — упирается в неё, толпа
-догоняет; у колонны — 32 врага (толпа прижимается к колонне). Итог программы: бойцов до 33, команд арены 11, построек 53,
-пар корней 3164, толчков колонной 2307, края 0, поворотов клипом 0.
-
-Сверяется тик за тиком у **каждого** бойца: корень (x, z) и курс — побитово, клип локомоции, действие и его клип, хеш позы
-(FNV-1a по битам всех модельных матриц суставов) — 53 400 бойце-тиков, 320 400 значений, **расхождений 0**. Манифест
-(`feature.verify enemies`) сверяет с той же трассой корни и курсы игрока, врага 1 и врага 12 (метрики `sword-crowd-*`, по
-9000 значений, допуск 0); вся толпа — тест.
-
-Что сверка нашла: сторону ходьбы `_dir`, которую SWORD не сбрасывает при постройке бойца (выше, «Откуда логика»): без
-исправления клип игрока после R расходится с SWORD на тике 1442 (`RunForward` против `RunForwardLeft`); сценарий нарочно
-бежит после сброса в сторону, где это видно. Исправлено в модуле Locomotion (`LegacyLocomotionSetupSystem`), тест —
-`ArenaTests.Reset_…` (сторона до и после сброса); разница у места, убавленного и прибавленного снова, — «Намеренные отличия».
-
-Чего трасса не покрывает (и где оно проверено): край арены (игрок до края не доходит — `RootCollisionTests` против копии
-`ResolveRoots` побитово, в том числе у края); поворот на месте клипом (ИИ его почти не даёт — трасса `anim-turn`, 4г);
-удар, блок и смерть — этап 6 (копии тогда пересверить или подключить настоящий `DuelArena`). Прежние трассы
-(`anim-locomotion`, `anim-turn`) программа 4д снимает заново побайтно теми же.
+История: сверка 4д нашла сторону ходьбы `_dir`, которую SWORD не сбрасывает при постройке бойца: пока SWORD2 её сбрасывал,
+клип игрока после R расходился с SWORD на тике 1442 (`RunForward` против `RunForwardLeft`). Перенесено в модуль Locomotion
+(`LegacyLocomotionSetupSystem`), тест — `ArenaTests.Reset_…` («Откуда логика», «Намеренные отличия»).
 
 ## Бюджеты и замеры (4д)
 
@@ -311,7 +290,7 @@ Release, `report.json`).
 (`rootOverlap` считает тики подряд: пороги 4 и 24 тика с периодом не работали бы; он дешёвый — 0,0013 мс). Средний тик толпы App
 0,196 → 0,137 мс; в тестах, `feature.verify` и Headless — каждый тик, как раньше. `RootCollision.Resolve` — тело прохода по бойцу в
 своём методе (`Fighter`): без замены на ходу (OSR 1,5 мс на главном потоке в первые секунды толпы), порядок float тот же
-(`RootCollisionTests` побитово с SWORD).
+(тогда — `RootCollisionTests` побитово с копией SWORD, снято на 7а; хеши эталонов те же).
 
 `experiment.sweep` по `arena.enemies` (Release, свежий `Sword.Headless --agent`, реплей сценария `crowd` — игрок бежит
 сквозь толпу, 900 тиков, прогрев 120, 7 повторов; инварианты включены, как в сеансе агента):
@@ -442,7 +421,7 @@ worktree во временной папке): на старых эталонах
 — [«Физика и тела»](../Bodies/README.md), «Эталоны и хеши».
 
 Приёмка этапа 4: добавлен третий эталон SWORD2 `tests/reference/replays/enemies.swreplay` — запись сценария
-`sword-crowd` сборкой `88a187a` (4д) на эталонном паке, 3000 тиков, хеш каждого тика («Эталон SWORD2»). Эталоны
+`sword-crowd` (с 7а — `crowd-commands`) сборкой `88a187a` (4д) на эталонном паке, 3000 тиков, хеш каждого тика («Эталон SWORD2»). Эталоны
 `prototype` и `animation` не перезаписаны. Первый эталон с врагами: регрессии ИИ, столкновений, команд арены (PageUp,
 PageDown, 16, R, 32) и локомоции толпы называют тик и участника.
 
@@ -461,36 +440,36 @@ PageDown, 16, R, 32) и локомоции толпы называют тик и
 
 На 4г манифест дополнен: сценарий `turn` (враг 1 командой врагу по сценарию трассы SWORD: поворот клипом влево, вправо,
 разворот до цели, меньше 45° — без клипа, поворот прерван ходьбой — клип гаснет без yaw, на ходу — без клипа, у игрока слоя
-действий нет), метрика `sword-turn-trace` (трасса SWORD, 5 рядов × 1440 тиков, допуск 0), вид `turn`, `sourceRoots` —
+действий нет), метрика `sword-turn-trace` (трасса SWORD, 5 рядов × 1440 тиков, допуск 0; снята на 7а), вид `turn`, `sourceRoots` —
 `game/Sword.Game/Animation/AnimatorAction.cs`; инвариант `animation.actions` входит через `animation.*`. Прежние проверки
 не менялись. В списке «что проверить» изменён пункт 3 («разворачиваются, пока быстро, как игрок» — теперь стоя плавно,
 поворот клипом почти не бывает — замер), добавлен пункт 9 (поворот клипом по записи сценария `turn`).
 
-На 4д манифест дополнен до полного: сценарий `sword-crowd` (сценарий трассы толпы, 7 проверок: PageDown ×3/PageUp ×3,
-16 врагов, R, игрок у колонны, враг сдвинут колонной — `RootContacts.Obstacle`, толпа у колонны толкается, в конце 32
-врага), метрики
-`sword-crowd-player`, `sword-crowd-enemy-1`, `sword-crowd-enemy-12` (трасса SWORD, допуск 0), вид `pillar`; бюджет `crowd`
+На 4д манифест дополнен до полного: сценарий `sword-crowd` (с 7а — `crowd-commands`; сценарий трассы толпы, 7 проверок:
+PageDown ×3/PageUp ×3, 16 врагов, R, игрок у колонны, враг сдвинут колонной — `RootContacts.Obstacle`, толпа у колонны
+толкается, в конце 32 врага), метрики
+`sword-crowd-player`, `sword-crowd-enemy-1`, `sword-crowd-enemy-12` (трасса SWORD, допуск 0; сняты на 7а), вид `pillar`; бюджет `crowd`
 **ужесточён** (0,3 → 0,16 мс на тик, Animation 0,25 → 0,14) и дополнен стадиями Movement, Intent, Gameplay и кадром App
 («Бюджеты и замеры»). Метрика `keep-distance` пересмотрена и **оставлена** 1,8 ± 0,4: значение детерминировано (при
 `sim.seed = 1` — 1,875), а по 64 зёрнам расстояние врага 1 в конце `surround` — 1,46…2,29 м (все враги — 1,30…2,29):
 покачивание ±0,7 м/с и расхождение соседей держат кольцо шириной около метра, так что ±0,4 — это «враг стоит в кольце у
 `KeepDistance`», а не точность; точность дают побитовые трассы толпы и поворота (оставлено — принято при приёмке
-этапа 4). Список «что проверить» собран по всему
+этапа 4; с 7а трассы сняты, точность — эталон SWORD2 `enemies.swreplay`). Список «что проверить» собран по всему
 этапу 4 в 7 пунктов (раздел 12 плана — 3–7): прежние 1–2, 4–5, 6–7 объединены, добавлен пункт про колонну, в пункт записи
-— просмотр сценария сверки с SWORD; ожидания прежних пунктов не менялись.
+— просмотр сценария сверки с SWORD (с 7а — сценарий толпы с командами арены); ожидания прежних пунктов не менялись.
 
 ## Эталон SWORD2
 
 По разделу 12 плана эталон SWORD2 фиксируется **после** подтверждения пользователя — зафиксирован при приёмке этапа 4:
-`tests/reference/replays/enemies.swreplay`. Эталон — запись сценария `sword-crowd` (он же сценарий трассы толпы:
-побитово сверен с SWORD, команды игрока и 11 команд арены по ходу — PageUp, PageDown, R, 16 и 32 врага; строка
-«детерминизм» раздела 12). Как зафиксирован (PowerShell, корень репозитория):
+`tests/reference/replays/enemies.swreplay`. Эталон — запись сценария `crowd-commands` (до 7а — `sword-crowd`, сценарий
+трассы толпы SWORD; сверка снята на 7а): команды игрока и 11 команд арены по ходу — PageUp, PageDown, R, 16 и 32 врага;
+строка «детерминизм» раздела 12. Как зафиксирован (PowerShell, корень репозитория):
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/reference.ps1 -Check
 dotnet build SWORD.slnx
 game\Sword.Game.Headless\bin\Debug\net10.0-windows10.0.22000.0\Sword.Headless.exe --feature enemies --no-views --no-budgets
-Copy-Item artifacts\features\enemies\scenario-sword-crowd.swreplay tests\reference\replays\enemies.swreplay
+Copy-Item artifacts\features\enemies\scenario-crowd-commands.swreplay tests\reference\replays\enemies.swreplay
 game\Sword.Game.Headless\bin\Debug\net10.0-windows10.0.22000.0\Sword.Headless.exe --replay tests\reference\replays\enemies.swreplay
 ```
 
@@ -508,7 +487,7 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 - **Команда врагу `EnemyCommand`** (в SWORD её нет) — остаётся: способ агента и сценариев фич вызвать поворот клипом
   («Намеренные отличия»).
 - **Снимок позы (`Snapshot`)** — на этап 6, вместе с действиями, которые его дают: у поворота он недостижим (доказано
-  трассой SWORD и разбором `TickActions`, «Намеренные отличия»).
+  трассой SWORD — снята на 7а — и разбором `TickActions`, «Намеренные отличия»).
 - **Команды арены в стадии Begin вместо Intent** — отложено до этапа 6, когда стадии пересматриваются под бой: уберёт
   подпорки 4а (команда игрока в тике сброса) и 4б (ИИ по новой арене в `ArenaCommandSystem`), но меняет хеши эталонов
   («Тик команды арены»). **Сделано на 6б** ([«Бой»](../Combat/README.md)).
@@ -517,8 +496,9 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 - **Разовый кадр ~6,5 мс при ≥ 28 врагах** — отложено до профайлера, при приёмке этапа 5 перенесено в этап П плана;
   **исправлено в Па**: причина — компиляция OSR `ClientHost.Run`, `Run` теперь `AggressiveOptimization` («Известные
   ошибки»).
-- **`keep-distance` ±0,4** — оставлен: метрика про кольцо у `KeepDistance`, точность дают побитовые трассы. **Бюджеты**,
-  привязанные к машине (AMD Ryzen 7 7800X3D, NVIDIA RTX 5070), — приняты («Бюджеты и замеры»).
+- **`keep-distance` ±0,4** — оставлен: метрика про кольцо у `KeepDistance`, точность дают побитовые трассы (с 7а сняты —
+  точность даёт эталон SWORD2 `enemies.swreplay`). **Бюджеты**, привязанные к машине (AMD Ryzen 7 7800X3D, NVIDIA RTX
+  5070), — приняты («Бюджеты и замеры»).
 - **Пороги `movement.rootOverlap`** (ближе 0,35 м — не дольше 4 тиков подряд, больше 0,02 м — не дольше 24) — приняты
   («Инвариант перекрытия: замер»).
 - **Поворот клипом в обычной игре почти не наблюдается** (как в SWORD) и проверяется по записи сценария `turn` — принято
@@ -555,8 +535,8 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
    без клипа. Ноги заметно не проскальзывают, поза не прыгает.
 7. Запись: `Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно;
    `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется
-   само. Сценарий сверки с SWORD: `Sword.exe --replay artifacts/features/enemies/scenario-sword-crowd.swreplay` — толпа
-   сходится, игрок бегает, враги появляются и исчезают, сброс, бег к колонне, у колонны 32 врага; в журнале при выходе —
+   само. Сценарий толпы с командами арены: `Sword.exe --replay artifacts/features/enemies/scenario-crowd-commands.swreplay`
+   — толпа сходится, игрок бегает, враги появляются и исчезают, сброс, бег к колонне, у колонны 32 врага; в журнале при выходе —
    «реплей: сверено хешей …» без строки расхождения.
 
 ## Агентский доступ
@@ -569,15 +549,12 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 `crowd` (32 врага, игрок бежит; больше половины врагов бегут следом), `push` (4в: 32 врага обступили игрока, он бежит в
 толпу — враги толкаются между собой, игрок упирается ниже 1 м/с, толкает врага вперёд, протискивается дальше 5 м; ни
 один враг не ближе 0,68 м к игроку); метрика `keep-distance` (расстояние `enemy 1` до игрока в конце `surround` —
-1,8 ± 0,4 м, SWORD `KeepDistance`); инварианты `arena.slots`, `movement.rootOverlap`, `animation.*`,
+1,8 ± 0,4 м, своя `EnemyAiRules.KeepDistance`); инварианты `arena.slots`, `movement.rootOverlap`, `animation.*`,
 `locomotion.poses`, `ecs.*`; 4г — сценарий `turn` (поворот врага на месте командой врагу: клипом влево, вправо, разворот до
 цели, меньше 45° — без клипа, ходьба гасит клип без yaw, на ходу — без клипа, у игрока действий слоя нет — с 6б слой у него
-есть, пустой) и метрика
-`sword-turn-trace` (корень, курс, вес действия и поворот клипом врага 1 против трассы SWORD, 7200 значений, допуск 0);
-4д — сценарий `sword-crowd` (сценарий трассы толпы SWORD: команды арены по ходу, колонна, 32 врага) и метрики
-`sword-crowd-player`, `sword-crowd-enemy-1`, `sword-crowd-enemy-12` (корни и курсы против трассы толпы SWORD, по 9000
-значений, допуск 0); приёмка этапа — сценарий `reference` (эталон SWORD2 `enemies.swreplay`: хеши каждого тика, в конце
-32 врага); виды — кольцо (тик 60), окружение (тик 900), толпа, поворот (тик 480), упор в толпу (тик 640), толпа
+есть, пустой); 4д — сценарий `crowd-commands` (до 7а — `sword-crowd`: команды арены по ходу, колонна, 32 врага); метрики
+против трасс SWORD (`sword-turn-trace`, `sword-crowd-*`) сняты на 7а; приёмка этапа — сценарий `reference` (эталон SWORD2
+`enemies.swreplay`: хеши каждого тика, в конце 32 врага); виды — кольцо (тик 60), окружение (тик 900), толпа, поворот (тик 480), упор в толпу (тик 640), толпа
 у колонны (тик 2992) (App по записи сценария, хеши сверяются с Headless); бюджет толпы из 32 врагов (4д) — 0,16 мс на тик,
 стадии Animation 0,14, Movement 0,01, Intent 0,006, Gameplay 0,004, 0 байт на тик, кадр App средний 1,0 мс и p99 2,5 мс
 («Бюджеты и замеры»; Release: на 4б — 0,074 мс/тик, на 4в — 0,077, на 4г — 0,078, на 4д — 0,077 и кадр 0,37 мс).
@@ -613,7 +590,7 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 | сдвиг корней столкновениями | итог (корень, скорость) был виден и раньше, но из него не отличить толчок соседа от колонны, края и намерения; **добавлен** компонент врага `RootContacts` (пар за тик, сдвиг парами, сдвиг от игрока, наибольшее перекрытие и с кем): `entity.get {"entity":"enemy 3","components":["RootContacts"]}`, `watch.add` → `entity.history`, условия (`{"exists":{"all":[{"component":"EnemyTag"},{"field":"RootContacts.DeepestWith","equals":0}]}}` — «игрок толкнул врага»), `world.query` с `where` и `aggregate` (`sum` `RootContacts.FromPlayer.X` — толчок игрока с обратным знаком), `state.describe {"part":"ecs","filter":"RootContacts"}` |
 | толчок игрока | у игрока вида нет (эталоны, выше): `−Σ FromPlayer` по врагам; что игрок упёрся — `RootVelocity` игрока против `FighterCommand.DesiredVelocity` |
 | свойство «корни не проходят друг сквозь друга» | **добавлен** инвариант `movement.rootOverlap`: `invariant.list`, `time.breakOnInvariant {"ids":["movement.rootOverlap"]}` встаёт на тике нарушения после Movement, подробности (обе сущности, расстояние, перекрытие, правило) — в `events.history` (`InvariantViolation`) и `invariant.list`; `invariant.run` — проверить сейчас (счёт тиков подряд не сдвигает) |
-| порядок `ResolveRoots` | побитово — тест против копии SWORD (`RootCollisionTests`); посреди тика — `time.break {"stage":"Movement"}` и `entity.get` бойцов |
+| порядок `ResolveRoots` | в мире каждый тик — ровно `Move` + `Resolve` по местам (`RootCollisionTests.Crowd32_…`); свойства разрешения — `RootCollisionTests.Resolve_RandomCrowds_…` (до 7а — побитово против копии SWORD, снято); посреди тика — `time.break {"stage":"Movement"}` и `entity.get` бойцов |
 | итог прогона без агента | **добавлено** в `Sword.Headless --json` `arena.closestPair` (ближайшая пара корней: расстояние и места) и у мест `contacts`, `push`, `fromPlayer`, `deepest`, `deepestWith`; `verify.ps1` `headless-smoke` — у 32 врагов ближайшая пара не ближе 0,68 м |
 
 4г — вопросы «поворачивает ли враг клипом, каким, на сколько и почему не поворачивает»:
@@ -625,16 +602,16 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 | поза слоя действия | `ActionPoses.Layer` (номер и поколение) → `state.describe {"part":"animation","filter":"<номер>"}`; счётчики пула — `anim.pose` `pool` |
 | способ вызвать поворот (ИИ его почти не даёт) | **добавлена** команда `EnemyCommand` для `command.send` (`{"Slot":1,"FacingGoal":3.9}`, `repeat`), пишется в реплей |
 | свойства «вес в 0…1, клип ⇔ действие, у врага есть слой, поза своя» | **добавлен** инвариант `animation.actions` (`invariant.list`, `time.breakOnInvariant`); неисправности ловятся на своём тике (`EnemyTurnTests.Invariant_CatchesBrokenActionLayer_OnItsTick`) |
-| порядок `KinematicSteer` → `anim.Tick` → `Facing += YawDelta` → перенос | `ecs.plan` (`core.enemy-command` → `core.root-steer` → `core.animator-input` → `core.animator-pose` → `core.root-control`); посреди тика — `time.break {"stage":"Gameplay"}`; побитово — `ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick` и метрика манифеста |
+| порядок `KinematicSteer` → `anim.Tick` → `Facing += YawDelta` → перенос | `ecs.plan` (`core.enemy-command` → `core.root-steer` → `core.animator-input` → `core.animator-pose` → `core.root-control`); посреди тика — `time.break {"stage":"Gameplay"}`; проверки сценария `turn` манифеста и `EnemyTurnTests` (сверки с трассой SWORD — тест трассы поворота и метрика `sword-turn-trace` — сняты на 7а) |
 | итог прогона без агента | **добавлено** в `Sword.Headless --json` у мест `action`, `actionWeight`, `yawDelta` |
 
-4д — вопросы «совпадает ли толпа с SWORD и где разошлась», «во что упёрся враг», «укладывается ли толпа в тик и кадр»:
+4д — вопросы «совпадает ли толпа с SWORD и где разошлась» (снят на 7а), «во что упёрся враг», «укладывается ли толпа в тик и кадр»:
 
 | что появилось | чем агент это видит и проверяет |
 |---|---|
-| трасса толпы SWORD | `feature.verify {"id":"enemies"}` — метрики `sword-crowd-*`: первое расхождение (тик, ключ, SWORD и SWORD2); вся толпа — тест `ReferenceTraceTests.Crowd_MatchesSwordTickByTick` (тик, место, что разошлось: клип, действие, корень, курс, поза); запись сценария `artifacts/features/enemies/scenario-sword-crowd.swreplay` → `session.start {"replay":…}`, `time.seek` к тику, `entity.get`/`watch.add` по `enemy N` — посмотреть бойца на тике расхождения |
+| трасса толпы SWORD (снята на 7а) | было: `feature.verify {"id":"enemies"}` — метрики `sword-crowd-*`: первое расхождение (тик, ключ, SWORD и SWORD2); вся толпа — тест трассы толпы. Осталось: запись сценария `artifacts/features/enemies/scenario-crowd-commands.swreplay` (до 7а — `scenario-sword-crowd`) → `session.start {"replay":…}`, `time.seek` к тику, `entity.get`/`watch.add` по `enemy N` — посмотреть бойца на любом тике |
 | сторона ходьбы после сброса | `entity.get {"entity":"player","components":["LegacyLocomotionState"]}` — `Dir` (хешируется участником `ecs`); проверка — `ArenaTests.Reset_…` |
-| сдвиг колонной и краем | итог был виден, причина — нет: `RootContacts` объяснял только пары. **Добавлено** поле `RootContacts.Obstacle` (сдвиг корня колоннами и краем за тик; `Push + Obstacle` — весь сдвиг столкновениями): `entity.get`, условия (`{"field":"RootContacts.Obstacle.X","notEquals":0}`), `world.query` с `where`/`aggregate`, `Sword.Headless --json` — `arena.places[].obstacle`; проверка манифеста `pillar-pushes`; тесты — `RootCollisionTests.Resolve_MatchesSwordResolveRoots_Bitwise` (Push + Obstacle = сдвиг на 3000 толпах), `SingleFighter_…`, `Agent_SeesWhoPushedWhom_…` (враг 1 командой врагу к краю — `time.runUntil` по `Obstacle`, `entity.get`) |
+| сдвиг колонной и краем | итог был виден, причина — нет: `RootContacts` объяснял только пары. **Добавлено** поле `RootContacts.Obstacle` (сдвиг корня колоннами и краем за тик; `Push + Obstacle` — весь сдвиг столкновениями): `entity.get`, условия (`{"field":"RootContacts.Obstacle.X","notEquals":0}`), `world.query` с `where`/`aggregate`, `Sword.Headless --json` — `arena.places[].obstacle`; проверка манифеста `pillar-pushes`; тесты — `RootCollisionTests.Resolve_RandomCrowds_ContactsExplainShift_RootsOutsidePillarsInsideArena` (Push + Obstacle = сдвиг на 3000 толпах; до 7а — побитово против копии `ResolveRoots` SWORD), `SingleFighter_…`, `Agent_SeesWhoPushedWhom_…` (враг 1 командой врагу к краю — `time.runUntil` по `Obstacle`, `entity.get`) |
 | бюджет кадра | App мерял кадр (бенч), но без порога, а манифест кадр задать не умел. **Добавлено** поле бюджета `frame` (`FeatureManifest`, `FeatureVerifier`): `feature.verify` играет запись сценария в Sword.exe бенчем и проверяет средний кадр и p99 (Release), хеши App сверяются с записью; итог — `budgets[].frame` в отчёте (кадров, средний, p99, худший, адаптер). Тесты — `FeatureTests.Verify_FrameBudget_…`, `Manifest_Errors_NamePlace` (ошибки поля); строка в playbook |
 | масштабирование толпы | `experiment.sweep {"params":{"arena.enemies":[0,8,16,32]},"replay":"…scenario-crowd.swreplay","repeats":7}` (было с 3д) — таблица в «Бюджеты и замеры»; **исправлен** порядок прогонов (круг прогрева, повторы по кругу комбинаций — первые комбинации свежего процесса мерились на неоптимизированном JIT), тест — `FeatureTests.Sweep_RowsPerCombination_…` |
 
@@ -642,9 +619,9 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 `world.query`/`entity.get`/`watch.add`); ИИ — `EnemyAiTerms` (почему враг идёт туда, куда идёт); толчки — `RootContacts`
 (пары, от игрока, наибольшее перекрытие и с кем, колонны и край); действие — `AnimatorAction` и `anim.pose` `action`;
 команды арены и команда врагу — `command.send ArenaCommand`/`EnemyCommand`, в реплее; свойства — инварианты `arena.slots`,
-`movement.rootOverlap`, `animation.actions` (`invariant.list`, `time.breakOnInvariant`); сверка с SWORD — трассы `anim-turn`
-и `anim-crowd` (тесты и метрики манифеста); производительность — бюджеты манифеста (тик, стадии, байты, кадр) и
-`experiment.sweep`; без агента — `Sword.Headless --json` (`arena`). Не видно по-прежнему только толчок самого игрока (вида
+`movement.rootOverlap`, `animation.actions` (`invariant.list`, `time.breakOnInvariant`); регрессия — эталон SWORD2
+`enemies.swreplay` и сценарии манифеста (сверка с SWORD — трассы `anim-turn` и `anim-crowd` — снята на 7а);
+производительность — бюджеты манифеста (тик, стадии, байты, кадр) и `experiment.sweep`; без агента — `Sword.Headless --json` (`arena`). Не видно по-прежнему только толчок самого игрока (вида
 у игрока нет, чтобы не менять хеш `ecs` эталонов с тика 0; он равен `−Σ FromPlayer` по врагам) — намеренно, с 4в.
 
 Новый инструмент MCP не понадобился ни на 4б, ни на 4в, ни на 4г, ни на 4д (на 4г расширен `anim.pose`, на 4д — вид
@@ -655,11 +632,16 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 (`watch.add`, `time.runUntil` по `EnemyAiTerms.Distance`, `entity.get`, `entity.history`, `state.describe`); рецепт —
 `docs/agent-playbook.md` («Враги и команды арены», «ИИ врагов»).
 
+7а (сравнения со SWORD сняты, решение 14): инструмент агента «метрика-ряд против трассы SWORD» (`feature.verify`:
+`firstMismatch` с ключом трассы) снят вместе с трассами. Нового не требуется: регрессию видят `feature.verify` (проверки
+сценариев, эталон SWORD2 `enemies.swreplay` — хеши каждого тика, своя метрика `keep-distance`) и `replay.diff`/`replay.check`
+(первый разошедшийся тик и участник); бойца на любом тике — запись сценария `crowd-commands` в `session.start`.
+
 ## Проверки
 
-- `tests/Sword.Game.Tests/ArenaTests` (4а): константы — литералы SWORD; кольцо 5–9 м, курс на игрока (формула SWORD
-  побитово — по точке постройки, `PrevTransform`), `FacingGoal = facing` при сборке мира, полный набор бойца и живая поза
-  у каждого; через 60 тиков враги ближе к игроку; спаун у края — не дальше радиуса арены − 3 м; `arena.enemies` вне
+- `tests/Sword.Game.Tests/ArenaTests` (4а): места — игрок и до 32 врагов (`Slots_PlayerAndUpTo32Enemies`, 33 места; тест
+  литералов SWORD снят на 7а); кольцо 5–9 м, курс на игрока (`Atan2` на центр побитово — по точке постройки,
+  `PrevTransform`), `FacingGoal = facing` при сборке мира, полный набор бойца и живая поза у каждого; через 60 тиков враги ближе к игроку; спаун у края — не дальше радиуса арены − 3 м; `arena.enemies` вне
   0…32 — ошибка, по умолчанию 0; команды: +1 (прежние места не перестроены), −1 ×2 в одном тике (ушли последние, позы
   вернулись в пул), 100 → 32, `int.MaxValue`/`int.MinValue` без переполнения, пустая и неизвестная — ничего, убавили и
   прибавили в одном тике — те же сущности; сброс — игрок в центре той же сущностью, враги заново вокруг центра и сразу
@@ -668,35 +650,40 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
   воспроизведение — те же хеши; при воспроизведении клиент команд не ставит; два прогона с командами — один хеш каждый
   тик, реплей повторяет, другое `sim.seed` — другая расстановка; 32 врага (с ИИ) — 0 байт на тик; инвариант ловит дыру и
   повтор мест на своём тике; имена `enemy N` и `command.send ArenaCommand`.
-- `tests/Sword.Game.Tests/EnemyAiTests` (4б): константы — литералы SWORD; `EnemyAi.Think` против дословной копии
-  `EnemyAi.Think` SWORD (строки движения) — побитово на 200 толпах 1…32 врагов (соседи вплотную, враг на игроке,
-  совпадающие корни, y ≠ 0, время — float-сумма до 20 000 шагов 1/120); составляющие объясняют желаемую скорость;
-  расхождение складывается в порядке мест (раскладка, где другой порядок даёт другие биты); каждый тик прогона с
-  командами арены (PageUp, R, три команды в тике, PageDown ×2, 32, −5 + R + 2) — после барьера Intent намерение, взгляд и
-  составляющие каждого врага равны `EnemyAi.Think` по корням мира до движения, `SimTime.Time` побитово равно
-  `Time += 1f/120f` SWORD; новый враг в тике команды уже идёт; 10 врагов через 10 с — кольцо 1,6…2,4 м, подход в
-  пределах ±1 м/с, скорость ≤ 1,2 м/с, не бег, лицом к игроку (±0,1 рад), ближайшая пара дальше 0,6 м; два прогона —
+- `tests/Sword.Game.Tests/EnemyAiTests` (4б): составляющие объясняют желаемую скорость (`Terms_ExplainDesiredVelocity`; на
+  200 случайных толпах — `Think_RandomCrowds_TermsExplainVelocity_NeighboursWithinPersonal`: скорость в плоскости XZ, дистанция
+  по горизонтали не меньше 1e-3, подход −2…3,2, соседи — ровно ближе 1,4 м и дальше 1e-3, враг на игроке и на корне соседа,
+  курс на игрока; покрытие — расхождение 2092, отступ 936, предел 2057, на игроке 665 из 3204 случаев);
+  расхождение складывается в порядке мест (`Separation_AddsInSlotOrder` — раскладка, где другой порядок даёт другие биты);
+  каждый тик прогона с командами арены (PageUp, R, три команды в тике, PageDown ×2, 32, −5 + R + 2) — после барьера Intent
+  намерение, взгляд и составляющие каждого врага равны `EnemyAi.Think` по корням мира до движения, время арены
+  `SimTime.Time` побитово равно float, накопленному шагом тика 1/120; новый враг в тике команды уже идёт (тест литералов
+  SWORD и побитовая сверка `EnemyAi.Think` с копией кода SWORD сняты на 7а); 10 врагов через 10 с — кольцо 1,6…2,4 м,
+  подход в пределах ±1 м/с, скорость ≤ 1,2 м/с, не бег, лицом к игроку (±0,1 рад), ближайшая пара дальше 0,6 м; два прогона —
   один хеш каждый тик, реплей повторяет; агентский вид.
-- `tests/Sword.Game.Tests/RootCollisionTests` (4в): `RootCollision.Resolve` против дословной копии `ResolveRoots` SWORD —
-  побитово (корни и скорости) на 3000 толпах 1…33 бойцов: кучки у колонн, у края и в поле, совпавшие корни и ближе
-  1e-4 м, y ≠ 0, пустые места (≈62 000 пар, 9 600 колонн, 13 500 края); одиночный боец — те же биты, что до 4в; вид
+- `tests/Sword.Game.Tests/RootCollisionTests` (4в): `Resolve_RandomCrowds_ContactsExplainShift_RootsOutsidePillarsInsideArena`
+  — 3000 случайных толп 1…33 бойцов (кучки у колонн, у края и в поле, совпавшие корни и ближе 1e-4 м, y ≠ 0, дыры в
+  местах): пары и препятствия объясняют весь сдвиг корня (`Push + Obstacle`), пустые места не трогаются, после разрешения
+  корень вне колонн (не ближе радиуса колонны + 0,35) и внутри арены (не дальше `ArenaRadius − 0,6`), скорость только
+  гасится (не растёт, без пар и препятствий — та же, на поверхности колонны — не внутрь, на краю — не наружу); покрытие — пар
+  62 106, у колонны 4 634, у края 6 748, совпавших корней 8 033, дыр 7 818, погашена скорость 27 441 (до 7а — побитово против
+  копии `ResolveRoots` SWORD, снято); одиночный боец — те же биты, что до 4в (`SingleFighter_IsPillarsThenEdge_AsBefore4v`); вид
   толчков объясняет сдвиг (`Push` — сдвиг корня парами, `FromPlayer`, `Deepest`/`DeepestWith`, скорость внутрь соседа
   погашена, вдоль — нет); в мире каждый тик толпы из 32 врагов (60 с, 4 зерна, с командами арены) — корни, скорости и
   вид после Movement ровно `Move` + `Resolve` по местам, 0 нарушений, замер перекрытия (выше); спаун — 400 зёрен; игрок
   бежит в толпу — толпа толкается, игрок упирается (< 1 м/с), толкает, проходит дальше 5 м, враг не ближе 0,68 м;
   бег сквозь толпу 32 врагов — 0 байт на тик; агентский вид.
   У края арены (`Edge_…`): частые команды арены (±1, ±4, ±32 разом) — 0 нарушений, запас до порогов вдвое.
-- `tests/Sword.Game.Tests/EnemyTurnTests` (4г, тестовый контент с клипами поворота 90° и разворота): константы —
-  литералы SWORD; выбор клипа `StartTurn` по растяжению (влево, вправо, разворот в обе стороны, граница 0,5, ни одного);
-  стоя +1,6 рад — поворот клипом, курс меняется только на `YawDelta`, вес входит и выходит, после клипа — на цели, корень
+- `tests/Sword.Game.Tests/EnemyTurnTests` (4г, тестовый контент с клипами поворота 90° и разворота): слоты поворота —
+  клипы (`TurnSlots_MapToTurnClips`; литералы констант SWORD сняты на 7а); выбор клипа по растяжению
+  (`StartTurn_PicksClipByScale`: влево, вправо, разворот в обе стороны, граница 0,5, ни одного); стоя +1,6 рад — поворот клипом, курс меняется только на `YawDelta`, вес входит и выходит, после клипа — на цели, корень
   сдвинут клипом; меньше 45° — 2,5 рад/с; на ходу — 12 рад/с без клипа; ходьба прерывает поворот — `YawDelta` 0, клип гаснет
   за ≤ 24 тика; у игрока слоя нет, стоя 12 рад/с; команда врагу — последняя, нечисловые, чужое место, тик команды арены,
   реплей повторяет хеши; сброс посреди поворота — действие обнулено, поза та же, убрали врага — позы вернулись; 32 врага
   поворачивают — 0 байт на тик; `animation.actions` ловит вес 2, чужой клип и врага без слоя на своём тике; агентский вид.
-  `ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick` — трасса SWORD на эталонном паке, 1440 тиков побитово.
-- 4д: `ReferenceTraceTests.Crowd_MatchesSwordTickByTick` — трасса толпы SWORD на эталонном паке: 3000 тиков, до 33
-  бойцов, команды арены по ходу, у каждого бойца корень, курс, клип, действие и поза побитово (53 400 бойце-тиков), сценарий
-  и расстановка SWORD2 — те же, что в трассе; `ArenaTests.Reset_…` — сторона ходьбы переживает сброс;
+  На паке контента поворот держит сценарий `turn` манифеста (тест трассы поворота SWORD снят на 7а).
+- 4д: толпу с командами арены держат сценарий `crowd-commands` и эталон `enemies.swreplay` (тест трассы толпы SWORD
+  снят на 7а); `ArenaTests.Reset_…` — сторона ходьбы переживает сброс;
   `RootCollisionTests` — `Push + Obstacle` объясняет весь сдвиг (3000 толп), вид препятствий у одиночного бойца и через
   агента; `FeatureTests.Verify_FrameBudget_…` и `Manifest_Errors_NamePlace` — бюджет кадра (Debug — замер, Release —
   пределы, разошедшиеся хеши App, без видов, бенч длиннее записи, ошибки поля).
@@ -708,7 +695,7 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 - `verify.ps1`: `headless-smoke` (10 врагов из `sword.json`, 32 — `--units 40`: 0 Б/тик, нарушений нет, ближайшая пара
   корней не ближе 0,68 м), `app-smoke`
   (кадр рисует 11 бойцов; PageUp и R удержанием в записи Sword.exe — Headless повторяет запись с теми же хешами;
-  бенч кадра — с 32 врагами), `features` (манифест `enemies`: сценарии, метрики против трасс SWORD, виды и кадр в App;
+  бенч кадра — с 32 врагами), `features` (манифест `enemies`: сценарии, эталон, метрика `keep-distance`, виды и кадр в App;
   время и кадр проверяются с `-Configuration Release`), `replay-smoke` (эталоны, с приёмки этапа 4 — и `enemies.swreplay`).
 - `ReferenceReplaysTests` — эталон `enemies.swreplay` (3000 тиков толпы с командами арены) повторяется по всем участникам
   на каждом тике, как `prototype` и `animation`.
@@ -717,7 +704,7 @@ tests/reference/replays/enemies.swreplay`) и причина в «Эталоны
 
 Ошибок логики нет. (Ложные срабатывания `movement.rootOverlap` у края арены, найденные проверкой 4в, исправлены: правила —
 на длительность, пороги — по замеру у края; «Инвариант перекрытия: замер». Сторона ходьбы после сброса, найденная сверкой
-4д, исправлена — «Сверка толпы с SWORD».)
+4д, исправлена — «Откуда логика», «Сверка толпы с SWORD».)
 
 Наблюдение 4д (не логика этапа 4 — кадр): в бенче App с 28 и больше врагами за замер бывает один кадр ~6–6,6 мс (при 24
 и меньше — худший кадр 0,4…0,7 мс); средний и p99 это не трогает (0,37 и 0,45…0,81 мс: для p99 нужно ~27 таких кадров из

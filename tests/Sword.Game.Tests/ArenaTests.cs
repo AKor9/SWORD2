@@ -56,7 +56,7 @@ public sealed class ArenaTests
     private static readonly ArenaCommand Reset = new() { Action = ArenaAction.Reset };
 
     /// <summary>
-    /// Враги построены кольцом 5–9 м вокруг <paramref name="center"/>, курсом на него (формула SWORD побитово). Точка
+    /// Враги построены кольцом 5–9 м вокруг <paramref name="center"/>, курсом на него (курс — <c>Atan2</c> на центр, побитово). Точка
     /// постройки — <see cref="PrevTransform"/>: построенный командой в тике враг уже сделал в нём шаг (ИИ, точка 4б), а
     /// прошлый корень — точка постройки (<c>RenderPos = Pos</c>). <paramref name="thought"/> — тик уже сыгран: намерение —
     /// ИИ на центр; нет (сборка мира) — «стоять курсом постройки» (<c>FacingGoal = facing</c>, <c>Fighter.Build</c>).
@@ -144,12 +144,11 @@ public sealed class ArenaTests
     }
 
     [Fact]
-    public void Constants_AreSwordLiterals()
+    public void Slots_PlayerAndUpTo32Enemies()
     {
-        // DuelArena SWORD 2eab13b: MaxFighters = 33, SpawnMin = 5f, SpawnMax = 9f, ArenaLayout.ArenaRadius − 3.
+        // Места бойцов: 0 — игрок, 1…32 — враги.
         Assert.Equal(33, ArenaRules.MaxFighters);
-        Assert.Equal(32, ArenaState.MaxEnemies);
-        Assert.Equal((5f, 9f, 3f), (ArenaRules.SpawnMin, ArenaRules.SpawnMax, ArenaRules.SpawnEdgeMargin));
+        Assert.Equal(ArenaRules.MaxFighters - 1, ArenaState.MaxEnemies);
     }
 
     [Fact]

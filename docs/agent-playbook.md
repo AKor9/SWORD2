@@ -53,7 +53,9 @@
    скорость корневого движения. Список — страницами по 50: дальше — `skip` из `continuationToken` квитанции.
 3. `anim.pose {"entity":"player"}` — суставы (таз, голова, кисти, стопы) в пространстве персонажа и в мире; `pool` —
    живые позы и задания последнего тика (`staleLastTick` должен быть 0); у врага — ещё `action` (слой действий, 4г).
-4. Побитовая сверка с SWORD — тест `ReferenceTraceTests` (`dotnet test tests/Sword.Game.Tests --filter ReferenceTrace`).
+4. Регрессия анимации — эталоны SWORD2 (`dotnet test tests/Sword.Game.Tests --filter ReferenceReplays`: хеш участника
+   `animation` каждого тика) и сценарий `locomotion` манифеста `animation`; разошлось — `replay.diff`/`replay.check` (рецепт
+   «Воспроизвести реплей»). Сверки с SWORD нет (решение 14, снята на 7а).
 
 **Враги и команды арены (этап 4, точка 4а).**
 1. Headless со `sword.json` стартует с 10 врагами (`arena.enemies`; `--units N` или `--set arena.enemies=N` — другое
@@ -84,8 +86,8 @@
 4. Намерение считается по корням до движения тика: посреди тика — `time.break {"stage":"Intent"}` и `entity.get` врагов
    (корни ещё прошлого тика, намерение — уже этого). В тике команды арены враги думают по арене после команды (новые
    враги, центр после R). Время арены — `{"resource":"SimTime.Time"}`.
-5. Поворот врага — не как у игрока (точка 4г, рецепт ниже). Сверка ИИ с SWORD побитово — тест `EnemyAiTests`
-   (`dotnet test tests/Sword.Game.Tests --filter EnemyAi`).
+5. Поворот врага — не как у игрока (точка 4г, рецепт ниже). Свойства ИИ (слагаемые объясняют скорость, порядок мест,
+   намерение каждого тика) — тест `EnemyAiTests` (`dotnet test tests/Sword.Game.Tests --filter EnemyAi`).
 
 **Столкновения бойцов: кто кого толкнул и где перекрытие (точка 4в).**
 1. Толчки тика у врага — `entity.get {"entity":"enemy 3","components":["RootContacts","Transform","RootVelocity"]}`:
@@ -105,23 +107,21 @@
    {"types":["InvariantViolation"]}` и `invariant.list`; проверить сейчас — `invariant.run {"ids":["movement.rootOverlap"]}`
    (счёт тиков подряд не сдвигает). Почему такой допуск — замер в `game/Sword.Game/Features/Enemies/README.md`.
 4. Посреди тика: `time.break {"stage":"Movement"}` — корни уже разведены; `{"stage":"Animation"}` — ещё до переноса и
-   столкновений. Побитово с SWORD — тест `RootCollisionTests` (`dotnet test tests/Sword.Game.Tests --filter RootCollision`).
+   столкновений. Свойства разрешения (сдвиг объясняют пары и препятствия, корни вне колонн и внутри арены, порядок мест) —
+   тест `RootCollisionTests` (`dotnet test tests/Sword.Game.Tests --filter RootCollision`).
 5. Без агента: `Sword.Headless --ticks N --units 32 --move 1,0 --json` — `arena.closestPair` (ближайшая пара корней:
    расстояние и места; ближе 0,7 м — перекрытие) и у мест `contacts`, `push`, `fromPlayer`, `deepest`, `deepestWith`,
-   `obstacle`; приёмка — сценарий `push` манифеста `enemies` (толпа у колонны — `sword-crowd`, проверка `pillar-pushes`).
+   `obstacle`; приёмка — сценарий `push` манифеста `enemies` (толпа у колонны — `crowd-commands`, проверка `pillar-pushes`).
 
-**Толпа против SWORD: где разошлась (точка 4д).**
-1. Трасса толпы SWORD — `tests/reference/anim-crowd.trace.json` (настоящий `FighterAnimator`, копии `EnemyAi.Think` и
-   `ResolveRoots`, команды арены по ходу, до 33 бойцов). Вся толпа — `dotnet test tests/Sword.Game.Tests --filter
-   Crowd_MatchesSwordTickByTick`: сообщение называет тик, место и что разошлось (клип, действие, корень, курс, поза).
-   Через агента — `feature.verify {"id":"enemies","views":false,"budgets":false}`: метрики `sword-crowd-player`,
-   `sword-crowd-enemy-1`, `sword-crowd-enemy-12` — `firstMismatch` (тик, ключ `x[место]`/`z[…]`/`facing[…]`, SWORD и SWORD2).
-2. Посмотреть бойца на тике расхождения: `session.start {"replay":"<артефакты>/scenario-sword-crowd.swreplay"}`,
+**Толпа разошлась с эталоном: где (точка 4д; с 7а — без сверки со SWORD).**
+1. Толпа с командами арены по ходу (PageUp, PageDown, 16, R, 32), колонна, до 33 бойцов — сценарий `crowd-commands` манифеста
+   `enemies`; его запись — эталон SWORD2 `tests/reference/replays/enemies.swreplay` (хеши каждого тика). Разошлось —
+   `feature.verify {"id":"enemies","views":false,"budgets":false}` (сценарий `reference`: `replay.divergence` — тик и участники)
+   или `replay.check {"path":"tests/reference/replays/enemies.swreplay"}`.
+2. Посмотреть бойца на тике расхождения: `session.start {"replay":"tests/reference/replays/enemies.swreplay"}`,
    `time.runUntil {"tick":T-1}`, `watch.add {"entities":["enemy 5"],"fields":["Transform","EnemyAiTerms","RootContacts","LegacyLocomotionState"]}`,
-   `time.step`, `entity.history`; число в трассе — `ticks[T-1]` (массивы по местам 0…EnemyCount). Пересобрать трассу — README
-   `tests/reference/sword-trace` (вход — `artifacts/reference/crowd.input.json`, его пишет тот же тест).
-3. Сценарий и расстановка трассы — те же, что у теста: изменили сценарий (`ReferenceTraceTests.CrowdSegments`) или спаун —
-   тест скажет «снять трассу заново», и сценарий `sword-crowd` манифеста надо поправить теми же командами.
+   `time.step`, `entity.history`; сравнить с новым прогоном — `replay.diff` (рецепт «Воспроизвести реплей»). Трасса толпы SWORD,
+   её программа и тест трасс сняты на 7а (решение 14, свой путь).
 
 **Поворот врага на месте клипом (точка 4г).**
 1. Враг (не-`Agile`) поворачивает на ходу 12 рад/с, стоя — 2,5 рад/с, а отстал стоя больше 45° — клипом (90° влево,
@@ -139,8 +139,9 @@
    поворота с растяжением 0,5…1,6, поза слоя своя. Поза слоя — `ActionPoses.Layer` → `state.describe {"part":"animation"}`.
 4. Порядок `KinematicSteer` → `anim.Tick` → `Facing += YawDelta` → перенос: `core.root-steer` (начало поворота) →
    `core.animator-input` (шаг действия, `YawDelta`) → `core.animator-pose` (клип поверх локомоции) → `core.root-control`
-   (курс и корень); посреди тика — `time.break {"stage":"Gameplay"}`. Побитово с SWORD — `dotnet test tests/Sword.Game.Tests
-   --filter EnemyTurn` (трасса `anim-turn.trace.json`) и метрика `sword-turn-trace` сценария `turn` манифеста `enemies`.
+   (курс и корень); посреди тика — `time.break {"stage":"Gameplay"}`. Свойства поворота — `dotnet test tests/Sword.Game.Tests
+   --filter EnemyTurn`; приёмка — проверки сценария `turn` манифеста `enemies` (трасса SWORD и метрика `sword-turn-trace`
+   сняты на 7а).
 5. Без агента: `Sword.Headless --units N --json` — у мест `action`, `actionWeight`, `yawDelta`; посмотреть глазами —
    `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay` (запись сценария `turn` после `feature.verify`).
 
@@ -174,11 +175,11 @@
    → `.jsonl` (так найдены окна метрик 5г: скачки на кромках ступеней, наибольшая угловая скорость на развороте). В условиях
    проверок (`time.runUntil`, проверки манифеста) их нет — там только компоненты; остановиться на скачке капсулы — инвариант
    `physics.kinematicSpeed` или `invariant.define` по компонентам.
-5. Сверка с SWORD: трасса толпы (`tests/reference/anim-crowd.trace.json`, README трассы) — хеш 13 капсул каждого бойца
-   каждого тика; при расхождении `ReferenceTraceTests.Crowd_MatchesSwordTickByTick` называет тик и место, число капсулы —
-   по `samples` (тики выборки). Метрики `sword-crowd-pelvis-*` манифеста `bodies` — таз игрока и врагов 1 и 12. Рельеф (5г) —
-   трасса `tests/reference/anim-terrain.trace.json` (склон, ступени вверх и вниз, ухабы; та же программа, свой вход),
-   `ReferenceTraceTests.Terrain_MatchesSwordTickByTick` и метрика `sword-terrain-pelvis` сценария `terrain`.
+5. Регрессия тел — эталоны SWORD2 (хеш участника `physics` каждого тика): толпа — `enemies.swreplay` (сценарий `reference`
+   манифеста `bodies`), рельеф — `bodies.swreplay` (сценарий `reference-terrain`); разошлось — тик и участники в
+   `replay.divergence`, тела на тике — `session.start` с эталоном, `time.runUntil`, `physics.bodies`. Свои замеры — метрики
+   `run-capsule-speed`, `slope-pelvis-height`, `steps-top-foot`, `step-edge-speed` и др. манифеста `bodies`. Трассы SWORD
+   толпы и рельефа, тесты трасс и метрики `sword-crowd-pelvis-*`, `sword-terrain-pelvis*` сняты на 7а.
 6. Команды арены: PageDown — тело ушедшего освобождено, PageUp — новое (тот же слот, новое поколение), R — те же тела на тех
    же сущностях, форма и постановка — заново. Приёмка — `feature.verify {"id":"bodies"}` (`Sword.Headless --feature bodies`):
    сценарии `arena`, `terrain`, `crowd`, `turn`, `reference`; бюджеты — тик и PrePhysics с 32 врагами, кадр App без капсул и с
@@ -199,9 +200,8 @@
 4. Глазами: `capture.bundle {"overlays":["blades"],"ids":true}` — слой клинков (тика: игрок жёлтый, враги белые; прошлого тика —
    серый; оранжевые — пройденное за тик; имя меча у кончика) и ID-буфер: пиксели меча — сегмент 11 `blade`, «клинок врага 3»;
    в видах фичи — `views[].overlays: ["blades"]`, в живой игре — F7 (с капсулами) или `Sword.exe --overlay blades`.
-5. Сверка с SWORD: `ReferenceTraceTests.Strikes_MatchSword` — клинки всех мечей и окна ударов против настоящего `CharacterRig`
-   (`tests/reference/combat-strikes.trace.json`, сценарий `strikes` программы трассы), побитово. Приёмка — `feature.verify
-   {"id":"combat"}` (сценарий `weapons`, вид `blades`).
+5. Приёмка — `feature.verify {"id":"combat"}` (сценарий `weapons`, вид `blades`); таблица ударов и клинки — `combat.weapons`
+   (побитовая сверка таблицы ударов с трассой SWORD снята на 7а).
 
 **Удар, связка, рывок (точка 6в).** Урон — 6г (ниже); удар — действие слоя действий `AnimatorAction` (`Kind` = `Attack`, `Attack` —
 номер удара таблицы: 0–3 slash1–4, 4–6 stab1–3), рывок — `PlayerControl` игрока (вид — `Kind` = `Dash`).
@@ -222,9 +222,9 @@
 4. Что держится: `animation.actions` (время 0…длительность, удар — удар таблицы, начат только там, где бить можно — по `From*`,
    вид рывка — у игрока и клипом уклонения, снимок скопирован, номер удара не убывает), `combat.control` (буферы, перезарядка,
    неуязвимость в пределах, рывок конечен, таймер врага ≥ 0). Встать — `time.breakOnInvariant {"ids":["animation.actions"]}`.
-5. Сверка с SWORD: `ReferenceTraceTests.Actions_MatchSwordTickByTick` — трасса настоящего `FighterAnimator` (`anim-actions`,
-   сценарий `actions` программы трассы), побитово. Приёмка — `feature.verify {"id":"combat"}` (сценарии 6в: `strike-combo`,
-   `stab`, `run-strike`, `dash`, `strike-from-dash`, `enemies-swing`, `peaceful`; вид `strike`).
+5. Приёмка — `feature.verify {"id":"combat"}` (сценарии 6в: `strike-combo`, `stab`, `run-strike`, `dash`, `strike-from-dash`,
+   `enemies-swing`, `peaceful`; вид `strike`); свойства слоя действий — `dotnet test tests/Sword.Game.Tests --filter Action`
+   (трасса SWORD `anim-actions` снята на 7а).
 
 **Урон, смерть, реакции, возрождение (точка 6г). Почему боец умер.** Протокол боя — событиями: `StrikeContact` (Combat: клинок бойца в
 ударе прошёл сквозь капсулу, урон посчитан) → `Hit`, `Dead`, `SeverRequested` (Resolve) → реакция (React) → кровопотеря, возрождение
@@ -329,12 +329,12 @@
 в тике толпы от ~2 % тика, без счёта тиков подряд) — `InvariantCost.Heavy`.
 
 **Принять фичу (этап 3д, раздел 12 плана).** Приёмка описана манифестом `feature.json` рядом с md фичи: сценарии
-(реплей или команды по тикам) с проверками-условиями, инварианты, метрики с допуском и источником (`sword` — SWORD
-2eab13b, `sword2` — эталон SWORD2), виды в App, бюджеты, чек-лист «что проверить в игре».
+(реплей или команды по тикам) с проверками-условиями, инварианты, метрики с допуском (своё число SWORD2 — замер, константа
+или формула; откуда — `reference`; источника `sword` и рядов против трассы SWORD нет с 7а, решение 14), виды в App, бюджеты,
+чек-лист «что проверить в игре».
 1. `feature.list` — фичи; `feature.list {"id":"animation"}` — манифест целиком.
 2. `feature.verify {"id":"animation"}` — вердикт `ok` и `failures` словами; по разделам — сценарии (проверки, хеши
-   реплея, нарушения), инварианты (проверок, нарушений), метрики (`value`, `expected`, `detail`; ряд против трассы SWORD —
-   `firstMismatch`), бюджеты (медиана мс на тик, стадии, байты; кадр App — `frame`: средний и p99 на записи сценария,
+   реплея, нарушения), инварианты (проверок, нарушений), метрики (`value`, `expected`, `delta`, `detail`), бюджеты (медиана мс на тик, стадии, байты; кадр App — `frame`: средний и p99 на записи сценария,
    хеши App сверены; `frame.overlays` — оверлеи игры на весь замер, например кадр с капсулами тел, 5г; `detail` называет
    проходы последнего кадра; время и кадр проверяются только в Release, без видов кадр не меряется), виды (PNG кадров
    `Sword.exe --replay` по записи сценария, хеши App сверены с Headless). Всё — в каталоге артефактов (`report.json`,

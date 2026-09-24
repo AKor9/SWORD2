@@ -14,137 +14,13 @@ using Sword.Game.Locomotion;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// ИИ врагов, точка 4б: <c>EnemyAi.Think</c> SWORD 2eab13b без удара и блока — побитово против копии формулы SWORD,
-/// расхождение в порядке мест, время арены (<c>DuelArena.Time += dt</c>), намерение тика после команд арены (в SWORD
-/// <c>SetEnemyCount</c>/<c>Reset</c> — до <c>Think</c>), сценарий окружения, детерминизм и реплей, агентский вид.
+/// ИИ врагов, точка 4б: намерение <see cref="EnemyAi.Think"/> без удара и блока — слагаемые (подход, покачивание, расхождение)
+/// объясняют скорость, расхождение складывается в порядке мест, время арены — float, накопленный шагом тика, намерение тика после
+/// команд арены (команды — до <c>Think</c> того же тика), сценарий окружения, детерминизм и реплей, агентский вид.
 /// </summary>
 public sealed class EnemyAiTests
 {
     private static Simulation Create(params string[] sets) => TestAssets.Simulation(ConfigSet.Empty(sets));
-
-    // ── копия SWORD ─────────────────────────────────────────────────────────────────────────────────────────────────
-    // Gameplay/Ai/EnemyAi.cs SWORD 2eab13b, Think — строки движения дословно (типы бойца и арены — минимальные заглушки;
-    // удар, блок и таймер — этап 6). Константы — литералы SWORD.
-
-    private const float Reach = 2.3f, KeepDistance = 1.8f, Personal = 1.4f;
-
-    private sealed class SwordFighter
-    {
-        public Vector3 Root;
-        public float Seed;
-        public bool Dead { get; init; }   // смерти до этапа 6 нет
-        public float FacingGoal;
-        public Vector3? GazePoint;
-        public Vector3 DesiredVel;
-    }
-
-    private sealed class SwordArena(SwordFighter[] fighters, int enemyCount, float time)
-    {
-        public SwordFighter Player => fighters[0];
-        public SwordFighter this[int i] => fighters[i];
-        public int EnemyCount => enemyCount;
-        public float Time => time;
-    }
-
-    private static void SwordThink(SwordArena arena, SwordFighter f)
-    {
-        var p = arena.Player;
-        var to = p.Root - f.Root;
-        to.Y = 0;
-        float dist = MathF.Max(to.Length(), 1e-3f);
-        var dir = to / dist;
-        f.FacingGoal = MathF.Atan2(dir.X, dir.Z);
-        f.GazePoint = p.Root;
-
-        var side = new Vector3(dir.Z, 0, -dir.X);
-        var desired = dir * Math.Clamp((dist - KeepDistance) * 2.5f, -2.0f, 3.2f) + side * MathF.Sin(arena.Time * 0.7f + f.Seed * 10) * 0.7f;
-        for (int j = 1; j <= arena.EnemyCount; j++)
-        {
-            var o = arena[j];
-            if (o == f || o.Dead) continue;
-            var d = f.Root - o.Root;
-            d.Y = 0;
-            float l = d.Length();
-            if (l < Personal && l > 1e-3f) desired += d / l * (Personal - l) * 2f;
-        }
-        if (p.Dead) desired *= 0.2f;
-        f.DesiredVel = desired;
-    }
-
-    private static void AssertBits(float expected, float actual, string what) =>
-        Assert.True(BitConverter.SingleToInt32Bits(expected) == BitConverter.SingleToInt32Bits(actual), $"{what}: SWORD {expected:R}, SWORD2 {actual:R}");
-
-    private static void AssertBits(Vector3 expected, Vector3 actual, string what)
-    {
-        AssertBits(expected.X, actual.X, what + ".X");
-        AssertBits(expected.Y, actual.Y, what + ".Y");
-        AssertBits(expected.Z, actual.Z, what + ".Z");
-    }
-
-    [Fact]
-    public void Constants_AreSwordLiterals()
-    {
-        Assert.Equal((KeepDistance, Personal), (EnemyAiRules.KeepDistance, EnemyAiRules.Personal));
-        Assert.Equal((2.5f, -2.0f, 3.2f), (EnemyAiRules.ApproachGain, EnemyAiRules.ApproachMin, EnemyAiRules.ApproachMax));
-        Assert.Equal((0.7f, 10f, 0.7f), (EnemyAiRules.SwayFrequency, EnemyAiRules.SwaySeedScale, EnemyAiRules.SwaySpeed));
-        Assert.Equal((2f, 1e-3f), (EnemyAiRules.SeparationGain, EnemyAiRules.MinDistance));
-        Assert.Equal(2.3f, Reach);   // дистанция удара — этап 6
-    }
-
-    /// <summary>Толпа: игрок и враги 1…n; часть врагов — вплотную друг к другу (расхождение), часть — на игроке, совпадающие корни.</summary>
-    private static (SwordFighter[] Sword, Vector3[] Roots, float[] Seeds, bool[] Present) Crowd(Random rng, int enemies)
-    {
-        var sword = new SwordFighter[ArenaRules.MaxFighters];
-        var roots = new Vector3[ArenaRules.MaxFighters];
-        var seeds = new float[ArenaRules.MaxFighters];
-        var present = new bool[ArenaRules.MaxFighters];
-        float R() => (float)(rng.NextDouble() * 2 - 1);
-        var player = new Vector3(R() * 20, 0, R() * 20);
-        for (int i = 0; i <= enemies; i++)
-        {
-            Vector3 root = i switch
-            {
-                0 => player,
-                _ when i % 7 == 3 => player,                                    // враг на игроке: dist = 1e-3
-                _ when i % 5 == 4 && i > 1 => roots[i - 1],                      // корень соседа: l = 0 — не толкает
-                _ when i % 3 == 0 => roots[i - 1] + new Vector3(R() * 0.8f, 0, R() * 0.8f),   // вплотную к соседу
-                _ => player + new Vector3(R() * 8, R(), R() * 8),               // y ≠ 0 — отбрасывается, как в SWORD
-            };
-            float seed = (float)rng.NextDouble();
-            sword[i] = new SwordFighter { Root = root, Seed = seed };
-            (roots[i], seeds[i], present[i]) = (root, seed, true);
-        }
-        for (int i = enemies + 1; i < sword.Length; i++) sword[i] = new SwordFighter();
-        return (sword, roots, seeds, present);
-    }
-
-    [Fact]
-    public void Think_MatchesSwordFormula_Bitwise()
-    {
-        var rng = new Random(4242);
-        int cases = 0, pushed = 0, backing = 0, capped = 0;
-        for (int run = 0; run < 200; run++)
-        {
-            int enemies = 1 + run % ArenaState.MaxEnemies;
-            var (sword, roots, seeds, present) = Crowd(rng, enemies);
-            // Время арены — как у SWORD: float, накопленный по шагу 1/120 (разные тики, в том числе далёкие).
-            float time = 0;
-            for (int k = 0, n = rng.Next(1, 20000); k < n; k++) time += 1f / 120f;
-            var arena = new SwordArena(sword, enemies, time);
-            for (int slot = 1; slot <= enemies; slot++)
-            {
-                SwordThink(arena, sword[slot]);
-                var intent = EnemyAi.Think(slot, roots[slot], seeds[slot], roots[0], time, roots, present, out var terms);
-                AssertBits(sword[slot].DesiredVel, intent.DesiredVelocity, $"прогон {run}, место {slot}: DesiredVel");
-                AssertBits(sword[slot].FacingGoal, intent.FacingGoal, $"прогон {run}, место {slot}: FacingGoal");
-                cases++;
-                if (terms.Neighbours > 0) pushed++;
-                if (terms.ApproachSpeed < 0) backing++;
-                if (terms.ApproachSpeed == EnemyAiRules.ApproachMax) capped++;
-            }
-        }
-        Assert.True(pushed > 200 && backing > 100 && capped > 100, $"случаев {cases}: расхождение {pushed}, отступ {backing}, предел 3,2 — {capped}");
-    }
 
     [Fact]
     public void Terms_ExplainDesiredVelocity()
@@ -210,6 +86,82 @@ public sealed class EnemyAiTests
         Assert.Fail("не нашлось раскладки, где порядок сложения меняет биты");
     }
 
+    /// <summary>
+    /// Случайные толпы (враги вплотную друг к другу, на игроке, на корне соседа, с высотой y ≠ 0; время арены — float, накопленный
+    /// шагом тика): желаемая скорость — в плоскости XZ и конечна; дистанция — горизонтальная, не меньше <c>MinDistance</c>; подход — в
+    /// пределах −2…3,2; соседи — ровно враги ближе <c>Personal</c> и дальше <c>MinDistance</c> по горизонтали (игрок и совпавший
+    /// корень не толкают), толчок каждого — от соседа, не больше <c>Personal·SeparationGain</c>; слагаемые объясняют скорость; курс —
+    /// на игрока.
+    /// </summary>
+    [Fact]
+    public void Think_RandomCrowds_TermsExplainVelocity_NeighboursWithinPersonal()
+    {
+        var rng = new Random(4242);
+        var roots = new Vector3[ArenaRules.MaxFighters];
+        var seeds = new float[ArenaRules.MaxFighters];
+        var present = new bool[ArenaRules.MaxFighters];
+        float R() => (float)(rng.NextDouble() * 2 - 1);
+        static float Flat(Vector3 v)
+        {
+            v.Y = 0;   // по горизонтали
+            return v.Length();
+        }
+        int cases = 0, pushed = 0, backing = 0, capped = 0, onPlayer = 0, coincident = 0;
+        for (int run = 0; run < 200; run++)
+        {
+            int enemies = 1 + run % ArenaState.MaxEnemies;
+            Array.Clear(present);
+            var player = new Vector3(R() * 20, 0, R() * 20);
+            for (int i = 0; i <= enemies; i++)
+            {
+                roots[i] = i switch
+                {
+                    0 => player,
+                    _ when i % 7 == 3 => player,                                                   // на игроке
+                    _ when i % 5 == 4 && i > 1 => roots[i - 1],                                     // на корне соседа
+                    _ when i % 3 == 0 => roots[i - 1] + new Vector3(R() * 0.8f, 0, R() * 0.8f),     // вплотную к соседу
+                    _ => player + new Vector3(R() * 8, R(), R() * 8),                              // y ≠ 0 — не в счёт
+                };
+                (seeds[i], present[i]) = ((float)rng.NextDouble(), true);
+            }
+            float time = 0;
+            for (int k = 0, n = rng.Next(1, 20000); k < n; k++) time += 1f / 120f;
+            for (int slot = 1; slot <= enemies; slot++)
+            {
+                var intent = EnemyAi.Think(slot, roots[slot], seeds[slot], player, time, roots, present, out var t);
+                string at = $"прогон {run}, место {slot}";
+                var v = intent.DesiredVelocity;
+                Assert.True(float.IsFinite(v.X) && float.IsFinite(v.Z) && v.Y == 0 && float.IsFinite(intent.FacingGoal), $"{at}: {v}, курс {intent.FacingGoal}");
+                Assert.Equal(MathF.Max(Flat(player - roots[slot]), EnemyAiRules.MinDistance), t.Distance);
+                Assert.InRange(t.ApproachSpeed, EnemyAiRules.ApproachMin, EnemyAiRules.ApproachMax);
+                int expected = 0;
+                for (int j = 1; j <= enemies; j++)
+                {
+                    if (j == slot) continue;
+                    float l = Flat(roots[slot] - roots[j]);
+                    if (l < EnemyAiRules.Personal && l > EnemyAiRules.MinDistance) expected++;
+                    else if (l <= EnemyAiRules.MinDistance) coincident++;
+                }
+                Assert.True(expected == t.Neighbours, $"{at}: соседей {t.Neighbours}, ближе {EnemyAiRules.Personal} м — {expected}");
+                Assert.True(Flat(t.Separation) <= t.Neighbours * EnemyAiRules.Personal * EnemyAiRules.SeparationGain + 1e-4f, $"{at}: {t.Separation}");
+                var to = player - roots[slot];
+                var dir = new Vector3(to.X, 0, to.Z) / t.Distance;
+                var sum = dir * t.ApproachSpeed + new Vector3(dir.Z, 0, -dir.X) * t.SwaySpeed + t.Separation;
+                Assert.True(Vector3.Distance(sum, v) < 1e-4f, $"{at}: слагаемые {sum}, скорость {v}");
+                if (t.Distance > EnemyAiRules.MinDistance)
+                    Assert.True(MathF.Abs(MathF.IEEERemainder(intent.FacingGoal - MathF.Atan2(dir.X, dir.Z), MathF.Tau)) < 1e-5f, $"{at}: курс {intent.FacingGoal}");
+                cases++;
+                pushed += t.Neighbours > 0 ? 1 : 0;
+                backing += t.ApproachSpeed < 0 ? 1 : 0;
+                capped += t.ApproachSpeed == EnemyAiRules.ApproachMax ? 1 : 0;
+                onPlayer += t.Distance == EnemyAiRules.MinDistance ? 1 : 0;
+            }
+        }
+        // Покрытие (зерно 4242): случаев 3204 — расхождение 2092, отступ 936, предел 3,2 — 2057, на игроке 665, совпавших соседей 2770.
+        Assert.True(pushed > 1_000 && backing > 500 && capped > 1_000 && onPlayer > 300 && coincident > 1_000,
+            $"случаев {cases}: расхождение {pushed}, отступ {backing}, предел 3,2 — {capped}, на игроке {onPlayer}, совпавших соседей {coincident}");
+    }
+
     // ── в мире ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -225,16 +177,16 @@ public sealed class EnemyAiTests
         private readonly Vector3[] _roots = new Vector3[ArenaRules.MaxFighters];
         private readonly float[] _seeds = new float[ArenaRules.MaxFighters];
         private readonly bool[] _present = new bool[ArenaRules.MaxFighters];
-        private float _swordTime;
+        private float _expectedTime;
 
         public void AfterStage(Simulation sim, int stage)
         {
             if (sim.World.Stages[stage] != GameStages.Intent) return;
             var w = sim.World;
-            _swordTime += 1f / 120f;   // DuelArena.Tick: Time += dt первым делом
+            _expectedTime += 1f / 120f;   // время арены — float, шаг тика прибавляется первым делом (до Intent)
             Time = w.Resource<SimTime>().Time;
-            if (BitConverter.SingleToInt32Bits(Time) != BitConverter.SingleToInt32Bits(_swordTime))
-                Fail($"тик {sim.Tick}: время арены {Time:R}, SWORD {_swordTime:R}");
+            if (BitConverter.SingleToInt32Bits(Time) != BitConverter.SingleToInt32Bits(_expectedTime))
+                Fail($"тик {sim.Tick}: время арены {Time:R}, ждали {_expectedTime:R}");
             Array.Clear(_present);
             foreach (var chunk in w.Iterate(w.Query().With<Fighter>()))
                 foreach (var e in chunk.Entities)
@@ -311,7 +263,7 @@ public sealed class EnemyAiTests
     [Fact]
     public void CommandTick_NewEnemyThinksAndMoves_SameTick()
     {
-        // В SWORD SetEnemyCount — до Think того же тика: новый враг не стоит тик «постройки», а сразу идёт к игроку.
+        // Команда арены — до Think того же тика: новый враг не стоит тик «постройки», а сразу идёт к игроку.
         var sim = Create();
         var probe = new IntentProbe();
         sim.Observe(probe);

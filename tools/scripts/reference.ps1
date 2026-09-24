@@ -1,13 +1,14 @@
 ﻿<#
 .SYNOPSIS
-    Эталон SWORD (этап 0 ARCHITECTURE_PLAN.md): закрепить или проверить эталонный пак контента.
+    Пак контента (этап 0 ARCHITECTURE_PLAN.md): закрепить или проверить пак контента игры Content.reference.swpak.
 
 .DESCRIPTION
     -Pin    копирует Content.swpak из замороженного SWORD в Content.reference.swpak (только для чтения, вне git)
             и записывает tests/reference/reference.json: коммит SWORD, SHA-256 и размер пака, сведения о его сборке,
             версия .NET SDK, ОС, видеокарты, разрешение снимков.
-    -Check  сверяет SHA-256 и размер Content.reference.swpak с reference.json. Запускается перед каждой сверкой
-            с SWORD: если пак перепекли, эталон незаметно поменялся бы.
+    -Check  сверяет SHA-256 и размер Content.reference.swpak с reference.json (шаг reference в verify.ps1): если пак
+            перепекли, контент тестов, сценариев и эталонов SWORD2 незаметно поменялся бы. Со SWORD не сравниваем
+            (решение 14).
 
 .PARAMETER Json
     Итог одним JSON-объектом в stdout (для агентов и verify.ps1).
@@ -123,7 +124,7 @@ if ($Pin) {
 
     $gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [ordered]@{ name = $_.Name; driver = $_.DriverVersion } })
     $reference = [ordered]@{
-        purpose       = 'Эталон SWORD для сверки фич SWORD2 (этап 0 ARCHITECTURE_PLAN.md). Сверки с SWORD — только на этом паке.'
+        purpose       = 'Пак контента игры SWORD2 (Content.reference.swpak — вне git, только для чтения): на нём идут тесты категории Content, сценарии фич (feature.verify) и эталоны SWORD2 tests/reference/replays. Закреплён на этапе 0 из пака SWORD 2eab13b (sourceRepo, sourceCommit — откуда он); со SWORD не сравниваем (решение 14, точка 7а). Целостность — tools/scripts/reference.ps1 -Check (SHA-256 и размер).'
         sourceRepo    = $Source
         sourceCommit  = $head
         sourceClean   = -not $dirty

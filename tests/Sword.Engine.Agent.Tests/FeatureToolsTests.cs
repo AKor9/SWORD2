@@ -104,7 +104,7 @@ public sealed class FeatureToolsTests : IDisposable
                 }
               ],
               "invariants": ["ecs.finite"],
-              "metrics": [{ "id": "x", "scenario": "push", "source": "sword2", "reference": "тест", "entity": "first", "field": "Body.Position.X", "expected": 5 }],
+              "metrics": [{ "id": "x", "scenario": "push", "reference": "тест", "entity": "first", "field": "Body.Position.X", "expected": 5 }],
               "views": [{ "id": "end", "scenario": "push", "tick": 20 }],
               "budgets": [{ "id": "push", "scenario": "push", "allocatedBytesPerTick": 0, "repeats": 2, "warmup": 5 }],
               "checklist": ["посмотреть"]

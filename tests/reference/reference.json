@@ -1,5 +1,5 @@
 {
-    "purpose":  "Эталон SWORD для сверки фич SWORD2 (этап 0 ARCHITECTURE_PLAN.md). Сверки с SWORD — только на этом паке.",
+    "purpose":  "Пак контента игры SWORD2 (Content.reference.swpak — вне git, только для чтения): на нём идут тесты категории Content, сценарии фич (feature.verify) и эталоны SWORD2 tests/reference/replays. Закреплён на этапе 0 из пака SWORD 2eab13b (sourceRepo, sourceCommit — откуда он); со SWORD не сравниваем (решение 14, точка 7а). Целостность — tools/scripts/reference.ps1 -Check (SHA-256 и размер).",
     "sourceRepo":  "D:\\Work\\Visual Studio\\SWORD",
     "sourceCommit":  "2eab13b2262f6b336c3fc9bdcd71fb3dfc5a51a4",
     "sourceClean":  true,

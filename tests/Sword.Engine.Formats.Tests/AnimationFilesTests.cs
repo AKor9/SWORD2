@@ -4,7 +4,10 @@ using Sword.Engine.Formats;
 
 namespace Sword.Engine.Formats.Tests;
 
-/// <summary>Скелет и клип библиотеки анимаций: раскладка SWORD 2eab13b, запись и чтение без искажений, обрезка.</summary>
+/// <summary>
+/// Скелет (<c>.swskeleton</c>, версия 1) и клип (<c>.swclip</c>, версия 2) библиотеки анимаций — спецификация нашего формата пака
+/// контента: раскладка поле за полем, запись и чтение без искажений, версия 1 клипа, обрезка.
+/// </summary>
 public class AnimationFilesTests
 {
     private static readonly string[] Joints = ["root", "pelvis", "spine"];
@@ -27,41 +30,34 @@ public class AnimationFilesTests
         return s.ToArray();
     }
 
-    /// <summary>Байты, которые пишет <c>ClipAsset.Save</c> SWORD, — повтор его записи поле за полем.</summary>
-    private static byte[] SwordClipBytes(ClipFile c)
-    {
-        using var s = new MemoryStream();
-        using (var w = new BinaryWriter(s, Encoding.UTF8, leaveOpen: true))
-        {
-            w.Write("SWCL"u8);
-            w.Write((ushort)2);
-            w.Write(c.Skeleton);
-            w.Write(c.SkeletonHash);
-            w.Write(c.SampleRate);
-            w.Write(c.Frames);
-            w.Write(c.Joints);
-            w.Write(c.Loop);
-            w.Write(c.SourcePath);
-            w.Write(c.SourceHash);
-            for (int i = 0; i < c.LocalRot.Length; i++)
-            {
-                var q = c.LocalRot[i];
-                var p = c.LocalPos[i];
-                w.Write(q.X); w.Write(q.Y); w.Write(q.Z); w.Write(q.W);
-                w.Write(p.X); w.Write(p.Y); w.Write(p.Z);
-            }
-            foreach (var m in c.RootMotion) { w.Write(m.X); w.Write(m.Y); w.Write(m.Z); }
-            foreach (float y in c.RootYaw) w.Write(y);
-            w.Write("LCWS"u8);
-        }
-        return s.ToArray();
-    }
-
+    /// <summary>
+    /// Раскладка клипа версии 2 (little-endian; строки — с длиной 7-битным кодом, UTF-8): магия <c>SWCL</c>, версия (ushort),
+    /// скелет, хеш скелета (uint), частота (float), кадров, суставов (int), цикл (bool), путь и хеш источника; по кадрам и суставам —
+    /// поворот (x, y, z, w) и смещение (x, y, z); корневое движение по кадрам (x, y, z); поворот корня по кадрам; магия конца <c>LCWS</c>.
+    /// </summary>
     [Fact]
-    public void Clip_BytesMatchSword()
+    public void Clip_LayoutV2_FieldByField()
     {
         var c = Clip();
-        Assert.Equal(SwordClipBytes(c), Save(c.Write));
+        var bytes = Save(c.Write);
+        using var r = new BinaryReader(new MemoryStream(bytes), Encoding.UTF8);
+        Assert.Equal("SWCL"u8.ToArray(), r.ReadBytes(4));
+        Assert.Equal((ushort)2, r.ReadUInt16());
+        Assert.Equal(c.Skeleton, r.ReadString());
+        Assert.Equal(c.SkeletonHash, r.ReadUInt32());
+        Assert.Equal(c.SampleRate, r.ReadSingle());
+        Assert.Equal((c.Frames, c.Joints), (r.ReadInt32(), r.ReadInt32()));
+        Assert.Equal(c.Loop, r.ReadBoolean());
+        Assert.Equal((c.SourcePath, c.SourceHash), (r.ReadString(), r.ReadString()));
+        for (int i = 0; i < c.Frames * c.Joints; i++)
+        {
+            Assert.Equal(c.LocalRot[i], new Quaternion(r.ReadSingle(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle()));
+            Assert.Equal(c.LocalPos[i], new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()));
+        }
+        for (int f = 0; f < c.Frames; f++) Assert.Equal(c.RootMotion[f], new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()));
+        for (int f = 0; f < c.Frames; f++) Assert.Equal(c.RootYaw[f], r.ReadSingle());
+        Assert.Equal("LCWS"u8.ToArray(), r.ReadBytes(4));
+        Assert.Equal(bytes.Length, r.BaseStream.Position);
     }
 
     [Fact]
@@ -77,7 +73,7 @@ public class AnimationFilesTests
         Assert.Equal(a.LocalRot, b.LocalRot);
         Assert.Equal(a.LocalPos, b.LocalPos);
         Assert.Equal(a.RootMotion, b.RootMotion);
-        Assert.Equal(a.RootYaw, b.RootYaw);   // Formats_KeepYaw SWORD
+        Assert.Equal(a.RootYaw, b.RootYaw);
         Assert.Equal(bytes, Save(b.Write));
     }
 
@@ -85,7 +81,7 @@ public class AnimationFilesTests
     public void Clip_Version1_ReadsWithZeroYaw()
     {
         var c = Clip(2);
-        var bytes = SwordClipBytes(c);
+        var bytes = Save(c.Write);
         // версия 1: без дорожки поворота корня
         bytes[4] = 1;
         int yawStart = bytes.Length - 4 - c.Frames * 4;
@@ -114,22 +110,25 @@ public class AnimationFilesTests
         Assert.Throws<InvalidDataException>(() => ClipFile.Read(new MemoryStream(bytes), "огромный"));
     }
 
+    /// <summary>
+    /// Раскладка скелета версии 1: магия <c>SWSN</c>, версия (ushort), имя скелета, суставов (int), по суставам — имя и номер родителя
+    /// (int, −1 — корень), магия конца <c>NSWS</c>; чтение возвращает то же.
+    /// </summary>
     [Fact]
-    public void Skeleton_BytesMatchSwordAndRoundTrip()
+    public void Skeleton_LayoutV1_FieldByField_AndRoundTrip()
     {
         var a = new SkeletonFile { Id = "ue5_manny", JointNames = Joints, JointParents = Parents };
         var bytes = Save(a.Write);
-        using var expected = new MemoryStream();
-        using (var w = new BinaryWriter(expected, Encoding.UTF8, leaveOpen: true))
+        using (var r = new BinaryReader(new MemoryStream(bytes), Encoding.UTF8))
         {
-            w.Write("SWSN"u8);
-            w.Write((ushort)1);
-            w.Write(a.Id);
-            w.Write(Joints.Length);
-            for (int j = 0; j < Joints.Length; j++) { w.Write(Joints[j]); w.Write(Parents[j]); }
-            w.Write("NSWS"u8);
+            Assert.Equal("SWSN"u8.ToArray(), r.ReadBytes(4));
+            Assert.Equal((ushort)1, r.ReadUInt16());
+            Assert.Equal(a.Id, r.ReadString());
+            Assert.Equal(Joints.Length, r.ReadInt32());
+            for (int j = 0; j < Joints.Length; j++) Assert.Equal((Joints[j], Parents[j]), (r.ReadString(), r.ReadInt32()));
+            Assert.Equal("NSWS"u8.ToArray(), r.ReadBytes(4));
+            Assert.Equal(bytes.Length, r.BaseStream.Position);
         }
-        Assert.Equal(expected.ToArray(), bytes);
         var b = SkeletonFile.Read(new MemoryStream(bytes), "mem");
         Assert.Equal(a.Id, b.Id);
         Assert.Equal(Joints, b.JointNames);
@@ -152,7 +151,10 @@ public class AnimationFilesTests
         Assert.Throws<InvalidDataException>(() => SkeletonFile.Read(new MemoryStream(bytes), "сам себе родитель"));
     }
 
-    /// <summary>Хеш скелета — тот же FNV-1a, что в SWORD: клипы эталонного пака находят по нему свой скелет.</summary>
+    /// <summary>
+    /// Хеш скелета — FNV-1a по байтам UTF-16 имён (с нулём после имени) и двум младшим байтам номеров родителей: клипы пака контента
+    /// находят по нему свой скелет (хеш записан в клипах).
+    /// </summary>
     [Fact]
     public void Skeleton_HashIsFnvOfNamesAndParents()
     {

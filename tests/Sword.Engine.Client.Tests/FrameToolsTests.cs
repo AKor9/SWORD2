@@ -4,7 +4,7 @@ namespace Sword.Engine.Client.Tests;
 public class FrameToolsTests
 {
     [Fact]
-    public void Fps_IsSmoothedFrom60_Like_SWORD()
+    public void Fps_IsSmoothedFrom60()
     {
         var m = new FrameStatsMeter();
         m.Frame(10, 1, 0);   // 100 кадров/с: 60 + (100 − 60)·0,08
@@ -40,7 +40,7 @@ public class FrameToolsTests
     }
 
     [Fact]
-    public void Bench_SkipsWarmup_EndsAtGameTime_PercentilesLike_SWORD()
+    public void Bench_SkipsWarmup_EndsAtGameTime_Percentiles()
     {
         var bench = new FrameBench(5);
         bench.Frame(3.9, 100, 50, 1);                  // прогрев — не в счёт

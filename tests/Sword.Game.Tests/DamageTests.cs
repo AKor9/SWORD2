@@ -16,7 +16,7 @@ using Sword.Game.Data;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 6г «Урон, смерть, реакции, возрождение»: правила урона против чисел SWORD (<see cref="DamageRules"/>), проба удара командой
+/// Точка 6г «Урон, смерть, реакции, возрождение»: правила урона числами (<see cref="DamageRules"/>), проба удара командой
 /// тем же путём Resolve (урон, раны, кровотечение, заявка на отруб, смертельный укол только остриём, реакция, статистика),
 /// неуязвимость (настройка и рывок), трупы — не цели и замирают (капсулы хранят скорости), кровопотеря, возрождение ровно через 8 с,
 /// мёртвый игрок (команды не действуют, враги ×0,2 и не бьют, R — заново), вздрагивание игрока (только верх, управление не отнимается),
@@ -53,12 +53,12 @@ public sealed class DamageTests
     // ── правила ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Числа SWORD 2eab13b: урон касания (<c>KinematicStrikes</c>), множители частей и пороги отруба (<c>Fighter.HpMul</c>,
-    /// <c>SeverAt</c>, <c>SeverThreshold</c> отзывчивого режима), попадание (<c>ApplyHit</c>), кровопотеря (<c>AfterTick</c>);
-    /// смертельный укол SWORD2 — только остриём вперёд (доля движения кончика вдоль клинка больше 0,6).
+    /// Правила урона (<see cref="DamageRules"/>) числами: урон касания по скорости кончика, множители частей и пороги отруба, попадание
+    /// (очки жизни, рана, кровотечение, смерть по ране торса), кровопотеря; смертельный укол — только остриём вперёд (доля движения
+    /// кончика вдоль клинка больше 0,6).
     /// </summary>
     [Fact]
-    public void Rules_MatchSword()
+    public void Rules_DamageSeverWoundsBleedLethalThrust()
     {
         Assert.Equal([0.9f, 1f, 1.6f, .4f, .4f, .4f, .4f, .5f, .5f, .5f, .5f, 0, .3f, .3f], DamageRules.HpMul.ToArray());
         Assert.Equal([1e9f, 1e9f, 45, 42, 30, 42, 30, 62, 44, 62, 44, 1e9f, 30, 30], DamageRules.SeverAt.ToArray());
@@ -257,7 +257,7 @@ public sealed class DamageTests
         Step(sim, 1);
         var h = sim.World.Get<Health>(enemy);
         Assert.False(sim.World.Has<Dead>(enemy));
-        // модель SWORD шаг за шагом
+        // модель кровопотери шаг за шагом
         int ticks = 0;
         while (h.Hp > 0)
         {
@@ -640,7 +640,7 @@ public sealed class DamageContentTests
 {
     private static readonly Lazy<CharacterAssets> Reference = new(() =>
     {
-        using var pak = Sword.Engine.Content.PakSource.Open(ReferenceTraceTests.ReferencePak());
+        using var pak = Sword.Engine.Content.PakSource.Open(TestContent.ReferencePak());
         return CharacterAssets.Load(pak);
     });
 

@@ -1,15 +1,16 @@
 {
   // Приёмка фичи «Враги и ИИ» (этап 4) — начата на точке 4а (спаун и команды арены), дополнена на 4б (ИИ: подход,
   // окружение, погоня), 4в (столкновения бойцов: толпа, игрок расталкивает её, инвариант movement.rootOverlap) и 4г
-  // (поворот врага на месте клипом командой врагу, сверка с трассой SWORD); полный — на 4д: сверка толпы с трассой SWORD
-  // (сценарий sword-crowd, метрики sword-crowd-*), бюджеты на 32 врагах (тик, стадии, байты, кадр App). После
-  // подтверждения пользователя (раздел 12 плана) зафиксирован эталон SWORD2 enemies.swreplay — сценарий reference.
-  // Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies).
-  // Ослабить ожидания — только правкой с сообщением пользователю.
+  // (поворот врага на месте клипом командой врагу); полный — на 4д: толпа с командами арены по ходу и колонной (сценарий
+  // crowd-commands, до 7а — sword-crowd), бюджеты на 32 врагах (тик, стадии, байты, кадр App). После подтверждения
+  // пользователя (раздел 12 плана) зафиксирован эталон SWORD2 enemies.swreplay — сценарий reference. 7а: сравнения со SWORD
+  // сняты (решение 14) — метрики против трасс SWORD удалены, сценарий трассы толпы переименован. Формат — FeatureManifest
+  // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature enemies). Ослабить ожидания — только
+  // правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "enemies",
-  "title": "Враги и ИИ (этап 4; точки 4а — спаун и команды арены, 4б — ИИ врагов, 4в — столкновения бойцов, 4г — поворот на месте, 4д — сверка толпы с SWORD и приёмка)",
+  "title": "Враги и ИИ (этап 4; точки 4а — спаун и команды арены, 4б — ИИ врагов, 4в — столкновения бойцов, 4г — поворот на месте, 4д — толпа с командами арены и приёмка)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Arena",
@@ -270,7 +271,7 @@
     },
     {
       "id": "turn",
-      "title": "поворот врага на месте (4г): сценарий трассы SWORD — курс-цель врага 1 скачет командой врагу (EnemyCommand): стоя на 90° влево, вправо, разворот, меньше 45°, поворот прерван ходьбой, поворот на ходу, остановка с отставшим курсом (1440 тиков)",
+      "title": "поворот врага на месте (4г): курс-цель врага 1 скачет командой врагу (EnemyCommand): стоя на 90° влево, вправо, разворот, меньше 45°, поворот прерван ходьбой, поворот на ходу, остановка с отставшим курсом (1440 тиков)",
       "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
       "ticks": 1440,
       "commands": [
@@ -327,8 +328,8 @@
       ]
     },
     {
-      "id": "sword-crowd",
-      "title": "сценарий трассы толпы SWORD (4д): 12 врагов сходятся к стоящему игроку; PageUp ×2 и 16; игрок разворачивается взглядом, пробегает сквозь кольцо, бегает кругами, уходит шагом; PageDown ×3 и PageUp ×3 (те же места заново); бег по диагонали, R, бег в сторону (сторона ходьбы переживает сброс); бег к колонне 0 — толпа прижимается к ней; у колонны — 32 врага (3000 тиков)",
+      "id": "crowd-commands",
+      "title": "толпа с командами арены (4д; до 7а — sword-crowd): 12 врагов сходятся к стоящему игроку; PageUp ×2 и 16; игрок разворачивается взглядом, пробегает сквозь кольцо, бегает кругами, уходит шагом; PageDown ×3 и PageUp ×3 (те же места заново); бег по диагонали, R, бег в сторону (сторона ходьбы переживает сброс); бег к колонне 0 — толпа прижимается к ней; у колонны — 32 врага (3000 тиков)",
       "set": ["arena.enemies=12", "sim.seed=1", "combat.enemiesAttack=false"],
       "ticks": 3000,
       "commands": [
@@ -403,7 +404,7 @@
     },
     {
       "id": "reference",
-      "title": "эталон SWORD2 врагов (после подтверждения этапа 4): запись сценария sword-crowd — толпа, команды арены по ходу (PageUp, PageDown, 16, R, 32), колонна (хеши каждого тика)",
+      "title": "эталон SWORD2 врагов (после подтверждения этапа 4): запись сценария crowd-commands (до 7а — sword-crowd) — толпа, команды арены по ходу (PageUp, PageDown, 16, R, 32), колонна (хеши каждого тика)",
       "replay": "tests/reference/replays/enemies.swreplay",
       "checks": [
         {
@@ -416,39 +417,8 @@
   "invariants": ["arena.slots", "movement.rootOverlap", "animation.*", "locomotion.poses", "ecs.finite", "ecs.entityRefs"],
   "metrics": [
     {
-      "id": "sword-turn-trace", "scenario": "turn", "source": "sword",
-      "reference": "трасса настоящего FighterAnimator SWORD 2eab13b на эталонном паке, боец не-Agile (tests/reference/sword-trace, сценарий turn): корень, курс, вес действия и поворот курса клипом тик за тиком, побитово; клипы и поза — ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick",
-      "entity": "enemy 1", "trace": "tests/reference/anim-turn.trace.json",
-      "series": {
-        "root[0]": "Transform.Position.X", "root[1]": "Transform.Position.Z", "facing": "Transform.Facing",
-        "actionWeight": "AnimatorAction.Weight", "yawDelta": "AnimatorAction.YawDelta"
-      },
-      "tolerance": 0
-    },
-    {
-      "id": "sword-crowd-player", "scenario": "sword-crowd", "source": "sword",
-      "reference": "трасса толпы SWORD 2eab13b на эталонном паке (tests/reference/sword-trace, сценарий crowd; 4д): игрок (Agile) — корень и курс тик за тиком, побитово; вся толпа (корни, курсы, клипы, действия, позы: 53 400 бойце-тиков) — ReferenceTraceTests.Crowd_MatchesSwordTickByTick",
-      "entity": "player", "trace": "tests/reference/anim-crowd.trace.json",
-      "series": { "x[0]": "Transform.Position.X", "z[0]": "Transform.Position.Z", "facing[0]": "Transform.Facing" },
-      "tolerance": 0
-    },
-    {
-      "id": "sword-crowd-enemy-1", "scenario": "sword-crowd", "source": "sword",
-      "reference": "трасса толпы SWORD (4д): враг места 1 (EnemyAi.Think, ResolveRoots, поворот не-Agile) — корень и курс тик за тиком, побитово",
-      "entity": "enemy 1", "trace": "tests/reference/anim-crowd.trace.json",
-      "series": { "x[1]": "Transform.Position.X", "z[1]": "Transform.Position.Z", "facing[1]": "Transform.Facing" },
-      "tolerance": 0
-    },
-    {
-      "id": "sword-crowd-enemy-12", "scenario": "sword-crowd", "source": "sword",
-      "reference": "трасса толпы SWORD (4д): враг места 12 (последнее место сборки мира; строится заново сбросом R) — корень и курс тик за тиком, побитово",
-      "entity": "enemy 12", "trace": "tests/reference/anim-crowd.trace.json",
-      "series": { "x[12]": "Transform.Position.X", "z[12]": "Transform.Position.Z", "facing[12]": "Transform.Facing" },
-      "tolerance": 0
-    },
-    {
-      "id": "keep-distance", "scenario": "surround", "source": "sword",
-      "reference": "SWORD 2eab13b EnemyAi.KeepDistance = 1.8f; допуск ±0,4 пересмотрен на 4д и оставлен: это «враг в кольце у KeepDistance», а не точность — по 64 зёрнам расстояние врага 1 в конце surround 1,46…2,29 м (все враги 1,30…2,29: покачивание ±0,7 м/с и расхождение соседей), при sim.seed 1 — 1,875; точность — побитовые трассы толпы и поворота",
+      "id": "keep-distance", "scenario": "surround",
+      "reference": "своя дистанция кольца EnemyAiRules.KeepDistance = 1,8 м; допуск ±0,4 — «враг в кольце у KeepDistance», а не точность: по 64 зёрнам расстояние врага 1 в конце surround 1,46…2,29 м (все враги 1,30…2,29: покачивание ±0,7 м/с и расхождение соседей), при sim.seed 1 — 1,875 (замер 4д); точность — эталон SWORD2 enemies.swreplay (хеши каждого тика)",
       "entity": "enemy 1", "field": "EnemyAiTerms.Distance", "expected": 1.8, "tolerance": 0.4
     }
   ],
@@ -458,7 +428,7 @@
     { "id": "crowd", "title": "32 врага (--units 32): кольцо плотнее, толпа сходится к бегущему игроку", "scenario": "crowd", "tick": 60, "camera": "0.6,0.9,30,0,0" },
     { "id": "turn", "title": "враг 1 разворачивается на месте клипом разворота (командой врагу), игрок стоит в центре", "scenario": "turn", "tick": 480, "camera": "0.6,0.9,5,-4.95,-4.69" },
     { "id": "push", "title": "игрок упёрся в толпу из 32 врагов и расталкивает её; враги стоят плечом к плечу, не друг в друге", "scenario": "push", "tick": 640, "camera": "0.6,0.9,9,1,0" },
-    { "id": "pillar", "title": "сценарий трассы толпы (4д): игрок у колонны 0, толпа из 32 врагов обступила его и прижимается к колонне, никто не стоит в колонне", "scenario": "sword-crowd", "tick": 2992, "camera": "0.6,0.9,16,26.3,10.9" }
+    { "id": "pillar", "title": "толпа с командами арены (4д): игрок у колонны 0, толпа из 32 врагов обступила его и прижимается к колонне, никто не стоит в колонне", "scenario": "crowd-commands", "tick": 2992, "camera": "0.6,0.9,16,26.3,10.9" }
   ],
   "budgets": [
     // 4д: пределы — около 2× к медиане замера на этой машине (Ryzen 7 7800X3D, RTX 5070, Release; README.md, «Бюджеты»):
@@ -480,6 +450,6 @@
     "`Sword.exe --units 32` — 32 врага толпой обступают Manny в 2–3 ряда плечом к плечу; никто не стоит внутри другого и внутри Manny (руки и плечи могут заходить друг в друга: сталкиваются только круги корней 0,35 м, тела — этап 5). Бежать в толпу (D) — Manny с разбега упирается, толкает врагов перед собой и протискивается; впереди расступаются, сзади снова сходятся. Кадр плавный, FPS в HUD — как без врагов или близко; `Sword.exe --units 0` — Manny один.",
     "Колонна: `Sword.exe --units 32`, дождаться, пока толпа обступит Manny, и бежать к ближайшей колонне (от центра — 30 м), встать вплотную к ней: толпа догоняет и обступает Manny у колонны, крайние враги прижимаются к колонне и обходят её; ни Manny, ни враг не стоят внутри колонны, никого не трясёт и не выталкивает рывком.",
     "Поворот на месте клипом (в обычной игре почти не бывает — так и в SWORD): после `verify.ps1` (или `Sword.Headless --feature enemies`) — `Sword.exe --replay artifacts/features/enemies/scenario-turn.swreplay --camera 0.6,0.9,8,-4.95,-4.69` — камера смотрит на врага 1 (в сценарии он один, в ~7 м от Manny). Через полсекунды враг поворачивается на месте на четверть круга влево — переступая ногами клипом поворота, а не вращаясь статуей; через 1,5 с — вправо, ещё через 1,5 с — разворот кругом, тоже шагами; чуть доворачивает плавно без шагов; начинает поворот и сразу уходит шагом — поворот мягко гаснет без рывка позы; на ходу поворачивает быстро без клипа. Ноги заметно не проскальзывают, поза не прыгает.",
-    "Запись: `Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется само. Сценарий сверки с SWORD: `Sword.exe --replay artifacts/features/enemies/scenario-sword-crowd.swreplay` — толпа сходится, игрок бегает, враги появляются и исчезают, сброс, бег к колонне, у колонны 32 врага; в журнале при выходе — «реплей: сверено хешей …» без строки расхождения."
+    "Запись: `Sword.exe --record my.swreplay` — побегать от врагов, нажать PageUp, PageDown, R, закрыть окно; `Sword.Headless --replay my.swreplay` — в журнале «реплей совпал»; `Sword.exe --replay my.swreplay` — всё повторяется само. Сценарий толпы с командами арены: `Sword.exe --replay artifacts/features/enemies/scenario-crowd-commands.swreplay` — толпа сходится, игрок бегает, враги появляются и исчезают, сброс, бег к колонне, у колонны 32 врага; в журнале при выходе — «реплей: сверено хешей …» без строки расхождения."
   ]
 }

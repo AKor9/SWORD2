@@ -11,9 +11,9 @@
   поворот), сэмплинг `Sample`, смешивание `Blend`, длительность, скорость корня, поиск по ID «источник/имя».
 - `PosePool` — позы (локальные повороты и смещения, модельные матрицы) в общих массивах; задания `Sample`, `Blend`,
   `BlendMasked` (6в: смешивание по маске суставов, зарегистрированной в пуле `AddMask` — вес сустава
-  `w·(mask[j] + (1 − mask[j])·stand)`, как `CharacterRig.LayerMask` + `SkeletalClips.Blend` SWORD), `AddMasked` (6г: добавка
-  поворотов по маске — `rot[j] = normalize(rot[j]·slerp(identity, conj(ref[j])·pose[j], mask[j]·w))`, как `CharacterRig.AddUpper` SWORD,
-  побитово; смещения не трогает), `Copy`, `ToModel`; `Tick` — исполнить очередь; `LastTick` — счётчики заданий (смешивание и добавка по
+  `w·(mask[j] + (1 − mask[j])·stand)`, идея — `CharacterRig.LayerMask` + `SkeletalClips.Blend` SWORD), `AddMasked` (6г: добавка
+  поворотов по маске — `rot[j] = normalize(rot[j]·slerp(identity, conj(ref[j])·pose[j], mask[j]·w))`, идея — `CharacterRig.AddUpper`
+  SWORD; смещения не трогает), `Copy`, `ToModel`; `Tick` — исполнить очередь; `LastTick` — счётчики заданий (смешивание и добавка по
   маске — в `Blends`).
 - `AnimMath` — ориентации капсул, двухзвенный IK, векторы поворота, критически демпфированные пружины.
 
@@ -63,7 +63,8 @@ SWORD 2eab13b, `Sword.Anim`:
 
 Пул и библиотеку игра отдаёт наблюдателям видом `IAnimationView` (`Game.Contracts`): позы по суставам, имена клипов,
 счётчики пула. Инструменты агента — `anim.pose`, `anim.clips` (`Sword.Game.Agent`). Хватает, чтобы увидеть, какой клип
-играет и какая поза получилась; сверить с SWORD — `ReferenceTraceTests`.
+играет и какая поза получилась; регрессию держат эталоны SWORD2 (хеш участника `animation`). Сверка с SWORD
+(тесты трасс SWORD) снята на 7а (решение 14, свой путь).
 
 ## Известные ошибки
 

@@ -6,8 +6,8 @@
 - Модуль не видит ядро игры (`Sword.Game`) и другие модули: вход — компоненты и метки `Game.Contracts`, клипы слотов —
   `Game.Data.ActionTable` (ресурс), позы — `PosePool` (ресурс) и `PoseRef` бойца.
 - Позу не считает сам: только задания пулу поз, после `core.action-snapshot` (6в: снимок позы прошлого тика копируется
-  первым) и до `core.animator-pose`. Порядок заданий и формулы — как в
-  `LegacyLocomotion` SWORD: от них зависит побитовая сверка `ReferenceTraceTests`.
+  первым) и до `core.animator-pose`. Порядок заданий и формулы — из `LegacyLocomotion` SWORD (идея); от них зависят хеши
+  эталонов SWORD2 (участник `animation`) — разошлись эталоны, значит изменилось поведение. Сверка с SWORD снята на 7а.
 - Свои позы (слой и снимок) модуль заводит сам и сам возвращает (`locomotion.release`); держит их инвариант модуля
   `locomotion.poses` (живые, свои, не итоговая поза бойца). Пул в инварианте — только через `IAnimationView`.
 - `Added<Fighter>` у бойца, у которого состояние уже есть, — постройка заново (протокол `Game.Contracts`, сброс арены):
@@ -15,5 +15,5 @@
   слоя и снимка — те же (иначе утечка). Две записи одного бойца за срабатывание — одна команда.
 - Без модуля игра стартует и ходит без клипов (решение 9): кода «на случай отсутствия» нет ни в ядре, ни здесь.
 
-Проверка: `tests/Sword.Game.Tests/AnimationTests`, `ReferenceTraceTests`; `verify.ps1` — `headless-smoke`,
+Проверка: `tests/Sword.Game.Tests/AnimationTests`, эталоны SWORD2 (`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke`,
 `without-modules`, `agent-smoke`.

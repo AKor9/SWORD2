@@ -7,9 +7,10 @@
   `Skeleton.WithMeshBindPose`, `ClipLibrary.Load` с `ClipSource`). Двоичные раскладки — в `Sword.Engine.Formats`
   (`SkeletonFile`, `ClipFile`, `SkinnedMeshData`).
 - Позы меняются только заданиями пула (`Sample`, `Blend`, `BlendMasked`, `Copy`, `ToModel`); `PosePool.Tick` исполняет очередь в
-  порядке постановки. Порядок заданий одной позы и арифметика — как у последовательных вызовов `SkeletalClips` SWORD:
-  от этого зависит побитовая сверка с SWORD (`ReferenceTraceTests`). Меняя сэмплинг, смешивание или прямую кинематику,
-  прогнать сверку.
+  порядке постановки. Порядок заданий одной позы и арифметика — как у последовательных вызовов `ClipLibrary`/`Skeleton`
+  (тесты `PoseTests`): от них зависят хеши эталонов SWORD2 (участник `animation`). Меняя сэмплинг, смешивание или прямую
+  кинематику, прогнать тесты анимации и эталоны (`ReferenceReplaysTests`, `verify.ps1`); разошлись эталоны — это изменение
+  поведения, перезапись — только с доказательством (раздел 12 плана). Сверки с SWORD нет (решение 14, снята на 7а).
 - `ClipLibrary` и `Skeleton` неизменяемы (их делят симуляции и потоки): массивы — приватные, наружу — только
   `ReadOnlySpan`, открытые конструкторы копируют входные массивы, поза привязки из меша — новый скелет
   (`WithMeshBindPose`). Изменяемый массив или сеттер наружу не добавлять — тест
@@ -29,4 +30,5 @@
   ребёнка; цикл в родителях — ошибка данных.
 
 Проверка: `tests/Sword.Engine.Animation.Tests` (библиотека, сэмплинг, кинематика, пул, математика);
-`tests/Sword.Game.Tests/ReferenceTraceTests` — сверка с SWORD на эталонном паке; `tests/Sword.Benchmarks` (`-Bench`).
+`tests/Sword.Game.Tests/AnimationTests`, эталоны SWORD2 (`ReferenceReplaysTests`, сценарии манифеста `animation`);
+`tests/Sword.Benchmarks` (`-Bench`).

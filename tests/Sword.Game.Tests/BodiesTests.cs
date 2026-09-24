@@ -450,9 +450,9 @@ public sealed class BodiesTests
     }
 
     [Fact]
-    public void SegmentNumbering_IsSwordWithBladeNumberReserved()
+    public void SegmentNumbering_BladeNumberReserved()
     {
-        // Номера SWORD (BodySegs 2eab13b): 0…10, клинок 11 (этап 6), стопы 12 и 13; тело i сочленения бойца — по возрастанию.
+        // Номера сегментов: 0…10, клинок 11 (тела клинка пока нет), стопы 12 и 13; тело i сочленения бойца — по возрастанию.
         Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13], Enumerable.Range(0, BodySegs.Bodies).Select(BodySegs.Segment));
         Assert.All(Enumerable.Range(0, BodySegs.Bodies), i => Assert.Equal(i, BodySegs.Body(BodySegs.Segment(i))));
         Assert.Equal(-1, BodySegs.Body(11));

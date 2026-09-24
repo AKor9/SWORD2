@@ -329,7 +329,7 @@ public sealed class RootControlSystem : IContinuousSystem
 
     /// <summary>
     /// Со слоем действий: <c>Facing += YawDelta</c>, корень на скорость (и прибавку рывка <paramref name="boost"/>, 6в), сдвиг
-    /// клипом по курсу — порядок SWORD (без рывка — побитово как SWORD).
+    /// клипом по курсу (порядок — идея SWORD).
     /// </summary>
     public static void Move(ref Transform t, Vector3 velocity, in AnimatorAction action, float dt, Vector3 boost = default)
     {
@@ -378,8 +378,8 @@ public struct RootContacts
 /// <summary>
 /// <c>ResolveRoots</c> SWORD 2eab13b (<c>DuelArena.cs</c>) по местам бойцов: два прохода; в каждом бойцы по порядку мест,
 /// у бойца — сначала пары со всеми следующими (круги корней по 0,35 м: каждому половина перекрытия, скорость внутрь
-/// соседа гасится), затем колонны и край арены — до следующего бойца. Порядок вычислений float тот же (сверка —
-/// <c>RootCollisionTests</c>, побитово против копии SWORD).
+/// соседа гасится), затем колонны и край арены — до следующего бойца. Свойства — <c>RootCollisionTests</c> (сдвиг объясняют
+/// пары и препятствия, корни вне колонн и внутри арены).
 /// </summary>
 public static class RootCollision
 {

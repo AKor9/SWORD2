@@ -25,7 +25,7 @@ internal static class FeatureTools
         {
             Name = "feature.list", Title = "Фичи",
             Description = "Манифесты фич (feature.json рядом с md фичи): id, название, md, сценарии (реплей или команды, проверки), " +
-                "инварианты, метрики (источник — sword или sword2), виды, бюджеты, чек-лист «что проверить в игре». id — только эта " +
+                "инварианты, метрики (id; свои числа SWORD2 с допуском), виды, бюджеты, чек-лист «что проверить в игре». id — только эта " +
                 "фича, целиком.",
             Arguments = CoreTools.Props(("id", CoreTools.Str("только эта фича — манифест целиком"))),
             Run = call =>
@@ -54,7 +54,7 @@ internal static class FeatureTools
                             ["id"] = s.Id, ["replay"] = s.Replay, ["ticks"] = s.Ticks, ["commands"] = s.Commands.Count, ["checks"] = s.Checks.Count,
                         })]),
                         ["invariants"] = new JsonArray([.. m.Invariants.Select(x => (JsonNode?)x)]),
-                        ["metrics"] = new JsonArray([.. m.Metrics.Select(x => (JsonNode?)$"{x.Id} ({x.Source})")]),
+                        ["metrics"] = new JsonArray([.. m.Metrics.Select(x => (JsonNode?)x.Id)]),
                         ["views"] = m.Views.Count, ["budgets"] = m.Budgets.Count, ["checklist"] = m.Checklist.Count,
                     })]),
                 }));
@@ -65,7 +65,7 @@ internal static class FeatureTools
         {
             Name = "feature.verify", Title = "Проверить фичу",
             Description = "Приёмка фичи одним вызовом (раздел 12 плана): сценарии манифеста в отдельных симуляциях (хеши реплеев, " +
-                "проверки-условия, нарушения инвариантов — провал), инварианты манифеста, метрики против эталонов SWORD и SWORD2, " +
+                "проверки-условия, нарушения инвариантов — провал), инварианты манифеста, метрики (свои числа SWORD2 с допуском), " +
                 "бюджеты (медиана повторов без инвариантов; кадр App — бенчем на записи сценария; время и кадр — только в Release), " +
                 "виды — кадры Sword.exe --replay по записи " +
                 "сценария. Ответ — вердикт ok, провалы словами, по разделам; всё — в каталоге артефактов (report.json, записи " +

@@ -260,8 +260,8 @@ public static class ActionRules
 /// <summary>
 /// Логика слоя действий (<c>FighterAnimator</c> SWORD 2eab13b) без поз: начало поворота, удара и вида рывка, правила
 /// «можно ли действовать» и масштабы хода и поворота, шаг действия на тик. Позу по этому состоянию ставят
-/// <see cref="ActionSnapshotSystem"/> и <see cref="AnimatorPoseSystem"/> заданиями пулу поз. Порядок вычислений float — как в
-/// SWORD (сверка — <c>ReferenceTraceTests</c>: трасса поворота врага и трасса слоя действий).
+/// <see cref="ActionSnapshotSystem"/> и <see cref="AnimatorPoseSystem"/> заданиями пулу поз. Порядок вычислений float — часть
+/// поведения (эталоны SWORD2 держат его хешами; побитовые трассы SWORD сняты на 7а).
 ///
 /// <c>agile</c> — игрок (<c>Agile = f.IsPlayer</c> SWORD). Отзывчивость SWORD2 (6в): у игрока ход при любом действии не
 /// замедляется, поворот — по правилам <c>Agile</c>, удар и рывок прерывают любое его действие (удар — удар только после окна
@@ -431,7 +431,7 @@ public static class ActionLayer
     private static void Step(ref AnimatorAction a, bool moving, float speed, float dt, ClipLibrary clips, ReadOnlySpan<AttackInfo> attacks, bool agile)
     {
         float before = a.Time;
-        a.Time += dt * a.Rate;   // скорость 1 — точно dt (сверка с SWORD)
+        a.Time += dt * a.Rate;   // скорость 1 — точно dt
         // Слой верха на ходу: ноги у локомоции, выпад не двигает — идёт только стоя (stand → 1).
         float stand = a.Upper ? ActionRules.StandWeight(speed) : 1;
         a.Stand = stand;
@@ -479,7 +479,7 @@ public static class ActionLayer
     /// (<paramref name="upper"/>, доля клипа вне маски — <see cref="AnimatorAction.Stand"/>; с памятью смешивания
     /// <see cref="ActionPoses.BlendOutput"/> — отличие от SWORD: перескок кратчайшей дуги сустава доворачивается не больше 8° за тик);
     /// затем переход от снимка позы — смешиванием по маске всего тела <paramref name="full"/> с памятью
-    /// (<see cref="ActionPoses.SnapOutput"/>, 6ж: без перескока дуги — побитово как <c>Blend</c> SWORD). Позы слоя и памяти берутся при
+    /// (<see cref="ActionPoses.SnapOutput"/>, 6ж: без перескока дуги — побитово как <c>PosePool.Blend</c>). Позы слоя и памяти берутся при
     /// первом действии и первом переходе.
     /// </summary>
     public static void Pose(in AnimatorAction a, ref ActionPoses poses, PoseHandle pose, PosePool pool, PoseMask upper, PoseMask full)

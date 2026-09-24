@@ -95,28 +95,28 @@
   "invariants": ["ecs.finite", "ecs.entityRefs", "movement.rootOverlap"],
   "metrics": [
     {
-      "id": "run-speed", "scenario": "run-edge", "source": "sword", "reference": "SWORD 2eab13b PlayerController.RunSpeed = 4.2f",
+      "id": "run-speed", "scenario": "run-edge", "reference": "своя скорость бега MovementRules.RunSpeed = 4,2 м/с",
       "entity": "player", "field": "RootVelocity.Value", "at": 600, "expected": 4.2, "tolerance": 0.0001
     },
     {
-      "id": "walk-speed", "scenario": "walk", "source": "sword", "reference": "SWORD 2eab13b PlayerController.WalkSpeed = 1.6f",
+      "id": "walk-speed", "scenario": "walk", "reference": "своя скорость шага MovementRules.WalkSpeed = 1,6 м/с",
       "entity": "player", "field": "RootVelocity.Value", "at": 300, "expected": 1.6, "tolerance": 0.0001
     },
     {
-      "id": "edge-x", "scenario": "run-edge", "source": "sword",
-      "reference": "SWORD 2eab13b ArenaLayout.ArenaRadius 62 − 0,6 (DuelArena.ResolveRoots: край арены)",
+      "id": "edge-x", "scenario": "run-edge",
+      "reference": "край арены: ArenaLayout.ArenaRadius 62 − MovementRules.EdgeMargin 0,6 (RootCollisionSystem.KeepInsideArena)",
       "entity": "player", "field": "Transform.Position.X", "expected": 61.4, "tolerance": 0.0001
     },
     {
-      "id": "column-x", "scenario": "column", "source": "sword2", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
+      "id": "column-x", "scenario": "column", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
       "entity": "player", "field": "Transform.Position.X", "expected": 38.376617, "tolerance": 0.0001
     },
     {
-      "id": "column-z", "scenario": "column", "source": "sword2", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
+      "id": "column-z", "scenario": "column", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
       "entity": "player", "field": "Transform.Position.Z", "expected": 17.478165, "tolerance": 0.0001
     },
     {
-      "id": "gaze-facing", "scenario": "gaze", "source": "sword2", "reference": "SWORD2 3д: курс на точку взгляда (30, 0) после 600 тиков",
+      "id": "gaze-facing", "scenario": "gaze", "reference": "SWORD2 3д: курс на точку взгляда (30, 0) после 600 тиков",
       "entity": "player", "field": "Transform.Facing", "expected": 2.332009, "tolerance": 0.0001
     }
   ],

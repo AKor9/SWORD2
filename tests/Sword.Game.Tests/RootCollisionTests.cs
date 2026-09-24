@@ -15,90 +15,23 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Столкновения корней бойцов, точка 4в: <c>ResolveRoots</c> SWORD 2eab13b целиком — побитово против копии SWORD на
-/// случайных толпах; в мире — порядок мест и вид толчков <see cref="RootContacts"/>; толпа из 32 врагов (замер
-/// перекрытия для инварианта <c>movement.rootOverlap</c>); игрок упирается в толпу и расталкивает её; 0 байт на тик;
-/// агентский вид.
+/// Столкновения корней бойцов, точка 4в: <see cref="RootCollision.Resolve"/> на случайных толпах — пары, колонны и край арены
+/// объясняют сдвиг корня, после разрешения корни вне колонн и внутри арены, скорость внутрь препятствия погашена; в мире — порядок
+/// мест и вид толчков <see cref="RootContacts"/>; толпа из 32 врагов (замер перекрытия для инварианта <c>movement.rootOverlap</c>);
+/// игрок упирается в толпу и расталкивает её; 0 байт на тик; агентский вид.
 /// </summary>
 public sealed class RootCollisionTests(ITestOutputHelper output)
 {
-    // ── копия SWORD ─────────────────────────────────────────────────────────────────────────────────────────────────
-    // Gameplay/Ragdoll/DuelArena.cs SWORD 2eab13b, ResolveRoots — дословно (бойцы и арена — минимальные заглушки; колонны
-    // и радиус арены — ArenaLayout SWORD2, сверенный с SWORD в ArenaTerrainTests). Добавлены только счётчики теста.
-
-    private sealed class SwordFighter
-    {
-        public Vector3 Root, RootVel;
-        public bool Dead { get; init; }   // смерти до этапа 6 нет
-    }
-
-    private sealed class SwordArena(SwordFighter[] fighters)
-    {
-        private readonly SwordFighter[] _fighters = fighters;
-        private int ActiveCount => _fighters.Length;
-        public int Pairs, Pillars, Edges, Coincident;   // счётчики теста
-
-        public void ResolveRoots()
-        {
-            const float r = 0.35f;
-            for (int iter = 0; iter < 2; iter++)
-            {
-                for (int i = 0; i < ActiveCount; i++)
-                {
-                    var a = _fighters[i];
-                    if (a.Dead) continue;
-                    for (int j = i + 1; j < ActiveCount; j++)
-                    {
-                        var b = _fighters[j];
-                        if (b.Dead) continue;
-                        var d = a.Root - b.Root;
-                        float l = d.Length();
-                        if (l < 1e-4f) Coincident++;   // счётчик теста
-                        if (l >= 2 * r || l < 1e-4f) continue;
-                        Pairs++;   // счётчик теста
-                        var n = d / l;
-                        var push = n * ((2 * r - l) * 0.5f);
-                        a.Root += push;
-                        b.Root -= push;
-                        float va = Vector3.Dot(a.RootVel, n), vb = Vector3.Dot(b.RootVel, n);
-                        if (va < 0) a.RootVel -= n * va;
-                        if (vb > 0) b.RootVel -= n * vb;
-                    }
-                    foreach (var pl in ArenaLayout.Pillars)
-                    {
-                        var d = new Vector3(a.Root.X - pl.X, 0, a.Root.Z - pl.Y);
-                        float l = d.Length(), rr = pl.Z + r;
-                        if (l >= rr || l < 1e-4f) continue;
-                        Pillars++;   // счётчик теста
-                        var n = d / l;
-                        a.Root = new Vector3(pl.X, 0, pl.Y) + n * rr;
-                        float v = Vector3.Dot(a.RootVel, n);
-                        if (v < 0) a.RootVel -= n * v;
-                    }
-                    float lim = ArenaLayout.ArenaRadius - 0.6f, dist = a.Root.Length();
-                    if (dist > lim)
-                    {
-                        Edges++;   // счётчик теста
-                        var n = a.Root / dist;
-                        a.Root = n * lim;
-                        float v = Vector3.Dot(a.RootVel, n);
-                        if (v > 0) a.RootVel -= n * v;
-                    }
-                }
-            }
-        }
-    }
-
     private static void AssertBits(Vector3 expected, Vector3 actual, string what)
     {
         static int B(float f) => BitConverter.SingleToInt32Bits(f);
         Assert.True(B(expected.X) == B(actual.X) && B(expected.Y) == B(actual.Y) && B(expected.Z) == B(actual.Z),
-            $"{what}: SWORD {expected:R}, SWORD2 {actual:R}");
+            $"{what}: ждали {expected:R}, получили {actual:R}");
     }
 
     /// <summary>
     /// Случайная толпа на местах 0…32: кучки у случайной точки арены, у колонны, у края; совпадающие корни и корни ближе
-    /// 1e-4 м; часть мест пуста (дыры — в SWORD их нет, там список сжат); скорости любые.
+    /// 1e-4 м; часть мест пуста (дыры); скорости любые.
     /// </summary>
     private static (Vector3[] Roots, Vector3[] Velocities, bool[] Present) Crowd(Random rng, int count)
     {
@@ -132,7 +65,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
             {
                 0 when k > 0 => roots[slot - 1],                                               // совпадает с соседом
                 1 when k > 0 => roots[slot - 1] + new Vector3(R() * 5e-5f, 0, R() * 5e-5f),    // ближе 1e-4 м
-                2 => anchor + new Vector3(R(), R() * 0.2f, R()),                               // y ≠ 0 (d.Y в SWORD не обнуляется)
+                2 => anchor + new Vector3(R(), R() * 0.2f, R()),                               // y ≠ 0 (y разности пары не обнуляется)
                 _ => anchor + new Vector3(R() * 1.5f, 0, R() * 1.5f),                          // кучка: пары ближе 0,7 м
             };
             (roots[slot], velocities[slot], present[slot]) = (root, new Vector3(R() * 5, 0, R() * 5), true);
@@ -141,40 +74,88 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         return (roots, velocities, present);
     }
 
+    /// <summary>
+    /// Случайные толпы (кучки, колонны, край, совпавшие корни, дыры в местах): пары и препятствия вместе объясняют весь сдвиг корня
+    /// (вид 4д), пустые места не трогаются; после разрешения каждый корень вне колонн (не ближе радиуса колонны плюс радиус корня) и
+    /// внутри арены (не дальше <c>ArenaRadius − EdgeMargin</c>): последним корень бойца двигает его собственный проход препятствий.
+    /// Скорость только гасится (снимается составляющая по нормали контакта): не растёт, у бойца без пар и препятствий — та же, на
+    /// поверхности колонны — не внутрь колонны, на краю арены — не наружу.
+    /// </summary>
     [Fact]
-    public void Resolve_MatchesSwordResolveRoots_Bitwise()
+    public void Resolve_RandomCrowds_ContactsExplainShift_RootsOutsidePillarsInsideArena()
     {
         var rng = new Random(4343);
         var contacts = new RootContacts[ArenaRules.MaxFighters];
-        int pairs = 0, pillars = 0, edges = 0, coincident = 0, holes = 0, crowds = 0, obstacles = 0;
+        const float eps = 1e-3f, surface = 1e-5f, speedEps = 1e-4f;
+        float limit = ArenaLayout.ArenaRadius - MovementRules.EdgeMargin;
+        long pairs = 0;
+        int atPillar = 0, atEdge = 0, coincident = 0, holes = 0, crowds = 0, obstacles = 0, damped = 0, onPillar = 0, onEdge = 0;
         for (int run = 0; run < 3000; run++)
         {
             int count = 1 + run % ArenaRules.MaxFighters;
             var (roots, velocities, present) = Crowd(rng, count);
-            var sword = new List<(int Slot, SwordFighter F)>();
-            for (int s = 0; s < ArenaRules.MaxFighters; s++)
-                if (present[s]) sword.Add((s, new SwordFighter { Root = roots[s], RootVel = velocities[s] }));
             holes += Enumerable.Range(0, Array.LastIndexOf(present, true)).Count(s => !present[s]);
-            var arena = new SwordArena([.. sword.Select(x => x.F)]);
-            arena.ResolveRoots();
+            for (int i = 0; i < ArenaRules.MaxFighters; i++)
+                for (int j = i + 1; j < ArenaRules.MaxFighters; j++)
+                    if (present[i] && present[j] && (roots[i] - roots[j]).Length() < 1e-4f) coincident++;
             var before = (Vector3[])roots.Clone();
+            var velocitiesBefore = (Vector3[])velocities.Clone();
             RootCollision.Resolve(roots, velocities, present, contacts);
-            foreach (var (s, f) in sword)
+            int fighters = 0;
+            for (int s = 0; s < ArenaRules.MaxFighters; s++)
             {
-                AssertBits(f.Root, roots[s], $"прогон {run}, место {s}: Root");
-                AssertBits(f.RootVel, velocities[s], $"прогон {run}, место {s}: RootVel");
+                if (!present[s])
+                {
+                    Assert.Equal((before[s], velocitiesBefore[s], RootContacts.None), (roots[s], velocities[s], contacts[s]));
+                    continue;
+                }
+                fighters++;
                 // Вид (4д): пары и препятствия вместе объясняют весь сдвиг корня (с точностью до округления float).
                 var moved = roots[s] - before[s];
                 Assert.True(Vector3.Distance(moved, contacts[s].Push + contacts[s].Obstacle) < 1e-4f,
                     $"прогон {run}, место {s}: сдвиг {moved}, Push {contacts[s].Push} + Obstacle {contacts[s].Obstacle}");
                 obstacles += contacts[s].Obstacle != Vector3.Zero ? 1 : 0;
+                pairs += contacts[s].Contacts;
+                // Скорость только гасится: не растёт; без пар и препятствий — та же.
+                Assert.True(velocities[s].Length() <= velocitiesBefore[s].Length() + speedEps,
+                    $"прогон {run}, место {s}: скорость выросла {velocitiesBefore[s]} → {velocities[s]}");
+                if (contacts[s].Contacts == 0 && contacts[s].Obstacle == Vector3.Zero)
+                    Assert.Equal(velocitiesBefore[s], velocities[s]);
+                else if (velocities[s] != velocitiesBefore[s]) damped++;
+                foreach (var pillar in ArenaLayout.Pillars)
+                {
+                    float d = new Vector2(roots[s].X - pillar.X, roots[s].Z - pillar.Y).Length(), rr = pillar.Z + MovementRules.RootRadius;
+                    Assert.True(d >= rr - eps, $"прогон {run}, место {s}: корень {roots[s]} в колонне ({pillar.X}, {pillar.Y}): {d} < {rr}");
+                    if (d < rr + eps) atPillar++;
+                    if (MathF.Abs(d - rr) >= surface) continue;
+                    // на поверхности колонны — скорость не внутрь неё
+                    var n = new Vector3(roots[s].X - pillar.X, 0, roots[s].Z - pillar.Y) / d;
+                    Assert.True(Vector3.Dot(velocities[s], n) >= -speedEps,
+                        $"прогон {run}, место {s}: у колонны ({pillar.X}, {pillar.Y}) скорость {velocities[s]} внутрь неё");
+                    onPillar++;
+                }
+                float r = roots[s].Length();
+                Assert.True(r <= limit + eps, $"прогон {run}, место {s}: корень {roots[s]} за краем арены: {r} > {limit}");
+                if (r > limit - eps) atEdge++;
+                if (MathF.Abs(r - limit) < surface)
+                {
+                    // на краю арены — скорость не наружу
+                    Assert.True(Vector3.Dot(velocities[s], roots[s] / r) <= speedEps,
+                        $"прогон {run}, место {s}: на краю арены скорость {velocities[s]} наружу");
+                    onEdge++;
+                }
             }
-            (pairs, pillars, edges, coincident) = (pairs + arena.Pairs, pillars + arena.Pillars, edges + arena.Edges, coincident + arena.Coincident);
-            if (sword.Count > 1) crowds++;
+            if (fighters > 1) crowds++;
         }
-        output.WriteLine($"толп {crowds}: пар {pairs}, колонн {pillars}, края {edges}, совпавших корней {coincident}, дыр {holes}");
-        Assert.True(pairs > 20_000 && pillars > 1_000 && edges > 1_000 && coincident > 200 && holes > 500 && obstacles > 1_000,
-            $"пар {pairs}, колонн {pillars}, края {edges}, совпавших {coincident}, дыр {holes}, сдвинутых препятствием {obstacles}");
+        pairs /= 2;   // пара записана обоим бойцам
+        output.WriteLine($"толп {crowds}: пар {pairs}, у колонны {atPillar}, у края {atEdge}, совпавших корней {coincident}, дыр {holes}, " +
+            $"сдвинутых препятствием {obstacles}, погашена скорость {damped}, на поверхности колонны {onPillar}, на краю {onEdge}");
+        // Покрытие (зерно 4343): пар 62 106, у колонны 4 634, у края 6 748, совпавших корней 8 033, дыр 7 818, сдвинутых препятствием 14 670;
+        // погашена скорость 27 441, на поверхности колонны 4 604, на краю 6 617.
+        Assert.True(pairs > 20_000 && atPillar > 1_000 && atEdge > 1_000 && coincident > 200 && holes > 500 && obstacles > 1_000,
+            $"пар {pairs}, у колонны {atPillar}, у края {atEdge}, совпавших {coincident}, дыр {holes}, сдвинутых препятствием {obstacles}");
+        Assert.True(damped > 10_000 && onPillar > 1_000 && onEdge > 1_000,
+            $"погашена скорость {damped}, на поверхности колонны {onPillar}, на краю {onEdge}");
     }
 
     [Fact]

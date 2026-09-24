@@ -14,8 +14,8 @@ namespace Sword.Game.Tests;
 
 /// <summary>
 /// Аниматор бойца и модуль Locomotion на тестовом контенте (<see cref="TestAssets"/>): выбор клипа по движению, поза —
-/// итог клипа, модуль выключен, позы возвращаются в пул, инструменты агента. Побитовая сверка с SWORD —
-/// <see cref="ReferenceTraceTests"/>.
+/// итог клипа, модуль выключен, позы возвращаются в пул, инструменты агента. На настоящем контенте — сценарии манифеста
+/// <c>animation</c> и эталон SWORD2 <c>animation.swreplay</c> (сравнение со SWORD снято на 7а).
 /// </summary>
 public sealed class AnimationTests
 {

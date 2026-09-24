@@ -23,7 +23,7 @@ public sealed class ReferenceReplaysTests
 
     private static readonly Lazy<(CharacterAssets Assets, string Content)> Reference = new(() =>
     {
-        using var pak = PakSource.Open(ReferenceTraceTests.ReferencePak());
+        using var pak = PakSource.Open(TestContent.ReferencePak());
         return (CharacterAssets.Load(pak), pak.ContentHash);
     });
 

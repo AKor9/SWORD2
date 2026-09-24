@@ -9,8 +9,8 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Движение игрока в симуляции — та же композиция, что у игры (<see cref="SwordSimulation"/>). Ожидания — формулы
-/// SWORD 2eab13b (<c>KinematicSteer</c>, <c>KinematicBegin</c>, <c>ResolveRoots</c>, <c>PlayerController</c>).
+/// Движение игрока в симуляции — та же композиция, что у игры (<see cref="SwordSimulation"/>). Ожидания — формулы движения
+/// (<see cref="MovementRules"/>): разгон и поворот к намерению, столкновения корня с колоннами и краем арены, курс на точку взгляда.
 /// </summary>
 public class MovementTests
 {
@@ -29,22 +29,6 @@ public class MovementTests
         Assert.All(sim.World.Systems.Where(s => s.Label.StartsWith("core.", StringComparison.Ordinal)), s => Assert.Null(s.Module));
         Assert.Contains("modules.core", Assert.Throws<InvalidDataException>(() =>
             TestAssets.Simulation(ConfigSet.Empty("modules.core.enabled=false"))).Message);
-    }
-
-    [Fact]
-    public void Constants_AreSwordLiterals()
-    {
-        // Литералы SWORD 2eab13b: PlayerController.RunSpeed/WalkSpeed; DuelArena.Kinematic KinTurnRate, KinAccel;
-        // PlayerController.Think — 0,09 м²; DuelArena.ResolveRoots — радиус корня 0,35, край 0,6, два прохода.
-        Assert.Equal(4.2f, MovementRules.RunSpeed);
-        Assert.Equal(1.6f, MovementRules.WalkSpeed);
-        Assert.Equal(12f, MovementRules.TurnRate);
-        Assert.Equal(14f, MovementRules.Accel);
-        Assert.Equal(0.09f, MovementRules.GazeMinDistanceSq);
-        Assert.Equal(0.35f, MovementRules.RootRadius);
-        Assert.Equal(0.6f, MovementRules.EdgeMargin);
-        Assert.Equal(2, MovementRules.CollisionIterations);
-        Assert.Equal(1f / 120, TestAssets.Simulation(ConfigSet.Empty()).Dt);   // Fighter.FastTick
     }
 
     private static void Run(Simulation sim, int ticks, PlayerCommand command)

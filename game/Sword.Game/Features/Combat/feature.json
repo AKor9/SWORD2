@@ -2,27 +2,24 @@
   // Приёмка фичи «Бой» (этап 6) — полный манифест на 6ж (раздел 13 плана): сценарии дуэли (удары игрока командами до смерти врага),
   // толпы 32 бьющих врагов против неуязвимого игрока (игрок бьёт без перерыва и поворачивается — бюджеты тика, стадий боя, байтов и
   // кадра App), смерти игрока, кровопотери, возрождения через 8 с, смены меча (T и «взять меч N» — EquipWeapon), рывка сквозь удар,
-  // ручки «урон» посреди прогона (TuningCommand), мирных врагов; сверка со SWORD — метрики source «sword» (общая схожесть, решение
-  // пользователя): урон за удар по формуле KinematicStrikes, число попаданий до смерти по частям тела (HpMul), темп ударов ИИ (таймер
-  // EnemyAi), дистанция рывка против root motion клипов уклонения; побитовые трассы (таблица ударов, клинки, слой действий) — тесты
-  // ReferenceTraceTests. Числа SWORD и откуда они — README, «Сверка с SWORD». 6г «Урон, смерть, реакции,
-  // возрождение»: дуэль (удары игрока командами до смерти врага, урон по формуле SWORD, 3–5 попаданий), смерть стоящего игрока от
+  // ручки «урон» посреди прогона (TuningCommand), мирных врагов, попаданий до смерти по частям тела, темпа ударов ИИ, рывка стоя.
+  // 7а: сравнения со SWORD сняты (решение 14) — метрики source «sword» (sword-*: урон за удар, попадания до смерти, темп ИИ, рывок
+  // против уклонения SWORD) и тесты побитовых трасс SWORD удалены; сценарии остались со своими проверками. 6г «Урон,
+  // смерть, реакции, возрождение»: дуэль (удары игрока командами до смерти врага, урон по формуле, 3–5 попаданий), смерть стоящего игрока от
   // ударов ИИ (замер, команды не действуют, враги не бьют), смерть от кровопотери (проба удара командой StrikeProbe), возрождение
   // ровно через 8 с (смертельный укол пробой), рывок сквозь удар (касание есть, попадания нет); инварианты combat.health,
   // combat.dead, combat.hits, combat.respawn. 6в «Удар и рывок»: удар, связка с
   // буфером и снимком позы, укол, удар на бегу без замедления и обрезка хвоста, рывок (прибавка без последствий для хода), удар
-  // из рывка, удар ИИ по таймеру и мирные враги (combat.enemiesAttack=false), инвариант combat.control; слой действий сверяется
-  // с SWORD побитово тестом ReferenceTraceTests.Actions_MatchSwordTickByTick (трасса anim-actions). 6б «Подготовка и оружие»:
+  // из рывка, удар ИИ по таймеру и мирные враги (combat.enemiesAttack=false), инвариант combat.control. 6б «Подготовка и оружие»:
   // меч в руке у каждого бойца (враг — случайный меч пака новой выборкой потока спауна, игрок — combat.playerWeapon), инвентарь
   // игрока и T (команда арены NextWeapon), клинок каждого тика (Blade: на кисти, прошлое — прошлый тик, смена меча — без прохода),
   // инварианты combat.blade и combat.weapons, слой действий у всех бойцов (animation.actions), вид с оверлеем клинков. Индексы
-  // мечей — эталонного пака (по алфавиту: combat_sword 0, katana 1, katana_v2 2, powerful_sword 3, sword_1h 4, sword_dss 5).
-  // Таблица ударов сверяется с SWORD побитово тестом ReferenceTraceTests.Strikes_MatchSword (не сценарием). Формат —
+  // мечей — пака контента (по алфавиту: combat_sword 0, katana 1, katana_v2 2, powerful_sword 3, sword_1h 4, sword_dss 5). Формат —
   // FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature combat).
   "format": "sword-feature",
   "version": 1,
   "id": "combat",
-  "title": "Бой (этап 6; 6б — подготовка и оружие: команды арены в Begin, мечи, инвентарь и T, клинок каждого тика, таблица ударов; 6в — удар, связка, укол, рывок, удар ИИ; 6г — урон, смерть, реакции, возрождение; 6д — причинность; 6е — HUD, инвентарь, ручки, F3; 6ж — сверка со SWORD и приёмка)",
+  "title": "Бой (этап 6; 6б — подготовка и оружие: команды арены в Begin, мечи, инвентарь и T, клинок каждого тика, таблица ударов; 6в — удар, связка, укол, рывок, удар ИИ; 6г — урон, смерть, реакции, возрождение; 6д — причинность; 6е — HUD, инвентарь, ручки, F3; 6ж — приёмка)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Combat",
@@ -239,7 +236,7 @@
     },
     {
       "id": "duel",
-      "title": "6г: дуэль — мирный враг подходит к игроку, игрок смотрит на него и бьёт ЛКМ раз в 0,5 с: касание клинка — урон по формуле SWORD (кончик быстрее 16 м/с — 2·(8 + 16·1,4) = 60,8), враг отшатывается (реакция действием), после 3–5 попаданий умирает и замирает; убито — 1",
+      "title": "6г: дуэль — мирный враг подходит к игроку, игрок смотрит на него и бьёт ЛКМ раз в 0,5 с: касание клинка — урон по формуле (кончик быстрее 16 м/с — 2·(8 + 16·1,4) = 60,8), враг отшатывается (реакция действием), после 3–5 попаданий умирает и замирает; убито — 1",
       "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
       "ticks": 1000,
       "commands": [
@@ -263,7 +260,7 @@
           "condition": { "event": "Hit", "where": { "field": "Probe", "equals": false } }
         },
         {
-          "id": "formula", "title": "урон касания — по формуле SWORD: кончик быстрее 16 м/с — ровно 2·(8 + 16·1,4) = 60,8 (combat.playerDamage 2)", "expect": "never",
+          "id": "formula", "title": "урон касания — по формуле: кончик быстрее 16 м/с — ровно 2·(8 + 16·1,4) = 60,8 (combat.playerDamage 2)", "expect": "never",
           "condition": { "event": "StrikeContact", "where": { "all": [{ "field": "Speed", "greaterOrEqual": 16 }, { "not": { "field": "Damage", "between": [60.79, 60.81] } }] } }
         },
         {
@@ -275,7 +272,7 @@
           "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
         },
         {
-          "id": "hits-to-death", "title": "схожесть со SWORD: убит за 3–5 попаданий по 60,8 (очки жизни 100 × множитель части), убито — 1", "expect": "atEnd",
+          "id": "hits-to-death", "title": "убит за 3–5 попаданий по 60,8 (очки жизни 100 × множитель части), убито — 1", "expect": "atEnd",
           "condition": { "all": [{ "resource": "ArenaStats.Kills", "equals": 1 }, { "resource": "ArenaStats.Hits", "between": [3, 5] }] }
         }
       ]
@@ -481,7 +478,7 @@
     },
     {
       "id": "hits-to-death",
-      "title": "6ж: попаданий до смерти по частям тела — пробы удара командой по 60,8 (удар игрока по формуле SWORD с кончиком быстрее 16 м/с: 2·(8 + 16·1,4)) каждый тик с тика 60 в голову врага 1, торс врага 2, левое бедро врага 3, левое плечо врага 4, левую стопу врага 5: очки жизни 100 × множитель части (HpMul) — 2, 2, 4, 5, 6 попаданий (метрики sword-hits-*); проба в труп — без попадания",
+      "title": "6ж: попаданий до смерти по частям тела — пробы удара командой по 60,8 (удар игрока по формуле с кончиком быстрее 16 м/с: 2·(8 + 16·1,4)) каждый тик с тика 60 в голову врага 1, торс врага 2, левое бедро врага 3, левое плечо врага 4, левую стопу врага 5: очки жизни 100 × множитель части (HpMul) — 2, 2, 4, 5, 6 попаданий; проба в труп — без попадания",
       "set": ["arena.enemies=5", "combat.enemiesAttack=false"],
       "ticks": 90,
       "commands": [
@@ -504,7 +501,7 @@
     },
     {
       "id": "tempo",
-      "title": "6ж: темп ударов ИИ — один враг против стоящего неуязвимого игрока 30 с: подходит (до 2,3 м — Reach EnemyAi) и бьёт по таймеру SWORD: первый удар — таймер 1 + ГСЧ·2 с при постройке, дальше 1,1 + ГСЧ·1,4 с после каждого удара (в среднем 1,8 с); игрок не бьёт — реакций нет (метрики sword-ai-*)",
+      "title": "6ж: темп ударов ИИ — один враг против стоящего неуязвимого игрока 30 с: подходит (до 2,3 м — Reach EnemyAi) и бьёт по таймеру: первый удар — таймер 1 + ГСЧ·2 с при постройке, дальше 1,1 + ГСЧ·1,4 с после каждого удара (в среднем 1,8 с); игрок не бьёт — реакций нет",
       "set": ["arena.enemies=1", "combat.playerInvulnerable=true"],
       "ticks": 3600,
       "checks": [
@@ -520,7 +517,7 @@
     },
     {
       "id": "dash-back",
-      "title": "6ж: рывок стоя — Пробел без хода на тике 30: назад от курса (−Z) на прибавку 9,5 м/с, гаснущую за 0,3 с — 1,46 м; сверка с root motion клипа уклонения назад SWORD (метрика sword-dash-back)",
+      "title": "6ж: рывок стоя — Пробел без хода на тике 30: назад от курса (−Z) на прибавку 9,5 м/с, гаснущую за 0,3 с — 1,46 м",
       "ticks": 120,
       "commands": [{ "command": "PlayerCommand", "fields": { "Dash": true }, "from": 30, "to": 31 }],
       "checks": [
@@ -539,68 +536,6 @@
   // animation.* (слой действий, позы, владельцы); physics.* (тела, капсулы на суставах, скорости); movement.rootOverlap; arena.slots;
   // locomotion.poses; ecs.*.
   "invariants": ["combat.*", "animation.*", "physics.*", "movement.rootOverlap", "locomotion.poses", "arena.slots", "ecs.*"],
-  "metrics": [
-    {
-      "id": "sword-strike-damage", "scenario": "duel", "source": "sword",
-      "reference": "урон за удар — формула SWORD 2eab13b DuelArena.KinematicStrikes (src/Sword.Game/Gameplay/Ragdoll/DuelArena.Kinematic.cs: damage = ((thrust ? 12 : 8) + min(speed, 16)·(thrust ? 1,2 : 1,4))·(игрок ? PlayerCutPower : 1), PlayerCutPower = SWORD_PLAYER_CUT = 2): последний удар игрока в дуэли — рубящий, кончик быстрее 16 м/с — 2·(8 + 16·1,4) = 60,8 (ArenaStats.LastDamage = LastPlayerDamage SWORD); все касания быстрее 16 м/с — проверка formula сценария",
-      "resource": "ArenaStats.LastDamage", "expected": 60.8, "tolerance": 0.001
-    },
-    {
-      "id": "sword-duel-hits", "scenario": "duel", "source": "sword",
-      "reference": "попаданий игрока до смерти врага в дуэли — очки жизни 100 (Fighter.Build SWORD), урон 60,8 × множитель части Fighter.HpMul (src/Sword.Game/Gameplay/Ragdoll/Fighter.cs: таз 0,9, торс 1, голова 1,6, руки 0,4, бёдра и голени 0,5, стопы 0,3), смерть — Hp ≤ 0 или рана торса ≥ 1,4 (DuelArena.ApplyHit): удары пака по стоящему врагу — в торс, руки и голову — 2…5 попаданий; замер SWORD2 — 4",
-      "resource": "ArenaStats.Hits", "expected": 4, "tolerance": 1
-    },
-    {
-      "id": "sword-hits-head", "scenario": "hits-to-death", "source": "sword",
-      "reference": "голова (HpMul 1,6 — Fighter.cs SWORD): 60,8·1,6 = 97,3 < 100 — смерть на 2-м попадании; пробы каждый тик с тика 60 — смерть в тике 61, Dead.Time = 62/120 с (DeadTime SWORD — время арены)",
-      "entity": "enemy 1", "field": "Dead.Time", "expected": 0.516667, "tolerance": 0.001
-    },
-    {
-      "id": "sword-hits-torso", "scenario": "hits-to-death", "source": "sword",
-      "reference": "торс (HpMul 1; рана + урон/45, смерть при ране торса ≥ 1,4 — DuelArena.ApplyHit SWORD): 60,8 и рана 1,35 — жив, 2-е попадание убивает; Dead.Time = 62/120 с",
-      "entity": "enemy 2", "field": "Dead.Time", "expected": 0.516667, "tolerance": 0.001
-    },
-    {
-      "id": "sword-hits-thigh", "scenario": "hits-to-death", "source": "sword",
-      "reference": "бедро (HpMul 0,5): 30,4 за попадание — 4-е убивает (3 — 91,2); Dead.Time = 64/120 с",
-      "entity": "enemy 3", "field": "Dead.Time", "expected": 0.533333, "tolerance": 0.001
-    },
-    {
-      "id": "sword-hits-arm", "scenario": "hits-to-death", "source": "sword",
-      "reference": "плечо (HpMul 0,4): 24,32 за попадание — 5-е убивает (4 — 97,3); Dead.Time = 65/120 с",
-      "entity": "enemy 4", "field": "Dead.Time", "expected": 0.541667, "tolerance": 0.001
-    },
-    {
-      "id": "sword-hits-foot", "scenario": "hits-to-death", "source": "sword",
-      "reference": "стопа (HpMul 0,3): 18,24 за попадание — 6-е убивает (5 — 91,2); Dead.Time = 66/120 с",
-      "entity": "enemy 5", "field": "Dead.Time", "expected": 0.55, "tolerance": 0.001
-    },
-    {
-      "id": "sword-ai-first-timer", "scenario": "tempo", "source": "sword",
-      "reference": "таймер удара врага при постройке — EnemyAi.Built SWORD (src/Sword.Game/Gameplay/Ai/EnemyAi.cs): 1 + rnd·2 с, 1…3 (после первого тика — минус 1/120)",
-      "entity": "enemy 1", "field": "EnemyAttack.Timer", "at": 1, "expected": 2, "tolerance": 1
-    },
-    {
-      "id": "sword-ai-timer-max", "scenario": "tempo", "source": "sword",
-      "reference": "таймер после удара — EnemyAi.Think SWORD: timer = 1,1 + rnd·1,4 (1,1…2,5 с); наибольший за 30 с после первого удара (~16 выборок) — близко к 2,5",
-      "entity": "enemy 1", "field": "EnemyAttack.Timer", "stat": "max", "from": 480, "to": 3600, "expected": 2.5, "tolerance": 0.3
-    },
-    {
-      "id": "sword-ai-attacks", "scenario": "tempo", "source": "sword",
-      "reference": "темп ударов врага — EnemyAi.Think SWORD: timer -= dt; удар при dist < Reach 2,3 м, timer ≤ 0 и CanAct, затем timer = 1,1 + rnd·1,4 (среднее 1,8 с; CanAct не-Agile — через 0,1 с после окна урона, раньше таймера): за 30 с при первом ударе на ~2 с — 1 + 28/1,8 ≈ 16,5 удара; допуск ±3 — разброс ГСЧ (σ ≈ 0,9)",
-      "entity": "enemy 1", "field": "AnimatorAction.AttackSerial", "expected": 16.5, "tolerance": 3
-    },
-    {
-      "id": "sword-dash-back", "scenario": "dash-back", "source": "sword",
-      "reference": "рывок стоя назад против уклонения назад SWORD (PlayerController.Evade → FighterAnimator.Evade: корень ведёт root motion клипа уклонения до FindRecoverTime, src/Sword.Combat/FighterAnimator.cs): root motion клипа уклонения назад на эталонном паке — 1,50 м (вперёд 1,61, вбок 1,29, среднее 1,42 — замер 6в); рывок SWORD2 — прибавка 9,5·0,3/2 (1,46 м по тикам) в любую сторону",
-      "entity": "player", "field": "Transform.Position.Z", "expected": -1.5, "tolerance": 0.15
-    },
-    {
-      "id": "sword-dash-forward", "scenario": "dash", "source": "sword",
-      "reference": "рывок на бегу вперёд против уклонения вперёд SWORD: бег 4,2 м/с (LegacyLocomotion, трассы 2–5 побитовы) за 240 тиков — 8,13 м, плюс root motion клипа уклонения вперёд 1,61 м (замер 6в на эталонном паке) — 9,74; SWORD2 — 8,13 + 1,46 (рывок не трогает скорость хода)",
-      "entity": "player", "field": "Transform.Position.Z", "expected": 9.74, "tolerance": 0.2
-    }
-  ],
   "views": [
     {
       "id": "blades", "title": "16 врагов обступили игрока (тик 140) — мечи в руках у всех, разные; оверлей клинков: отрезок тика, прошлого тика и пройденное за тик, имя меча у кончика",

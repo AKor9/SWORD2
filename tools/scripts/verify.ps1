@@ -56,7 +56,7 @@
                             код выхода 3; эталоны tests/reference/replays воспроизводятся из командной строки
                             (-SkipGpu — запись Headless вместо Sword.exe; -SkipReference — без эталонов);
       features              приёмка фич (этап 3д): Sword.Headless --feature all — манифест feature.json каждой фичи:
-                            сценарии, их проверки и хеши реплеев, инварианты, метрики против эталонов SWORD и SWORD2,
+                            сценарии, их проверки и хеши реплеев, инварианты, метрики (свои числа SWORD2 с допуском),
                             бюджеты (время и кадр App на записи сценария — только с -Configuration Release,
                             байты — всегда), виды — кадры
                             Sword.exe --replay по записи сценария с теми же хешами; итоги — artifacts/features/<id>

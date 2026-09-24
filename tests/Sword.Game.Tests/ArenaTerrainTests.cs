@@ -5,9 +5,9 @@ namespace Sword.Game.Tests;
 public class ArenaTerrainTests
 {
     [Fact]
-    public void FieldCoversSwordRenderGrid()
+    public void FieldCoversRenderGrid()
     {
-        // Сетка отрисовки SWORD: 256 ячеек на ±32 м, шаг 0,25 м — поле высот в тех же узлах.
+        // Сетка отрисовки рельефа: 256 ячеек на ±32 м, шаг 0,25 м — поле высот в тех же узлах.
         var f = ArenaTerrain.BuildField();
         Assert.Equal(257, f.Nodes);
         Assert.Equal(0.25f, f.Step);
@@ -43,8 +43,9 @@ public class ArenaTerrainTests
         Assert.Equal(-1, ArenaTerrain.ZoneAt(0, 0));
     }
 
+    /// <summary>Колонны арены: 8 штук через 45° со сдвигом 0,39 рад, чётные — на кольце 30 м, нечётные — 44 м; радиус 1,2 м, высота 6,5 м.</summary>
     [Fact]
-    public void PillarsMatchSwordLayout()
+    public void Pillars_EightOnRings30And44()
     {
         Assert.Equal(8, ArenaLayout.Pillars.Length);
         var p0 = ArenaLayout.Pillars[0];

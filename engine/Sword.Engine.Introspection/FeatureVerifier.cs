@@ -11,7 +11,7 @@ namespace Sword.Engine.Introspection;
 /// <summary>Где и чем проверять фичи: корень репозитория, та же композиция симуляции, что у exe, имена, App для видов.</summary>
 public sealed class FeatureEnvironment
 {
-    /// <summary>Корень репозитория: от него пути реплеев, трасс и <c>sourceRoots</c>.</summary>
+    /// <summary>Корень репозитория: от него пути реплеев и <c>sourceRoots</c>.</summary>
     public required string RepoRoot { get; init; }
 
     /// <summary>Симуляция из конфига — композиция exe (конфиг — до <see cref="ConfigSet.Complete"/> включительно); с любого потока.</summary>
@@ -76,8 +76,8 @@ public sealed record FeatureReport(string Feature, bool Ok, IReadOnlyList<string
 
 /// <summary>
 /// <c>feature.verify</c> (раздел 8 плана, «Контракт фичи»; раздел 12, пункт 3): одним воспроизводимым вызовом — сценарии
-/// манифеста в отдельных симуляциях (как Headless), их проверки и хеши реплеев, инварианты, метрики против эталонов SWORD
-/// и SWORD2, бюджеты (отдельные прогоны без инвариантов, медиана повторов), виды в App по записанным сценариям — и краткий
+/// манифеста в отдельных симуляциях (как Headless), их проверки и хеши реплеев, инварианты, метрики (свои числа
+/// SWORD2 с допуском), бюджеты (отдельные прогоны без инвариантов, медиана повторов), виды в App по записанным сценариям — и краткий
 /// вердикт с путями к артефактам. Вердикт опирается только на манифест, инварианты и эталоны: мнения агента в нём нет.
 /// </summary>
 public static class FeatureVerifier
@@ -129,7 +129,7 @@ public static class FeatureVerifier
         var metrics = new JsonArray();
         foreach (var m in manifest.Metrics)
         {
-            var result = runs[m.Scenario].Metric(m, env.RepoRoot);
+            var result = runs[m.Scenario].Metric(m);
             metrics.Add(result.Json);
             if (!result.Ok) Fail($"метрика {m.Id}: {result.Detail}");
         }
@@ -307,15 +307,14 @@ public static class FeatureVerifier
             // Метрики сценария — ряды значений по тикам (с тика 0).
             var probes = new List<(FieldProbe Probe, double[] Values)>();
             foreach (var m in manifest.Metrics.Where(m => m.Scenario == scenario.Id))
-                foreach (string field in m.Series?.Values ?? [m.Field ?? ""])
-                {
-                    var key = m.SeriesKey(field);
-                    if (_series.ContainsKey(key)) continue;
-                    var values = new double[ticks + 1];
-                    _series[key] = values;
-                    probes.Add((m.Resource is { } resource ? FieldProbe.OfResource(catalog, resource, $"метрика {m.Id}")
-                        : new FieldProbe(catalog, env.Names, m.Entity, field, $"метрика {m.Id}", env.Fields), values));
-                }
+            {
+                var key = m.SeriesKey;
+                if (_series.ContainsKey(key)) continue;
+                var values = new double[ticks + 1];
+                _series[key] = values;
+                probes.Add((m.Resource is { } resource ? FieldProbe.OfResource(catalog, resource, $"метрика {m.Id}")
+                    : new FieldProbe(catalog, env.Names, m.Entity, m.Field ?? "", $"метрика {m.Id}", env.Fields), values));
+            }
             foreach (var (p, values) in probes) values[0] = p.Read(ctx);
 
             long startedAt = Stopwatch.GetTimestamp();
@@ -397,24 +396,23 @@ public static class FeatureVerifier
             Json["recorded"] = RecordedFile;
         }
 
-        public (bool Ok, string Detail, JsonObject Json) Metric(FeatureMetric m, string repoRoot)
+        public (bool Ok, string Detail, JsonObject Json) Metric(FeatureMetric m)
         {
             var json = new JsonObject
             {
-                ["id"] = m.Id, ["scenario"] = m.Scenario, ["source"] = m.Source, ["reference"] = m.Reference,
+                ["id"] = m.Id, ["scenario"] = m.Scenario, ["reference"] = m.Reference,
                 [m.Resource is null ? "entity" : "resource"] = m.Resource ?? m.Entity, ["tolerance"] = m.Tolerance,
             };
-            (bool ok, string detail) = Evaluate(m, repoRoot, json);
+            (bool ok, string detail) = Evaluate(m, json);
             json["ok"] = ok;
             json["detail"] = detail;
             return (ok, detail, json);
         }
 
-        private (bool, string) Evaluate(FeatureMetric m, string repoRoot, JsonObject json)
+        private (bool, string) Evaluate(FeatureMetric m, JsonObject json)
         {
             if (!Completed) return (false, "сценарий не сыгран");
-            if (m.Trace is not null) return Trace(m, repoRoot, json);
-            if (!_series.TryGetValue(m.SeriesKey(m.Field ?? ""), out var values)) return (false, "ряда нет — сценарий не сыгран");
+            if (!_series.TryGetValue(m.SeriesKey, out var values)) return (false, "ряда нет — сценарий не сыгран");
             if (m.Field is not null) json["field"] = m.Field;
             json["stat"] = m.Stat;
             json["expected"] = m.Expected;
@@ -445,58 +443,6 @@ public static class FeatureVerifier
             return delta <= m.Tolerance
                 ? (true, $"{Fmt(value)} ≈ {Fmt(m.Expected.Value)} (±{Fmt(m.Tolerance)})")
                 : (false, $"{Fmt(value)}, ждали {Fmt(m.Expected.Value)} ±{Fmt(m.Tolerance)} (разница {Fmt(delta)})");
-        }
-
-        private (bool, string) Trace(FeatureMetric m, string repoRoot, JsonObject json)
-        {
-            string path = Path.Combine(repoRoot, m.Trace!);
-            json["trace"] = m.Trace;
-            if (!File.Exists(path)) return (false, $"нет трассы {m.Trace}");
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            if (!doc.RootElement.TryGetProperty("ticks", out var ticks) || ticks.ValueKind != JsonValueKind.Array)
-                return (false, "в трассе нет массива ticks");
-            long compared = 0, mismatches = 0;
-            JsonObject? first = null;
-            foreach (var entry in ticks.EnumerateArray())
-            {
-                ulong tick = entry.GetProperty("tick").GetUInt64();
-                if (tick > Ticks) return (false, $"трасса длиннее сценария: тик {tick}, сыграно {Ticks}");
-                foreach (var (key, field) in m.Series!)
-                {
-                    double expected = TraceValue(entry, key);
-                    double actual = _series[(m.Entity, field)][tick];
-                    compared++;
-                    // Трасса — числа float SWORD: сравнение в float (допуск 0 — побитово, кроме −0 = +0).
-                    float fe = (float)expected, fa = (float)actual;
-                    if (Math.Abs(fe - fa) <= m.Tolerance) continue;
-                    mismatches++;
-                    first ??= new JsonObject
-                    {
-                        ["tick"] = tick, ["key"] = key, ["field"] = field,
-                        ["sword"] = fe.ToString("R", CultureInfo.InvariantCulture), ["sword2"] = fa.ToString("R", CultureInfo.InvariantCulture),
-                    };
-                }
-            }
-            json["compared"] = compared;
-            json["mismatches"] = mismatches;
-            json["firstMismatch"] = first;
-            if (compared == 0) return (false, "сравнивать нечего");
-            return mismatches == 0
-                ? (true, $"совпало {compared} значений ({m.Series!.Count} рядов по {compared / m.Series.Count} тиков)")
-                : (false, $"не совпало {mismatches} из {compared}; первое — тик {first!["tick"]}, {first["key"]}: SWORD {first["sword"]}, SWORD2 {first["sword2"]}");
-        }
-
-        private static double TraceValue(JsonElement entry, string key)
-        {
-            int bracket = key.IndexOf('[');
-            string name = bracket < 0 ? key : key[..bracket];
-            if (!entry.TryGetProperty(name, out var value)) throw new InvalidDataException($"в трассе нет ключа {name}");
-            if (bracket >= 0)
-            {
-                int index = int.Parse(key[(bracket + 1)..^1], CultureInfo.InvariantCulture);
-                value = value[index];
-            }
-            return value.GetDouble();
         }
 
         private static double Min(ReadOnlySpan<double> v)
