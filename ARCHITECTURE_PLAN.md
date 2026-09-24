@@ -1187,14 +1187,14 @@ lod      = [hero, hybrid, crowd]
 | стадия | система | вид | откуда логика |
 |---|---|---|---|
 | Intent | `PlayerCommandSystem`, `EnemyAiSystem`, `BenchAutopilotSystem`, сценарии | непрерывные | `PlayerController`, `EnemyAi`, `BenchAutopilot`, `RagdollScene` (интерфейс `IFighterBrain` уходит) |
-| Intent | `ArenaCommandSystem` | реактивная: `Event<ArenaCommand>` (из Begin) — спаун и удаление врагов, сброс, `Set<WeaponSlot>` | `SetEnemyCount`, `Reset`, `NextPlayerWeapon`, `EquipPlayerWeapon` (сейчас из `Program.cs`) |
+| Begin (с 6б; 4а–6а — Intent) | `ArenaCommandSystem` | реактивная: `Event<ArenaCommand>` — спаун и удаление врагов, сброс, меч игрока (`PlayerInventory`, `Set<WeaponSlot>`); Intent видит арену после неё | `SetEnemyCount`, `Reset`, `NextPlayerWeapon`, `EquipPlayerWeapon` (сейчас из `Program.cs`) |
 | Gameplay | `DeathToRagdollSystem@Gameplay` | реактивная: `Added<Dead>` — смерти до физики (сценарии, команды); `NextTickOk<Added<Dead>>` для смертей из Resolve и Aftermath | `SettleDeaths()` в начале тика |
 | Gameplay | `FighterSetupSystem` | реактивная: `Added<Fighter>` — поза, аниматор, первое оружие (сочленение — хуком `BodyRef`, 5а); боец создан сразу с полным набором компонентов | `Spawn`, `Build`, `PlaceBuilt`, `AttachRig` |
-| Gameplay | `WeaponEquipSystem` | реактивная: `Changed<WeaponSlot>` (из Intent) — клинок, окна ударов; функция экипировки общая с `FighterSetupSystem` | `EquipPlayerWeapon`, `NextPlayerWeapon` |
+| Gameplay | `BladeSetupSystem` (6б; вместо задуманной `WeaponEquipSystem`) | реактивная: `Added<Fighter>` — клинок по позе постройки без прошлого; смену меча ловит постановка тика (клинок другого меча — без прошлого), окна ударов — одна таблица по мечу по умолчанию | `PlaceBuilt`, `EquipPlayerWeapon` |
 | Gameplay | `RootSteerSystem` (этап 2), `CombatDecisionSystem`, `AnimatorInputSystem` (этап 2: вход слоя движения), слой действий аниматора | непрерывные (без `Dead`) | `KinematicSteer`, `PlayerAttackPicker`, `StrikeWindows`, `FighterAnimator` |
 | Animation | слои позы (модуль Locomotion — `LegacyLocomotionSystem`), `AnimatorPoseSystem` (прямая кинематика), `AnimationTickSystem` (пул поз исполняет задания пачкой) | непрерывные | `KinematicBegin` (`anim.Tick`) |
 | Movement | `RootControlSystem` (перенос корня), `RootCollisionSystem` | непрерывные | `KinematicBegin` (корень), `ResolveRoots` |
-| PrePhysics | `KinematicPlacementSystem` | непрерывная | `PlaceBodies`, `PrepareKinematicContacts` |
+| PrePhysics | `KinematicPlacementSystem`, `BladePlacementSystem` (6б: клинок тика и прошлый) | непрерывные | `PlaceBodies` (с клинком `anim.Blade`), `PrepareKinematicContacts` |
 | Physics | Push/Pull физики | непрерывные | подшаги `DuelArena.Tick` |
 | Combat | `StrikeDetectionSystem` | непрерывная → `StrikeContact` | `KinematicStrikes` |
 | Resolve | `HitApplySystem` | реактивная: `Event<StrikeContact>` (+ журнал `StrikeBlocked` из Defense) → `Hit`, `Dead`, `SeverRequested` | `ApplyHits`, `ApplyHit` |
@@ -1941,6 +1941,13 @@ ECS, хуки, GPU-симуляции, отдельная compute-очередь
 не было выхода при снятой обёртке `cmd` с открытым входом, Sword.exe видов переживал снятый Headless. Исправлено: выход после 15 мин
 без вызовов (`--idle-exit`, клиент переподключает сам), по концу родителя, сторож 20 с; дети инструментов и фоновые запуски `verify.ps1`
 — в задании Windows `KILL_ON_JOB_CLOSE`. Проверка: `LifetimeTests`, `agent-smoke` (stdin, обёртка, простой), шаг `processes`.
+
+Решено на 6б (подробно — `game/Sword.Game/Features/Combat/README.md`): команды арены — в Begin, подпорки 4а/4б удалены, постройка
+места — `Fighters.Rebuild`; слой действий у всех бойцов; таблица мечей пака (`WeaponTable`, клинок — `Game.Data/WeaponMesh`: формат
+меша игре не виден) и таблица ударов — неизменяемые ассеты, против SWORD побитово (`combat-strikes.trace.json`); меч врага — своя
+выборка потока спауна (расстановка та же), игрок — `combat.playerWeapon`, инвентарь — ресурс `PlayerInventory`, T — `NextWeapon`;
+клинок `Blade` без тела (PrePhysics), смена меча — без прохода (отличие от SWORD); меч — `SkinnedMeshes.AddRigid`, ID «клинок»,
+слой `blades` (`DebugDraw.Mark`); эталоны перезаписаны: `animation`, `physics`, траектории — тик в тик; `AppLocator` для agent-bin.
 
 Редактор анимаций можно поднять раньше, если понадобится при работе над анимацией.
 

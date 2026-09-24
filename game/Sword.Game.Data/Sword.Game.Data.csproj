@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Игровые данные и форматы (раздел 9): таблица действий бойца (combat/actions.json), дальше — риг, оружие, анатомия. -->
+  <!-- Игровые данные и форматы (раздел 9): таблица действий бойца (combat/actions.json), клинок меча по мешу (6б), дальше — риг, анатомия. -->
   <PropertyGroup>
     <SwordSide>Neutral</SwordSide>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\engine\Sword.Engine.Core\Sword.Engine.Core.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
   </ItemGroup>
 
 </Project>

@@ -5,6 +5,7 @@ using Sword.Engine.Content;
 using Sword.Engine.Runtime;
 using Sword.Game.Animation;
 using Sword.Game.Bootstrap;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Locomotion;
 
@@ -72,6 +73,80 @@ public sealed class ReferenceTraceTests
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, "SWORD.slnx"))) return dir.FullName;
         throw new InvalidOperationException("не найден корень репозитория (SWORD.slnx)");
+    }
+
+    /// <summary>
+    /// Точка 6б: таблица оружия и таблица ударов против настоящего <c>CharacterRig</c> SWORD 2eab13b на эталонном паке —
+    /// <c>tests/reference/combat-strikes.trace.json</c> (программа трассы, сценарий <c>strikes</c>). Побитово: клинки всех мечей
+    /// пака (основание и кончик в системе hand_r, <c>MakeWeapon</c>), меч по умолчанию и его клинок; удары slash1–4, stab1–3 —
+    /// клип, клип отбитого удара, длительность, кадров, укол, слой, хеш кончика по кадрам (выражения <c>Tips</c>) и все поля
+    /// всех окон (<c>StrikeWindows.Find</c>).
+    /// </summary>
+    [Fact]
+    public void Strikes_MatchSword()
+    {
+        CharacterAssets assets;
+        using (var pak = PakSource.Open(ReferencePak())) assets = CharacterAssets.Load(pak);
+        using var trace = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "tests", "reference", "combat-strikes.trace.json")));
+        var root = trace.RootElement;
+        static int Bits(float x) => BitConverter.SingleToInt32Bits(x);
+        static void Same(JsonElement expected, Vector3 actual, string what) =>
+            Assert.True(Bits(expected[0].GetSingle()) == Bits(actual.X) && Bits(expected[1].GetSingle()) == Bits(actual.Y)
+                && Bits(expected[2].GetSingle()) == Bits(actual.Z), $"{what}: SWORD {expected}, SWORD2 {actual}");
+        static void SameFloat(JsonElement expected, float actual, string what) =>
+            Assert.True(Bits(expected.GetSingle()) == Bits(actual), $"{what}: SWORD {expected}, SWORD2 {actual}");
+
+        Assert.Equal(root.GetProperty("sampleRate").GetSingle(), assets.Clips.SampleRate);
+        Assert.Equal(CharacterAssets.HandJoint, root.GetProperty("hand").GetString());
+        var weapons = assets.Weapons.Weapons;
+        var expectedWeapons = root.GetProperty("weapons");
+        Assert.Equal(expectedWeapons.GetArrayLength(), weapons.Length);
+        for (int i = 0; i < weapons.Length; i++)
+        {
+            var e = expectedWeapons[i];
+            Assert.Equal(e.GetProperty("name").GetString(), weapons[i].Name);
+            Assert.Equal(0, e.GetProperty("joints").GetInt32());
+            Same(e.GetProperty("bladeBase"), weapons[i].BladeBase, $"{weapons[i].Name}: основание клинка");
+            Same(e.GetProperty("bladeTip"), weapons[i].BladeTip, $"{weapons[i].Name}: кончик клинка");
+        }
+        var byDefault = weapons[assets.Weapons.Default];
+        Assert.Equal(root.GetProperty("defaultWeapon").GetString(), byDefault.Name);
+        Same(root.GetProperty("bladeBase"), byDefault.BladeBase, "клинок по умолчанию: основание");
+        Same(root.GetProperty("bladeTip"), byDefault.BladeTip, "клинок по умолчанию: кончик");
+
+        var attacks = assets.Strikes.Attacks;
+        var expectedAttacks = root.GetProperty("attacks");
+        Assert.Equal(expectedAttacks.GetArrayLength(), attacks.Length);
+        for (int i = 0; i < attacks.Length; i++)
+        {
+            var e = expectedAttacks[i];
+            var a = attacks[i];
+            string slot = a.Slot;
+            Assert.Equal(e.GetProperty("slot").GetString(), slot);
+            Assert.Equal(e.GetProperty("clip").GetString(), assets.Clips.Clips[a.Clip].Name);
+            Assert.Equal(e.GetProperty("blockedClip").GetString(), a.BlockedClip >= 0 ? assets.Clips.Clips[a.BlockedClip].Name : null);
+            SameFloat(e.GetProperty("duration"), a.Duration, $"{slot}: длительность");
+            Assert.Equal(e.GetProperty("frames").GetInt32(), assets.Clips.Clips[a.Clip].Count);
+            Assert.Equal((e.GetProperty("thrust").GetBoolean(), e.GetProperty("upper").GetBoolean()), (a.Thrust, a.Upper));
+            var tips = StrikeTable.Tips(assets.Clips, a.Clip, assets.Hand, byDefault.BladeTip);
+            ulong h = 14695981039346656037;
+            foreach (var t in tips)
+                foreach (float x in (ReadOnlySpan<float>)[t.X, t.Y, t.Z]) h = (h ^ (uint)Bits(x)) * 1099511628211;
+            Assert.True(e.GetProperty("tipsHash").GetString() == h.ToString("X16"), $"{slot}: кончик клинка по кадрам клипа расходится с SWORD");
+            var windows = e.GetProperty("windows");
+            Assert.True(windows.GetArrayLength() == a.Windows.Length, $"{slot}: окон SWORD {windows.GetArrayLength()}, SWORD2 {a.Windows.Length}");
+            for (int k = 0; k < a.Windows.Length; k++)
+            {
+                var w = windows[k];
+                var mine = a.Windows[k];
+                SameFloat(w.GetProperty("start"), mine.Start, $"{slot} окно {k}: начало");
+                SameFloat(w.GetProperty("end"), mine.End, $"{slot} окно {k}: конец");
+                SameFloat(w.GetProperty("peakTime"), mine.PeakTime, $"{slot} окно {k}: время пика");
+                SameFloat(w.GetProperty("peakSpeed"), mine.PeakSpeed, $"{slot} окно {k}: скорость пика");
+                SameFloat(w.GetProperty("swingDir")[0], mine.SwingDir.X, $"{slot} окно {k}: замах x");
+                SameFloat(w.GetProperty("swingDir")[1], mine.SwingDir.Y, $"{slot} окно {k}: замах y");
+            }
+        }
     }
 
     [Fact]

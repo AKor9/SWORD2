@@ -6,6 +6,7 @@ using Sword.Game.Ai;
 using Sword.Game.Animation;
 using Sword.Game.Arena;
 using Sword.Game.Bodies;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Movement;
 
@@ -23,12 +24,18 @@ namespace Sword.Game;
 /// (<see cref="FighterBodies"/>, участник хеша <c>physics</c>, инварианты <c>physics.*</c> — этап 5а); форма тела и постановка
 /// при постройке (<see cref="BodySetupSystem"/>), капсулы по позе тика (<see cref="KinematicPlacementSystem"/>, PrePhysics),
 /// поза постройки (<see cref="StartPose"/>), вид тел <see cref="IBodyView"/> — 5б; тела бойцов сборки мира стоят до первого
-/// тика, вид тел отдаёт клиенту сегменты суставов скелета (ID-буфер) — 5в. Регистрации ядра — без токена модуля.
+/// тика, вид тел отдаёт клиенту сегменты суставов скелета (ID-буфер) — 5в. Этап 6б: команды арены — в стадии Begin (Intent
+/// видит арену после них), слой действий у всех бойцов, оружие — таблица мечей пака и таблица ударов (<see cref="CharacterAssets"/>),
+/// меч в руке (<see cref="WeaponSlot"/>: враг — случайный, игрок — <c>combat.playerWeapon</c>), инвентарь игрока
+/// (<see cref="PlayerInventory"/>, T), клинок каждого тика (<see cref="Blade"/>: постройка — <see cref="BladeSetupSystem"/>,
+/// тик — <see cref="BladePlacementSystem"/> в PrePhysics), вид <see cref="ICombatView"/>, инварианты <c>combat.*</c>. Регистрации
+/// ядра — без токена модуля.
 ///
-/// Порядок <c>KinematicBegin</c> SWORD — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
+/// Порядок <c>DuelArena.Tick</c> SWORD — по стадиям: команды арены (из цикла кадра SWORD до тика) — Begin; команда игрока и
+/// ИИ врагов — Intent. Порядок <c>KinematicBegin</c> — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
 /// без поз по новой скорости: слой движения и шаг действия (Gameplay) → слои позы (локомоция, действие) и прямая
 /// кинематика, пул поз исполняет задания (Animation) → поворот курса клипом, перенос корня и столкновения (Movement); затем
-/// <c>PlaceBodies</c> — капсулы тела по позе тика (PrePhysics).
+/// <c>PlaceBodies</c> — капсулы тела и клинок по позе тика (PrePhysics).
 /// </summary>
 public static class GameCore
 {
@@ -43,30 +50,39 @@ public static class GameCore
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
+        var weapons = assets.Weapons;
+        var combat = b.Config.Section<CombatSettings>("combat");
+        int playerWeapon = weapons.Find(combat.PlayerWeapon);
+        if (playerWeapon < 0) throw new InvalidDataException($"combat.playerWeapon = «{combat.PlayerWeapon}»: такого меча нет; есть: {weapons.Names}");
         b.Component<Transform>().Component<PrevTransform>().Component<RootVelocity>().Component<FighterCommand>()
             .Component<GazeTarget>().Component<Fighter>().Component<PlayerTag>().Component<EnemyTag>()
             .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>().Component<RootContacts>()
             .Component<PoseRef>().Component<AnimatorMotion>().Component<AnimatorAction>().Component<ActionPoses>().Component<BodyRef>()
+            .Component<WeaponSlot>().Component<Blade>()
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
+            .Resource(PlayerInventory.All(weapons.Count, playerWeapon))
             .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 })
             .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, JointSegments.Build(assets.Clips.Skeleton)))
+            .ReadView<ICombatView>(new CombatView(weapons, assets.Strikes, assets.Hand))
             .StateContributor(new AnimationState(poses))
             .StateContributor(new PhysicsState(physics))
             .Invariants(AnimationInvariants.For(poses, assets.Actions))
             .Invariant(new ArenaSlotsInvariant())
             .Invariant(new RootOverlapInvariant())
             .Invariants(PhysicsInvariants.For(physics, poses, joints, start))
+            .Invariants(CombatInvariants.For(poses, weapons, assets.Hand, start))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>();
         FighterBodies.Register(b, physics);
 
         b.System(GameStages.Begin, new PrevTransformSystem())
-            .System(GameStages.Intent, new ArenaCommandSystem())
+            .System(GameStages.Begin, new ArenaCommandSystem(weapons.Count))
             .System(GameStages.Intent, new PlayerCommandSystem())
             .System(GameStages.Intent, new EnemyAiSystem())
             .System(GameStages.Gameplay, new FighterSetupSystem())
             .System(GameStages.Gameplay, new BodySetupSystem(physics, joints, start))
+            .System(GameStages.Gameplay, new BladeSetupSystem(weapons, assets.Hand, start))
             .System(GameStages.Gameplay, new EnemyCommandSystem())
             .System(GameStages.Gameplay, new RootSteerSystem())
             .System(GameStages.Gameplay, new AnimatorInputSystem())
@@ -75,13 +91,18 @@ public static class GameCore
             .System(GameStages.Movement, new RootControlSystem())
             .System(GameStages.Movement, new RootCollisionSystem())
             .System(GameStages.PrePhysics, new KinematicPlacementSystem(physics, joints))
+            .System(GameStages.PrePhysics, new BladePlacementSystem(weapons, assets.Hand))
             .System(GameStages.End, new PoseReleaseSystem())
             .System(GameStages.End, new ActionPoseReleaseSystem());
 
-        b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies));
-        // Тела бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира (5в): как PlaceBuilt SWORD после
-        // AttachRig, до первого тика.
-        b.OnWorldReady(w => BodySetupSystem.PlaceWorldBuilt(w, physics, joints, start));
+        b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies, weapons.Count));
+        // Тела и клинки бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира (5в, 6б): как PlaceBuilt
+        // SWORD после AttachRig, до первого тика.
+        b.OnWorldReady(w =>
+        {
+            BodySetupSystem.PlaceWorldBuilt(w, physics, joints, start);
+            BladeSetupSystem.PlaceWorldBuilt(w, weapons, assets.Hand, start);
+        });
     }
 
     /// <summary>Боец игрока — единственный с <see cref="PlayerTag"/>; ядро создаёт его при сборке мира.</summary>
@@ -94,18 +115,20 @@ public static class GameCore
 
     /// <summary>
     /// Начальная арена (<c>DuelArena.Reset(enemies)</c> SWORD): игрок в центре курсом 0 (место 0), затем враги на местах
-    /// 1…<paramref name="enemies"/> кольцом вокруг него (<see cref="ArenaRules.Enemy"/>, партия 0 — сборка мира).
+    /// 1…<paramref name="enemies"/> кольцом вокруг него (<see cref="ArenaRules.Enemy"/>, партия 0 — сборка мира) со случайными
+    /// мечами из <paramref name="weapons"/>.
     /// </summary>
-    public static void SpawnArena(World world, int enemies)
+    public static void SpawnArena(World world, int enemies, int weapons)
     {
         var rng = world.Resource<SimRandom>();
         ulong tick = world.Resource<SimTime>().Tick;
         var player = SpawnPlayer(world);
         var center = world.Get<Transform>(player).Position;
-        for (int slot = 1; slot <= enemies; slot++) Fighters.Create(world, ArenaRules.Enemy(rng, tick, 0, slot, center));
+        for (int slot = 1; slot <= enemies; slot++) Fighters.Create(world, ArenaRules.Enemy(rng, tick, 0, slot, center, weapons));
     }
 
-    /// <summary>Игрок: в центре, курсом 0, стоит, точки взгляда ещё нет; поза — поза привязки до первого тика.</summary>
+    /// <summary>Игрок: в центре, курсом 0, стоит, точки взгляда ещё нет, меч инвентаря; поза — поза привязки до первого тика.</summary>
     public static Entity SpawnPlayer(World world) =>
-        Fighters.Create(world, ArenaRules.Player(world.Resource<SimRandom>(), world.Resource<SimTime>().Tick, 0));
+        Fighters.Create(world, ArenaRules.Player(world.Resource<SimRandom>(), world.Resource<SimTime>().Tick, 0,
+            world.Resource<PlayerInventory>().Equipped));
 }

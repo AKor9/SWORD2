@@ -331,7 +331,7 @@ public sealed class BodiesTests
         var usage = ArchitectureMap.ComponentUsage(a.World.Systems, typeof(BodyRef).FullName!, a.World.Hooks);
         Assert.Equal(["OnAdd", "OnRemove"], usage["hooks"]!.AsArray().Select(h => h!["hook"]!.GetValue<string>()));
         Assert.All(usage["hooks"]!.AsArray(), h => Assert.Null(h!["module"]));
-        Assert.Contains(usage["systems"]!.AsArray(), u => u!["system"]!.GetValue<string>() == "core.arena-command@Intent");
+        Assert.Contains(usage["systems"]!.AsArray(), u => u!["system"]!.GetValue<string>() == "core.arena-command@Begin");   // 6б: команды арены — в Begin
     }
 
     [Fact]

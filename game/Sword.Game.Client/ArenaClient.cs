@@ -27,6 +27,11 @@ namespace Sword.Game.Client;
 /// 5в: камера — за тазом игрока (<see cref="ArenaView.PlayerFocus"/>), тень и кольцо — таз (<see cref="ArenaView.PlayerMarker"/>);
 /// капсулы тел поверх персонажей — F7 (<see cref="ShowBodies"/>, отладочное рисование рендера в фазе Debug); в кадре снимка —
 /// по заказу ID-проход «scene.ids» (код бойца и сегмента на пиксель) и слой капсул <see cref="CapsulesOverlay"/>.
+///
+/// 6б: меч в руке каждого бойца — меш оружия таблицы (<see cref="ICombatView"/>) жёстким вложением в кисть позы, как показан
+/// боец (<see cref="FighterView.WeaponWorld"/>; <c>SkinnedCharacters.Submit</c> SWORD); в ID-буфере пиксели меча — сегмент 11
+/// «клинок»; клинки (отрезок тика и прошлого тика) — F7 вместе с капсулами, <c>--overlay blades</c> и слой снимка
+/// <see cref="BladesOverlay"/>.
 /// </summary>
 public sealed class ArenaClient : IClientGame, IClientObservable
 {
@@ -38,6 +43,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>Цвет игрока (<c>SkinnedCharacters.Colour</c> SWORD).</summary>
     public static readonly Vector3 PlayerColour = new(0.3f, 0.4f, 0.65f);
+
+    /// <summary>Цвет меча (<c>SkinnedCharacters.Submit</c> SWORD).</summary>
+    public static readonly Vector3 WeaponColour = new(0.8f, 0.82f, 0.86f);
 
     /// <summary>Цвет врага на месте <paramref name="slot"/> (<c>SkinnedCharacters.EnemyColour</c> SWORD): оттенок по золотому сечению.</summary>
     public static Vector3 EnemyColour(int slot)
@@ -72,8 +80,17 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Оверлей капсул тел — имя слоя снимка (<c>capture.bundle</c> overlays, <c>views[].overlays</c> манифеста).</summary>
     public const string CapsulesOverlay = "capsules";
 
+    /// <summary>
+    /// Оверлей клинков (6б): отрезок клинка тика (игрок — жёлтый, враги — белый), прошлого тика (серый) и стороны пройденного за
+    /// тик (оранжевые); в слое снимка — ещё имя меча у кончика.
+    /// </summary>
+    public const string BladesOverlay = "blades";
+
     /// <summary>Оверлеи, которые клиент арены снимает слоем.</summary>
-    public static readonly IReadOnlyList<string> KnownOverlays = [CapsulesOverlay];
+    public static readonly IReadOnlyList<string> KnownOverlays = [CapsulesOverlay, BladesOverlay];
+
+    /// <summary>Цвета оверлея клинков (<c>0xAABBGGRR</c>): клинок тика игрока и врага, прошлого тика, стороны прохода.</summary>
+    public const uint PlayerBladeColour = 0xFF40FFFF, EnemyBladeColour = 0xFFFFFFFF, PrevBladeColour = 0xB0A0A0A0, SweepColour = 0xA00090FF;
 
     /// <summary>
     /// Цвет капсулы сегмента (<c>0xAABBGGRR</c>, альфа — у кромки; середина прозрачнее): таз, торс, голова — тёплые
@@ -119,6 +136,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private GpuData? _heights, _capsule;
     private GpuIndices? _capsuleIndices;
     private int _manny = -1;
+    /// <summary>Меши оружия по номеру таблицы оружия и их имена (подписи слоя клинков).</summary>
+    private int[] _weapons = [];
+    private string[] _weaponNames = [];
     private SimulationLink? _simulation;
     private readonly PlayerCommand? _scripted;
     private readonly bool _playerCommands;
@@ -145,13 +165,15 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// в обоих случаях.
     /// </param>
     /// <param name="showBodies">Капсулы тел поверх персонажей с первого кадра (<c>--overlay capsules</c>; F7 — переключить).</param>
+    /// <param name="showBlades">Клинки поверх персонажей с первого кадра (<c>--overlay blades</c>; F7 показывает их с капсулами).</param>
     public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true,
-        bool showBodies = false)
+        bool showBodies = false, bool showBlades = false)
     {
         if (!playerCommands && scripted is not null) throw new ArgumentException("заданная команда игрока без команд игрока", nameof(scripted));
         _showHud = hud;
         _playerCommands = playerCommands;
         ShowBodies = showBodies;
+        ShowBlades = showBlades;
         _drawOpaque = DrawOpaque;
         _drawIds = DrawIds;
         _view = new ArenaView(ArenaTerrain.Height);
@@ -195,6 +217,16 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Капсул, отданных отладочному рисованию в последнем кадре (0 — капсулы не рисовались).</summary>
     public int DrawnCapsules { get; private set; }
 
+    /// <summary>Клинки поверх персонажей (<c>--overlay blades</c>; F7 — вместе с капсулами).</summary>
+    public bool ShowBlades { get; set; }
+
+    /// <summary>Мечей, отданных рендеру в последнем кадре (у каждого бойца с мечом — один), и клинков оверлея (0 — не рисовались).</summary>
+    public int DrawnWeapons { get; private set; }
+    public int DrawnBlades { get; private set; }
+
+    /// <summary>Меч в руке игрока в последнем кадре (имя таблицы оружия); игрока или меча нет — null.</summary>
+    public string? PlayerWeapon => _view.Player is { Weapon: var w } && (uint)w < (uint)_weaponNames.Length ? _weaponNames[w] : null;
+
     /// <summary>Строки справки HUD.</summary>
     public IReadOnlyList<string> HelpLines => _help;
 
@@ -217,7 +249,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>
     /// Код ID-буфера последнего кадра словами: владелец — боец кадра (<see cref="OwnerOf"/>), часть — сегмент тела; название
-    /// — «левое предплечье врага 3», «голова игрока».
+    /// — «левое предплечье врага 3», «голова игрока»; пиксели меча — сегмент 11: «клинок врага 3», «клинок игрока» (6б).
     /// </summary>
     IdMeaning? IClientObservable.DescribeId(uint id)
     {
@@ -285,6 +317,17 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         var parts = new uint[joints];
         for (int j = 0; j < joints; j++) parts[j] = (uint)bodies.JointSegment(j);
         renderer.Skinned.SetJointParts(_manny, parts);
+        // Мечи (6б): меш оружия таблицы — статический, в ID-буфере весь — клинок (сегмент 11).
+        var weapons = _simulation.World.View<ICombatView>().Weapons;
+        _weapons = new int[weapons.Length];
+        _weaponNames = new string[weapons.Length];
+        ReadOnlySpan<uint> blade = [(uint)BodySegs.Weapon];
+        for (int w = 0; w < weapons.Length; w++)
+        {
+            _weapons[w] = renderer.Skinned.LoadMesh("Weapon." + weapons[w].Name, weapons[w].Mesh);
+            renderer.Skinned.SetJointParts(_weapons[w], blade);
+            _weaponNames[w] = weapons[w].Name;
+        }
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -352,8 +395,10 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void Extract(in FrameView view)
     {
         // Капсулы всех бойцов — только когда их рисуют (F7, --overlay capsules) или их слой заказан снимком инструмента (заказ
-        // известен до Extract — FrameView.Capture); иначе — только таз игрока: камера, тень, кольцо (исправления после Пд).
-        _view.Extract(_simulation!, view.Alpha, allBodies: ShowBodies || view.Capture?.WantsLayer(CapsulesOverlay) == true);
+        // известен до Extract — FrameView.Capture); иначе — только таз игрока: камера, тень, кольцо (исправления после Пд). Клинки —
+        // так же (F7, --overlay blades, слой blades).
+        _view.Extract(_simulation!, view.Alpha, allBodies: ShowBodies || view.Capture?.WantsLayer(CapsulesOverlay) == true,
+            blades: ShowBodies || ShowBlades || view.Capture?.WantsLayer(BladesOverlay) == true);
         _stats = view.Stats;
     }
 
@@ -383,6 +428,16 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.World, colour, owner)) skinned++;
         }
         SkinnedFighters = skinned;
+        // Мечи — после всех тел (SkinnedCharacters SWORD: меч — сразу за телом бойца; кончится место — пропадут мечи, а не бойцы).
+        int armed = 0;
+        for (int i = 0; i < fighters.Count; i++)
+        {
+            var fighter = fighters[i];
+            if ((uint)fighter.Weapon < (uint)_weapons.Length
+                && _renderer!.Skinned.AddRigid(_weapons[fighter.Weapon], fighter.WeaponWorld, WeaponColour, OwnerOf(fighter.Entity)))
+                armed++;
+        }
+        DrawnWeapons = armed;
         profiler.End(_zones.Skin);
 
         frame.Graph.AddPass("scene.opaque")
@@ -406,7 +461,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             profiler.End(_zones.Hud);
         }
         profiler.Begin(_zones.Bodies);
-        DrawBodies(frame);
+        DrawDebug(frame);
         profiler.End(_zones.Bodies);
     }
 
@@ -415,37 +470,67 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>
     /// Фаза Debug (после сцены и интерфейса, раздел 6 плана): капсулы тел всех бойцов, как показаны бойцы, — поверх кадра
-    /// (F7) и (или) слоем снимка <see cref="CapsulesOverlay"/> с подписями бойцов («игрок», «враг 3»).
+    /// (F7) и (или) слоем снимка <see cref="CapsulesOverlay"/> с подписями бойцов («игрок», «враг 3»); клинки (6б) — поверх кадра
+    /// (F7, <c>--overlay blades</c>) и (или) слоем снимка <see cref="BladesOverlay"/> с именами мечей. У каждого слоя — только своё:
+    /// слой капсул снимается до клинков, слой клинков — с отметки (<see cref="DebugDraw.Mark"/>).
     /// </summary>
-    private void DrawBodies(RenderFrame frame)
+    private void DrawDebug(RenderFrame frame)
     {
-        bool layer = frame.WantsLayer(CapsulesOverlay);
-        DrawnCapsules = 0;
-        if (!ShowBodies && !layer) return;
+        bool bodiesLayer = frame.WantsLayer(CapsulesOverlay), bladesLayer = frame.WantsLayer(BladesOverlay);
+        bool bodies = ShowBodies || bodiesLayer, blades = ShowBodies || ShowBlades || bladesLayer;
+        DrawnCapsules = DrawnBlades = 0;
+        if (!bodies && !blades) return;
         var debug = _renderer!.Debug;
         var fighters = _view.Fighters;
-        for (int i = 0; i < fighters.Count; i++)
+        if (bodies)
         {
-            var body = _view.Body(fighters[i]);
-            for (int k = 0; k < body.Length; k++)
+            for (int i = 0; i < fighters.Count; i++)
             {
-                ref readonly var c = ref body[k];
-                debug.Capsule(c.Center, c.Rotation, c.Radius, c.HalfLength, CapsuleColour(c.Segment));
+                var body = _view.Body(fighters[i]);
+                for (int k = 0; k < body.Length; k++)
+                {
+                    ref readonly var c = ref body[k];
+                    debug.Capsule(c.Center, c.Rotation, c.Radius, c.HalfLength, CapsuleColour(c.Segment));
+                }
+                DrawnCapsules += body.Length;
             }
-            DrawnCapsules += body.Length;
         }
-        if (ShowBodies) debug.AddPass(frame, frame.Graph.BackBuffer, _camera.ViewProj, _camera.Eye, "debug.bodies");
-        if (!layer) return;
-        for (int i = 0; i < fighters.Count; i++)
+        if (bodiesLayer)
         {
-            var f = fighters[i];
-            if (_view.Body(f) is { Length: > 0 } body && BodySegs.Body(BodySegs.Head) is var head && head < body.Length)
-                debug.Text(body[head].EndB + new Vector3(0, 0.3f, 0), Labels[Math.Clamp(f.IsPlayer ? 0 : f.Slot, 0, Labels.Length - 1)],
-                    f.IsPlayer ? 0xFF80FFFFu : 0xFFFFFFFFu);
+            for (int i = 0; i < fighters.Count; i++)
+            {
+                var f = fighters[i];
+                if (_view.Body(f) is { Length: > 0 } body && BodySegs.Body(BodySegs.Head) is var head && head < body.Length)
+                    debug.Text(body[head].EndB + new Vector3(0, 0.3f, 0), Labels[Math.Clamp(f.IsPlayer ? 0 : f.Slot, 0, Labels.Length - 1)],
+                        f.IsPlayer ? 0xFF80FFFFu : 0xFFFFFFFFu);
+            }
+            var target = frame.Graph.CreateTexture("overlay.capsules", new TextureDesc(TextureFormat.Rgba8Unorm, TextureUsage.ColorTarget));
+            debug.AddPass(frame, target, _camera.ViewProj, _camera.Eye, "overlay.capsules", clear: Vector4.Zero);
+            frame.CaptureLayer(CapsulesOverlay, target);
         }
-        var target = frame.Graph.CreateTexture("overlay.capsules", new TextureDesc(TextureFormat.Rgba8Unorm, TextureUsage.ColorTarget));
-        debug.AddPass(frame, target, _camera.ViewProj, _camera.Eye, "overlay.capsules", clear: Vector4.Zero);
-        frame.CaptureLayer(CapsulesOverlay, target);
+        var bladesFrom = debug.Mark();
+        if (blades)
+        {
+            for (int i = 0; i < fighters.Count; i++)
+            {
+                if (fighters[i].Blade is not { } b) continue;
+                debug.Line(b.PrevBase, b.PrevTip, PrevBladeColour);
+                debug.Line(b.PrevBase, b.Base, SweepColour);
+                debug.Line(b.PrevTip, b.Tip, SweepColour);
+                debug.Line(b.Base, b.Tip, fighters[i].IsPlayer ? PlayerBladeColour : EnemyBladeColour);
+                DrawnBlades++;
+            }
+        }
+        // Поверх кадра — клинки и (F7) капсулы; капсулы, накопленные только для слоя снимка, и подписи слоя — не на экран.
+        var screenFrom = new DebugDraw.DebugMark(bladesFrom.LineVertices, ShowBodies ? 0 : debug.CapsuleCount, debug.TextCount);
+        if (ShowBodies || ShowBlades) debug.AddPass(frame, frame.Graph.BackBuffer, _camera.ViewProj, _camera.Eye, "debug.bodies", since: screenFrom);
+        if (!bladesLayer) return;
+        for (int i = 0; i < fighters.Count; i++)
+            if (fighters[i].Blade is { } b && (uint)fighters[i].Weapon < (uint)_weaponNames.Length)
+                debug.Text(b.Tip + new Vector3(0, 0.1f, 0), _weaponNames[fighters[i].Weapon], fighters[i].IsPlayer ? 0xFF80FFFFu : 0xFFFFFFFFu, 12);
+        var layer = frame.Graph.CreateTexture("overlay.blades", new TextureDesc(TextureFormat.Rgba8Unorm, TextureUsage.ColorTarget));
+        debug.AddPass(frame, layer, _camera.ViewProj, _camera.Eye, "overlay.blades", clear: Vector4.Zero, since: bladesFrom);
+        frame.CaptureLayer(BladesOverlay, layer);
     }
 
     /// <summary>ID-проход: скинированные меши по глубине сцены (только проходит равная — ближайшая поверхность).</summary>

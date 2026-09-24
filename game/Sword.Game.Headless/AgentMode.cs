@@ -139,21 +139,18 @@ public static partial class Program
     internal static FeatureSetup? Features()
     {
         if (RepoRoot() is not { } root) return null;
-        bool optimized = typeof(Program).Assembly.GetCustomAttributes(typeof(DebuggableAttribute), false)
-            .OfType<DebuggableAttribute>().FirstOrDefault()?.IsJITOptimizerDisabled != true;
-        return new FeatureSetup(root, [Path.Combine(root, "game"), Path.Combine(root, "engine")], CaptureView, optimized, MeasureFrame);
+        return new FeatureSetup(root, [Path.Combine(root, "game"), Path.Combine(root, "engine")], CaptureView, Optimized, MeasureFrame);
     }
 
-    /// <summary>Sword.exe той же конфигурации сборки, что этот Headless (…\bin\Debug\… → App\bin\Debug); null — не собран.</summary>
-    internal static string? AppExe()
-    {
-        if (RepoRoot() is not { } root) return null;
-        var parts = AppContext.BaseDirectory.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-        int bin = Array.LastIndexOf(parts, "bin");
-        if (bin < 0 || bin + 1 >= parts.Length) return null;
-        string dir = Path.Combine(root, "game", "Sword.Game.App", "bin", parts[bin + 1]);
-        return Directory.Exists(dir) ? Directory.EnumerateFiles(dir, "Sword.exe", SearchOption.AllDirectories).FirstOrDefault() : null;
-    }
+    /// <summary>Этот Headless собран с оптимизацией (Release).</summary>
+    private static bool Optimized => typeof(Program).Assembly.GetCustomAttributes(typeof(DebuggableAttribute), false)
+        .OfType<DebuggableAttribute>().FirstOrDefault()?.IsJITOptimizerDisabled != true;
+
+    /// <summary>
+    /// Sword.exe той же конфигурации сборки, что этот Headless (…\bin\Debug\… → App\bin\Debug; вне bin — сервер агента в
+    /// artifacts\agent-bin — по оптимизации сборки, точка 6б: <see cref="Game.Agent.AppLocator"/>); null — не собран.
+    /// </summary>
+    internal static string? AppExe() => RepoRoot() is { } root ? Game.Agent.AppLocator.Find(root, AppContext.BaseDirectory, Optimized) : null;
 
     /// <summary>
     /// Вид фичи: Sword.exe играет записанный сценарий (<c>--replay</c>) ровно <see cref="ViewRequest.Tick"/> тиков — по K тиков

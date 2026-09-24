@@ -129,7 +129,7 @@ public sealed class ArenaTests
         for (uint batch = 0; batch < 20; batch++)
             for (int slot = 1; slot <= ArenaState.MaxEnemies; slot++)
             {
-                var s = ArenaRules.Enemy(rng, 7, batch, slot, center);
+                var s = ArenaRules.Enemy(rng, 7, batch, slot, center, 6);
                 float r = new Vector2(s.Position.X, s.Position.Z).Length();
                 Assert.True(r <= lim + 1e-4f, $"{r} > {lim}");
                 if (MathF.Abs(r - lim) < 1e-4f) clamped++;
@@ -137,10 +137,10 @@ public sealed class ArenaTests
             }
         Assert.True(clamped > 50, $"на краю только {clamped} спаунов — предел радиуса не срабатывает?");
         // Партия и место меняют числа, тик тоже; то же (зерно, тик, партия, место) — то же.
-        Assert.Equal(ArenaRules.Enemy(rng, 7, 1, 3, center), ArenaRules.Enemy(rng, 7, 1, 3, center));
-        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center), ArenaRules.Enemy(rng, 7, 2, 3, center));
-        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center), ArenaRules.Enemy(rng, 8, 1, 3, center));
-        Assert.Throws<ArgumentOutOfRangeException>(() => ArenaRules.Enemy(rng, 0, 0, 0, center));
+        Assert.Equal(ArenaRules.Enemy(rng, 7, 1, 3, center, 6), ArenaRules.Enemy(rng, 7, 1, 3, center, 6));
+        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center, 6), ArenaRules.Enemy(rng, 7, 2, 3, center, 6));
+        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center, 6), ArenaRules.Enemy(rng, 8, 1, 3, center, 6));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ArenaRules.Enemy(rng, 0, 0, 0, center, 6));
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public sealed class ArenaTests
         var replay = Replay.Parse(recorder.ToReplay().ToJson());
         int arenaType = replay.CommandTypes.ToList().FindIndex(t => t.Name == typeof(ArenaCommand).FullName);
         Assert.True(arenaType >= 0, "команды арены нет в реплее");
-        Assert.Equal(["Action:u8", "Enemies:i32"], replay.CommandTypes[arenaType].Fields);
+        Assert.Equal(["Action:u8", "Enemies:i32", "Weapon:i32"], replay.CommandTypes[arenaType].Fields);   // 6б: меч для EquipWeapon
         var first = replay.CommandsAt(0).Where(c => c.Type == arenaType).Select(c => ((ArenaAction)c.Leaves[0], (int)c.Leaves[1])).ToList();
         Assert.Equal([(ArenaAction.ChangeEnemies, 1), (ArenaAction.Reset, 0)], first);   // порядок SWORD: PageUp, затем R
         for (ulong t = 1; t < 6; t++) Assert.DoesNotContain(replay.CommandsAt(t), c => c.Type == arenaType);

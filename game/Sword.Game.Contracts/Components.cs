@@ -153,12 +153,22 @@ public enum ArenaAction : byte
 
     /// <summary>Сброс арены (R, <c>DuelArena.Reset(EnemyCount)</c>): игрок заново в центре, все враги заново.</summary>
     Reset = 3,
+
+    /// <summary>Следующий меч инвентаря игрока по кругу (T, <c>DuelArena.NextPlayerWeapon</c> SWORD; этап 6б).</summary>
+    NextWeapon = 4,
+
+    /// <summary>
+    /// Взять меч инвентаря номер <see cref="ArenaCommand.Weapon"/> (<c>DuelArena.EquipPlayerWeapon</c> SWORD; клавиши 1–9 и панель
+    /// инвентаря — этап 6е); такого меча у игрока нет — ничего.
+    /// </summary>
+    EquipWeapon = 5,
 }
 
 /// <summary>
-/// Команда арены на тик (раздел 7 плана): клиент порождает её из клавиш PageUp/PageDown/R (фронт — ровно одним тиком),
+/// Команда арены на тик (раздел 7 плана): клиент порождает её из клавиш PageUp/PageDown/R/T (фронт — ровно одним тиком),
 /// агент — <c>command.send</c>; реплей хранит её готовой. Число врагов — в пределах 0…<see cref="ArenaState.MaxEnemies"/>
-/// (больше или меньше — упирается в предел, как <c>SetEnemyCount</c>). Несколько команд тика применяются по порядку.
+/// (больше или меньше — упирается в предел, как <c>SetEnemyCount</c>). Несколько команд тика применяются по порядку в
+/// стадии Begin (этап 6б): Intent того же тика видит арену после них.
 /// </summary>
 public struct ArenaCommand
 {
@@ -166,6 +176,9 @@ public struct ArenaCommand
 
     /// <summary>Сколько врагов добавить (<see cref="ArenaAction.ChangeEnemies"/>) или сколько их будет (<see cref="ArenaAction.SetEnemies"/>).</summary>
     public int Enemies;
+
+    /// <summary>Номер меча в таблице оружия для <see cref="ArenaAction.EquipWeapon"/> (6б; в реплеях до 6б поля нет — 0).</summary>
+    public int Weapon;
 }
 
 /// <summary>

@@ -1,6 +1,7 @@
 // Отладочное рисование (DebugDraw): полупрозрачные капсулы и отрезки поверх цели, без глубины сцены. Капсула — сетка из
 // SV_VertexID (DEBUG_AROUND вершин по кругу, DEBUG_RINGS колец на полусферу), экземпляр — запись кольца кадра. Камера —
-// корневые константы: матрица вида-проекции в gPass0…gPass15 (строки Matrix4x4, вектор слева) и глаз DEBUG_EYE_*.
+// корневые константы: матрица вида-проекции в gPass0…gPass15 (строки Matrix4x4, вектор слева) и глаз DEBUG_EYE_*. Проход рисует
+// накопленное с отметки: первая вершина отрезков DEBUG_LINE_BASE, первая капсула DEBUG_CAPSULE_BASE.
 #include "pass.hlsli"
 
 struct DebugVertex { float3 p; uint colour; };
@@ -44,7 +45,7 @@ struct CapsuleVs
 CapsuleVs VsCapsule(uint vid : SV_VertexID, uint inst : SV_InstanceID)
 {
     StructuredBuffer<DebugCapsule> capsules = ResourceDescriptorHeap[DEBUG_CAPSULES];
-    DebugCapsule c = capsules[inst];
+    DebugCapsule c = capsules[DEBUG_CAPSULE_BASE + inst];
     const uint2 k[6] = { uint2(0, 0), uint2(1, 0), uint2(1, 1), uint2(0, 0), uint2(1, 1), uint2(0, 1) };
     uint quad = vid / 6u;
     uint2 corner = k[vid % 6u];
@@ -96,7 +97,7 @@ struct LineVs
 LineVs VsLine(uint vid : SV_VertexID)
 {
     StructuredBuffer<DebugVertex> verts = ResourceDescriptorHeap[DEBUG_LINES];
-    DebugVertex v = verts[vid];
+    DebugVertex v = verts[DEBUG_LINE_BASE + vid];
     LineVs o;
     o.pos = mul(float4(v.p, 1), DebugViewProj());
     o.colour = DebugColour(v.colour);

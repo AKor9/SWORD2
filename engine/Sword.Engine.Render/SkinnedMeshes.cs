@@ -243,6 +243,23 @@ public sealed class SkinnedMeshes : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Экземпляр статического меша (без суставов: оружие, реквизит) — жёсткое вложение: палитра из одной матрицы — мир меша
+    /// (<c>SkinnedCharacters.Submit</c> SWORD 2eab13b: меч — <c>sword[0] = WeaponWorld</c>; этап 6б). Вершины статического меша
+    /// ведёт единственная матрица палитры при любых весах. false — места в кадре нет.
+    /// </summary>
+    /// <exception cref="ArgumentException">У меша есть суставы: его рисуют позой (<see cref="AddPosed"/>).</exception>
+    public bool AddRigid(int mesh, in Matrix4x4 world, Vector3 colour, uint owner = 0, float glow = 0, uint flags = 0)
+    {
+        var m = _meshes[mesh];
+        if (m.InverseBind.Length != 0)
+            throw new ArgumentException($"{m.Name}: суставов {m.InverseBind.Length} — жёстко вкладывается только статический меш", nameof(mesh));
+        var palette = Add(mesh, colour, owner, glow, flags);
+        if (palette.IsEmpty) return false;
+        palette[0] = GpuMat34.From(world);
+        return true;
+    }
+
     /// <summary>Нарисовать всё добавленное конвейером <paramref name="pipeline"/> (вершинный шейдер — через skin.hlsli).</summary>
     public void Record(RenderPassContext ctx, in GraphicsPipelineDesc pipeline)
     {

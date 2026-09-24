@@ -23,8 +23,8 @@ public enum ActionKind : byte
 /// Слой действий аниматора бойца — состояние действия <c>FighterAnimator</c> SWORD 2eab13b (<c>Kind</c>, <c>_actionClip</c>,
 /// <c>ActionTime</c>, <c>_actionDuration</c>, <c>_actionWeight</c>, <c>_turnScale</c>) и его выход тика (<c>YawDelta</c>,
 /// <c>RootDelta</c>). Машина состояний боя — правило игры, поэтому она в ядре игры (раздел 6 плана: <c>FighterAnimator</c>
-/// остаётся в игре) компонентом бойца, а поза слоя — в пуле поз (<see cref="ActionPoses"/>). Пока — у бойцов
-/// не-<c>Agile</c> (враги): у игрока (<c>Agile</c>) до этапа 6 действий нет. Хешируется участником <c>ecs</c>; виден агенту
+/// остаётся в игре) компонентом бойца, а поза слоя — в пуле поз (<see cref="ActionPoses"/>). С 4г — у врагов (не-<c>Agile</c>),
+/// с 6б — у всех бойцов: у игрока (<c>Agile</c>) действий пока нет (удары — 6в). Хешируется участником <c>ecs</c>; виден агенту
 /// (<c>entity.get</c>, условия, <c>anim.pose</c> — с именем клипа).
 /// </summary>
 public struct AnimatorAction

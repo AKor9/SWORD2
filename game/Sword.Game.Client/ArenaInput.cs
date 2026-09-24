@@ -9,8 +9,8 @@ namespace Sword.Game.Client;
 /// Действия ввода арены и их клавиши по умолчанию — как в SWORD 2eab13b (<c>PlayerController</c>, <c>RtsCamera</c>):
 /// WASD — ход относительно камеры, Shift — шагом, F — камера за игроком / свободная, Z/C — поворот, +/− — зум, средняя
 /// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD; PageUp/PageDown —
-/// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены); F7 — капсулы тел поверх персонажей
-/// (5в, отладочный вид SWORD2); F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
+/// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены), T — следующий меч игрока (6б, команда арены);
+/// F7 — капсулы тел и клинки поверх персонажей (5в, 6б; отладочный вид SWORD2); F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
 /// </summary>
@@ -52,9 +52,12 @@ public static class ArenaInput
     /// <summary>Сброс арены: игрок в центре, враги заново (SWORD: R).</summary>
     public static readonly InputAction ArenaReset = new("arena_reset", "R");
 
+    /// <summary>Следующий меч инвентаря игрока по кругу (SWORD: T, <c>NextPlayerWeapon</c>; 6б — команда арены в реплей).</summary>
+    public static readonly InputAction NextWeapon = new("next_weapon", "T");
+
     /// <summary>
-    /// Капсулы тел поверх персонажей: показать / скрыть (5в; в SWORD отладочного вида капсул нет, F2, F3, F5, F6 заняты —
-    /// F7). Действие представления: в команды и реплей не идёт.
+    /// Капсулы тел и клинки поверх персонажей: показать / скрыть (5в, 6б; в SWORD отладочного вида капсул нет, F2, F3, F5, F6
+    /// заняты — F7). Действие представления: в команды и реплей не идёт.
     /// </summary>
     public static readonly InputAction DebugBodies = new("debug_bodies", "F7");
 
@@ -62,7 +65,7 @@ public static class ArenaInput
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
-        HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, DebugBodies,
+        HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>
@@ -90,12 +93,12 @@ public static class ArenaInput
 
 /// <summary>
 /// Команды арены тика из фронтов ввода (раздел 7 плана: нажатие — ровно одним тиком, первым после кадра, где оно было) в
-/// порядке <c>Program.cs</c> SWORD: PageUp, PageDown, R. Возвращает, сколько команд записано в <paramref name="into"/>
+/// порядке <c>Program.cs</c> SWORD: PageUp, PageDown, R, T. Возвращает, сколько команд записано в <paramref name="into"/>
 /// (не больше <see cref="Max"/>).
 /// </summary>
 public static class ArenaIntent
 {
-    public const int Max = 3;
+    public const int Max = 4;
 
     public static int Commands(in TickInput input, Span<ArenaCommand> into)
     {
@@ -103,6 +106,7 @@ public static class ArenaIntent
         if (input.WasPressed(ArenaInput.EnemiesMore)) into[n++] = new ArenaCommand { Action = ArenaAction.ChangeEnemies, Enemies = 1 };
         if (input.WasPressed(ArenaInput.EnemiesFewer)) into[n++] = new ArenaCommand { Action = ArenaAction.ChangeEnemies, Enemies = -1 };
         if (input.WasPressed(ArenaInput.ArenaReset)) into[n++] = new ArenaCommand { Action = ArenaAction.Reset };
+        if (input.WasPressed(ArenaInput.NextWeapon)) into[n++] = new ArenaCommand { Action = ArenaAction.NextWeapon };
         return n;
     }
 }

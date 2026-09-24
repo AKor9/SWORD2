@@ -1,14 +1,17 @@
 using Sword.Engine.Animation;
 using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
+using Sword.Game.Combat;
 using Sword.Game.Data;
 
 namespace Sword.Game.Animation;
 
 /// <summary>
-/// Ассеты анимации бойца (<c>CharacterRig.TryLoad</c> SWORD, часть анимации): скелет Manny, поза привязки из его меша,
-/// все клипы библиотеки этого скелета и таблица действий (<c>combat/actions.json</c>). Без любого из них игра не
-/// стартует: боец SWORD2 — скелетный всегда (капсульных бойцов SWORD без рига здесь нет).
+/// Ассеты бойца (<c>CharacterRig.TryLoad</c> SWORD): скелет Manny, поза привязки из его меша, все клипы библиотеки этого
+/// скелета, таблица действий (<c>combat/actions.json</c>), с этапа 6б — таблица оружия (мечи пака, <see cref="WeaponTable"/>) и
+/// таблица ударов (<see cref="StrikeTable"/>: окна по клинку меча по умолчанию в кисти <see cref="HandJoint"/>). Без любого из
+/// них игра не стартует: боец SWORD2 — скелетный всегда (капсульных бойцов SWORD без рига здесь нет). Всё неизменяемо —
+/// общее для симуляций процесса.
 /// </summary>
 public sealed class CharacterAssets
 {
@@ -18,14 +21,29 @@ public sealed class CharacterAssets
     /// <summary>Меш персонажа (печёт skin.mesh по манифесту Bake/characters/manny/mesh.bake.json) — из него поза привязки.</summary>
     public const string MeshFile = "characters/manny/mesh.swmesh";
 
+    /// <summary>Сустав, в котором оружие (<c>CharacterRig.Hand</c>): меч — жёсткое вложение в его систему.</summary>
+    public const string HandJoint = "hand_r";
+
     /// <summary>Библиотека клипов скелета — только чтение; пул поз у каждой симуляции свой (<see cref="GameCore"/>).</summary>
     public ClipLibrary Clips { get; }
     public ActionTable Actions { get; }
 
-    private CharacterAssets(ClipLibrary clips, ActionTable actions)
+    /// <summary>Мечи пака по алфавиту (этап 6б).</summary>
+    public WeaponTable Weapons { get; }
+
+    /// <summary>Удары slash1–4, stab1–3: окна по клинку меча по умолчанию (этап 6б).</summary>
+    public StrikeTable Strikes { get; }
+
+    /// <summary>Номер сустава <see cref="HandJoint"/> в скелете.</summary>
+    public int Hand { get; }
+
+    private CharacterAssets(ClipLibrary clips, ActionTable actions, WeaponTable weapons, StrikeTable strikes, int hand)
     {
         Clips = clips;
         Actions = actions;
+        Weapons = weapons;
+        Strikes = strikes;
+        Hand = hand;
     }
 
     /// <summary>Из пака игры (<see cref="ContentLocator"/>: переменная SWORD_CONTENT или ближайший пак вверх от exe).</summary>
@@ -40,8 +58,10 @@ public sealed class CharacterAssets
         return assets;
     }
 
-    /// <exception cref="FileNotFoundException">Нет скелета, меша или ни одного клипа скелета.</exception>
-    /// <exception cref="InvalidDataException">Скелет, меш или actions.json испорчены; скелет меша другой.</exception>
+    /// <exception cref="FileNotFoundException">Нет скелета, меша, ни одного клипа скелета или ни одного меча.</exception>
+    /// <exception cref="InvalidDataException">
+    /// Скелет, меш, меш меча или actions.json испорчены; скелет меша другой; в скелете нет кисти <see cref="HandJoint"/>.
+    /// </exception>
     public static CharacterAssets Load(IContentSource content)
     {
         string skeletonPath = ClipLibrary.SkeletonFile(SkeletonId);
@@ -71,6 +91,12 @@ public sealed class CharacterAssets
         var warnings = new List<string>();
         var actions = ActionTable.Resolve(clips.FindClip, c => clips.Clips[c].Name, json, warnings);
         foreach (string w in warnings) Log.Warning("anim", w);
-        return new CharacterAssets(clips, actions);
+
+        var weapons = WeaponTable.Load(content);
+        int hand = skeleton.Find(HandJoint);
+        if (hand < 0) throw new InvalidDataException($"в скелете {SkeletonId} нет сустава «{HandJoint}» — в нём оружие");
+        var strikes = StrikeTable.Analyse(clips, actions, hand, weapons.Weapons[weapons.Default].BladeTip);
+        Log.Info("combat", $"оружие: {weapons.Names}; удары по клинку {weapons.Weapons[weapons.Default].Name} — {strikes.Describe(clips)}");
+        return new CharacterAssets(clips, actions, weapons, strikes, hand);
     }
 }

@@ -1,4 +1,4 @@
-# Трассы SWORD для сверки анимации, толпы и тел (этап 2, точки 4г, 4д, 5б и 5г)
+# Трассы SWORD для сверки анимации, толпы, тел и оружия (этап 2, точки 4г, 4д, 5б, 5г и 6б)
 
 `../anim-locomotion.trace.json` снят этой программой с **настоящего кода SWORD 2eab13b** на эталонном паке
 `Content.reference.swpak`: игрок (`Agile`) без Motion Matching — встроенный `KinematicSteer`, `FighterAnimator`
@@ -72,6 +72,19 @@ SWORD (первая постановка без скорости по позе �
 постройки), тест их не читает; выборка — тики 1, 2, 481, 601, 1241, 1401, 1402, 2701 (тики выборки толпы, не больше длины сценария). 0,76 МБ.
 Сверяет `ReferenceTraceTests.Terrain_MatchesSwordTickByTick` (корень, курс, клип, поза, хеш тела каждого тика, таз, выборка,
 форма) и метрика `sword-terrain-pelvis` сценария `terrain` манифеста `bodies`. Совпала с SWORD2 побитово с первого снятия.
+
+**Таблица оружия и ударов (точка 6б).** `../combat-strikes.trace.json` — сценарий `strikes`: не тики, а ассеты **настоящего**
+`CharacterRig` SWORD на эталонном паке, ничего не копируется: оружие пака (`Weapons`: имя, вершин и суставов меша, клинок в
+системе hand_r — `MakeWeapon`), меч по умолчанию (`DefaultWeapon`, `sword_1h`) и его клинок (`BladeBase`, `BladeTip` — по нему
+размечены удары), удары слотов slash1–4 и stab1–3 (`Slashes`, `Stabs` после `ApplySlots`: клип, клип `_Blocked`, длительность,
+кадров, укол, слой верха, окна `StrikeWindow` — начало, конец, время и скорость пика, направление замаха). Для поиска расхождения
+у удара — `tipsHash`: FNV-1a по битам x, y, z кончика клинка по кадрам клипа (копия закрытого `CharacterRig.Tips` — сэмпл
+`f / SampleRate`, `ToComponent`, кончик в системе кисти; в окна она не входит — их считает сам `CharacterRig`). Итог снятия:
+6 мечей (combat_sword, katana, katana_v2, powerful_sword, sword_1h, sword_dss — порядок списка пака), 7 ударов, 7 окон (уколы
+stab1–3 по `actions.json` пака — один клип `Anim_PS_Combo_B1_RM`), 4,2 КБ, одна строка JSON без перевода строки в конце. Сверяет
+`ReferenceTraceTests.Strikes_MatchSword` побитово (`WeaponTable`, `StrikeTable`, `StrikeWindows` SWORD2); совпало с первого
+снятия. Программа только дополнена (режим `strikes`, класс `StrikesTrace`); прежние трассы после пересборки сняты заново —
+побайтно те же (`anim-locomotion`, `anim-turn`, `anim-crowd`, `anim-terrain`).
 
 **Что здесь настоящий SWORD, а что — копия.** Настоящий код SWORD (подключён исходниками): `CharacterRig`,
 `FighterAnimator`, `LegacyLocomotion`, `SkeletalClips`, `AnimLibrary`, чтение пака. Переписаны в `Program.cs` вручную,
@@ -159,7 +172,13 @@ dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\refe
 dotnet test tests/Sword.Game.Tests --filter Terrain_MatchesSwordTickByTick    # сверка
 ```
 
-Третий аргумент — сценарий: `player` (по умолчанию), `turn` или `crowd` (четвёртый — вход). Сценарий игрока (`Scenario.Segments`) должен совпадать с
+Таблица оружия и ударов (6б) — одной командой, без входа:
+
+```
+dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\combat-strikes.trace.json" strikes
+```
+
+Третий аргумент — сценарий: `player` (по умолчанию), `turn`, `crowd` (четвёртый — вход) или `strikes`. Сценарий игрока (`Scenario.Segments`) должен совпадать с
 `ReferenceTraceTests.Segments`; сценарий поворота тест читает из самой трассы (`segments`), а манифест `enemies` (сценарий
 `turn`) повторяет его командами — правя `TurnTrace.Segments`, поправить и манифест. На 4г программа пересобрана и трасса
 игрока снята заново — побайтно та же. На 4д программа пересобрана (с `ArenaLayout.cs` SWORD) и обе прежние трассы сняты заново

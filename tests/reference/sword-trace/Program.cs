@@ -13,10 +13,17 @@ using Sword.Game.Gameplay;
 //   DuelArena.Tick, команды арены по ходу; сценарий и расстановка — четвёртым аргументом (crowd.input.json из SWORD2).
 //   С точки 5б — ещё капсулы тела: копии формы при постройке (Fighter.Build: Radii, полудлины из ComputeTargets и
 //   IdealFoot) и PlaceBodies (без клинка, BodyPlacer, фиксации стоп) с настоящими RigidBody, Xpbd.RotationVector, Terrain.
+// strikes (точка 6б) — не тики, а ассеты настоящего CharacterRig: клинки всех мечей пака (MakeWeapon) и таблица ударов
+//   слотов slash1–4, stab1–3 (Analyse → StrikeWindows.Find по кончику меча по умолчанию, клип _Blocked, длительность, укол, слой).
 string pakPath = args[0], outPath = args[1];
 string scenarioName = args.Length > 2 ? args[2] : "player";
 using var pak = PakSource.Open(pakPath);
 var rig = CharacterRig.TryLoad(pak) ?? throw new InvalidOperationException("нет рига");
+if (scenarioName == "strikes")
+{
+    StrikesTrace.Run(rig, outPath);
+    return;
+}
 if (scenarioName == "turn")
 {
     TurnTrace.Run(rig, outPath);
@@ -27,7 +34,7 @@ if (scenarioName == "crowd")
     CrowdTrace.Run(rig, args.Length > 3 ? args[3] : throw new ArgumentException("crowd: четвёртый аргумент — вход (crowd.input.json)"), outPath);
     return;
 }
-if (scenarioName != "player") throw new ArgumentException($"сценарий «{scenarioName}»: player, turn или crowd");
+if (scenarioName != "player") throw new ArgumentException($"сценарий «{scenarioName}»: player, turn, crowd или strikes");
 var anim = new FighterAnimator(rig) { Agile = true };
 
 const float dt = 1f / 120, RunSpeed = 4.2f, WalkSpeed = 1.6f, KinTurnRate = 12f, KinAccel = 14f;
@@ -101,6 +108,82 @@ var doc = new
 };
 File.WriteAllText(outPath, JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = false }));
 Console.WriteLine($"ok: {total} тиков, клипов {rig.Clips.Clips.Length}, суставов {rig.JointCount} → {outPath}");
+
+/// <summary>
+/// Таблица оружия и ударов (точка 6б) — из настоящего <c>CharacterRig</c> SWORD 2eab13b, ничего не копируется: оружие пака
+/// (<c>Weapons</c>: имя, вершин меша, клинок в системе hand_r — <c>MakeWeapon</c>), оружие по умолчанию и его клинок (по
+/// нему размечены удары), удары слотов slash1–4 и stab1–3 (<c>Slashes</c>, <c>Stabs</c>: клип, клип <c>_Blocked</c>,
+/// длительность, кадров, укол, слой верха, окна <c>StrikeWindow</c>). Для поиска расхождения — хеш кончика клинка по кадрам
+/// клипа (FNV-1a по битам x, y, z): это копия закрытого <c>CharacterRig.Tips</c> (сэмпл клипа, <c>ToComponent</c>, кончик в
+/// системе кисти), в окна она не входит — окна считает сам <c>CharacterRig</c>.
+/// </summary>
+static class StrikesTrace
+{
+    private static readonly string[] Slots = ["slash1", "slash2", "slash3", "slash4", "stab1", "stab2", "stab3"];
+
+    public static void Run(CharacterRig rig, string outPath)
+    {
+        var attacks = rig.Slashes.Concat(rig.Stabs).Select((a, i) => new
+        {
+            slot = Slots[i],
+            clip = rig.Clips.Clips[a.Clip].Name,
+            blockedClip = a.BlockedClip >= 0 ? rig.Clips.Clips[a.BlockedClip].Name : null,
+            duration = a.Duration,
+            frames = rig.Clips.Clips[a.Clip].Count,
+            thrust = a.Thrust,
+            upper = a.Upper,
+            tipsHash = TipsHash(rig, a.Clip),
+            windows = a.Windows.Select(w => new
+            {
+                start = w.Start, end = w.End, peakTime = w.PeakTime, peakSpeed = w.PeakSpeed, swingDir = new[] { w.SwingDir.X, w.SwingDir.Y },
+            }),
+        }).ToList();
+        var doc = new
+        {
+            purpose = "Таблица оружия и ударов SWORD 2eab13b (CharacterRig: MakeWeapon, Analyse, StrikeWindows.Find) для сверки точки 6б " +
+                      "SWORD2: клинки всех мечей пака в системе hand_r, окна ударов слотов по кончику меча по умолчанию; tipsHash — " +
+                      "FNV-1a по битам кончика клинка по кадрам клипа.",
+            sourceCommit = "2eab13b2262f6b336c3fc9bdcd71fb3dfc5a51a4",
+            pakSha256 = "0c6f717303ac76b91ef0a1bc1b0b3a692827e79aa8513a6c701a41fcab92efd0",
+            sampleRate = rig.Clips.SampleRate,
+            hand = rig.Mesh.JointNames[rig.Hand],
+            defaultWeapon = rig.Weapons[rig.DefaultWeapon].Name,
+            bladeBase = new[] { rig.BladeBase.X, rig.BladeBase.Y, rig.BladeBase.Z },
+            bladeTip = new[] { rig.BladeTip.X, rig.BladeTip.Y, rig.BladeTip.Z },
+            weapons = rig.Weapons.Select(w => new
+            {
+                name = w.Name,
+                vertices = w.Mesh.Vertices.Length,
+                joints = w.Mesh.JointCount,
+                bladeBase = new[] { w.BladeBase.X, w.BladeBase.Y, w.BladeBase.Z },
+                bladeTip = new[] { w.BladeTip.X, w.BladeTip.Y, w.BladeTip.Z },
+            }),
+            attacks,
+        };
+        File.WriteAllText(outPath, JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = false }));
+        Console.WriteLine($"ok: оружия {rig.Weapons.Length} ({string.Join(", ", rig.Weapons.Select(w => w.Name))}), по умолчанию " +
+            $"{rig.Weapons[rig.DefaultWeapon].Name}; ударов {attacks.Count}, окон {attacks.Sum(a => a.windows.Count())} → {outPath}");
+    }
+
+    /// <summary>Хеш кончика клинка по кадрам клипа — копия <c>CharacterRig.Tips</c>, только для диагностики расхождения.</summary>
+    private static string TipsHash(CharacterRig rig, int clip)
+    {
+        var c = rig.Clips.Clips[clip];
+        var rot = new Quaternion[rig.JointCount];
+        var pos = new Vector3[rig.JointCount];
+        var comp = new Matrix4x4[rig.JointCount];
+        ulong h = 14695981039346656037;
+        void Add(float x) => h = (h ^ (uint)BitConverter.SingleToInt32Bits(x)) * 1099511628211;
+        for (int f = 0; f < c.Count; f++)
+        {
+            rig.Clips.Sample(clip, f / rig.Clips.SampleRate, rot, pos);
+            rig.Clips.ToComponent(rot, pos, comp);
+            var tip = Vector3.Transform(rig.BladeTip, comp[rig.Hand]);
+            Add(tip.X); Add(tip.Y); Add(tip.Z);
+        }
+        return h.ToString("X16");
+    }
+}
 
 static class Scenario
 {

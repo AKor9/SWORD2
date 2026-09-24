@@ -9,7 +9,8 @@
 - Чтение — точным числом байт (`Stream.ReadExactly`); обрезанный или противоречивый файл — `InvalidDataException`
   с именем файла, а не `EndOfStreamException` или «успех» (тест `EveryTruncationIsInvalidData`).
 - Формат не выходит за Render: игра грузит ассеты по пути (`Skinned.LoadMesh`), типы форматов в публичном API Render
-  запрещены (`PublicSurfaceTests`).
+  запрещены (`PublicSurfaceTests`). В симуляции меш читают `Engine.Animation` (поза привязки,
+  `Skeleton.WithMeshBindPose`) и `Game.Data` (`WeaponMesh`, 6б: клинок меча по вершинам) — `SkinnedMeshData` наружу не отдают.
 
 `SkinnedMeshData` переписан при точке 1б (чтение и запись потоком, точное чтение), проверки те же, что в SWORD.
 `UiFontFile` — точка 1д: чтение SWORD (`UiVectorFontData`) плюс запись, проверка шрифта из памяти (`Validate`: её

@@ -503,6 +503,10 @@ else {
             elseif (-not $result.arena -or $result.arena.enemies -ne 10 -or $result.arena.skinned -ne 11) {
                 $problems += "арена в кадре: врагов $($result.arena.enemies), отдано скиннингу $($result.arena.skinned); ждали 10 и 11"
             }
+            # Точка 6б: меч в руке у каждого из 11 бойцов — отдан рендеру жёстким вложением в кисть.
+            elseif (-not $result.weapons -or $result.weapons.armed -ne 11 -or $result.weapons.drawn -ne 11) {
+                $problems += "мечи в кадре: в руках $($result.weapons.armed), отдано рендеру $($result.weapons.drawn); ждали 11 и 11"
+            }
             else {
                 # Дополнительные прогоны: вывод — в artifacts/verify/app-smoke, код выхода и итог проверяются.
                 function Invoke-App([string]$Name, [string[]]$Arguments) {
@@ -541,7 +545,7 @@ else {
                 }
                 # Точка 1д: действия screenshot (F4) и hud_help (F1) — удержание нажимает их в первом кадре: ровно один
                 # снимок, справка скрыта. Точка 5в: debug_bodies (F7) — капсулы тел всех 11 бойцов поверх кадра проходом
-                # debug.bodies.
+                # debug.bodies; 6б — с ними клинки всех 11 бойцов (вызов отрезков в том же проходе).
                 $shots = Join-Path $dir 'screenshots'
                 if (Test-Path $shots) { Remove-Item -Recurse -Force $shots }
                 $f4 = Invoke-App 'f4' @('--frames', '5', '--hold', 'screenshot,hud_help,debug_bodies', '--screenshots', "`"$shots`"")
@@ -552,9 +556,10 @@ else {
                     elseif ($files[0].Length -lt 20KB) { $problems += "F4: снимок подозрительно мал: $($files[0].Length) Б" }
                     if ($f4.hud.help -ne $false) { $problems += "F1: справка не скрыта (hud.help = $($f4.hud.help))" }
                     $debugPass = @($f4.report.passes | Where-Object { $_.name -eq 'debug.bodies' })
-                    if (-not $f4.bodies.shown -or $f4.bodies.drawn -ne 143 -or $f4.bodies.capsules -ne 143 -or $debugPass.Count -ne 1 -or $debugPass[0].draws -lt 1) {
-                        $problems += "F7: капсулы тел — показаны $($f4.bodies.shown), нарисовано $($f4.bodies.drawn) из $($f4.bodies.capsules), проходов debug.bodies $($debugPass.Count); ждали 143 капсулы (11 бойцов × 13)"
+                    if (-not $f4.bodies.shown -or $f4.bodies.drawn -ne 143 -or $f4.bodies.capsules -ne 143 -or $debugPass.Count -ne 1 -or $debugPass[0].draws -lt 2) {
+                        $problems += "F7: капсулы тел — показаны $($f4.bodies.shown), нарисовано $($f4.bodies.drawn) из $($f4.bodies.capsules), проходов debug.bodies $($debugPass.Count), вызовов $($debugPass[0].draws); ждали 143 капсулы (11 бойцов × 13) и отрезки клинков"
                     }
+                    elseif (-not $f4.blades.shown -or $f4.blades.drawn -ne 11) { $problems += "F7: клинки — показаны $($f4.blades.shown), нарисовано $($f4.blades.drawn); ждали 11" }
                 }
                 # Точка 1д: без HUD его нет ни в итоге, ни проходом (снимки, сравнимые между прогонами).
                 $bare = Invoke-App 'no-hud' @('--frames', '3', '--no-hud')
@@ -563,12 +568,14 @@ else {
                 # Исправления после Пд: без F7 и заказанного слоя капсулы тел не снимаются (только таз игрока) — 0 в итоге.
                 elseif ($bare.bodies.shown -ne $false -or [int]$bare.bodies.capsules -ne 0 -or [int]$bare.bodies.drawn -ne 0) { $problems += "без F7: капсулы сняты — $($bare.bodies | ConvertTo-Json -Compress)" }
                 # Точка 4а: PageUp и R (удержание нажимает их в первом кадре) — команды арены в записи Sword.exe; Headless
-                # повторяет запись с теми же хешами; врагов 11, кадр рисует 12 бойцов.
+                # повторяет запись с теми же хешами; врагов 11, кадр рисует 12 бойцов. Точка 6б: T — меч игрока следующий
+                # (эталонный пак: sword_1h → sword_dss), в руках у всех 12.
                 $arenaFile = Join-Path $dir 'arena.swreplay'
                 if (Test-Path $arenaFile) { Remove-Item $arenaFile }
-                $arenaRun = Invoke-App 'arena' @('--frames', '30', '--ticks-per-frame', '2', '--hold', 'enemies_more,arena_reset', '--record', "`"$arenaFile`"")
-                if (-not $arenaRun.ok) { $problems += "прогон с --hold enemies_more,arena_reset: $($arenaRun.error)" }
+                $arenaRun = Invoke-App 'arena' @('--frames', '30', '--ticks-per-frame', '2', '--hold', 'enemies_more,arena_reset,next_weapon', '--record', "`"$arenaFile`"")
+                if (-not $arenaRun.ok) { $problems += "прогон с --hold enemies_more,arena_reset,next_weapon: $($arenaRun.error)" }
                 elseif ($arenaRun.arena.enemies -ne 11 -or $arenaRun.arena.skinned -ne 12) { $problems += "PageUp: врагов $($arenaRun.arena.enemies), отдано скиннингу $($arenaRun.arena.skinned); ждали 11 и 12" }
+                elseif ($arenaRun.weapons.player -ne 'sword_dss' -or $arenaRun.weapons.drawn -ne 12) { $problems += "T: меч игрока $($arenaRun.weapons.player), мечей отдано рендеру $($arenaRun.weapons.drawn); ждали sword_dss и 12" }
                 elseif (-not ([System.IO.File]::ReadAllText($arenaFile)).Contains('Sword.Game.Contracts.ArenaCommand')) { $problems += 'в записи Sword.exe нет команд арены' }
                 else {
                     $ErrorActionPreference = 'Continue'
@@ -818,7 +825,7 @@ Add-Step 'agent-smoke' {
         if ($init.result.protocolVersion -ne '2025-06-18') { $problems += "Headless: протокол $($init.result.protocolVersion)" }
         Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
         $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
-        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'physics.bodies', 'state.hash', 'state.describe',
+        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'physics.bodies', 'combat.weapons', 'state.hash', 'state.describe',
                 'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek',
                 'time.break', 'watch.add', 'watch.list', 'watch.remove', 'entity.history', 'events.history', 'world.snapshot', 'world.diff', 'replay.observe',
                 'invariant.list', 'invariant.enable', 'invariant.run', 'invariant.define', 'time.breakOnInvariant',
@@ -853,6 +860,12 @@ Add-Step 'agent-smoke' {
         $capsuleY = @($bodies.capsules)[0].position[1]
         if ($bodies.bodyCount -ne 13 -or -not ($capsuleY -gt 0.5) -or -not ($bodies.fastest.speed -gt 1)) {
             $problems += "Headless: physics.bodies — тел $($bodies.bodyCount), таз на $capsuleY м, быстрее всех $($bodies.fastest | ConvertTo-Json -Compress)"
+        }
+        # Точка 6б: меч игрока — sword_1h (combat.playerWeapon по умолчанию), клинок им, кончик бегущего движется; удары slash1–4, stab1–3.
+        $combat = Call-Stdio 'combat.weapons' @{ entity = 'player' }
+        $mine = @($combat.fighters)[0]
+        if ($mine.weapon -ne 'sword_1h' -or $mine.bladeWeapon -ne 'sword_1h' -or -not ($mine.tipTravel -gt 0) -or @($combat.weapons).Count -lt 1 -or @($combat.attacks).Count -ne 7) {
+            $problems += "Headless: combat.weapons — $($combat | ConvertTo-Json -Compress -Depth 4)"
         }
         # Этап 3б: запись сеанса, перемотка назад и вперёд к тому же хешу, новая симуляция из реплея, сверка реплея.
         $saved = Call-Stdio 'replay.save' @{ name = 'smoke' }

@@ -205,8 +205,9 @@ public sealed class EnemyTurnTests
     {
         var sim = Create();
         var p = GameCore.Player(sim.World);
-        Assert.False(sim.World.Has<AnimatorAction>(p));
-        Assert.False(sim.World.Has<ActionPoses>(p));
+        // 6б: слой действий есть и у игрока, но без действий (удары — 6в): поворот — контроллером, клипом — никогда.
+        Assert.Equal(AnimatorAction.None, sim.World.Get<AnimatorAction>(p));
+        Assert.True(sim.World.Get<ActionPoses>(p).Layer.IsNone);
         // взгляд назад стоя: 12 рад/с сразу, без клипа
         sim.Enqueue(new PlayerCommand { HasGaze = true, Gaze = new Vector3(0, 0, -10) });
         sim.Step();
@@ -431,7 +432,7 @@ public sealed class EnemyTurnTests
             Assert.True(action["yawDelta"]!.GetValue<double>() > 0);
             Assert.InRange(action["weight"]!.GetValue<double>(), 0.5, 1);
             var player = await Call("anim.pose", new JsonObject { ["joints"] = new JsonArray("pelvis") });
-            Assert.Null(player["action"]);
+            Assert.Equal("None", player["action"]!["kind"]!.GetValue<string>());   // 6б: слой у игрока есть, действий нет
             var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "AnimatorAction" });
             Assert.Contains("YawDelta", describe.ToJsonString());
             Assert.Contains("animation.actions", (await Call("invariant.list")).ToJsonString());

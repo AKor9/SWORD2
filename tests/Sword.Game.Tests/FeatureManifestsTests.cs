@@ -54,7 +54,7 @@ public sealed class FeatureManifestsTests
         foreach (string feature in features)
             Assert.True(File.Exists(Path.Combine(RepoRoot(), "game", "Sword.Game", "Features", feature, FeatureManifest.FileName)),
                 $"у фичи {feature} нет {FeatureManifest.FileName} (раздел 12 плана: без манифеста фича не принимается)");
-        Assert.Equal(["animation", "bodies", "control", "determinism", "enemies", "movement", "profiler", "tools"], manifests.Select(m => m.Id));
+        Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "movement", "profiler", "tools"], manifests.Select(m => m.Id));
         foreach (var m in manifests)
         {
             Assert.True(File.Exists(m.Doc), $"{m.Id}: нет {m.Doc}");

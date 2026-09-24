@@ -321,8 +321,8 @@
           "condition": { "all": [{ "entity": "enemy 1" }, { "field": "AnimatorAction.Kind", "equals": "None" }] }
         },
         {
-          "id": "player-agile", "title": "у игрока (Agile) слоя действий нет", "expect": "always",
-          "condition": { "none": { "all": [{ "component": "PlayerTag" }, { "component": "AnimatorAction" }] } }
+          "id": "player-agile", "title": "у игрока (Agile) действий слоя нет — поворот клипом только у врагов (с 6б слой у игрока есть, пустой)", "expect": "always",
+          "condition": { "none": { "all": [{ "component": "PlayerTag" }, { "not": { "field": "AnimatorAction.Kind", "equals": "None" } }] } }
         }
       ]
     },

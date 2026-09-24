@@ -18,6 +18,7 @@ public static class SwordAgent
         host.Fields = new BodyFields();
         AnimationTools.Register(host);
         PhysicsTools.Register(host);
+        CombatTools.Register(host);
     }
 
     /// <summary>

@@ -378,7 +378,8 @@ public sealed class GameInvariantTests
         // другой: NaN корня с 5б доходит до капсул и physics.finite видит его после Physics, до ecs.finite в конце тика).
         var first = sim.Invariants.Recent().First(v => v.Id == id);
         Assert.Equal((id, GameFaultModule.Tick, stage), (first.Id, first.Tick, first.Stage));
-        Assert.Contains(details, first.Details);
+        // Подробность — у одного из нарушений этой проверки (NaN корня с 6б уходит и в клинок: ecs.finite называет и Blade).
+        Assert.Contains(sim.Invariants.Recent(), v => v.Id == id && v.Tick == first.Tick && v.Details.Contains(details));
     }
 
     /// <summary>
@@ -403,7 +404,8 @@ public sealed class GameInvariantTests
         }
         var first = sim.Invariants.Recent().First(v => v.Id == "ecs.finite");
         Assert.Equal(GameFaultModule.Tick + 3, first.Tick);   // 28 — ближайшая проверка раз в 4 после тика 25
-        Assert.Contains("Transform.Position.X = NaN", first.Details);
+        // К тику 28 NaN корня разошёлся по клинку (6б) и прошлому корню — подробностей больше 8, корня среди них может не быть.
+        Assert.Contains("= NaN", first.Details);
         Assert.Equal(8, sim.Invariants.Find("ecs.finite")!.Evaluations);              // тики 0, 4, …, 28
         Assert.Equal(29, sim.Invariants.Find("movement.rootOverlap")!.Evaluations);   // каждый тик: счёт тиков подряд
     }
@@ -431,7 +433,7 @@ public sealed class GameInvariantTests
     public void FairGame_NoViolations_AllCoreInvariantsChecked()
     {
         var sim = TestAssets.Simulation();
-        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "locomotion.poses"],
+        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "combat.blade", "combat.weapons", "locomotion.poses"],
             sim.Invariants.List().Select(i => i.Id));
         for (int t = 0; t < 400; t++)
         {

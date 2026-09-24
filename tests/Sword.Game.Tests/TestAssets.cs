@@ -90,8 +90,11 @@ public static class TestAssets
         };
     }
 
-    /// <summary>Контент: скелет, меш, клипы; <paramref name="actionsJson"/> — combat/actions.json (null — нет файла).</summary>
-    public static MemorySource Content(string? actionsJson = null)
+    /// <summary>
+    /// Контент: скелет, меш, клипы, мечи (6б; <paramref name="weapons"/> false — без них); <paramref name="actionsJson"/> —
+    /// combat/actions.json (null — нет файла).
+    /// </summary>
+    public static MemorySource Content(string? actionsJson = null, bool weapons = true)
     {
         var content = new MemorySource("тест");
         content.Add("skeletons/ue5_manny.swskeleton", new SkeletonFile { Id = "ue5_manny", JointNames = Joints, JointParents = Parents }.Write);
@@ -113,8 +116,26 @@ public static class TestAssets
         content.Add("anim/sword_1h/1HM_TurnRight90.swclip", TurnClip(n++, TurnRightYaw).Write);
         content.Add("anim/sword_1h/1HM_Turn180.swclip", TurnClip(n++, Turn180Yaw).Write);
         if (actionsJson is not null) content.Add("combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
+        // Оружие (6б): два статических меша в системе кисти — по алфавиту katana (0), sword_1h (1, меч по умолчанию).
+        if (!weapons) return content;
+        content.Add("weapons/sword_1h.swmesh", Weapon(SwordTip).Write);
+        content.Add("weapons/katana.swmesh", Weapon(KatanaTip).Write);
         return content;
     }
+
+    /// <summary>Кончики клинков тестовых мечей в системе кисти: самая дальняя вершина меша.</summary>
+    public static readonly Vector3 SwordTip = new(-0.2f, 1.0f, -0.1f), KatanaTip = new(-0.1f, 0.9f, 0);
+
+    /// <summary>Статический меш меча: гарда у кисти и клинок до <paramref name="tip"/> (вершины — ближе кончика).</summary>
+    public static SkinnedMeshData Weapon(Vector3 tip) => new()
+    {
+        Vertices =
+        [
+            new SkinVertex { Position = new Vector3(0.05f, 0.1f, 0) }, new SkinVertex { Position = new Vector3(-0.05f, 0.1f, 0) },
+            new SkinVertex { Position = tip * 0.5f }, new SkinVertex { Position = tip },
+        ],
+        Indices = [0, 1, 2, 1, 3, 2],
+    };
 
     private static CharacterAssets? _shared;
 

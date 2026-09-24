@@ -3,14 +3,17 @@ namespace Sword.Game.Contracts;
 /// <summary>
 /// Сегменты тела бойца — номера SWORD 2eab13b (<c>Sword.Combat.BodySegs</c>, константы <c>Fighter</c>). Номер сегмента —
 /// идентификатор для всех, кто говорит о части тела: тела сочленения (<see cref="BodyRef"/>), позже маска отрубленного,
-/// попадания, ID-буфер снимка, трассы SWORD. Номера не сдвигаются: 11 — клинок SWORD (<c>Weapon</c>), он приходит с оружием
-/// (этап 6) и здесь не объявлен; тела клинка у бойца нет, поэтому в сочленении бойца <see cref="Bodies"/> тел, и тело
-/// <c>i</c> — сегмент <see cref="Segment"/>(i).
+/// попадания, ID-буфер снимка, трассы SWORD. Номера не сдвигаются: 11 — клинок SWORD (<c>Weapon</c>, этап 6б: отрезок
+/// <see cref="Blade"/> и пиксели меча в ID-буфере); физического тела клинка у бойца нет (этап 7), поэтому в сочленении бойца
+/// <see cref="Bodies"/> тел, и тело <c>i</c> — сегмент <see cref="Segment"/>(i).
 /// </summary>
 public static class BodySegs
 {
     public const int Pelvis = 0, Torso = 1, Head = 2, UArmL = 3, FArmL = 4, UArmR = 5, FArmR = 6,
         ThighL = 7, ShinL = 8, ThighR = 9, ShinR = 10, FootL = 12, FootR = 13;
+
+    /// <summary>Клинок (<c>Fighter.Weapon</c> SWORD): тела нет (<see cref="Body"/> — −1), есть отрезок <see cref="Blade"/> и меч на экране.</summary>
+    public const int Weapon = 11;
 
     /// <summary>Номеров сегментов — 0…13, как <c>BodySegs.Count</c> SWORD (с номером клинка 11).</summary>
     public const int Count = 14;
@@ -47,10 +50,11 @@ public static class BodySegs
         ShinR => "shin.r",
         FootL => "foot.l",
         FootR => "foot.r",
+        Weapon => "blade",
         _ => segment.ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
 
-    /// <summary>Сегмент по имени <see cref="Name"/> (без учёта регистра); нет такого — −1.</summary>
+    /// <summary>Сегмент тела по имени <see cref="Name"/> (без учёта регистра; только сегменты с телом — не клинок); нет такого — −1.</summary>
     public static int Find(string name)
     {
         for (int body = 0; body < Bodies; body++)
@@ -74,6 +78,7 @@ public static class BodySegs
         ShinR => "правая голень",
         FootL => "левая стопа",
         FootR => "правая стопа",
+        Weapon => "клинок",
         _ => segment.ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
 }

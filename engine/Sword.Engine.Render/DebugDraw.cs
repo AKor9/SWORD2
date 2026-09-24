@@ -29,7 +29,8 @@ internal struct DebugCapsule
 /// Отладочное рисование (раздел 6 плана, фаза Debug — после сцены): отрезки, капсулы и текст в мире для диагностики фич.
 /// Кадр копит примитивы (<see cref="Line"/>, <see cref="Capsule"/>, <see cref="Text"/>) прямо в кольца кадра, проход
 /// (<see cref="AddPass"/>) рисует всё накопленное поверх цели — заднего буфера или слоя снимка
-/// (<see cref="RenderFrame.CaptureLayer"/>); проходов в кадре может быть несколько, накопленное — одно. Глубины сцены нет:
+/// (<see cref="RenderFrame.CaptureLayer"/>); проходов в кадре может быть несколько, накопленное — одно: проход рисует накопленное
+/// к его регистрации, с начала кадра или с отметки (<see cref="Mark"/>: слой снимка одного оверлея — 6б). Глубины сцены нет:
 /// примитивы видны сквозь геометрию («рентген» поверх персонажей). Капсулы — полупрозрачные, с плотной кромкой (видны и
 /// одна поверх другой), без вершинного буфера: сетка — из SV_VertexID; отрезки — поверх капсул. Текст — проекцией точки
 /// мира на экран, UI-проходом (<see cref="UiPass"/>, шрифты пака). Цвет — <c>0xAABBGGRR</c>, как у интерфейса.
@@ -37,6 +38,12 @@ internal struct DebugCapsule
 /// </summary>
 public sealed class DebugDraw : IDisposable
 {
+    /// <summary>
+    /// Отметка накопленного (<see cref="Mark"/>): проход с ней (<see cref="AddPass"/>, <c>since</c>) рисует только добавленное после
+    /// неё — у каждого оверлея свой слой снимка, хотя кадр копит всё в одних кольцах. По умолчанию — начало кадра.
+    /// </summary>
+    public readonly record struct DebugMark(int LineVertices, int Capsules, int Texts);
+
     /// <summary>Вершин отрезков (по две на отрезок), капсул и подписей на кадр.</summary>
     public const uint MaxLineVertices = 1 << 17, MaxCapsules = 4096;
 
@@ -50,8 +57,11 @@ public sealed class DebugDraw : IDisposable
 
     public const uint CapsuleVertices = (2 * CapsuleRings + 1) * CapsuleAround * 6;
 
-    /// <summary>Слоты корневых констант прохода: матрица вида-проекции — 16 подряд, глаз — 3 подряд, кольца кадра.</summary>
-    private const int SlotViewProj = 0, SlotEye = 16, SlotLines = 19, SlotCapsules = 20;
+    /// <summary>
+    /// Слоты корневых констант прохода: матрица вида-проекции — 16 подряд, глаз — 3 подряд, кольца кадра, первая вершина отрезков
+    /// и первая капсула прохода (с отметки).
+    /// </summary>
+    private const int SlotViewProj = 0, SlotEye = 16, SlotLines = 19, SlotCapsules = 20, SlotLineBase = 21, SlotCapsuleBase = 22;
 
     private const string Shader = "common/debug.hlsl";
     private static readonly GraphicsPipelineDesc Capsules = new(Shader, "VsCapsule", "PsCapsule", BlendMode.Alpha);
@@ -67,12 +77,12 @@ public sealed class DebugDraw : IDisposable
     private readonly Work[] _work = new Work[MaxPassesPerFrame];
     private readonly Action<RenderPassContext>[] _record = new Action<RenderPassContext>[MaxPassesPerFrame];
 
-    /// <summary>Работа одного прохода кадра: камера и сколько примитивов было накоплено к его регистрации.</summary>
+    /// <summary>Работа одного прохода кадра: камера и какие примитивы рисовать — с отметки до накопленного к его регистрации.</summary>
     private sealed class Work
     {
         public Matrix4x4 ViewProj;
         public Vector3 Eye;
-        public int LineVertices, Capsules;
+        public int LineStart, LineVertices, CapsuleStart, Capsules;
     }
 
     internal DebugDraw(Renderer renderer)
@@ -98,6 +108,8 @@ public sealed class DebugDraw : IDisposable
         c.AddSlot("DEBUG_EYE_Z", SlotEye + 2);
         c.AddSlot("DEBUG_LINES", SlotLines, "вершины отрезков (кольцо кадра)");
         c.AddSlot("DEBUG_CAPSULES", SlotCapsules, "капсулы (кольцо кадра)");
+        c.AddSlot("DEBUG_LINE_BASE", SlotLineBase, "первая вершина отрезков прохода (отметка)");
+        c.AddSlot("DEBUG_CAPSULE_BASE", SlotCapsuleBase, "первая капсула прохода (отметка)");
         c.AddSize<DebugVertex>("DEBUG_VERTEX_SIZE");
         c.AddSize<DebugCapsule>("DEBUG_CAPSULE_SIZE");
     }
@@ -109,6 +121,9 @@ public sealed class DebugDraw : IDisposable
 
     /// <summary>В этом кадре нечего рисовать.</summary>
     public bool IsEmpty => _lineVertices == 0 && _capsuleCount == 0 && _textCount == 0;
+
+    /// <summary>Отметка накопленного сейчас: проход с ней рисует только то, что добавят после.</summary>
+    public DebugMark Mark() => new(_lineVertices, _capsuleCount, _textCount);
 
     /// <summary>Отрезок мира <paramref name="a"/>–<paramref name="b"/>.</summary>
     public void Line(Vector3 a, Vector3 b, uint colour)
@@ -160,36 +175,43 @@ public sealed class DebugDraw : IDisposable
     }
 
     /// <summary>
-    /// Проход «всё накопленное поверх <paramref name="target"/>» (цель размера кадра) камерой <paramref name="viewProj"/>
-    /// (вектор слева, как <c>Matrix4x4</c>) с глазом <paramref name="eye"/>; подписи — UI-проходом следом за ним.
+    /// Проход «накопленное поверх <paramref name="target"/>» (цель размера кадра) камерой <paramref name="viewProj"/>
+    /// (вектор слева, как <c>Matrix4x4</c>) с глазом <paramref name="eye"/>; подписи — UI-проходом следом за ним. Рисуется
+    /// накопленное к этому вызову с отметки <paramref name="since"/> (по умолчанию — с начала кадра).
     /// <paramref name="clear"/> — очистить цель этим цветом (слой снимка: прозрачный); тогда проход есть, даже если рисовать
     /// нечего. Без очистки и без накопленного — прохода нет.
     /// </summary>
-    public void AddPass(RenderFrame frame, RenderTexture target, in Matrix4x4 viewProj, Vector3 eye, string name = "debug", Vector4? clear = null)
+    public void AddPass(RenderFrame frame, RenderTexture target, in Matrix4x4 viewProj, Vector3 eye, string name = "debug", Vector4? clear = null,
+        DebugMark since = default)
     {
-        if (IsEmpty && clear is null) return;
+        int lineStart = Math.Clamp(since.LineVertices, 0, _lineVertices), capsuleStart = Math.Clamp(since.Capsules, 0, _capsuleCount);
+        int textStart = Math.Clamp(since.Texts, 0, _textCount);
+        bool shapes = _lineVertices > lineStart || _capsuleCount > capsuleStart;
+        if (!shapes && _textCount == textStart && clear is null) return;
         if (_passes == MaxPassesPerFrame) throw new InvalidOperationException($"проходов отладочного рисования в кадре больше {MaxPassesPerFrame}");
-        if (_lineVertices > 0 || _capsuleCount > 0 || clear is not null)
+        if (shapes || clear is not null)
         {
             var work = _work[_passes];
             work.ViewProj = viewProj;
             work.Eye = eye;
+            work.LineStart = lineStart;
             work.LineVertices = _lineVertices;
+            work.CapsuleStart = capsuleStart;
             work.Capsules = _capsuleCount;
             frame.Graph.AddPass(name).Color(target, clear).Execute(_record[_passes]);
             _passes++;
         }
-        if (_textCount > 0) AddText(frame, target, viewProj, name + ".text");
+        if (_textCount > textStart) AddText(frame, target, viewProj, name + ".text", textStart);
     }
 
-    /// <summary>Подписи: точки мира — в пиксели кадра (за камерой — не рисуются), строки — UI-проходом поверх цели.</summary>
-    private void AddText(RenderFrame frame, RenderTexture target, in Matrix4x4 viewProj, string name)
+    /// <summary>Подписи с <paramref name="start"/>: точки мира — в пиксели кадра (за камерой — не рисуются), строки — UI-проходом поверх цели.</summary>
+    private void AddText(RenderFrame frame, RenderTexture target, in Matrix4x4 viewProj, string name, int start)
     {
         var ui = _renderer.Ui;
         _textList ??= ui.CreateDrawList();
         _textList.Clear();
         int w = frame.Width, h = frame.Height;
-        for (int i = 0; i < _textCount; i++)
+        for (int i = start; i < _textCount; i++)
         {
             var (world, text, colour, size) = _texts[i];
             var c = Vector4.Transform(new Vector4(world, 1), viewProj);
@@ -220,15 +242,17 @@ public sealed class DebugDraw : IDisposable
         ctx.SetConstant(SlotEye + 2, work.Eye.Z);
         ctx.SetConstant(SlotLines, _lines.Srv);
         ctx.SetConstant(SlotCapsules, _capsules.Srv);
-        if (work.Capsules > 0)
+        ctx.SetConstant(SlotLineBase, work.LineStart);
+        ctx.SetConstant(SlotCapsuleBase, work.CapsuleStart);
+        if (work.Capsules > work.CapsuleStart)
         {
             ctx.SetPipeline(Capsules);
-            ctx.Draw(CapsuleVertices, (uint)work.Capsules);
+            ctx.Draw(CapsuleVertices, (uint)(work.Capsules - work.CapsuleStart));
         }
-        if (work.LineVertices > 0)
+        if (work.LineVertices > work.LineStart)
         {
             ctx.SetPipeline(Lines);
-            ctx.Draw((uint)work.LineVertices);
+            ctx.Draw((uint)(work.LineVertices - work.LineStart));
         }
     }
 

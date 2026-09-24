@@ -217,9 +217,9 @@ public static class AnimationInvariants
         }
     }
     /// <summary>
-    /// <c>animation.actions</c> (4г) — слой действий аниматора согласован: у бойца не-<c>Agile</c> (без <see cref="PlayerTag"/>)
-    /// он есть (<see cref="AnimatorAction"/> и <see cref="ActionPoses"/>) — иначе боец не поворачивает и не разгоняется
-    /// (<c>RootSteerSystem</c> ведёт не-<c>Agile</c> только со слоем); состояние и поза — вместе; вес в 0…1, числа конечны;
+    /// <c>animation.actions</c> (4г; с 6б — все бойцы) — слой действий аниматора согласован: у каждого бойца (враг с 4г, игрок с
+    /// 6б) он есть (<see cref="AnimatorAction"/> и <see cref="ActionPoses"/>) — иначе враг не поворачивает и не разгоняется
+    /// (<c>RootSteerSystem</c> ведёт не-<c>Agile</c> только со слоем), а удары этапа 6 игроку некуда ставить; состояние и поза — вместе; вес в 0…1, числа конечны;
     /// клип задан тогда и только тогда, когда действие идёт; без действия вес 0; поворот — клипом поворота с растяжением
     /// 0,5…1,6; поза слоя — живая, своя и не итоговая поза бойца; идёт действие — поза уже взята. В конце тика.
     /// </summary>
@@ -236,7 +236,7 @@ public static class AnimationInvariants
         public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
         {
             var world = ctx.World;
-            _steady ??= world.Query().With<Fighter>().Without<PlayerTag>();
+            _steady ??= world.Query().With<Fighter>();
             _states ??= world.Query().Read<AnimatorAction>();
             int capacity = pool.Capacity;
             if (_owner.Length < capacity) _owner = new Entity[capacity];
@@ -246,7 +246,8 @@ public static class AnimationInvariants
                 foreach (var e in chunk.Entities)
                 {
                     if (world.Has<AnimatorAction>(e) && world.Has<ActionPoses>(e)) continue;
-                    violations.Report(e, "боец не-Agile без слоя действий (AnimatorAction и ActionPoses) — курс и скорость ему не считаются");
+                    violations.Report(e, world.Has<PlayerTag>(e) ? "игрок без слоя действий (AnimatorAction и ActionPoses)"
+                        : "боец не-Agile без слоя действий (AnimatorAction и ActionPoses) — курс и скорость ему не считаются");
                     if (violations.Full) return;
                 }
             foreach (var chunk in world.Iterate(_states))

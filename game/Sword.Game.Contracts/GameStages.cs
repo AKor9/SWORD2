@@ -32,8 +32,10 @@ public static class GameLabels
     public static readonly SystemLabel EnemyAi = new("core.enemy-ai");
 
     /// <summary>
-    /// Intent: команды арены (<c>ArenaCommand</c>) — спаун и удаление врагов, сброс. Новые бойцы появляются на барьере
-    /// Intent со всеми компонентами бойца; позу им заводит <see cref="FighterSetup"/>.
+    /// Begin, после <see cref="PrevTransform"/> (с 6б; на этапах 4–6а — Intent): команды арены (<c>ArenaCommand</c>) — спаун и
+    /// удаление врагов, сброс, меч игрока. Новые и построенные заново бойцы появляются на барьере Begin со всеми компонентами
+    /// бойца — Intent того же тика (команда игрока, ИИ врагов) видит арену после команд, как <c>Think</c> SWORD после
+    /// <c>SetEnemyCount</c>/<c>Reset</c>; позу им заводит <see cref="FighterSetup"/>.
     /// </summary>
     public static readonly SystemLabel ArenaCommand = new("core.arena-command");
 
@@ -82,6 +84,18 @@ public static class GameLabels
     /// 5б), скорости — разностью с прошлой постановкой.
     /// </summary>
     public static readonly SystemLabel KinematicPlacement = new("core.kinematic-placement");
+
+    /// <summary>
+    /// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, после <see cref="BodySetup"/> (6б): построенному бойцу — клинок по позе
+    /// постройки в корне постройки без прошлого (<c>PlaceBuilt</c> SWORD: первая постановка — <c>KinPrevBase = KinBase</c>).
+    /// </summary>
+    public static readonly SystemLabel BladeSetup = new("core.blade-setup");
+
+    /// <summary>
+    /// PrePhysics, после <see cref="KinematicPlacement"/> (6б): клинок бойца — по модельной матрице кисти позы тика в мире бойца
+    /// (<c>anim.Blade</c> в <c>PlaceBodies</c> SWORD), прошлый — клинок прошлого тика (сменился меч — прошлое = нынешнему).
+    /// </summary>
+    public static readonly SystemLabel BladePlacement = new("core.blade-placement");
 
     /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
     public static readonly SystemLabel ActionRelease = new("core.action-release");

@@ -11,10 +11,13 @@ namespace Sword.Game.Client;
 /// высота тела на рельефе — уже интерполированные по доле тика; поза последнего тика —
 /// <see cref="PoseCount"/> модельных матриц с <see cref="PoseStart"/> в снимке кадра (<see cref="ArenaView.Pose"/>),
 /// 0 — позы нет (рисуется поза привязки); капсулы тела, как показан боец, — <see cref="BodyCount"/> с
-/// <see cref="BodyStart"/> (<see cref="ArenaView.Body"/>, 5в).
+/// <see cref="BodyStart"/> (<see cref="ArenaView.Body"/>, 5в); меч в руке (6б) — номер <see cref="Weapon"/> в таблице оружия
+/// (−1 — меча нет) и мир его меша <see cref="WeaponWorld"/> (кисть позы, как показан боец); клинок, как показан боец, —
+/// <see cref="Blade"/> (только когда его рисуют).
 /// </summary>
 public readonly record struct FighterView(Entity Entity, bool IsPlayer, Vector3 Root, float Facing, float Height,
-    int PoseStart = 0, int PoseCount = 0, int Slot = 0, int BodyStart = 0, int BodyCount = 0)
+    int PoseStart = 0, int PoseCount = 0, int Slot = 0, int BodyStart = 0, int BodyCount = 0, int Weapon = -1,
+    Matrix4x4 WeaponWorld = default, ShownBlade? Blade = null)
 {
     /// <summary>Мировая система скелета (<c>DuelArena.KinWorld</c> SWORD): поворот на курс, перенос в корень на высоте.</summary>
     public Matrix4x4 World => ArenaView.FighterWorld(Root, Facing, Height);
@@ -32,6 +35,14 @@ public readonly record struct ShownCapsule(int Segment, Vector3 Center, Quaterni
 }
 
 /// <summary>
+/// Клинок бойца в кадре (6б, оверлей <c>blades</c>): основание и кончик тика и прошлого тика (<see cref="Contracts.Blade"/>),
+/// перенесённые из мира бойца на тике в показанный (<see cref="ArenaView.Carry"/>, как капсулы) — при доле тика 1 ровно клинок
+/// симуляции. Прошлый переносится тем же переносом (мир бойца прошлого тика не хранится): это отрезок, который клинок заметает
+/// за тик, относительно показанного бойца.
+/// </summary>
+public readonly record struct ShownBlade(Vector3 Base, Vector3 Tip, Vector3 PrevBase, Vector3 PrevTip);
+
+/// <summary>
 /// Мир представления арены (Extract, раздел 7 плана): что рисует кадр. Бойцы появляются и уходят по экспорту тика
 /// (<c>Added&lt;Fighter&gt;</c>/<c>Removed&lt;Fighter&gt;</c> из очереди кадра), их корни — из мира симуляции между
 /// прошлым и последним тиком по доле тика (<c>SkinCutPose.DrawnJoints</c> SWORD: корень — линейно, курс — по короткой
@@ -42,7 +53,9 @@ public readonly record struct ShownCapsule(int Segment, Vector3 Center, Quaterni
 /// таз, как его показывает кадр; фокус камеры — таз между прошлой и нынешней постановкой по доле тика (<c>Program.cs</c>
 /// SWORD). Рендер читает только этот мир; кадр без выделений памяти (буферы растут удвоением и остаются). Исправления после Пд:
 /// капсулы всех бойцов снимаются, только когда нужны (<c>allBodies</c>: F7, <c>--overlay capsules</c>, слой снимка), иначе —
-/// только таз игрока (камера, тень, кольцо): 429 капсул скрытых тел — 0,016 мс CPU кадра впустую.
+/// только таз игрока (камера, тень, кольцо): 429 капсул скрытых тел — 0,016 мс CPU кадра впустую. 6б: меч в руке — мир меша
+/// оружия — модельная матрица кисти позы тика в показанном мире бойца (<c>SkinCutPose.WeaponWorld</c> SWORD: кисть из
+/// <c>DrawnJoints</c>): меч идёт с кистью Manny без отставания; клинки (оверлей <c>blades</c>) — только когда их рисуют.
 /// </summary>
 public sealed class ArenaView
 {
@@ -102,6 +115,13 @@ public sealed class ArenaView
     /// <summary>Капсул тел в кадре.</summary>
     public int BodyCount { get; private set; }
 
+    /// <summary>Бойцов кадра с мечом в руке и клинков, снятых кадром (6б).</summary>
+    public int WeaponCount { get; private set; }
+    public int BladeCount { get; private set; }
+
+    /// <summary>Модельная матрица кисти позы привязки — меч бойца, у которого позы ещё нет (до первого тика).</summary>
+    private Matrix4x4 _referenceHand = Matrix4x4.Identity;
+
     /// <summary>Доля тика кадра.</summary>
     public float Alpha { get; private set; } = 1;
 
@@ -121,7 +141,8 @@ public sealed class ArenaView
     /// Капсулы тел всех бойцов (их рисуют — F7, <c>--overlay capsules</c> — или заказан слой снимка); false — только таз игрока
     /// (<see cref="PlayerMarker"/>, <see cref="PlayerFocus"/> — те же числа), у бойцов кадра капсул нет (<see cref="BodyCount"/> 0).
     /// </param>
-    public void Extract(SimulationLink simulation, float alpha, bool allBodies = true)
+    /// <param name="blades">Клинки бойцов (F7, <c>--overlay blades</c>, слой снимка); false — у бойцов кадра клинка нет.</param>
+    public void Extract(SimulationLink simulation, float alpha, bool allBodies = true, bool blades = false)
     {
         var world = simulation.World;
         ApplyFighterRecords(simulation.Frame<Added<Fighter>>(), simulation.Frame<Removed<Fighter>>());
@@ -141,8 +162,11 @@ public sealed class ArenaView
         _views.Clear();
         world.TryView<IAnimationView>(out var poses);
         world.TryView<IBodyView>(out var bodies);
+        world.TryView<ICombatView>(out var combat);
+        int hand = combat?.HandJoint ?? -1;
+        if (hand >= 0 && poses is not null && poses.ReferenceModel() is var reference && hand < reference.Length) _referenceHand = reference[hand];
         var profiler = _profiler;
-        int posed = 0, bodied = 0;
+        int posed = 0, bodied = 0, armed = 0, bladed = 0;
         foreach (var e in _fighters)
         {
             if (!world.TryGet<Transform>(e, out var cur) || !world.TryGet<PrevTransform>(e, out var prev))
@@ -162,6 +186,18 @@ public sealed class ArenaView
                 posed += model.Length;
             }
             profiler.End(_posesZone);
+            // Меч — жёсткое вложение в кисть позы тика в показанном мире (как меш); позы нет — кисть позы привязки.
+            if (hand >= 0 && world.TryGet<WeaponSlot>(e, out var weapon) && (uint)weapon.Index < (uint)combat!.Weapons.Length)
+            {
+                var handModel = view.PoseCount > hand ? _poses[view.PoseStart + hand] : _referenceHand;
+                view = view with { Weapon = weapon.Index, WeaponWorld = handModel * view.World };
+                armed++;
+                if (blades && world.TryGet<Blade>(e, out var blade) && blade.Weapon >= 0)
+                {
+                    view = view with { Blade = CarryBlade(blade, cur, view) };
+                    bladed++;
+                }
+            }
             // Тело — постановка последнего тика в мире, где кадр показывает бойца (как меш): без отставания от персонажа.
             profiler.Begin(_bodiesZone);
             if (!allBodies)
@@ -194,6 +230,18 @@ public sealed class ArenaView
             }
         }
         BodyCount = bodied;
+        WeaponCount = armed;
+        BladeCount = bladed;
+    }
+
+    /// <summary>Клинок тика и прошлого тика в показанном мире бойца (<see cref="ShownBlade"/>).</summary>
+    private ShownBlade CarryBlade(in Blade blade, in Transform cur, in FighterView view)
+    {
+        var tickWorld = FighterWorld(cur.Position, cur.Facing, _height(cur.Position.X, cur.Position.Z));
+        Matrix4x4.Invert(tickWorld, out var back);
+        var carry = back * view.World;
+        return new ShownBlade(Vector3.Transform(blade.Base, carry), Vector3.Transform(blade.Tip, carry),
+            Vector3.Transform(blade.PrevBase, carry), Vector3.Transform(blade.PrevTip, carry));
     }
 
     /// <summary>

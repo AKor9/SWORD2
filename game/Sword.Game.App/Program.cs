@@ -75,7 +75,8 @@ public static partial class Program
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
           F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, последняя
           аномалия, строка среды; включает профайлер); F4 — снимок; Esc — выход;
-          PageUp/PageDown — врагов ±1, R — сброс арены (команды арены — в реплее); F7 — капсулы тел поверх персонажей.
+          PageUp/PageDown — врагов ±1, R — сброс арены, T — следующий меч (команды арены — в реплее); F7 — капсулы тел
+          и клинки поверх персонажей.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
@@ -92,7 +93,8 @@ public static partial class Program
           --screenshots DIR куда класть снимки F4 (по умолчанию screenshots в текущем каталоге)
           --no-hud          без HUD (FPS, справка): снимки, сравнимые между прогонами
           --overlay NAME    отладочный оверлей поверх кадра с первого кадра (можно несколько раз): capsules — капсулы тел
-                            бойцов (как F7); так снимаются виды фичи с оверлеем (views[].overlays манифеста)
+                            бойцов (как F7), blades — клинки (отрезок тика, прошлого тика и пройденное за тик); так
+                            снимаются виды фичи с оверлеем (views[].overlays манифеста)
           --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
                             снимок кадра; порт — --agent-port N (по умолчанию 47813)
           --bench N         бенч кадра: N с игрового времени (первые 4 — прогрев), затем выход с итогом (кадр ср.,
@@ -178,7 +180,7 @@ public static partial class Program
             if (options.Overlays.FirstOrDefault(o => !ArenaClient.KnownOverlays.Contains(o)) is { } unknown)
                 throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
-                showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay));
+                showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay));
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions], config);
             arena.UseBindings(bindings.Keys);
             if (options.Bench > 0) arena.Hud.ShowHelp = false;   // SWORD: ShowHelp = !bench
@@ -301,6 +303,10 @@ public static partial class Program
                     // Капсулы тел (5в): показаны ли поверх персонажей (F7, --overlay capsules), сколько нарисовано в последнем
                     // кадре и сколько капсул у бойцов кадра.
                     bodies = new { shown = arena.ShowBodies, drawn = arena.DrawnCapsules, capsules = arena.View.BodyCount },
+                    // Оружие (6б): мечей в руках бойцов кадра и отданных рендеру, клинков оверлея (F7, --overlay blades) — показаны ли и
+                    // сколько нарисовано.
+                    weapons = new { armed = arena.View.WeaponCount, drawn = arena.DrawnWeapons, player = arena.PlayerWeapon },
+                    blades = new { shown = arena.ShowBodies || arena.ShowBlades, drawn = arena.DrawnBlades },
                     recorded = recorded is null ? null : new
                     {
                         file = Path.GetFullPath(options.Record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count,
