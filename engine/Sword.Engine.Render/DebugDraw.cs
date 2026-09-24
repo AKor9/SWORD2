@@ -49,8 +49,11 @@ public sealed class DebugDraw : IDisposable
 
     public const int MaxTexts = 512;
 
-    /// <summary>Проходов отладочного рисования в кадре не больше: работа прохода — заранее созданные делегаты.</summary>
-    public const int MaxPassesPerFrame = 4;
+    /// <summary>
+    /// Проходов отладочного рисования в кадре не больше: работа прохода — заранее созданные делегаты. 7и: слои снимка арены —
+    /// капсулы, клинки, контакты, суставы — и проход на экран: нужно 5 (было 4), предел — 8 с запасом.
+    /// </summary>
+    public const int MaxPassesPerFrame = 8;
 
     /// <summary>Сетка капсулы: вершин по кругу и колец на полусферу; вершин на капсулу — <see cref="CapsuleVertices"/>.</summary>
     public const int CapsuleAround = 16, CapsuleRings = 4;

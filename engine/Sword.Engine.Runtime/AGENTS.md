@@ -142,6 +142,13 @@
   ключ убрать; CRLF, UTF-8 без BOM, замена через временный файл; испорченный файл — `InvalidDataException`, файл не тронут); `ReadSection`,
   `Numbers` — для «загрузить». Проверка — `UserConfigTests`.
 
+- **Диагностические режимы** (7и) — `Diagnostics.cs`: `IDiagnosticMode` (Id по правилу инварианта, название, включён ли, включить и
+  выключить, начать окно заново) регистрирует ядро или модуль (`SimulationBuilder.Diagnostic`, владелец — `core` или Id модуля), список —
+  `Simulation.Diagnostics` (`SimulationDiagnostics`: `Has`, `IsEnabled`, `Set`, `ResetWindow`, `EnabledIds`; неизвестный Id — ошибка со
+  списком). Режим не меняет ни мир, ни хеш, ни реплей (как причинность и события профайлера), поэтому это не команда тика: включает
+  владелец (клиент — `SimulationLink`), агент — из точки обслуживания (`ServiceContext`), только между тиками (посреди тика —
+  `InvalidOperationException`). Первый — `physics.trace` игры (трасса физики 7д). Проверка — `DiagnosticsTests`.
+
 Не сделано: деактивация модуля командой тика.
 
 Проверка: `tests/Sword.Engine.Runtime.Tests` (`InvariantTests` — модуль-неисправность ловится на своём тике после своей

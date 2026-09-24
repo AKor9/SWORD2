@@ -211,7 +211,9 @@ public sealed class Simulation
             [.. EcsInvariants.For(built.Reader).Select(i => (i, "engine")), .. b.Registered]);
         Log.Info("runtime", $"симуляция: {settings.TickRate} тиков/с, модули: {string.Join(", ", active)}" +
             (inactive.Count > 0 ? $"; выключены: {string.Join(", ", inactive)}" : ""));
-        return new Simulation(built, settings, commands, export, active, inactive, config, state, invariants) { Tuning = [.. b.Knobs] };
+        var sim = new Simulation(built, settings, commands, export, active, inactive, config, state, invariants) { Tuning = [.. b.Knobs] };
+        sim.Diagnostics = new SimulationDiagnostics(b.Diagnostics, () => sim.Stage);
+        return sim;
     }
 
     /// <summary>
@@ -219,6 +221,12 @@ public sealed class Simulation
     /// в ресурсе мира (<see cref="TuningKnob.Read"/>), изменение — команда <see cref="TuningCommand"/>.
     /// </summary>
     public IReadOnlyList<TuningKnob> Tuning { get; private init; } = [];
+
+    /// <summary>
+    /// Диагностические режимы (7и; <see cref="SimulationBuilder.Diagnostic"/>): включает владелец или агент между тиками — мир,
+    /// хеш и реплей от них не зависят (трасса физики игры, позже другие).
+    /// </summary>
+    public SimulationDiagnostics Diagnostics { get; private set; } = null!;
 
     /// <summary>Ручка по полному имени «секция.ключ» (регистр не важен); нет — null.</summary>
     public TuningKnob? Knob(string name) => Tuning.FirstOrDefault(k => string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -568,6 +576,22 @@ public sealed class SimulationBuilder
         if (!Stages.Contains(invariant.After) && invariant.After != Simulation.ExportStage)
             throw new ArgumentException($"инвариант {invariant.Id}: нет стадии {invariant.After}; есть: {string.Join(", ", Stages)}, {Simulation.ExportStage}");
         Registered.Add((invariant, Module ?? "core"));
+        return this;
+    }
+
+    internal readonly List<(IDiagnosticMode Mode, string Owner)> Diagnostics = [];
+
+    /// <summary>
+    /// Диагностический режим ядра или модуля (7и; <see cref="IDiagnosticMode"/>): выключен до включения владельцем или агентом
+    /// (<see cref="Simulation.Diagnostics"/>); мир, хеш и реплей от него не зависят. Id — <see cref="IInvariant.IdRule"/>, без повторов.
+    /// </summary>
+    public SimulationBuilder Diagnostic(IDiagnosticMode mode)
+    {
+        Open();
+        ArgumentNullException.ThrowIfNull(mode);
+        if (!IInvariant.IsValidId(mode.Id)) throw new InvalidOperationException($"диагностический режим «{mode.Id}»: нужно {IInvariant.IdRule}");
+        if (Diagnostics.Any(d => d.Mode.Id == mode.Id)) throw new InvalidOperationException($"диагностический режим «{mode.Id}» дважды");
+        Diagnostics.Add((mode, Module ?? "core"));
         return this;
     }
 

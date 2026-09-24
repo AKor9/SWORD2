@@ -14,6 +14,12 @@
 `StrikePairs`, `Flinch`), события (`events.history`: `Hit`, `StrikeContact`, `SeverRequested`, `Added<Dead>`) и проба удара командой
 (`command.send StrikeProbe`), тест `DamageTests.Agent_ProbeByCommand_WhyDiedByEventsHistory`.
 
+7и: `physics.bodies` расширен (нового инструмента нет) — `joints` (суставы тела трупа) и `trace` (`on`/`off`/`reset`/`show`,
+`events` 0…64: трасса физики — диагностический режим `physics.trace` через `ServiceContext.SetDiagnostic`; сводки `last`/`window`/`run`,
+события, контакты по источникам) — `PhysicsDebugJson.cs` по виду `IPhysicsDebugView`; тест — `CorpseAgentTests`. Аннотация
+`physics.bodies` — «меняет» (trace переключает режим сеанса, не мир); сначала читается тело, затем действие с трассой: ошибка вызова
+трассу не переключает.
+
 - Имя — подсказка, не идентичность: в ответах сущность всегда и номером.
 - Исполняется в точке обслуживания: только чтение мира. Данные вне ECS — только через виды только для чтения
   (`IAnimationView`, `IBodyView`, `ICombatView`), не через ресурсы-классы симуляции (ресурсы-значения ECS, например

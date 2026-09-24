@@ -29,7 +29,12 @@ public static class PhysicsTools
                 "полудлина, м, масса, кг, режим (kinematic — ставит поза, simulated — на физике), профиль динамики, касание земли; сводка — " +
                 "самая быстрая капсула, масса тела, привязка скина (skin: есть ли, время смерти, суставов, drift — насколько скин, " +
                 "привязка × тело, ушёл от позы бойца, м). segments — имена сегментов (по умолчанию все 14, blade — клинок). Слоты и " +
-                "поколения тел — state.describe physics, привязки скина — state.describe skin.",
+                "поколения тел — state.describe physics, привязки скина — state.describe skin. 7и: joints — суставы тела (у трупа на физике: " +
+                "родитель, ребёнок, включён ли, ошибка точки, углы, выход за предел); trace — трасса физики (диагностический режим physics.trace, " +
+                "мир, хеш и реплей не меняет): on — включить, off — выключить, reset — начать окно заново, show — сводка; в ответе trace — " +
+                "last (последний тик), window, run (с включения): скорости тел на физике и перцентили, поправки по источникам, толчки, удары, " +
+                "рост энергии за подшаг, самые быстрые события; recent — последние события быстрее порога (events штук); контакты последнего " +
+                "подшага по источникам (их точки — оверлей contacts в capture.bundle).",
             Arguments = new JsonObject
             {
                 ["entity"] = new JsonObject { ["type"] = "string", ["description"] = "номер «12v3» или имя (по умолчанию player)" },
@@ -38,14 +43,43 @@ public static class PhysicsTools
                     ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string" },
                     ["description"] = "имена сегментов: pelvis, torso, head, upperarm.l, forearm.l, upperarm.r, forearm.r, thigh.l, shin.l, thigh.r, shin.r, blade, foot.l, foot.r",
                 },
+                ["trace"] = new JsonObject
+                {
+                    ["type"] = "string", ["enum"] = new JsonArray([.. PhysicsDebugJson.TraceActions.Select(a => (JsonNode?)a)]),
+                    ["description"] = "трасса физики (7и): on — включить (данные — с ближайшего тика), off — выключить, reset — начать окно " +
+                        "заново, show — только сводка; без аргумента — в ответе только traceOn",
+                },
+                ["events"] = new JsonObject
+                {
+                    ["type"] = "integer", ["minimum"] = 0, ["maximum"] = PhysicsDebugJson.MaxEvents,
+                    ["description"] = $"сколько последних событий трассы быстрее порога вернуть (по умолчанию 8, до {PhysicsDebugJson.MaxEvents})",
+                },
             },
             Run = async call =>
             {
                 string which = call.String("entity") ?? "player";
                 var segments = call.Strings("segments");
-                var result = await host.Serve(ctx => (Data: Bodies(ctx, host.Names, which, segments), ctx.Point), call.Cancel);
+                string? trace = call.String("trace");
+                if (trace is not null && !PhysicsDebugJson.TraceActions.Contains(trace))
+                    throw new ArgumentException($"trace: «{trace}» — есть {string.Join(", ", PhysicsDebugJson.TraceActions)}");
+                int events = (int)call.Integer("events", 8, 0, PhysicsDebugJson.MaxEvents);   // все аргументы — до точки обслуживания
+                var result = await host.Serve(ctx =>
+                {
+                    // Сначала тело (нет такого бойца — ошибка до переключения трассы), затем трасса (включение — между тиками; мир
+                    // она не меняет — ответ одного момента), traceOn — после действия.
+                    var data = Bodies(ctx, host.Names, which, segments);
+                    if (trace is not null)
+                    {
+                        var traceJson = PhysicsDebugJson.Trace(ctx, host.Names, trace, events);
+                        data["traceOn"] = traceJson["on"]!.GetValue<bool>();
+                        data["trace"] = traceJson;
+                    }
+                    return (Data: data, ctx.Point);
+                }, call.Cancel);
                 return new ToolOutput(result.Data) { Point = result.Point };
             },
+            // 7и: trace on/off/reset меняет диагностический режим сеанса (не мир) — как profile.stages {enable}.
+            ReadOnly = false,
         });
     }
 
@@ -102,6 +136,9 @@ public static class PhysicsTools
             ["fastest"] = new JsonObject { ["name"] = BodySegs.Name(BodySegs.Segment(fastest)), ["title"] = BodySegs.Title(BodySegs.Segment(fastest)), ["speed"] = Round(max) },
             ["mass"] = Round(mass),
             ["skin"] = Skin(world, e, body, view),
+            // 7и: суставы тела (у трупа на физике) и включена ли трасса физики (сводка — аргументом trace).
+            ["joints"] = PhysicsDebugJson.Joints(world, body),
+            ["traceOn"] = world.TryView<IPhysicsDebugView>(out var debug) && debug.TraceOn,
             ["capsules"] = list,
         };
     }

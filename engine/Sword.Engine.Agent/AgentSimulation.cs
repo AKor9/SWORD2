@@ -141,6 +141,7 @@ public sealed class AgentSimulation
     {
         var sim = Build(config);
         if (Causality) sim.EnableCausality();
+        CarryDiagnostics(sim);
         Preparing?.Invoke(sim);
         try
         {
@@ -175,6 +176,7 @@ public sealed class AgentSimulation
         if (sim.Player is { } player && player.Length > sim.Tick) timeline = Replay.Splice(timeline, player.Replay, sim.Tick);
         var fresh = Build(timeline.CreateConfig());
         if (Causality) fresh.EnableCausality();
+        CarryDiagnostics(fresh);
         Preparing?.Invoke(fresh);
         try
         {
@@ -189,6 +191,16 @@ public sealed class AgentSimulation
         }
         Swap(fresh, SourceFile);
         return true;
+    }
+
+    /// <summary>
+    /// Диагностические режимы (7и: трасса физики), включённые у текущей симуляции, — и у новой, до её первого тика (как причинность):
+    /// агент включил трассу и перемотал назад — трасса и у повтора таймлайна. Режима нет у новой (другой состав модулей) — пропуск.
+    /// </summary>
+    private void CarryDiagnostics(Simulation next)
+    {
+        foreach (string id in Current.Diagnostics.EnabledIds())
+            if (next.Diagnostics.Has(id)) next.Diagnostics.Set(id, true);
     }
 
     private static void RunTo(Simulation sim, ulong tick, CancellationToken cancel)

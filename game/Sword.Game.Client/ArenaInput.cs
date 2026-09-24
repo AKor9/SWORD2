@@ -12,7 +12,8 @@ namespace Sword.Game.Client;
 /// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены), T — следующий меч игрока (6б, команда арены);
 /// ЛКМ — рубящий удар (жест мышью перед кликом — направление), Q — укол, Пробел — рывок (6в, фронты команды игрока); I — инвентарь,
 /// 1–9 при открытом инвентаре — взять меч (6е, команда арены);
-/// F7 — капсулы тел и клинки поверх персонажей (5в, 6б; отладочный вид SWORD2); F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
+/// F7 — капсулы тел и клинки поверх персонажей (5в, 6б; отладочный вид SWORD2); J — суставы тел, K — контакты физики и трасса (7и);
+/// F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
 /// </summary>
@@ -76,6 +77,19 @@ public static class ArenaInput
     public static readonly InputAction DebugBodies = new("debug_bodies", "F7");
 
     /// <summary>
+    /// Суставы тел поверх персонажей (7и, оверлей <c>joints</c>): точки суставов, отрезок до точки на родителе, выход за предел —
+    /// показать / скрыть. F-клавиши заняты (F1–F4, F7; F5, F6 — у SWORD), J — joints. Действие представления: в команды и реплей не идёт.
+    /// </summary>
+    public static readonly InputAction DebugJoints = new("debug_joints", "J");
+
+    /// <summary>
+    /// Контакты последнего подшага физики поверх кадра (7и, оверлей <c>contacts</c>): показать / скрыть — и включить трассу физики
+    /// (диагностический режим <c>physics.trace</c>: мир, хеш и реплей от неё не зависят), пока показаны; выключает её клавиша только
+    /// тогда, когда включила сама (включённую агентом оставляет). K — контакты. В команды и реплей не идёт.
+    /// </summary>
+    public static readonly InputAction DebugContacts = new("debug_contacts", "K");
+
+    /// <summary>
     /// Инвентарь (SWORD: I, <c>InventoryUi</c>; 6е): открыть / закрыть панель мечей (<see cref="InventoryPanel"/>). Действие
     /// представления: в команды и реплей идёт только выбор меча.
     /// </summary>
@@ -93,6 +107,7 @@ public static class ArenaInput
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
         HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies, Attack, Stab, Dash, Inventory, .. Weapons,
+        DebugJoints, DebugContacts,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>

@@ -226,9 +226,12 @@ public sealed class ClientAgent : IClientTool, ITickGate
             ["camera"] = camera,
             ["ids"] = ids,
             ["overlays"] = overlays,
-            ["overlaysNote"] = overlays is null ? null : "оверлей — снимок цвета с наложенным слоем игры (капсулы тел: цвет по " +
-                "сегменту — левые голубые, правые красные, подписи бойцов; капсулы — как показан боец: при alpha 1 ровно " +
-                "постановка последнего тика, physics.bodies); цвет кадра — без него",
+            ["overlaysNote"] = overlays is null ? null : "оверлей — снимок цвета с наложенным слоем игры (у арены: capsules — капсулы тел, " +
+                "цвет по сегменту — левые голубые, правые красные, подписи бойцов, у тел на физике — крест в центре; blades — клинки; " +
+                "joints — суставы: шарик на ребёнке, зелёный — в пределах, оранжевый…красный — выход за предел, серый — выключен, " +
+                "красный отрезок — до точки на родителе; contacts — контакты последнего подшага из трассы физики: шарик и нормаль, " +
+                "цвет — источник, без трассы пусто — см. notes); капсулы — как показан боец: при alpha 1 ровно постановка последнего " +
+                "тика, physics.bodies; цвет кадра — без него",
             ["notes"] = result.Notes.Count > 0 ? new JsonArray([.. result.Notes.Select(n => (JsonNode?)n)]) : null,
             // Точка Пг: кадр снимка ждёт простоя GPU — его GPU-время разобрано сразу (lagFrames 0), с копиями снимка в frameMs.
             ["gpu"] = GpuJson(passes: true),
@@ -312,12 +315,14 @@ public sealed class ClientAgent : IClientTool, ITickGate
             Name = "capture.bundle", Title = "Пакет наблюдения кадра",
             Description = "Снять ближайший кадр живой игры: цвет (с HUD) и глубина в PNG, видимые сущности с экранными " +
                 "прямоугольниками и именами, камера, tickId и frameId — файлы в каталоге артефактов сеанса. По заказу — ID-буфер " +
-                "(ids: сущность и сегмент тела на пиксель, легенда «левое предплечье врага 3») и оверлеи слоем поверх цвета " +
-                "(overlays: например capsules — капсулы тел). На паузе кадр показывает ровно последний тик.",
+                "(ids: сущность и сегмент тела на пиксель, легенда «левое предплечье врага 3», у трупа — «таз трупа врага 3») и оверлеи " +
+                "слоем поверх цвета (overlays: у арены capsules — капсулы тел, blades — клинки, joints — суставы тел, contacts — " +
+                "контакты физики, нужна трасса: physics.bodies {trace: on}). На паузе кадр показывает ровно последний тик.",
             Arguments = ToolSchema.Props(
                 ("name", ToolSchema.Str("метка в имени файлов (буквы, цифры, «-»; по умолчанию bundle)")),
                 ("ids", new JsonObject { ["type"] = "boolean", ["description"] = "снять ID-буфер: код сущности и сегмента на пиксель с легендой (по умолчанию false)" }),
-                ("overlays", ToolSchema.StrArray("оверлеи игры слоем снимка (у арены — capsules: капсулы тел с подписями бойцов); неизвестное имя — ошибка")),
+                ("overlays", ToolSchema.StrArray("оверлеи игры слоем снимка (у арены — capsules: капсулы тел с подписями бойцов, blades, " +
+                    "joints, contacts); неизвестное имя — ошибка")),
                 ("timeoutSeconds", ToolSchema.Num($"сколько ждать кадр, с (по умолчанию 10, не больше {MaxCaptureWait:0.#})", 0.5, MaxCaptureWait))),
             ReadOnly = true, Idempotent = false, Cost = ToolCost.Heavy,
             Run = async call =>

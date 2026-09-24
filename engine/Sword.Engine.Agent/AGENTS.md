@@ -61,5 +61,9 @@
   `session.status` — `causality`; `events.history` — `cause` записи (номер, родитель, вид, система, источник), только в режиме.
   Лимиты: цепочка — до 64 шагов (по умолчанию 16), изменений — до 20 (по умолчанию 1). Тест — `Sword.Game.Tests/CausalityTests`
   (`Agent_StateWhy_AndEventsHistoryCauses`: нужен бой игры).
+- Диагностические режимы симуляции (7и, `Simulation.Diagnostics`: трасса физики игры) включают инструменты из точки обслуживания
+  (`ServiceContext.SetDiagnostic`; у игры — `physics.bodies {trace}`); `AgentSimulation` переносит включённые режимы в новую симуляцию
+  сеанса (`session.start`, перемотка назад) до её первого тика — как причинность (`DiagnosticsCarryTests`). Отдельного инструмента
+  режимов нет (режим один); инструмент, который переключает режим, — с аннотацией «меняет» (`ReadOnly = false`, как `profile.stages`).
 
 Проверка: `tests/Sword.Engine.Agent.Tests`, `verify.ps1` шаг `agent-smoke`.

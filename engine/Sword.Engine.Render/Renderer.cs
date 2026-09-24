@@ -61,6 +61,15 @@ public sealed class RenderFrame
     /// <summary>Заказан ли в этом кадре слой снимка <paramref name="name"/> (циклом, без замыкания: зовётся каждый кадр).</summary>
     public bool WantsLayer(string name) => Capture?.WantsLayer(name) == true;
 
+    /// <summary>
+    /// Заметка игры к снимку этого кадра (7и): почему заказанное снято не полностью — например, слой контактов пуст, потому что
+    /// трасса физики выключена. Идёт в <see cref="CaptureResult.Notes"/> вслед за заметками рендера. Кадр без снимка — ничего.
+    /// </summary>
+    public void CaptureNote(string note)
+    {
+        if (Capture is not null) _renderer.CaptureNotes.Add(note);
+    }
+
     /// <summary>Константы кадра (<c>register(b0)</c>) для всех проходов, добавленных после вызова.</summary>
     public void SetFrameConstants<T>(in T value) where T : unmanaged
     {
@@ -148,6 +157,7 @@ public sealed class Renderer : IDisposable
     /// <summary>ID-буфер и слои, которые игра отдала снимку этого кадра (<see cref="RenderFrame.CaptureIds"/>, <see cref="RenderFrame.CaptureLayer"/>).</summary>
     internal RenderTexture? CapturedIds;
     internal readonly List<(string Name, RenderTexture Texture)> CapturedLayers = [];
+    internal readonly List<string> CaptureNotes = [];
 
     /// <param name="contract">Преамбула контракта: движок (<see cref="Contribute"/>) и игра.</param>
     public Renderer(RendererOptions options, ShaderContract contract)
@@ -387,6 +397,7 @@ public sealed class Renderer : IDisposable
         _frame.Capture = capture;
         CapturedIds = null;
         CapturedLayers.Clear();
+        CaptureNotes.Clear();
         var profiler = _profiler;
         int profileDepth = profiler.Depth;
         profiler.Begin(_zones.FenceWait);
@@ -452,6 +463,7 @@ public sealed class Renderer : IDisposable
                     layerReadbacks.Add((layer, Screenshot.RecordTextureCapture(Device, list, Graph.Get(CapturedLayers[k].Texture.Index, buffer: false),
                         out _, out _, out lpitch)));
                 }
+            if (notes is not null) notes.AddRange(CaptureNotes);   // заметки игры (7и) — после заметок рендера
 
             profiler.Begin(_zones.Present);
             Device.EndFrame(vsync);

@@ -14,7 +14,8 @@
 Код: `engine/Sword.Engine.Introspection/` (точка обслуживания, время, разбор полей, каталог имён, запросы, карта
 архитектуры), `engine/Sword.Engine.Agent/` (хост: сеанс, инструменты, квитанции, MCP, транспорты, цикл Headless),
 `engine/Sword.Engine.Agent.Client/` (агент в кадре клиента, `capture.bundle`, `render.graph`),
-`game/Sword.Game.Agent/` (имена сущностей игры), композиция — `AgentMode.cs` в `Game.Headless` и `Game.App` (в сборке
+`game/Sword.Game.Agent/` (имена сущностей игры; 7и — `physics.bodies {trace, events}`: трасса физики — диагностический режим
+`physics.trace` через `ServiceContext`, сессия Headless переносит включённые режимы в новую симуляцию — `AgentSimulation`), композиция — `AgentMode.cs` в `Game.Headless` и `Game.App` (в сборке
 `-p:WithoutAgent=true` их нет). Рецепты для агентов — [docs/agent-playbook.md](../../docs/agent-playbook.md).
 
 ## Устройство (раздел 8 плана)
@@ -151,7 +152,8 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
   агента. Условие `time.runUntil` в живой игре встаёт на своём тике (кадр прерывает тики), но между тиками.
 - `capture.bundle`: цвет, глубина (8 бит, ближе — светлее, растянуто на диапазон кадра), бойцы с рамками и именами,
   камера, `paused` и `alpha` (доля тика кадра); по заказу (5в) — ID-буфер (`ids`: сущность и сегмент тела на пиксель, легенда
-  словами) и оверлеи игры слоем поверх цвета (`overlays`: у арены — `capsules`). Нет нормалей и векторов движения. Кадр на ходу показывает интерполяцию между тиками (`alpha` < 1): `tickId` — последний сыгранный тик, точное
+  словами) и оверлеи игры слоем поверх цвета (`overlays`: у арены — `capsules`, `blades`, 7и — `joints`, `contacts`; пустой слой —
+  заметка игры в `notes`). Нет нормалей и векторов движения. Кадр на ходу показывает интерполяцию между тиками (`alpha` < 1): `tickId` — последний сыгранный тик, точное
   состояние — на паузе (`alpha` 1). Глубина — та, что записала сцена в этом кадре.
 - Отдельного `gpu.passes` нет (точка Пг, раздел 8): GPU-время проходов одного кадра — `render.graph` (`passes[].gpuMs`, `gpu`) и
   `capture.bundle` (`gpu`), среднее за окно — секция `gpu` у `profile.stages` (App; у Headless GPU нет — секции нет).

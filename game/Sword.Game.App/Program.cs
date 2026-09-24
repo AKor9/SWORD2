@@ -95,7 +95,8 @@ public static partial class Program
           F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, последняя
           аномалия, строка среды; включает профайлер); F4 — снимок; Esc — выход;
           PageUp/PageDown — врагов ±1, R — сброс арены, T — следующий меч (команды арены — в реплее); F7 — капсулы тел
-          и клинки поверх персонажей; ЛКМ — удар, Q — укол, Пробел — рывок; I — инвентарь (1–9 и щелчок — взять меч);
+          и клинки поверх персонажей; J — суставы тел, K — контакты физики (включает трассу физики, пока показаны);
+          ЛКМ — удар, Q — укол, Пробел — рывок; I — инвентарь (1–9 и щелчок — взять меч);
           F3 — ручки «Бой» (урон, острота, враги нападают, игрок неуязвим, рывок; изменение — команда в реплее, «сохранить» —
           секция combat в sword.user.json).
         Ключи:
@@ -118,7 +119,8 @@ public static partial class Program
           --screenshots DIR куда класть снимки F4 (по умолчанию screenshots в текущем каталоге)
           --no-hud          без HUD (FPS, справка): снимки, сравнимые между прогонами
           --overlay NAME    отладочный оверлей поверх кадра с первого кадра (можно несколько раз): capsules — капсулы тел
-                            бойцов (как F7), blades — клинки (отрезок тика, прошлого тика и пройденное за тик); так
+                            бойцов (как F7), blades — клинки (отрезок тика, прошлого тика и пройденное за тик), joints —
+                            суставы тел (как J), contacts — контакты физики (как K; включает трассу физики); так
                             снимаются виды фичи с оверлеем (views[].overlays манифеста)
           --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
                             снимок кадра; порт — --agent-port N (по умолчанию 47813)
@@ -208,7 +210,8 @@ public static partial class Program
             if (options.Overlays.FirstOrDefault(o => !ArenaClient.KnownOverlays.Contains(o)) is { } unknown)
                 throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
-                showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay));
+                showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay),
+                showJoints: options.Overlays.Contains(ArenaClient.JointsOverlay), showContacts: options.Overlays.Contains(ArenaClient.ContactsOverlay));
             // Панели поверх кадра: инвентарь игры (6е: I — открыть, мышь над ним не бьёт) и DevTools (F3 — ручки).
             var panels = new List<IClientPanel> { arena.Inventory };
             AddDevTools(panels, bench: options.Bench > 0);
@@ -353,6 +356,10 @@ public static partial class Program
                     // сколько нарисовано.
                     weapons = new { armed = arena.View.WeaponCount, drawn = arena.DrawnWeapons, player = arena.PlayerWeapon },
                     blades = new { shown = arena.ShowBodies || arena.ShowBlades, drawn = arena.DrawnBlades },
+                    // 7и: трупы кадра (по телам), суставы (J, --overlay joints) и контакты физики (K, --overlay contacts; трасса физики).
+                    corpses = arena.View.CorpseCount,
+                    joints = new { shown = arena.ShowJoints, drawn = arena.DrawnJoints },
+                    contacts = new { shown = arena.ShowContacts, drawn = arena.DrawnContacts, trace = arena.View.TraceOn },
                     recorded = recorded is null ? null : new
                     {
                         file = Path.GetFullPath(options.Record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count,

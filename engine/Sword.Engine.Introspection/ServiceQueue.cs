@@ -38,6 +38,24 @@ public readonly struct ServiceContext
     /// </summary>
     public SimulationInvariants Invariants => _simulation.Invariants;
 
+    /// <summary>
+    /// Диагностические режимы симуляции (7и: трасса физики; <see cref="Simulation.Diagnostics"/>): мир, хеш и реплей от них не зависят —
+    /// поэтому включать их можно из точки обслуживания (между тиками; посреди тика — <see cref="InvalidOperationException"/>).
+    /// </summary>
+    public SimulationDiagnostics Diagnostics => _simulation.Diagnostics;
+
+    /// <summary>Есть ли диагностический режим <paramref name="id"/> (инструментам игры — без типов Runtime).</summary>
+    public bool HasDiagnostic(string id) => _simulation.Diagnostics.Has(id);
+
+    /// <summary>Включён ли диагностический режим <paramref name="id"/>; нет такого — false.</summary>
+    public bool DiagnosticEnabled(string id) => _simulation.Diagnostics.IsEnabled(id);
+
+    /// <summary>Включить или выключить диагностический режим (между тиками); нет такого — <see cref="ArgumentException"/>.</summary>
+    public void SetDiagnostic(string id, bool enabled) => _simulation.Diagnostics.Set(id, enabled);
+
+    /// <summary>Начать окно диагностического режима заново (между тиками).</summary>
+    public void ResetDiagnosticWindow(string id) => _simulation.Diagnostics.ResetWindow(id);
+
     /// <summary>Шаг тика, с.</summary>
     public float Dt => _simulation.Dt;
 

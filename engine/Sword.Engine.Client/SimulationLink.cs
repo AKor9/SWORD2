@@ -48,4 +48,19 @@ public sealed class SimulationLink
     /// <see cref="TuningCommand"/> на ближайший тик (<see cref="Enqueue{T}"/>). Панель F3 привязывает их через <see cref="TuningBinding"/>.
     /// </summary>
     public IReadOnlyList<TuningKnob> Tuning => _simulation.Tuning;
+
+    /// <summary>
+    /// Есть ли у симуляции диагностический режим <paramref name="id"/> (7и: <c>physics.trace</c> — трасса физики под оверлей контактов;
+    /// <c>Simulation.Diagnostics</c>). Режим регистрирует игра или модуль — без них его нет.
+    /// </summary>
+    public bool HasDiagnostic(string id) => _simulation.Diagnostics.Has(id);
+
+    /// <summary>Включён ли диагностический режим <paramref name="id"/>; нет такого — false.</summary>
+    public bool DiagnosticEnabled(string id) => _simulation.Diagnostics.IsEnabled(id);
+
+    /// <summary>
+    /// Включить или выключить диагностический режим (между тиками — в шаге ввода кадра): мир, хеш и реплей от него не зависят — это не
+    /// команда тика. Нет такого режима — <see cref="ArgumentException"/>.
+    /// </summary>
+    public void SetDiagnostic(string id, bool enabled) => _simulation.Diagnostics.Set(id, enabled);
 }

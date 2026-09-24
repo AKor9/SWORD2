@@ -133,6 +133,7 @@ public static class GameCore
             // подписчика у события нет журнала).
             .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>();
         FighterBodies.Register(b, physics);
+        PhysicsDebug.Register(b, physics);   // 7и: вид суставов и трассы физики, режим physics.trace — мир, хеш и реплей не меняют
         // 6е: ручки «Бой» — поля правил боя (ресурс из секции combat), изменение на ходу — команда ручки (система tuning.combat в Begin).
         CombatKnobs.Register(b);
 
