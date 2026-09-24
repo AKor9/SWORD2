@@ -142,24 +142,6 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
         return _bodies[body.Index];
     }
 
-    public void SetShape(BodyHandle body, float radius, float halfLength)
-    {
-        Check(body);
-        if (!float.IsFinite(radius) || radius < 0) throw new ArgumentOutOfRangeException(nameof(radius), radius, "радиус — конечный, не меньше 0");
-        if (!float.IsFinite(halfLength) || halfLength < 0)
-            throw new ArgumentOutOfRangeException(nameof(halfLength), halfLength, "полудлина — конечная, не меньше 0");
-        ref var s = ref _bodies[body.Index];
-        if (s.Mass > 0)
-        {
-            // у тела с массой инерция следует за формой
-            if (!(radius > 0)) throw new ArgumentOutOfRangeException(nameof(radius), radius, $"у тела {body} с массой радиус — больше 0");
-            Dynamics.SetShape(ref s, s.Mass, radius, halfLength);
-            return;
-        }
-        s.Radius = radius;
-        s.HalfLength = halfLength;
-    }
-
     public void Place(BodyHandle body, Vector3 position, Quaternion rotation)
     {
         Check(body);

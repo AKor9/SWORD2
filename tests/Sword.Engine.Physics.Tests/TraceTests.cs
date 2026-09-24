@@ -5,9 +5,11 @@ namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
 /// Трасса физики (7д): выключена по умолчанию и не меняет симуляцию; выключенная и включённая — 0 Б в установившемся режиме;
-/// выталкивание из земли — с глубиной и контактами последнего подшага; окно чистится отдельно от прогона; события быстрее
-/// порога считаются и держатся в «самых быстрых»; толчки — источник, точный импульс, доли бюджетов, выталкивание; удары и
-/// отдача — в последний тик; рост энергии за подшаг — отдельно у толкаемых живыми.
+/// выталкивание из земли — с глубиной, отложенной глубиной (выход не быстрее PopSpeed) и контактами последнего подшага; окно
+/// чистится отдельно от прогона; события быстрее порога считаются и держатся в «самых быстрых»; толчки — источник, точный
+/// импульс, доли бюджетов, выталкивание; удары и отдача — в последний тик; рост энергии за подшаг — отдельно у толкаемых живыми,
+/// подшаг 0 — от начала шага (<see cref="PhysicsWorld.Step"/> зовёт <c>TraceStepBegin</c>); суставы снимают все тела сочленения.
+/// Шаг — настоящий <see cref="PhysicsWorld.Step"/>; земля — тестовая плоскость (<see cref="FlatGround"/>).
 /// </summary>
 public class TraceTests
 {
@@ -71,30 +73,47 @@ public class TraceTests
     }
 
     [Fact]
-    public void Trace_GroundPushOut_RecordedWithDepth_ContactsOfLastSubstep()
+    public void Trace_GroundPushOut_RecordedWithDepth_ExitNoFasterThanPopSpeed_ContactsOfLastSubstep()
     {
+        // Шар утоплен в землю на 3 см. Шаг выводит застарелую глубину не быстрее PopSpeed (README «7г», выход старой глубины):
+        // за подшаг — PopSpeed·h, остальное откладывается; скоростной проход гасит скорость выталкивания (e = 0). До сведения
+        // физики тест гонял помощник подшага 7д — земля без предела выхода: сдвиг 3 см за подшаг, скорость после тика > 10 м/с.
+        // Ожидания переписаны на свойство настоящего шага: сдвиг / h = PopSpeed в каждом подшаге, отложенное = глубина −
+        // PopSpeed·h, скорость выталкивания погашена.
+        var s = PhysicsSettings.Default;
+        float perSubstep = s.PopSpeed * TestBodies.H;
         var w = World();
+        w.SetGround(new FlatGround());
         var trace = w.EnableTrace();
-        // шар утоплен в землю на 3 см: выталкивание с глубиной (у помощника — сразу целиком, без предела выхода 7г)
         var sunk = w.Body(Target(w, 5, 0.1f, Vacuum, new Vector3(0, 0.07f, 0)), 0);
-        w.KinematicTestStep(Dt, floorY: 0);
+        w.Step(Dt);
         var ground = trace.Last.Source(PhysicsSource.Ground);
         Assert.True(MathF.Abs(ground.Depth - 0.03f) < 1e-5f, $"глубина {ground.Depth}");
-        Assert.True(ground.Contacts >= 1 && ground.Count >= 1, $"контактов {ground.Contacts}, поправок {ground.Count}");
-        Near(0.03f / TestBodies.H, ground.Linear, 1e-3f, "сдвиг выталкивания за подшаг / h");
+        Assert.Equal((4, 4), (ground.Contacts, ground.Count));   // контакт и поправка — в каждом подшаге
+        Near(s.PopSpeed, ground.Linear, 1e-3f, "сдвиг выталкивания за подшаг / h — не больше PopSpeed");
         Assert.Equal(0f, ground.Hidden);   // прошлую позу выталкивание не трогает
-        Near(5 * 0.03f / TestBodies.H, ground.ImpulseTickMax, 1e-3f, "псевдоимпульс тика");
-        Assert.Equal(0f, ground.Deferred);
+        Near(5 * 4 * s.PopSpeed, ground.ImpulseTickMax, 1e-3f, "псевдоимпульс тика — 4 подшага по m·PopSpeed");
+        Near(0.03f - perSubstep, ground.Deferred, 1e-3f, "отложено в подшаге 0: глубина − PopSpeed·h");
+        Near(s.PopSpeed, ground.VelocitySolved, 1e-3f, "скорость выталкивания погашена скоростным проходом");
         Assert.Equal((1, 4), (trace.Last.Steps, trace.Last.Substeps));
-        Assert.True(w.Get(sunk).Velocity.Y > 10);
+        var after = w.Get(sunk);
+        Near(0.07f + 4 * perSubstep, after.Position.Y, 1e-4f, "за тик вышел на 4·PopSpeed·h");
+        Assert.True(MathF.Abs(after.Velocity.Y) < 1e-3f, $"скорость после выхода {after.Velocity.Y} м/с");
+        // остаток (5 мм) меньше PopSpeed·h — решается целиком в подшаге 0 следующего тика
+        w.Step(Dt);
+        Assert.True(ContactsKit.Depth(new FlatGround(), w.Get(sunk)) < 1e-5f, $"не вышел: {ContactsKit.Depth(new FlatGround(), w.Get(sunk))}");
+        Assert.Equal(1, trace.Last.Source(PhysicsSource.Ground).Count);
 
         // лежачая капсула под тяжестью касается земли обоими торцами в каждом подшаге: контактов тика 8, последних — 2
+        w = World();
+        w.SetGround(new FlatGround());
+        trace = w.EnableTrace();
         var lying = w.CreateArticulation(1);
         var b = w.Body(lying, 0);
         w.SetShape(b, 5, 0.1f, 0.3f);
         w.Place(b, new Vector3(10, 0.1f, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2));
         w.SetMode(b, BodyMode.Simulated);
-        w.KinematicTestStep(Dt, floorY: 0);
+        w.Step(Dt);
         Assert.Equal(8, trace.Last.Source(PhysicsSource.Ground).Contacts);
         Assert.Equal((2, 0), (trace.LastContacts.Length, trace.LostContacts));
         foreach (var c in trace.LastContacts)
@@ -106,22 +125,75 @@ public class TraceTests
 
         // вместимость контактов — фиксированная: лишние считаются
         var small = new PhysicsWorld();
+        small.SetGround(new FlatGround());
         var st = small.EnableTrace(new PhysicsTrace(contactCapacity: 1));
         var sb = small.Body(small.CreateArticulation(1), 0);
         small.SetShape(sb, 5, 0.1f, 0.3f);
         small.Place(sb, new Vector3(0, 0.1f, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2));
         small.SetMode(sb, BodyMode.Simulated);
-        small.KinematicTestStep(Dt, floorY: 0);
+        small.Step(Dt);
         Assert.Equal((1, 1), (st.LastContacts.Length, st.LostContacts));
+    }
+
+    [Fact]
+    public void Trace_Step_MeasuresSubstepZero_FromStepStart()
+    {
+        // Шаг зовёт TraceStepBegin: база энергии подшага 0 — начало шага. Шар утоплен на 1 мм (меньше PopSpeed·h) — весь выход в
+        // подшаге 0, рост энергии за подшаг — m·g·1 мм; без базы начала шага подшаг 0 не мерился бы (рост ≈ 0).
+        const float m = 5, depth = 1e-3f;
+        var w = World();
+        w.SetGround(new FlatGround());
+        var trace = w.EnableTrace();
+        var ball = w.Body(Target(w, m, 0.1f, 0, new Vector3(0, 0.1f - depth, 0)), 0);
+        float g = w.GetDynamics(0).Gravity;
+        w.Step(Dt);
+        Near(m * g * depth, trace.Last.EnergyGrowth, 0.02f, "рост энергии за подшаг 0 — выход из земли");
+        Assert.Equal(w.ArticulationOf(ball), trace.Last.EnergyArticulation);
+        // перенос между шагами (команда сцены, переход в труп) — не рост за подшаг: база — начало следующего шага
+        w.Place(ball, new Vector3(0, 2, 0), Quaternion.Identity);
+        w.Step(Dt);
+        Assert.True(trace.Last.EnergyGrowth < 1e-4f, $"перенос между шагами попал в рост: {trace.Last.EnergyGrowth} Дж");
+    }
+
+    [Fact]
+    public void Trace_Joints_EveryBodyOfArticulationSnapshotted()
+    {
+        // Суставы (7в) открывают снимки у всех тел сочленения на физике (N TraceBegin), проход, затем N TraceEnd: поправка каждого
+        // тела мерится от его собственного снимка. Три шара цепочкой, средний сдвинут вбок на 2 см; шаг из одного подшага, без
+        // гравитации и скоростей — сдвиг тела за шаг и есть поправка суставов.
+        var w = World(substeps: 1);
+        var trace = w.EnableTrace();
+        var art = Target(w, 2, 0.05f, Vacuum, Vector3.Zero, new Vector3(0, 0.2f, 0), new Vector3(0, 0.4f, 0));
+        var anchor = new Vector3(0, -0.1f, 0);
+        w.SetJoints(art, [JointDesc.SwingTwist(0, 1, anchor, -3, 3, 3, 3, 0), JointDesc.SwingTwist(1, 2, anchor, -3, 3, 3, 3, 0)]);
+        w.Place(w.Body(art, 1), new Vector3(0.02f, 0.2f, 0), Quaternion.Identity);
+        var before = new BodyState[3];
+        for (int i = 0; i < 3; i++) before[i] = w.Get(w.Body(art, i));
+        w.Step(TestBodies.H);
+
+        float linear = 0, angular = 0;
+        for (int i = 0; i < 3; i++)
+        {
+            var s = w.Get(w.Body(art, i));
+            linear = MathF.Max(linear, Vector3.Distance(before[i].Position, s.Position) / TestBodies.H);
+            angular = MathF.Max(angular, PhysicsMath.RotationVector(before[i].Rotation, s.Rotation).Length() / TestBodies.H);
+        }
+        var joints = trace.Last.Source(PhysicsSource.Joints);
+        Assert.Equal(3, joints.Count);   // по поправке на тело
+        Near(linear, joints.Linear, 1e-3f, "сдвиг суставами за подшаг / h — от снимка своего тела");
+        Near(angular, joints.Angular, 1e-3f, "угол суставами за подшаг / h");
+        Assert.Equal(0f, joints.Hidden);
+        Assert.True(linear > 1, $"суставы почти не двигали: {linear} м/с");
     }
 
     [Fact]
     public void Trace_WindowClearedSeparatelyFromRun()
     {
         var w = World();
+        w.SetGround(new FlatGround());
         var trace = w.EnableTrace();
         var b = w.Body(Target(w, 2, 0.1f, 0, new Vector3(0, 0.05f, 0)), 0);
-        for (int t = 0; t < 3; t++) w.KinematicTestStep(Dt, floorY: 0);
+        for (int t = 0; t < 3; t++) w.Step(Dt);
         Assert.Equal((3, 3), (trace.Window.Steps, trace.Run.Steps));
         int contacts = trace.Run.Source(PhysicsSource.Ground).Contacts;
         Assert.True(contacts > 0);
@@ -133,8 +205,8 @@ public class TraceTests
         Assert.Equal(1, trace.Last.Steps);   // последний тик окно не трогает
 
         w.Place(b, new Vector3(0, 0.05f, 0), Quaternion.Identity);
-        w.KinematicTestStep(Dt, floorY: 0);
-        w.KinematicTestStep(Dt, floorY: 0);
+        w.Step(Dt);
+        w.Step(Dt);
         Assert.Equal((2, 5), (trace.Window.Steps, trace.Run.Steps));
         Assert.True(trace.Window.Source(PhysicsSource.Ground).Contacts > 0);
 
@@ -156,7 +228,7 @@ public class TraceTests
             s.Velocity = new Vector3(0, 0, i + 1);
             w.Set(bodies[i], s);
         }
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
 
         Assert.Equal((10, 10, 10), (trace.Last.Events, trace.Window.Events, trace.Run.Events));
         Assert.Equal(PhysicsTrace.TopCapacity, trace.Run.TopCount);
@@ -173,7 +245,7 @@ public class TraceTests
         Assert.Contains("топ:", trace.Run.Summary("[физика]"));
 
         // второй тик: счёт растёт, «самые быстрые» — те же 8 скоростей, кольцо держит последние 16
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         Assert.Equal((10, 20, 20), (trace.Last.Events, trace.Window.Events, trace.Run.Events));
         // «самые быстрые» из 20 событий двух тиков — по два на 12, 11, 10, 9 м/с
         for (int k = 0; k < PhysicsTrace.TopCapacity; k++)
@@ -182,7 +254,7 @@ public class TraceTests
         Assert.Equal(1L, trace.RecentEvent(0).Step);
         // удар перед шагом — в строке события
         w.ApplyHit(bodies[11], w.Get(bodies[11]).Position, new Vector3(0, 0, 3), 0, ArticulationHandle.None);
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         Assert.True(trace.Last.Top(0).HitDv > 2.9f);
         Assert.Contains("удар Δv", trace.Last.Top(0).ToString());
     }
@@ -205,7 +277,7 @@ public class TraceTests
         w.SetMode(lb, BodyMode.Simulated);
         w.SetDynamics(lb, Vacuum);
         w.PreparePass(blade, 1, 2, 16);
-        for (int t = 0; t < 3; t++) w.KinematicTestStep(Dt);
+        for (int t = 0; t < 3; t++) w.Step(Dt);
 
         var run = trace.Run;
         Near(Momentum(w, heavy).Z, run.Source(PhysicsSource.PushBody).Applied, 1e-3f, "Σλ/h толчка тела — импульс цели");
@@ -235,7 +307,7 @@ public class TraceTests
         var blade = Pusher(w, 0.1f, new Vector3(5, 0, 0));
         var part = Target(w, 0.3f, 0.05f, Vacuum, Vector3.Zero);
         var pb = w.Body(part, 0);
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         w.PreparePass(blade, 1, 1, 2);   // 1 Н·с
         w.PassHit(blade, part);
         w.ApplyHit(pb, Vector3.Zero, new Vector3(0, 0, 5), 4, blade);   // потолок Δv 2 м/с → 0,6 Н·с, из прохода
@@ -246,7 +318,7 @@ public class TraceTests
         Near(1, last.PassShare, 1e-4f, "проход исчерпан");
         Near(0.6f / 0.3f, last.HitDv, 1e-4f, "Δv тела");
         // следующий шаг — новый последний тик
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         Assert.Equal((0, 0f), (trace.Last.Hits, trace.Last.HitDvShare));
         Assert.Equal(2, trace.Run.Hits);
 
@@ -288,7 +360,7 @@ public class TraceTests
         w.Set(w.Body(drifting, 0), d);
         for (int t = 0; t < 10; t++)
         {
-            w.KinematicTestStep(Dt);
+            w.Step(Dt);
             // удар между шагами добавляет энергию, но не «за подшаг»: база энергии — начало шага
             w.ApplyHit(w.Body(drifting, 0), w.Get(w.Body(drifting, 0)).Position, new Vector3(0, 0, 3), 0, ArticulationHandle.None);
         }

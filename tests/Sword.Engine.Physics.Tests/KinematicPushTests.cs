@@ -5,8 +5,9 @@ namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
 /// Заготовки сцен толчков 7д: мир с профилем «вакуум» (без гравитации и сопротивления — скорость меняют только толчки),
-/// толкающий из кинематических шаров, цель из шаров на физике; тик — помощник <see cref="PhysicsWorld.KinematicTestStep"/>
-/// (до слияния 7г шага нет). Шар толкают в точке на линии центров — без плеча: импульс тела за тик ровно <c>Σλ/h</c>.
+/// толкающий из кинематических шаров, цель из шаров на физике; тик — настоящий <see cref="PhysicsWorld.Step"/> без земли,
+/// стены и колонн (цели разных сочленений не касаются друг друга — в шаге только толчки). Шар толкают в точке на линии
+/// центров — без плеча: импульс тела за тик ровно <c>Σλ/h</c>.
 /// </summary>
 internal static class KinematicScene
 {
@@ -103,7 +104,7 @@ public class KinematicPushTests
         // три пары шаров внахлёст на 5 см: каждый контакт один взял бы в сотни раз больше бюджета
         var pusher = Pusher(w, 0.1f, new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(2, 0, 0));
         var target = Target(w, 50, 0.1f, Vacuum, new Vector3(0, 0, 0.15f), new Vector3(1, 0, 0.15f), new Vector3(2, 0, 0.15f));
-        w.KinematicTestStep(h);
+        w.Step(h);
 
         float budget = Budget(h);
         Near(budget, w.KinematicPairBudget, 1e-6f, "бюджет пары F·h²");
@@ -138,7 +139,7 @@ public class KinematicPushTests
             float mass = 1 + rng.NextSingle() * 99;
             var pusher = Pusher(w, 0.1f, at);
             var target = Target(w, mass, 0.1f, Vacuum, targetAt);
-            w.KinematicTestStep(h);
+            w.Step(h);
 
             float remaining = budget, sum = 0;
             for (int i = 0; i < n; i++)
@@ -167,7 +168,7 @@ public class KinematicPushTests
         var b = Target(w, 100, 0.1f, Vacuum, new Vector3(0, 0, 0.15f));
         var c = Target(w, 100, 0.1f, Vacuum, new Vector3(0, 0, -0.15f));
         var d = Pusher(w, 0.1f, new Vector3(-0.15f, 0, 0.15f));   // второй толкающий той же цели — вдоль X
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
 
         // каждая пара (A→B, A→C, D→B) каждый подшаг берёт свой полный бюджет: F·h² · 4 / h = F·dt
         float fdt = PhysicsSettings.Default.PushForce * Dt;
@@ -194,7 +195,7 @@ public class KinematicPushTests
         var pusher = Pusher(w, 0.1f, new Vector3(0, 0, -0.15f));
         var target = Target(w, 100, 0.1f, Vacuum, Vector3.Zero);
         var trace = w.EnableTrace();
-        for (int t = 0; t < 3; t++) w.KinematicTestStep(Dt);
+        for (int t = 0; t < 3; t++) w.Step(Dt);
         float fdt = PhysicsSettings.Default.PushForce * Dt;
         Near(3 * fdt, Momentum(w, target).Z, 1e-3f, $"импульс за 3 тика при {substeps} подшагах");
         Near(3 * fdt, trace.Run.Source(PhysicsSource.PushBody).Applied, 1e-4f, "Σλ/h трассы");
@@ -222,8 +223,8 @@ public class KinematicPushTests
             pusher = Pusher(w, 0.1f, Vector3.Zero);
         }
         Assert.Equal(pusherFirst, pusher.Index < target.Index);
-        w.KinematicTestStep(Dt);
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
+        w.Step(Dt);
 
         var p = Momentum(w, target);
         Assert.True(Vector3.Dot(p, n) > 0.5f * p.Length(), "цель толкают от толкающего");
@@ -256,7 +257,7 @@ public class KinematicPushTests
             var at = w.Get(w.Body(piece, 0)).Position - new Vector3(0, 0, 0.03f);
             w.Place(pb, at - velocity * Dt, Quaternion.Identity);
             w.SetKinematicTarget(pb, at, Quaternion.Identity, Dt);
-            w.KinematicTestStep(Dt);
+            w.Step(Dt);
             float v = w.Get(w.Body(piece, 0)).Velocity.Z;
             Assert.True(v <= limit * (1 + 1e-4f), $"тик {t}: часть {v} м/с быстрее толкающего + выталкивание ({limit})");
             top = MathF.Max(top, v);
@@ -274,7 +275,7 @@ public class KinematicPushTests
         Source(w, severed, KinematicSource.NoReaction);
         var t1 = Target(w, 100, 0.1f, Vacuum, new Vector3(0, 0, 0.15f));
         var t2 = Target(w, 100, 0.1f, Vacuum, new Vector3(2, 0, 0.15f));
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         float fdt = PhysicsSettings.Default.PushForce * Dt;
         Near(fdt, Momentum(w, t1).Z, 1e-3f, "толчок тела");
         Near(fdt, Momentum(w, t2).Z, 1e-3f, "толчок за отрубом — тот же бюджет");
@@ -296,7 +297,7 @@ public class KinematicPushTests
         w.PreparePass(pusher, 1, mass, speed);
         float potential = s.PassShare * mass * speed;
         Assert.Equal(potential, w.Pass(pusher, target).Potential);
-        w.KinematicTestStep(h);
+        w.Step(h);
 
         float lambda = Momentum(w, target).Z * h;   // импульс цели · h = Σλ
         float expected = MathF.Min(Budget(h), potential * h);

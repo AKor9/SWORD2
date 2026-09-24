@@ -33,16 +33,17 @@ public class WorldDynamicsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => w.SetShape(b, 1, 0.1f, float.NaN));
         Assert.Equal(s, w.Get(b));
 
-        // Форма без массы (перегрузка этапа 5) массу не трогает, инерция следует за формой.
-        w.SetShape(b, 0.09f, 0.3f);
+        // Новая форма с другой массой — инерция следует за формой и массой; поза и режим не меняются.
+        w.Place(b, new Vector3(1, 2, 3), Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.4f));
+        var placed = w.Get(b);
+        w.SetShape(b, 4, 0.09f, 0.3f);
         s = w.Get(b);
-        Assert.Equal((2.5f, 0.09f, 0.3f), (s.Mass, s.Radius, s.HalfLength));
-        Assert.Equal(Dynamics.CapsuleInvInertia(2.5f, 0.09f, 0.3f), s.InvInertia);
-        Assert.Throws<ArgumentOutOfRangeException>(() => w.SetShape(b, 0f, 0.3f));
-        // Тело без массы — форма как на этапе 5, без инерции.
+        Assert.Equal((4f, 0.25f, 0.09f, 0.3f), (s.Mass, s.InvMass, s.Radius, s.HalfLength));
+        Assert.Equal(Dynamics.CapsuleInvInertia(4, 0.09f, 0.3f), s.InvInertia);
+        Assert.Equal((placed.Position, placed.Rotation, placed.Mode), (s.Position, s.Rotation, s.Mode));
+        // Новое тело — без формы и массы (форма задаётся только с массой).
         var (w2, b2) = One();
-        w2.SetShape(b2, 0, 0.3f);
-        Assert.Equal((0f, 0f, Vector3.Zero), (w2.Get(b2).Mass, w2.Get(b2).InvMass, w2.Get(b2).InvInertia));
+        Assert.Equal((0f, 0f, 0f, Vector3.Zero), (w2.Get(b2).Radius, w2.Get(b2).Mass, w2.Get(b2).InvMass, w2.Get(b2).InvInertia));
     }
 
     [Fact]

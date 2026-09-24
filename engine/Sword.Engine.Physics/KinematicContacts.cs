@@ -41,6 +41,16 @@ public sealed partial class PhysicsWorld
     private float _kinematicSubstepShare;
     private int _kinematicSubstepPairs;
 
+    /// <summary>Израсходовано бюджета пары в последнем подшаге толчков, кг·м — тестам и диагностике (как <c>ContactsPairChecks</c>).</summary>
+    internal float KinematicPairUsed(ArticulationHandle pusher, ArticulationHandle target)
+    {
+        ref readonly var p = ref KinematicPairOf(pusher, target);
+        return p.Stamp == _kinematicSubstep ? p.Used : 0;
+    }
+
+    /// <summary>Бюджет пары последнего подшага толчков, кг·м (<c>PushForce · h²</c>) — тестам и диагностике.</summary>
+    internal float KinematicPairBudget => _kinematicPairBudget;
+
     public void PreparePass(ArticulationHandle pusher, int strike, float mass, float speed)
     {
         Check(pusher);

@@ -75,9 +75,9 @@ public class StepTests
     {
         var w = World(ground: new FlatGround());
         var art = w.CreateArticulation(2);
-        w.SetShape(w.Body(art, 0), 0.1f, 0.2f);
+        w.SetShape(w.Body(art, 0), 1, 0.1f, 0.2f);
         w.Place(w.Body(art, 0), new Vector3(1, 2, 3), Quaternion.Identity);
-        w.SetShape(w.Body(art, 1), 0.1f, 0.2f);
+        w.SetShape(w.Body(art, 1), 1, 0.1f, 0.2f);
         w.Place(w.Body(art, 1), new Vector3(1, 2, 5), Quaternion.Identity);
         var before = (w.Get(w.Body(art, 0)), w.Get(w.Body(art, 1)));
         w.Step(Dt);

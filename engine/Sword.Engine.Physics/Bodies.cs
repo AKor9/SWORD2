@@ -81,7 +81,10 @@ public struct BodyState
     /// <summary>Поворот начала тика — как <see cref="StartPosition"/>.</summary>
     public Quaternion StartRotation;
 
-    /// <summary>Масса, кг (0 — без массы: форма задана без неё); <see cref="InvMass"/> — 1 / масса (0 у тела без массы).</summary>
+    /// <summary>
+    /// Масса, кг (0 — формы ещё нет: новое тело, <see cref="New"/>); <see cref="InvMass"/> — 1 / масса (0 у тела без массы).
+    /// Форма задаётся только с массой (<see cref="IPhysicsWorld.SetShape"/>).
+    /// </summary>
     public float Mass, InvMass;
 
     /// <summary>Обратная инерция — диагональ в системе тела (X, Y — вдоль оси капсулы, Z), 1/(кг·м²).</summary>

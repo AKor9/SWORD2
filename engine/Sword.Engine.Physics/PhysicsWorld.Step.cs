@@ -18,6 +18,8 @@ public sealed partial class PhysicsWorld
         ContactsNarrowChecks = 0;
 
         StepBegin();
+        // База энергии подшага 0 (7д) — поза начала тика: удары, команды сцен и переход в труп между шагами в рост не попадают.
+        if (_trace is not null) TraceStepBegin();
         for (int substep = 0; substep < substeps; substep++) StepSubstep(h, substep);
         ContactsUpdateBounds();
         if (_trace is not null) TraceStep(dt);
@@ -43,7 +45,7 @@ public sealed partial class PhysicsWorld
 
     /// <summary>
     /// Начало шага: у тел на физике поза начала тика ← нынешняя (интерполяция клиента); тел на физике по сочленениям — отсев
-    /// сочленений, которые шаг не двигает.
+    /// сочленений, которые шаг не двигает. Трасса (если включена) берёт отсюда энергию до шага — <see cref="TraceStepBegin"/>.
     /// </summary>
     private void StepBegin()
     {

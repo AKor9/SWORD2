@@ -333,7 +333,7 @@ public class JointsTests(ITestOutputHelper output)
         var (w, art, _, _) = JointsRig.Pair(BodyMode.Kinematic, BodyMode.Simulated);
         w.SetJoints(art, [JointDesc.SwingTwist(0, 1, JointsRig.ChildAnchor, -0.1f, 0.1f, 0.1f, 0.1f, 0)]);
         JointsRig.Spin(w, w.Body(art, 1), JointsRig.JointPoint, new Vector3(20, 0, 0));
-        w.JointsStepWithoutContacts(JointsRig.Tick);
+        w.Step(JointsRig.Tick);
         Assert.False(w.JointLimitHits(art).IsEmpty);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => w.Joint(art, 1));

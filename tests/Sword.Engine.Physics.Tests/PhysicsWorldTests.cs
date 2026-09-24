@@ -49,7 +49,7 @@ public class PhysicsWorldTests
         var stale = new Action[]
         {
             () => w.DestroyArticulation(a), () => w.BodyCount(a), () => w.Body(a, 0), () => w.Get(body), () => w.ArticulationOf(body),
-            () => w.SetShape(body, 0.1f, 0.2f), () => w.Place(body, Vector3.One, Quaternion.Identity),
+            () => w.SetShape(body, 1, 0.1f, 0.2f), () => w.Place(body, Vector3.One, Quaternion.Identity),
             () => w.SetKinematicTarget(body, Vector3.One, Quaternion.Identity, 1f / 120),
             () => w.Get(new BodyHandle(9999, 1)), () => w.BodyCount(new ArticulationHandle(0, 0)),
         };
@@ -83,7 +83,7 @@ public class PhysicsWorldTests
     {
         var w = new PhysicsWorld();
         var body = w.Body(w.CreateArticulation(1), 0);
-        w.SetShape(body, 0.065f, 0.14f);
+        w.SetShape(body, 2, 0.065f, 0.14f);
         var rot = Quaternion.CreateFromAxisAngle(Vector3.Normalize(new Vector3(0.3f, 0.2f, 1f)), 1.1f);
         var pos = new Vector3(1.5f, 1.2f, -0.4f);
         w.Place(body, pos, rot);
@@ -100,9 +100,10 @@ public class PhysicsWorldTests
 
         foreach (float bad in new[] { -0.1f, float.NaN, float.PositiveInfinity })
         {
-            Assert.Throws<ArgumentOutOfRangeException>(() => w.SetShape(body, bad, 0.1f));
-            Assert.Throws<ArgumentOutOfRangeException>(() => w.SetShape(body, 0.1f, bad));
+            Assert.Throws<ArgumentOutOfRangeException>(() => w.SetShape(body, 2, bad, 0.1f));
+            Assert.Throws<ArgumentOutOfRangeException>(() => w.SetShape(body, 2, 0.1f, bad));
         }
+        Assert.Equal(s, w.Get(body));   // отказ — форма прежняя
     }
 
     [Fact]
@@ -155,7 +156,7 @@ public class PhysicsWorldTests
             w.DestroyArticulation(x);
             var z = w.CreateArticulation(5);
             for (int i = 0; i < 5; i++) w.SetKinematicTarget(w.Body(z, i), new Vector3(i, 1, 0), Quaternion.Identity, 0.01f);
-            w.SetShape(w.Body(y, 3), 0.1f, 0.2f);
+            w.SetShape(w.Body(y, 3), 1, 0.1f, 0.2f);
         }
         Script(a);
         Script(b);

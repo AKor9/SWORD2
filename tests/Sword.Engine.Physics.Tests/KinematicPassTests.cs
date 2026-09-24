@@ -38,7 +38,7 @@ public class KinematicPassTests
         Assert.Equal((1, 0, false, share * 2 * 5, 0f, 0), (p.Strike, p.Number, p.Inside, p.Potential, p.Remaining, p.EmptyTicks));
 
         // контакт открывает проход с бюджетом потенциала; импульс за проход не больше бюджета (здесь бюджет меньше F·dt)
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         p = w.Pass(blade, target);
         Assert.True(p.Inside);
         Assert.Equal((1, 5f), (p.Number, p.Potential));
@@ -50,11 +50,11 @@ public class KinematicPassTests
         // PassExitTicks = 2 тика без контакта и попадания — проход закрыт, остатка и потенциала нет
         Put(w, blade, target, touching: false);
         w.PreparePass(blade, 1, 2, 5);
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         w.EndKinematicTick();
         Assert.Equal((true, 1), (w.Pass(blade, target).Inside, w.Pass(blade, target).EmptyTicks));
         w.PreparePass(blade, 1, 2, 5);
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         w.EndKinematicTick();
         p = w.Pass(blade, target);
         Assert.Equal((false, 0, 0f, 0f), (p.Inside, p.EmptyTicks, p.Remaining, p.Potential));
@@ -63,7 +63,7 @@ public class KinematicPassTests
         w.PreparePass(blade, 1, 2, 8);
         Put(w, blade, target, touching: true);
         var before = Momentum(w, target).Z;
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         p = w.Pass(blade, target);
         Assert.Equal((2, true, 8f), (p.Number, p.Inside, p.Potential));
         // бюджет прохода 8 больше F·dt — упирается бюджет пары
@@ -76,7 +76,7 @@ public class KinematicPassTests
     {
         var (w, blade, target) = Scene(touching: true);
         w.PreparePass(blade, 7, 2, 16);
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         w.EndKinematicTick();
         var p = w.Pass(blade, target);
         Assert.True(p.Inside && p.Remaining > 0);
@@ -85,7 +85,7 @@ public class KinematicPassTests
         w.PreparePass(blade, 8, 1, 4);
         p = w.Pass(blade, target);
         Assert.Equal((8, 1, false, 2f, 0f, 0), (p.Strike, p.Number, p.Inside, p.Potential, p.Remaining, p.EmptyTicks));
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         Assert.Equal((2, true), (w.Pass(blade, target).Number, w.Pass(blade, target).Inside));
     }
 
@@ -94,7 +94,7 @@ public class KinematicPassTests
     {
         var (w, blade, target) = Scene(touching: false);
         w.PreparePass(blade, 1, 2, 3);   // потенциал 3
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         Assert.False(w.Pass(blade, target).Inside);   // контакта нет — проход закрыт
 
         w.PassHit(blade, target);
@@ -217,7 +217,7 @@ public class KinematicPassTests
     {
         var (w, blade, target) = Scene(touching: true);
         w.PreparePass(blade, 1, 2, 16);
-        w.KinematicTestStep(Dt);
+        w.Step(Dt);
         Assert.True(w.Pass(blade, target).Inside);
         Assert.NotEqual(Vector3.Zero, w.Reaction(blade));
 
@@ -278,9 +278,13 @@ public class KinematicPassTests
         Assert.True(float.IsFinite(sink) && sink > 0);
     }
 
-    /// <summary>Два толкающих по 13 тел и две цели по 14 тел внахлёст (шары вдоль X).</summary>
+    /// <summary>
+    /// Два толкающих по 13 тел и две цели по 14 тел внахлёст (шары вдоль X); земля — плоскость на 1 мм выше низа целей (цели
+    /// чуть в земле: касание и трение есть, толчкам не мешает).
+    /// </summary>
     internal static (ArticulationHandle[] Pushers, ArticulationHandle[] Targets) Crowd(PhysicsWorld w)
     {
+        w.SetGround(new FlatGround(-0.099f));
         var pushers = new ArticulationHandle[2];
         var targets = new ArticulationHandle[2];
         for (int k = 0; k < 2; k++)
@@ -307,7 +311,7 @@ public class KinematicPassTests
                 w.SetKinematicTarget(w.Body(pushers[k], i), new Vector3(i * 0.3f, 0.01f * (t % 3), k * 3), Quaternion.Identity, Dt);
         }
         w.PreparePass(pushers[1], t / 50, 2, 8);
-        w.KinematicTestStep(Dt, floorY: -0.099f);   // цели чуть в земле: касание есть, толчкам не мешает
+        w.Step(Dt);
         w.PassHit(pushers[1], targets[1]);
         sink += w.ApplyHit(w.Body(targets[1], 3), new Vector3(0.9f, 0, 3.1f), new Vector3(0, 0, 2), 6, pushers[1]).Z;
         sink += w.SpendHit(pushers[1], targets[1], 0.1f);
