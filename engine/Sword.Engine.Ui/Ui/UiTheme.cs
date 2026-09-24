@@ -2,12 +2,12 @@ namespace Sword.Engine.Ui;
 
 /// <summary>
 /// Палитра и размеры интерфейса — единственный источник цветов: виджеты, HUD, панели игры берут их отсюда,
-/// а не задают числами на месте. Размеры — в логических пикселях, виджеты умножают их на масштаб.
+/// а не задают числами на месте. Размеры — в логических пикселях, <see cref="UiContext"/> умножает их на масштаб.
 /// Перенос <c>Widgets/UiTheme.cs</c> SWORD 2eab13b, значения те же.
 /// </summary>
 public sealed class UiTheme
 {
-    /// <summary>Общая тема: её получат виджеты по умолчанию; её читает HUD, рисующий списком квадов напрямую.</summary>
+    /// <summary>Общая тема: её получает <see cref="UiContext"/> по умолчанию; её читает HUD, рисующий списком квадов напрямую.</summary>
     public static UiTheme Default { get; } = new();
 
     private static uint C(byte r, byte g, byte b, byte a = 255) => UiDrawList.Rgba(r, g, b, a);
