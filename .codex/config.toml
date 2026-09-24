@@ -7,3 +7,9 @@ args = [
     "/c",
     'tools\scripts\agent-headless.cmd',
 ]
+
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+SWORD_NO_ACTIVATE = "1"
