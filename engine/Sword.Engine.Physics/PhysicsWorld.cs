@@ -96,10 +96,11 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
     {
         Check(articulation);
         int a = articulation.Index;
+        var members = _artBodies[a]!;
+        for (int k = 0, n = _artCount[a]; k < n; k++) SleepWakeAround(members[k]);   // 7з-3: лежавшие на нём спящие теряют опору
         JointsReset(a);
         ContactsReset(a);
         KinematicReset(a);
-        var members = _artBodies[a]!;
         // С конца: следующее сочленение того же размера возьмёт те же слоты тем же порядком.
         for (int k = _artCount[a] - 1; k >= 0; k--)
         {
@@ -145,7 +146,9 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
     public void Place(BodyHandle body, Vector3 position, Quaternion rotation)
     {
         Check(body);
+        SleepWakeBody(body.Index, WakeReason.Command);   // 7з-3: запись тела будит
         ref var s = ref _bodies[body.Index];
+        if (s.Position != position || s.Rotation != rotation) SleepWakeAround(body.Index);   // 7з-3: лежавшие на нём спящие — по позе до записи
         s.Position = s.PrevPosition = s.StartPosition = position;
         s.Rotation = s.PrevRotation = s.StartRotation = rotation;
         s.Velocity = s.AngularVelocity = Vector3.Zero;

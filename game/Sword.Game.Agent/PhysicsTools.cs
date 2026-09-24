@@ -27,7 +27,8 @@ public static class PhysicsTools
                 "клинок: капсула от хвата до кончика меча в руке, хват — конец A), имя (forearm.l) и название («левое предплечье»), центр, " +
                 "концы оси A и B, поворот, скорость и её модуль, угловая скорость и её модуль, прошлая постановка, поза начала тика, радиус, " +
                 "полудлина, м, масса, кг, режим (kinematic — ставит поза, simulated — на физике), профиль динамики, касание земли; сводка — " +
-                "самая быстрая капсула, масса тела, привязка скина (skin: есть ли, время смерти, суставов, drift — насколько скин, " +
+                "самая быстрая капсула, масса тела, спит ли труп (asleep — физика его не считает, 7з-3) и счётчик покоя (restTime, с), " +
+                "привязка скина (skin: есть ли, время смерти, суставов, drift — насколько скин, " +
                 "привязка × тело, ушёл от позы бойца, м). segments — имена сегментов (по умолчанию все 14, blade — клинок). Слоты и " +
                 "поколения тел — state.describe physics, привязки скина — state.describe skin. 7и: joints — суставы тела (у трупа на физике: " +
                 "родитель, ребёнок, включён ли, ошибка точки, углы, выход за предел); trace — трасса физики (диагностический режим physics.trace, " +
@@ -135,6 +136,9 @@ public static class PhysicsTools
             ["bodyCount"] = count,
             ["fastest"] = new JsonObject { ["name"] = BodySegs.Name(BodySegs.Segment(fastest)), ["title"] = BodySegs.Title(BodySegs.Segment(fastest)), ["speed"] = Round(max) },
             ["mass"] = Round(mass),
+            // 7з-3: спит ли труп (физика его не считает) и счётчик покоя, с
+            ["asleep"] = view.IsAsleep(body),
+            ["restTime"] = Round(view.RestTime(body)),
             ["skin"] = Skin(world, e, body, view),
             // 7и: суставы тела (у трупа на физике) и включена ли трасса физики (сводка — аргументом trace).
             ["joints"] = PhysicsDebugJson.Joints(world, body),

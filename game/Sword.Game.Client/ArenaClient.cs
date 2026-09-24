@@ -133,8 +133,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _ => 0xFFFFFFFF,
     };
 
-    /// <summary>Отметка тела на физике на оверлее капсул (7и): крест в центре — белый, касается земли — зелёный.</summary>
-    public const uint SimulatedMark = 0xFFFFFFFF, GroundedMark = 0xFF40FF40;
+    /// <summary>
+    /// Отметка тела на физике на оверлее капсул (7и): крест в центре — белый, касается земли — зелёный; 7з-3 — труп спит (физика его не
+    /// считает) — синий.
+    /// </summary>
+    public const uint SimulatedMark = 0xFFFFFFFF, GroundedMark = 0xFF40FF40, AsleepMark = 0xFFFF7030;
 
     /// <summary>Цвета оверлея клинков (<c>0xAABBGGRR</c>): клинок тика игрока и врага, прошлого тика, стороны прохода.</summary>
     public const uint PlayerBladeColour = 0xFF40FFFF, EnemyBladeColour = 0xFFFFFFFF, PrevBladeColour = 0xB0A0A0A0, SweepColour = 0xA00090FF;
@@ -279,10 +282,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>
     /// Из них с крестом тела на физике (7и: тела трупа — <see cref="SimulatedMark"/>) и из них касающихся земли (<see cref="GroundedMark"/>)
-    /// — в последнем кадре (0 — капсулы не рисовались).
+    /// и спящих (7з-3, <see cref="AsleepMark"/>) — в последнем кадре (0 — капсулы не рисовались).
     /// </summary>
     public int DrawnMarks { get; private set; }
     public int DrawnGroundedMarks { get; private set; }
+    public int DrawnAsleepMarks { get; private set; }
 
     /// <summary>Клинки поверх персонажей (<c>--overlay blades</c>; F7 — вместе с капсулами).</summary>
     public bool ShowBlades { get; set; }
@@ -744,7 +748,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private int DrawCapsules(DebugDraw debug)
     {
         int drawn = 0;
-        DrawnMarks = DrawnGroundedMarks = 0;
+        DrawnMarks = DrawnGroundedMarks = DrawnAsleepMarks = 0;
         var fighters = _view.Fighters;
         for (int i = 0; i < fighters.Count; i++) drawn += DrawBody(debug, _view.Body(fighters[i]));
         return drawn;
@@ -760,7 +764,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             if (!c.Simulated) continue;
             DrawnMarks++;
             if (c.Grounded) DrawnGroundedMarks++;
-            uint mark = c.Grounded ? GroundedMark : SimulatedMark;
+            if (c.Asleep) DrawnAsleepMarks++;
+            uint mark = c.Asleep ? AsleepMark : c.Grounded ? GroundedMark : SimulatedMark;
             float s = MathF.Max(c.Radius, 0.04f);
             debug.Line(c.Center - new Vector3(s, 0, 0), c.Center + new Vector3(s, 0, 0), mark);
             debug.Line(c.Center - new Vector3(0, s, 0), c.Center + new Vector3(0, s, 0), mark);

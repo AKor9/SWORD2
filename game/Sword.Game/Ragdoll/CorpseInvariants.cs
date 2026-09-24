@@ -13,7 +13,8 @@ namespace Sword.Game.Ragdoll;
 /// Инварианты трупа на физике (7з; план этапа §3.3): <c>physics.modes</c> (мёртвый ⇔ труп: тела на физике, профиль трупа, суставы,
 /// запястье выключено; живой ⇔ кинематика), <c>physics.simulatedSpeed</c> (скорости тел трупа — не выше потолков профиля), <c>physics.joints</c>
 /// (ошибка точки и выход за предел суставов после шага), <c>physics.ground</c> (глубина тел трупа в земле), <c>physics.inArena</c> (тела
-/// трупа — внутри стены и вне колонн) — после стадии Physics; диагностические (по запросу — <c>invariant.enable</c>, манифест фичи; читают
+/// трупа — внутри стены и вне колонн), 7з-3 — <c>physics.sleep</c> (спящий стоит: скорости 0, поза не меняется) и <c>physics.sleepContacts</c>
+/// (в спящий никто не вошёл глубже допуска — пробуждение не пропущено) — после стадии Physics; диагностические (по запросу — <c>invariant.enable</c>, манифест фичи; читают
 /// трассу физики — при включённом режиме <c>physics.trace</c>) — <c>physics.energy</c> (рост энергии трупа за подшаг) после Physics и <c>physics.pushes</c>
 /// (свойства толчков: доли бюджетов пары и прохода, выталкивание, Δv удара) в конце End. Допуски — по замерам (README фичи «Рэгдолл», «7з»),
 /// ~2× к худшему.
@@ -83,10 +84,19 @@ public static class CorpseInvariants
     /// <summary><c>physics.pushes</c>: запас над долей 1 бюджетов и над пределами скорости выталкивания и Δv (округление float).</summary>
     public const float PushTolerance = 1e-3f;
 
+    /// <summary>
+    /// <c>physics.sleepContacts</c> (7з-3): глубина, на которую тело живого или неспящее тело на физике входит в капсулу спящего тела после шага,
+    /// м. Проверка до подшагов будит спящее, в которое вошли глубже <see cref="PhysicsWorld.SleepSlop"/> (живое шаг не двигает — глубже допуска
+    /// его быть не может), неспящее тело шаг выталкивает из спящего, как из земли; запас 5 мм — выталкивание застарелой глубины не быстрее
+    /// <see cref="PhysicsSettings.PopSpeed"/>.
+    /// </summary>
+    public const float SleepContactTolerance = PhysicsWorld.SleepSlop + 0.005f;
+
     public static IEnumerable<IInvariant> For(IPhysicsWorld physics, int corpseProfile) =>
     [
         new Modes(physics, corpseProfile), new SimulatedSpeed(physics), new Joints(physics), new Ground(physics, ArenaGround.Instance),
         new InArena(physics, ArenaGround.WallRadius, ArenaGround.Pillars.ToArray()), new Energy(physics), new Pushes(physics),
+        new Sleep(physics), new SleepContacts(physics),
     ];
 
     private static string Text(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
@@ -425,6 +435,167 @@ public static class CorpseInvariants
                 sb.Append(CultureInfo.InvariantCulture, $" {PhysicsTrace.PhaseName((PhysicsPhase)p)} {s.PhaseGrowth((PhysicsPhase)p):G3};");
             return sb.ToString();
         }
+    }
+
+    /// <summary>
+    /// <c>physics.sleep</c> (7з-3; после Physics, тяжёлый) — спящий труп стоит: у каждого тела спящего сочленения скорость и угловая скорость —
+    /// ровно 0, прошлая поза и поза начала тика — ровно поза (клиент не качает его интерполяцией), тело — на физике; спал на прошлой проверке и
+    /// спит сейчас непрерывно (счётчик покоя не убывал) — поза бит в бит та же. Память — по слотам тел (поколение, тик, счётчик покоя, поза).
+    /// Ловит шаг, который двигает спящее, и сон без обнуления скоростей.
+    /// </summary>
+    private sealed class Sleep(IPhysicsWorld physics) : IInvariant
+    {
+        /// <summary>По слотам тел: поколение, тик проверки, счётчик покоя сочленения, поза (у неспящего — поколение 0).</summary>
+        private (int Generation, ulong Tick, float RestTime, Vector3 Position, Quaternion Rotation)[] _last = [];
+
+        public string Id => "physics.sleep";
+        public InvariantCost Cost => InvariantCost.Heavy;
+        public InvariantScope Scope => InvariantScope.Subsystem;
+        public string After => GameStages.Physics;
+
+        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
+        {
+            if (_last.Length < physics.BodyCapacity) Array.Resize(ref _last, physics.BodyCapacity);
+            for (int i = 0, n = physics.ArticulationCapacity; i < n; i++)
+            {
+                if (Problem(i, ctx.Tick) is not { } problem) continue;
+                violations.Report(problem);
+                if (violations.Full) return;
+            }
+        }
+
+        private string? Problem(int slot, ulong tick)
+        {
+            var a = physics.ArticulationAt(slot);
+            if (a.IsNone) return null;
+            bool asleep = physics.IsAsleep(a);
+            float rest = physics.RestTime(a);
+            string? problem = null;
+            for (int k = 0, n = physics.BodyCount(a); k < n; k++)
+            {
+                var b = physics.Body(a, k);
+                var s = physics.Get(b);
+                var last = _last[b.Index];
+                _last[b.Index] = asleep ? (b.Generation, tick, rest, s.Position, s.Rotation) : default;
+                if (!asleep || problem is not null) continue;
+                if (s.Mode != BodyMode.Simulated) problem = Text($"спящий {a}: тело {BodySegs.Name(k)} — {s.Mode}");
+                else if (s.Velocity != Vector3.Zero || s.AngularVelocity != Vector3.Zero)
+                    problem = Text($"спящий {a}: тело {BodySegs.Name(k)} со скоростью {s.Velocity} м/с, {s.AngularVelocity} рад/с (у спящего — 0)");
+                else if (s.PrevPosition != s.Position || s.StartPosition != s.Position || s.PrevRotation != s.Rotation || s.StartRotation != s.Rotation)
+                    problem = Text($"спящий {a}: тело {BodySegs.Name(k)} — прошлая поза или поза начала тика не поза (сдвиг {Vector3.Distance(s.StartPosition, s.Position):G3} м)");
+                else if (last.Generation == b.Generation && last.Tick < tick && rest >= last.RestTime && (last.Position != s.Position || last.Rotation != s.Rotation))
+                    problem = Text($"спящий {a} сдвинулся во сне: тело {BodySegs.Name(k)} на {Vector3.Distance(last.Position, s.Position):G3} м с тика {last.Tick}");
+            }
+            return problem;
+        }
+    }
+
+    /// <summary>
+    /// <c>physics.sleepContacts</c> (7з-3; после Physics, тяжёлый) — пробуждение не пропущено: тело живого (кинематическое) не входит в капсулу
+    /// тела спящего сочленения глубже <see cref="SleepContactTolerance"/> (проверка до подшагов будит спящее, в которое вошли глубже
+    /// <see cref="PhysicsWorld.SleepSlop"/>, а живое шаг не двигает — глубже быть не может); неспящее тело на физике — не две проверки подряд при
+    /// непрерывном сне (шаг выталкивает его из спящего, как из земли; зажатое между спящим и землёй или двумя спящими может остаться глубже до
+    /// конца шага — тогда его разбудит проверка до подшагов следующего). Отсев — по сферам сочленений из нынешних поз тел (границы физики — конца
+    /// шага, а тело могли поставить и после). Память — по слотам сочленений (поколение, тик проверки, счётчик покоя). Ловит «не разбудили»:
+    /// живой идёт сквозь спящий труп, труп лёг в спящий.
+    /// </summary>
+    private sealed class SleepContacts(IPhysicsWorld physics) : IInvariant
+    {
+        /// <summary>По слотам сочленений: спящее, в которое вошло неспящее тело на физике глубже допуска, — поколение, тик проверки, счётчик покоя.</summary>
+        private (int Generation, ulong Tick, float RestTime)[] _pierced = [];
+        private ulong _lastCheck = ulong.MaxValue;
+
+        public string Id => "physics.sleepContacts";
+        public InvariantCost Cost => InvariantCost.Heavy;
+        public InvariantScope Scope => InvariantScope.Subsystem;
+        public string After => GameStages.Physics;
+
+        /// <summary>Сферы сочленений по нынешним позам тел (центр — среднее центров, радиус — до дальней капсулы): границы физики — конца шага.</summary>
+        private (Vector3 Center, float Radius)[] _spheres = [];
+
+        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
+        {
+            ulong previous = _lastCheck;
+            _lastCheck = ctx.Tick;
+            if (physics.AsleepCount == 0) return;
+            if (_pierced.Length < physics.ArticulationCapacity) Array.Resize(ref _pierced, physics.ArticulationCapacity);
+            if (_spheres.Length < physics.ArticulationCapacity) Array.Resize(ref _spheres, physics.ArticulationCapacity);
+            for (int i = 0, n = physics.ArticulationCapacity; i < n; i++) _spheres[i] = Sphere(physics.ArticulationAt(i));
+            for (int i = 0, n = physics.ArticulationCapacity; i < n; i++)
+            {
+                var s = physics.ArticulationAt(i);
+                if (s.IsNone || !physics.IsAsleep(s)) continue;
+                if (Problem(s, ctx.Tick, previous) is not { } problem) continue;
+                violations.Report(problem);
+                if (violations.Full) return;
+            }
+        }
+
+        /// <summary>Спящее <paramref name="s"/> против всех неспящих (тело цикла по спящим — свой метод).</summary>
+        private (Vector3 Center, float Radius) Sphere(ArticulationHandle a)
+        {
+            if (a.IsNone) return default;
+            int n = physics.BodyCount(a);
+            var sum = Vector3.Zero;
+            for (int k = 0; k < n; k++) sum += physics.Get(physics.Body(a, k)).Position;
+            var center = sum / n;
+            float r = 0;
+            for (int k = 0; k < n; k++)
+            {
+                var s = physics.Get(physics.Body(a, k));
+                r = MathF.Max(r, Vector3.Distance(s.Position, center) + s.HalfLength + s.Radius);
+            }
+            return (center, r);
+        }
+
+        private string? Problem(ArticulationHandle s, ulong tick, ulong previous)
+        {
+            var bs = _spheres[s.Index];
+            float rest = physics.RestTime(s);
+            var last = _pierced[s.Index];
+            string? found = null;
+            bool pierced = false;
+            for (int j = 0, n = physics.ArticulationCapacity; j < n && found is null; j++)
+            {
+                var w = physics.ArticulationAt(j);
+                if (w.IsNone || w == s || physics.IsAsleep(w)) continue;
+                var bw = _spheres[j];
+                if (Vector3.Distance(bs.Center, bw.Center) >= bs.Radius + bw.Radius) continue;
+                if (Deepest(s, w) is not { Depth: > SleepContactTolerance } d) continue;
+                string what = Text($"в спящий {s} вошло тело {(d.Kinematic ? "живого" : "неспящего трупа")} {w} ({BodySegs.Name(d.Other)} в {BodySegs.Name(d.Body)}) на {d.Depth:G3} м (допуск {SleepContactTolerance})");
+                if (d.Kinematic) found = what + ": пробуждение пропущено";
+                else
+                {
+                    pierced = true;
+                    // вторая проверка подряд при непрерывном сне — проверка до подшагов его не разбудила
+                    if (last.Generation == s.Generation && last.Tick == previous && previous < tick && rest >= last.RestTime)
+                        found = what + Text($" и на прошлой проверке (тик {previous}): пробуждение пропущено");
+                }
+            }
+            _pierced[s.Index] = pierced ? (s.Generation, tick, rest) : default;
+            return found;
+        }
+
+        private (float Depth, int Body, int Other, bool Kinematic) Deepest(ArticulationHandle s, ArticulationHandle w)
+        {
+            (float Depth, int Body, int Other, bool Kinematic) worst = default;
+            for (int x = 0, ns = physics.BodyCount(s); x < ns; x++)
+            {
+                var a = physics.Get(physics.Body(s, x));
+                for (int y = 0, nw = physics.BodyCount(w); y < nw; y++)
+                {
+                    var b = physics.Get(physics.Body(w, y));
+                    float depth = a.Radius + b.Radius - Distance(in a, in b);
+                    if (depth > worst.Depth) worst = (depth, x, y, b.Mode != BodyMode.Simulated);
+                }
+            }
+            return worst;
+        }
+
+        /// <summary>Расстояние между осями капсул, м (первым — более короткий отрезок, как у физики).</summary>
+        private static float Distance(in BodyState a, in BodyState b) => b.HalfLength < a.HalfLength
+            ? MathF.Sqrt(Sword.Engine.Geometry.Segments.SegSeg(b.EndA, b.EndB, a.EndA, a.EndB, out _, out _))
+            : MathF.Sqrt(Sword.Engine.Geometry.Segments.SegSeg(a.EndA, a.EndB, b.EndA, b.EndB, out _, out _));
     }
 
     /// <summary>

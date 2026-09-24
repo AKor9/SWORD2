@@ -126,6 +126,7 @@ public sealed partial class PhysicsTrace
         private int _topCount;
         private readonly float[] _phaseGrowth = new float[PhaseCount];
         private readonly ArticulationHandle[] _phaseArticulation = new ArticulationHandle[PhaseCount];
+        private readonly int[] _wakes = new int[WakeReasonCount];
 
         /// <summary>Шагов (закрытых <c>TraceStep</c>) и подшагов (закрытых <c>TraceSubstep</c>); время шагов, с.</summary>
         public int Steps { get; private set; }
@@ -214,6 +215,27 @@ public sealed partial class PhysicsTrace
 
         public ArticulationHandle PhaseArticulation(PhysicsPhase phase) => _phaseArticulation[(int)phase];
 
+        /// <summary>
+        /// Сон (7з-3): пробуждений спящих сочленений по причине; засыпаний; касаний спящего тела неспящим телом на физике в подшагах (спящее —
+        /// неподвижная опора); наибольшее число спящих на конец шага (у последнего тика — сейчас).
+        /// </summary>
+        public int Wakes(WakeReason reason) => _wakes[(int)reason];
+
+        /// <summary>Пробуждений всего (все причины).</summary>
+        public int WakesTotal
+        {
+            get
+            {
+                int n = 0;
+                foreach (int w in _wakes) n += w;
+                return n;
+            }
+        }
+
+        public int Sleeps { get; private set; }
+        public int SleepContacts { get; private set; }
+        public int AsleepMax { get; private set; }
+
         /// <summary>Событий (тело·тиков быстрее порога) и самые быстрые из них (по убыванию скорости, до <see cref="TopCapacity"/>).</summary>
         public int Events { get; private set; }
         public int TopCount => _topCount;
@@ -250,8 +272,18 @@ public sealed partial class PhysicsTrace
             EnergyPairedArticulation = ArticulationHandle.None;
             Array.Clear(_phaseGrowth);
             Array.Clear(_phaseArticulation);
+            Array.Clear(_wakes);
+            Sleeps = SleepContacts = AsleepMax = 0;
             Events = 0;
         }
+
+        internal void Wake(WakeReason reason) => _wakes[(int)reason]++;
+
+        internal void Slept() => Sleeps++;
+
+        internal void SleepContact() => SleepContacts++;
+
+        internal void AsleepAt(int count) => AsleepMax = Math.Max(AsleepMax, count);
 
         internal void Correction(int i, float lin, float ang, float hid)
         {
@@ -435,6 +467,9 @@ public sealed partial class PhysicsTrace
             sb.AppendLine(inv, $"{prefix} рост энергии за подшаг: сочленение без толчков и контакта с телом на физике {EnergyGrowth:F4} Дж " +
                                $"({EnergyArticulation}), в контакте {EnergyGrowthPaired:F4} Дж ({EnergyPairedArticulation}), все в контакте вместе " +
                                $"{EnergyGrowthPairedTotal:F4} Дж, все без толчков {EnergyGrowthTotal:F4} Дж, толкаемое живыми {EnergyGrowthPushed:F4} Дж");
+            sb.AppendLine(inv, $"{prefix} сон: засыпаний {Sleeps}, спящих до {AsleepMax}; касаний спящих (опора) {SleepContacts}; пробуждений {WakesTotal}:" +
+                               $" толчок {Wakes(WakeReason.Push)}, удар {Wakes(WakeReason.Hit)}, касание {Wakes(WakeReason.Touch)}, цепочка " +
+                               $"{Wakes(WakeReason.Chain)}, команда {Wakes(WakeReason.Command)}, настройки {Wakes(WakeReason.Settings)}");
             sb.Append(inv, $"{prefix} рост энергии по фазам подшага, Дж:");
             for (int p = 0; p < PhaseCount; p++) sb.Append(inv, $" {PhaseNames[p]} {_phaseGrowth[p]:F4};");
             for (int k = 0; k < _topCount; k++)

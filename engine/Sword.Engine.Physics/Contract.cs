@@ -197,6 +197,45 @@ public enum PhysicsPhase : byte
 }
 
 /// <summary>
+/// Почему проснулось спящее сочленение (7з-3; трасса физики — счётчики по причинам). Спящее просыпается, когда его может что-то сдвинуть
+/// (README физики, «7з-3»).
+/// </summary>
+public enum WakeReason : byte
+{
+    /// <summary>
+    /// Толчок живого: кинематическое тело у спящего (в пределах <see cref="PhysicsWorld.SleepMargin"/>) движется в ближайшей точке быстрее
+    /// <see cref="PhysicsSettings.SleepBodySpeed"/> или вошло в него глубже <see cref="PhysicsWorld.SleepSlop"/>.
+    /// </summary>
+    Push = 0,
+
+    /// <summary>Удар: <see cref="IPhysicsWorld.PassHit"/> по спящей цели, <see cref="IPhysicsWorld.ApplyHit"/> в её тело.</summary>
+    Hit = 1,
+
+    /// <summary>
+    /// Касание неспящего тела на физике, которое у спящего движется быстрее порога части или вошло в него глубже допуска; падающий труп (центр
+    /// масс вниз быстрее <see cref="PhysicsSettings.SleepSpeed"/>) — любое касание спящего, лежащего на нём (7з-3, проверка: у лежащего на
+    /// разбуженном цепочкой ушла опора).
+    /// </summary>
+    Touch = 2,
+
+    /// <summary>
+    /// Цепочка по куче на одно касание: проснувшееся в этом тике (любой причиной) касается спящего — будит его в том же тике; запись, уводящая
+    /// тело на физике между шагами (<see cref="IPhysicsWorld.Place"/>, <see cref="IPhysicsWorld.Set"/>, смена режима, формы, удаление
+    /// сочленения), — спящих, касавшихся его в позе до записи.
+    /// </summary>
+    Chain = 3,
+
+    /// <summary>
+    /// Запись состояния тела (<see cref="IPhysicsWorld.Place"/>, <see cref="IPhysicsWorld.Set"/>, <see cref="IPhysicsWorld.SetShape"/>), смена
+    /// режима и профиля тела, суставы (<c>SetJoints</c>, <c>RebindJoints</c>, включение и выключение), принудительно (<see cref="IPhysicsWorld.Wake"/>).
+    /// </summary>
+    Command = 4,
+
+    /// <summary>Смена настроек физики, профиля динамики, земли, стены или колонн.</summary>
+    Settings = 5,
+}
+
+/// <summary>
 /// Трасса физики — диагностический режим владельца (7д; как журнал причинности): источники поправок, сдвиги и углы по этапам
 /// подшага, скорости и гистограммы, бюджеты, события быстрее порога. Включает и выключает владелец между шагами
 /// (<see cref="IPhysicsWorld.EnableTrace"/>, <see cref="IPhysicsWorld.DisableTrace"/>). В хеш не входит и симуляцию не меняет;

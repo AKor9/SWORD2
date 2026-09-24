@@ -70,6 +70,18 @@ public readonly record struct PhysicsTraceEnergy(float Paired, BodyRef PairedBod
     float Pairs, float Pressed, float Velocity, float ContactVelocity, float Relax);
 
 /// <summary>
+/// Сон трупов в накопителе трассы (7з-3; агент — <c>physics.bodies {trace}</c> → <c>sleep</c>): засыпаний; наибольшее число спящих на конец
+/// шага; касаний спящего тела неспящим телом на физике в подшагах (спящее — неподвижная опора); пробуждений по причинам — толчок живого,
+/// удар, касание движущегося трупа, цепочка по куче, команда (запись тела, режим, профиль, суставы), настройки (ручки, земля).
+/// </summary>
+public readonly record struct PhysicsTraceSleep(int Sleeps, int AsleepMax, int Contacts, int Push, int Hit, int Touch, int Chain, int Command,
+    int Settings)
+{
+    /// <summary>Пробуждений всего.</summary>
+    public int Wakes => Push + Hit + Touch + Chain + Command + Settings;
+}
+
+/// <summary>
 /// Накопленное трассой по источнику (7и): поправок; наибольшие сдвиг / h, м/с, угол / h, рад/с, скрытый сдвиг прошлой позы / h;
 /// псевдоимпульс за тик — наибольший и сумма, Н·с; контактов, наибольшая глубина и отложенная, м; погашено скоростным проходом, м/с;
 /// точный импульс толчков, Н·с.
@@ -120,6 +132,9 @@ public interface IPhysicsDebugView : IReadView
 
     /// <summary>Рост энергии накопителя <paramref name="period"/> сверх сводки (7з-2): в контакте трупов, их сумма, по фазам подшага.</summary>
     PhysicsTraceEnergy TraceEnergy(PhysicsTracePeriod period);
+
+    /// <summary>Сон трупов накопителя <paramref name="period"/> (7з-3): засыпания, спящие, касания спящих, пробуждения по причинам.</summary>
+    PhysicsTraceSleep TraceSleep(PhysicsTracePeriod period);
 
     /// <summary>Накопленное накопителем <paramref name="period"/> по источнику <paramref name="source"/>.</summary>
     PhysicsTraceSource TraceSource(PhysicsTracePeriod period, PhysicsContactSource source);

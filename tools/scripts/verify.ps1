@@ -1187,9 +1187,9 @@ Add-Step 'agent-smoke' {
             $checked = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.evaluations -gt 0 }).Count
             if ($checked -lt 6 -or [int]$inv.violationsTotal -ne 0) { $problems += "App: инварианты — проверялось $checked, нарушений $($inv.violationsTotal): $($inv.recent | ConvertTo-Json -Compress -Depth 4)" }
             # Исправления после Пд (решение пользователя): живая игра — тяжёлые инварианты раз в 4 тика, остальные — каждый тик.
-            # 7з: тяжёлые и инварианты трупа (все тела бойцов после Physics).
+            # 7з: тяжёлые и инварианты трупа (все тела бойцов после Physics); 7з-3 — сон трупа.
             $heavyIds = @('ecs.finite', 'animation.finite', 'physics.finite', 'physics.kinematicPose', 'physics.kinematicSpeed',
-                'physics.modes', 'physics.simulatedSpeed', 'physics.joints', 'physics.ground', 'physics.inArena')
+                'physics.modes', 'physics.simulatedSpeed', 'physics.joints', 'physics.ground', 'physics.inArena', 'physics.sleep', 'physics.sleepContacts')
             $badEvery = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.every -ne $(if ($heavyIds -contains $_.id) { 4 } else { 1 }) } | ForEach-Object { "$($_.id)=$($_.every)" })
             if ($inv.livePeriods -ne $true -or $badEvery.Count -gt 0) { $problems += "App: инварианты живой игры — livePeriods $($inv.livePeriods), период не тот: $($badEvery -join ', ')" }
             # Этап П, точка Па: profile.stages в живой игре — включение с начала следующего кадра, итоги по кадрам: фазы кадра,

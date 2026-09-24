@@ -48,6 +48,30 @@ public sealed record RagdollSettings
     /// сквозь кучу трупов боец идёт, теряя не больше предела; дальше скорость возвращает разгон бойца (14 1/с).
     /// </summary>
     public float RecoilMaxSpeed { get; init; } = 1f;
+
+    /// <summary>
+    /// Скорость сведения разрыва сустава, м/с (7з-2, ручка — 7з-3; <see cref="PhysicsSettings.JointPopSpeed"/>): унаследованный разрыв точки
+    /// сустава до 1 см (удар трупа о землю) сводится не быстрее её — всплеск энергии при ударе меньше.
+    /// </summary>
+    public float JointPopSpeed { get; init; } = 1.5f;
+
+    /// <summary>Трение между трупами μ (7з-2, ручка — 7з-3; <see cref="PhysicsSettings.PairFriction"/>): труп, лёгший на другой, не съезжает с него.</summary>
+    public float PairFriction { get; init; } = 0.7f;
+
+    /// <summary>
+    /// Порог сна трупа, м/с (7з-3; <see cref="PhysicsSettings.SleepSpeed"/>): труп целиком (среднеквадратичная скорость его массы) медленнее —
+    /// может уснуть. 0 — сна нет.
+    /// </summary>
+    public float SleepSpeed { get; init; } = 0.05f;
+
+    /// <summary>
+    /// Порог сна части, м/с (7з-3; <see cref="PhysicsSettings.SleepBodySpeed"/>): каждая часть трупа медленнее — может уснуть; живой или труп,
+    /// который у спящего быстрее, будит его. 0 — сна нет.
+    /// </summary>
+    public float SleepBodySpeed { get; init; } = 0.5f;
+
+    /// <summary>Время покоя до сна, с (7з-3; <see cref="PhysicsSettings.SleepTime"/>).</summary>
+    public float SleepTime { get; init; } = 0.5f;
 }
 
 /// <summary>
@@ -82,6 +106,12 @@ public struct RagdollRules
     /// <summary>Предел отдачи — наибольшее отклонение скорости корня от заданной вдоль отдачи, м/с (7к).</summary>
     public float RecoilMaxSpeed;
 
+    /// <summary>Скорость сведения разрыва сустава, м/с, и трение между трупами μ (7з-2; ручки — 7з-3).</summary>
+    public float JointPopSpeed, PairFriction;
+
+    /// <summary>Сон трупа (7з-3): порог трупа целиком и части, м/с, время покоя до сна, с.</summary>
+    public float SleepSpeed, SleepBodySpeed, SleepTime;
+
     /// <summary>Правила из секции конфига; числа вне пределов — ошибка конфига.</summary>
     public static RagdollRules From(RagdollSettings s)
     {
@@ -104,13 +134,22 @@ public struct RagdollRules
             EnemyRecoil = Check(s.EnemyRecoil, "enemyRecoil", false),
             PlayerRecoil = Check(s.PlayerRecoil, "playerRecoil", false),
             RecoilMaxSpeed = Check(s.RecoilMaxSpeed, "recoilMaxSpeed", false),
+            JointPopSpeed = Check(s.JointPopSpeed, "jointPopSpeed", true),
+            PairFriction = Check(s.PairFriction, "pairFriction", false),
+            SleepSpeed = Check(s.SleepSpeed, "sleepSpeed", false),
+            SleepBodySpeed = Check(s.SleepBodySpeed, "sleepBodySpeed", false),
+            SleepTime = Check(s.SleepTime, "sleepTime", true),
         };
     }
 
-    /// <summary>Настройки физики по правилам: трение, бюджет толчка, выталкивание, податливость пределов; прочее — из <paramref name="baseline"/>.</summary>
+    /// <summary>
+    /// Настройки физики по правилам: трение о землю и между трупами, бюджет толчка, выталкивание, податливость пределов, сведение разрыва
+    /// сустава, сон (7з-3); прочее — из <paramref name="baseline"/>.
+    /// </summary>
     public readonly PhysicsSettings Physics(PhysicsSettings baseline) => baseline with
     {
         StaticFriction = Friction, PushForce = PushForce, PopSpeed = PopSpeed, JointLimitCompliance = JointCompliance,
+        JointPopSpeed = JointPopSpeed, PairFriction = PairFriction, SleepSpeed = SleepSpeed, SleepBodySpeed = SleepBodySpeed, SleepTime = SleepTime,
     };
 
     /// <summary>Профиль динамики трупа: потолки скоростей трупа, остальное — профиль по умолчанию (гравитация, демпфирование, трение).</summary>
@@ -118,8 +157,8 @@ public struct RagdollRules
 }
 
 /// <summary>
-/// Ручки «Рэгдолл» (7з; механизм 6е — как «Бой»; 7к — отдача: доли врагу и игроку, предел): поля <see cref="RagdollRules"/> — ресурса
-/// мира из секции конфига <c>ragdoll</c>.
+/// Ручки «Рэгдолл» (7з; механизм 6е — как «Бой»; 7к — отдача: доли врагу и игроку, предел; 7з-3 — сведение разрыва сустава и трение между
+/// трупами 7з-2, сон трупа: пороги трупа и части, время): поля <see cref="RagdollRules"/> — ресурса мира из секции конфига <c>ragdoll</c>.
 /// Изменение на ходу — команда ручки (система <c>tuning.ragdoll</c> в Begin), в реплее; замену настроек физики и профиля трупа делает
 /// <see cref="RagdollRulesChangeSystem"/> (Intent) — до шага физики того же тика. Группа F3 «Рэгдолл» — клиент (7и).
 /// </summary>
@@ -131,7 +170,9 @@ public static class RagdollKnobs
     public const string Friction = "ragdoll.friction", PushForce = "ragdoll.pushForce", PopSpeed = "ragdoll.popSpeed",
         JointCompliance = "ragdoll.jointCompliance", CorpseMaxSpeed = "ragdoll.corpseMaxSpeed", CorpseMaxAngularSpeed = "ragdoll.corpseMaxAngularSpeed",
         DeathMaxSpeed = "ragdoll.deathMaxSpeed", DeathMaxAngularSpeed = "ragdoll.deathMaxAngularSpeed", EnemyRecoil = "ragdoll.enemyRecoil",
-        PlayerRecoil = "ragdoll.playerRecoil", RecoilMaxSpeed = "ragdoll.recoilMaxSpeed";
+        PlayerRecoil = "ragdoll.playerRecoil", RecoilMaxSpeed = "ragdoll.recoilMaxSpeed", JointPopSpeed = "ragdoll.jointPopSpeed",
+        PairFriction = "ragdoll.pairFriction", SleepSpeed = "ragdoll.sleepSpeed", SleepBodySpeed = "ragdoll.sleepBodySpeed",
+        SleepTime = "ragdoll.sleepTime";
 
     public static void Register(SimulationBuilder b, IPhysicsWorld physics, int corpseProfile)
     {
@@ -165,7 +206,21 @@ public static class RagdollKnobs
                 hint: "доля отдачи толчков и ударов по трупам в скорость корня игрока: меньше — игрок увереннее идёт сквозь трупы")
             .Float("recoilMaxSpeed", "предел отдачи", (in RagdollRules r) => r.RecoilMaxSpeed, (ref RagdollRules r, float v) => r.RecoilMaxSpeed = v,
                 0, 10, d.RecoilMaxSpeed, format: "0.00",
-                hint: "м/с: дальше этого отдача не уводит скорость корня от заданной — сквозь кучу трупов боец не останавливается");
+                hint: "м/с: дальше этого отдача не уводит скорость корня от заданной — сквозь кучу трупов боец не останавливается")
+            .Float("jointPopSpeed", "сведение разрыва сустава", (in RagdollRules r) => r.JointPopSpeed, (ref RagdollRules r, float v) => r.JointPopSpeed = v,
+                0.1f, 10, d.JointPopSpeed, log: true, format: "0.00",
+                hint: "м/с: так быстро сводится разрыв сустава после удара трупа о землю; больше — резче, всплеск энергии при ударе сильнее")
+            .Float("pairFriction", "трение между трупами", (in RagdollRules r) => r.PairFriction, (ref RagdollRules r, float v) => r.PairFriction = v,
+                0, 2, d.PairFriction, format: "0.00", hint: "μ трения трупа о труп (покоя и скольжения): меньше — лёгший на другой труп съезжает с него")
+            .Float("sleepSpeed", "порог сна трупа", (in RagdollRules r) => r.SleepSpeed, (ref RagdollRules r, float v) => r.SleepSpeed = v,
+                0, 0.5f, d.SleepSpeed, format: "0.000",
+                hint: "м/с: труп целиком (среднеквадратичная скорость его массы) медленнее этого «время до сна» — засыпает; 0 — сна нет")
+            .Float("sleepBodySpeed", "порог сна части", (in RagdollRules r) => r.SleepBodySpeed, (ref RagdollRules r, float v) => r.SleepBodySpeed = v,
+                0, 2, d.SleepBodySpeed, format: "0.00",
+                hint: "м/с: каждая часть трупа медленнее этого — может уснуть; живой или труп, который у спящего быстрее, будит его; 0 — сна нет")
+            .Float("sleepTime", "время до сна", (in RagdollRules r) => r.SleepTime, (ref RagdollRules r, float v) => r.SleepTime = v,
+                0.05f, 10, d.SleepTime, log: true, format: "0.00",
+                hint: "с: столько подряд труп медленнее порогов — и засыпает (физика его не считает, крест капсулы — синий, F7)");
         b.System(GameStages.Intent, new RagdollRulesChangeSystem(physics, corpseProfile));
     }
 }
@@ -174,7 +229,8 @@ public static class RagdollKnobs
 /// Intent, первой (<see cref="GameLabels.RagdollRules"/>; 7з), реактивная по <c>ResourceChanged&lt;RagdollRules&gt;</c>: ручки «Рэгдолл»
 /// сменили правила (система ручек в Begin этого тика) — настройки физики заменяются целиком (<see cref="IPhysicsWorld.Settings"/>, от
 /// нынешних: число подшагов и доли толчков — прежние) и профиль трупа (<see cref="IPhysicsWorld.ReplaceDynamics"/>): шаг этого тика идёт
-/// уже по новым. Мир ECS не меняет.
+/// уже по новым. Мир ECS не меняет. 7з-3: изменившиеся настройки физики и профиль трупа будят спящие трупы (физика); ручки, которые физику не
+/// меняют (отдача живому), — не будят.
 /// </summary>
 public sealed class RagdollRulesChangeSystem(IPhysicsWorld physics, int corpseProfile) : IReactiveSystem<ResourceChanged<RagdollRules>>
 {

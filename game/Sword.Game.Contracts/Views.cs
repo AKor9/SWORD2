@@ -71,6 +71,18 @@ public interface IBodyView : IReadView
     int Articulations { get; }
     int Bodies { get; }
 
+    /// <summary>
+    /// Спит ли тело (7з-3; сочленение нет — false): труп, который физика не считает, пока его не разбудят (толчок живого, удар, касание
+    /// движущегося трупа — цепочкой по куче, команда, ручки «Рэгдолл»); его тела стоят, скорости — 0, поза начала тика — поза тика.
+    /// </summary>
+    bool IsAsleep(BodyRef body);
+
+    /// <summary>Счётчик покоя тела, с (7з-3): сколько подряд труп медленнее порогов сна (у спящего — считает дальше; сочленения нет — 0).</summary>
+    float RestTime(BodyRef body);
+
+    /// <summary>Спящих тел (сочленений) — 7з-3.</summary>
+    int AsleepCount { get; }
+
     /// <summary>Суставов скелета бойца.</summary>
     int JointCount { get; }
 
@@ -85,11 +97,12 @@ public interface IBodyView : IReadView
 /// Капсула тела после тика: постановка (центр, поворот; ось капсулы — локальная Y), прошлая постановка (для скорости и
 /// интерполяции), скорость, м/с, угловая скорость, рад/с (мир), радиус и полудлина оси, м. С 7ж — динамика тела: поза начала
 /// тика (у тела на физике прошлую постановку перезаписывает каждый подшаг — клиент интерполирует от позы начала тика, 7и),
-/// масса, кг (0 — без массы), на физике ли тело (труп, 7з; живое — кинематическое), номер профиля динамики, касание земли.
+/// масса, кг (0 — без массы), на физике ли тело (труп, 7з; живое — кинематическое), номер профиля динамики, касание земли; с 7з-3 — спит ли
+/// сочленение тела (спящее физика не считает: поза стоит, скорости 0).
 /// </summary>
 public readonly record struct BodySnapshot(Vector3 Position, Quaternion Rotation, Vector3 PrevPosition, Quaternion PrevRotation,
     Vector3 Velocity, Vector3 AngularVelocity, float Radius, float HalfLength, Vector3 StartPosition, Quaternion StartRotation,
-    float Mass, bool Simulated, int Profile, bool Grounded)
+    float Mass, bool Simulated, int Profile, bool Grounded, bool Asleep = false)
 {
     /// <summary>Ось капсулы в мире.</summary>
     public Vector3 Axis => Vector3.Transform(Vector3.UnitY, Rotation);

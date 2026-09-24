@@ -8,7 +8,7 @@ namespace Sword.Engine.Physics;
 public sealed partial class PhysicsWorld
 {
     private CpuProfiler _profiler = CpuProfiler.Off;
-    private int _zoneIntegrate, _zoneJoints, _zoneBounds, _zonePairs, _zoneGround, _zoneVelocity, _zoneContactVelocity, _zoneRelax;
+    private int _zoneIntegrate, _zoneJoints, _zoneBounds, _zonePairs, _zoneGround, _zoneVelocity, _zoneContactVelocity, _zoneRelax, _zoneSleep;
 
     // 7з-2: нечисловые тела на физике — флаг по слотам сочленений (пересчёт — в конце шага и по записям тел, лениво), их число.
     private bool[] _stepNonFinite = [], _stepNonFiniteDirty = [];
@@ -32,6 +32,7 @@ public sealed partial class PhysicsWorld
         _zoneVelocity = profiler.Zone("physics.velocity");
         _zoneContactVelocity = profiler.Zone("physics.contactVelocity");
         _zoneRelax = profiler.Zone("physics.relax");
+        _zoneSleep = profiler.Zone("physics.sleep");
         _profiler = profiler;
     }
 
@@ -68,7 +69,13 @@ public sealed partial class PhysicsWorld
         ContactsPairFrictionChecks = 0;
         ContactsPairFrictionHeld = 0;
         ContactsPressedChecks = 0;
+        SleepContacts = 0;
 
+        _stepRunning = true;
+        // 7з-3: спящих, которых может сдвинуть неспящее (толчок, касание), и касающихся проснувшихся (цепочка) — будить до подшагов.
+        _profiler.Begin(_zoneSleep);
+        SleepWakeBegin(dt);
+        _profiler.End(_zoneSleep);
         StepBegin();
         // База энергии подшага 0 (7д) — поза начала тика: удары, команды сцен и переход в труп между шагами в рост не попадают.
         if (_trace is not null) TraceStepBegin();
@@ -76,6 +83,10 @@ public sealed partial class PhysicsWorld
         _profiler.Begin(_zoneBounds);
         StepFinish();
         _profiler.End(_zoneBounds);
+        _profiler.Begin(_zoneSleep);
+        SleepUpdate(dt);
+        _profiler.End(_zoneSleep);
+        _stepRunning = false;
         if (_trace is not null) TraceStep(dt);
     }
 
@@ -136,14 +147,15 @@ public sealed partial class PhysicsWorld
     /// <summary>
     /// Начало шага: у тел на физике поза начала тика ← нынешняя (интерполяция клиента); тел на физике по сочленениям — отсев
     /// сочленений, которые шаг не двигает; границы сочленений без тел на физике — на весь шаг (их тела шаг не двигает). Трасса (если
-    /// включена) берёт отсюда энергию до шага — <see cref="TraceStepBegin"/>.
+    /// включена) берёт отсюда энергию до шага — <see cref="TraceStepBegin"/>. Спящее сочленение (7з-3) — без тел на физике для шага: его тела
+    /// шаг не двигает, неспящим оно — неподвижная опора.
     /// </summary>
     private void StepBegin()
     {
         int live = 0;
         for (int a = 0; a < _artCapacity; a++)
         {
-            int simulated = _artGeneration[a] > 0 ? StepBeginArticulation(a) : 0;
+            int simulated = _artGeneration[a] > 0 && !_sleepAsleep[a] ? StepBeginArticulation(a) : 0;
             _contactsSimulated[a] = simulated;
             if (simulated > 0) live++;
         }
@@ -169,14 +181,14 @@ public sealed partial class PhysicsWorld
     /// <summary>
     /// Конец шага: границы всех живых сочленений (<see cref="Bounds"/>) и флаги нечисловых тел на физике (7з-2): у сочленения с телами на
     /// физике — есть ли среди них нечисловое. Хватает положения, поворота и обеих скоростей: к концу шага нечисловое в прошлой позе или позе
-    /// начала тика тянет за собой нечисловое положение (интеграция и поправки его не лечат).
+    /// начала тика тянет за собой нечисловое положение (интеграция и поправки его не лечат). Спящие (7з-3) — пропуск: поза та же, тела конечны.
     /// </summary>
     private void StepFinish()
     {
         StepFlushNonFinite();
         for (int a = 0; a < _artCapacity; a++)
         {
-            if (_artGeneration[a] <= 0) continue;
+            if (_artGeneration[a] <= 0 || _sleepAsleep[a]) continue;
             _contactsBounds[a] = ContactsBoundsOf(a);
             bool bad = _contactsSimulated[a] > 0 && !StepFiniteSimulated(a);
             if (bad != _stepNonFinite[a]) StepSetNonFinite(a, bad);

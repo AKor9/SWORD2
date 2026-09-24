@@ -10,11 +10,12 @@ namespace Sword.Game.Agent;
 /// <c>Body.ComVelocity[.X|.Y|.Z]</c> — его скорость, м/с (без компоненты — длина); <c>Body.KineticEnergy</c> — кинетическая энергия тел, Дж
 /// (поступательная и вращательная); <c>Body.Energy</c> — полная (плюс <c>m·g·y</c>), Дж. Для трупа — «успокоился ли» и «не растёт ли энергия в
 /// покое» (<c>watch.add</c>, <c>entity.history</c>, метрики и проверки манифеста фичи «Рэгдолл»); у живого — те же величины кинематических тел.
-/// Считает <see cref="CorpseMetrics"/> по виду тел. Нет тела — NaN.
+/// 7з-3 — сон: <c>Body.Asleep</c> — 1, если труп спит (физика его не считает), иначе 0; <c>Body.RestTime</c> — счётчик покоя, с. Считает
+/// <see cref="CorpseMetrics"/> по виду тел. Нет тела — NaN.
 /// </summary>
 public static class CorpseFields
 {
-    public static readonly string[] Known = ["Body.Com|ComVelocity[.X|.Y|.Z]", "Body.KineticEnergy|Energy"];
+    public static readonly string[] Known = ["Body.Com|ComVelocity[.X|.Y|.Z]", "Body.KineticEnergy|Energy", "Body.Asleep|RestTime"];
 
     /// <summary>Читатель поля <paramref name="rest"/> (путь после <c>Body.</c>); не поле тела целиком — null; ошибка в пути — исключение.</summary>
     public static EntityFieldReader? Compile(string rest, string path, string at)
@@ -23,6 +24,8 @@ public static class CorpseFields
         {
             case "KineticEnergy": return (in ServiceContext ctx, Entity e) => Totals(ctx, e) is { } t ? t.KineticEnergy : double.NaN;
             case "Energy": return (in ServiceContext ctx, Entity e) => Totals(ctx, e) is { } t ? t.Energy : double.NaN;
+            case "Asleep": return (in ServiceContext ctx, Entity e) => Body(ctx, e, out var view, out var r) ? view.IsAsleep(r) ? 1 : 0 : double.NaN;
+            case "RestTime": return (in ServiceContext ctx, Entity e) => Body(ctx, e, out var view, out var r) ? view.RestTime(r) : double.NaN;
         }
         string[] parts = rest.Split('.');
         if (parts[0] is not ("Com" or "ComVelocity")) return null;
@@ -43,5 +46,16 @@ public static class CorpseFields
         if (!world.IsAlive(e) || !world.Knows<BodyRef>() || !world.TryGet<BodyRef>(e, out var r)) return null;
         var t = CorpseMetrics.Of(world.View<IBodyView>(), r);
         return t.Mass > 0 ? t : null;
+    }
+
+    /// <summary>Тело бойца живо (7з-3): вид тел и ссылка на тело.</summary>
+    private static bool Body(in ServiceContext ctx, Entity e, out IBodyView view, out BodyRef body)
+    {
+        var world = ctx.World;
+        view = null!;
+        body = default;
+        if (!world.IsAlive(e) || !world.Knows<BodyRef>() || !world.TryGet<BodyRef>(e, out body)) return false;
+        view = world.View<IBodyView>();
+        return view.BodyCount(body) > 0;
     }
 }

@@ -81,9 +81,13 @@ public static class PhysicsWarmup
         var target = w.Body(c, BodySegs.Torso);
         const float dt = 1f / 120;
         int tick = 0;
+        // 7з-3: сон — через раз «сонные» настройки (засыпают сразу): засыпание, проверка пробуждения, цепочка, спящее как опора, пробуждение
+        // ударом, толчком и сменой настроек тоже компилируются заранее
+        var sleepy = settings with { SleepSpeed = 100, SleepBodySpeed = 100, SleepTime = 0.05f };
         return JitWarmup.Run(() =>
         {
             tick++;
+            if (tick % 40 == 0) w.Settings = (tick / 40) % 2 == 0 ? settings : sleepy;
             // живой: удар (проход клинком), толчок телом, отдача — как игра 7к каждый тик
             for (int k = 0; k < w.BodyCount(living); k++)
             {

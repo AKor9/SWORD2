@@ -25,6 +25,9 @@
 условия (`time.runUntil`, `replay.observe`, проверки манифеста). Тесты — `RagdollCorpseTests.Agent_CorpseFields_…`,
 `Agent_RunUntilCorpseAtRest_ByComputedField`.
 
+7з-3 (сон трупа): поля `Body.Asleep` (1/0) и `Body.RestTime` (с) — в `CorpseFields`; `physics.bodies` — `asleep`, `restTime`; трасса — `sleep`
+(`sleeps`, `asleepMax`, `contacts`, `wakes`, `wakesBy` по причинам). Тесты — `RagdollSleepTests`, `CorpseAgentTests`.
+
 - Имя — подсказка, не идентичность: в ответах сущность всегда и номером.
 - Исполняется в точке обслуживания: только чтение мира. Данные вне ECS — только через виды только для чтения
   (`IAnimationView`, `IBodyView`, `ICombatView`), не через ресурсы-классы симуляции (ресурсы-значения ECS, например

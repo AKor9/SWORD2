@@ -79,12 +79,39 @@ public sealed record PhysicsSettings
     /// </summary>
     public float PairFriction { get; init; } = 0.7f;
 
+    /// <summary>
+    /// Порог сна сочленения, м/с (7з-3): среднеквадратичная скорость его массы <c>√(2·E/M)</c> (E — кинетическая энергия тел с вращением, M —
+    /// масса тел) меньше неё — сочленение «стоит» целиком (вздрагивание лёгкой стопы или клинка его не держит; сползающее целиком — держит).
+    /// Сочленение засыпает, когда медленнее этого порога и <see cref="SleepBodySpeed"/> <see cref="SleepTime"/> подряд (README физики, «7з-3»).
+    /// 0 — сна нет (сравнение строгое). Своя, не SWORD.
+    /// </summary>
+    public float SleepSpeed { get; init; } = 0.05f;
+
+    /// <summary>
+    /// Порог сна части, м/с (7з-3): самая быстрая точка каждого тела сочленения (<c>|v| + |ω⊥|·полудлина + |ω|·радиус</c>) медленнее него —
+    /// условие сна; тело живого или неспящее тело на физике у спящего, которое в ближайшей точке оси быстрее него, будит спящее (толчок,
+    /// касание). 0 — сна нет. Своя, не SWORD.
+    /// </summary>
+    public float SleepBodySpeed { get; init; } = 0.5f;
+
+    /// <summary>
+    /// Время покоя до сна, с (7з-3): столько подряд сочленение медленнее порогов — и оно засыпает (шаг его не считает, пока не разбудят).
+    /// <see cref="float.PositiveInfinity"/> — сна нет (по умолчанию: свойства шага и тесты прежние; игра включает ручками «Рэгдолл»). Своя, не
+    /// SWORD.
+    /// </summary>
+    public float SleepTime { get; init; } = float.PositiveInfinity;
+
+    /// <summary>Сон включён: время конечно, пороги больше 0.</summary>
+    public bool SleepEnabled => SleepTime < float.PositiveInfinity && SleepSpeed > 0 && SleepBodySpeed > 0;
+
     /// <summary>Что не так с настройками (null — годны): подшаги 1…64, проход — от 1 тика, числа — конечные и не меньше 0.</summary>
     public string? Problem()
     {
         if (Substeps is < 1 or > 64) return $"подшагов {Substeps}: нужно 1…64";
         if (PassExitTicks < 1) return $"тиков до закрытия прохода {PassExitTicks}: нужно от 1";
         if (!NonNegative(PopSpeed)) return "скорость выталкивания — конечная, не меньше 0";
+        if (!NonNegative(SleepSpeed) || !NonNegative(SleepBodySpeed)) return "пороги сна — конечные, не меньше 0 (0 — сна нет)";
+        if (float.IsNaN(SleepTime) || SleepTime < 0) return "время покоя до сна — не меньше 0 (∞ — сна нет)";
         if (float.IsNaN(JointPopSpeed) || JointPopSpeed < 0) return "скорость сведения разрыва сустава — не меньше 0 (∞ — без ограничения)";
         if (!NonNegative(StaticFriction)) return "трение покоя — конечное, не меньше 0";
         if (!NonNegative(PairFriction)) return "трение между телами — конечное, не меньше 0";

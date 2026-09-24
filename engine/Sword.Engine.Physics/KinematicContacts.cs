@@ -94,6 +94,7 @@ public sealed partial class PhysicsWorld
         ref var p = ref KinematicPairOf(pusher, target);
         KinematicOpen(ref p);
         p.HitSeen = true;
+        SleepWake(target.Index, WakeReason.Hit);   // 7з-3: удар будит цель
     }
 
     public float SpendHit(ArticulationHandle pusher, ArticulationHandle target, float impulse)
@@ -113,6 +114,7 @@ public sealed partial class PhysicsWorld
         ref var s = ref _bodies[body.Index];
         float j = impulse.Length();
         if (!(j > 0)) return Vector3.Zero;
+        SleepWakeBody(body.Index, WakeReason.Hit);   // 7з-3: удар будит
         var dir = impulse / j;
         var r = point - s.Position;
         float w = s.InvMassAt(r, dir);

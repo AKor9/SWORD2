@@ -21,6 +21,7 @@ public sealed partial class PhysicsWorld
         for (int j = 0; j < n; j++)
             if (JointsProblem(joints, j, _artCount[a]) is { } problem)
                 throw new ArgumentException($"сустав {j} сочленения {articulation}: {problem}", nameof(joints));
+        SleepWake(a, WakeReason.Command);   // 7з-3: суставы будят
         var records = _joints[a];
         if (n > 0 && (records is null || records.Length < n)) _joints[a] = records = new JointRecord[n];
         for (int j = 0; j < n; j++) records![j] = JointRecord.Of(joints[j]);
@@ -43,10 +44,17 @@ public sealed partial class PhysicsWorld
     public void RebindJoints(ArticulationHandle articulation)
     {
         Check(articulation);
+        SleepWake(articulation.Index, WakeReason.Command);   // 7з-3
         JointsRebind(articulation.Index);
     }
 
-    public void SetJointEnabled(ArticulationHandle articulation, int joint, bool enabled) => JointsAt(articulation, joint).Enabled = enabled;
+    public void SetJointEnabled(ArticulationHandle articulation, int joint, bool enabled)
+    {
+        ref var r = ref JointsAt(articulation, joint);
+        if (r.Enabled == enabled) return;
+        SleepWake(articulation.Index, WakeReason.Command);   // 7з-3: включение и выключение сустава будят
+        r.Enabled = enabled;
+    }
 
     public bool IsJointEnabled(ArticulationHandle articulation, int joint) => JointsAt(articulation, joint).Enabled;
 

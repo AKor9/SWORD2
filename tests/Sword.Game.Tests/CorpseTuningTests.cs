@@ -46,16 +46,17 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
     private static SceneCommand Kill(int slot) => new() { Action = SceneAction.Kill, Slot = slot };
 
     /// <summary>
-    /// Порядок ручек в группе: разделы «труп на земле», «потолки трупа», «переход в труп», «толчок живого» (сила толчка и отдача живому — 7к).
+    /// Порядок ручек в группе: разделы «труп на земле» (7з-3: и трение между трупами, сведение разрыва сустава 7з-2), «сон трупа» (7з-3),
+    /// «потолки трупа», «переход в труп», «толчок живого» (сила толчка и отдача живому — 7к).
     /// </summary>
     private static readonly string[] Keys =
-        ["friction", "popSpeed", "jointCompliance", "corpseMaxSpeed", "corpseMaxAngularSpeed", "deathMaxSpeed", "deathMaxAngularSpeed", "pushForce",
-            "enemyRecoil", "playerRecoil", "recoilMaxSpeed"];
+        ["friction", "pairFriction", "popSpeed", "jointCompliance", "jointPopSpeed", "sleepSpeed", "sleepBodySpeed", "sleepTime", "corpseMaxSpeed",
+            "corpseMaxAngularSpeed", "deathMaxSpeed", "deathMaxAngularSpeed", "pushForce", "enemyRecoil", "playerRecoil", "recoilMaxSpeed"];
 
     /// <summary>
-    /// Группа «Рэгдолл»: Id — секция конфига (<c>ragdoll</c>), все ручки секции (восемь 7з и три отдачи 7к), каждая строка — подпись, подсказка,
-    /// пределы, логарифмическая шкала, формат и значение по умолчанию ручки симуляции (<see cref="RagdollKnobs"/>); разделы — заголовками,
-    /// строки трупов кадра — первыми (без прокрутки).
+    /// Группа «Рэгдолл»: Id — секция конфига (<c>ragdoll</c>), все ручки секции (восемь 7з, три отдачи 7к, две 7з-2 и три сна 7з-3), каждая
+    /// строка — подпись, подсказка, пределы, логарифмическая шкала, формат и значение по умолчанию ручки симуляции (<see cref="RagdollKnobs"/>);
+    /// разделы — заголовками, строки трупов кадра — первыми (без прокрутки).
     /// </summary>
     [Fact]
     public void RagdollGroup_AllKnobsOfSection_FromRegistration()
@@ -66,7 +67,7 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
         Assert.Equal(("ragdoll", "Рэгдолл", RagdollKnobs.Section), (group.Id, group.Title, RagdollTuning.Id));
         Assert.Equal(Keys, group.Values().Keys);
         var knobs = sim.Tuning.Where(k => k.Section == RagdollKnobs.Section).ToList();
-        Assert.Equal(11, knobs.Count);
+        Assert.Equal(16, knobs.Count);
         Assert.Equal(knobs.Select(k => k.Key).Order(), Keys.Order());
         foreach (var k in knobs)
         {
@@ -74,8 +75,9 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
             Assert.Equal((k.Label, k.Hint, k.Min, k.Max, k.Log, k.Format, k.Default), (row.Label, row.Hint, row.Min, row.Max, row.Log, row.Format, row.Default));
             Assert.Equal(k.Default, row.Get());   // в мире — значение по умолчанию
         }
-        Assert.True(group.Find("popSpeed") is TuningFloat { Log: true } && group.Find("jointCompliance") is TuningFloat { Log: true });
-        Assert.Equal(["ТРУПЫ В КАДРЕ", "ТРУП НА ЗЕМЛЕ", "ПОТОЛКИ ТРУПА", "ПЕРЕХОД В ТРУП", "ТОЛЧОК ЖИВОГО"],
+        Assert.True(group.Find("popSpeed") is TuningFloat { Log: true } && group.Find("jointCompliance") is TuningFloat { Log: true }
+            && group.Find("jointPopSpeed") is TuningFloat { Log: true } && group.Find("sleepTime") is TuningFloat { Log: true });
+        Assert.Equal(["ТРУПЫ В КАДРЕ", "ТРУП НА ЗЕМЛЕ", "СОН ТРУПА", "ПОТОЛКИ ТРУПА", "ПЕРЕХОД В ТРУП", "ТОЛЧОК ЖИВОГО"],
             group.Items.OfType<TuningHeader>().Select(h => h.Label));
         Assert.Equal(["трупов", "тел на физике", "быстрейшее тело"], group.Items.OfType<TuningInfo>().Select(i => i.Label));
         Assert.IsType<TuningInfo>(group.Items[1]);   // сразу под первым заголовком
@@ -90,8 +92,8 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
         var none = new CorpseFrameStats();
         Assert.Equal(("0", "0", "—"), (d[..RagdollTuning.Corpses(d, none)].ToString(), d[..RagdollTuning.Bodies(d, none)].ToString(),
             d[..RagdollTuning.Fastest(d, none)].ToString()));
-        var s = new CorpseFrameStats(3, 2, 42, 17, 0.4213f, 1.26f);
-        Assert.Equal("3, в покое 2", d[..RagdollTuning.Corpses(d, s)].ToString());
+        var s = new CorpseFrameStats(3, 2, 42, 17, 0.4213f, 1.26f, 1);
+        Assert.Equal("3, в покое 2, спят 1", d[..RagdollTuning.Corpses(d, s)].ToString());   // 7з-3: спящие
         Assert.Equal("42, на земле 17", d[..RagdollTuning.Bodies(d, s)].ToString());
         Assert.Equal("0.42 м/с, 1.3 рад/с", d[..RagdollTuning.Fastest(d, s)].ToString());
     }

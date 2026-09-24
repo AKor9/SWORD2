@@ -6,8 +6,8 @@ namespace Sword.Game.Client;
 
 /// <summary>
 /// Вкладка «Рэгдолл» панели ручек F3 (7и, часть 2; механизм 6е — как <see cref="CombatTuning"/>): все ручки симуляции секции
-/// <c>ragdoll</c> (<see cref="RagdollKnobs"/>: восемь 7з и три отдачи живому 7к; подписи, подсказки, пределы и значения по умолчанию — из
-/// их регистрации) через привязку
+/// <c>ragdoll</c> (<see cref="RagdollKnobs"/>: восемь 7з, три отдачи живому 7к, сведение разрыва сустава и трение между трупами 7з-2, три сна
+/// 7з-3; подписи, подсказки, пределы и значения по умолчанию — из их регистрации) через привязку
 /// клиента (<see cref="TuningBinding"/>: значение — ожидающее или мира, изменение — команда ручки на ближайший тик, в реплее; замену настроек
 /// физики и профиля трупа делает симуляция в том же тике) и строки трупов кадра (<see cref="ArenaView.CorpseStats"/>): сколько трупов и в
 /// покое, тел на физике и на земле, быстрейшее тело — видно, как ручка меняет падение и покой. Ключи группы — ключи секции
@@ -24,15 +24,21 @@ public static class RagdollTuning
         var g = new TuningGroup(Id, Title);
         g.Header("ТРУПЫ В КАДРЕ");
         g.Info("трупов", d => Corpses(d, view.CorpseStats),
-            "мёртвых бойцов, нарисованных по телам; в покое — скорость центра масс тел ≤ 0,05 м/с");
+            "мёртвых бойцов, нарисованных по телам; в покое — скорость центра масс тел ≤ 0,05 м/с; спят — физика их не считает (F7: синий крест)");
         g.Info("тел на физике", d => Bodies(d, view.CorpseStats),
             "тел трупов на физике; на земле — касаются земли арены (F7: крест в центре капсулы зелёный)");
         g.Info("быстрейшее тело", d => Fastest(d, view.CorpseStats),
             "наибольшие скорость и вращение тел трупов на тике; упор в потолок — число равно ручке «потолок…»");
         g.Header("ТРУП НА ЗЕМЛЕ");
         tuning.Add(g, RagdollKnobs.Friction);
+        tuning.Add(g, RagdollKnobs.PairFriction);
         tuning.Add(g, RagdollKnobs.PopSpeed);
         tuning.Add(g, RagdollKnobs.JointCompliance);
+        tuning.Add(g, RagdollKnobs.JointPopSpeed);
+        g.Header("СОН ТРУПА");
+        tuning.Add(g, RagdollKnobs.SleepSpeed);
+        tuning.Add(g, RagdollKnobs.SleepBodySpeed);
+        tuning.Add(g, RagdollKnobs.SleepTime);
         g.Header("ПОТОЛКИ ТРУПА");
         tuning.Add(g, RagdollKnobs.CorpseMaxSpeed);
         tuning.Add(g, RagdollKnobs.CorpseMaxAngularSpeed);
@@ -47,9 +53,10 @@ public static class RagdollTuning
         return g;
     }
 
-    /// <summary>«3, в покое 2» — трупов кадра и из них в покое; трупов нет — «0».</summary>
+    /// <summary>«3, в покое 2, спят 1» — трупов кадра, из них в покое и спящих (7з-3); трупов нет — «0».</summary>
     public static int Corpses(Span<char> d, in CorpseFrameStats s) =>
-        s.Corpses == 0 ? Length(new Line(d).S("0").Text) : Length(new Line(d).I(s.Corpses).S(", в покое ").I(s.AtRest).Text);
+        s.Corpses == 0 ? Length(new Line(d).S("0").Text)
+            : Length(new Line(d).I(s.Corpses).S(", в покое ").I(s.AtRest).S(", спят ").I(s.Asleep).Text);
 
     /// <summary>«42, на земле 17» — тел трупов на физике и из них на земле; нет — «0».</summary>
     public static int Bodies(Span<char> d, in CorpseFrameStats s) =>

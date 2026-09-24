@@ -124,6 +124,13 @@ public sealed class PhysicsDebugView(IPhysicsWorld physics) : IPhysicsDebugView
             s.PhaseGrowth(PhysicsPhase.Relax));
     }
 
+    public PhysicsTraceSleep TraceSleep(PhysicsTracePeriod period)
+    {
+        if (Stats(period) is not { } s) return default;
+        return new PhysicsTraceSleep(s.Sleeps, s.AsleepMax, s.SleepContacts, s.Wakes(WakeReason.Push), s.Wakes(WakeReason.Hit),
+            s.Wakes(WakeReason.Touch), s.Wakes(WakeReason.Chain), s.Wakes(WakeReason.Command), s.Wakes(WakeReason.Settings));
+    }
+
     public PhysicsTraceSource TraceSource(PhysicsTracePeriod period, PhysicsContactSource source)
     {
         if (Stats(period) is not { } s || (int)source >= PhysicsTrace.SourceCount) return default;

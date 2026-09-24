@@ -662,3 +662,24 @@ README физики, «7з-2»):
 3. Глубина в земле: `physics.ground` — 3 см, глубже — не дольше выхода со скоростью ¼ `PopSpeed` + 0,25 с (глубже 0,3 м — сразу); встать — `time.breakOnInvariant
    {"ids":["physics.ground"]}`, затем `physics.bodies {"entity":"<чьё тело>"}` (`grounded`, концы) и `physics.bodies {"trace":"show"}` →
    `trace.contacts` (`ground`/`pair`/`push.*`: глубина и решённая) — кто держит тело в земле.
+
+## Сон трупа (7з-3)
+
+Неподвижный труп спит — шаг физики его не считает (фича «Рэгдолл», раздел «7з-3»; README физики, «7з-3»):
+1. Кто спит: `physics.bodies {"entity":"enemy 3"}` → `asleep`, `restTime` (с — сколько подряд труп медленнее порогов; у спящего растёт
+   дальше); ждать сна —
+   `time.runUntil {"condition":{"all":[{"entity":"enemy 3"},{"field":"Body.Asleep","equals":1}]}}`; по тикам — `watch.add` на `Body.Asleep`,
+   `Body.RestTime` → `entity.history` (вычисляемые поля — в условиях и наблюдениях, не в `world.query`). Сколько спит —
+   `state.describe {"part":"physics"}`: сводка `asleep`; с `"filter":"<сочленение из BodyRef>"` — у сочленения `asleep`, `restTime`.
+2. Кто и чем будил: `physics.bodies {"trace":"on"}` → тики → `physics.bodies {"trace":"show"}` → `trace.last.sleep` (и `window`, `run`):
+   `sleeps` — засыпаний, `asleepMax` — спящих на конец шага, `contacts` — касаний спящего неспящим (опора), `wakesBy` — `push` (живой вошёл
+   глубже 1 см или быстрее 0,5 м/с), `hit` (удар), `touch` (труп быстрее 0,5 м/с у спящего или падающий труп под ним), `chain` (лежащие на
+   разбуженном — одно касание; лежавшие на теле, которое запись увела, — возрождение, команда сцены, удаление), `command` (запись тела,
+   суставы, команды сцен), `settings` (ручки физики). Висит ли кто-то — спящий труп с центром масс над пустотой: `Body.Com.Y` лежащего на
+   земле ~0,15…0,2 м (сценарий `sleep-support`).
+3. Свойства: инварианты `physics.sleep` (скорости спящего 0, поза стоит) и `physics.sleepContacts` (в спящего никто не вошёл глубже 1,5 см) —
+   `invariant.list`, `time.breakOnInvariant {"ids":["physics.sleepContacts"]}`.
+4. Цена: `profile.stages` → зона `physics.sleep` под `core.physics-step@Physics` (2 вызова на шаг; спящая куча 32 трупов — вся стадия ~0,01 мс).
+5. Ручки: `command.send {"command":"TuningCommand","fields":{"Knob":"ragdoll.sleepSpeed","Value":0}}` — сна нет (`ragdoll.sleepBodySpeed`,
+   `ragdoll.sleepTime`; у человека — F3 «Рэгдолл», «СОН ТРУПА»; F7 — крест спящего синий). Приёмка — `feature.verify {"id":"ragdoll"}`
+   (сценарии `sleep-crowd`, `s3-asleep`, `s1-asleep`, `sleep-pile-drop`, `sleep-support`, `sleep-knob`).

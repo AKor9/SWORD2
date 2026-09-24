@@ -39,6 +39,9 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     /// Симуляция арены с командами сцен из очереди теста (каждый кадр — один тик) и физикой симуляции; враги не нападают (игрок стоит — за
     /// сотни тиков живые враги его не убьют, трупы — только те, что убил тест).
     /// </summary>
+    /// <summary>Сон трупа выключен (7з-3: порог 0): спящий труп шаг не считает — контактов с землёй в трассе у него нет.</summary>
+    private const string NoSleep = "ragdoll.sleepSpeed=0";
+
     private sealed class Scene
     {
         public readonly Simulation Sim;
@@ -46,10 +49,11 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
         public readonly SimulationClock Clock;
         public readonly List<SceneCommand> Pending = [];
 
-        public Scene(int enemies)
+        /// <param name="sets">Ещё ключи конфига (7з-3: <see cref="NoSleep"/> — труп не засыпает, и контакты лежащего видны в трассе).</param>
+        public Scene(int enemies, params string[] sets)
         {
             IPhysicsWorld? physics = null;
-            Sim = Simulation.Build(ConfigSet.Empty($"arena.enemies={enemies}", "combat.enemiesAttack=false"), GameStages.All,
+            Sim = Simulation.Build(ConfigSet.Empty([$"arena.enemies={enemies}", "combat.enemiesAttack=false", .. sets]), GameStages.All,
                 b => GameCore.Configure(b, TestAssets.Assets), [.. Bootstrap.SwordSimulation.Modules(), new Probe(p => physics = p)]);
             Physics = physics!;
             Clock = new SimulationClock(Sim, (link, _) =>
@@ -381,7 +385,7 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     [Fact]
     public void LyingCorpse_GroundContacts_Joints_Crosses_SwordApartFromHand()
     {
-        var scene = new Scene(enemies: 2);
+        var scene = new Scene(enemies: 2, NoSleep);   // 7з-3: лежащий уснул бы — спящего шаг не считает, контактов в трассе нет (сон — тест ниже)
         var view = new ArenaView(Field);
         scene.Frames(10, view);
         var enemy = scene.Fighter(1);
@@ -434,6 +438,33 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// 7з-3: лежащий труп засыпает — все капсулы трупа на физике и «спят» (F7: крест синий, <see cref="ArenaClient.AsleepMark"/>), строка
+    /// «трупов» F3 — «1, в покое 1, спят 1»; показанное тело спящего при любой доле тика — поза тика (поза начала тика = поза: не качается).
+    /// </summary>
+    [Fact]
+    public void SleepingCorpse_CapsulesAsleep_F3Row_ShownPoseSameAtAnyAlpha()
+    {
+        var scene = new Scene(enemies: 1);
+        var view = new ArenaView(Field);
+        scene.Frames(10, view);
+        var enemy = scene.Fighter(1);
+        scene.Pending.Add(Kill(1));
+        scene.Frames(600, view);
+        var body = FighterBodies.Handle(scene.Sim.World.Get<BodyRef>(enemy));
+        Assert.True(scene.Physics.IsAsleep(body), $"труп не уснул за 5 с (покой {scene.Physics.RestTime(body)} с)");
+        var f = Shown(view, enemy);
+        var at1 = view.Body(f).ToArray();
+        Assert.All(at1, c => Assert.True(c.Simulated && c.Asleep, $"{c}"));
+        Assert.Equal((1, 1), (view.CorpseStats.Corpses, view.CorpseStats.Asleep));
+        Span<char> d = stackalloc char[Sword.Engine.DevTools.TuningPanel.InfoCapacity];
+        Assert.Equal("1, в покое 1, спят 1", d[..RagdollTuning.Corpses(d, view.CorpseStats)].ToString());
+        view.Extract(scene.Clock.Link, 0.3f);
+        var at03 = view.Body(Shown(view, enemy)).ToArray();
+        for (int k = 0; k < at1.Length; k++) Assert.Equal((at1[k].Center, at1[k].Rotation), (at03[k].Center, at03[k].Rotation));
+        scene.Clean();
+    }
+
+    /// <summary>
     /// Трасса физики — диагностический режим <c>physics.trace</c> (7и): включают его владелец и агент между тиками, мир и хеш от него не
     /// зависят. С части 2 — на прогоне с трупами на физике: три врага убиты на тике 20, 400 тиков после смерти (падение, куча, покой) хеши
     /// с режимом и без — те же каждый тик, и когда режим посреди прогона сбрасывают, выключают и включают снова. Вид отладки физики —
@@ -443,8 +474,8 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     [Fact]
     public void TraceMode_CorpsesOnPhysics_SameHashes_ContactsThroughView()
     {
-        var plain = new Scene(enemies: 3);
-        var traced = new Scene(enemies: 3);
+        var plain = new Scene(enemies: 3, NoSleep);    // 7з-3: контакты лежащих — только у неспящих
+        var traced = new Scene(enemies: 3, NoSleep);
         Assert.True(traced.Sim.Diagnostics.Has(IPhysicsDebugView.TraceMode));
         var info = Enumerable.Range(0, traced.Sim.Diagnostics.Count).Select(i => traced.Sim.Diagnostics[i]).Single(d => d.Id == IPhysicsDebugView.TraceMode);
         Assert.Equal(("core", false), (info.Owner, info.Enabled));

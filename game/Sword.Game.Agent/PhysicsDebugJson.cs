@@ -99,7 +99,9 @@ public static class PhysicsDebugJson
                 "позы / h (должен быть 0), псевдоимпульс за тик (Н·с), контакты и глубины (м); energy — рост энергии за подшаг, Дж (growth — " +
                 "труп без толчков живых и без контакта с другим трупом, должен быть около 0; paired — труп в контакте с трупом, передача; " +
                 "pairedTotal — сумма касавшихся; phases — где рост появился: integrate, joints, world, pairs, pressed (мир после пар), velocity, " +
-                "contactVelocity, relax)",
+                "contactVelocity, relax); sleep — сон трупов (7з-3): sleeps — засыпаний, asleepMax — спящих на конец шага (наибольшее), contacts — " +
+                "касаний спящего трупа неспящим (опора), wakes/wakesBy — пробуждения: push (толчок живого), hit (удар), touch (касание движущегося " +
+                "трупа), chain (цепочка по куче), command (запись тела, суставы), settings (ручки)",
         };
         if (!debug.TraceOn) return o;
         var owners = Owners(ctx, names);
@@ -187,10 +189,21 @@ public static class PhysicsDebugJson
                     ["relax"] = Round(en.Relax),
                 },
             },
+            ["sleep"] = Sleep(debug.TraceSleep(period)),
             ["sources"] = sources,
             ["top"] = top,
         };
     }
+
+    /// <summary>Сон трупов накопителя (7з-3): засыпаний, спящих (наибольшее на конец шага), касаний спящих, пробуждений по причинам.</summary>
+    private static JsonObject Sleep(in PhysicsTraceSleep z) => new()
+    {
+        ["sleeps"] = z.Sleeps, ["asleepMax"] = z.AsleepMax, ["contacts"] = z.Contacts, ["wakes"] = z.Wakes,
+        ["wakesBy"] = new JsonObject
+        {
+            ["push"] = z.Push, ["hit"] = z.Hit, ["touch"] = z.Touch, ["chain"] = z.Chain, ["command"] = z.Command, ["settings"] = z.Settings,
+        },
+    };
 
     private static JsonObject Event(in PhysicsTraceEvent e, Dictionary<(int, int), (Entity Entity, string? Name)> owners) => new()
     {

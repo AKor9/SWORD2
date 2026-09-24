@@ -200,6 +200,7 @@ public class StepCorpseTests(ITestOutputHelper output)
         }
         Assert.True(stats.Single(s => s.Name == "physics.ground").Calls == 2 * substeps, "physics.ground: мир и мир после пар в каждом подшаге");
         Assert.True(stats.Single(s => s.Name == "physics.bounds").Calls == substeps + 1, "physics.bounds: отсев подшагов и границы конца шага");
+        Assert.True(stats.Single(s => s.Name == "physics.sleep").Calls == 2, "physics.sleep (7з-3): пробуждение до подшагов и засыпание в конце шага");
         Assert.True(bytes == 0, $"включённый профайлер: {bytes} Б за 100 тиков");
 
         profiler.SetEnabled(false);

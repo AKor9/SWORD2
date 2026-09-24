@@ -47,7 +47,12 @@ public sealed partial class PhysicsWorld
     {
         public Vector3 Center, Axis, Extent;
         public float Radius;
+
+        /// <summary>Тело на физике неспящего сочленения (7з-3: спящее тело для пар — не «на физике», а неподвижная опора — <see cref="Asleep"/>).</summary>
         public bool Simulated;
+
+        /// <summary>Тело спящего сочленения (7з-3): неспящему телу на физике — неподвижная опора, кинематическому — ничего.</summary>
+        public bool Asleep;
     }
 
     /// <summary>Коробка сочленения по осям мира (центр, полуразмер) — отсев пар подшага (7з-2).</summary>
@@ -117,12 +122,19 @@ public sealed partial class PhysicsWorld
     /// <summary>Бюджет трения покоя пар подшага по слотам тел, кг·м (7з-2): <c>μ · Σλn</c> пар тела; вне прохода трения — 0.</summary>
     private float[] _contactsBudget = [];
 
-    public void SetGround(IGround? ground) => _ground = ground;
+    public void SetGround(IGround? ground)
+    {
+        if (ReferenceEquals(_ground, ground)) return;
+        _ground = ground;
+        SleepWakeAll(WakeReason.Settings);   // 7з-3: опора спящих могла уйти
+    }
 
     public void SetWall(float radius)
     {
         if (!(radius > 0)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "радиус стены — больше 0 (∞ — стены нет)");
+        if (radius == _wallRadius) return;
         _wallRadius = radius;
+        SleepWakeAll(WakeReason.Settings);
     }
 
     public void SetPillars(ReadOnlySpan<Pillar> pillars)
@@ -133,9 +145,11 @@ public sealed partial class PhysicsWorld
             if (!float.IsFinite(p.X) || !float.IsFinite(p.Z) || !float.IsFinite(p.Radius) || !(p.Radius > 0))
                 throw new ArgumentOutOfRangeException(nameof(pillars), p, $"колонна {i}: ось — конечная, радиус — конечный и больше 0");
         }
+        if (pillars.SequenceEqual(_pillars.AsSpan(0, _pillarCount))) return;
         if (_pillars.Length < pillars.Length) _pillars = new Pillar[pillars.Length];
         pillars.CopyTo(_pillars);
         _pillarCount = pillars.Length;
+        SleepWakeAll(WakeReason.Settings);   // 7з-3
     }
 
     public ArticulationBounds Bounds(ArticulationHandle articulation)
@@ -169,6 +183,7 @@ public sealed partial class PhysicsWorld
         int velocity = bodies * ContactsPerBody;
         if (_contactsVelocity.Length < velocity) Array.Resize(ref _contactsVelocity, velocity);
         StepGrow(articulations, bodies);
+        SleepGrow(articulations);
     }
 
     partial void ContactsReset(int articulation)
@@ -176,6 +191,7 @@ public sealed partial class PhysicsWorld
         _contactsBounds[articulation] = default;
         _contactsSimulated[articulation] = 0;
         StepReset(articulation);
+        SleepReset(articulation);
     }
 
     /// <summary>
@@ -350,15 +366,21 @@ public sealed partial class PhysicsWorld
         p.Axis = Vector3.Transform(Vector3.UnitY, s.Rotation) * s.HalfLength;
         p.Extent = Vector3.Abs(p.Axis) + new Vector3(s.Radius);
         p.Radius = s.Radius;
-        p.Simulated = s.Mode == BodyMode.Simulated;
+        bool asleep = _sleepAsleep[_bodyOwner[body]];
+        p.Simulated = s.Mode == BodyMode.Simulated && !asleep;
+        p.Asleep = asleep;
         return ref p;
     }
 
-    /// <summary>Щупы и коробки сочленений без тел на физике — раз на шаг, в его начале (их тела шаг не двигает).</summary>
+    /// <summary>
+    /// Щупы и коробки сочленений без тел на физике — раз на шаг, в его начале (их тела шаг не двигает). 7з-3: спящих — нет (сняты при засыпании,
+    /// поза та же); остальных — нет, если их уже сняла проверка пробуждения этого шага.
+    /// </summary>
     private void ContactsKinematicBounds()
     {
+        if (_sleepProbed) return;
         for (int a = 0; a < _artCapacity; a++)
-            if (_artGeneration[a] > 0 && _contactsSimulated[a] == 0) ContactsRefresh(a);
+            if (_artGeneration[a] > 0 && _contactsSimulated[a] == 0 && !_sleepAsleep[a]) ContactsRefresh(a);
     }
 
     private void ContactsPairsOf(int i)
@@ -478,19 +500,43 @@ public sealed partial class PhysicsWorld
         for (int i = first; i < end; i++)
         {
             ref readonly var e = ref entries[i];
-            if (e.Other < 0) continue;
+            if (!ContactsPairEntry(in e)) continue;
             _contactsBudget[e.Body] += mu * e.Lambda;
-            _contactsBudget[e.Other] += mu * e.Lambda;
+            if (e.Other >= 0) _contactsBudget[e.Other] += mu * e.Lambda;
         }
-        for (int i = first; i < end; i++)
-            if (entries[i].Other >= 0) ContactsPairStatic(in entries[i], h);
         for (int i = first; i < end; i++)
         {
             ref readonly var e = ref entries[i];
-            if (e.Other < 0) continue;
-            _contactsBudget[e.Body] = 0;
-            _contactsBudget[e.Other] = 0;
+            if (e.Other >= 0) ContactsPairStatic(in e, h);
+            else if (e.Source == PhysicsSource.Pair) ContactsSleeperStatic(in e, h);
         }
+        for (int i = first; i < end; i++)
+        {
+            ref readonly var e = ref entries[i];
+            if (!ContactsPairEntry(in e)) continue;
+            _contactsBudget[e.Body] = 0;
+            if (e.Other >= 0) _contactsBudget[e.Other] = 0;
+        }
+    }
+
+    /// <summary>Контакт подшага из прохода пар: пара тел на физике или (7з-3) тело на спящем (мир с источником «пара»); земля и стена — нет.</summary>
+    private static bool ContactsPairEntry(in ContactsVelocityEntry e) => e.Other >= 0 || e.Source == PhysicsSource.Pair;
+
+    /// <summary>Трение покоя тела о спящее (7з-3) — как о землю: точка спящего неподвижна; бюджет — общий с парами тела.</summary>
+    private void ContactsSleeperStatic(in ContactsVelocityEntry e, float h)
+    {
+        float budget = _contactsBudget[e.Body];
+        if (!(budget > 0)) return;
+        ref var a = ref _bodies[e.Body];
+        if (_trace is not null) TraceBegin(e.Body);
+        float lambdaT = Xpbd.Friction(ref a, a.ToWorld(e.LocalA), e.Normal, budget, 1, 0, h);
+        ContactsPairFrictionChecks++;
+        if (lambdaT > 0)
+        {
+            ContactsPairFrictionHeld++;
+            _contactsBudget[e.Body] -= lambdaT;
+        }
+        if (_trace is not null) TraceEnd(e.Body, PhysicsSource.Pair, h);
     }
 
     private void ContactsPairStatic(in ContactsVelocityEntry e, float h)
@@ -594,6 +640,17 @@ public sealed partial class PhysicsWorld
             ContactsSimulatedPair(ia, ib, pa, pb, n, pen, h);
             return;
         }
+        // 7з-3: спящее тело — неподвижная опора неспящему телу на физике (кинематическое ↔ спящее сюда не доходит: отсев)
+        if (qa.Asleep)
+        {
+            ContactsSleepingPair(ib, ia, pb, -n, pen, h);
+            return;
+        }
+        if (qb.Asleep)
+        {
+            ContactsSleepingPair(ia, ib, pa, n, pen, h);
+            return;
+        }
         // Толчок живого (7д) пишет трассу сам — вокруг вызова её нет.
         if (sa) PushKinematic(ib, ia, pb, pa, n, pen, h);
         else PushKinematic(ia, ib, pa, pb, -n, pen, h);
@@ -627,6 +684,39 @@ public sealed partial class PhysicsWorld
         TraceContact(PhysicsSource.Pair, ia, ib, pa, n, pen, solved);
         TraceEnd(ia, PhysicsSource.Pair, h);
         TraceEnd(ib, PhysicsSource.Pair, h);
+    }
+
+    /// <summary>
+    /// Тело на физике <paramref name="body"/> касается тела спящего сочленения <paramref name="sleeper"/> (7з-3): спящее — неподвижная опора, как
+    /// земля (<see cref="Xpbd.Contact(ref BodyState, Vector3, Vector3, float, float, float, float)"/> с миром и
+    /// <see cref="PhysicsSettings.ContactCompliance"/>; старая глубина — пары в прошлых позах, у спящего прошлая поза — та же; застарелая выходит
+    /// не быстрее <see cref="PhysicsSettings.PopSpeed"/>), в скоростной проход — с трением скольжения пар, трение покоя — с бюджетом тела вместе с
+    /// парами (<see cref="ContactsPairFriction"/>). Касание спящее не будит: его будит проверка до подшагов следующего шага, если тело у него
+    /// движется быстрее порога сна или вошло глубже <see cref="SleepSlop"/>. Честно: лежащее на спящем медленнее порога сна не сдвинуло бы и
+    /// неспящее (нагрузка — та же, под которой оно уснуло), а быстрое его будит. <paramref name="point"/> — точка на теле, <paramref name="n"/> —
+    /// нормаль от спящего к телу.
+    /// </summary>
+    private void ContactsSleepingPair(int body, int sleeper, Vector3 point, Vector3 n, float pen, float h)
+    {
+        ref var s = ref _bodies[body];
+        float pen0 = ContactsPrevOverlap(in s, in _bodies[sleeper]);
+        float solved = ContactsSolvedDepth(pen, pen0, _contactsPopSpeed, h);
+        var local = s.ToLocal(point);   // материальная точка — до выталкивания
+        ContactsPoseBeforePair(body);
+        if (_trace is not null) TraceBegin(body);
+        float lambda = Xpbd.Contact(ref s, point, n, -solved, _contactsCompliance, h);
+        SleepContacts++;
+        if (lambda > 0)
+        {
+            ContactsAddVelocity(body, local, -1, default, n, _contactsPairFriction * lambda / h, lambda, PhysicsSource.Pair);
+            ContactsProbeOf(body);
+            ContactsPress(body);
+        }
+        if (_trace is not { } trace) return;
+        // источник — «пара», но не «в контакте с трупом» (Paired): спящее энергии не меняет, рост тела — как от земли
+        trace.RecordContact(PhysicsSource.Pair, TraceBody(body), TraceBody(sleeper), point, n, pen, solved);
+        trace.SleepContact();
+        TraceEnd(body, PhysicsSource.Pair, h);
     }
 
     /// <summary>

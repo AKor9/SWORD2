@@ -507,8 +507,11 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         var knobs = sim.Tuning.Where(k => k.Section == RagdollKnobs.Section).ToList();
         Assert.Equal(["ragdoll.friction", "ragdoll.pushForce", "ragdoll.popSpeed", "ragdoll.jointCompliance", "ragdoll.corpseMaxSpeed",
             "ragdoll.corpseMaxAngularSpeed", "ragdoll.deathMaxSpeed", "ragdoll.deathMaxAngularSpeed", "ragdoll.enemyRecoil", "ragdoll.playerRecoil",
-            "ragdoll.recoilMaxSpeed"], knobs.Select(k => k.Name));   // 7к: отдача — доли врагу и игроку, предел
+            "ragdoll.recoilMaxSpeed", "ragdoll.jointPopSpeed", "ragdoll.pairFriction", "ragdoll.sleepSpeed", "ragdoll.sleepBodySpeed", "ragdoll.sleepTime"],
+            knobs.Select(k => k.Name));   // 7к: отдача — доли врагу и игроку, предел; 7з-3: две настройки 7з-2 и сон
         var d = new RagdollSettings();
+        Assert.Equal((d.JointPopSpeed, d.PairFriction, d.SleepSpeed, d.SleepBodySpeed, d.SleepTime),
+            (physics.Settings.JointPopSpeed, physics.Settings.PairFriction, physics.Settings.SleepSpeed, physics.Settings.SleepBodySpeed, physics.Settings.SleepTime));
         Assert.Equal(d.PopSpeed, sim.Knob(RagdollKnobs.PopSpeed)!.Read(sim.World));
         Assert.Equal((d.PopSpeed, d.Friction, d.JointCompliance), (physics.Settings.PopSpeed, physics.Settings.StaticFriction, physics.Settings.JointLimitCompliance));
         Assert.Contains(sim.World.Systems, s => s.Label == "tuning.ragdoll" && s.Stage == GameStages.Begin);

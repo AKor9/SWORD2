@@ -63,6 +63,8 @@ public sealed class CorpseAgentTests
             Assert.False(plain["traceOn"]!.GetValue<bool>());
             Assert.Null(plain["trace"]);
             Assert.Null(plain["joints"]);   // у живого суставов нет
+            Assert.False(plain["asleep"]!.GetValue<bool>());   // 7з-3: сон трупа и счётчик покоя — у живого нет
+            Assert.Equal(0, plain["restTime"]!.GetValue<double>());
 
             Assert.Contains("trace", await Error(new JsonObject { ["trace"] = "maybe" }));
             Assert.Contains("events", await Error(new JsonObject { ["trace"] = "show", ["events"] = 65 }));
@@ -87,6 +89,9 @@ public sealed class CorpseAgentTests
                     Assert.NotNull(p["energy"]!["phases"]![phase]);
                 Assert.IsType<JsonArray>(p["sources"]);
                 Assert.IsType<JsonArray>(p["top"]);
+                // 7з-3: сон — засыпания, спящие, касания спящих, пробуждения по причинам
+                foreach (string key in (string[])["sleeps", "asleepMax", "contacts", "wakes"]) Assert.NotNull(p["sleep"]![key]);
+                foreach (string reason in (string[])["push", "hit", "touch", "chain", "command", "settings"]) Assert.NotNull(p["sleep"]!["wakesBy"]![reason]);
             }
             Assert.Equal(0, on["contacts"]!["count"]!.GetValue<int>());
             Assert.Equal(hash["total"]!.ToJsonString(), (await Call("state.hash", new JsonObject()))["total"]!.ToJsonString());   // режим хеш не меняет

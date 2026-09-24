@@ -12,6 +12,9 @@ public sealed partial class PhysicsTrace
     /// <summary>Фаз подшага (<see cref="PhysicsPhase"/>, 7з-2).</summary>
     public const int PhaseCount = 8;
 
+    /// <summary>Причин пробуждения (<see cref="WakeReason"/>, 7з-3).</summary>
+    public const int WakeReasonCount = 6;
+
     /// <summary>Порог события по умолчанию: тело за тик быстрее, м/с.</summary>
     public const float DefaultEventSpeed = 12f;
 
@@ -278,6 +281,41 @@ public sealed partial class PhysicsTrace
         _last.Hit(dvShare, capped, budgeted, dv, dw);
         _window.Hit(dvShare, capped, budgeted, dv, dw);
         _run.Hit(dvShare, capped, budgeted, dv, dw);
+    }
+
+    /// <summary>
+    /// Спящее сочленение проснулось (7з-3) по причине <paramref name="reason"/>: внутри шага (проверка до подшагов) — в накопитель шага, между
+    /// шагами (удар, запись, настройки) — в последний тик; всегда — в окно и прогон.
+    /// </summary>
+    internal void Wake(WakeReason reason, bool inStep)
+    {
+        (inStep ? _step : _last).Wake(reason);
+        _window.Wake(reason);
+        _run.Wake(reason);
+    }
+
+    /// <summary>Сочленение уснуло (7з-3; конец шага).</summary>
+    internal void Slept()
+    {
+        _step.Slept();
+        _window.Slept();
+        _run.Slept();
+    }
+
+    /// <summary>Неспящее тело на физике коснулось спящего (7з-3: спящее — неподвижная опора) в подшаге.</summary>
+    internal void SleepContact()
+    {
+        _step.SleepContact();
+        _window.SleepContact();
+        _run.SleepContact();
+    }
+
+    /// <summary>Спящих сочленений в конце шага (7з-3).</summary>
+    internal void AsleepAt(int count)
+    {
+        _step.AsleepAt(count);
+        _window.AsleepAt(count);
+        _run.AsleepAt(count);
     }
 
     /// <summary>Отдачу сочленения забрали (после шага): модуль сырого импульса, Н·с.</summary>

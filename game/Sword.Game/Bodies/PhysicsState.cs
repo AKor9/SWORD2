@@ -11,8 +11,9 @@ namespace Sword.Game.Bodies;
 /// режим, форма (радиус, полудлина), положение, поворот, прошлые положение и поворот, скорость и угловая скорость; с 7ж — поза
 /// начала тика, масса, обратная масса, обратная инерция, касание земли, профиль динамики, вид толчка (все поля тела 7б); порядок
 /// свободных слотов тел (от него зависят хэндлы будущих тел); с 7ж — профили динамики мира (таблица по номерам); с 7з — у живых
-/// сочленений суставы (описание, привязка — точка на родителе и поза покоя, включён ли; 7в) и накопленная отдача (7д), проходы пар живых
-/// сочленений «толкающий → цель» (<see cref="IPhysicsWorld.Pass"/>, по слотам, толкающий ≠ цель; 7д) — всё, от чего зависит следующий шаг.
+/// сочленений суставы (описание, привязка — точка на родителе и поза покоя, включён ли; 7в) и накопленная отдача (7д), с 7з-3 — сон и счётчик
+/// покоя (<see cref="IPhysicsWorld.IsAsleep"/>, <see cref="IPhysicsWorld.RestTime"/>), проходы пар живых сочленений «толкающий → цель»
+/// (<see cref="IPhysicsWorld.Pass"/>, по слотам, толкающий ≠ цель; 7д) — всё, от чего зависит следующий шаг.
 /// Журнал пределов и контакты подшага сбрасываются в начале шага, границы и настройки физики выводятся (настройки — из правил трупа, ресурса
 /// мира) — не хешируются. Кто держит сочленение (<c>BodyRef</c>), хеширует участник <c>ecs</c>. <see cref="Describe"/> — эти поля (проходы —
 /// только непустые) и, для людей, замер суставов.
@@ -35,6 +36,8 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             for (int k = 0; k < n; k++) h.Add(physics.Body(a, k).Index);
             Joints(ref h, a);
             Add(ref h, physics.Reaction(a));
+            h.Add(physics.IsAsleep(a));   // 7з-3: сон и счётчик покоя — от них зависит следующий шаг
+            h.Add(physics.RestTime(a));
         }
         Passes(ref h, arts);
         var freeArts = physics.FreeArticulations;
@@ -151,7 +154,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
     /// Сводка (сочленений, тел, слотов, свободных, профилей) и сочленения по слотам (часть — <c>2v1</c>: тела по номеру в сочленении,
     /// у тела — хэндл, режим, форма, постановка, прошлая постановка, скорости; с 7ж — поза начала тика, масса, обратные масса и
     /// инерция, касание земли, профиль, толчок; с 7з — отдача и суставы: описание, привязка, включён ли и замер — ошибка точки, углы,
-    /// выход за предел; замер не хешируется, он — из позы); часть <c>slots</c> — свободные слоты в порядке выдачи с конца и поколения
+    /// выход за предел; замер не хешируется, он — из позы; с 7з-3 — <c>asleep</c>, <c>restTime</c>, в сводке — спящих); часть <c>slots</c> — свободные слоты в порядке выдачи с конца и поколения
     /// свободных; часть <c>dynamics</c> (7ж) — профили динамики по номерам; часть <c>passes</c> (7з) — непустые проходы пар. Отбор:
     /// сочленение <c>2v1</c> (из <c>BodyRef</c>: <c>Index</c>v<c>Generation</c>), <c>slots</c>, <c>dynamics</c> или <c>passes</c>. Тело
     /// <c>i</c> сочленения бойца — сегмент <c>i</c> (с 7ж): 0…10 — pelvis…shin.r, 11 — клинок (blade), 12 — foot.l, 13 — foot.r; сустав <c>j</c>
@@ -167,6 +170,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         w.Summary("freeArticulations", physics.FreeArticulations.Length);
         w.Summary("freeBodies", physics.FreeBodies.Length);
         w.Summary("dynamicsProfiles", physics.DynamicsCount);
+        w.Summary("asleep", physics.AsleepCount);   // 7з-3
         int matched = 0;
         for (int i = 0; i < physics.ArticulationCapacity; i++)
         {
@@ -277,6 +281,8 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             w.EndObject();
         }
         Write(w, "reaction", physics.Reaction(a));
+        w.Value("asleep", physics.IsAsleep(a));      // 7з-3
+        w.Value("restTime", physics.RestTime(a));
         int joints = physics.JointCount(a);
         w.Value("jointCount", joints);
         for (int j = 0; j < joints; j++) WriteJoint(w, a, j);

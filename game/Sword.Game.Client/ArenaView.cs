@@ -31,10 +31,10 @@ public readonly record struct FighterView(Entity Entity, bool IsPlayer, Vector3 
 /// <summary>
 /// Капсула тела бойца в кадре (5в): сегмент (<see cref="BodySegs"/>), центр и поворот (ось — локальная Y) — как показан
 /// боец (<see cref="ArenaView.Carry"/>; у трупа — тело, <see cref="ArenaView.Shown"/>), радиус и полудлина оси, м; 7и — на физике ли
-/// тело (труп) и касается ли земли.
+/// тело (труп) и касается ли земли; 7з-3 — спит ли труп (физика его не считает).
 /// </summary>
 public readonly record struct ShownCapsule(int Segment, Vector3 Center, Quaternion Rotation, float Radius, float HalfLength,
-    bool Simulated = false, bool Grounded = false)
+    bool Simulated = false, bool Grounded = false, bool Asleep = false)
 {
     public Vector3 Axis => Vector3.Transform(Vector3.UnitY, Rotation);
     public Vector3 EndA => Center - Axis * HalfLength;
@@ -60,10 +60,10 @@ public readonly record struct ShownJoint(int Parent, int Child, Vector3 Point, V
 /// <summary>
 /// Трупы кадра (7и, часть 2 — строки группы F3 «Рэгдолл»): трупов, нарисованных по телам, из них в покое (скорость центра масс тел ≤
 /// <see cref="ArenaView.RestSpeed"/>), тел трупов на физике и из них касающихся земли, наибольшие скорость, м/с, и вращение, рад/с, тела
-/// трупа на физике — по телам тика (поза тика, не показанная).
+/// трупа на физике — по телам тика (поза тика, не показанная); 7з-3 — из трупов кадра спящих (физика их не считает).
 /// </summary>
 public readonly record struct CorpseFrameStats(int Corpses, int AtRest, int SimulatedBodies, int GroundedBodies, float MaxSpeed,
-    float MaxAngularSpeed);
+    float MaxAngularSpeed, int Asleep = 0);
 
 /// <summary>
 /// Мир представления арены (Extract, раздел 7 плана): что рисует кадр. Бойцы появляются и уходят по экспорту тика
@@ -178,7 +178,7 @@ public sealed class ArenaView
     public CorpseFrameStats CorpseStats { get; private set; }
 
     // Накопители трупов кадра (Extract → CorpseStats).
-    private int _restCorpses, _simulatedBodies, _groundedBodies;
+    private int _restCorpses, _simulatedBodies, _groundedBodies, _asleepCorpses;
     private float _maxSpeed, _maxAngularSpeed;
 
     /// <summary>Суставов тел, снятых кадром для оверлея <c>joints</c> (7и; 0 — не снимались).</summary>
@@ -253,7 +253,7 @@ public sealed class ArenaView
         if (_hand >= 0 && _poseView is not null && _poseView.ReferenceModel() is var reference && _hand < reference.Length) _referenceHand = reference[_hand];
         PrepareRig();
         _posed = _bodied = _jointed = 0;
-        _restCorpses = _simulatedBodies = _groundedBodies = 0;
+        _restCorpses = _simulatedBodies = _groundedBodies = _asleepCorpses = 0;
         _maxSpeed = _maxAngularSpeed = 0;
         int armed = 0, bladed = 0, alive = 0, corpses = 0;
         PlayerHp = Health.Full;
@@ -289,7 +289,7 @@ public sealed class ArenaView
         BladeCount = bladed;
         AliveEnemies = alive;
         CorpseCount = corpses;
-        CorpseStats = new CorpseFrameStats(corpses, _restCorpses, _simulatedBodies, _groundedBodies, _maxSpeed, _maxAngularSpeed);
+        CorpseStats = new CorpseFrameStats(corpses, _restCorpses, _simulatedBodies, _groundedBodies, _maxSpeed, _maxAngularSpeed, _asleepCorpses);
         ExtractContacts(contacts);
     }
 
@@ -428,6 +428,7 @@ public sealed class ArenaView
             _maxAngularSpeed = MathF.Max(_maxAngularSpeed, b.AngularVelocity.Length());
         }
         if (mass > 0 && (momentum / mass).Length() <= RestSpeed) _restCorpses++;
+        if (_snapshots[0].Asleep) _asleepCorpses++;   // 7з-3: сон — у сочленения, у всех его тел один
         if (_poses.Length < _posed + binding.Length) Array.Resize(ref _poses, Math.Max(_poses.Length * 2, _posed + binding.Length));
         SkinJoints(binding, _poses.AsSpan(_posed, binding.Length));
         view = view with { PoseStart = _posed, PoseCount = binding.Length, Corpse = true, BoundsMin = min, BoundsMax = max };
@@ -458,7 +459,7 @@ public sealed class ArenaView
         {
             ref readonly var b = ref _snapshots[k];
             _bodies[_bodied + k] = new ShownCapsule(BodySegs.Segment(k), _shown[k].Translation, _shownRotation[k], b.Radius, b.HalfLength,
-                b.Simulated, b.Grounded);
+                b.Simulated, b.Grounded, b.Asleep);
         }
         view = view with { BodyStart = _bodied, BodyCount = n };
         _bodied += n;
@@ -609,9 +610,10 @@ public sealed class ArenaView
     /// Тело трупа, как его показывает кадр (7и; <c>Fighter.SkinMatrix(body, alpha)</c> SWORD — идея): тело на физике — между позой
     /// начала тика и позой тика по доле тика (центр — линейно, поворот — <c>Slerp</c>; прошлую постановку тела на физике перезаписывает
     /// каждый подшаг — от неё нельзя); кинематическое (мёртвый до перехода в труп, 7з, замирает) — поза тика: его поза начала тика —
-    /// прошлой постановки живого, и интерполяция качала бы застывший труп на расстояние последнего тика жизни. При доле 1 — поза тика.
+    /// прошлой постановки живого, и интерполяция качала бы застывший труп на расстояние последнего тика жизни. При доле 1 — поза тика. Спящий
+    /// труп (7з-3) — поза тика: она же поза начала тика, и <c>Slerp</c> одинаковых поворотов не качал бы его даже на последний бит.
     /// </summary>
-    public static (Vector3 Center, Quaternion Rotation) Shown(in BodySnapshot body, float alpha) => body.Simulated
+    public static (Vector3 Center, Quaternion Rotation) Shown(in BodySnapshot body, float alpha) => body.Simulated && !body.Asleep
         ? (Vector3.Lerp(body.StartPosition, body.Position, alpha), Quaternion.Normalize(Quaternion.Slerp(body.StartRotation, body.Rotation, alpha)))
         : (body.Position, body.Rotation);
 }

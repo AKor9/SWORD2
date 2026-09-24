@@ -66,12 +66,15 @@ public sealed partial class PhysicsWorld
         t.SubstepEnd();
     }
 
-    /// <summary>Тело на физике в конце подшага: скорости, упор в потолки профиля, энергия — в сумму его сочленения.</summary>
+    /// <summary>
+    /// Тело на физике в конце подшага: скорости, упор в потолки профиля, энергия — в сумму его сочленения. Тело спящего (7з-3) — не считается:
+    /// шаг его не двигает (скорости 0, энергия постоянна), и в сумме роста энергии и перцентилях скоростей его нет.
+    /// </summary>
     private void TraceSubstepBody(PhysicsTrace t, int b)
     {
         if (_bodyGeneration[b] <= 0) return;
         ref readonly var s = ref _bodies[b];
-        if (s.Mode != BodyMode.Simulated) return;
+        if (s.Mode != BodyMode.Simulated || _sleepAsleep[_bodyOwner[b]]) return;
         ref readonly var d = ref _dynamics[s.Profile];
         float v = s.Velocity.Length(), w = s.AngularVelocity.Length();
         bool capped = v >= d.MaxSpeed * PhysicsTrace.CappedShare || w >= d.MaxAngularSpeed * PhysicsTrace.CappedShare;
@@ -89,7 +92,7 @@ public sealed partial class PhysicsWorld
     {
         if (_bodyGeneration[b] <= 0) return;
         ref readonly var s = ref _bodies[b];
-        if (s.Mode != BodyMode.Simulated) return;
+        if (s.Mode != BodyMode.Simulated || _sleepAsleep[_bodyOwner[b]]) return;   // 7з-3: спящие не считаются
         t.EnergyAdd(_bodyOwner[b], s.KineticEnergy + (double)s.Mass * _dynamics[s.Profile].Gravity * s.Position.Y);
     }
 
@@ -111,7 +114,7 @@ public sealed partial class PhysicsWorld
     {
         if (_bodyGeneration[b] <= 0) return;
         ref readonly var s = ref _bodies[b];
-        if (s.Mode != BodyMode.Simulated) return;
+        if (s.Mode != BodyMode.Simulated || _sleepAsleep[_bodyOwner[b]]) return;   // 7з-3: спящие не считаются
         float kinetic = s.KineticEnergy;
         if (moved)
         {
