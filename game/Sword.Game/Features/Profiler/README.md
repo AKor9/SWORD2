@@ -379,7 +379,8 @@ SWORD в HUD стали «кадр» и «проходы»; слот помни�
 - `Sword.exe --profile` — с первого кадра; с `--bench` итоги — только кадры замера (сброс на первом кадре после прогрева).
   Отчёт — `artifacts/profile/<дата-время>-app-<pid>/profile.json`, в `--json` — секция `profile` (файл, кадров, тиков,
   12 главных зон кадра).
-- `Sword.Headless --profile` — итоги — тики после прогрева (120, как байты на тик); отчёт — `artifacts/profile/<…>-headless-<pid>/profile.json`,
+- `Sword.Headless --profile` — итоги — тики после прогрева (120, как байты на тик; до них — прогрев JIT отдельной симуляцией, ≤ 1 с, у
+  прогона без `--replay` от 240 тиков — 6ж и доводка 6ж, `jitWarmup` в `--json`); отчёт — `artifacts/profile/<…>-headless-<pid>/profile.json`,
   в `--json` — секция `profile` (главные зоны тика). С `--agent` — профайлер сеанса включён с начала, отчёт — при выходе.
 - Агент — `profile.stages {"enable": true}` без ключа.
 - `--profile runtime` у обоих exe (и с `--agent` у Headless) — ещё диагностический режим: секция `events` в `profile.json`

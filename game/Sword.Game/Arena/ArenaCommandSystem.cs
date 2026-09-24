@@ -1,4 +1,5 @@
 using System.Numerics;
+using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
 using Sword.Game.Animation;
@@ -95,6 +96,9 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
         if (resetBatch == 0 && !player.IsNull && inventory.Equipped != before.Equipped)
             cmd.Set(player, new WeaponSlot { Index = inventory.Equipped });
         if (enemies == state.Enemies && resetBatch == 0 && !AnyMarked()) return;
+        // Доводка 6ж: врагов прибавилось — запас пула поз добирается здесь, до постройки новых бойцов (их позы — в Gameplay этого тика,
+        // слои боя — позже): рост пула посреди боя не выделяет памяти. Разовое выделение — в тике команды арены.
+        if (enemies > state.Enemies) GameCore.ReservePoses(world.Resource<PosePool>(), enemies);
 
         var rng = world.Resource<SimRandom>();
         ulong tick = world.Resource<SimTime>().Tick;

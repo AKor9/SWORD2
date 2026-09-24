@@ -396,8 +396,9 @@
 - `tests/Sword.Engine.Agent.Tests/FeatureToolsTests` — `feature.list/verify` и `experiment.*` через MCP.
 - `tests/Sword.Engine.Runtime.Tests/ReplayTests.Head_KeepsCommandsAndHashesBeforeTick`,
   `Playback_SteadyTick_DoesNotAllocate` (нашёл бюджет фичи `animation`: 32 байта на тик воспроизведения).
-- `tests/Sword.Game.Tests/FeatureManifestsTests` — у каждой фичи есть манифест, чек-лист = пункты md; на эталонном паке
-  `feature.verify` каждой фичи зелёный (без видов); приёмка 3д — развилка эталона прототипа на тике 300: другая команда
+- `tests/Sword.Game.Tests/FeatureManifestsTests` — у каждой фичи есть манифест, чек-лист = пункты md, у каждой — свой класс приёмки
+  (`FeatureVerifyTests`: на эталонном паке `feature.verify` фичи зелёный, без видов; класс на фичу — классы xUnit идут параллельно, доводка
+  6ж); приёмка 3д — развилка эталона прототипа на тике 300: другая команда
   игрока — расхождение после 301 тика (`ecs`), выключенный модуль — с тика 0, клиентский ключ — никакого.
 
 ## Что проверить в игре

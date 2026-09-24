@@ -687,6 +687,55 @@ public sealed class DamageContentTests
         Assert.Equal(0, allocated);
     }
 
+    /// <summary>
+    /// Доводка 6ж: запас пула поз — на арену из конфига (<see cref="GameCore.ReservePoses"/>), прибавку врагов добирает команда арены до
+    /// постройки новых бойцов. Арена из 10 врагов (запас 11 бойцов — 128 слотов) набрана PageUp до 32 (команда в тике 0: запас 33 бойцов —
+    /// 512 слотов, как был у каждой симуляции до доводки) и бьётся, как сценарий <c>crowd</c>: после прогрева — 0 Б/тик, пул за запас не
+    /// рос (<see cref="PosePool.Reserved"/> тот же с тика команды до конца), ёмкость пула в бою — внутри запаса.
+    /// </summary>
+    [Fact]
+    public void Fight_CrowdGrownByArenaCommand_ReserveFollows_DoesNotAllocate()
+    {
+        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=10", "combat.playerInvulnerable=true", "sim.invariants=false"), Reference.Value);
+        // Пул — как его видит агент: сводка state.describe animation (запас в хеш не входит).
+        (int Reserved, int JobsReserved, int Capacity) Pool()
+        {
+            var d = System.Text.Json.Nodes.JsonNode.Parse(sim.DescribeState("animation", new DescribeQuery("-", Take: 0)))!;
+            return (d["reserved"]!.GetValue<int>(), d["jobsReserved"]!.GetValue<int>(), d["capacity"]!.GetValue<int>());
+        }
+        var start = Pool();
+        Assert.Equal((128, 11 * GameCore.PoseJobsPerFighter), (start.Reserved, start.JobsReserved));   // 11 бойцов × 11 поз = 121 → 128
+        int tick = 0;
+        void Step()
+        {
+            sim.Export.BeginFrame();
+            if (tick == 0) sim.Enqueue(new ArenaCommand { Action = ArenaAction.ChangeEnemies, Enemies = 22 });   // PageUp ×22: 32 врага
+            sim.Enqueue(Crowd(tick));
+            sim.Step();
+            tick++;
+        }
+        Step();
+        Assert.Equal(32, sim.World.Resource<ArenaState>().Enemies);
+        var grown = Pool();
+        Assert.Equal((512, ArenaRules.MaxFighters * GameCore.PoseJobsPerFighter), (grown.Reserved, grown.JobsReserved));
+        while (tick < Warmup) Step();
+        var before = sim.World.Resource<ArenaStats>();
+        long allocated = 0;
+        while (tick < 2400)
+        {
+            long bytes = GC.GetAllocatedBytesForCurrentThread();
+            Step();
+            allocated += GC.GetAllocatedBytesForCurrentThread() - bytes;
+        }
+        var after = sim.World.Resource<ArenaStats>();
+        Assert.True(after.Hits - before.Hits >= 10 && after.Kills - before.Kills >= 1,
+            $"в замере попаданий {after.Hits - before.Hits}, смертей {after.Kills - before.Kills}: боя мало");
+        var end = Pool();
+        Assert.Equal((512, grown.JobsReserved), (end.Reserved, end.JobsReserved));   // пул не рос за запас
+        Assert.InRange(end.Capacity, grown.Capacity, end.Reserved);   // ёмкость (логическая, растёт удвоением) — внутри запаса
+        Assert.Equal(0, allocated);
+    }
+
     /// <summary>Прогрев замера — с первым возрождением толпы (сценарий crowd: тик 1231) — как бюджет crowd манифеста combat.</summary>
     private const int Warmup = 1320;
 }

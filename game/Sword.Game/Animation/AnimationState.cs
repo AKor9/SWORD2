@@ -46,6 +46,10 @@ public sealed class AnimationState(PosePool pool) : IStateContributor
             else jointFilter = f;
         }
         w.Summary("capacity", pool.Capacity);
+        // Запас памяти (6ж, доводка: на арену из конфига и прибавку врагов — GameCore.ReservePoses): слотов и мест очереди без выделений;
+        // в хеш не входит.
+        w.Summary("reserved", pool.Reserved);
+        w.Summary("jobsReserved", pool.JobsReserved);
         w.Summary("poses", pool.Count);
         w.Summary("pending", pool.Pending);
         w.Summary("freeSlots", pool.FreeSlots.Length);

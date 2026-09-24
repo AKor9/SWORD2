@@ -61,13 +61,24 @@ public static class GameCore
     /// </summary>
     public const int PoseJobsPerFighter = 16;
 
+    /// <summary>
+    /// Запас пула поз на арену из <paramref name="enemies"/> врагов (6ж, доводка): (враги + игрок) × <see cref="PosesPerFighter"/> поз и
+    /// × <see cref="PoseJobsPerFighter"/> заданий — бой (действия, вздрагивания, снимки, память смешивания) не растит пул посреди игры, тик
+    /// боя — 0 Б. Зовут постройка симуляции (<c>arena.enemies</c>) и команда арены, прибавившая врагов (<see cref="ArenaCommandSystem"/>:
+    /// тик команды, до постройки новых бойцов). Раньше запас был на полную арену у каждой симуляции (33 бойца — 512 слотов, ~7,6 МБ на
+    /// настоящем паке: ветки fork, тесты, прогрев JIT); 10 врагов — 128 слотов. Логика пула (ёмкость, номера поз, хеш <c>animation</c>) от
+    /// запаса не зависит (<see cref="PosePool.Reserve"/>). Меньше заведённого — ничего.
+    /// </summary>
+    public static void ReservePoses(PosePool poses, int enemies)
+    {
+        int fighters = Math.Clamp(enemies, 0, ArenaState.MaxEnemies) + 1;
+        poses.Reserve(fighters * PosesPerFighter, fighters * PoseJobsPerFighter);
+    }
+
     /// <summary>Регистрации ядра — в <c>Simulation.Build</c> до модулей.</summary>
     public static void Configure(SimulationBuilder b, CharacterAssets assets)
     {
         var poses = new PosePool(assets.Clips);   // пул поз — у каждой симуляции свой: ассеты только читаются
-        // 6ж: память пула — сразу на полную арену с боем (рост посреди боя выделял ~3,8 МБ на настоящем паке — 539 Б/тик бюджета толпы);
-        // логика пула (ёмкость, номера поз, хеш animation) — та же.
-        poses.Reserve(ArenaRules.MaxFighters * PosesPerFighter, ArenaRules.MaxFighters * PoseJobsPerFighter);
         // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 13 тел), дальше растёт удвоением.
         var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies);
         var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
@@ -75,6 +86,9 @@ public static class GameCore
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
+        // 6ж: память пула — сразу на арену с боем (рост посреди боя выделял ~3,8 МБ на настоящем паке — 539 Б/тик бюджета толпы); доводка
+        // 6ж — на арену из конфига, прибавку врагов добирает команда арены.
+        ReservePoses(poses, arena.Enemies);
         var weapons = assets.Weapons;
         var strikes = assets.Strikes;
         var upper = poses.AddMask(ActionRules.UpperMask(assets.Clips.Skeleton));   // слой верха тела (удары): CharacterRig.UpperMask

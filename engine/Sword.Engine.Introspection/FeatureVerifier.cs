@@ -530,21 +530,21 @@ public static class FeatureVerifier
     {
         var failures = new List<string>();
         var json = new JsonObject { ["id"] = budget.Id, ["scenario"] = budget.Scenario, ["repeats"] = budget.Repeats, ["warmup"] = budget.Warmup };
-        // 6ж: до повторов — прогрев до затишья JIT (сценарий бюджета без замера, по концу — заново): фиксированный прогрев в тиках — доли
-        // секунды, а фоновая перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты первого повтора (JitWarmup).
-        Simulation? warm = null;
-        var jit = JitWarmup.Run(() =>
+        // 6ж: до повторов — прогрев до затишья JIT (сценарий бюджета без замера): фиксированный прогрев в тиках — доли секунды, а фоновая
+        // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты первого повтора (JitWarmup). Доводка 6ж: только в
+        // Release (в Debug время не судится), одна симуляция — дальше конца сценария, без постройки заново.
+        if (env.Optimized)
         {
-            if (warm is null || warm.Tick >= (scenario.Ticks ?? warm.Player?.Length ?? 0))
+            var (warm, _) = Prepare(manifest, scenario, env, ["sim.invariants=false"], [], hashes: false);
+            var jit = warm is null ? default : JitWarmup.Run(() =>
             {
-                (warm, _) = Prepare(manifest, scenario, env, ["sim.invariants=false"], [], hashes: false);
-                if (warm is null) return false;
-            }
-            warm.Export.BeginFrame();
-            warm.Step();
-            return true;
-        });
-        json["jitWarmup"] = new JsonObject { ["ticks"] = jit.Steps, ["seconds"] = Math.Round(jit.Seconds, 3), ["settled"] = jit.Settled };
+                warm.Export.BeginFrame();
+                warm.Step();
+                return true;
+            });
+            json["jitWarmup"] = new JsonObject { ["ticks"] = jit.Steps, ["seconds"] = Math.Round(jit.Seconds, 3), ["settled"] = jit.Settled };
+        }
+        else json["jitWarmup"] = "не греется: сборка Debug (прогрев JIT — только в Release, где судится время)";
         var runs = new List<SimulationMeasure>();
         for (int r = 0; r < budget.Repeats; r++)
         {

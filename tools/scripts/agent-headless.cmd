@@ -9,6 +9,8 @@ rem locked). Every command here keeps stdout clean: del prints the name of a loc
 rem the protocol.
 rem The server exits on its own (stage 6a): end of stdin, end of this cmd (a client may kill only the wrapper and keep
 rem the pipe open), 15 minutes without tool calls (--idle-exit MIN, passed through from the args in .mcp.json), session.stop.
+rem The build runs with -nodeReuse:false (user, 2026-09-24): MSBuild worker nodes exit with the build instead of idling
+rem ~10 minutes at ~200 MB each; a server start costs up to ~1.4 s more.
 rem Used by .mcp.json; see docs/agent-playbook.md.
 setlocal
 set "ROOT=%~dp0..\.."
@@ -21,7 +23,7 @@ if exist "%BASE%\Sword.Headless.dll" if not exist "%BASE%\Sword.Headless.exe" de
 :pick
 set "OUT=%BASE%\%RANDOM%%RANDOM%"
 if exist "%OUT%" goto pick
-dotnet build "%ROOT%\game\Sword.Game.Headless\Sword.Game.Headless.csproj" -c Debug -nologo -v q -o "%OUT%" 1>&2
+dotnet build "%ROOT%\game\Sword.Game.Headless\Sword.Game.Headless.csproj" -c Debug -nologo -v q -nodeReuse:false -o "%OUT%" 1>&2
 if errorlevel 1 (
     echo [agent] build failed: not starting an older build ^(fix the build, then reconnect the MCP server^) 1>&2
     rd /s /q "%OUT%" >nul 2>&1

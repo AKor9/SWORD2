@@ -210,9 +210,13 @@ public static class Experiments
     /// Время систем (точка Па): после повторов — ещё прогон каждой комбинации с профайлером CPU (зоны <c>метка@стадия</c>);
     /// медиана, разброс и масштабирование — только из прогонов без него.
     /// </param>
+    /// <param name="warmJit">
+    /// Между кругом прогрева и повторами — прогрев до затишья JIT (6ж, <see cref="Sword.Engine.Diagnostics.JitWarmup"/>, ≤ 1 с). Доводка 6ж:
+    /// только в Release (<c>experiment.sweep</c> — по сборке сеанса), где судится и сравнивается время; в Debug и тестах — без него.
+    /// </param>
     public static (IReadOnlyList<SweepRow> Rows, IReadOnlyList<string> Scaling) Sweep(Replay? scenario, ulong ticks,
         IReadOnlyList<(string Key, IReadOnlyList<string> Values)> parameters, int repeats, int warmup, Func<ConfigSet, Simulation> build,
-        CancellationToken cancel = default, bool systems = true)
+        CancellationToken cancel = default, bool systems = true, bool warmJit = false)
     {
         if (parameters.Count == 0) throw new ArgumentException("params: хотя бы один ключ со значениями");
         foreach (var (key, values) in parameters)
@@ -233,8 +237,9 @@ public static class Experiments
         for (int r = -1; r < repeats; r++)
         {
             // 6ж: после круга прогрева — ещё до затишья JIT (комбинации по кругу, без замера): круг лёгких комбинаций — доли мс, а фоновая
-            // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты повторов (JitWarmup).
-            if (r == 0) WarmJit(runs, scenario, ticks, build);
+            // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты повторов (JitWarmup). Доводка 6ж — только
+            // с warmJit (Release: в Debug время не судится).
+            if (r == 0 && warmJit) WarmJit(runs, scenario, build);
             foreach (var run in runs)
             {
                 if (run.Error is not null) continue;
@@ -288,24 +293,23 @@ public static class Experiments
         return (rows, Scaling(parameters, rows));
     }
 
-    /// <summary>Прогрев до затишья JIT (6ж, <see cref="Sword.Engine.Diagnostics.JitWarmup"/>): комбинации без ошибок по кругу, каждая — до конца сценария.</summary>
-    private static Sword.Engine.Diagnostics.JitWarmupResult WarmJit(List<SweepRun> runs, Replay? scenario, ulong ticks, Func<ConfigSet, Simulation> build)
+    /// <summary>
+    /// Прогрев до затишья JIT (6ж, <see cref="Sword.Engine.Diagnostics.JitWarmup"/>): у каждой комбинации без ошибок — одна тёплая симуляция
+    /// (строится при первом шаге, заново — никогда: доводка 6ж), шаги — по тику каждой по кругу.
+    /// </summary>
+    private static Sword.Engine.Diagnostics.JitWarmupResult WarmJit(List<SweepRun> runs, Replay? scenario, Func<ConfigSet, Simulation> build)
     {
-        Simulation? sim = null;
+        var live = runs.Where(r => r.Error is null).ToList();
+        var sims = new Simulation?[live.Count];
         int next = 0;
         return Sword.Engine.Diagnostics.JitWarmup.Run(() =>
         {
-            if (sim is null || sim.Tick >= ticks)
+            if (live.Count == 0) return false;
+            int i = next++ % live.Count;
+            if (sims[i] is not { } sim)
             {
-                sim = null;
-                for (int i = 0; i < runs.Count && sim is null; i++, next++)
-                {
-                    var run = runs[next % runs.Count];
-                    if (run.Error is not null) continue;
-                    sim = build(scenario?.CreateConfig(run.Sets) ?? ConfigSet.Empty([.. run.Sets]));
-                    if (scenario is not null) sim.Play(scenario.Head(scenario.Ticks, hashes: false));
-                }
-                if (sim is null) return false;
+                sims[i] = sim = build(scenario?.CreateConfig(live[i].Sets) ?? ConfigSet.Empty([.. live[i].Sets]));
+                if (scenario is not null) sim.Play(scenario.Head(scenario.Ticks, hashes: false));
             }
             sim.Export.BeginFrame();
             sim.Step();

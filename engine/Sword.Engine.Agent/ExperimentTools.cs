@@ -157,8 +157,10 @@ internal static class ExperimentTools
                 int systems = (int)call.Integer("systems", 10, 0, 1000);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(call.Cancel);
                 timeout.CancelAfter(TimeSpan.FromSeconds(Math.Min(call.Number("timeoutSeconds", 300, 1, 3600), host.MaxWaitSeconds)));
-                var (rows, scaling) = await Task.Run(() => Experiments.Sweep(replay, ticks, parameters, repeats, warmup, session.Build, timeout.Token, systems > 0),
-                    timeout.Token).ConfigureAwait(false);
+                // Доводка 6ж: прогрев до затишья JIT — только в оптимизированной сборке (Release), где время судится.
+                bool optimized = host.Features?.Optimized ?? false;
+                var (rows, scaling) = await Task.Run(() => Experiments.Sweep(replay, ticks, parameters, repeats, warmup, session.Build, timeout.Token,
+                    systems > 0, warmJit: optimized), timeout.Token).ConfigureAwait(false);
                 return new ToolOutput(new JsonObject
                 {
                     ["replay"] = path, ["ticks"] = ticks, ["repeats"] = repeats, ["warmup"] = warmup,

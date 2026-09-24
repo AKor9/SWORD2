@@ -397,56 +397,67 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         return sim;
     }
 
-    [Theory]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    public void Crowd32_EveryTickIsResolveRoots_OverlapWithinInvariant(int seed)
+    /// <summary>
+    /// Толпа из 32 врагов по четырём зёрнам (~25 с в Debug) — свой класс (доводка 6ж): строки теории одного класса xUnit гонит подряд, а
+    /// классы — параллельно; вместе с краем арены теории столкновений шли одной цепочкой ~77 с — дольше всех тестов игры.
+    /// </summary>
+    public sealed class CrowdTheory(ITestOutputHelper output)
     {
-        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"));
-        var probe = new MovementProbe();
-        sim.Observe(probe);
-        for (int t = 0; t < CrowdTicks; t++) CrowdStep(sim, t);
-        output.WriteLine($"sim.seed={seed}: перекрытие худшее {probe.Worst:0.0000} м, установившееся {probe.WorstSteady:0.0000} м, " +
-            $"больше {RootOverlapInvariant.Tolerance} м подряд — {probe.LongestRun} тиков");
-        Assert.True(probe.Mismatches == 0, probe.First);
-        Assert.True(probe.Checked > 150_000, $"проверено {probe.Checked}");
-        Assert.True(sim.Invariants.Total == 0, string.Join("\n", sim.Invariants.Recent().Take(5)));
-        Assert.Contains(sim.Invariants.List(), i => i.Id == "movement.rootOverlap" && i.Enabled && i.Evaluations == CrowdTicks);
-        // Вдали от края: корень ни разу не в круге соседа, перекрытие больше допуска — не дольше 2 тиков; установившееся
-        // перекрытие — вдвое меньше допуска.
-        Assert.InRange(probe.Worst, 0, RootOverlapInvariant.HardLimit / 2);
-        Assert.Equal(0, probe.LongestHardRun);
-        Assert.InRange(probe.WorstSteady, 0, RootOverlapInvariant.Tolerance / 2);
-        Assert.InRange(probe.LongestRun, 0, 2);
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        public void Crowd32_EveryTickIsResolveRoots_OverlapWithinInvariant(int seed)
+        {
+            var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"));
+            var probe = new MovementProbe();
+            sim.Observe(probe);
+            for (int t = 0; t < CrowdTicks; t++) CrowdStep(sim, t);
+            output.WriteLine($"sim.seed={seed}: перекрытие худшее {probe.Worst:0.0000} м, установившееся {probe.WorstSteady:0.0000} м, " +
+                $"больше {RootOverlapInvariant.Tolerance} м подряд — {probe.LongestRun} тиков");
+            Assert.True(probe.Mismatches == 0, probe.First);
+            Assert.True(probe.Checked > 150_000, $"проверено {probe.Checked}");
+            Assert.True(sim.Invariants.Total == 0, string.Join("\n", sim.Invariants.Recent().Take(5)));
+            Assert.Contains(sim.Invariants.List(), i => i.Id == "movement.rootOverlap" && i.Enabled && i.Evaluations == CrowdTicks);
+            // Вдали от края: корень ни разу не в круге соседа, перекрытие больше допуска — не дольше 2 тиков; установившееся
+            // перекрытие — вдвое меньше допуска.
+            Assert.InRange(probe.Worst, 0, RootOverlapInvariant.HardLimit / 2);
+            Assert.Equal(0, probe.LongestHardRun);
+            Assert.InRange(probe.WorstSteady, 0, RootOverlapInvariant.Tolerance / 2);
+            Assert.InRange(probe.LongestRun, 0, 2);
+        }
     }
 
-    /// <summary>
-    /// У края арены с частыми командами арены (<see cref="EdgeStep"/>) — худшие случаи замера: новые враги появляются прямо
-    /// в толпе, прижатой к игроку. Зёрна и образцы — самые длинные перекрытия замера на 40 зёрнах (README фичи «Враги»):
-    /// ближе радиуса корня — до 2 тиков подряд, больше 0,02 м — до 12. Нарушений инварианта нет, запас до порогов — вдвое.
-    /// </summary>
-    [Theory]
-    [InlineData("A", 19, false)]
-    [InlineData("B", 12, false)]
-    [InlineData("C", 24, false)]
-    [InlineData("D1", 1, true)]
-    [InlineData("D2", 11, true)]
-    [InlineData("D2", 4, false)]
-    public void Edge_FrequentArenaCommands_NoViolations(string pattern, int seed, bool press)
+    /// <summary>Край арены с частыми командами арены (~47 с в Debug) — свой класс (доводка 6ж), как <see cref="CrowdTheory"/>.</summary>
+    public sealed class EdgeTheory(ITestOutputHelper output)
     {
-        var sim = EdgeSim(seed, out var probe);
-        for (int t = 0; t < 2400 + 7200; t++) EdgeStep(sim, t, seed, pattern, press);
-        var player = sim.World.Get<Transform>(GameCore.Player(sim.World)).Position;
-        output.WriteLine($"{pattern}, sim.seed={seed}, давит в край {press}: игрок в {player.Length():0.00} м от центра; ближе " +
-            $"{RootOverlapInvariant.HardLimit} м подряд — {probe.LongestHardRun} тиков, больше {RootOverlapInvariant.Tolerance} м " +
-            $"подряд — {probe.LongestRun} тиков, худшее перекрытие {probe.Worst:0.0000} м");
-        Assert.True(probe.Mismatches == 0, probe.First);
-        Assert.True(player.Length() > 58, $"игрок не у края: {player}");
-        Assert.True(sim.Invariants.Total == 0, string.Join("\n", sim.Invariants.Recent().Take(5)));
-        Assert.InRange(probe.LongestHardRun, 0, RootOverlapInvariant.HardMaxTicks / 2);
-        Assert.InRange(probe.LongestRun, 1, RootOverlapInvariant.MaxTicks / 2);
+        /// <summary>
+        /// У края арены с частыми командами арены (<see cref="EdgeStep"/>) — худшие случаи замера: новые враги появляются прямо
+        /// в толпе, прижатой к игроку. Зёрна и образцы — самые длинные перекрытия замера на 40 зёрнах (README фичи «Враги»):
+        /// ближе радиуса корня — до 2 тиков подряд, больше 0,02 м — до 12. Нарушений инварианта нет, запас до порогов — вдвое.
+        /// </summary>
+        [Theory]
+        [InlineData("A", 19, false)]
+        [InlineData("B", 12, false)]
+        [InlineData("C", 24, false)]
+        [InlineData("D1", 1, true)]
+        [InlineData("D2", 11, true)]
+        [InlineData("D2", 4, false)]
+        public void Edge_FrequentArenaCommands_NoViolations(string pattern, int seed, bool press)
+        {
+            var sim = EdgeSim(seed, out var probe);
+            for (int t = 0; t < 2400 + 7200; t++) EdgeStep(sim, t, seed, pattern, press);
+            var player = sim.World.Get<Transform>(GameCore.Player(sim.World)).Position;
+            output.WriteLine($"{pattern}, sim.seed={seed}, давит в край {press}: игрок в {player.Length():0.00} м от центра; ближе " +
+                $"{RootOverlapInvariant.HardLimit} м подряд — {probe.LongestHardRun} тиков, больше {RootOverlapInvariant.Tolerance} м " +
+                $"подряд — {probe.LongestRun} тиков, худшее перекрытие {probe.Worst:0.0000} м");
+            Assert.True(probe.Mismatches == 0, probe.First);
+            Assert.True(player.Length() > 58, $"игрок не у края: {player}");
+            Assert.True(sim.Invariants.Total == 0, string.Join("\n", sim.Invariants.Recent().Take(5)));
+            Assert.InRange(probe.LongestHardRun, 0, RootOverlapInvariant.HardMaxTicks / 2);
+            Assert.InRange(probe.LongestRun, 1, RootOverlapInvariant.MaxTicks / 2);
+        }
     }
 
     [Fact]

@@ -449,18 +449,20 @@ public sealed class FeatureTests : IDisposable
             return sim;
         }
         var (warmed, _) = Experiments.Sweep(null, 20, [("sim.tickRate", ["60", "120"]), ("sim.seed", ["1", "2"])], 2, 5, Logged);
-        // Точка Па: после повторов — ещё круг с профайлером CPU (время систем); медианы — только из повторов. 6ж: между кругом прогрева и
-        // повторами — прогрев до затишья JIT (комбинации по кругу, без замера; сколько — решает JIT).
+        // Точка Па: после повторов — ещё круг с профайлером CPU (время систем); медианы — только из повторов.
         string[] round = ["60/1", "60/2", "120/1", "120/2"];
-        Assert.Equal(round, order[..4]);
-        Assert.Equal([.. round, .. round, .. round], order[^12..]);
-        var jit = order[4..^12];
-        Assert.NotEmpty(jit);
-        for (int i = 0; i < jit.Count; i++) Assert.Equal(round[i % 4], jit[i]);
+        Assert.Equal([.. round, .. round, .. round, .. round], order);
         Assert.All(warmed, r => Assert.Equal(["runtime.commands@runtime.commands", "runtime.export@runtime.export", "test.mover@S1", "test.reader@S2"], r.Systems!.Select(p => p.Key).Order()));
+        // 6ж: с warmJit (Release) между кругом прогрева и повторами — прогрев до затишья JIT: у каждой комбинации одна тёплая симуляция, по
+        // кругу, без постройки заново (доводка 6ж) — построек ровно по одной на комбинацию.
+        order.Clear();
+        var (jitWarmed, _) = Experiments.Sweep(null, 20, [("sim.tickRate", ["60", "120"]), ("sim.seed", ["1", "2"])], 2, 5, Logged, systems: false,
+            warmJit: true);
+        Assert.Equal([.. round, .. round, .. round, .. round], order);   // круг прогрева, прогрев JIT, два повтора
+        Assert.All(jitWarmed, r => Assert.True(r.Repeats == 2 && r.Deterministic && r.AllocatedBytesPerTick == 0, string.Join(",", r.Sets)));
         order.Clear();
         var (bare, _) = Experiments.Sweep(null, 20, [("sim.seed", ["1"])], 1, 5, Logged, systems: false);
-        Assert.True(order.Count >= 3 && order.All(o => o == "120/1"), string.Join(", ", order));   // круг прогрева, затишье JIT и повтор, без профайлера
+        Assert.Equal(["120/1", "120/1"], order);   // круг прогрева и повтор, без прогрева JIT и профайлера
         Assert.Null(Assert.Single(bare).Systems);
         Assert.All(warmed, r => Assert.True(r.Repeats == 2 && r.Deterministic, string.Join(",", r.Sets)));
 
