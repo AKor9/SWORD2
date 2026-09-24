@@ -4,6 +4,7 @@ using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
 using Sword.Game.Ai;
 using Sword.Game.Animation;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Movement;
 
@@ -22,10 +23,11 @@ public sealed record ArenaSettings
 
 /// <summary>
 /// Постройка бойца на арене — <c>DuelArena.Reset/Spawn</c> и <c>Fighter.Build</c> SWORD 2eab13b: место, корень, курс,
-/// зерно и меч в руке (<see cref="WeaponSlot"/>, 6б: враг — случайный меч пака, игрок — меч инвентаря). Числа — счётчиковым ГСЧ
-/// SWORD2 (поток <see cref="ArenaRules.SpawnStream"/>), а не <c>Random(7)</c> SWORD.
+/// зерно, меч в руке (<see cref="WeaponSlot"/>, 6б: враг — случайный меч пака, игрок — меч инвентаря) и таймер удара врага
+/// (<see cref="EnemyAttack"/>, 6в: <c>EnemyAi.Built</c>; у игрока — 0). Числа — счётчиковым ГСЧ SWORD2 (потоки
+/// <see cref="ArenaRules.SpawnStream"/> и <see cref="EnemyAiRules.AttackStream"/>), а не <c>Random(7)</c> SWORD.
 /// </summary>
-public readonly record struct FighterSpawn(int Slot, Vector3 Position, float Facing, float Seed, int Weapon)
+public readonly record struct FighterSpawn(int Slot, Vector3 Position, float Facing, float Seed, int Weapon, float AttackTimer = 0)
 {
     public bool IsPlayer => Slot == 0;
 }
@@ -81,8 +83,11 @@ public static class ArenaRules
         float lim = ArenaLayout.ArenaRadius - SpawnEdgeMargin;
         if (new Vector2(pos.X, pos.Z).Length() > lim) pos = Vector3.Normalize(pos) * lim;
         float facing = MathF.Atan2(center.X - pos.X, center.Z - pos.Z);
+        // Таймер удара (6в, EnemyAi.Built SWORD: 1 + ГСЧ·2) — свой поток: расстановка и мечи не сдвигаются.
+        float timer = EnemyAiRules.FirstTimer
+                      + rng.Float(EnemyAiRules.AttackStream, tick, Entity.Null, Sample(batch, slot, 0)) * EnemyAiRules.FirstTimerSpread;
         return new FighterSpawn(slot, pos, facing, rng.Float(SpawnStream, tick, Entity.Null, Sample(batch, slot, 2)),
-            rng.Index(SpawnStream, tick, Entity.Null, weapons, WeaponSample(batch, slot)));
+            rng.Index(SpawnStream, tick, Entity.Null, weapons, WeaponSample(batch, slot)), timer);
     }
 
     /// <summary>
@@ -98,9 +103,11 @@ public static class ArenaRules
 /// корень и прошлый корень (тот же — боец не «прилетает» в кадр из начала координат; <c>RenderPos = Pos</c> SWORD),
 /// скорость 0, намерение — стоять курсом постройки (<c>FacingGoal = facing</c>), точка взгляда, вход аниматора, поза,
 /// тело (<see cref="BodyRef"/> — пустой: сочленение заводит хук добавления на том же барьере, <c>Bodies.FighterBodies</c>, 5а),
-/// слой действий аниматора (<see cref="AnimatorAction"/> и его поза <see cref="ActionPoses"/>: у врага с 4г, у игрока с 6б — пока
-/// без действий), меч (<see cref="WeaponSlot"/>) и клинок (<see cref="Blade"/> — не поставлен: его ставит постройка в Gameplay,
-/// 6б); у врага ещё составляющие намерения ИИ (<see cref="EnemyAiTerms"/>) и толчки столкновений (<see cref="RootContacts"/>).
+/// слой действий аниматора (<see cref="AnimatorAction"/> и его позы <see cref="ActionPoses"/>: у врага с 4г, у игрока с 6б),
+/// меч (<see cref="WeaponSlot"/>) и клинок (<see cref="Blade"/> — не поставлен: его ставит постройка в Gameplay, 6б); у игрока
+/// ещё управление боем (<see cref="PlayerControl"/>: буферы, рывок) и связка (<see cref="AttackCombo"/>) — 6в; у врага —
+/// составляющие намерения ИИ (<see cref="EnemyAiTerms"/>), толчки столкновений (<see cref="RootContacts"/>) и таймер удара
+/// (<see cref="EnemyAttack"/>, 6в).
 /// Три пути: сборка мира (немедленно, поза берётся сразу); новый боец командами тика (поза — пустой хэндл, её заводит
 /// <see cref="Animation.FighterSetupSystem"/> в Gameplay: команда может не сыграть, а поза из пула — не вернуться); постройка
 /// заново на той же сущности (<see cref="Rebuild"/> — <c>Fighter.Build</c> SWORD над тем же бойцом места).
@@ -115,12 +122,18 @@ public static class Fighters
     {
         var e = world.CreateImmediate();
         world.AddImmediate(e, new Fighter());
-        if (s.IsPlayer) world.AddImmediate(e, new PlayerTag());
+        if (s.IsPlayer)
+        {
+            world.AddImmediate(e, new PlayerTag());
+            world.AddImmediate(e, PlayerControl.Idle);
+            world.AddImmediate(e, AttackCombo.Start);
+        }
         else
         {
             world.AddImmediate(e, new EnemyTag());
             world.AddImmediate(e, new EnemyAiTerms());
             world.AddImmediate(e, RootContacts.None);
+            world.AddImmediate(e, new EnemyAttack { Timer = s.AttackTimer });
         }
         world.AddImmediate(e, AnimatorAction.None);
         world.AddImmediate(e, new ActionPoses());
@@ -151,12 +164,18 @@ public static class Fighters
     {
         var d = c.Create();
         c.Add(d, new Fighter());
-        if (s.IsPlayer) c.Add(d, new PlayerTag());
+        if (s.IsPlayer)
+        {
+            c.Add(d, new PlayerTag());
+            c.Add(d, PlayerControl.Idle);
+            c.Add(d, AttackCombo.Start);
+        }
         else
         {
             c.Add(d, new EnemyTag());
             c.Add(d, terms);
             c.Add(d, RootContacts.None);
+            c.Add(d, new EnemyAttack { Timer = s.AttackTimer });
         }
         c.Add(d, AnimatorAction.None);
         c.Add(d, new ActionPoses());
@@ -187,7 +206,7 @@ public static class Fighters
     /// <c>ResetAnimator</c> SWORD), имя и номер сущности у агента не меняются.
     /// </summary>
     public static void Rebuild(CommandBuffer c, Entity e, in FighterSpawn s, in FighterCommand intent, in GazeTarget gaze,
-        in EnemyAiTerms terms = default)
+        in AnimatorAction action, in EnemyAiTerms terms = default)
     {
         c.Remove<Fighter>(e);
         c.Add(e, new Fighter());
@@ -199,10 +218,15 @@ public static class Fighters
         c.Set(e, intent);
         c.Set(e, gaze);
         c.Set(e, new AnimatorMotion());
-        c.Set(e, AnimatorAction.None);
+        c.Set(e, action.Rebuilt());   // без действия и снимка; номер удара и счёт снимков — прежние
         c.Set(e, new WeaponSlot { Index = s.Weapon });
         c.Set(e, Blade.None);
-        if (!s.IsPlayer) c.Set(e, terms);
+        if (s.IsPlayer) c.Set(e, PlayerControl.Idle);   // буферы, перезарядка и рывок — с нуля; связка — прежняя (как в SWORD)
+        else
+        {
+            c.Set(e, terms);
+            c.Set(e, new EnemyAttack { Timer = s.AttackTimer });
+        }
     }
 
     /// <summary>Объявления системы, которая строит бойцов командами (<see cref="Create(CommandBuffer, in FighterSpawn, in FighterCommand, in GazeTarget, in EnemyAiTerms)"/>, <see cref="Rebuild"/>).</summary>
@@ -210,8 +234,8 @@ public static class Fighters
         .Adds<Fighter>().Adds<PlayerTag>().Adds<EnemyTag>().Adds<FighterSlot>().Adds<FighterSeed>().Adds<Transform>()
         .Adds<PrevTransform>().Adds<RootVelocity>().Adds<FighterCommand>().Adds<GazeTarget>().Adds<AnimatorMotion>()
         .Adds<PoseRef>().Adds<BodyRef>().Adds<EnemyAiTerms>().Adds<RootContacts>().Adds<AnimatorAction>().Adds<ActionPoses>()
-        .Adds<WeaponSlot>().Adds<Blade>()
+        .Adds<WeaponSlot>().Adds<Blade>().Adds<PlayerControl>().Adds<AttackCombo>().Adds<EnemyAttack>()
         .Removes<Fighter>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>().Sets<AnimatorAction>()
-        .Sets<WeaponSlot>().Sets<Blade>();
+        .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>();
 }

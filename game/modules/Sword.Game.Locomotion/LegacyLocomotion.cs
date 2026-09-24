@@ -164,7 +164,7 @@ public sealed class LegacyLocomotionSystem : IContinuousSystem
 
     public void Setup(SystemSetup s)
     {
-        s.Label(Label).Before(GameLabels.AnimatorPose).Reads<AnimatorMotion>().Reads<PoseRef>().Writes<LegacyLocomotionState>();
+        s.Label(Label).After(GameLabels.ActionSnapshot).Before(GameLabels.AnimatorPose).Reads<AnimatorMotion>().Reads<PoseRef>().Writes<LegacyLocomotionState>();
         _query = s.Query().With<Fighter>().Read<AnimatorMotion>().Read<PoseRef>().Write<LegacyLocomotionState>();
     }
 

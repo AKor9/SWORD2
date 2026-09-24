@@ -1,5 +1,8 @@
 {
-  // Приёмка фичи «Бой» (этап 6) — по точкам; принимается целиком на 6ж (раздел 13 плана). Сейчас — 6б «Подготовка и оружие»:
+  // Приёмка фичи «Бой» (этап 6) — по точкам; принимается целиком на 6ж (раздел 13 плана). 6в «Удар и рывок»: удар, связка с
+  // буфером и снимком позы, укол, удар на бегу без замедления и обрезка хвоста, рывок (прибавка без последствий для хода), удар
+  // из рывка, удар ИИ по таймеру и мирные враги (combat.enemiesAttack=false), инвариант combat.control; слой действий сверяется
+  // с SWORD побитово тестом ReferenceTraceTests.Actions_MatchSwordTickByTick (трасса anim-actions). 6б «Подготовка и оружие»:
   // меч в руке у каждого бойца (враг — случайный меч пака новой выборкой потока спауна, игрок — combat.playerWeapon), инвентарь
   // игрока и T (команда арены NextWeapon), клинок каждого тика (Blade: на кисти, прошлое — прошлый тик, смена меча — без прохода),
   // инварианты combat.blade и combat.weapons, слой действий у всех бойцов (animation.actions), вид с оверлеем клинков. Индексы
@@ -9,7 +12,7 @@
   "format": "sword-feature",
   "version": 1,
   "id": "combat",
-  "title": "Бой (этап 6; 6б — подготовка и оружие: команды арены в Begin, мечи, инвентарь и T, клинок каждого тика, таблица ударов)",
+  "title": "Бой (этап 6; 6б — подготовка и оружие: команды арены в Begin, мечи, инвентарь и T, клинок каждого тика, таблица ударов; 6в — удар, связка, укол, рывок, удар ИИ)",
   "doc": "README.md",
   "sourceRoots": [
     "game/Sword.Game/Combat",
@@ -77,13 +80,152 @@
           "condition": { "all": [{ "entity": "player" }, { "field": "WeaponSlot.Index", "equals": 0 }, { "field": "Blade.Weapon", "equals": 0 }] }
         }
       ]
+    },
+    {
+      "id": "strike-combo",
+      "title": "6в: игрок стоит, ЛКМ на тиках 30, 70, 120, 175 — удар slash1 сразу, нажатия во время удара ждут в буфере 0,3 с, связка slash1–4: каждый следующий — в первом тике после окна урона прошлого, прерывание видимого удара — снимок позы",
+      "ticks": 300,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Attack": true }, "from": 30, "to": 31 },
+        { "command": "PlayerCommand", "fields": { "Attack": true }, "from": 70, "to": 71 },
+        { "command": "PlayerCommand", "fields": { "Attack": true }, "from": 120, "to": 121 },
+        { "command": "PlayerCommand", "fields": { "Attack": true }, "from": 175, "to": 176 }
+      ],
+      "checks": [
+        {
+          "id": "strike", "title": "ЛКМ — удар slash1 в тике нажатия, слоем верха", "expect": "eventually", "from": 30, "to": 32,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Kind", "equals": "Attack" }, { "field": "AnimatorAction.Attack", "equals": 0 }, { "field": "AnimatorAction.AttackSerial", "equals": 1 }, { "field": "AnimatorAction.Upper", "equals": true }] }
+        },
+        {
+          "id": "buffered", "title": "второе нажатие до конца окна урона — ждёт в буфере, удар прежний", "expect": "always", "from": 72, "to": 78,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Attack", "equals": 0 }, { "field": "PlayerControl.SwingBuffer", "greaterThan": 0 }] }
+        },
+        {
+          "id": "combo-2", "title": "slash2 — сразу после окна урона slash1, со снимком позы", "expect": "eventually", "from": 76, "to": 84,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Attack", "equals": 1 }, { "field": "AnimatorAction.AttackSerial", "equals": 2 }, { "field": "AnimatorAction.Snapshots", "equals": 1 }] }
+        },
+        {
+          "id": "combo-4", "title": "связка из 4: slash4, номер удара 4", "expect": "eventually", "from": 178, "to": 192,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Attack", "equals": 3 }, { "field": "AnimatorAction.AttackSerial", "equals": 4 }] }
+        }
+      ]
+    },
+    {
+      "id": "stab",
+      "title": "6в: Q на тике 30 — укол (клип уколов), связка не сдвинута",
+      "ticks": 120,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Stab": true }, "from": 30, "to": 31 }],
+      "checks": [
+        {
+          "id": "stab", "title": "Q — укол (удар 4…6 таблицы), связка — с начала", "expect": "eventually", "from": 30, "to": 32,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Kind", "equals": "Attack" }, { "field": "AnimatorAction.Attack", "greaterThan": 3 }, { "field": "AttackCombo.Next", "equals": 0 }] }
+        }
+      ]
+    },
+    {
+      "id": "run-strike",
+      "title": "6в: бег вперёд, ЛКМ на тике 60 — удар слоем верха на бегу без замедления хода; после окна урона хвост удара обрезан (гаснет за 0,1 с)",
+      "ticks": 240,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 50 } }, "from": 0, "to": 240 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 50 }, "Attack": true }, "from": 60, "to": 61 }
+      ],
+      "checks": [
+        {
+          "id": "not-slowed", "title": "скорость хода не падает (бег 4,2 м/с) — ни в ударе, ни после", "expect": "always", "from": 50,
+          "condition": { "all": [{ "entity": "player" }, { "field": "RootVelocity.Value.Z", "greaterThan": 4.1 }] }
+        },
+        {
+          "id": "legs-run", "title": "в ударе на бегу ноги у локомоции (доля клипа в ногах 0)", "expect": "eventually", "from": 62, "to": 100,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Kind", "equals": "Attack" }, { "field": "AnimatorAction.Stand", "equals": 0 }] }
+        },
+        {
+          "id": "cut", "title": "хвост удара на бегу обрезан", "expect": "eventually", "from": 100, "to": 200,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.CutRecovery", "equals": true }, { "field": "AnimatorAction.Kind", "equals": "Attack" }] }
+        }
+      ]
+    },
+    {
+      "id": "dash",
+      "title": "6в: бег вперёд, Пробел на тике 60 — рывок: прибавка 9,5 м/с, гаснущая за 0,3 с (+1,46 м), вид — клип уклонения вперёд, неуязвимость; скорость хода не трогается — после рывка бег как был, без провала и инерции",
+      "ticks": 240,
+      "commands": [
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 50 } }, "from": 0, "to": 240 },
+        { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 1 }, "HasGaze": true, "Gaze": { "X": 0, "Y": 0, "Z": 50 }, "Dash": true }, "from": 60, "to": 61 }
+      ],
+      "checks": [
+        {
+          "id": "dash", "title": "Пробел — рывок: прибавка, неуязвимость, вид рывка", "expect": "eventually", "from": 60, "to": 62,
+          "condition": { "all": [{ "entity": "player" }, { "field": "PlayerControl.Dashing", "equals": true }, { "field": "PlayerControl.Invulnerable", "greaterThan": 0 }, { "field": "PlayerControl.Boost.Z", "greaterThan": 9 }, { "field": "AnimatorAction.Kind", "equals": "Dash" }] }
+        },
+        {
+          "id": "speed-kept", "title": "скорость хода — бег 4,2 м/с всё время: рывок её не трогает", "expect": "always", "from": 50,
+          "condition": { "all": [{ "entity": "player" }, { "field": "RootVelocity.Value.Z", "greaterThan": 4.1 }] }
+        },
+        {
+          "id": "over", "title": "через 0,3 с рывка нет, прибавки нет, вид погас", "expect": "always", "from": 100,
+          "condition": { "all": [{ "entity": "player" }, { "field": "PlayerControl.Dashing", "equals": false }, { "field": "PlayerControl.Boost.Z", "equals": 0 }, { "field": "AnimatorAction.Kind", "equals": "None" }] }
+        },
+        {
+          "id": "gain", "title": "игрок впереди бега без рывка (8,13 м) на прибавку рывка: 9,60 м", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "player" }, { "field": "Transform.Position.Z", "between": [9.55, 9.65] }] }
+        }
+      ]
+    },
+    {
+      "id": "strike-from-dash",
+      "title": "6в: Пробел и ЛКМ на тике 30 — удар из рывка сразу, прибавка рывка доживает своё",
+      "ticks": 120,
+      "commands": [{ "command": "PlayerCommand", "fields": { "Dash": true, "Attack": true }, "from": 30, "to": 31 }],
+      "checks": [
+        {
+          "id": "strike", "title": "удар в том же тике, прерван вид рывка; рывок идёт", "expect": "eventually", "from": 30, "to": 32,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Kind", "equals": "Attack" }, { "field": "AnimatorAction.From", "equals": "Dash" }, { "field": "PlayerControl.Dashing", "equals": true }] }
+        },
+        {
+          "id": "boost", "title": "прибавка рывка под ударом (назад от курса — без хода)", "expect": "eventually", "from": 34, "to": 40,
+          "condition": { "all": [{ "entity": "player" }, { "field": "AnimatorAction.Kind", "equals": "Attack" }, { "field": "PlayerControl.Boost.Z", "lessThan": -1 }] }
+        }
+      ]
+    },
+    {
+      "id": "enemies-swing",
+      "title": "6в: 4 врага сходятся к стоящему игроку и бьют по таймеру ИИ (1 + ГСЧ·2 с при постройке, 1,1 + ГСЧ·1,4 с после удара); урона нет",
+      "set": ["arena.enemies=4"],
+      "ticks": 900,
+      "checks": [
+        {
+          "id": "swing", "title": "враги замахиваются: хотя бы двое ударили", "expect": "eventually", "from": 300,
+          "condition": { "count": { "all": [{ "component": "EnemyTag" }, { "field": "AnimatorAction.AttackSerial", "greaterThan": 0 }] }, "between": [2, 4] }
+        },
+        {
+          "id": "close", "title": "бьёт только подошедший: в тике удара — ближе 2,3 м", "expect": "always",
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "AnimatorAction.Kind", "equals": "Attack" }, { "field": "AnimatorAction.Time", "lessThan": 0.01 }, { "field": "EnemyAiTerms.Distance", "greaterThan": 2.3 }] } }
+        }
+      ]
+    },
+    {
+      "id": "peaceful",
+      "title": "6в: combat.enemiesAttack=false — мирные враги (регрессия этапов 2–5): подходят, но не бьют",
+      "set": ["arena.enemies=4", "combat.enemiesAttack=false"],
+      "ticks": 900,
+      "checks": [
+        {
+          "id": "no-swing", "title": "ни одного удара", "expect": "always",
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "AnimatorAction.AttackSerial", "greaterThan": 0 }] } }
+        }
+      ]
     }
   ],
-  "invariants": ["combat.blade", "combat.weapons", "animation.actions", "physics.kinematicPose", "ecs.finite", "ecs.entityRefs", "arena.slots"],
+  "invariants": ["combat.blade", "combat.weapons", "combat.control", "animation.actions", "physics.kinematicPose", "physics.kinematicSpeed", "ecs.finite", "ecs.entityRefs", "arena.slots"],
   "views": [
     {
       "id": "blades", "title": "16 врагов обступили игрока (тик 140) — мечи в руках у всех, разные; оверлей клинков: отрезок тика, прошлого тика и пройденное за тик, имя меча у кончика",
       "scenario": "weapons", "tick": 140, "camera": "0.6,0.75,7,0,0", "overlays": ["blades"]
+    },
+    {
+      "id": "strike", "title": "6в: удар slash2 связки в окне урона (тик 110) — меч в замахе, клинок и пройденное за тик (оранжевые стороны)",
+      "scenario": "strike-combo", "tick": 110, "camera": "0.6,0.6,5,0,0", "overlays": ["blades"]
     }
   ],
   "checklist": [
@@ -91,6 +233,13 @@
     "У врагов разные мечи (катаны, широкие мечи, одноручный); R — враги строятся заново со своими новыми мечами.",
     "T — меч игрока меняется на следующий по кругу (6 мечей пака, после последнего — первый); R меч игрока не сбрасывает; справка F1 называет T.",
     "F7 — поверх капсул тел отрезки клинков: у врагов белые, у игрока жёлтый, клинок прошлого тика серый, пройденное за тик — оранжевые стороны; клинок лежит вдоль меча.",
-    "PageUp / PageDown / R работают как раньше: враги прибавляются по одному, убавляются, арена сбрасывается."
+    "PageUp / PageDown / R работают как раньше: враги прибавляются по одному, убавляются, арена сбрасывается.",
+    "ЛКМ — удар; нажать ЛКМ ещё раз во время удара — следующий удар связки начинается сразу после окна урона: 4 разных удара подряд; пауза дольше 1,6 с — связка с начала.",
+    "Жест: быстро повести мышью (влево, вправо, вниз) и сразу нажать ЛКМ — удар идёт в ту сторону, куда вела мышь на экране; повернуть камеру (Z/C) и повторить — направление на экране то же.",
+    "Q — укол.",
+    "Бег (WASD) и ЛКМ — бег не замедляется: руки бьют, ноги бегут; после удара на бегу руки сразу уходят в бег.",
+    "Пробел — быстрый рывок в сторону хода (стоя — назад); после рывка бег продолжается с той же скоростью, без провала и рывка назад; чаще раза в 0,6 с рывок не выходит.",
+    "Пробел и сразу ЛКМ — удар из рывка без задержки, рывок доезжает.",
+    "Враги, подошедшие вплотную, замахиваются на игрока (рубящие и уколы, каждый раз в 1–2,5 с); урона нет — никто не падает; справка F1 называет ЛКМ, Q и Пробел."
   ]
 }

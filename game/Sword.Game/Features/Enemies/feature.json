@@ -26,7 +26,7 @@
     {
       "id": "ring",
       "title": "10 врагов из кольца вокруг игрока сходятся к нему бегом (Sword.exe без ключей)",
-      "set": ["arena.enemies=10"],
+      "set": ["arena.enemies=10", "combat.enemiesAttack=false"],
       "ticks": 600,
       "checks": [
         {
@@ -72,7 +72,7 @@
     {
       "id": "commands",
       "title": "команды арены по ходу: PageUp, до 32, PageDown ×10, R (игрок отбежал), до 0",
-      "set": ["arena.enemies=10"],
+      "set": ["arena.enemies=10", "combat.enemiesAttack=false"],
       "ticks": 420,
       "commands": [
         { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0.5 } }, "from": 0, "to": 240 },
@@ -135,7 +135,7 @@
     {
       "id": "surround",
       "title": "10 врагов подходят и окружают стоящего игрока на ~1,8 м, покачиваются, не бегут и не слипаются",
-      "set": ["arena.enemies=10"],
+      "set": ["arena.enemies=10", "combat.enemiesAttack=false"],
       "ticks": 1200,
       "checks": [
         {
@@ -204,7 +204,7 @@
     {
       "id": "chase",
       "title": "игрок убегает 4 с и встаёт — враги бегут следом и снова окружают",
-      "set": ["arena.enemies=10"],
+      "set": ["arena.enemies=10", "combat.enemiesAttack=false"],
       "ticks": 1500,
       "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 480 }],
       "checks": [
@@ -225,7 +225,7 @@
     {
       "id": "crowd",
       "title": "32 врага, игрок бежит сквозь кольцо (Sword.exe --units 32 --move 1,0)",
-      "set": ["arena.enemies=32"],
+      "set": ["arena.enemies=32", "combat.enemiesAttack=false"],
       "ticks": 900,
       "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 900 }],
       "checks": [
@@ -242,7 +242,7 @@
     {
       "id": "push",
       "title": "32 врага обступили стоящего игрока, игрок бежит в толпу: упирается, расталкивает её и протискивается (Sword.exe --units 32, через 5 с — D)",
-      "set": ["arena.enemies=32"],
+      "set": ["arena.enemies=32", "combat.enemiesAttack=false"],
       "ticks": 1080,
       "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 600, "to": 1080 }],
       "checks": [
@@ -271,7 +271,7 @@
     {
       "id": "turn",
       "title": "поворот врага на месте (4г): сценарий трассы SWORD — курс-цель врага 1 скачет командой врагу (EnemyCommand): стоя на 90° влево, вправо, разворот, меньше 45°, поворот прерван ходьбой, поворот на ходу, остановка с отставшим курсом (1440 тиков)",
-      "set": ["arena.enemies=1"],
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
       "ticks": 1440,
       "commands": [
         { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 0.8123 }, "from": 0, "to": 60 },
@@ -329,7 +329,7 @@
     {
       "id": "sword-crowd",
       "title": "сценарий трассы толпы SWORD (4д): 12 врагов сходятся к стоящему игроку; PageUp ×2 и 16; игрок разворачивается взглядом, пробегает сквозь кольцо, бегает кругами, уходит шагом; PageDown ×3 и PageUp ×3 (те же места заново); бег по диагонали, R, бег в сторону (сторона ходьбы переживает сброс); бег к колонне 0 — толпа прижимается к ней; у колонны — 32 врага (3000 тиков)",
-      "set": ["arena.enemies=12", "sim.seed=1"],
+      "set": ["arena.enemies=12", "sim.seed=1", "combat.enemiesAttack=false"],
       "ticks": 3000,
       "commands": [
         { "command": "PlayerCommand", "fields": { "Move": { "X": 0, "Y": 0 }, "HasGaze": true, "Gaze": { "X": 10, "Y": 0, "Z": 0 } }, "from": 480, "to": 600 },

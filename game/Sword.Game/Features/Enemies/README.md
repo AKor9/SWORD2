@@ -196,7 +196,9 @@ SWORD 2eab13b, `Gameplay/Ragdoll/DuelArena.cs`, `Fighter.cs`, `Program.cs` (4а)
 | `--units N` (Sword.exe, Sword.Headless) | — | то же, что `--set arena.enemies=N`, с пределом 0…32 как `--units` SWORD |
 | `input.enemies_more`, `input.enemies_fewer`, `input.arena_reset` | PageUp, PageDown, R | клавиши команд арены |
 
-У ИИ своих ключей нет: константы SWORD — `EnemyAiRules` (тест `EnemyAiTests.Constants_AreSwordLiterals`).
+У ИИ своих ключей нет: константы SWORD — `EnemyAiRules` (тест `EnemyAiTests.Constants_AreSwordLiterals`). С 6в враги бьют по
+таймеру (фича «Бой»); сценарии этого манифеста, трассы SWORD и эталон `enemies` — на мирных врагах (`combat.enemiesAttack=false`):
+это регрессия этапа 4, поведение — как до 6в.
 
 ## Зависимости
 

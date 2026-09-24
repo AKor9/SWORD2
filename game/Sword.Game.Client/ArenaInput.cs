@@ -10,6 +10,7 @@ namespace Sword.Game.Client;
 /// WASD — ход относительно камеры, Shift — шагом, F — камера за игроком / свободная, Z/C — поворот, +/− — зум, средняя
 /// кнопка — орбита, стрелки — панорама свободной камеры, Ctrl — колесо не зумит, F1 — справка HUD; PageUp/PageDown —
 /// врагов ±1, R — сброс арены (<c>Program.cs</c> SWORD, этап 4а — команды арены), T — следующий меч игрока (6б, команда арены);
+/// ЛКМ — рубящий удар (жест мышью перед кликом — направление), Q — укол, Пробел — рывок (6в, фронты команды игрока);
 /// F7 — капсулы тел и клинки поверх персонажей (5в, 6б; отладочный вид SWORD2); F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
@@ -56,6 +57,18 @@ public static class ArenaInput
     public static readonly InputAction NextWeapon = new("next_weapon", "T");
 
     /// <summary>
+    /// Рубящий удар (SWORD: ЛКМ; 6в): фронт — удар в команде игрока ровно одним тиком; жест мышью перед кликом выбирает направление
+    /// (<see cref="StrikeGesture"/>), без жеста — следующий удар связки.
+    /// </summary>
+    public static readonly InputAction Attack = new("attack", "MouseLeft");
+
+    /// <summary>Укол (SWORD: Q; 6в) — фронт в команде игрока.</summary>
+    public static readonly InputAction Stab = new("stab", "Q");
+
+    /// <summary>Рывок (Пробел; в SWORD — уклонение, в SWORD2 — рывок, 6в) — фронт в команде игрока.</summary>
+    public static readonly InputAction Dash = new("dash", "Space");
+
+    /// <summary>
     /// Капсулы тел и клинки поверх персонажей: показать / скрыть (5в, 6б; в SWORD отладочного вида капсул нет, F2, F3, F5, F6
     /// заняты — F7). Действие представления: в команды и реплей не идёт.
     /// </summary>
@@ -65,7 +78,7 @@ public static class ArenaInput
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
-        HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies,
+        HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies, Attack, Stab, Dash,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>
@@ -108,6 +121,71 @@ public static class ArenaIntent
         if (input.WasPressed(ArenaInput.ArenaReset)) into[n++] = new ArenaCommand { Action = ArenaAction.Reset };
         if (input.WasPressed(ArenaInput.NextWeapon)) into[n++] = new ArenaCommand { Action = ArenaAction.NextWeapon };
         return n;
+    }
+}
+
+/// <summary>
+/// Жест удара (6в; <c>PlayerController.HandleInput</c> SWORD 2eab13b — <c>_swingMouse</c>): сдвиг мыши за последние кадры с
+/// затуханием и выбор удара по нему. Отличия от SWORD: затухание — по времени, а не ×0,85 за кадр (полупериод тот же, что у ×0,85
+/// при 60 Гц, ≈ 0,071 с: жест не зависит от частоты кадров); направление — не экранное: выбирается удар, чья траектория на экране
+/// ближе к жесту (направление замаха бойца → мир по курсу, как показан игрок → экран камерой кадра), в команду — его направление
+/// в системе бойца (x — вправо бойца, y — вверх).
+/// </summary>
+public static class StrikeGesture
+{
+    /// <summary>Сдвиг мыши, с которого клик — жест, пикс. (<c>GestureMouse</c>).</summary>
+    public const float Threshold = 12f;
+
+    /// <summary>Затухание SWORD: ×0,85 за кадр при 60 кадрах в секунду.</summary>
+    public const float SwordFrameDecay = 0.85f, SwordFrameRate = 60f;
+
+    /// <summary>Высота над землёй, на которой замах переносится на экран, м (грудь бойца).</summary>
+    public const float ChestHeight = 1.3f;
+
+    /// <summary>Сдвиг мыши за кадр длиной <paramref name="seconds"/>: прежний гаснет (0,85^(60·с)), новый прибавляется.</summary>
+    public static Vector2 Accumulate(Vector2 mouse, float dx, float dy, float seconds) =>
+        mouse * MathF.Pow(SwordFrameDecay, MathF.Max(0, seconds) * SwordFrameRate) + new Vector2(dx, dy);
+
+    /// <summary>
+    /// Жест в систему бойца: сдвиг мыши <paramref name="mouse"/> (экран: x вправо, y вниз) короче порога — ноль (связка); иначе —
+    /// направление замаха из <paramref name="swings"/> (система бойца), чья траектория на экране ближе всего к жесту: замах на
+    /// груди бойца (<paramref name="root"/>, курс <paramref name="facing"/>) переносится в мир и камерой <paramref name="viewProj"/>
+    /// на экран <paramref name="width"/>×<paramref name="height"/>. Ни один замах не виден на экране (за камерой) — ноль.
+    /// </summary>
+    public static Vector2 Pick(Vector2 mouse, ReadOnlySpan<Vector2> swings, in Matrix4x4 viewProj, int width, int height, Vector3 root, float facing)
+    {
+        if (mouse.Length() < Threshold || swings.IsEmpty) return Vector2.Zero;
+        var want = Vector2.Normalize(mouse);
+        var chest = root + new Vector3(0, ChestHeight, 0);
+        if (!ToScreen(chest, viewProj, width, height, out var from)) return Vector2.Zero;
+        // система бойца: x — вправо бойца (в мире (−cos f, 0, sin f): +X персонажа — лево), y — вверх
+        var right = new Vector3(-MathF.Cos(facing), 0, MathF.Sin(facing));
+        int best = -1;
+        float bestDot = float.NegativeInfinity;
+        for (int i = 0; i < swings.Length; i++)
+        {
+            var world = chest + (right * swings[i].X + Vector3.UnitY * swings[i].Y) * 0.5f;
+            if (!ToScreen(world, viewProj, width, height, out var to)) continue;
+            var d = to - from;
+            if (d.LengthSquared() < 1e-6f) continue;
+            float dot = Vector2.Dot(Vector2.Normalize(d), want);
+            if (dot > bestDot)
+            {
+                bestDot = dot;
+                best = i;
+            }
+        }
+        return best < 0 ? Vector2.Zero : swings[best];
+    }
+
+    /// <summary>Точка мира на экране, пикс. (x вправо, y вниз); за камерой — false.</summary>
+    public static bool ToScreen(Vector3 p, in Matrix4x4 viewProj, int width, int height, out Vector2 screen)
+    {
+        var clip = Vector4.Transform(new Vector4(p, 1), viewProj);
+        screen = default;
+        if (clip.W <= 1e-6f) return false;
+        screen = new Vector2((clip.X / clip.W + 1) * 0.5f * width, (1 - clip.Y / clip.W) * 0.5f * height);
+        return true;
     }
 }
 

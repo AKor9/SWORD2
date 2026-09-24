@@ -30,9 +30,12 @@ public static class PhysicsInvariants
 
     /// <summary>
     /// <c>physics.kinematicSpeed</c>: предел скорости капсулы живого бойца относительно самого бойца (за вычетом переноса и
-    /// поворота мира бойца за тик — корень, курс, высота рельефа), м/с, и её угловой скорости, рад/с. Анимация даёт меньше
-    /// (замер — README фичи «Физика и тела»); больше — капсула перескочила (постройка или сброс без постановки, чужая поза,
-    /// неверный шаг). Толчки корней и колонн, ступени рельефа и поворот курса — перенос мира бойца, в предел не входят.
+    /// поворота мира бойца за тик — корень, курс, высота рельефа), м/с, и её угловой скорости поперёк оси, рад/с (вращение капсулы
+    /// вокруг своей оси её не сдвигает: с 6в не считается — в ударах пака плечо ложится вдоль оси «вправо» бойца, опорная ось
+    /// поворота капсулы (<c>FromBasis(dir, right)</c>, как <c>PlaceBodies</c> SWORD) вырождается, и её поворот вокруг оси доходит до
+    /// 333 рад/с при собственной закрутке сустава до 20 рад/с; поперёк оси — до 41 рад/с).
+    /// Анимация даёт меньше (замер — README фичи «Физика и тела»); больше — капсула перескочила (постройка или сброс без постановки,
+    /// чужая поза, неверный шаг). Толчки корней и колонн, ступени рельефа и поворот курса — перенос мира бойца, в предел не входят.
     /// </summary>
     public const float MaxRelativeSpeed = 30f, MaxAngularSpeed = 150f;
 
@@ -201,14 +204,24 @@ public static class PhysicsInvariants
     /// <summary>
     /// <c>physics.kinematicSpeed</c> — капсулы живого бойца не перескакивают (после PrePhysics): скорость каждой капсулы
     /// относительно бойца (<see cref="RelativeSpeed"/>: перенос и поворот мира бойца за тик — корень из <see cref="PrevTransform"/>
-    /// в <see cref="Transform"/> — вычтены) не больше <see cref="MaxRelativeSpeed"/>, угловая — не больше
-    /// <see cref="MaxAngularSpeed"/>. Ловит скачок, который постановка приняла за движение: постройка или сброс без
+    /// в <see cref="Transform"/> — вычтены) не больше <see cref="MaxRelativeSpeed"/>, угловая поперёк оси (<see cref="Swing"/>; 6в) —
+    /// не больше <see cref="MaxAngularSpeed"/>. Ловит скачок, который постановка приняла за движение: постройка или сброс без
     /// постановки при постройке (прошлая постановка — там, где тело стояло до постройки), чужая или испорченная поза, неверный
     /// шаг. Толчки корней при спауне внахлёст, колонны, ступени и поворот курса — движение мира бойца, их предел не видит.
     /// </summary>
     private sealed class KinematicSpeed(IPhysicsWorld physics) : IInvariant
     {
         private ReadQuery? _query;
+
+        /// <summary>
+        /// Угловая скорость капсулы поперёк её оси, рад/с: вращение вокруг оси капсулу не сдвигает (а у вырожденной опорной оси
+        /// <c>FromBasis</c> — рука вдоль «вправо» бойца — оно и не движение сустава).
+        /// </summary>
+        public static float Swing(in BodyState s)
+        {
+            var axis = s.Axis;
+            return (s.AngularVelocity - axis * Vector3.Dot(s.AngularVelocity, axis)).Length();
+        }
 
         public string Id => "physics.kinematicSpeed";
         public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
@@ -234,7 +247,7 @@ public static class PhysicsInvariants
                     for (int k = 0; k < BodySegs.Bodies; k++)
                     {
                         var s = physics.Get(physics.Body(body, k));
-                        float v = Vector3.Distance(s.Position, Vector3.Transform(s.PrevPosition, carry)) / dt, w = s.AngularVelocity.Length();
+                        float v = Vector3.Distance(s.Position, Vector3.Transform(s.PrevPosition, carry)) / dt, w = Swing(s);
                         if (v <= MaxRelativeSpeed && w <= MaxAngularSpeed || !float.IsFinite(v) || !float.IsFinite(w)) continue;   // нечисловое — physics.finite
                         int segment = BodySegs.Segment(k);
                         violations.Report(entities[i], string.Create(CultureInfo.InvariantCulture,

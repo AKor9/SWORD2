@@ -6,7 +6,7 @@
 - Контент подсистема не читает: скелет, меш (поза привязки) и клипы ей отдают потоками (`Skeleton.Read`,
   `Skeleton.WithMeshBindPose`, `ClipLibrary.Load` с `ClipSource`). Двоичные раскладки — в `Sword.Engine.Formats`
   (`SkeletonFile`, `ClipFile`, `SkinnedMeshData`).
-- Позы меняются только заданиями пула (`Sample`, `Blend`, `Copy`, `ToModel`); `PosePool.Tick` исполняет очередь в
+- Позы меняются только заданиями пула (`Sample`, `Blend`, `BlendMasked`, `Copy`, `ToModel`); `PosePool.Tick` исполняет очередь в
   порядке постановки. Порядок заданий одной позы и арифметика — как у последовательных вызовов `SkeletalClips` SWORD:
   от этого зависит побитовая сверка с SWORD (`ReferenceTraceTests`). Меняя сэмплинг, смешивание или прямую кинематику,
   прогнать сверку.

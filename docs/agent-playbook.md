@@ -203,6 +203,29 @@
    (`tests/reference/combat-strikes.trace.json`, сценарий `strikes` программы трассы), побитово. Приёмка — `feature.verify
    {"id":"combat"}` (сценарий `weapons`, вид `blades`).
 
+**Удар, связка, рывок (точка 6в).** Урона нет (6г); удар — действие слоя действий `AnimatorAction` (`Kind` = `Attack`, `Attack` —
+номер удара таблицы: 0–3 slash1–4, 4–6 stab1–3), рывок — `PlayerControl` игрока (вид — `Kind` = `Dash`).
+1. Ударить, уколоть, рывок: `command.send {"command":"PlayerCommand","fields":{"Attack":true}}` (`"Stab":true`, `"Dash":true`;
+   жест — `"Gesture":{"X":1,"Y":-0.2}` в системе бойца: x — вправо бойца, y — вверх; ход — `Move` той же командой: без него рывок
+   назад от курса). Нажатие ждёт в буфере (удар 0,3 с, рывок 0,2 с). Врагу — `{"command":"EnemyCommand","fields":{"Slot":1,
+   "Attack":5}}` (номер удара + 1; поверх ИИ на тик, если враг может действовать). Мирные враги — `session.start
+   {"set":["combat.enemiesAttack=false"]}`.
+2. Состояние: `entity.get {"entity":"player","components":["AnimatorAction","PlayerControl","AttackCombo"]}` — действие, удар,
+   время и вес, `Upper`/`Stand` (слой верха и доля клипа в ногах), `CutRecovery`, `SnapFade`/`Snapshots` (снимок позы при
+   прерывании), `AttackSerial`, что прервано (`From`, `FromTime`, `FromAttack`); буферы, перезарядка, рывок (`Dashing`,
+   `DashElapsed`, `DashDirection`, прибавка тика `Boost`), неуязвимость; связка (`Next`, `LastClip`, `LastTime`). У врага —
+   `EnemyAttack.Timer`. Словами — `anim.pose {"entity":"enemy 1","joints":["hand_r"]}` (`action.attack` — слот, `interrupted`).
+3. **Кончик клинка по тикам удара:** `watch.add {"entities":["player"],"fields":["Blade.Tip.X","Blade.Tip.Y","Blade.Tip.Z",
+   "AnimatorAction.Kind","AnimatorAction.Time"]}` → `command.send` удара → `time.step {"ticks":60}` → `entity.history
+   {"entity":"player"}` — строка на тик (прошлый кончик — `Blade.PrevTip.*`). Дольше кольца истории — `replay.observe` с тем же
+   `watch` (тест `ActionTests.Agent_BladeTipByTick_AttackStateByEntityGet`).
+4. Что держится: `animation.actions` (время 0…длительность, удар — удар таблицы, начат только там, где бить можно — по `From*`,
+   вид рывка — у игрока и клипом уклонения, снимок скопирован, номер удара не убывает), `combat.control` (буферы, перезарядка,
+   неуязвимость в пределах, рывок конечен, таймер врага ≥ 0). Встать — `time.breakOnInvariant {"ids":["animation.actions"]}`.
+5. Сверка с SWORD: `ReferenceTraceTests.Actions_MatchSwordTickByTick` — трасса настоящего `FighterAnimator` (`anim-actions`,
+   сценарий `actions` программы трассы), побитово. Приёмка — `feature.verify {"id":"combat"}` (сценарии 6в: `strike-combo`,
+   `stab`, `run-strike`, `dash`, `strike-from-dash`, `enemies-swing`, `peaceful`; вид `strike`).
+
 **Проверить детерминизм и найти расхождение (этап 3).**
 1. `state.hash` — итог и хеш каждого участника (`ecs` — сущности, компоненты, ресурсы-значения, слоты, журналы, системы;
    `animation` — пул поз; `physics` — тела и сочленения, с 5а).

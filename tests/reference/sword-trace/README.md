@@ -86,6 +86,20 @@ stab1–3 по `actions.json` пака — один клип `Anim_PS_Combo_B1_R
 снятия. Программа только дополнена (режим `strikes`, класс `StrikesTrace`); прежние трассы после пересборки сняты заново —
 побайтно те же (`anim-locomotion`, `anim-turn`, `anim-crowd`, `anim-terrain`).
 
+**Слой действий (точка 6в).** `../anim-actions.trace.json` — сценарий `actions` (`ActionsTrace`): настоящий `FighterAnimator`
+игрока (`Agile`) и врага (не-`Agile`, начало — расстановка SWORD2 врага 1, как у трассы поворота) и настоящий
+`PlayerAttackPicker` (укол — `Random(1)`: в паке у уколов один клип). Копии, сверенные построчно с 2eab13b: `PlayerController`
+(`HandleInput` — буфер удара 0,3 с, жест — экранный сдвиг (x, −y)·30 из направления в системе бойца, укол; `Think` — `swingBuffer
+-= dt`, `SetBlock(false)`, удар при `anim.CanAttack`), удар врага — `EnemyAi.Think` (`anim.CanAct` → `StartAttack`) по сценарию
+вместо таймера, `KinematicSteer`/`KinematicBegin` (обе ветки, как в трассе поворота). Сценарий (1680 тиков; тест читает его из
+трассы: `playerMoves`, `playerPresses`, `enemyMoves`, `enemyStrikes`): игрок — связка из 4 с буфером, пауза, жесты (третий — из
+удара: снимок), укол из удара, удар на бегу (хвост обрезан), удар стоя и бег после окна (хвост обрезан), удар шагом; враг — удар,
+удар из удара (снимок), укол, удар из поворота на месте (снимок), удар на ходу, удар и удар из удара. На тик у обоих — корень,
+курс, клип локомоции, действие и клип, время, вес, слой, обрезка, поворот и сдвиг клипом, переход от снимка, снимков, номер удара,
+хеш позы. Итог: игрок — ударов 11, снимков 5, тиков с обрезанным хвостом 36; враг — ударов 7, снимков 3, пропущено 0. 1,1 МБ,
+одна строка JSON. Совпала с SWORD2 побитово с первого снятия (`ReferenceTraceTests.Actions_MatchSwordTickByTick`). Программа
+только дополнена (режим `actions`); прежние трассы после пересборки сняты заново — побайтно те же.
+
 **Что здесь настоящий SWORD, а что — копия.** Настоящий код SWORD (подключён исходниками): `CharacterRig`,
 `FighterAnimator`, `LegacyLocomotion`, `SkeletalClips`, `AnimLibrary`, чтение пака. Переписаны в `Program.cs` вручную,
 потому что `Sword.Game` SWORD (`DuelArena`, `PlayerController`, `Fighter`) не подключается: `PlayerController.Think`
@@ -178,7 +192,13 @@ dotnet test tests/Sword.Game.Tests --filter Terrain_MatchesSwordTickByTick    # 
 dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\combat-strikes.trace.json" strikes
 ```
 
-Третий аргумент — сценарий: `player` (по умолчанию), `turn`, `crowd` (четвёртый — вход) или `strikes`. Сценарий игрока (`Scenario.Segments`) должен совпадать с
+Слой действий (6в) — одной командой, без входа:
+
+```
+dotnet run -c Release -- "<SWORD2>\Content.reference.swpak" "<SWORD2>\tests\reference\anim-actions.trace.json" actions
+```
+
+Третий аргумент — сценарий: `player` (по умолчанию), `turn`, `crowd` (четвёртый — вход), `strikes` или `actions`. Сценарий игрока (`Scenario.Segments`) должен совпадать с
 `ReferenceTraceTests.Segments`; сценарий поворота тест читает из самой трассы (`segments`), а манифест `enemies` (сценарий
 `turn`) повторяет его командами — правя `TurnTrace.Segments`, поправить и манифест. На 4г программа пересобрана и трасса
 игрока снята заново — побайтно та же. На 4д программа пересобрана (с `ArenaLayout.cs` SWORD) и обе прежние трассы сняты заново

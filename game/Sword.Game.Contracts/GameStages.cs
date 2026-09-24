@@ -61,8 +61,14 @@ public static class GameLabels
     public static readonly SystemLabel AnimatorInput = new("core.animator-input");
 
     /// <summary>
-    /// Animation: итоговая поза бойца — прямая кинематика его <see cref="PoseRef"/>. Слои позы (локомоция, позже
-    /// действия) ставят свои задания до этой метки.
+    /// Animation, первой (6в): снимок позы при прерывании действия — копия итоговой позы прошлого тика заданием пулу, пока слои
+    /// позы этого тика её не переписали. Слои позы модулей (локомоция) ставят свои задания после этой метки.
+    /// </summary>
+    public static readonly SystemLabel ActionSnapshot = new("core.action-snapshot");
+
+    /// <summary>
+    /// Animation: итоговая поза бойца — слой действий (удар — по маске верха, поворот, вид рывка), переход от снимка и прямая
+    /// кинематика его <see cref="PoseRef"/>. Слои позы (локомоция) ставят свои задания до этой метки.
     /// </summary>
     public static readonly SystemLabel AnimatorPose = new("core.animator-pose");
 

@@ -2,6 +2,7 @@ using System.Numerics;
 using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Animation;
@@ -38,20 +39,23 @@ public static class AnimatorRules
 /// <summary>
 /// Gameplay, после курса и разгона: аниматор бойца на тик без поз (<c>FighterAnimator.Tick(dt, f.DirToLocal(f.RootVel))</c>
 /// SWORD) — вход слоя локомоции: скорость корня в системе бойца (по новому курсу), сглаженная, и «идёт»
-/// (<see cref="AnimatorMotion"/>); у бойца со слоем действий (<see cref="AnimatorAction"/>, с 4г — враги) затем шаг действия
-/// (<see cref="ActionLayer.Tick"/>): время, вес, поворот курса и сдвиг корня клипом. Позу по ним ставит
+/// (<see cref="AnimatorMotion"/>); у бойца со слоем действий (<see cref="AnimatorAction"/>: с 6б — все бойцы) затем шаг действия
+/// (<see cref="ActionLayer.Tick"/>): время, доля клипа в ногах (слой верха), вес, поворот курса и сдвиг корня клипом, обрезка
+/// хвоста удара на бегу (игрок — <c>Agile</c>), переход от снимка. Позу по ним ставят <see cref="ActionSnapshotSystem"/> и
 /// <see cref="AnimatorPoseSystem"/>, курс и корень двигает <c>RootControlSystem</c>.
 /// </summary>
-public sealed class AnimatorInputSystem : IContinuousSystem
+public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
 {
-    private Query _plain = null!, _acting = null!;
+    private Query _plain = null!, _agile = null!, _steady = null!;
 
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.AnimatorInput).After(GameLabels.RootSteer).Reads<Transform>().Reads<RootVelocity>().Writes<AnimatorMotion>()
             .Writes<AnimatorAction>();
         _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>();
-        _acting = s.Query().With<Fighter>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>().Write<AnimatorAction>();
+        var acting = s.Query().With<Fighter>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>().Write<AnimatorAction>();
+        _agile = acting.With<PlayerTag>();
+        _steady = acting.Without<PlayerTag>();
     }
 
     public void Run(in SystemContext ctx)
@@ -65,29 +69,35 @@ public sealed class AnimatorInputSystem : IContinuousSystem
             for (int i = 0; i < m.Length; i++) AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt);
         }
         var clips = ctx.World.Resource<PosePool>().Clips;
-        foreach (var chunk in ctx.Iterate(_acting))
+        foreach (var chunk in ctx.Iterate(_agile)) Act(chunk, dt, clips, true);
+        foreach (var chunk in ctx.Iterate(_steady)) Act(chunk, dt, clips, false);
+    }
+
+    private void Act(ChunkView chunk, float dt, ClipLibrary clips, bool agile)
+    {
+        var m = chunk.Write<AnimatorMotion>();
+        var t = chunk.Read<Transform>()[..m.Length];
+        var v = chunk.Read<RootVelocity>()[..m.Length];
+        var a = chunk.Write<AnimatorAction>()[..m.Length];
+        var attacks = strikes.Attacks;
+        for (int i = 0; i < m.Length; i++)
         {
-            var m = chunk.Write<AnimatorMotion>();
-            var t = chunk.Read<Transform>()[..m.Length];
-            var v = chunk.Read<RootVelocity>()[..m.Length];
-            var a = chunk.Write<AnimatorAction>()[..m.Length];
-            for (int i = 0; i < m.Length; i++)
-            {
-                // локомоция ищет кадр, пока действие не ведёт всё тело (FullBodyAction до шага действия — как в SWORD)
-                AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt, !a[i].FullBody);
-                ActionLayer.Tick(ref a[i], m[i].Moving, dt, clips);
-            }
+            // локомоция ищет кадр, пока действие не ведёт всё тело (FullBodyAction до шага действия — как в SWORD)
+            AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt, !a[i].FullBody);
+            float speed = new Vector2(m[i].Velocity.X, m[i].Velocity.Z).Length();   // speed TickActions SWORD
+            ActionLayer.Tick(ref a[i], m[i].Moving, speed, dt, clips, attacks, agile);
         }
     }
 }
 
 /// <summary>
 /// Animation: итоговая поза бойца (конец <c>FighterAnimator.TickActions</c>): у бойца со слоем действий — задания слоя
-/// поверх локомоции (<see cref="ActionLayer.Pose"/>: сэмпл клипа действия и смешивание всем телом; снимка позы нет — этап 6), затем у всех —
-/// прямая кинематика (<c>clips.ToComponent</c>). Слой локомоции (модуль Locomotion) ставит свои задания раньше
-/// (<see cref="GameLabels.AnimatorPose"/>); без слоёв поза остаётся позой привязки.
+/// поверх локомоции (<see cref="ActionLayer.Pose"/>: сэмпл клипа действия и смешивание всем телом или по маске верха
+/// <paramref name="upper"/>, затем переход от снимка позы), затем у всех — прямая кинематика (<c>clips.ToComponent</c>). Слой
+/// локомоции (модуль Locomotion) ставит свои задания раньше (<see cref="GameLabels.AnimatorPose"/>), снимок — ещё раньше
+/// (<see cref="ActionSnapshotSystem"/>); без слоёв поза остаётся позой привязки.
 /// </summary>
-public sealed class AnimatorPoseSystem : IContinuousSystem
+public sealed class AnimatorPoseSystem(PoseMask upper) : IContinuousSystem
 {
     private Query _plain = null!, _acting = null!;
 
@@ -113,7 +123,7 @@ public sealed class AnimatorPoseSystem : IContinuousSystem
             {
                 if (refs[i].Generation == 0) continue;
                 var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
-                ActionLayer.Pose(a[i], ref poses[i], pose, pool);
+                ActionLayer.Pose(a[i], ref poses[i], pose, pool, upper);
                 pool.ToModel(pose);
             }
         }

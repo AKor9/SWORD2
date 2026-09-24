@@ -324,6 +324,7 @@ public sealed class Hud
             $"колесо, {K(ArenaInput.CameraZoomIn)} {K(ArenaInput.CameraZoomOut)} — зум    {K(ArenaInput.CameraRotateLeft)} {K(ArenaInput.CameraRotateRight)} / {K(ArenaInput.CameraOrbit)} — камера    {K(ArenaInput.CameraFollow)} — свободная",
             $"{K(ArenaInput.HudHelp)} — справка    {K(ArenaInput.HudProfiler)} — профайлер    {K(ClientHost.Screenshot)} — снимок    Esc — выход",
             $"{K(ArenaInput.EnemiesMore)} / {K(ArenaInput.EnemiesFewer)} — врагов ±1    {K(ArenaInput.ArenaReset)} — сброс арены    {K(ArenaInput.NextWeapon)} — следующий меч    {K(ArenaInput.DebugBodies)} — капсулы и клинки",
+            $"{K(ArenaInput.Attack)} — удар (жест мышью перед кликом — направление)    {K(ArenaInput.Stab)} — укол    {K(ArenaInput.Dash)} — рывок",
         ];
     }
 
@@ -332,6 +333,7 @@ public sealed class Hud
         "MouseLeft" => "ЛКМ",
         "MouseRight" => "ПКМ",
         "MouseMiddle" => "СКМ",
+        "Space" => "Пробел",
         "Plus" => "+",
         "Minus" => "−",
         "PageUp" => "PgUp",

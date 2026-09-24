@@ -1,17 +1,32 @@
 using System.Numerics;
 using Sword.Engine.Ecs;
+using Sword.Engine.Animation;
 using Sword.Engine.Runtime;
+using Sword.Game.Animation;
 using Sword.Game.Arena;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Ai;
 
 /// <summary>
-/// Константы ИИ врага — <c>Gameplay/Ai/EnemyAi.cs</c> SWORD 2eab13b (<c>Think</c>). Дистанция удара <c>Reach = 2.3f</c>,
-/// таймер удара и блок — этап 6 (бой): здесь их нет.
+/// Константы ИИ врага — <c>Gameplay/Ai/EnemyAi.cs</c> SWORD 2eab13b (<c>Think</c>, <c>Built</c>): движение (этап 4б) и удар по
+/// таймеру (6в); блок у врагов в SWORD выключен — его нет.
 /// </summary>
 public static class EnemyAiRules
 {
+    /// <summary>Дистанция удара, м (<c>Reach</c>): ближе к игроку — враг бьёт, когда таймер вышел.</summary>
+    public const float Reach = 2.3f;
+
+    /// <summary>Таймер удара при постройке — 1 + ГСЧ·2 с (<c>Built</c>), после удара — 1,1 + ГСЧ·1,4 с.</summary>
+    public const float FirstTimer = 1f, FirstTimerSpread = 2f, NextTimer = 1.1f, NextTimerSpread = 1.4f;
+
+    /// <summary>Рубящий удар (случайный из связки) с вероятностью 0,75, иначе укол (случайный).</summary>
+    public const float SlashChance = 0.75f;
+
+    /// <summary>Поток ГСЧ удара ИИ: выбор удара и таймер (номер выборки — 0, 1, 2) и таймер при постройке.</summary>
+    public static readonly uint AttackStream = SimRandom.Stream("ai.attack");
+
     /// <summary>Дистанция, на которой враг встаёт перед игроком, м (<c>KeepDistance</c>).</summary>
     public const float KeepDistance = 1.8f;
 
@@ -107,9 +122,10 @@ public sealed class EnemyCrowd
 }
 
 /// <summary>
-/// ИИ врага — <c>EnemyAi.Think</c> SWORD 2eab13b без удара, блока и таймера удара (этап 6) и без <c>p.Dead</c> (смерти ещё
-/// нет): идёт на игрока до 1,8 м, покачиваясь вбок, и расходится с врагами ближе 1,4 м; курс-цель и точка взгляда — на
-/// игрока. Порядок вычислений float — как в SWORD (сверка трассой на 4д): расхождение складывается по местам 1…32.
+/// ИИ врага — <c>EnemyAi.Think</c> SWORD 2eab13b, движение (удар по таймеру — <see cref="EnemyAiSystem.Attack"/>, 6в; блока у
+/// врагов нет, <c>p.Dead</c> — с 6г): идёт на игрока до 1,8 м, покачиваясь вбок, и расходится с врагами ближе 1,4 м; курс-цель
+/// и точка взгляда — на игрока. Порядок вычислений float — как в SWORD (сверка трассой на 4д): расхождение складывается по
+/// местам 1…32.
 /// </summary>
 public static class EnemyAi
 {
@@ -152,40 +168,97 @@ public static class EnemyAi
 }
 
 /// <summary>
+/// Таймер удара врага (<c>EnemyAi._attackTimer</c> SWORD 2eab13b, 6в): сколько ещё ждать до следующего удара, с (не ниже 0). Задаёт
+/// постройка места (<see cref="FighterSpawn.AttackTimer"/>: 1 + ГСЧ·2), после удара ИИ — 1,1 + ГСЧ·1,4; идёт каждый тик и при
+/// мирных врагах (<c>combat.enemiesAttack = false</c>). Хешируется, виден агенту.
+/// </summary>
+public struct EnemyAttack
+{
+    public float Timer;
+}
+
+/// <summary>
 /// Intent, после команды игрока: намерение каждого врага (<c>EnemyAi.Think</c> SWORD по местам 1…32 после
 /// <c>PlayerBrain.Think</c>) — желаемая скорость и курс-цель (<see cref="FighterCommand"/>), точка взгляда на игрока
 /// (<see cref="GazeTarget"/>) и составляющие (<see cref="EnemyAiTerms"/>). Корни — до движения тика: сначала толпа
-/// собирается целиком, потом думает каждый. Тик, в котором команда арены меняет состав или расстановку, думает за всех
-/// врагов уже по новой арене <see cref="ArenaCommandSystem"/> (её запись ложится на барьере Intent поверх этой):
-/// в SWORD <c>SetEnemyCount</c> и <c>Reset</c> идут до <c>Think</c> того же тика.
+/// собирается целиком, потом думает каждый. Команды арены — в стадии Begin (6б): Intent уже видит арену после них.
+/// С 6в — удар (<see cref="Attack"/>): таймер минус тик; удар командой врагу (<see cref="EnemyCommand.Attack"/>, поверх ИИ на
+/// тик) или по таймеру ИИ, если враги нападают (<see cref="CombatRules.EnemiesAttack"/>).
 /// </summary>
-public sealed class EnemyAiSystem : IContinuousSystem
+public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
 {
     private Query _fighters = null!, _enemies = null!;
     private readonly EnemyCrowd _crowd = new();
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.EnemyAi).After(GameLabels.PlayerCommand).Reads<FighterSlot>().Reads<Transform>().Reads<FighterSeed>()
-            .Writes<FighterCommand>().Writes<GazeTarget>().Writes<EnemyAiTerms>();
+        s.Label(GameLabels.EnemyAi).After(GameLabels.PlayerCommand).ReadsJournal<Event<EnemyCommand>>().Reads<FighterSlot>()
+            .Reads<Transform>().Reads<FighterSeed>().Writes<FighterCommand>().Writes<GazeTarget>().Writes<EnemyAiTerms>()
+            .Writes<AnimatorAction>().Writes<EnemyAttack>();
         _fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<FighterSeed>();
         _enemies = s.Query().With<Fighter>().With<EnemyTag>().Read<FighterSlot>().Write<FighterCommand>().Write<GazeTarget>()
-            .Write<EnemyAiTerms>();
+            .Write<EnemyAiTerms>().Write<AnimatorAction>().Write<EnemyAttack>();
     }
 
     public void Run(in SystemContext ctx)
     {
-        float time = ctx.World.Resource<SimTime>().Time;
+        var world = ctx.World;
+        var time = world.Resource<SimTime>();
+        var rng = world.Resource<SimRandom>();
+        var rules = world.Resource<CombatRules>();
+        var clips = world.Resource<PosePool>().Clips;
+        var commands = ctx.Journal<Event<EnemyCommand>>();
         _crowd.Gather(ctx, _fighters);
         foreach (var chunk in ctx.Iterate(_enemies))
         {
             var intent = chunk.Write<FighterCommand>();
+            var entities = chunk.Entities;
             var slots = chunk.Read<FighterSlot>()[..intent.Length];
             var gaze = chunk.Write<GazeTarget>()[..intent.Length];
             var terms = chunk.Write<EnemyAiTerms>()[..intent.Length];
+            var action = chunk.Write<AnimatorAction>()[..intent.Length];
+            var attack = chunk.Write<EnemyAttack>()[..intent.Length];
             for (int i = 0; i < intent.Length; i++)
-                if ((uint)slots[i].Index < ArenaRules.MaxFighters) _crowd.Think(slots[i].Index, time, ref intent[i], ref gaze[i], ref terms[i]);
+            {
+                int slot = slots[i].Index;
+                if ((uint)slot >= ArenaRules.MaxFighters || !_crowd.Think(slot, time.Time, ref intent[i], ref gaze[i], ref terms[i])) continue;
+                Attack(ref action[i], ref attack[i], terms[i].Distance, Commanded(commands, slot), rules.EnemiesAttack, entities[i], time, rng, clips);
+            }
         }
+    }
+
+    /// <summary>Удар последней команды тика этому месту (<see cref="EnemyCommand.Attack"/>); команды нет — 0.</summary>
+    private static int Commanded(ReadOnlySpan<Event<EnemyCommand>> commands, int slot)
+    {
+        for (int c = commands.Length - 1; c >= 0; c--)
+            if (commands[c].Value.Slot == slot) return commands[c].Value.Attack;
+        return 0;
+    }
+
+    /// <summary>
+    /// Удар врага (<c>EnemyAi.Think</c> SWORD, конец): таймер минус тик; удар команды — если враг может действовать (<c>CanAct</c>
+    /// не-<c>Agile</c>), таймер не трогается; иначе ИИ: игрок ближе <see cref="EnemyAiRules.Reach"/>, таймер вышел, может
+    /// действовать — рубящий (0,75; случайный из связки) или укол (случайный), таймер 1,1 + ГСЧ·1,4. <c>f.CanAttack</c> SWORD
+    /// (жив, рука и меч целы) и «игрок жив» — с 6г.
+    /// </summary>
+    public void Attack(ref AnimatorAction action, ref EnemyAttack state, float distance, int commanded, bool enemiesAttack, Entity e,
+        in SimTime time, SimRandom rng, ClipLibrary clips)
+    {
+        var attacks = strikes.Attacks;
+        state.Timer = MathF.Max(0, state.Timer - time.Dt);
+        if (commanded != 0)
+        {
+            int k = commanded - 1;
+            if ((uint)k < (uint)attacks.Length && ActionLayer.CanAttack(action, false, attacks)) ActionLayer.StartAttack(ref action, k, attacks[k], clips);
+            return;
+        }
+        if (!enemiesAttack || distance >= EnemyAiRules.Reach || state.Timer > 0 || !ActionLayer.CanAct(action, false, attacks)) return;
+        int slashes = strikes.Slashes.Length, stabs = attacks.Length - slashes;
+        bool slash = stabs == 0 || rng.Float(EnemyAiRules.AttackStream, time.Tick, e, 0) < EnemyAiRules.SlashChance;
+        int pick = slash ? rng.Index(EnemyAiRules.AttackStream, time.Tick, e, slashes, 1)
+            : slashes + rng.Index(EnemyAiRules.AttackStream, time.Tick, e, stabs, 1);
+        ActionLayer.StartAttack(ref action, pick, attacks[pick], clips);
+        state.Timer = EnemyAiRules.NextTimer + rng.Float(EnemyAiRules.AttackStream, time.Tick, e, 2) * EnemyAiRules.NextTimerSpread;
     }
 }
 

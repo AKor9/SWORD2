@@ -42,6 +42,12 @@ public static class ActionSlots
     public static int TurnRight { get; }
     public static int Turn180 { get; }
 
+    /// <summary>Слоты уклонения (<c>CharacterRig.EvadeForward/Back/Left/Right</c> SWORD): в SWORD2 — вид рывка (6в).</summary>
+    public static int EvadeForward { get; }
+    public static int EvadeBack { get; }
+    public static int EvadeLeft { get; }
+    public static int EvadeRight { get; }
+
     static ActionSlots()
     {
         var names = new List<string> { "idle" };
@@ -67,6 +73,10 @@ public static class ActionSlots
         TurnLeft = Index("turn_left");
         TurnRight = Index("turn_right");
         Turn180 = Index("turn_180");
+        EvadeForward = Index("evade_forward");
+        EvadeBack = Index("evade_back");
+        EvadeLeft = Index("evade_left");
+        EvadeRight = Index("evade_right");
     }
 
     /// <summary>Номер слота по ключу; нет — −1.</summary>

@@ -68,6 +68,30 @@ public static class TestAssets
         return clip;
     }
 
+    /// <summary>Оси взмаха плеча ударов slash1–4 (6в): разные направления замаха.</summary>
+    private static readonly Vector3[] SlashAxes = [Vector3.UnitZ, Vector3.UnitX, -Vector3.UnitZ, -Vector3.UnitX];
+
+    /// <summary>Скорость корня клипов уклонения, м/с (1,5 м за клип).</summary>
+    public const float EvadeSpeed = 1.5f;
+
+    /// <summary>Правое плечо (<c>upperarm_r</c>) и взмах удара: 1,2 рад за кадры 6…12 (0,2–0,4 с) сглаженной ступенью.</summary>
+    public const int SwingJoint = 19, SwingFrom = 6, SwingTo = 12;
+    public const float SwingAngle = 1.2f;
+
+    /// <summary>Клип удара (6в): не цикл, плечо взмахивает вокруг <paramref name="axis"/> — кончик клинка быстрее 6 м/с (окно урона).</summary>
+    private static ClipFile SwingClip(int number, Vector3 axis)
+    {
+        var clip = Clip(number, Vector3.Zero);
+        clip.Loop = false;
+        int jc = Joints.Length;
+        for (int f = 0; f < Frames; f++)
+        {
+            float k = Math.Clamp((f - SwingFrom) / (float)(SwingTo - SwingFrom), 0, 1);
+            clip.LocalRot[f * jc + SwingJoint] = Quaternion.CreateFromAxisAngle(axis, SwingAngle * k * k * (3 - 2 * k));
+        }
+        return clip;
+    }
+
     private static ClipFile Clip(int number, Vector3 velocity)
     {
         uint hash = SkeletonFile.ComputeHash(Joints, Parents);
@@ -115,6 +139,18 @@ public static class TestAssets
         content.Add("anim/sword_1h/1HM_TurnLeft90.swclip", TurnClip(n++, TurnLeftYaw).Write);
         content.Add("anim/sword_1h/1HM_TurnRight90.swclip", TurnClip(n++, TurnRightYaw).Write);
         content.Add("anim/sword_1h/1HM_Turn180.swclip", TurnClip(n++, Turn180Yaw).Write);
+        // Бой (6в): удары slash1–4 и уколы stab1–3 — взмах плеча (у удара есть окно урона), уклонения в 4 стороны. Свой источник —
+        // после «sword_1h» по алфавиту: номера прежних клипов в библиотеке не сдвигаются.
+        for (int k = 0; k < 4; k++) content.Add($"anim/test_combat/1HM_Slash0{k + 1}.swclip", SwingClip(n++, SlashAxes[k]).Write);
+        for (int k = 0; k < 3; k++) content.Add($"anim/test_combat/1HM_Stab0{k + 1}.swclip", SwingClip(n++, Vector3.UnitX).Write);
+        string[] evades = ["Forward", "Back", "Left", "Right"];
+        Vector3[] evadeDirs = [Dir(0), Dir(4), Dir(6), Dir(2)];
+        for (int k = 0; k < 4; k++)
+        {
+            var evade = Clip(n++, evadeDirs[k] * EvadeSpeed);
+            evade.Loop = false;
+            content.Add($"anim/test_combat/1HM_Evade_{evades[k]}.swclip", evade.Write);
+        }
         if (actionsJson is not null) content.Add("combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
         // Оружие (6б): два статических меша в системе кисти — по алфавиту katana (0), sword_1h (1, меч по умолчанию).
         if (!weapons) return content;

@@ -4,6 +4,7 @@ using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
 using Sword.Game.Animation;
 using Sword.Game.Arena;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Data;
 
@@ -71,17 +72,21 @@ public sealed class PrevTransformSystem : IContinuousSystem
 /// <summary>
 /// Intent: команда игрока тика → намерение бойца игрока (<c>PlayerController.Think</c>): желаемая скорость — направление
 /// команды на скорость бега или шага; точка взгляда запоминается (<see cref="GazeTarget"/>), курс-цель каждый тик — на
-/// неё от текущего корня, если она дальше 0,3 м. Тик без команды — стоять, взгляд — на прежнюю точку.
+/// неё от текущего корня, если она дальше 0,3 м. Тик без команды — стоять, взгляд — на прежнюю точку. С 6в — бой игрока
+/// (<see cref="PlayerActions"/>): фронты удара, укола и рывка — в буферы <see cref="PlayerControl"/>, рывок раньше удара,
+/// удар — когда слой действий позволяет, выбор удара — <see cref="AttackPicker"/> (укол — счётчиковый ГСЧ, свой поток).
+/// Несколько команд на тик — движение и жест последней, фронты — любой из них (нажатие не теряется).
 /// </summary>
-public sealed class PlayerCommandSystem : IContinuousSystem
+public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
 {
     private Query _query = null!;
 
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.PlayerCommand).ReadsJournal<Event<PlayerCommand>>().Reads<Transform>().Writes<FighterCommand>()
-            .Writes<GazeTarget>();
-        _query = s.Query().With<PlayerTag>().Read<Transform>().Write<FighterCommand>().Write<GazeTarget>();
+            .Writes<GazeTarget>().Writes<AnimatorAction>().Writes<PlayerControl>().Writes<AttackCombo>();
+        _query = s.Query().With<PlayerTag>().Read<Transform>().Write<FighterCommand>().Write<GazeTarget>().Write<AnimatorAction>()
+            .Write<PlayerControl>().Write<AttackCombo>();
     }
 
     public void Run(in SystemContext ctx)
@@ -89,12 +94,40 @@ public sealed class PlayerCommandSystem : IContinuousSystem
         var commands = ctx.Journal<Event<PlayerCommand>>();
         bool has = !commands.IsEmpty;
         var command = has ? commands[^1].Value : default;   // несколько на тик — действует последняя
+        for (int c = commands.Length - 2; c >= 0; c--)
+        {
+            // фронты прежних команд тика не теряются; жест — последнего удара (обход с конца: первый найденный — последний)
+            var earlier = commands[c].Value;
+            if (earlier.Attack && !command.Attack) command.Gesture = earlier.Gesture;
+            command.Attack |= earlier.Attack;
+            command.Stab |= earlier.Stab;
+            command.Dash |= earlier.Dash;
+        }
+        var world = ctx.World;
+        var time = world.Resource<SimTime>();
+        var rng = world.Resource<SimRandom>();
+        var rules = world.Resource<CombatRules>();
+        var clips = world.Resource<PosePool>().Clips;
+        var actions = world.Resource<ActionTable>();
+        var attacks = strikes.Attacks;
+        int slashes = strikes.Slashes.Length, stabs = Math.Max(1, attacks.Length - slashes);
         foreach (var chunk in ctx.Iterate(_query))
         {
             var intent = chunk.Write<FighterCommand>();
+            var entities = chunk.Entities;
             var t = chunk.Read<Transform>()[..intent.Length];
             var gaze = chunk.Write<GazeTarget>()[..intent.Length];
-            for (int i = 0; i < intent.Length; i++) Apply(command, t[i], ref intent[i], ref gaze[i]);
+            var action = chunk.Write<AnimatorAction>()[..intent.Length];
+            var control = chunk.Write<PlayerControl>()[..intent.Length];
+            var combo = chunk.Write<AttackCombo>()[..intent.Length];
+            for (int i = 0; i < intent.Length; i++)
+            {
+                Apply(command, t[i], ref intent[i], ref gaze[i]);
+                PlayerActions.Press(command, ref control[i]);
+                int stabRoll = rng.Index(PlayerControlRules.PickStream, time.Tick, entities[i], stabs);
+                PlayerActions.Think(ref control[i], ref combo[i], ref action[i], t[i], intent[i].DesiredVelocity, time.Time, time.Dt, stabRoll,
+                    rules, attacks, slashes, clips, actions);
+            }
         }
     }
 
@@ -129,18 +162,20 @@ public sealed class PlayerCommandSystem : IContinuousSystem
 /// <see cref="PlayerTag"/>: курс — сразу контроллером, 12 рад/с. Боец не-<c>Agile</c> (враг, со слоем действий
 /// <see cref="AnimatorAction"/>; 4г): стоя курс догоняет цель со скоростью 2,5 рад/с, а отстал больше 45° — поворот на
 /// месте клипом (<see cref="ActionLayer.StartTurn"/>), и курс, пока он стоит, ведёт yaw клипа (<c>RootControlSystem</c>);
-/// на ходу — 12 рад/с. Масштаб хода и поворота действия (<c>MoveScale</c>, <c>TurnScale</c>) при покое и повороте — 1;
-/// удары, блок и реакции, которые их меняют, — этап 6.
+/// на ходу — 12 рад/с. Масштаб поворота и хода действия (<c>TurnScale</c>, <c>MoveScale</c>; 6в — <see cref="ActionLayer.TurnScale"/>,
+/// <see cref="ActionLayer.MoveScale"/>): у игрока ход не замедляется никогда, поворот в окне урона — 0,6; у врага в ударе — 0,35 и
+/// 0,35. У игрока здесь же — прибавка скорости рывка тика (<see cref="PlayerActions.Boost"/>; корень сдвигает Movement).
 /// </summary>
-public sealed class RootSteerSystem : IContinuousSystem
+public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
 {
     private Query _agile = null!, _steady = null!;
 
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.RootSteer).Reads<FighterCommand>().Reads<AnimatorMotion>().Writes<Transform>().Writes<RootVelocity>()
-            .Writes<AnimatorAction>();
-        _agile = s.Query().With<Fighter>().With<PlayerTag>().Read<FighterCommand>().Write<Transform>().Write<RootVelocity>();
+            .Writes<AnimatorAction>().Writes<PlayerControl>();
+        _agile = s.Query().With<Fighter>().With<PlayerTag>().Read<FighterCommand>().Read<AnimatorAction>().Write<Transform>()
+            .Write<RootVelocity>().Write<PlayerControl>();
         _steady = s.Query().With<Fighter>().Without<PlayerTag>().Read<FighterCommand>().Read<AnimatorMotion>().Write<Transform>()
             .Write<RootVelocity>().Write<AnimatorAction>();
     }
@@ -148,12 +183,20 @@ public sealed class RootSteerSystem : IContinuousSystem
     public void Run(in SystemContext ctx)
     {
         float dt = ctx.World.Resource<SimTime>().Dt;
+        var rules = ctx.World.Resource<CombatRules>();
+        var attacks = strikes.Attacks;
         foreach (var chunk in ctx.Iterate(_agile))
         {
             var t = chunk.Write<Transform>();
             var intent = chunk.Read<FighterCommand>()[..t.Length];
+            var a = chunk.Read<AnimatorAction>()[..t.Length];
             var v = chunk.Write<RootVelocity>()[..t.Length];
-            for (int i = 0; i < t.Length; i++) Steer(intent[i], ref t[i], ref v[i].Value, dt);
+            var control = chunk.Write<PlayerControl>()[..t.Length];
+            for (int i = 0; i < t.Length; i++)
+            {
+                Steer(intent[i], ref t[i], ref v[i].Value, dt, ActionLayer.TurnScale(a[i], true, attacks), ActionLayer.MoveScale(a[i], true));
+                PlayerActions.Boost(ref control[i], rules, dt);
+            }
         }
         var clips = ctx.World.Resource<PosePool>().Clips;
         var actions = ctx.World.Resource<ActionTable>();
@@ -164,25 +207,31 @@ public sealed class RootSteerSystem : IContinuousSystem
             var motion = chunk.Read<AnimatorMotion>()[..t.Length];
             var v = chunk.Write<RootVelocity>()[..t.Length];
             var a = chunk.Write<AnimatorAction>()[..t.Length];
-            for (int i = 0; i < t.Length; i++) SteerSteady(intent[i], motion[i].Moving, ref t[i], ref v[i].Value, ref a[i], dt, clips, actions);
+            for (int i = 0; i < t.Length; i++)
+                SteerSteady(intent[i], motion[i].Moving, ref t[i], ref v[i].Value, ref a[i], dt, clips, actions, attacks);
         }
     }
 
-    /// <summary><c>Agile</c> без действий: курс не быстрее <see cref="MovementRules.TurnRate"/>, затем скорость — порядок SWORD.</summary>
-    public static void Steer(in FighterCommand intent, ref Transform t, ref Vector3 velocity, float dt)
+    /// <summary>
+    /// <c>Agile</c>: курс не быстрее <see cref="MovementRules.TurnRate"/>·<paramref name="turnScale"/>, затем скорость к желаемой
+    /// ·<paramref name="moveScale"/> — порядок и выражения SWORD (при масштабах 1 — побитово как без действий).
+    /// </summary>
+    public static void Steer(in FighterCommand intent, ref Transform t, ref Vector3 velocity, float dt, float turnScale = 1, float moveScale = 1)
     {
         float df = MathF.IEEERemainder(intent.FacingGoal - t.Facing, MathF.Tau);
-        t.Facing += Math.Clamp(df, -MovementRules.TurnRate * dt, MovementRules.TurnRate * dt);
-        Accelerate(intent, ref velocity, dt);
+        float turn = MovementRules.TurnRate * turnScale;
+        t.Facing += Math.Clamp(df, -turn * dt, turn * dt);
+        Accelerate(intent, ref velocity, dt, moveScale);
     }
 
     /// <summary>
     /// Не-<c>Agile</c> (<c>KinematicSteer</c> SWORD): «стоит» — желаемая скорость и скорость корня малы; стоит без
     /// действия и отстал больше 45° — поворот клипом; курс, если его не ведёт клип (<paramref name="moving"/> — «идёт»
-    /// прошлого тика), — 2,5 рад/с стоя без действия, иначе 12 рад/с; затем скорость.
+    /// прошлого тика), — 2,5 рад/с стоя без действия, иначе 12 рад/с × <c>TurnScale</c>; затем скорость к желаемой ×
+    /// <c>MoveScale</c>.
     /// </summary>
     public static void SteerSteady(in FighterCommand intent, bool moving, ref Transform t, ref Vector3 velocity, ref AnimatorAction action,
-        float dt, ClipLibrary clips, ActionTable actions)
+        float dt, ClipLibrary clips, ActionTable actions, ReadOnlySpan<AttackInfo> attacks)
     {
         float df = MathF.IEEERemainder(intent.FacingGoal - t.Facing, MathF.Tau);
         bool standing = new Vector2(intent.DesiredVelocity.X, intent.DesiredVelocity.Z).LengthSquared() < MovementRules.StandingDesiredSq
@@ -192,15 +241,15 @@ public sealed class RootSteerSystem : IContinuousSystem
         // пошёл во время поворота на месте — клип гаснет уже без yaw, курс снова доворачивает контроллер
         if (!action.TurnDrivesYaw(moving))
         {
-            float turn = idleTurn ? MovementRules.IdleTurnRate : MovementRules.TurnRate;
+            float turn = idleTurn ? MovementRules.IdleTurnRate : MovementRules.TurnRate * ActionLayer.TurnScale(action, false, attacks);
             t.Facing += Math.Clamp(df, -turn * dt, turn * dt);
         }
-        Accelerate(intent, ref velocity, dt);
+        Accelerate(intent, ref velocity, dt, ActionLayer.MoveScale(action, false));
     }
 
-    private static void Accelerate(in FighterCommand intent, ref Vector3 velocity, float dt)
+    private static void Accelerate(in FighterCommand intent, ref Vector3 velocity, float dt, float moveScale)
     {
-        var desired = new Vector3(intent.DesiredVelocity.X, 0, intent.DesiredVelocity.Z);
+        var desired = new Vector3(intent.DesiredVelocity.X, 0, intent.DesiredVelocity.Z) * moveScale;
         velocity += (desired - velocity) * MathF.Min(1, MovementRules.Accel * dt);
         velocity.Y = 0;
     }
@@ -209,18 +258,19 @@ public sealed class RootSteerSystem : IContinuousSystem
 /// <summary>
 /// Movement: перенос корня (<c>KinematicBegin</c> после <c>anim.Tick</c>): у бойца со слоем действий сначала курс —
 /// поворот клипом (<see cref="AnimatorAction.YawDelta"/>), затем у всех корень на скорость·dt по земле, затем сдвиг клипом
-/// действия (<see cref="AnimatorAction.RootDelta"/>) по новому курсу. Рывок уклонения, где корень ведёт клип, а не
-/// скорость, — этап 6.
+/// действия (<see cref="AnimatorAction.RootDelta"/>) по новому курсу. У игрока в рывке (6в) корень после скорости сдвигается ещё
+/// на прибавку рывка·dt (<see cref="PlayerControl.Boost"/>): рывок ведёт контроллер, а не клип уклонения.
 /// </summary>
 public sealed class RootControlSystem : IContinuousSystem
 {
-    private Query _plain = null!, _acting = null!;
+    private Query _plain = null!, _acting = null!, _controlled = null!;
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.RootControl).Reads<RootVelocity>().Reads<AnimatorAction>().Writes<Transform>();
+        s.Label(GameLabels.RootControl).Reads<RootVelocity>().Reads<AnimatorAction>().Reads<PlayerControl>().Writes<Transform>();
         _plain = s.Query().With<Fighter>().Without<AnimatorAction>().Read<RootVelocity>().Write<Transform>();
-        _acting = s.Query().With<Fighter>().Read<RootVelocity>().Read<AnimatorAction>().Write<Transform>();
+        _acting = s.Query().With<Fighter>().Without<PlayerControl>().Read<RootVelocity>().Read<AnimatorAction>().Write<Transform>();
+        _controlled = s.Query().With<Fighter>().Read<RootVelocity>().Read<AnimatorAction>().Read<PlayerControl>().Write<Transform>();
     }
 
     public void Run(in SystemContext ctx)
@@ -239,6 +289,14 @@ public sealed class RootControlSystem : IContinuousSystem
             var a = chunk.Read<AnimatorAction>()[..t.Length];
             for (int i = 0; i < t.Length; i++) Move(ref t[i], v[i].Value, a[i], dt);
         }
+        foreach (var chunk in ctx.Iterate(_controlled))
+        {
+            var t = chunk.Write<Transform>();
+            var v = chunk.Read<RootVelocity>()[..t.Length];
+            var a = chunk.Read<AnimatorAction>()[..t.Length];
+            var c = chunk.Read<PlayerControl>()[..t.Length];
+            for (int i = 0; i < t.Length; i++) Move(ref t[i], v[i].Value, a[i], dt, c[i].Boost);
+        }
     }
 
     public static void Move(ref Transform t, Vector3 velocity, float dt)
@@ -247,11 +305,15 @@ public sealed class RootControlSystem : IContinuousSystem
         t.Position.Y = 0;
     }
 
-    /// <summary>Со слоем действий: <c>Facing += YawDelta</c>, корень на скорость, сдвиг клипом по курсу — порядок SWORD.</summary>
-    public static void Move(ref Transform t, Vector3 velocity, in AnimatorAction action, float dt)
+    /// <summary>
+    /// Со слоем действий: <c>Facing += YawDelta</c>, корень на скорость (и прибавку рывка <paramref name="boost"/>, 6в), сдвиг
+    /// клипом по курсу — порядок SWORD (без рывка — побитово как SWORD).
+    /// </summary>
+    public static void Move(ref Transform t, Vector3 velocity, in AnimatorAction action, float dt, Vector3 boost = default)
     {
         t.Facing += action.YawDelta;
         t.Position += velocity * dt;
+        if (boost != Vector3.Zero) t.Position += boost * dt;
         if (action.RootDelta != Vector3.Zero)
             t.Position += Vector3.Transform(action.RootDelta, Quaternion.CreateFromAxisAngle(Vector3.UnitY, t.Facing));
         t.Position.Y = 0;

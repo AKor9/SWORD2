@@ -3,6 +3,7 @@ using System.Numerics;
 using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
+using Sword.Game.Ai;
 using Sword.Game.Bodies;
 using Sword.Game.Contracts;
 
@@ -10,15 +11,16 @@ namespace Sword.Game.Combat;
 
 /// <summary>
 /// Инварианты боя (раздел 8 плана; этап 6б), их регистрирует ядро: <c>combat.blade</c> — после PrePhysics (клинок на кисти),
-/// <c>combat.weapons</c> — в конце End (меч и клинок у каждого бойца, инвентарь игрока согласован).
+/// <c>combat.weapons</c> — в конце End (меч и клинок у каждого бойца, инвентарь игрока согласован), <c>combat.control</c> (6в) —
+/// в конце End (управление игрока, рывок и таймер удара врага конечны и в своих пределах).
 /// </summary>
 public static class CombatInvariants
 {
     /// <summary><c>combat.blade</c>: основание и кончик — не дальше этого от кисти × клинок меча, м (постановка — те же выражения, в исправной игре 0).</summary>
     public const float Tolerance = 1e-4f;
 
-    public static IEnumerable<IInvariant> For(PosePool poses, WeaponTable weapons, int hand, StartPoseModel start) =>
-        [new BladeOnHand(poses, weapons, hand, start), new Weapons(weapons)];
+    public static IEnumerable<IInvariant> For(PosePool poses, WeaponTable weapons, int hand, StartPoseModel start, StrikeTable strikes) =>
+        [new BladeOnHand(poses, weapons, hand, start), new Weapons(weapons), new Control(strikes)];
 
     /// <summary>
     /// <c>combat.blade</c> — «клинок на кисти» (после PrePhysics): у бойца с живой позой клинок (<see cref="Blade"/>) посчитан мечом
@@ -134,6 +136,97 @@ public static class CombatInvariants
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// <c>combat.control</c> (6в) — управление боем согласовано (в конце End): у игрока есть управление (<see cref="PlayerControl"/>)
+    /// и связка (<see cref="AttackCombo"/>), у врага — таймер удара (<see cref="EnemyAttack"/>); буферы — 0…0,3 и 0…0,2 с,
+    /// перезарядка — 0…<c>combat.dashCooldown</c>, неуязвимость — 0…<c>combat.dashInvulnerable</c>, рывок конечен: идёт — время
+    /// 0…<c>combat.dashTime</c>, направление единичное по земле, прибавка не больше <c>combat.dashSpeed</c>, не идёт — прибавки нет
+    /// (кроме последнего тика рывка: время вышло, прибавка тика ещё есть);
+    /// следующий удар связки — рубящий таблицы; таймер врага конечен и не меньше 0.
+    /// </summary>
+    private sealed class Control(StrikeTable strikes) : IInvariant
+    {
+        private ReadQuery? _players, _enemies, _barePlayers, _bareEnemies;
+
+        public string Id => "combat.control";
+        public InvariantCost Cost => InvariantCost.EveryTick;
+        public InvariantScope Scope => InvariantScope.Entity;
+        public string After => GameStages.End;
+
+        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
+        {
+            var world = ctx.World;
+            var rules = world.Resource<CombatRules>();
+            _barePlayers ??= world.Query().With<Fighter>().With<PlayerTag>();
+            foreach (var chunk in world.Iterate(_barePlayers))
+                foreach (var e in chunk.Entities)
+                {
+                    if (world.Has<PlayerControl>(e) && world.Has<AttackCombo>(e)) continue;
+                    violations.Report(e, "игрок без управления боем (PlayerControl и AttackCombo)");
+                    if (violations.Full) return;
+                }
+            _bareEnemies ??= world.Query().With<Fighter>().With<EnemyTag>().Without<EnemyAttack>();
+            foreach (var chunk in world.Iterate(_bareEnemies))
+                foreach (var e in chunk.Entities)
+                {
+                    violations.Report(e, "враг без таймера удара (EnemyAttack)");
+                    if (violations.Full) return;
+                }
+            _players ??= world.Query().Read<PlayerControl>().Read<AttackCombo>();
+            foreach (var chunk in world.Iterate(_players))
+            {
+                var entities = chunk.Entities;
+                var control = chunk.Read<PlayerControl>();
+                var combo = chunk.Read<AttackCombo>();
+                for (int i = 0; i < entities.Length; i++)
+                {
+                    if (Problem(control[i], combo[i], rules) is not { } problem) continue;
+                    violations.Report(entities[i], problem);
+                    if (violations.Full) return;
+                }
+            }
+            _enemies ??= world.Query().Read<EnemyAttack>();
+            foreach (var chunk in world.Iterate(_enemies))
+            {
+                var entities = chunk.Entities;
+                var timers = chunk.Read<EnemyAttack>();
+                for (int i = 0; i < entities.Length; i++)
+                {
+                    if (float.IsFinite(timers[i].Timer) && timers[i].Timer >= 0) continue;
+                    violations.Report(entities[i], Text($"таймер удара {timers[i].Timer}"));
+                    if (violations.Full) return;
+                }
+            }
+        }
+
+        private string? Problem(in PlayerControl c, in AttackCombo combo, in CombatRules rules)
+        {
+            if (!In(c.SwingBuffer, PlayerControlRules.SwingBufferTime) || !In(c.DashBuffer, PlayerControlRules.DashBufferTime))
+                return Text($"буфер удара {c.SwingBuffer} с или рывка {c.DashBuffer} с вне 0…0,3 / 0…0,2");
+            if (!In(c.DashCooldown, rules.DashCooldown) || !In(c.Invulnerable, rules.DashInvulnerable))
+                return Text($"перезарядка рывка {c.DashCooldown} с или неуязвимость {c.Invulnerable} с вне 0…{rules.DashCooldown} / 0…{rules.DashInvulnerable}");
+            if (!float.IsFinite(c.SwingGesture.X) || !float.IsFinite(c.SwingGesture.Y)) return Text($"жест {c.SwingGesture} нечисловой");
+            if (!Finite(c.Boost) || c.Boost.Length() > rules.DashSpeed * (1 + 1e-5f))
+                return Text($"прибавка рывка {c.Boost} (|{c.Boost.Length()}| м/с) — нечисловая или больше {rules.DashSpeed} м/с");
+            if (c.Dashing)
+            {
+                if (!In(c.DashElapsed, rules.DashTime)) return Text($"рывок идёт {c.DashElapsed} с — вне 0…{rules.DashTime}");
+                if (!Finite(c.DashDirection) || c.DashDirection.Y != 0 || MathF.Abs(c.DashDirection.LengthSquared() - 1) > 1e-3f)
+                    return Text($"направление рывка {c.DashDirection} — не единичное по земле");
+            }
+            else if (c.Boost != Vector3.Zero && c.DashElapsed < rules.DashTime) return Text($"рывка нет, а прибавка {c.Boost}");
+            if (combo.Next < 0 || combo.Next > strikes.Slashes.Length || !float.IsFinite(combo.LastTime))
+                return Text($"связка: следующий {combo.Next} из {strikes.Slashes.Length}, последний удар в {combo.LastTime} с");
+            return null;
+        }
+
+        private static bool In(float value, float max) => float.IsFinite(value) && value >= 0 && value <= max;
+
+        private static bool Finite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
+
+        private static string Text(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
     }
 }
 

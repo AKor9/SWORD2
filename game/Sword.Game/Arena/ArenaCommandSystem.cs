@@ -1,6 +1,7 @@
 using System.Numerics;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
+using Sword.Game.Animation;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Arena;
@@ -34,6 +35,7 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.ArenaCommand).After(GameLabels.PrevTransform).Reads<FighterSlot>().Reads<Transform>().Reads<GazeTarget>()
+            .Reads<AnimatorAction>()
             .SetsResource<ArenaState>().SetsResource<PlayerInventory>().DeclaresFighters();
         _fighters = s.Query().With<Fighter>().Read<FighterSlot>();
     }
@@ -97,7 +99,7 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
             var playerSpawn = ArenaRules.Player(rng, tick, resetBatch, inventory.Equipped);
             var gaze = world.TryGet<GazeTarget>(player, out var g) ? g : default;
             if (player.IsNull) Fighters.Create(cmd, playerSpawn, Fighters.Standing(playerSpawn), gaze);
-            else Fighters.Rebuild(cmd, player, playerSpawn, Fighters.Standing(playerSpawn), gaze);
+            else Fighters.Rebuild(cmd, player, playerSpawn, Fighters.Standing(playerSpawn), gaze, Action(world, player));
         }
         for (int slot = 1; slot < ArenaRules.MaxFighters; slot++)
         {
@@ -110,10 +112,13 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
             if (_batch[slot] == 0) continue;
             var spawn = ArenaRules.Enemy(rng, tick, _batch[slot], slot, _center[slot], weapons);
             if (e.IsNull) Fighters.Create(cmd, spawn, Fighters.Standing(spawn), default);
-            else Fighters.Rebuild(cmd, e, spawn, Fighters.Standing(spawn), default);
+            else Fighters.Rebuild(cmd, e, spawn, Fighters.Standing(spawn), default, Action(world, e));
         }
         if (enemies != state.Enemies) cmd.SetResource(new ArenaState { Enemies = enemies });
     }
+
+    /// <summary>Слой действий бойца до постройки заново (номер удара и счёт снимков переживают её); нет — без действия.</summary>
+    private static AnimatorAction Action(World world, Entity e) => world.TryGet<AnimatorAction>(e, out var a) ? a : AnimatorAction.None;
 
     /// <summary>Новое число врагов: прибавленные места строятся (от нынешнего центра), убавленные — забываются.</summary>
     private int Resize(int old, int n, uint batch, Vector3 center)

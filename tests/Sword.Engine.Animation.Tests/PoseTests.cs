@@ -61,6 +61,132 @@ public sealed class PoseTests
         Assert.Equal(model, pool.Model(main).ToArray());
     }
 
+    /// <summary>
+    /// Смешивание по маске (6в): вес сустава — <c>w·(mask[j] + (1 − mask[j])·stand)</c>, как <c>CharacterRig.LayerMask</c> и
+    /// <c>SkeletalClips.Blend</c> с маской SWORD — побитово; стоя (stand = 1) маска SWORD — всё тело, на ходу (0) — только маска.
+    /// </summary>
+    [Fact]
+    public void BlendMasked_MatchesLayerMaskBlend_BitForBit()
+    {
+        var lib = TwoClips();
+        var pool = new PosePool(lib);
+        int jc = lib.JointCount;
+        float[] weights = [.. Enumerable.Range(0, jc).Select(j => (j % 5) * 0.25f)];   // 0, 0,25, 0,5, 0,75, 1 — как маска верха SWORD
+        var mask = pool.AddMask(weights);
+        Assert.Equal(new PoseMask(0), mask);
+        Assert.Equal(weights, pool.Mask(mask).ToArray());
+        foreach (float stand in new[] { 0f, 0.37f, 1f })
+        {
+            var main = pool.Alloc();
+            var layer = pool.Alloc();
+            pool.Sample(main, 0, 0.29f);
+            pool.Sample(layer, 1, 0.41f);
+            pool.BlendMasked(main, layer, 0.8f, mask, stand);
+            Assert.Equal(new PoseTickStats(2, 1, 0, 0, 0), pool.Tick());
+
+            var rot = new Quaternion[jc];
+            var pos = new Vector3[jc];
+            var layerRot = new Quaternion[jc];
+            var layerPos = new Vector3[jc];
+            var layerMask = new float[jc];
+            lib.Sample(0, 0.29f, rot, pos);
+            lib.Sample(1, 0.41f, layerRot, layerPos);
+            for (int j = 0; j < jc; j++) layerMask[j] = weights[j] + (1 - weights[j]) * stand;   // LayerMask SWORD
+            ClipLibrary.Blend(rot, pos, layerRot, layerPos, 0.8f, layerMask);
+            Assert.Equal(rot, pool.LocalRot(main).ToArray());
+            Assert.Equal(pos, pool.LocalPos(main).ToArray());
+            if (stand == 1)
+            {
+                // стоя — всё тело: то же, что смешивание без маски
+                lib.Sample(0, 0.29f, rot, pos);
+                ClipLibrary.Blend(rot, pos, layerRot, layerPos, 0.8f);
+                Assert.Equal(rot, pool.LocalRot(main).ToArray());
+            }
+            if (stand == 0)
+            {
+                // на ходу — суставы вне маски (вес 0) остаются позой локомоции
+                lib.Sample(0, 0.29f, rot, pos);
+                for (int j = 0; j < jc; j++)
+                    if (weights[j] == 0) Assert.Equal(rot[j], pool.LocalRot(main)[j]);
+            }
+            pool.Free(main);
+            pool.Free(layer);
+        }
+    }
+
+    /// <summary>
+    /// Память смешивания по маске (6в): повороты сустава в двух позах расходятся через 180° при частичном весе — кратчайшая дуга
+    /// (SWORD) перескакивает ((1 − вес)·360° = 36° при весе 0,9 за задание), с памятью итог доворачивает не больше
+    /// <see cref="PosePool.MaxArcStep"/> за задание и догоняет кратчайшую дугу; до перескока и при быстром, но непрерывном движении
+    /// (вход веса от 0 до 1 за 4 задания) — побитово как без памяти.
+    /// </summary>
+    [Fact]
+    public void BlendMasked_Memory_ArcFlipFollowedByStep_SameOtherwise()
+    {
+        const int frames = 41;
+        int jc = Joints.Length;
+        var spin = Source("a", "Spin", new ClipFile
+        {
+            Skeleton = "test", SkeletonHash = SkeletonFile.ComputeHash(Joints, Parents), SampleRate = 30, Frames = frames, Joints = jc,
+            LocalRot = [.. Enumerable.Range(0, frames * jc).Select(i => Quaternion.CreateFromAxisAngle(Vector3.UnitY, (160 + i / jc) * MathF.PI / 180))],
+            LocalPos = new Vector3[frames * jc], RootMotion = new Vector3[frames], RootYaw = new float[frames],
+        });
+        var lib = Library(spin, Marked("a", "Still", frames, 0));
+        int spinClip = lib.FindClip("Spin"), still = lib.FindClip("Still");
+        Quaternion[] Run(bool memory, Func<int, float> weight)
+        {
+            var pool = new PosePool(lib);
+            var mask = pool.AddMask(new float[jc]);   // все суставы вне маски: вес — weight·stand
+            var (a, b, output, shortest) = (pool.Alloc(), pool.Alloc(), pool.Alloc(), pool.Alloc());
+            var result = new Quaternion[frames];
+            for (int f = 0; f < frames; f++)
+            {
+                pool.Sample(a, still, 0);
+                pool.Sample(b, spinClip, f / 30f);
+                pool.BlendMasked(a, b, weight(f), mask, 1, memory ? new BlendMemory(output, shortest, f > 0) : default);
+                pool.Tick();
+                result[f] = pool.LocalRot(a)[0];
+            }
+            return result;
+        }
+        static float Step(Quaternion p, Quaternion q) => 2 * MathF.Acos(Math.Min(1, MathF.Abs(Quaternion.Dot(p, q))));
+        var plain = Run(false, _ => 0.9f);
+        var kept = Run(true, _ => 0.9f);
+        float plainJump = 0, keptJump = 0;
+        for (int f = 1; f < frames; f++)
+        {
+            plainJump = MathF.Max(plainJump, Step(plain[f - 1], plain[f]));
+            keptJump = MathF.Max(keptJump, Step(kept[f - 1], kept[f]));
+        }
+        Assert.True(plainJump > 0.5f, $"кратчайшая дуга: скачок {plainJump} рад");
+        Assert.True(keptJump <= PosePool.MaxArcStep + 0.02f, $"с памятью: скачок {keptJump} рад");
+        Assert.Equal(plain[..20], kept[..20]);   // до 180° (кадр 20) — побитово
+        Assert.Equal(plain[^1], kept[^1]);       // догнал кратчайшую дугу
+        // Вход веса за 4 задания (быстро, но непрерывно) — без ограничения, побитово.
+        Func<int, float> fadeIn = f => MathF.Min(1, f * 0.25f);
+        Assert.Equal(Run(false, fadeIn)[..8], Run(true, fadeIn)[..8]);
+    }
+
+    [Fact]
+    public void BlendMasked_BadMaskOrStaleSource()
+    {
+        var pool = new PosePool(TwoClips());
+        int jc = pool.JointCount;
+        Assert.Throws<ArgumentException>(() => pool.AddMask(new float[jc + 1]));
+        var bad = new float[jc];
+        bad[1] = 1.5f;
+        Assert.Throws<ArgumentException>(() => pool.AddMask(bad));
+        bad[1] = float.NaN;
+        Assert.Throws<ArgumentException>(() => pool.AddMask(bad));
+        var a = pool.Alloc();
+        var b = pool.Alloc();
+        Assert.Throws<ArgumentOutOfRangeException>(() => pool.BlendMasked(a, b, 1, new PoseMask(0), 1));
+        var mask = pool.AddMask(new float[jc]);
+        pool.BlendMasked(a, b, 1, mask, 1);
+        pool.Free(b);   // источник освобождён до Tick — задание пропускается
+        Assert.Equal(new PoseTickStats(0, 0, 0, 0, 1), pool.Tick());
+    }
+
     [Fact]
     public void ToModel_ParentAfterChild_MatchesRecursiveOrder()
     {
@@ -167,12 +293,14 @@ public sealed class PoseTests
     {
         var pool = new PosePool(TwoClips());
         var poses = Enumerable.Range(0, 8).Select(_ => pool.Alloc()).ToArray();
+        var mask = pool.AddMask([.. Enumerable.Range(0, pool.JointCount).Select(j => j % 2 * 1f)]);
         void Tick(int t)
         {
             foreach (var p in poses)
             {
                 pool.Sample(p, 0, t * 0.01f);
                 pool.Blend(p, poses[0], 0.5f);
+                pool.BlendMasked(p, poses[1], 0.5f, mask, t * 0.001f);
                 pool.ToModel(p);
             }
             pool.Tick();

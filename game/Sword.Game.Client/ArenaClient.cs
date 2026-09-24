@@ -144,6 +144,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private readonly bool _playerCommands;
     private readonly bool _fixedCamera;
     private PlayerCommand _frameCommand;
+    /// <summary>Жест удара (6в): сдвиг мыши с затуханием, жест последнего клика (система бойца) и замахи рубящих ударов.</summary>
+    private Vector2 _gesture, _pressGesture;
+    private Vector2[] _swings = [];
     private readonly Hud _hud = new();
     private readonly bool _showHud;
 
@@ -328,6 +331,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             renderer.Skinned.SetJointParts(_weapons[w], blade);
             _weaponNames[w] = weapons[w].Name;
         }
+        // Жест удара (6в): направления замаха рубящих ударов таблицы — в системе бойца.
+        var swings = new List<Vector2>();
+        foreach (var a in _simulation.World.View<ICombatView>().Attacks)
+            if (!a.Thrust) swings.Add(a.SwingDir);
+        _swings = [.. swings];
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -347,6 +355,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         // прошлого кадра).
         if (_fixedCamera) _camera.Rebuild(input.Width, input.Height);
         else _camera.Update(ArenaInput.Camera(input), input.Seconds, _view.PlayerFocus ?? _camera.Target, input.Width, input.Height);
+
+        // Жест удара (6в): сдвиг мыши за последние кадры; на клике — удар, чья траектория на экране ближе к жесту (камера кадра,
+        // игрок, каким его показал прошлый кадр), в систему бойца.
+        _gesture = StrikeGesture.Accumulate(_gesture, input.MouseDeltaX, input.MouseDeltaY, input.Seconds);
+        if (input.WasPressed(ArenaInput.Attack))
+            _pressGesture = _view.Player is { } shown
+                ? StrikeGesture.Pick(_gesture, _swings, _camera.ViewProj, input.Width, input.Height, shown.Root with { Y = shown.Height }, shown.Facing)
+                : Vector2.Zero;
 
         if (_scripted is { } scripted)
         {
@@ -379,14 +395,23 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     /// <summary>
-    /// Команды тика: команда игрока кадра (удерживаемое — в каждом тике кадра) и команды арены из фронтов PageUp/PageDown/R
-    /// (ровно одним тиком — <see cref="TickInput"/>). При воспроизведении реплея (<c>playerCommands: false</c>) — ни тех ни
+    /// Команды тика: команда игрока кадра (удерживаемое — в каждом тике кадра; удар, укол, рывок — фронты, 6в) и команды арены из
+    /// фронтов PageUp/PageDown/R/T (ровно одним тиком — <see cref="TickInput"/>). При воспроизведении реплея (<c>playerCommands: false</c>) — ни тех ни
     /// других: команды — реплея, своя команда того же тика увела бы его в сторону.
     /// </summary>
     public void BeforeTick(SimulationLink simulation, in TickInput input)
     {
         if (!_playerCommands) return;
-        simulation.Enqueue(_frameCommand);
+        // Удар, укол, рывок (6в) — фронты: ровно в одном тике, первом после кадра нажатия; жест — клика.
+        var command = _frameCommand;
+        if (input.WasPressed(ArenaInput.Attack))
+        {
+            command.Attack = true;
+            command.Gesture = _pressGesture;
+        }
+        command.Stab = input.WasPressed(ArenaInput.Stab);
+        command.Dash = input.WasPressed(ArenaInput.Dash);
+        simulation.Enqueue(command);
         Span<ArenaCommand> arena = stackalloc ArenaCommand[ArenaIntent.Max];
         int n = ArenaIntent.Commands(input, arena);
         for (int i = 0; i < n; i++) simulation.Enqueue(arena[i]);

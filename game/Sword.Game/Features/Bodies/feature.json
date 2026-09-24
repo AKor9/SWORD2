@@ -40,7 +40,7 @@
     {
       "id": "arena",
       "title": "тела при командах арены: PageUp, до 32, PageDown ×10, R, до 0, PageUp — у каждого бойца своё тело, лишних нет (physics.bodyRefs); построенные и построенные заново бойцы встают по позе постройки без скачка капсул (physics.kinematicSpeed), капсулы на суставах (physics.kinematicPose)",
-      "set": ["arena.enemies=10"],
+      "set": ["arena.enemies=10", "combat.enemiesAttack=false"],
       "ticks": 480,
       "commands": [
         { "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0.5 } }, "from": 0, "to": 240 },
@@ -124,7 +124,7 @@
     {
       "id": "crowd",
       "title": "32 врага, игрок бежит сквозь кольцо, толпа бежит следом (Sword.exe --units 32 --move 1,0) — 33 тела по позе каждый тик; бюджеты тика и кадра",
-      "set": ["arena.enemies=32"],
+      "set": ["arena.enemies=32", "combat.enemiesAttack=false"],
       "ticks": 900,
       "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 900 }],
       "checks": [
@@ -151,7 +151,7 @@
     {
       "id": "turn",
       "title": "поворот врага на месте клипом (командой врагу EnemyCommand, начало сценария turn фичи enemies): стоя 90° влево, вправо, разворот, меньше 45° — капсулы идут за позой клипа поворота",
-      "set": ["arena.enemies=1"],
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
       "ticks": 720,
       "commands": [
         { "command": "EnemyCommand", "fields": { "Slot": 1, "FacingGoal": 0.8123 }, "from": 0, "to": 60 },

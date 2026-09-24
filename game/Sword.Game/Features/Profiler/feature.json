@@ -36,7 +36,7 @@
     {
       "id": "crowd",
       "title": "32 врага, игрок бежит сквозь кольцо, толпа бежит следом (Sword.exe --units 32 --move 1,0 --profile)",
-      "set": ["arena.enemies=32"],
+      "set": ["arena.enemies=32", "combat.enemiesAttack=false"],
       "ticks": 900,
       "commands": [{ "command": "PlayerCommand", "fields": { "Move": { "X": 1, "Y": 0 } }, "from": 0, "to": 900 }],
       "checks": [

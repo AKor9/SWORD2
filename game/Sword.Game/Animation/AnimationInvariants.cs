@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Sword.Engine.Animation;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Data;
 
@@ -20,8 +21,8 @@ public static class AnimationInvariants
     /// <summary>Отклонение квадрата длины поворота от 1, которое ещё не ошибка (Slerp float).</summary>
     public const float UnitTolerance = 1e-3f;
 
-    public static IEnumerable<IInvariant> For(PosePool pool, ActionTable actions) =>
-        [new Finite(pool), new Settled(pool), new Pool(pool), new Owners(pool), new Actions(pool, actions)];
+    public static IEnumerable<IInvariant> For(PosePool pool, ActionTable actions, StrikeTable strikes) =>
+        [new Finite(pool), new Settled(pool), new Pool(pool), new Owners(pool), new Actions(pool, actions, strikes)];
 
     /// <summary>
     /// <c>animation.finite</c> — у живых поз локальные повороты конечны и единичной длины, смещения конечны: после стадии
@@ -221,12 +222,18 @@ public static class AnimationInvariants
     /// 6б) он есть (<see cref="AnimatorAction"/> и <see cref="ActionPoses"/>) — иначе враг не поворачивает и не разгоняется
     /// (<c>RootSteerSystem</c> ведёт не-<c>Agile</c> только со слоем), а удары этапа 6 игроку некуда ставить; состояние и поза — вместе; вес в 0…1, числа конечны;
     /// клип задан тогда и только тогда, когда действие идёт; без действия вес 0; поворот — клипом поворота с растяжением
-    /// 0,5…1,6; поза слоя — живая, своя и не итоговая поза бойца; идёт действие — поза уже взята. В конце тика.
+    /// 0,5…1,6; поза слоя — живая, своя и не итоговая поза бойца; идёт действие — поза уже взята. С 6в: время — 0…длительность;
+    /// удар — удар таблицы (его клип и слой), начат только оттуда, где боец мог ударить (<see cref="AnimatorAction.From"/>,
+    /// <c>ActionLayer.CanAct</c>); вид рывка — только у игрока, клипом уклонения; доля клипа в ногах и переход от снимка — 0…1;
+    /// снимок скопирован (<see cref="ActionPoses.Snapped"/>), идёт переход — поза снимка живая и своя; номер удара бойца не убывает
+    /// (память между тиками — по номеру сущности). В конце тика.
     /// </summary>
-    private sealed class Actions(PosePool pool, ActionTable actions) : IInvariant
+    private sealed class Actions(PosePool pool, ActionTable actions, StrikeTable strikes) : IInvariant
     {
         private ReadQuery? _steady, _states;
         private Entity[] _owner = [];
+        private Entity[] _serialOf = [];
+        private int[] _serial = [];
 
         public string Id => "animation.actions";
         public InvariantCost Cost => InvariantCost.EveryTick;
@@ -257,11 +264,28 @@ public static class AnimationInvariants
                 for (int i = 0; i < entities.Length; i++)
                 {
                     var e = entities[i];
-                    if (Problem(world, e, states[i]) is not { } problem) continue;
+                    if ((Problem(world, e, states[i]) ?? Serial(e, states[i].AttackSerial)) is not { } problem) continue;
                     violations.Report(e, problem);
                     if (violations.Full) return;
                 }
             }
+        }
+
+        /// <summary>Номер удара не убывает: память — последний номер сущности (по номеру; другое поколение — другой боец).</summary>
+        private string? Serial(Entity e, int serial)
+        {
+            if ((uint)e.Index >= (uint)_serial.Length)
+            {
+                int n = Math.Max(e.Index + 1, _serial.Length * 2);
+                Array.Resize(ref _serial, n);
+                Array.Resize(ref _serialOf, n);
+            }
+            bool same = _serialOf[e.Index] == e;
+            int before = _serial[e.Index];
+            _serialOf[e.Index] = e;
+            _serial[e.Index] = serial;
+            if (serial < 0) return $"номер удара {serial} меньше 0";
+            return same && serial < before ? $"номер удара убыл: {before} → {serial}" : null;
         }
 
         private string? Problem(WorldReader world, Entity e, in AnimatorAction a)
@@ -271,11 +295,31 @@ public static class AnimationInvariants
             if (!float.IsFinite(a.Time) || !float.IsFinite(a.Duration) || !float.IsFinite(a.TurnScale) || !float.IsFinite(a.YawDelta)
                 || !float.IsFinite(a.RootDelta.X) || !float.IsFinite(a.RootDelta.Y) || !float.IsFinite(a.RootDelta.Z))
                 return $"нечисловое время {a.Time}, длительность {a.Duration}, растяжение {a.TurnScale}, поворот {a.YawDelta} или сдвиг {a.RootDelta}";
+            if (!(a.Stand is >= 0 and <= 1) || !(a.SnapFade is >= 0 and <= 1) || a.Snapshots < 0)
+                return $"доля клипа в ногах {a.Stand}, переход от снимка {a.SnapFade} вне 0…1 или снимков {a.Snapshots}";
+            if (a.Kind != ActionKind.None && (a.Time < 0 || a.Time > a.Duration || !(a.Rate > 0) || !float.IsFinite(a.Rate)))
+                return $"время действия {a.Time} вне 0…{a.Duration} или скорость клипа {a.Rate}";
+            var attacks = strikes.Attacks;
             switch (a.Kind)
             {
                 case ActionKind.None:
                     if (a.Clip != -1) return $"действия нет, а клип {a.Clip}";
                     if (a.Weight != 0) return $"действия нет, а вес {a.Weight}";
+                    if (a.Attack != -1) return $"действия нет, а удар {a.Attack}";
+                    break;
+                case ActionKind.Attack:
+                    if ((uint)a.Attack >= (uint)attacks.Length) return $"удар {a.Attack} вне таблицы ударов ({attacks.Length})";
+                    if (a.Clip != attacks[a.Attack].Clip || a.Upper != attacks[a.Attack].Upper)
+                        return $"удар {attacks[a.Attack].Slot}: клип {a.Clip} и слой верха {a.Upper}, а в таблице — {attacks[a.Attack].Clip} и {attacks[a.Attack].Upper}";
+                    if (!ActionLayer.CanAct(a.From, a.FromTime, a.FromAttack, world.Has<PlayerTag>(e), attacks))
+                        return $"удар {attacks[a.Attack].Slot} начат, когда бить было нельзя: из {a.From} на {a.FromTime} с (удар {a.FromAttack})";
+                    break;
+                case ActionKind.Dash:
+                    if (!world.Has<PlayerTag>(e)) return "вид рывка у врага — рывок только у игрока";
+                    if (a.Clip != actions.Clip[ActionSlots.EvadeForward] && a.Clip != actions.Clip[ActionSlots.EvadeBack]
+                        && a.Clip != actions.Clip[ActionSlots.EvadeLeft] && a.Clip != actions.Clip[ActionSlots.EvadeRight])
+                        return $"вид рывка клипом {a.Clip} — не клип уклонения";
+                    if (a.Upper || a.RootDelta != Vector3.Zero) return $"вид рывка — слоем верха ({a.Upper}) или со сдвигом клипом {a.RootDelta}";
                     break;
                 case ActionKind.Turn:
                     if ((uint)a.Clip >= (uint)pool.Clips.ClipCount) return $"поворот: клипа {a.Clip} нет в библиотеке";
@@ -288,6 +332,24 @@ public static class AnimationInvariants
                     return $"неизвестное действие {(byte)a.Kind}";
             }
             var core = world.TryGet<PoseRef>(e, out var r) ? new PoseHandle(r.Index, r.Generation) : PoseHandle.None;
+            if (!core.IsNone && poses.Snapped != a.Snapshots) return $"снимков запрошено {a.Snapshots}, скопировано {poses.Snapped}";
+            var snap = poses.Snap;
+            if (!snap.IsNone)
+            {
+                if (!pool.IsAlive(snap)) return $"поза снимка {snap} не жива";
+                if (snap == core || snap == poses.Layer) return $"поза снимка {snap} — это итоговая поза бойца или поза слоя";
+                if (!_owner[snap.Index].IsNull) return $"поза снимка {snap} — ещё и у {_owner[snap.Index]}";
+                _owner[snap.Index] = e;
+            }
+            else if (a.SnapFade < 1 && !core.IsNone) return $"идёт переход от снимка ({a.SnapFade}), а позы снимка нет";
+            foreach (var memory in (ReadOnlySpan<PoseHandle>)[poses.BlendOutput, poses.BlendShortest])
+            {
+                if (memory.IsNone) continue;
+                if (!pool.IsAlive(memory)) return $"поза памяти смешивания {memory} не жива";
+                if (memory == core || memory == poses.Layer || memory == snap) return $"поза памяти смешивания {memory} — это итоговая поза, слой или снимок";
+                if (!_owner[memory.Index].IsNull) return $"поза памяти смешивания {memory} — ещё и у {_owner[memory.Index]}";
+                _owner[memory.Index] = e;
+            }
             var h = poses.Layer;
             if (h.IsNone) return a.Kind != ActionKind.None && !core.IsNone ? $"действие {a.Kind} идёт, а позы слоя действий нет" : null;
             if (!pool.IsAlive(h)) return $"поза слоя действий {h} не жива";

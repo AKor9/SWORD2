@@ -206,7 +206,8 @@ public sealed class ReferenceTraceTests
         Assert.Equal(doc.GetProperty("clips").GetInt32(), assets.Clips.ClipCount);
         var segments = TurnSegments(doc);
 
-        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=1"), assets);
+        // Мирный враг (6в): трасса SWORD снята без удара ИИ — регрессия поворота 4г.
+        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=1", "combat.enemiesAttack=false"), assets);
         var enemy = Enemy(sim);
         // Начало трассы — расстановка SWORD2 (счётчиковый ГСЧ, sim.seed 1): другая — снять трассу заново (README трассы).
         var start = doc.GetProperty("start");
@@ -258,6 +259,114 @@ public sealed class ReferenceTraceTests
         Assert.Equal(3, summary.GetProperty("turnClips").GetArrayLength());
         Assert.True(summary.GetProperty("idleTurnTicks").GetInt32() > 0 && summary.GetProperty("clipDrivenTicks").GetInt32() > 0);
         Assert.Equal(ticks.GetArrayLength(), compared);
+    }
+
+    // ── Слой действий (точка 6в) ────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Точка 6в: трасса <c>tests/reference/anim-actions.trace.json</c> — настоящий <c>FighterAnimator</c> SWORD игрока (<c>Agile</c>) и
+    /// врага (не-<c>Agile</c>) и <c>PlayerAttackPicker</c> (программа трассы, сценарий <c>actions</c>): удары разных слотов стоя, на ходу
+    /// и шагом, связка из 4 с буфером нажатия, жесты, укол, прерывание (снимок позы), обрезка хвоста удара на бегу, удар врага из
+    /// удара, из поворота и на ходу. Здесь тот же сценарий командами: игроку — <see cref="PlayerCommand"/> (ход, взгляд, удар с жестом
+    /// в системе бойца, укол), врагу места 1 — <see cref="EnemyCommand"/> (намерение и удар), враги мирные (удар ИИ выключен). Тик за
+    /// тиком побитово у обоих: корень, курс, клип локомоции, действие и клип, время, вес, слой верха, обрезка хвоста, поворот и сдвиг
+    /// клипом, переход от снимка, снимков, номер удара, поза. Рывка в трассе нет (он в SWORD2 новый); отзывчивость игрока SWORD2
+    /// (<c>MoveScale</c> 1 при любом действии) на ударах пака не отличается от <c>Agile</c> SWORD — все удары пака слоем верха.
+    /// </summary>
+    [Fact]
+    public void Actions_MatchSwordTickByTick()
+    {
+        CharacterAssets assets;
+        using (var pak = PakSource.Open(ReferencePak())) assets = CharacterAssets.Load(pak);
+        using var trace = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "tests", "reference", "anim-actions.trace.json")));
+        var doc = trace.RootElement;
+        Assert.Equal(doc.GetProperty("clips").GetInt32(), assets.Clips.ClipCount);
+        var moves = doc.GetProperty("playerMoves").EnumerateArray().Select(m => (End: m.GetProperty("End").GetInt32(),
+            Move: new Vector2(m.GetProperty("move")[0].GetSingle(), m.GetProperty("move")[1].GetSingle()), Walk: m.GetProperty("Walk").GetBoolean(),
+            Gaze: m.GetProperty("gaze").ValueKind == JsonValueKind.Null ? (Vector2?)null
+                : new Vector2(m.GetProperty("gaze")[0].GetSingle(), m.GetProperty("gaze")[1].GetSingle()))).ToArray();
+        var presses = doc.GetProperty("playerPresses").EnumerateArray().ToDictionary(p => p.GetProperty("Tick").GetInt32(),
+            p => (Stab: p.GetProperty("Stab").GetBoolean(), Gesture: new Vector2(p.GetProperty("gesture")[0].GetSingle(), p.GetProperty("gesture")[1].GetSingle())));
+        var enemyMoves = doc.GetProperty("enemyMoves").EnumerateArray().Select(m => (End: m.GetProperty("End").GetInt32(),
+            Velocity: new Vector2(m.GetProperty("velocity")[0].GetSingle(), m.GetProperty("velocity")[1].GetSingle()),
+            Facing: m.GetProperty("FacingGoal").GetSingle())).ToArray();
+        var strikes = doc.GetProperty("enemyStrikes").EnumerateArray().ToDictionary(s => s.GetProperty("Tick").GetInt32(), s => s.GetProperty("Attack").GetInt32());
+
+        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=1", "combat.enemiesAttack=false"), assets);
+        var player = GameCore.Player(sim.World);
+        var enemy = Enemy(sim);
+        var start = doc.GetProperty("enemyStart");
+        var t0 = sim.World.Get<Transform>(enemy);
+        Assert.True(start.GetProperty("root")[0].GetSingle() == t0.Position.X && start.GetProperty("root")[1].GetSingle() == t0.Position.Z
+            && start.GetProperty("facing").GetSingle() == t0.Facing,
+            $"враг 1 построен в ({t0.Position.X:R}, {t0.Position.Z:R}) курсом {t0.Facing:R}, а трасса начинается с {start} — снять трассу заново");
+
+        var poses = sim.World.View<IAnimationView>();
+        var ticks = doc.GetProperty("ticks");
+        Assert.Equal(moves[^1].End, ticks.GetArrayLength());
+        int compared = 0;
+        foreach (var expected in ticks.EnumerateArray())
+        {
+            int t = expected.GetProperty("tick").GetInt32() - 1;
+            var m = moves.First(s => t < s.End);
+            var command = new PlayerCommand
+            {
+                Move = m.Move, Walk = m.Walk, HasGaze = m.Gaze is not null, Gaze = m.Gaze is { } g ? new Vector3(g.X, 0, g.Y) : default,
+            };
+            if (presses.TryGetValue(t, out var press))
+            {
+                command.Stab = press.Stab;
+                command.Attack = !press.Stab;
+                command.Gesture = press.Gesture;
+            }
+            var em = enemyMoves.First(s => t < s.End);
+            sim.Enqueue(command);
+            sim.Enqueue(new EnemyCommand { Slot = 1, Velocity = em.Velocity, FacingGoal = em.Facing, Attack = strikes.TryGetValue(t, out int k) ? k + 1 : 0 });
+            sim.Step();
+            CompareFighter(sim, assets, poses, player, expected.GetProperty("player"), $"тик {t + 1}, игрок");
+            CompareFighter(sim, assets, poses, enemy, expected.GetProperty("enemy"), $"тик {t + 1}, враг");
+            compared++;
+        }
+        Assert.True(sim.Invariants.Total == 0, string.Join("; ", sim.Invariants.Recent().Take(5).Select(v => $"{v.Id} тик {v.Tick} {v.Stage}: {v.Details}")));
+        // Сценарий покрывает: связку и жесты с прерыванием (снимки у игрока), удары врага из удара и из поворота, обрезку хвоста.
+        var summary = doc.GetProperty("summary");
+        Assert.True(summary.GetProperty("playerAttacks").GetInt32() >= 10 && summary.GetProperty("playerSnapshots").GetInt32() >= 3);
+        Assert.True(summary.GetProperty("enemyAttacks").GetInt32() >= 6 && summary.GetProperty("enemySnapshots").GetInt32() >= 2);
+        Assert.True(summary.GetProperty("cutRecoveryTicks").GetInt32() > 0);
+        Assert.Equal(ticks.GetArrayLength(), compared);
+    }
+
+    private static void CompareFighter(Simulation sim, CharacterAssets assets, IAnimationView poses, Engine.Ecs.Entity e, JsonElement expected, string who)
+    {
+        var t = sim.World.Get<Transform>(e);
+        var a = sim.World.Get<AnimatorAction>(e);
+        string clip = assets.Clips.Clips[sim.World.Get<LegacyLocomotionState>(e).Clip].Name;
+        string actionClip = a.Kind == ActionKind.None ? "" : assets.Clips.Clips[a.Clip].Name;
+        var root = expected.GetProperty("root");
+        string where = $"{who}: SWORD {expected.GetProperty("action").GetString()} {expected.GetProperty("actionClip").GetString()} " +
+            $"t={expected.GetProperty("actionTime").GetSingle()} w={expected.GetProperty("actionWeight").GetSingle()} ({root[0].GetSingle()}, " +
+            $"{root[1].GetSingle()}) курс {expected.GetProperty("facing").GetSingle()}; SWORD2 {a.Kind} {actionClip} t={a.Time} w={a.Weight} " +
+            $"({t.Position.X}, {t.Position.Z}) курс {t.Facing}";
+        Assert.True(expected.GetProperty("clip").GetString() == clip, "клип локомоции: " + where);
+        Assert.True(expected.GetProperty("action").GetString() == a.Kind.ToString(), "действие: " + where);
+        Assert.True(expected.GetProperty("actionClip").GetString() == actionClip, "клип действия: " + where);
+        if (a.Kind != ActionKind.None)
+        {
+            Assert.True(expected.GetProperty("actionTime").GetSingle() == a.Time, "время действия: " + where);
+            Assert.True(expected.GetProperty("upper").GetBoolean() == a.Upper, "слой верха: " + where);
+            Assert.True(expected.GetProperty("cutRecovery").GetBoolean() == a.CutRecovery, "обрезка хвоста: " + where);
+        }
+        Assert.True(expected.GetProperty("actionWeight").GetSingle() == a.Weight, "вес: " + where);
+        Assert.True(expected.GetProperty("yawDelta").GetSingle() == a.YawDelta, "поворот клипом: " + where);
+        var rootDelta = expected.GetProperty("rootDelta");
+        Assert.True(rootDelta[0].GetSingle() == a.RootDelta.X && rootDelta[1].GetSingle() == a.RootDelta.Z, $"сдвиг клипом {a.RootDelta}: " + where);
+        Assert.True(expected.GetProperty("snapFade").GetSingle() == a.SnapFade, $"переход от снимка {a.SnapFade}: " + where);
+        Assert.True(expected.GetProperty("snapshots").GetInt32() == a.Snapshots, $"снимков {a.Snapshots}: " + where);
+        Assert.True(expected.GetProperty("attackSerial").GetInt32() == a.AttackSerial, $"номер удара {a.AttackSerial}: " + where);
+        Assert.True(root[0].GetSingle() == t.Position.X && root[1].GetSingle() == t.Position.Z, "корень: " + where);
+        Assert.True(expected.GetProperty("facing").GetSingle() == t.Facing, "курс: " + where);
+        string hash = PoseHash(poses.Model(sim.World.Get<PoseRef>(e))).ToString("X16");
+        Assert.True(expected.GetProperty("poseHash").GetString() == hash, "поза: " + where);
     }
 
     // ── Толпа (точка 4д) ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -395,7 +504,8 @@ public sealed class ReferenceTraceTests
     /// <summary>Прогон сценария толпы в SWORD2: расстановка (постройки по тикам) и бойцы по местам после каждого тика.</summary>
     public static (List<CrowdSpawn> Spawns, List<CrowdFighter[]> Ticks, int Violations) RunCrowd(CharacterAssets assets, CrowdScenario scenario)
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty($"arena.enemies={scenario.Enemies}", $"sim.seed={scenario.Seed}"), assets);
+        // Мирные враги (6в): копия EnemyAi.Think трассы — без удара по таймеру (регрессия 4д–5г).
+        var sim = SwordSimulation.Create(ConfigSet.Empty($"arena.enemies={scenario.Enemies}", $"sim.seed={scenario.Seed}", "combat.enemiesAttack=false"), assets);
         var w = sim.World;
         var poses = w.View<IAnimationView>();
         var bodies = w.View<IBodyView>();

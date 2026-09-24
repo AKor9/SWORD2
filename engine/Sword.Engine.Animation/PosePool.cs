@@ -10,6 +10,25 @@ public readonly record struct PoseHandle(int Index, int Generation)
     public override string ToString() => IsNone ? "нет" : $"{Index}v{Generation}";
 }
 
+/// <summary>
+/// Маска суставов, зарегистрированная в пуле (<see cref="PosePool.AddMask"/>): вес каждого сустава скелета 0…1 для
+/// <see cref="PosePool.BlendMasked"/> (слой верха тела: ноги и таз — 0, позвоночник нарастает, корпус, руки и голова — 1).
+/// </summary>
+public readonly record struct PoseMask(int Index)
+{
+    public override string ToString() => $"маска {Index}";
+}
+
+/// <summary>
+/// Память смешивания по маске (<see cref="PosePool.BlendMasked"/>): две позы — итог прошлого тика (<see cref="Output"/>) и итог по
+/// кратчайшей дуге прошлого тика (<see cref="Shortest"/>); <see cref="Continuous"/> — в них прошлый тик того же смешивания
+/// (иначе — только записать).
+/// </summary>
+public readonly record struct BlendMemory(PoseHandle Output, PoseHandle Shortest, bool Continuous)
+{
+    public bool IsNone => Output.IsNone || Shortest.IsNone;
+}
+
 /// <summary>Итог одного <see cref="PosePool.Tick"/>: сколько заданий каждого вида выполнено и сколько пропущено.</summary>
 public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale)
 {
@@ -20,23 +39,34 @@ public readonly record struct PoseTickStats(int Samples, int Blends, int Copies,
 /// Пул поз одного скелета (раздел 6 плана: подсистема владеет позами, наружу — хэндлы). Поза — локальные повороты
 /// и смещения всех суставов и модельные матрицы (итог прямой кинематики). Слоты лежат подряд в общих массивах.
 ///
-/// Позы меняются только заданиями: системы тика ставят <see cref="Sample"/>, <see cref="Blend"/>, <see cref="Copy"/>,
-/// <see cref="ToModel"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
+/// Позы меняются только заданиями: системы тика ставят <see cref="Sample"/>, <see cref="Blend"/>, <see cref="BlendMasked"/>,
+/// <see cref="Copy"/>, <see cref="ToModel"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
 /// Animation), дальше позы читают (Pull, клиент). Порядок заданий одной позы сохраняется, поэтому итог совпадает
 /// с последовательными вызовами <c>SkeletalClips</c> SWORD. Задание к позе, освобождённой до <see cref="Tick"/>,
 /// пропускается (<see cref="PoseTickStats.Stale"/>). Установившийся тик не выделяет памяти.
 /// </summary>
 public sealed class PosePool
 {
-    private enum Op : byte { Sample, Blend, Copy, ToModel }
+    private enum Op : byte { Sample, Blend, BlendMasked, Copy, ToModel }
 
     private struct Job
     {
         public Op Op;
         public PoseHandle Dst, Src;
-        public int Clip;
+        public int Clip;      // клип сэмпла или маска смешивания по маске
         public float Value;   // время клипа или вес смешивания
+        public float Stand;   // смешивание по маске: доля клипа в суставах вне маски
+        public BlendMemory Memory;   // смешивание по маске: память (None — без неё)
     }
+
+    /// <summary>
+    /// Смешивание по маске с памятью: наибольший поворот сустава за задание, пока итог догоняет кратчайшую дугу после её
+    /// перескока, рад (8° — 960°/с при 120 Гц: таз, перескочивший на 180°, доворачивается за 0,19 с, на 24° — за 3 тика).
+    /// </summary>
+    public const float MaxArcStep = 8 * MathF.PI / 180;
+
+    /// <summary>Косинус половины <see cref="MaxArcStep"/>: итог дальше от прошлого — поворот больше шага.</summary>
+    public static readonly float ArcStepCos = MathF.Cos(MaxArcStep / 2);
 
     private readonly int _jc;
     private Quaternion[] _rot = [];
@@ -48,12 +78,15 @@ public sealed class PosePool
     private readonly Matrix4x4[] _referenceModel;
     private Job[] _jobs = new Job[64];
     private int _jobCount;
+    private readonly List<float[]> _masks = [];
+    private readonly float[] _layer;   // маска задания «смешать по маске» с долей stand — считается на задание
 
     public PosePool(ClipLibrary clips, int capacity = 16)
     {
         Clips = clips;
         _jc = clips.JointCount;
         _referenceModel = new Matrix4x4[_jc];
+        _layer = new float[_jc];
         Skeleton.ToModel(Skeleton.ReferenceRot, Skeleton.ReferencePos, _referenceModel);
         Grow(Math.Max(capacity, 1));
     }
@@ -166,6 +199,53 @@ public sealed class PosePool
         Push(new Job { Op = Op.Blend, Dst = dst, Src = src, Value = weight });
     }
 
+    /// <summary>
+    /// Маска суставов для <see cref="BlendMasked"/>: вес каждого сустава скелета, 0…1 (копируется). Маски регистрируются при
+    /// настройке симуляции, номер — порядок регистрации.
+    /// </summary>
+    /// <exception cref="ArgumentException">Длина — не число суставов скелета или вес вне 0…1.</exception>
+    public PoseMask AddMask(ReadOnlySpan<float> weights)
+    {
+        if (weights.Length != _jc) throw new ArgumentException($"маска на {weights.Length} суставов, а в скелете {_jc}", nameof(weights));
+        for (int j = 0; j < weights.Length; j++)
+            if (!(weights[j] is >= 0 and <= 1))
+                throw new ArgumentException($"вес сустава {Skeleton.JointNames[j]} в маске — {weights[j]}, а не 0…1", nameof(weights));
+        _masks.Add(weights.ToArray());
+        return new PoseMask(_masks.Count - 1);
+    }
+
+    /// <summary>Масок в пуле.</summary>
+    public int MaskCount => _masks.Count;
+
+    /// <summary>Веса маски по суставам.</summary>
+    public ReadOnlySpan<float> Mask(PoseMask mask) => _masks[mask.Index];
+
+    /// <summary>
+    /// Задание: смешать <paramref name="src"/> в <paramref name="dst"/> по маске — вес сустава j равен
+    /// <c>weight·(mask[j] + (1 − mask[j])·stand)</c> (<c>CharacterRig.LayerMask</c> и <c>SkeletalClips.Blend</c> с маской SWORD
+    /// 2eab13b: слой верха тела, <paramref name="stand"/> — доля клипа в суставах вне маски: стоя — 1, на ходу — 0). Дуга —
+    /// кратчайшая (<c>Quaternion.Slerp</c>, как SWORD).
+    ///
+    /// С памятью (<paramref name="memory"/>, 6в): кратчайшая дуга перескакивает на другую сторону, когда повороты сустава в двух
+    /// позах расходятся через 180° при частичном весе k (таз укола пака на полушаге: скачок min(k, 1 − k)·360° за тик). Перескок узнаётся
+    /// по тому, что итог по другой дуге ближе к прошлому итогу по кратчайшей, чем новый; тогда (и пока итог не догонит кратчайшую
+    /// дугу) итог сустава поворачивается к ней не больше чем на <see cref="MaxArcStep"/> за задание. Без перескока итог — побитово
+    /// как без памяти (SWORD); быстрое, но непрерывное движение (вход действия) не ограничивается.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Маски нет в пуле.</exception>
+    public void BlendMasked(PoseHandle dst, PoseHandle src, float weight, PoseMask mask, float stand, BlendMemory memory = default)
+    {
+        Check(dst);
+        Check(src);
+        if (!memory.IsNone)
+        {
+            Check(memory.Output);
+            Check(memory.Shortest);
+        }
+        if ((uint)mask.Index >= (uint)_masks.Count) throw new ArgumentOutOfRangeException(nameof(mask), mask, $"масок в пуле {_masks.Count}");
+        Push(new Job { Op = Op.BlendMasked, Dst = dst, Src = src, Clip = mask.Index, Value = weight, Stand = stand, Memory = memory });
+    }
+
     /// <summary>Задание: локальная поза <paramref name="src"/> — в <paramref name="dst"/>.</summary>
     public void Copy(PoseHandle dst, PoseHandle src)
     {
@@ -195,7 +275,7 @@ public sealed class PosePool
         for (int n = 0; n < _jobCount; n++)
         {
             ref readonly var job = ref _jobs[n];
-            if (!IsAlive(job.Dst) || job.Op is Op.Blend or Op.Copy && !IsAlive(job.Src))
+            if (!IsAlive(job.Dst) || job.Op is Op.Blend or Op.BlendMasked or Op.Copy && !IsAlive(job.Src))
             {
                 stale++;
                 continue;
@@ -211,6 +291,19 @@ public sealed class PosePool
                 {
                     int s = job.Src.Index * _jc;
                     ClipLibrary.Blend(_rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), _rot.AsSpan(s, _jc), _pos.AsSpan(s, _jc), job.Value);
+                    blends++;
+                    break;
+                }
+                case Op.BlendMasked:
+                {
+                    int s = job.Src.Index * _jc;
+                    LayerMask(_masks[job.Clip], job.Stand, _layer);
+                    var m = job.Memory;
+                    if (!m.IsNone && IsAlive(m.Output) && IsAlive(m.Shortest))
+                        BlendFollowingArc(_rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), _rot.AsSpan(s, _jc), _pos.AsSpan(s, _jc), job.Value, _layer,
+                            _rot.AsSpan(m.Output.Index * _jc, _jc), _rot.AsSpan(m.Shortest.Index * _jc, _jc), m.Continuous);
+                    else
+                        ClipLibrary.Blend(_rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), _rot.AsSpan(s, _jc), _pos.AsSpan(s, _jc), job.Value, _layer);
                     blends++;
                     break;
                 }
@@ -233,5 +326,64 @@ public sealed class PosePool
         }
         _jobCount = 0;
         return LastTick = new PoseTickStats(samples, blends, copies, models, stale);
+    }
+
+    /// <summary>
+    /// Маска задания с долей <paramref name="stand"/>: <c>mask[j] + (1 − mask[j])·stand</c> — выражение
+    /// <c>CharacterRig.LayerMask</c> SWORD (побитово). Цикл по суставам — свой метод: <see cref="Tick"/> зовётся раз в тик.
+    /// </summary>
+    private static void LayerMask(ReadOnlySpan<float> mask, float stand, Span<float> into)
+    {
+        for (int j = 0; j < mask.Length; j++) into[j] = mask[j] + (1 - mask[j]) * stand;
+    }
+
+    /// <summary>
+    /// <see cref="ClipLibrary.Blend"/> с маской и памятью (<see cref="BlendMasked"/>): итог сустава — по кратчайшей дуге, кроме
+    /// сустава, у которого кратчайшая дуга перескочила или итог её ещё догоняет (<paramref name="output"/> прошлого тика не равен
+    /// <paramref name="shortest"/>): тот поворачивается к ней не больше чем на <see cref="MaxArcStep"/>. Память переписывается.
+    /// </summary>
+    private static void BlendFollowingArc(Span<Quaternion> aRot, Span<Vector3> aPos, ReadOnlySpan<Quaternion> bRot, ReadOnlySpan<Vector3> bPos,
+        float w, ReadOnlySpan<float> mask, Span<Quaternion> output, Span<Quaternion> shortest, bool continuous)
+    {
+        for (int j = 0; j < aRot.Length; j++)
+        {
+            float k = w * mask[j];
+            var target = k > 0 ? Quaternion.Slerp(aRot[j], bRot[j], k) : aRot[j];
+            var result = target;
+            if (continuous)
+            {
+                bool follow = output[j] != shortest[j];   // прошлый итог ещё догонял кратчайшую дугу
+                if (!follow && k > 0 && k < 1)
+                {
+                    float near = MathF.Abs(Quaternion.Dot(target, shortest[j]));
+                    if (near < ArcStepCos) follow = MathF.Abs(Quaternion.Dot(OtherArc(aRot[j], bRot[j], k), shortest[j])) > near;
+                }
+                if (follow) result = StepToward(output[j], target, MaxArcStep);
+            }
+            output[j] = result;
+            shortest[j] = target;
+            aRot[j] = result;
+            if (k > 0) aPos[j] = Vector3.Lerp(aPos[j], bPos[j], k);
+        }
+    }
+
+    /// <summary>
+    /// Сферическое смешивание <paramref name="a"/> → <paramref name="b"/> по другой (длинной) дуге — через −b, если кратчайшая идёт
+    /// к b; повороты почти совпадают (длинная дуга — полный оборот) — кратчайшая.
+    /// </summary>
+    public static Quaternion OtherArc(Quaternion a, Quaternion b, float t)
+    {
+        float d = Quaternion.Dot(a, b);
+        var c = d >= 0 ? -b : b;
+        float omega = MathF.Acos(Math.Clamp(-MathF.Abs(d), -1, 1)), sin = MathF.Sin(omega);
+        if (sin < 1e-4f) return Quaternion.Slerp(a, b, t);
+        return Quaternion.Normalize(a * (MathF.Sin((1 - t) * omega) / sin) + c * (MathF.Sin(t * omega) / sin));
+    }
+
+    /// <summary>Поворот <paramref name="from"/> к <paramref name="to"/> не больше чем на <paramref name="maxAngle"/> рад; ближе — ровно <paramref name="to"/>.</summary>
+    public static Quaternion StepToward(Quaternion from, Quaternion to, float maxAngle)
+    {
+        float angle = 2 * MathF.Acos(Math.Min(1, MathF.Abs(Quaternion.Dot(from, to))));
+        return angle <= maxAngle ? to : Quaternion.Normalize(Quaternion.Slerp(from, to, maxAngle / angle));
     }
 }

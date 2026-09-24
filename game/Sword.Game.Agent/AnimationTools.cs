@@ -25,9 +25,11 @@ public static class AnimationTools
             Name = "anim.pose", Title = "Поза бойца",
             Description = "Поза бойца последнего тика: суставы в пространстве персонажа (+Z вперёд, +X влево, Y вверх, м) и в мире " +
                 "(поворот на курс и перенос в корень, без высоты рельефа), корень и курс; счётчики пула поз (живые позы, задания " +
-                "последнего тика, пропущенные); у бойца со слоем действий (враг) — action: действие (None, Turn — поворот на месте), " +
-                "клип с именем, время и длительность, вес слоя и его доля в позе, растяжение yaw клипа, поворот курса и сдвиг корня " +
-                "клипом за тик. joints — имена суставов (по умолчанию таз, позвоночник, голова, кисти, стопы).",
+                "последнего тика, пропущенные); у бойца со слоем действий — action: действие (None, Attack — удар, Dash — вид рывка, " +
+                "Turn — поворот на месте), клип с именем, время и длительность, вес слоя и его доля в позе, растяжение yaw клипа, " +
+                "поворот курса и сдвиг корня клипом за тик; удар — слот (slash1–4, stab1–3), номер удара бойца, слой верха и доля клипа " +
+                "в ногах, обрезан ли хвост; снимок позы — переход и сколько снимков; что прервано последним действием. joints — имена " +
+                "суставов (по умолчанию таз, позвоночник, голова, кисти, стопы).",
             Arguments = new JsonObject
             {
                 ["entity"] = new JsonObject { ["type"] = "string", ["description"] = "номер «12v3» или имя (по умолчанию player)" },
@@ -104,7 +106,8 @@ public static class AnimationTools
             ["joints"] = list,
             ["pool"] = new JsonObject { ["poses"] = view.PoseCount, ["jobsLastTick"] = view.LastTickJobs, ["staleLastTick"] = view.LastTickStale },
         };
-        if (world.Knows<AnimatorAction>() && world.TryGet<AnimatorAction>(e, out var action)) data["action"] = Action(view, action);
+        if (world.Knows<AnimatorAction>() && world.TryGet<AnimatorAction>(e, out var action))
+            data["action"] = Action(view, world.TryView<ICombatView>(out var combat) ? combat : null, action);
         return (data, ctx.Point);
     }
 
@@ -112,9 +115,10 @@ public static class AnimationTools
     /// Слой действий бойца (4г, <see cref="AnimatorAction"/>): действие, клип с именем, время и длительность, вес слоя и его
     /// сглаженная доля в позе, растяжение yaw клипа поворота и выход тика — поворот курса и сдвиг корня клипом.
     /// </summary>
-    private static JsonObject Action(IAnimationView view, in AnimatorAction a)
+    private static JsonObject Action(IAnimationView view, ICombatView? combat, in AnimatorAction a)
     {
         bool acting = a.Kind != ActionKind.None && (uint)a.Clip < (uint)view.ClipCount;
+        string? Slot(int attack) => combat is not null && (uint)attack < (uint)combat.Attacks.Length ? combat.Attacks[attack].Slot : null;
         return new JsonObject
         {
             ["kind"] = a.Kind.ToString(),
@@ -127,6 +131,15 @@ public static class AnimationTools
             ["turnScale"] = acting ? Round(a.TurnScale) : null,
             ["yawDelta"] = Math.Round(a.YawDelta, 6),
             ["rootDelta"] = new JsonArray(Math.Round(a.RootDelta.X, 6), Math.Round(a.RootDelta.Y, 6), Math.Round(a.RootDelta.Z, 6)),
+            ["attack"] = Slot(a.Attack),
+            ["attackSerial"] = a.AttackSerial,
+            ["upper"] = acting ? a.Upper : null,
+            ["stand"] = acting ? Round(a.Stand) : null,
+            ["cutRecovery"] = acting ? a.CutRecovery : null,
+            ["rate"] = acting ? Round(a.Rate) : null,
+            ["snapFade"] = Round(a.SnapFade),
+            ["snapshots"] = a.Snapshots,
+            ["interrupted"] = new JsonObject { ["kind"] = a.From.ToString(), ["time"] = Round(a.FromTime), ["attack"] = Slot(a.FromAttack) },
         };
     }
 

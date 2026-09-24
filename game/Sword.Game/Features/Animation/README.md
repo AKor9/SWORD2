@@ -41,10 +41,14 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 **Намеренных изменений семантики нет.** Не перенесено до своих этапов: слой действий, маски верха, вздрагивание, рука
 и IK кисти (этап 6), фиксация и постановка стоп, `FootDown` (этап 9), Motion Matching и визуальное смещение (этап 8),
 капсулы тела по позе (этап 5), оружие в руке (**сделано на 6б**: меч — жёсткое вложение в кисть hand_r позы, фича
-[«Бой»](../Combat/README.md)). Слой действий с 6б есть и у игрока — пока без действий (удары — 6в). Поворот на месте клипом у врагов — **сделан на точке 4г** (фича
+[«Бой»](../Combat/README.md)). Слой действий с 6б есть и у игрока; удары, вид рывка, маски верха и снимок позы — **сделаны на
+6в** (фича «Бой», раздел «6в: удар и рывок»; вздрагивание, рука и IK кисти — 6г и этап 10). Поворот на месте клипом у врагов — **сделан на точке 4г** (фича
 [«Враги»](../Enemies/README.md)): первый кусок слоя действий — компонент `AnimatorAction` (действие `Turn`), поза слоя —
 `ActionPoses`, логика — `ActionLayer` (`game/Sword.Game/Animation/AnimatorAction.cs`), шаг действия — в
-`AnimatorInputSystem`, смешивание всем телом — в `AnimatorPoseSystem`; снимок позы и прерывание действия — этап 6.
+`AnimatorInputSystem`, смешивание всем телом — в `AnimatorPoseSystem`; снимок позы и прерывание действия — **6в**: снимок —
+запрос в `AnimatorAction.Snapshots`, копия итоговой позы прошлого тика — `ActionSnapshotSystem` первой в Animation (поза
+`ActionPoses.Snap`), слой верха — задание пула `BlendMasked` по маске `ActionRules.UpperMask` (побитово против SWORD —
+`anim-actions.trace.json`, `ReferenceTraceTests.Actions_MatchSwordTickByTick`).
 Сверка с SWORD — вторая трасса `anim-turn.trace.json` (`ReferenceTraceTests.EnemyTurn_MatchesSwordTickByTick`).
 
 ## Устройство

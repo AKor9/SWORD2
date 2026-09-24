@@ -15,6 +15,9 @@ using Sword.Game.Gameplay;
 //   IdealFoot) и PlaceBodies (без клинка, BodyPlacer, фиксации стоп) с настоящими RigidBody, Xpbd.RotationVector, Terrain.
 // strikes (точка 6б) — не тики, а ассеты настоящего CharacterRig: клинки всех мечей пака (MakeWeapon) и таблица ударов
 //   слотов slash1–4, stab1–3 (Analyse → StrikeWindows.Find по кончику меча по умолчанию, клип _Blocked, длительность, укол, слой).
+// actions (точка 6в) — слой действий: настоящий FighterAnimator игрока (Agile) и врага (не-Agile) и PlayerAttackPicker; удары,
+//   связка, жест, укол, снимок позы при прерывании, обрезка хвоста удара на бегу; копии PlayerController (буфер удара),
+//   KinematicSteer/KinematicBegin (ActionsTrace).
 string pakPath = args[0], outPath = args[1];
 string scenarioName = args.Length > 2 ? args[2] : "player";
 using var pak = PakSource.Open(pakPath);
@@ -22,6 +25,11 @@ var rig = CharacterRig.TryLoad(pak) ?? throw new InvalidOperationException("не
 if (scenarioName == "strikes")
 {
     StrikesTrace.Run(rig, outPath);
+    return;
+}
+if (scenarioName == "actions")
+{
+    ActionsTrace.Run(rig, outPath);
     return;
 }
 if (scenarioName == "turn")
@@ -34,7 +42,7 @@ if (scenarioName == "crowd")
     CrowdTrace.Run(rig, args.Length > 3 ? args[3] : throw new ArgumentException("crowd: четвёртый аргумент — вход (crowd.input.json)"), outPath);
     return;
 }
-if (scenarioName != "player") throw new ArgumentException($"сценарий «{scenarioName}»: player, turn, crowd или strikes");
+if (scenarioName != "player") throw new ArgumentException($"сценарий «{scenarioName}»: player, turn, crowd, strikes или actions");
 var anim = new FighterAnimator(rig) { Agile = true };
 
 const float dt = 1f / 120, RunSpeed = 4.2f, WalkSpeed = 1.6f, KinTurnRate = 12f, KinAccel = 14f;
@@ -932,5 +940,251 @@ static class BuildShape
                 _b[foot] = ankle + along * FootLength + n * (swing ? 0.05f : Radii[foot] - AnkleY - heelLift);
             }
         }
+    }
+}
+
+/// <summary>
+/// Трасса слоя действий (точка 6в): настоящий <c>FighterAnimator</c> SWORD у игрока (<c>Agile</c>) и врага (не-<c>Agile</c>) — удары
+/// разных слотов стоя и на ходу, связка из 4 (нажатие ждёт в буфере 0,3 с), жест, укол, прерывание видимого действия (снимок позы:
+/// связка, удар врага из удара и из поворота), обрезка хвоста удара на бегу (<c>Agile</c>), удар врага на ходу (<c>MoveScale</c>
+/// 0,35), шагом (доля клипа в ногах между 0 и 1). Настоящие — <c>FighterAnimator</c> (<c>StartAttack</c>, <c>StartTurn</c>,
+/// <c>Tick</c>, <c>CanAttack</c>, <c>CanAct</c>, <c>TurnScale</c>, <c>MoveScale</c>, <c>MomentumHold</c>, <c>EvadeRecovery</c>) и
+/// <c>PlayerAttackPicker</c> (<c>Pick</c>; укол — <c>Random(1)</c>: в паке у уколов один клип). Копии, сверенные построчно с
+/// 2eab13b: <c>PlayerController.HandleInput</c>/<c>Think</c> (буфер удара, <c>anim.CanAttack</c>; рывка нет — он в SWORD2 новый),
+/// <c>KinematicSteer</c>/<c>KinematicBegin</c> (как в трассе поворота, обе ветки), <c>Fighter.DirToLocal</c>; удар врага — как
+/// <c>EnemyAi.Think</c> (<c>anim.CanAct</c> → <c>StartAttack</c>), но по сценарию (в SWORD2 — <c>EnemyCommand.Attack</c>), без
+/// таймера и дистанции. Жест — в системе бойца (x вправо, y вверх); в <c>Pick</c> он идёт экранным сдвигом мыши (x, −y)·30, как
+/// клиент SWORD. Бойцы далеко друг от друга, от колонн и края — столкновений корней нет; фиксация стоп (<c>PinFeet</c>) — этап 9.
+/// </summary>
+static class ActionsTrace
+{
+    public sealed record Move(int End, float X, float Z, bool Walk, Vector2? Gaze);
+    public sealed record Press(int Tick, bool Stab, Vector2 Gesture);
+    public sealed record EnemyMove(int End, float VelX, float VelZ, float FacingGoal);
+    public sealed record EnemyStrike(int Tick, int Attack);
+
+    /// <summary>Враг места 1 при сборке мира SWORD2 (arena.enemies = 1, sim.seed = 1) — как у трассы поворота.</summary>
+    public static readonly Vector3 EnemyStart = new(-4.9501686f, 0, -4.690737f);
+    public const float EnemyFacing = 0.81230116f;
+
+    /// <summary>Игрок: стоит, связка из 4, жесты, укол, удар на бегу (хвост обрезан), удар и бег после окна, удар шагом.</summary>
+    public static readonly Move[] PlayerMoves =
+    [
+        new(1040, 0, 0, false, new Vector2(0, 30)),
+        new(1200, 0, 1, false, new Vector2(0, 40)),
+        new(1320, 0, 0, false, null),
+        new(1440, 0, 1, false, null),
+        new(1560, 0.6f, 1, true, new Vector2(10, 60)),
+        new(1680, 0, 0, false, null),
+    ];
+
+    /// <summary>Нажатия игрока (тик — индекс цикла, как сегменты): ЛКМ (жест — ноль или направление), Q.</summary>
+    public static readonly Press[] PlayerPresses =
+    [
+        new(60, false, default), new(100, false, default), new(150, false, default), new(205, false, default),   // связка slash1–4
+        new(520, false, new Vector2(1, -0.2f)), new(700, false, new Vector2(-1, -0.4f)), new(760, false, new Vector2(0.2f, -1)),   // жесты
+        new(860, true, default),                                                                              // укол
+        new(1080, false, default),                                                                            // на бегу
+        new(1260, false, default),                                                                            // стоя, потом бег
+        new(1450, false, default),                                                                            // шагом
+    ];
+
+    /// <summary>Враг: стоит курсом постройки, поворот (+1,6 рад) с ударом из поворота, ход, стоит.</summary>
+    public static readonly EnemyMove[] EnemyMoves =
+    [
+        new(450, 0, 0, EnemyFacing),
+        new(700, 0, 0, EnemyFacing + 1.6f),
+        new(900, 0.8f, 0.6f, EnemyFacing + 1.6f),
+        new(1680, 0, 0, EnemyFacing + 1.6f),
+    ];
+
+    /// <summary>Удары врага: номер удара таблицы (0–3 — slash1–4, 4–6 — stab1–3); не может действовать — ничего (как ИИ).</summary>
+    public static readonly EnemyStrike[] EnemyStrikes =
+    [
+        new(30, 0), new(95, 1), new(250, 4), new(470, 2), new(750, 3), new(1000, 0), new(1070, 1),
+    ];
+
+    private const float dt = 1f / 120, RunSpeed = 4.2f, WalkSpeed = 1.6f, KinTurnRate = 12f, KinAccel = 14f, KinCarryAccel = 1.5f,
+        KinIdleTurnRate = 2.5f, KinTurnAnimMin = 45 * MathF.PI / 180, SwingBufferTime = 0.3f;
+
+    private sealed class F(FighterAnimator anim)
+    {
+        public readonly FighterAnimator Animator = anim;
+        public Vector3 Root, RootVel, DesiredVel;
+        public float Facing, FacingGoal;
+    }
+
+    private static T Private<T>(FighterAnimator anim, string field) =>
+        (T)typeof(FighterAnimator).GetField(field, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(anim)!;
+
+    public static void Run(CharacterRig rig, string outPath)
+    {
+        var attacks = rig.Slashes.Concat(rig.Stabs).ToArray();
+        var player = new F(new FighterAnimator(rig) { Agile = true });
+        var enemy = new F(new FighterAnimator(rig) { Agile = false }) { Root = EnemyStart, Facing = EnemyFacing, FacingGoal = EnemyFacing };
+        var picker = new PlayerAttackPicker();
+        var rng = new Random(1);
+        float time = 0, swingBuffer = 0;
+        Vector2 swingMouse = default;
+        bool swingStab = false, hasCursor = false;
+        Vector3 cursor = default;
+        int total = PlayerMoves[^1].End, playerStarts = 0, enemyStarts = 0, enemyIgnored = 0, cuts = 0;
+        var kinds = new SortedSet<string>(StringComparer.Ordinal);
+        var ticks = new List<object>();
+        for (int t = 0; t < total; t++)
+        {
+            time += dt;   // DuelArena.Tick: Time += dt
+            // PlayerController.HandleInput (нажатия кадра) и Think: буфер, ход, взгляд, удар
+            foreach (var p in PlayerPresses)
+                if (p.Tick == t)
+                {
+                    swingBuffer = SwingBufferTime;
+                    if (p.Stab) swingStab = true;
+                    else
+                    {
+                        swingMouse = p.Gesture == default ? default : new Vector2(p.Gesture.X, -p.Gesture.Y) * 30;
+                        swingStab = false;
+                    }
+                }
+            swingBuffer -= dt;
+            var move = PlayerMoves.First(m => t < m.End);
+            var wish = new Vector3(move.X, 0, move.Z);
+            if (wish.LengthSquared() > 0) wish = Vector3.Normalize(wish);
+            player.DesiredVel = wish * (move.Walk ? WalkSpeed : RunSpeed);
+            if (move.Gaze is { } g)
+            {
+                cursor = new Vector3(g.X, 0, g.Y);
+                hasCursor = true;
+            }
+            if (hasCursor)
+            {
+                var to = cursor - player.Root;
+                to.Y = 0;
+                if (to.LengthSquared() > 0.09f) player.FacingGoal = MathF.Atan2(to.X, to.Z);
+            }
+            player.Animator.SetBlock(false);
+            if (swingBuffer > 0 && player.Animator.CanAttack)
+            {
+                swingBuffer = 0;
+                player.Animator.StartAttack(picker.Pick(rig, time, swingMouse, swingStab, rng));
+                playerStarts++;
+            }
+            // EnemyAi.Think: намерение — сценарий; удар — по сценарию, когда может действовать
+            var em = EnemyMoves.First(m => t < m.End);
+            enemy.DesiredVel = new Vector3(em.VelX, 0, em.VelZ);
+            enemy.FacingGoal = em.FacingGoal;
+            enemy.Animator.SetBlock(false);
+            foreach (var s in EnemyStrikes)
+                if (s.Tick == t)
+                {
+                    if (enemy.Animator.CanAct)
+                    {
+                        enemy.Animator.StartAttack(attacks[s.Attack]);
+                        enemyStarts++;
+                    }
+                    else enemyIgnored++;
+                }
+            // KinematicBegin по местам: игрок, враг
+            Begin(player);
+            Begin(enemy);
+            if (player.Animator.Kind != FighterAnimator.ActionKind.None && Private<bool>(player.Animator, "_cutRecovery")) cuts++;
+            kinds.Add(player.Animator.Kind.ToString());
+            kinds.Add(enemy.Animator.Kind.ToString());
+            ticks.Add(new { tick = t + 1, player = Row(rig, player), enemy = Row(rig, enemy) });
+        }
+
+        var doc = new
+        {
+            purpose = "Трасса слоя действий SWORD 2eab13b для сверки точки 6в SWORD2: игрок (Agile) и враг (не-Agile) с настоящим " +
+                      "FighterAnimator — удары стоя, на ходу и шагом, связка, жест, укол, прерывание (снимок позы), обрезка хвоста удара на " +
+                      "бегу, удар врага из поворота и на ходу; PlayerAttackPicker настоящий, PlayerController (буфер удара), " +
+                      "KinematicSteer/KinematicBegin — копии; хеш — FNV-1a по битам всех 16 чисел модельных матриц суставов после тика.",
+            sourceCommit = "2eab13b2262f6b336c3fc9bdcd71fb3dfc5a51a4",
+            pakSha256 = "0c6f717303ac76b91ef0a1bc1b0b3a692827e79aa8513a6c701a41fcab92efd0",
+            tickRate = 120,
+            joints = rig.JointCount,
+            clips = rig.Clips.Clips.Length,
+            enemyStart = new { root = new[] { EnemyStart.X, EnemyStart.Z }, facing = EnemyFacing },
+            playerMoves = PlayerMoves.Select(m => new { m.End, move = new[] { m.X, m.Z }, m.Walk, gaze = m.Gaze is { } g ? new[] { g.X, g.Y } : null }),
+            playerPresses = PlayerPresses.Select(p => new { p.Tick, p.Stab, gesture = new[] { p.Gesture.X, p.Gesture.Y } }),
+            enemyMoves = EnemyMoves.Select(m => new { m.End, velocity = new[] { m.VelX, m.VelZ }, m.FacingGoal }),
+            enemyStrikes = EnemyStrikes.Select(s => new { s.Tick, s.Attack }),
+            summary = new
+            {
+                playerAttacks = player.Animator.AttackSerial, playerSnapshots = player.Animator.SnapCount, enemyAttacks = enemy.Animator.AttackSerial,
+                enemySnapshots = enemy.Animator.SnapCount, enemyIgnored, cutRecoveryTicks = cuts, kinds,
+            },
+            ticks,
+        };
+        File.WriteAllText(outPath, JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = false }));
+        Console.WriteLine($"ok: {total} тиков; игрок — ударов {player.Animator.AttackSerial} (начато {playerStarts}), снимков {player.Animator.SnapCount}, " +
+                          $"тиков с обрезанным хвостом {cuts}; враг — ударов {enemy.Animator.AttackSerial}, снимков {enemy.Animator.SnapCount}, " +
+                          $"пропущено {enemyIgnored}; действия {string.Join(", ", kinds)} → {outPath}");
+
+        // KinematicSteer и KinematicBegin (DuelArena.Kinematic.cs) — обе ветки: Agile и не-Agile
+        void Begin(F f)
+        {
+            var anim = f.Animator;
+            float df = MathF.IEEERemainder(f.FacingGoal - f.Facing, MathF.Tau);
+            bool standing = new Vector2(f.DesiredVel.X, f.DesiredVel.Z).LengthSquared() < 0.09f
+                            && new Vector2(f.RootVel.X, f.RootVel.Z).LengthSquared() < 0.25f;
+            bool idleTurn = !anim.Agile && standing && anim.Kind == FighterAnimator.ActionKind.None;
+            if (idleTurn && MathF.Abs(df) > KinTurnAnimMin)
+                anim.StartTurn(df);
+            if (!anim.TurnDrivesYaw)
+            {
+                float turn = idleTurn ? KinIdleTurnRate : KinTurnRate * anim.TurnScale;
+                f.Facing += Math.Clamp(df, -turn * dt, turn * dt);
+            }
+            var desired = new Vector3(f.DesiredVel.X, 0, f.DesiredVel.Z) * anim.MoveScale;
+            float accel = anim.MomentumHold > 0 ? KinCarryAccel : KinAccel;
+            f.RootVel += (desired - f.RootVel) * MathF.Min(1, accel * dt);
+            f.RootVel.Y = 0;
+
+            var local = Vector3.Transform(f.RootVel, Quaternion.CreateFromAxisAngle(Vector3.UnitY, -f.Facing));
+            local = new Vector3(-local.X, local.Y, local.Z);
+            anim.Tick(dt, local);
+            f.Facing += anim.YawDelta;
+            bool evading = anim.Kind == FighterAnimator.ActionKind.Evade || anim.EvadeCarrying;
+            float control = !evading ? 1 : anim.EvadeCarrying ? 0 : anim.EvadeRecovery;
+            f.Root += f.RootVel * (dt * control);
+            if (anim.RootDelta != Vector3.Zero)
+            {
+                var worldDelta = Vector3.Transform(anim.RootDelta, Quaternion.CreateFromAxisAngle(Vector3.UnitY, f.Facing));
+                f.Root += worldDelta;
+                if (evading && dt > 0)
+                    f.RootVel = Vector3.Lerp(new Vector3(worldDelta.X, 0, worldDelta.Z) / dt, f.RootVel, control);
+            }
+            f.Root.Y = 0;
+        }
+    }
+
+    private static object Row(CharacterRig rig, F f)
+    {
+        var anim = f.Animator;
+        ulong h = 14695981039346656037;
+        foreach (var m in anim.Component)
+            foreach (float x in new[] { m.M11, m.M12, m.M13, m.M14, m.M21, m.M22, m.M23, m.M24, m.M31, m.M32, m.M33, m.M34, m.M41, m.M42, m.M43, m.M44 })
+                h = (h ^ (uint)BitConverter.SingleToInt32Bits(x)) * 1099511628211;
+        int clip = anim.Locomotion is LegacyLocomotion legacy ? legacy.Clip : -1;
+        bool acting = anim.Kind != FighterAnimator.ActionKind.None;
+        return new
+        {
+            root = new[] { f.Root.X, f.Root.Z },
+            facing = f.Facing,
+            clip = clip >= 0 ? rig.Clips.Clips[clip].Name : "",
+            action = anim.Kind.ToString(),
+            actionClip = acting ? rig.Clips.Clips[Private<int>(anim, "_actionClip")].Name : "",
+            actionTime = acting ? anim.ActionTime : 0,
+            actionWeight = Private<float>(anim, "_actionWeight"),
+            upper = acting && Private<bool>(anim, "_actionUpper"),
+            cutRecovery = acting && Private<bool>(anim, "_cutRecovery"),
+            yawDelta = anim.YawDelta,
+            rootDelta = new[] { anim.RootDelta.X, anim.RootDelta.Z },
+            snapFade = Private<float>(anim, "_snapFade"),
+            snapshots = anim.SnapCount,
+            attackSerial = anim.AttackSerial,
+            poseHash = h.ToString("X16"),
+        };
     }
 }
