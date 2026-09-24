@@ -24,13 +24,25 @@ public static class AnimationInvariants
         [new Finite(pool), new Settled(pool), new Pool(pool), new Owners(pool), new Actions(pool, actions)];
 
     /// <summary>
-    /// <c>animation.finite</c> — у живых поз локальные повороты конечны и единичной длины, смещения и модельные матрицы
-    /// конечны: после стадии Animation (пул только что исполнил задания тика).
+    /// <c>animation.finite</c> — у живых поз локальные повороты конечны и единичной длины, смещения конечны: после стадии
+    /// Animation (пул только что исполнил задания тика). Тяжёлый (<see cref="InvariantCost.Heavy"/>): в живой игре — раз в 4 тика.
     /// </summary>
+    /// <remarks>
+    /// Проверяются только исходные данные позы — локальные повороты и смещения (всё, из чего поза состоит; других данных у позы
+    /// пула нет). Модельные матрицы — производные: <c>Skeleton.ToModel</c> из проверенных поворотов и смещений и неизменяемой
+    /// иерархии скелета, их чтение было 70 % цены проверки (0,037 → 0,024 мс в тике толпы, «Разбор Пд», вопрос 7; решение
+    /// пользователя). Ошибку в них ловят другие средства: NaN в положении сустава уходит в капсулы тел (постановка читает
+    /// положения суставов модельных матриц) — <c>physics.finite</c>, скачок положения — <c>physics.kinematicSpeed</c>; неверный
+    /// вывод — хеш <c>animation</c> (матрицы в нём: реплеи и эталоны расходятся), побитовая сверка с SWORD
+    /// (<c>ReferenceTraceTests</c>: хеш модельных матриц позы по тикам) и <c>AnimationTests</c> (модельные матрицы пула равны
+    /// <c>ToModel</c> поворотов и смещений). Поворотную часть матриц (её читает только скиннинг рендера) в игре не проверяет
+    /// ни один инвариант (проверка проверяющего: NaN в <c>M11</c> всех суставов игрока — нарушений 0) — её держат только
+    /// тесты и хеши выше: из конечных единичных поворотов <c>ToModel</c> NaN не даёт.
+    /// </remarks>
     private sealed class Finite(PosePool pool) : IInvariant
     {
         public string Id => "animation.finite";
-        public InvariantCost Cost => InvariantCost.EveryTick;
+        public InvariantCost Cost => InvariantCost.Heavy;
         public InvariantScope Scope => InvariantScope.Subsystem;
         public string After => GameStages.Animation;
 
@@ -42,19 +54,17 @@ public static class AnimationInvariants
                 if (pose.IsNone) continue;
                 var rot = pool.LocalRot(pose);
                 var pos = pool.LocalPos(pose);
-                var model = pool.Model(pose);
                 // Быстрый проход — векторами по битам экспоненты и длинам поворотов; сустав ищется, только если что-то не так.
-                if (AllFinite(MemoryMarshal.Cast<Quaternion, float>(rot)) && AllFinite(MemoryMarshal.Cast<Vector3, float>(pos))
-                    && AllFinite(MemoryMarshal.Cast<Matrix4x4, float>(model)) && AllUnit(rot))
+                if (AllFinite(MemoryMarshal.Cast<Quaternion, float>(rot)) && AllFinite(MemoryMarshal.Cast<Vector3, float>(pos)) && AllUnit(rot))
                     continue;
-                Locate(pose, rot, pos, model, ref violations);
+                Locate(pose, rot, pos, ref violations);
                 if (violations.Full) return;
             }
         }
 
         /// <summary>
         /// Нет NaN и бесконечностей: у них все биты экспоненты — единицы. Маска копится без ветвления на каждом векторе —
-        /// проверка упирается в чтение памяти (поза из 161 сустава — 3700 чисел, ≈1,5 мкс).
+        /// проверка упирается в чтение памяти (повороты и смещения позы из 161 сустава — 1100 чисел).
         /// </summary>
         private static bool AllFinite(ReadOnlySpan<float> values)
         {
@@ -76,8 +86,7 @@ public static class AnimationInvariants
             return true;
         }
 
-        private void Locate(PoseHandle pose, ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos, ReadOnlySpan<Matrix4x4> model,
-            ref ViolationSink violations)
+        private void Locate(PoseHandle pose, ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos, ref ViolationSink violations)
         {
             var names = pool.Skeleton.JointNames;
             for (int j = 0; j < rot.Length; j++)
@@ -88,8 +97,6 @@ public static class AnimationInvariants
                     violations.Report($"поза {pose}, сустав {names[j]}: поворот {Text(q)} (|q|² = {len.ToString("G6", CultureInfo.InvariantCulture)})");
                 else if (!AllFinite(MemoryMarshal.Cast<Vector3, float>(pos.Slice(j, 1))))
                     violations.Report($"поза {pose}, сустав {names[j]}: смещение {pos[j]}");
-                else if (!AllFinite(MemoryMarshal.Cast<Matrix4x4, float>(model.Slice(j, 1))))
-                    violations.Report($"поза {pose}, сустав {names[j]}: модельная матрица не конечна");
                 else continue;
                 if (violations.Full) return;
             }

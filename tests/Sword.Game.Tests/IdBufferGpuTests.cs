@@ -85,23 +85,30 @@ public sealed class IdBufferGpuTests : IDisposable, ILogSink
         try
         {
             arena.Initialize(renderer, clock.Link);
+            string ids = Path.Combine(_dir, "ids.png"), layer = Path.Combine(_dir, "capsules.png");
+            var capture = new FrameCapture(Path.Combine(_dir, "color.png"))
+            {
+                IdsPath = ids, Layers = [new CaptureLayer(ArenaClient.CapsulesOverlay, layer)],
+            };
             for (int i = 0; i < 60; i++)
             {
                 clock.RunFrame(0);
-                arena.Extract(new FrameView(1, 2, 0, default));   // бойцы приходят очередью кадра — каждый кадр
+                // Бойцы приходят очередью кадра — каждый кадр. Без F7 капсулы не читаются (исправления после Пд): только таз игрока.
+                arena.Extract(new FrameView(1, 2, 0, default));
+                if (i == 58) Assert.Equal(0, arena.View.BodyCount);
             }
-            string ids = Path.Combine(_dir, "ids.png"), layer = Path.Combine(_dir, "capsules.png");
+            // Заказ снимка известен до Extract (клиент движка берёт его у инструмента после точки обслуживания): кадр снимка
+            // со слоем капсул читает тела всех бойцов.
+            arena.Extract(new FrameView(1, 0, 0, default) { Capture = capture });
+            Assert.Equal(4 * BodySegs.Bodies, arena.View.BodyCount);
             _window.PumpMessages();
-            renderer.Render(arena.BuildFrame, vsync: false, new FrameCapture(Path.Combine(_dir, "color.png"))
-            {
-                IdsPath = ids, Layers = [new CaptureLayer(ArenaClient.CapsulesOverlay, layer)],
-            });
+            renderer.Render(arena.BuildFrame, vsync: false, capture);
             var result = renderer.LastCapture!;
             Assert.Empty(result.Notes);
             Assert.Equal((ids, Path.ChangeExtension(ids, ".bin")), (result.IdsPath, result.IdsRawPath));
             Assert.Equal([new CaptureLayer(ArenaClient.CapsulesOverlay, layer)], result.Layers);
             Assert.True(File.Exists(layer) && File.Exists(ids));
-            Assert.Equal(arena.View.BodyCount, arena.DrawnCapsules);   // капсулы всех бойцов — в слое снимка
+            Assert.Equal(4 * BodySegs.Bodies, arena.DrawnCapsules);   // капсулы всех бойцов — в слое снимка
 
             var raw = File.ReadAllBytes(result.IdsRawPath!);
             Assert.Equal(W * H * 4, raw.Length);

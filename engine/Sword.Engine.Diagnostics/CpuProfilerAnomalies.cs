@@ -133,7 +133,7 @@ public sealed partial class CpuProfiler
         long over = time - a.Ticks.Threshold;
         if (p.Active && over <= p.Time - p.Threshold) return;   // в кадре уже был тик хуже
         int zones = _names.Count;
-        var causes = Classify(_ticks, TickZone, counters, time, a.Ticks.Median, zones, out int main);
+        var causes = Classify(_ticks, TickZone, counters, time, a.Ticks.Median, a.Ticks.Absolute, zones, out int main);
         p.Active = true;
         p.Number = _ticks.Number;
         p.Start = _ticks.StartTs;
@@ -143,8 +143,8 @@ public sealed partial class CpuProfiler
         p.Header = new ProfileHeader(_ticks.Number, _ticks.FirstTick, _ticks.Ticks, 1, time, _ticks.Bytes[TickZone], false, _frames.Number, counters);
         p.Causes = causes;
         p.Zone = main;
-        p.ZoneTime = _ticks.Time[main];
-        p.ZoneExcess = _excess[main];
+        p.ZoneTime = main >= 0 ? _ticks.Time[main] : 0;
+        p.ZoneExcess = main >= 0 ? _excess[main] : 0;
         Array.Copy(_ticks.Time, p.ZoneTimes, zones);
         Array.Copy(_ticks.Bytes, p.Bytes, zones);
         Array.Copy(_ticks.Calls, p.Calls, zones);
@@ -161,10 +161,13 @@ public sealed partial class CpuProfiler
     /// <summary>
     /// Разбор лишнего времени периода: лишнее — сверх медианы; JIT главного потока и пауза GC — счётчики периода; ожидание GPU —
     /// сверх среднего у зон вида <see cref="ProfileZoneKind.GpuWait"/>; вне CPU — настенное минус ожидания минус время потока
-    /// (без паузы GC); остаток — код. Главная зона — наибольшее своё лишнее (лишнее зоны минус лишнее дочерних).
+    /// (без паузы GC); остаток — код. Главная зона — наибольшее своё лишнее (лишнее зоны минус лишнее дочерних); ни у одной
+    /// зоны своё лишнее не больше нуля — главной зоны нет (<see cref="ProfileAnomaly.NoZone"/>: абсолютный порог сработал на
+    /// периоде не дольше обычного — исправления после Пд, замечание проверяющего; раньше выходила случайная зона с «+0»); так же
+    /// при абсолютном пороге, если сам период не дольше своего среднего.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
-    private AnomalyCauses Classify(Series s, int root, in ProfileCounters c, long time, long median, int zones, out int main)
+    private AnomalyCauses Classify(Series s, int root, in ProfileCounters c, long time, long median, bool absolute, int zones, out int main)
     {
         int n = s.Count;
         var excess = _excess;
@@ -197,6 +200,9 @@ public sealed partial class CpuProfiler
             wait += Ms(s.Time[z]);
             if (kind == ProfileZoneKind.GpuWait) gpu += Math.Max(0, Ms(excess[z]));
         }
+        // Сумма своих лишних — лишнее корня: по медиане (период дольше медианы на порог) хоть одна зона выше своего среднего;
+        // по абсолютному порогу период бывает и не дольше обычного — тогда главной зоны нет (а не шум в микросекунды у случайной).
+        if (best <= 0 || absolute && excess[root] <= 0) main = ProfileAnomaly.NoZone;
         double wall = Ms(time), extra = Math.Max(0, wall - Ms(median));
         double jit = c.JitMs, gc = c.PauseMs;
         double offCpu = Math.Max(0, wall - wait - c.CpuMs);
@@ -226,9 +232,9 @@ public sealed partial class CpuProfiler
         long zoneTime, zoneExcess;
         if (periodHit)
         {
-            causes = Classify(s, root, counters, time, d.Median, zones, out main);
-            zoneTime = s.Time[main];
-            zoneExcess = _excess[main];
+            causes = Classify(s, root, counters, time, d.Median, d.Absolute, zones, out main);
+            zoneTime = main >= 0 ? s.Time[main] : 0;
+            zoneExcess = main >= 0 ? _excess[main] : 0;
         }
         else
         {
@@ -244,7 +250,7 @@ public sealed partial class CpuProfiler
         bool noticeable = period == ProfilePeriod.Frame && !toolsFrame && time >= a.NoticeableTicks;
         var record = a.Record(new ProfileAnomaly(0, period, s.Number, pending.Active ? pending.Number : null, tickTrigger,
             Ms(tickTrigger ? pending.Time : time), Ms(tickTrigger ? pending.Median : d.Median), Ms(tickTrigger ? pending.Threshold : d.Threshold),
-            Ms(time), causes, cls, main, _names[main], Ms(zoneTime), Ms(zoneExcess), 0, AnomalyFile.Queued, null, now, noticeable));
+            Ms(time), causes, cls, main, main >= 0 ? _names[main] : "", Ms(zoneTime), Ms(zoneExcess), 0, AnomalyFile.Queued, null, now, noticeable));
         long seq = record.Sequence;
         var file = a.Admit(now, cls, noticeable, out int bucket);
         var slot = file == AnomalyFile.Queued ? a.Acquire(zones) : null;

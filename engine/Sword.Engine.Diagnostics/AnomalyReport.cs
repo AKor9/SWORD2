@@ -67,7 +67,8 @@ internal static class AnomalyReport
         var mainZones = slot.TickTrigger && slot.HasTick
             ? Zones(slot.Zones, slot.TickTime, slot.TickBytes, slot.TickCalls, slot.TickMean, slot.Parent, slot.Kind, CpuProfiler.TickZone, name)
             : zones;
-        json["mainZone"] = mainZones.ZoneJson(main, withPath: true);
+        // Исправления после Пд: период не дольше своего среднего (абсолютный порог на обычном периоде) — главной зоны нет.
+        json["mainZone"] = main >= 0 ? mainZones.ZoneJson(main, withPath: true) : NoMainZone();
         json["header"] = HeaderJson(slot.Header, slot.Period);
         json["zones"] = zones.Top(TopZones);
         json["tree"] = zones.Tree(root);
@@ -90,7 +91,7 @@ internal static class AnomalyReport
                 ["class"] = AnomalyCauses.Key(slot.TickCauses.Class),
                 ["classText"] = AnomalyCauses.Word(slot.TickCauses.Class),
                 ["causes"] = slot.TickCauses.ToJson(),
-                ["mainZone"] = tick.ZoneJson(slot.TickZone, withPath: true),
+                ["mainZone"] = slot.TickZone >= 0 ? tick.ZoneJson(slot.TickZone, withPath: true) : NoMainZone(),
                 ["header"] = HeaderJson(slot.TickHeader, ProfilePeriod.Tick),
                 ["zones"] = tick.Top(12),
             };
@@ -267,6 +268,13 @@ internal static class AnomalyReport
     }
 
     private static double R(double v) => double.IsFinite(v) ? Math.Round(v, 4) : 0;
+
+    /// <summary>Главной зоны нет (<see cref="ProfileAnomaly.NoZone"/>): вместо зоны — пометка.</summary>
+    private static JsonObject NoMainZone() => new()
+    {
+        ["name"] = null,
+        ["note"] = ProfileAnomaly.NoZoneNote,
+    };
 
     private static ZoneTable Zones(int zones, long[] time, long[] bytes, int[] calls, long[] mean, int[] parent, byte[] kind, int root, Func<int, string> name)
     {

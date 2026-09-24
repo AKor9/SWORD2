@@ -165,16 +165,104 @@ public class InvariantTests
         public void Configure(SimulationBuilder b) => b.Invariants(invariants);
     }
 
+    /// <summary>
+    /// Период кодового инварианта (исправления после Пд, решение пользователя) действует только в живой игре
+    /// (<see cref="SimulationInvariants.LivePeriods"/>, Sword.exe): в тестах, verify и Headless — каждый тик; инвариант агента
+    /// (<see cref="SimulationInvariants.Add"/>, <c>invariant.define every</c>) держит свой период всегда.
+    /// </summary>
     [Fact]
     public void Periodic_AndThrowing_Invariants()
     {
         var periodic = new Periodic(4);
         var sim = Simulation.Build(ConfigSet.Empty(), ["A", "B"], [new Module(periodic, new Throws())]);
+        Assert.False(sim.Invariants.LivePeriods);
+        Assert.Equal(1, sim.Invariants.Find("test.periodic")!.Every);
         while (sim.Tick < 10) sim.Step();
-        Assert.Equal([0ul, 4ul, 8ul], periodic.Ticks);
+        Assert.Equal([.. Enumerable.Range(0, 10).Select(t => (ulong)t)], periodic.Ticks);   // не живая игра — каждый тик
         var thrown = sim.Invariants.Find("test.throws")!;
         Assert.Equal(10, thrown.Violations);                                      // исключение — нарушение, а не падение тика
         Assert.Contains("исключение в проверке: InvalidOperationException: сломался", thrown.Last!.Value.Details);
+
+        var live = new Periodic(4);
+        var game = Simulation.Build(ConfigSet.Empty(), ["A", "B"], [new Module(live)]);
+        game.Invariants.LivePeriods = true;
+        Assert.Equal(4, game.Invariants.Find("test.periodic")!.Every);
+        var agent = new AgentPeriodic(3);
+        game.Invariants.Add(agent, "agent");
+        while (game.Tick < 10) game.Step();
+        Assert.Equal([0ul, 4ul, 8ul], live.Ticks);                               // живая игра — раз в 4
+        Assert.Equal([0ul, 3ul, 6ul, 9ul], agent.Ticks);
+
+        var agentOnly = new AgentPeriodic(3);
+        sim.Invariants.Add(agentOnly, "agent");                                   // не живая игра: период агента — всё равно свой
+        while (sim.Tick < 16) sim.Step();
+        Assert.Equal([12ul, 15ul], agentOnly.Ticks);
+        Assert.Equal(3, sim.Invariants.Find("agent.periodic")!.Every);
+    }
+
+    private sealed class AgentPeriodic(int period) : IInvariant
+    {
+        public readonly List<ulong> Ticks = [];
+        public string Id => "agent.periodic";
+        public InvariantCost Cost => InvariantCost.Every(period);
+        public InvariantScope Scope => InvariantScope.World;
+        public string After => Simulation.ExportStage;
+        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations) => Ticks.Add(ctx.Tick);
+    }
+
+    /// <summary>Неисправность с тика <paramref name="from"/>: уровень датчика — NaN и дальше (держится).</summary>
+    private sealed class LateNaN(ulong from) : IModule
+    {
+        public string Id => "late";
+
+        public void Configure(SimulationBuilder b) =>
+            b.Component<Gauge>()
+                .System("A", new Breaker(from))
+                .OnWorldBuilt(w => w.AddImmediate(w.CreateImmediate(), new Gauge { Level = 1 }));
+
+        private sealed class Breaker(ulong from) : IContinuousSystem
+        {
+            private Query _query = null!;
+
+            public void Setup(SystemSetup s)
+            {
+                s.Label(new SystemLabel("late.breaker")).Writes<Gauge>();
+                _query = s.Query().Write<Gauge>();
+            }
+
+            public void Run(in SystemContext ctx)
+            {
+                if (ctx.World.Resource<SimTime>().Tick != from) return;
+                foreach (var chunk in ctx.Iterate(_query)) chunk.Write<Gauge>()[0].Level = float.NaN;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Живая игра (исправления после Пд): тяжёлый кодовый инвариант (<c>ecs.finite</c> — <see cref="InvariantCost.Heavy"/>) раз в
+    /// 4 тика ловит нарушение, которое держится, не позже чем через 3 тика после его тика — при любом тике начала; не живая
+    /// игра (тесты, verify, Headless) — на самом тике нарушения.
+    /// </summary>
+    [Fact]
+    public void LiveGame_HeavyInvariant_CatchesPersistentViolationWithinPeriod()
+    {
+        Assert.Equal(InvariantCost.Heavy, InvariantCost.Every(InvariantCost.HeavyPeriod));
+        for (ulong from = 0; from < 8; from++)
+            foreach (bool live in (bool[])[false, true])
+            {
+                var sim = Simulation.Build(ConfigSet.Empty(), ["A"], [new LateNaN(from)]);
+                Assert.Equal(InvariantCost.Heavy, sim.Invariants.List().Single(i => i.Id == "ecs.finite").Cost);
+                sim.Invariants.LivePeriods = live;
+                while (sim.Invariants.Total == 0 && sim.Tick < 32) sim.Step();
+                var first = sim.Invariants.Recent()[0];
+                Assert.Equal("ecs.finite", first.Id);
+                if (live)
+                {
+                    Assert.InRange(first.Tick, from, from + InvariantCost.HeavyPeriod - 1);
+                    Assert.Equal(0ul, first.Tick % InvariantCost.HeavyPeriod);
+                }
+                else Assert.Equal(from, first.Tick);
+            }
     }
 
     private sealed class Named(string id, string after = "A") : IInvariant

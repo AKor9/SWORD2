@@ -378,6 +378,40 @@ public class ArenaViewTests
         Assert.Equal(0, bytes);
     }
 
+    /// <summary>
+    /// Исправления после Пд («Разбор Пд», вопрос 5): без капсул (F7 выключен, слой снимка не заказан) Extract читает только таз
+    /// игрока — у бойцов кадра капсул нет, а точка тени и кольца и фокус камеры — те же числа, что при чтении тел всех бойцов,
+    /// при любой доле тика; кадр по-прежнему без выделений.
+    /// </summary>
+    [Fact]
+    public void WithoutCapsules_OnlyPlayerPelvis_SameMarkerAndFocus()
+    {
+        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32"));
+        var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new PlayerCommand { Move = new Vector2(1, 0.4f) }), ticksPerFrame: 2);
+        var all = new ArenaView(Field);
+        var player = new ArenaView(Field);
+        long bytes = 0;
+        for (int i = 0; i < 40; i++)
+        {
+            clock.RunFrame(0);
+            foreach (float alpha in (float[])[0.25f, 1])
+            {
+                all.Extract(clock.Link, alpha);
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                player.Extract(clock.Link, alpha, allBodies: false);
+                if (i >= 20) bytes += GC.GetAllocatedBytesForCurrentThread() - before;
+                Assert.Equal(33 * BodySegs.Bodies, all.BodyCount);
+                Assert.Equal(0, player.BodyCount);
+                Assert.All(player.Fighters, f => Assert.True(player.Body(f).IsEmpty));
+                Assert.NotNull(all.PlayerMarker);
+                Assert.Equal(all.PlayerMarker, player.PlayerMarker);
+                Assert.Equal(all.PlayerFocus, player.PlayerFocus);
+                Assert.Equal(all.Fighters.Select(f => (f.Entity, f.Root, f.PoseCount)), player.Fighters.Select(f => (f.Entity, f.Root, f.PoseCount)));
+            }
+        }
+        Assert.Equal(0, bytes);
+    }
+
     [Fact]
     public void ShownCapsules_AtAlphaOne_AreTheTickPlacement_FocusIsPelvisLerp()
     {

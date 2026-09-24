@@ -40,7 +40,9 @@ public readonly record struct ShownCapsule(int Segment, Vector3 Center, Quaterni
 /// показан боец: постановка последнего тика, перенесённая из мира бойца на тике в показанный (<see cref="Carry"/>), — та
 /// же поза тика в том же мире, что и меш, поэтому капсулы идут с персонажем без отставания. Точка тени и кольца игрока —
 /// таз, как его показывает кадр; фокус камеры — таз между прошлой и нынешней постановкой по доле тика (<c>Program.cs</c>
-/// SWORD). Рендер читает только этот мир; кадр без выделений памяти (буферы растут удвоением и остаются).
+/// SWORD). Рендер читает только этот мир; кадр без выделений памяти (буферы растут удвоением и остаются). Исправления после Пд:
+/// капсулы всех бойцов снимаются, только когда нужны (<c>allBodies</c>: F7, <c>--overlay capsules</c>, слой снимка), иначе —
+/// только таз игрока (камера, тень, кольцо): 429 капсул скрытых тел — 0,016 мс CPU кадра впустую.
 /// </summary>
 public sealed class ArenaView
 {
@@ -115,7 +117,11 @@ public sealed class ArenaView
     public Transform? PlayerAtTick { get; private set; }
 
     /// <summary>Мир представления кадра — всё, что читает рендер, снимается здесь; <c>BuildFrame</c> симуляцию не читает.</summary>
-    public void Extract(SimulationLink simulation, float alpha)
+    /// <param name="allBodies">
+    /// Капсулы тел всех бойцов (их рисуют — F7, <c>--overlay capsules</c> — или заказан слой снимка); false — только таз игрока
+    /// (<see cref="PlayerMarker"/>, <see cref="PlayerFocus"/> — те же числа), у бойцов кадра капсул нет (<see cref="BodyCount"/> 0).
+    /// </param>
+    public void Extract(SimulationLink simulation, float alpha, bool allBodies = true)
     {
         var world = simulation.World;
         ApplyFighterRecords(simulation.Frame<Added<Fighter>>(), simulation.Frame<Removed<Fighter>>());
@@ -158,7 +164,11 @@ public sealed class ArenaView
             profiler.End(_posesZone);
             // Тело — постановка последнего тика в мире, где кадр показывает бойца (как меш): без отставания от персонажа.
             profiler.Begin(_bodiesZone);
-            if (bodies is not null && world.TryGet<BodyRef>(e, out var bodyRef) && ReadBody(bodies, bodyRef) is > 0 and var n)
+            if (!allBodies)
+            {
+                if (view.IsPlayer && bodies is not null && world.TryGet<BodyRef>(e, out var playerBody)) PlayerPelvis(bodies, playerBody, cur, view, alpha);
+            }
+            else if (bodies is not null && world.TryGet<BodyRef>(e, out var bodyRef) && ReadBody(bodies, bodyRef) is > 0 and var n)
             {
                 if (_bodies.Length < bodied + n) Array.Resize(ref _bodies, Math.Max(_bodies.Length * 2, bodied + n));
                 var tickWorld = FighterWorld(cur.Position, cur.Facing, _height(cur.Position.X, cur.Position.Z));
@@ -184,6 +194,22 @@ public sealed class ArenaView
             }
         }
         BodyCount = bodied;
+    }
+
+    /// <summary>
+    /// Только таз игрока (капсулы не нужны кадру): точка тени и кольца и фокус камеры — те же выражения, что при чтении всего тела.
+    /// </summary>
+    private void PlayerPelvis(IBodyView bodies, BodyRef body, in Transform cur, in FighterView view, float alpha)
+    {
+        int pelvis = BodySegs.Body(BodySegs.Pelvis);
+        if (pelvis >= Math.Min(bodies.BodyCount(body), _snapshots.Length)) return;
+        var snapshot = bodies.Body(body, pelvis);
+        var tickWorld = FighterWorld(cur.Position, cur.Facing, _height(cur.Position.X, cur.Position.Z));
+        Matrix4x4.Invert(tickWorld, out var back);
+        var carry = back * view.World;
+        var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, view.Facing - cur.Facing);
+        PlayerMarker = Carry(snapshot, BodySegs.Segment(pelvis), carry, turn).Center with { Y = 0 };
+        PlayerFocus = Lerp(snapshot, alpha).Center with { Y = 0 };
     }
 
     /// <summary>Тела сочленения в <see cref="_snapshots"/> (не больше 13); вернёт, сколько.</summary>

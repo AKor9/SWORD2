@@ -59,13 +59,7 @@ public sealed class RenderFrame
     }
 
     /// <summary>Заказан ли в этом кадре слой снимка <paramref name="name"/> (циклом, без замыкания: зовётся каждый кадр).</summary>
-    public bool WantsLayer(string name)
-    {
-        if (Capture is not { } c) return false;
-        for (int i = 0; i < c.Layers.Count; i++)
-            if (c.Layers[i].Name == name) return true;
-        return false;
-    }
+    public bool WantsLayer(string name) => Capture?.WantsLayer(name) == true;
 
     /// <summary>Константы кадра (<c>register(b0)</c>) для всех проходов, добавленных после вызова.</summary>
     public void SetFrameConstants<T>(in T value) where T : unmanaged
@@ -91,6 +85,14 @@ public sealed record FrameCapture(string? ColorPath, string? DepthPath = null)
 
     /// <summary>Слои снимка (оверлеи игры: капсулы тел и т. п.) — каждый в свой PNG поверх цвета кадра.</summary>
     public IReadOnlyList<CaptureLayer> Layers { get; init; } = [];
+
+    /// <summary>Заказан ли слой <paramref name="name"/> (циклом, без замыкания).</summary>
+    public bool WantsLayer(string name)
+    {
+        for (int i = 0; i < Layers.Count; i++)
+            if (Layers[i].Name == name) return true;
+        return false;
+    }
 }
 
 /// <summary>Слой снимка: имя (его знает игра — «capsules») и PNG.</summary>

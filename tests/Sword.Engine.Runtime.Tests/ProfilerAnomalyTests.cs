@@ -134,6 +134,58 @@ public sealed class ProfilerAnomalyTests : IDisposable
         a.Dispose();
     }
 
+    /// <summary>
+    /// Исправления после Пд (замечание проверяющего): абсолютный порог сработал на кадре короче обычного — ни одна зона не дольше
+    /// своего среднего; главной зоны нет (а не случайная зона «frame.resize 0 мс (+0)») — в записи, тексте журнала, JSON
+    /// <c>profile.stages</c> и файле. Кадр дольше обычного при том же пороге — с главной зоной, как раньше.
+    /// </summary>
+    [Fact]
+    public void AbsoluteThreshold_FrameBelowMean_NoMainZone()
+    {
+        var p = Profiler(out var a, new AnomalyOptions
+        {
+            Directory = _dir, AbsoluteMs = 0.1, MaxFiles = 100, MaxFilesMachine = 100, MaxFilesGpuWait = 100, Burst = 100,
+            FilesPerSecond = 1000, Trace = false,
+        });
+        int work = p.Zone("work"), idle = p.Zone("idle");
+        for (ulong f = 1; f <= 40; f++) Frame(p, f, work, () => SpinCpu(3));
+        p.BeginFrame(41);   // выше абсолютного порога, но вдесятеро короче обычного
+        p.Begin(idle);
+        p.End(idle);
+        p.Begin(work);
+        SpinCpu(0.3);
+        p.End(work);
+        p.EndFrame(1, false);
+        p.BeginFrame(42);   // дольше обычного — главная зона есть
+        p.Begin(work);
+        SpinCpu(12);
+        p.End(work);
+        p.EndFrame(1, false);
+        Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
+
+        var list = a.List();
+        string all = string.Join(" | ", list.Select(x => x.Text));
+        var shorter = list.Single(x => x.Number == 41);
+        Assert.False(shorter.HasZone, all);
+        Assert.Equal(ProfileAnomaly.NoZone, shorter.Zone);
+        Assert.Contains(ProfileAnomaly.NoZoneText, shorter.Text);
+        Assert.DoesNotContain("главная зона", shorter.Text);
+        var record = shorter.ToJson();
+        Assert.Null(record["zone"]);
+        Assert.NotNull(record["zoneNote"]);
+        Assert.Equal(AnomalyFile.Written, shorter.File);
+        var json = ReadJson(shorter.Path!);
+        Assert.Null(json["mainZone"]!["name"]);
+        Assert.Contains(ProfileAnomaly.NoZoneText, json["mainZone"]!["note"]!.GetValue<string>());
+        Assert.Contains(ProfileAnomaly.NoZoneText, json["text"]!.GetValue<string>());
+
+        var longer = list.Single(x => x.Number == 42);
+        Assert.True(longer.HasZone, all);
+        Assert.Equal("work", longer.ZoneName);
+        Assert.Contains("главная зона work", longer.Text);
+        a.Dispose();
+    }
+
     [Fact]
     public void SlowTick_WithoutFrames_TickFile()
     {

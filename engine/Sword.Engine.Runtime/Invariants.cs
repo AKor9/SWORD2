@@ -10,6 +10,10 @@ public enum InvariantScope { Entity, System, Subsystem, World, Client }
 /// <summary>
 /// Класс стоимости инварианта: проверять каждый тик (<see cref="EveryTick"/>), раз в N тиков (<see cref="Every"/>) или
 /// только по запросу (<see cref="OnDemand"/> — тяжёлые и советующие: <c>invariant.run</c>, <c>invariant.enable</c>).
+/// Исправления после Пд (решение пользователя): период кодового инварианта действует только в живой игре
+/// (<see cref="SimulationInvariants.LivePeriods"/> — Sword.exe); в тестах, verify, Headless и при сверке реплея кодовые проверяются
+/// каждый тик. Тяжёлые по замеру цены в тике толпы — <see cref="Heavy"/> (раз в <see cref="HeavyPeriod"/> тика в живой игре).
+/// Инвариант агента (<c>invariant.define every</c>) держит свой период всегда.
 /// </summary>
 public readonly record struct InvariantCost
 {
@@ -23,6 +27,15 @@ public readonly record struct InvariantCost
     public static InvariantCost EveryTick => new(1);
     public static InvariantCost OnDemand => new(0);
 
+    /// <summary>Период тяжёлых кодовых инвариантов в живой игре, тиков: нарушение, которое держится, видно не позже чем через 3 тика.</summary>
+    public const int HeavyPeriod = 4;
+
+    /// <summary>
+    /// Тяжёлый кодовый инвариант (цена в тике толпы — от ~2 % тика, «Разбор Пд» вопрос 7): в живой игре — раз в
+    /// <see cref="HeavyPeriod"/> тика, иначе — каждый тик.
+    /// </summary>
+    public static InvariantCost Heavy => new(HeavyPeriod);
+
     public static InvariantCost Every(int ticks) =>
         ticks >= 1 ? new(ticks) : throw new ArgumentOutOfRangeException(nameof(ticks), ticks, "период — от 1 тика");
 
@@ -32,7 +45,12 @@ public readonly record struct InvariantCost
     /// </summary>
     public bool Due(ulong tick) => Period <= 1 || tick % (ulong)Period == 0;
 
-    public override string ToString() => Period switch { 0 => "по запросу", 1 => "каждый тик", _ => $"раз в {Period} тиков" };
+    public override string ToString() => Period switch
+    {
+        0 => "по запросу",
+        1 => "каждый тик",
+        _ => $"раз в {Period} {(Period % 10 is >= 2 and <= 4 && Period % 100 is < 12 or > 14 ? "тика" : "тиков")}",
+    };
 }
 
 /// <summary>
@@ -133,9 +151,13 @@ public ref struct ViolationSink
     }
 }
 
-/// <summary>Инвариант в симуляции наружу (<see cref="SimulationInvariants.List"/>): описание, включён ли и итоги проверок.</summary>
+/// <summary>
+/// Инвариант в симуляции наружу (<see cref="SimulationInvariants.List"/>): описание, включён ли и итоги проверок;
+/// <paramref name="Every"/> — как часто проверяется сейчас, тиков (период кодового — только в живой игре,
+/// <see cref="SimulationInvariants.LivePeriods"/>; 1 — каждый тик).
+/// </summary>
 public sealed record InvariantInfo(string Id, string Owner, InvariantScope Scope, InvariantCost Cost, string After, bool Enabled,
-    long Evaluations, long Violations, double MeanMicroseconds, InvariantViolation? Last);
+    long Evaluations, long Violations, double MeanMicroseconds, InvariantViolation? Last, int Every = 1);
 
 /// <summary>
 /// Инварианты симуляции (раздел 8 плана): реестр, проверка после барьеров, учёт нарушений и стоимости. Кодовые инварианты
@@ -151,12 +173,14 @@ public sealed class SimulationInvariants
     /// <summary>Нарушений одного инварианта в журнале (дальше — только счёт).</summary>
     private const int LoggedPerInvariant = 5;
 
-    private sealed class Entry(IInvariant invariant, string owner, int stage, bool enabled)
+    private sealed class Entry(IInvariant invariant, string owner, int stage, bool enabled, bool code)
     {
         public readonly IInvariant Invariant = invariant;
         public readonly string Owner = owner;
         public readonly int Stage = stage;
         public readonly InvariantCost Cost = invariant.Cost;
+        /// <summary>Кодовый (Runtime, ядро, модуль — при сборке), а не добавленный агентом (<see cref="Add"/>).</summary>
+        public readonly bool Code = code;
         public bool Enabled = enabled;
         public long Evaluations, Violations, Ticks;
         public int Logged;
@@ -189,9 +213,20 @@ public sealed class SimulationInvariants
         _world = world;
         EnabledByConfig = enabled;
         _byStage = new Entry[world.Stages.Count][];
-        foreach (var (invariant, owner) in registered) AddEntry(invariant, owner, enabled && !invariant.Cost.IsOnDemand);
+        foreach (var (invariant, owner) in registered) AddEntry(invariant, owner, enabled && !invariant.Cost.IsOnDemand, code: true);
         Rebuild();
     }
+
+    /// <summary>
+    /// Живая игра (исправления после Пд, решение пользователя): кодовые инварианты с периодом (<see cref="InvariantCost.Heavy"/>)
+    /// проверяются раз в свой период; false (по умолчанию: тесты, <c>feature.verify</c>, Headless, сверка реплея) — каждый тик.
+    /// Задаёт владелец (Sword.exe без <c>--replay</c>); на состояние и хеш не влияет. Нарушение, которое держится, в живой игре
+    /// видно не позже чем через период − 1 тиков; нарушение, которое держится меньше периода, может не попасть в проверку.
+    /// </summary>
+    public bool LivePeriods { get; set; }
+
+    /// <summary>Как часто проверяется инвариант сейчас, тиков (1 — каждый; «по запросу» включённый явно — тоже каждый).</summary>
+    private int EveryOf(Entry e) => e.Cost.Period <= 1 || e.Code && !LivePeriods ? 1 : e.Cost.Period;
 
     /// <summary>Нарушение найдено (после записи в кольцо) — симуляция передаёт наблюдателям.</summary>
     internal Action<InvariantViolation>? Violated;
@@ -212,9 +247,9 @@ public sealed class SimulationInvariants
 
     public InvariantInfo? Find(string id) => _entries.FirstOrDefault(e => e.Invariant.Id == id) is { } e ? Info(e) : null;
 
-    private static InvariantInfo Info(Entry e) =>
+    private InvariantInfo Info(Entry e) =>
         new(e.Invariant.Id, e.Owner, e.Invariant.Scope, e.Cost, e.Invariant.After, e.Enabled, e.Evaluations, e.Violations,
-            e.Evaluations == 0 ? 0 : e.Ticks * 1e6 / Stopwatch.Frequency / e.Evaluations, e.Last);
+            e.Evaluations == 0 ? 0 : e.Ticks * 1e6 / Stopwatch.Frequency / e.Evaluations, e.Last, EveryOf(e));
 
     /// <summary>Последние нарушения (до <see cref="RecentCapacity"/>) по порядку.</summary>
     public IReadOnlyList<InvariantViolation> Recent()
@@ -238,7 +273,7 @@ public sealed class SimulationInvariants
     /// </summary>
     public void Add(IInvariant invariant, string owner)
     {
-        AddEntry(invariant, owner, !invariant.Cost.IsOnDemand);
+        AddEntry(invariant, owner, !invariant.Cost.IsOnDemand, code: false);
         Rebuild();
     }
 
@@ -256,7 +291,7 @@ public sealed class SimulationInvariants
     private Entry Get(string id) => _entries.FirstOrDefault(e => e.Invariant.Id == id)
         ?? throw new ArgumentException($"нет инварианта «{id}»; есть: {string.Join(", ", _entries.Select(e => e.Invariant.Id))}");
 
-    private void AddEntry(IInvariant invariant, string owner, bool enabled)
+    private void AddEntry(IInvariant invariant, string owner, bool enabled, bool code)
     {
         ArgumentNullException.ThrowIfNull(invariant);
         if (!IInvariant.IsValidId(invariant.Id)) throw new InvalidOperationException($"инвариант «{invariant.Id}»: нужно {IInvariant.IdRule}");
@@ -264,7 +299,7 @@ public sealed class SimulationInvariants
         int stage = IndexOf(_world.Stages, invariant.After);
         if (stage < 0)
             throw new InvalidOperationException($"инвариант {invariant.Id}: нет стадии «{invariant.After}»; есть: {string.Join(", ", _world.Stages)}");
-        _entries.Add(new Entry(invariant, owner, stage, enabled) { Zone = _profiler.Zone("invariant." + invariant.Id) });
+        _entries.Add(new Entry(invariant, owner, stage, enabled, code) { Zone = _profiler.Zone("invariant." + invariant.Id) });
     }
 
     private static int IndexOf(IReadOnlyList<string> list, string value)
@@ -289,9 +324,11 @@ public sealed class SimulationInvariants
         if (entries.Length == 0) return;
         string name = _world.Stages[stage];
         var ctx = new InvariantContext(_world, tick, name, dt);
+        bool live = LivePeriods;
         foreach (var e in entries)
         {
-            if (!e.Cost.Due(tick)) continue;
+            // Период кодового инварианта — только в живой игре; инвариант агента держит свой всегда (исправления после Пд).
+            if ((live || !e.Code) && !e.Cost.Due(tick)) continue;
             int found = Evaluate(e, ctx, _found);
             if (found == 0) continue;
             Record(e, found);

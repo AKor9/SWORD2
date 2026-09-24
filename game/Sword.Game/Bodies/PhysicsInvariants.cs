@@ -63,7 +63,7 @@ public static class PhysicsInvariants
     private sealed class Finite(IPhysicsWorld physics) : IInvariant
     {
         public string Id => "physics.finite";
-        public InvariantCost Cost => InvariantCost.EveryTick;
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
         public InvariantScope Scope => InvariantScope.Subsystem;
         public string After => GameStages.Physics;
 
@@ -119,7 +119,7 @@ public static class PhysicsInvariants
         private ReadQuery? _query;
 
         public string Id => "physics.kinematicPose";
-        public InvariantCost Cost => InvariantCost.EveryTick;
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
         public InvariantScope Scope => InvariantScope.Entity;
         public string After => GameStages.PrePhysics;
 
@@ -211,7 +211,7 @@ public static class PhysicsInvariants
         private ReadQuery? _query;
 
         public string Id => "physics.kinematicSpeed";
-        public InvariantCost Cost => InvariantCost.EveryTick;
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
         public InvariantScope Scope => InvariantScope.Entity;
         public string After => GameStages.PrePhysics;
 

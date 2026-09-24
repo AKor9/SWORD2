@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sword.Engine.Formats;
 using Sword.Engine.Rhi;
 using Vortice.Direct3D12;
@@ -98,6 +99,12 @@ internal static class Screenshot
     /// ID-буфер: PNG для глаз (<see cref="IdColour"/>), сырые коды (uint32 LE на пиксель, строки сверху вниз) и сводка по
     /// кодам — пикселей и рамка каждого (кроме 0), по возрастанию кода.
     /// </summary>
+    /// <remarks>
+    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
+    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe IReadOnlyList<IdCoverage> SaveIds(ID3D12Resource readback, string pngPath, string rawPath, int width, int height, int rowPitch)
     {
         byte* source = readback.Map<byte>(0);
@@ -138,6 +145,12 @@ internal static class Screenshot
     /// Слой снимка (Rgba8, цвет умножен на альфу) поверх цвета кадра <paramref name="under"/> (RGB по строкам; null — на
     /// чёрном) в PNG: <c>слой + цвет · (1 − альфа слоя)</c>.
     /// </summary>
+    /// <remarks>
+    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
+    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe void SaveLayer(ID3D12Resource readback, string path, int width, int height, int rowPitch, byte[]? under)
     {
         byte* source = readback.Map<byte>(0);
@@ -167,6 +180,12 @@ internal static class Screenshot
     /// Глубина в PNG для глаз (и модели): ближе — светлее, дальняя плоскость — чёрная; яркость растянута на найденный
     /// диапазон. Возвращает диапазон глубины и долю пикселей с геометрией.
     /// </summary>
+    /// <remarks>
+    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
+    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe (float Min, float Max, float Coverage) SaveDepth(ID3D12Resource readback, string path, int width, int height, int rowPitch)
     {
         byte* source = readback.Map<byte>(0);
@@ -209,6 +228,12 @@ internal static class Screenshot
     }
 
     /// <summary>Записать снятый кадр: расширение .bmp — BMP, иначе PNG; вернёт цвет кадра (RGB по строкам) — под слои снимка.</summary>
+    /// <remarks>
+    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
+    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe byte[] Save(ID3D12Resource readback, string path, int width, int height, int rowPitch)
     {
         byte* source = readback.Map<byte>(0);

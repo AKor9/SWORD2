@@ -193,6 +193,86 @@ public sealed class RenderGraphGpuTests : IDisposable, ILogSink
         AssertNoDebugMessages();
     }
 
+    /// <summary>
+    /// Исправления после Пд («Разбор Пд», вопрос 6): кадр графа — compute → графика с очисткой → compute через временные
+    /// текстуры, переходы и барьеры UAV, проверка инвариантов, привязка целей — 0 байт на кадр (было ~290 Б на такой кадр:
+    /// отчёт прохода, списки имён, <c>bool[]</c>, массивы барьеров и дескрипторов). Отчёт <see cref="RenderGraph.LastFrame"/>
+    /// строится по запросу — тот же, что строился каждый кадр, один на кадр; <see cref="RenderGraph.LastFrameDraws"/> — без отчёта.
+    /// </summary>
+    [Fact]
+    public void SteadyFrame_AllocatesNothing_ReportOnRequest()
+    {
+        const int n = 16;
+        using var result = _renderer.CreateStorage<float>("test.result", n * n);
+        RenderGraph g = null!;
+        RenderTexture a = default, b = default;
+        RenderBuffer s = default;
+        // Работа проходов — готовые делегаты (замыкание на кадр выделяло бы само по себе): ресурсы кадра — в локальных выше.
+        Action<RenderPassContext> fill = ctx =>
+        {
+            ctx.SetPipeline(new ComputePipelineDesc(Shader, "CsFill"));
+            ctx.SetConstant(0, n);
+            ctx.SetConstant(1, g.UavOf(a));
+            ctx.Dispatch(n / 8, n / 8);
+        };
+        Action<RenderPassContext> twice = ctx =>
+        {
+            ctx.SetPipeline(new GraphicsPipelineDesc(Shader, "VsFull", "PsDouble"));
+            ctx.SetConstant(2, g.SrvOf(a));
+            ctx.Draw(3);
+        };
+        Action<RenderPassContext> copy = ctx =>
+        {
+            ctx.SetPipeline(new ComputePipelineDesc(Shader, "CsCopy"));
+            ctx.SetConstant(0, n);
+            ctx.SetConstant(3, g.SrvOf(b));
+            ctx.SetConstant(4, g.UavOf(s));
+            ctx.Dispatch(n / 8, n / 8);
+        };
+        Action<RenderFrame> build = f =>
+        {
+            g = f.Graph;
+            a = g.CreateTexture("test.a", new TextureDesc(TextureFormat.R32Float, TextureUsage.Storage, n, n));
+            b = g.CreateTexture("test.b", new TextureDesc(TextureFormat.R32Float, TextureUsage.ColorTarget, n, n));
+            s = g.Import(result);
+            g.AddComputePass("test.fill").Write(a).Execute(fill);
+            g.AddPass("test.double").Color(b, System.Numerics.Vector4.Zero).Read(a).Execute(twice);
+            g.AddComputePass("test.copy").Read(b).Write(s).Execute(copy);
+        };
+
+        for (int i = 0; i < 30; i++) Frame(build);   // прогрев: пул, конвейеры, JIT
+        const int frames = 200;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < frames; i++) _renderer.Render(build, vsync: false);
+        long bytes = (GC.GetAllocatedBytesForCurrentThread() - before) / frames;
+        Assert.True(bytes == 0, $"кадр графа выделил {bytes} Б");
+
+        Assert.Equal(3, _renderer.Graph.LastFramePasses);
+        Assert.Equal(1, _renderer.Graph.LastFrameDraws);
+        var passes = _renderer.Graph.LastFrame;
+        Assert.Same(passes, _renderer.Graph.LastFrame);   // до следующего кадра — тот же отчёт
+        Assert.Equal(["test.fill", "test.double", "test.copy"], passes.Select(p => p.Name));
+        Assert.Equal([PassKind.Compute, PassKind.Graphics, PassKind.Compute], passes.Select(p => p.Kind));
+        Assert.Equal(["test.a"], passes[0].Writes);
+        Assert.Equal(["test.b"], passes[1].Writes);
+        Assert.Equal(["test.a"], passes[1].Reads);
+        Assert.Equal(["test.result"], passes[2].Writes);
+        Assert.Equal(["test.b"], passes[2].Reads);
+        Assert.Equal([1, 0], passes.Take(2).Select(p => p.Dispatches));
+        Assert.Equal(1, passes[1].Draws);
+        Assert.All(passes, p => Assert.True(p.Barriers >= 1, $"{p.Name}: барьеров {p.Barriers}"));
+
+        Frame(f => f.Graph.AddPass("test.clear").Color(f.Graph.BackBuffer, System.Numerics.Vector4.Zero));
+        Assert.NotSame(passes, _renderer.Graph.LastFrame);   // новый кадр — новый отчёт
+        Assert.Equal(["test.clear"], _renderer.Graph.LastFrame.Select(p => p.Name));
+        Assert.Equal(0, _renderer.Graph.LastFrameDraws);
+        Assert.Equal(["test.fill", "test.double", "test.copy"], passes.Select(p => p.Name));   // выданный отчёт не портится
+        var values = new float[n * n];
+        _renderer.ReadStorage(result, values.AsSpan());
+        Assert.Equal((3 + 100f * 2) * 2, values[2 * n + 3]);
+        AssertNoDebugMessages();
+    }
+
     [Fact]
     public void FrameCapture_ColorAndDepth_UnderGpuValidation_StateRestored()
     {

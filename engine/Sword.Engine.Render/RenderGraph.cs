@@ -17,7 +17,10 @@ public enum DepthAccess
     Read,
 }
 
-/// <summary>Что проход сделал в кадре — для агента и журнала (<see cref="RenderGraph.LastFrame"/>).</summary>
+/// <summary>
+/// Что проход сделал в кадре — для агента и журнала (<see cref="RenderGraph.LastFrame"/>). Строится по запросу из сырых данных
+/// кадра, а не в каждом кадре (исправления после Пд: кадр графа — 0 Б).
+/// </summary>
 /// <param name="Barriers">Переходов состояний и барьеров UAV перед проходом (одной пачкой).</param>
 public sealed record RenderPassReport(
     string Name,
@@ -78,9 +81,54 @@ public sealed class RenderGraph
     private readonly List<Pass> _passes = [];
     private readonly List<Pass> _passPool = [];
     private readonly RenderPassContext _context;
-    private readonly List<ResourceBarrier> _barriers = [];
-    private List<RenderPassReport> _report = [];
+    /// <summary>Барьеры прохода — массив графа, растёт удвоением (кадр без выделений; было <c>List.ToArray</c> на проход).</summary>
+    private ResourceBarrier[] _barriers = new ResourceBarrier[8];
+    private int _barrierCount;
+    /// <summary>Записан ли ресурс к проходу (<see cref="Validate"/>) — массив графа, а не новый на кадр.</summary>
+    private bool[] _written = new bool[16];
     private ulong _frameConstants;
+
+    /// <summary>
+    /// Сырые данные исполненного прохода (исправления после Пд, «Разбор Пд» вопрос 6): отчёт <see cref="RenderPassReport"/> строится
+    /// из них только по запросу (<see cref="LastFrame"/>: агент, итог прогона), а в кадре — ни списков, ни строк, ни записей.
+    /// Имена записей и чтений — ссылки на имена ресурсов подряд в <see cref="FrameRecords.Names"/> с <see cref="NamesStart"/>.
+    /// </summary>
+    private struct PassRecord
+    {
+        public string Name;
+        public PassKind Kind;
+        public int Barriers, Draws, Dispatches, NamesStart, Writes, Reads;
+    }
+
+    /// <summary>Проходы одного кадра: пишется кадр в одни, показан — другие (брошенный посреди записи кадр прежних не портит).</summary>
+    private sealed class FrameRecords
+    {
+        public PassRecord[] Passes = new PassRecord[8];
+        public string[] Names = new string[16];
+        public int Count, NameCount, Draws;
+
+        public void Clear()
+        {
+            Array.Clear(Passes, 0, Count);   // ссылки на имена прошлого кадра не держим
+            Array.Clear(Names, 0, NameCount);
+            Count = NameCount = Draws = 0;
+        }
+
+        public void AddName(string name)
+        {
+            if (NameCount == Names.Length) Array.Resize(ref Names, Names.Length * 2);
+            Names[NameCount++] = name;
+        }
+
+        public ref PassRecord Add()
+        {
+            if (Count == Passes.Length) Array.Resize(ref Passes, Passes.Length * 2);
+            return ref Passes[Count++];
+        }
+    }
+
+    private FrameRecords _recording = new(), _shown = new();
+    private IReadOnlyList<RenderPassReport>? _lastFrame;
 
     internal RenderGraph(GraphicsDevice device, PipelineCache pipelines)
     {
@@ -94,8 +142,29 @@ public sealed class RenderGraph
     /// <summary>Задний буфер кадра. В начале кадра содержимое не определено; в конце граф отдаёт его на показ.</summary>
     public RenderTexture BackBuffer { get; }
 
-    /// <summary>Проходы и барьеры последнего исполненного кадра.</summary>
-    public IReadOnlyList<RenderPassReport> LastFrame => _report;
+    /// <summary>
+    /// Проходы и барьеры последнего исполненного кадра. Строится при первом запросе после кадра (агент — <c>render.graph</c>,
+    /// итог прогона <c>--json</c>) и держится до следующего кадра: сам кадр отчёта не строит (0 Б/кадр — исправления после Пд).
+    /// </summary>
+    public IReadOnlyList<RenderPassReport> LastFrame => _lastFrame ??= BuildReport(_shown);
+
+    /// <summary>Проходов в последнем исполненном кадре — без построения отчёта.</summary>
+    public int LastFramePasses => _shown.Count;
+
+    /// <summary>Вызовов отрисовки в последнем исполненном кадре (все проходы) — для HUD каждый кадр, без построения отчёта.</summary>
+    public int LastFrameDraws => _shown.Draws;
+
+    private static List<RenderPassReport> BuildReport(FrameRecords frame)
+    {
+        var report = new List<RenderPassReport>(frame.Count);
+        for (int i = 0; i < frame.Count; i++)
+        {
+            ref readonly var r = ref frame.Passes[i];
+            report.Add(new RenderPassReport(r.Name, r.Kind, frame.Names.AsSpan(r.NamesStart, r.Writes).ToArray(),
+                frame.Names.AsSpan(r.NamesStart + r.Writes, r.Reads).ToArray(), r.Barriers, r.Draws, r.Dispatches));
+        }
+        return report;
+    }
 
     /// <summary>Записей в пуле временных ресурсов (текстуры и буферы) — после смены размера старые уходят сами.</summary>
     public int PooledResources => _pool.Count;
@@ -294,7 +363,8 @@ public sealed class RenderGraph
     internal void Execute(ID3D12GraphicsCommandList list)
     {
         Validate();
-        var report = new List<RenderPassReport>(_passes.Count);
+        var frame = _recording;
+        frame.Clear();
         var profiler = _profiler;
         var timer = _device.Timer;   // точка Пг: таймстемпы GPU вокруг каждого прохода (с его барьерами)
         foreach (var p in _passes)
@@ -302,7 +372,7 @@ public sealed class RenderGraph
             int zone = profiler.Enabled ? PassZone(p.Name) : 0;
             profiler.Begin(zone);
             int scope = timer.Begin(list, p.Name);
-            _barriers.Clear();
+            _barrierCount = 0;
             foreach (var (index, _) in p.Colors) Require(_resources[index], ResourceStates.RenderTarget);
             if (p.Depth >= 0)
             {
@@ -313,8 +383,12 @@ public sealed class RenderGraph
             foreach (int r in p.Reads)
                 if (r != p.Depth) Require(_resources[r], ResourceStates.AllShaderResource);
             foreach (int w in p.Writes) RequireUav(_resources[w]);
-            int barriers = _barriers.Count;
-            if (barriers > 0) list.ResourceBarrier(_barriers.ToArray());
+            int barriers = _barrierCount;
+            if (barriers > 0)
+            {
+                list.ResourceBarrier((uint)barriers, _barriers);
+                Array.Clear(_barriers, 0, barriers);   // ссылки на ресурсы прохода массив графа не держит
+            }
 
             GraphResource? size = null;
             if (p.Kind == PassKind.Graphics)
@@ -342,7 +416,7 @@ public sealed class RenderGraph
             }
             timer.End(list, scope);
             profiler.End(zone);
-            report.Add(new RenderPassReport(p.Name, p.Kind, Names(p, writes: true), Names(p, writes: false), barriers, draws, dispatches));
+            Record(frame, p, barriers, draws, dispatches);
         }
 
         var back = _resources[BackBuffer.Index];
@@ -351,7 +425,9 @@ public sealed class RenderGraph
             list.ResourceBarrierTransition(back.Handle!, back.State, ResourceStates.Present);
             back.State = ResourceStates.Present;
         }
-        _report = report;
+        // Кадр записан целиком — он и показан: отчёт по нему — по следующему запросу.
+        (_recording, _shown) = (_shown, frame);
+        _lastFrame = null;
     }
 
     /// <summary>
@@ -360,7 +436,8 @@ public sealed class RenderGraph
     /// </summary>
     private void Validate()
     {
-        var written = new bool[_resources.Count];
+        if (_written.Length < _resources.Count) _written = new bool[Math.Max(_written.Length * 2, _resources.Count)];
+        var written = _written.AsSpan(0, _resources.Count);
         for (int i = 0; i < written.Length; i++) written[i] = _resources[i].Persistent;
         foreach (var p in _passes)
         {
@@ -392,25 +469,38 @@ public sealed class RenderGraph
         }
     }
 
-    private List<string> Names(Pass p, bool writes)
+    /// <summary>Сырые данные прохода — в записи кадра (имена ресурсов — ссылками): записи, затем чтения.</summary>
+    private void Record(FrameRecords frame, Pass p, int barriers, int draws, int dispatches)
     {
-        var names = new List<string>();
-        if (writes)
-        {
-            foreach (var (index, _) in p.Colors) names.Add(_resources[index].Name);
-            if (p.Depth >= 0 && p.DepthAccess == DepthAccess.Write) names.Add(_resources[p.Depth].Name);
-            foreach (int w in p.Writes) names.Add(_resources[w].Name);
-        }
-        else
-            foreach (int r in p.Reads) names.Add(_resources[r].Name);
-        return names;
+        int start = frame.NameCount;
+        foreach (var (index, _) in p.Colors) frame.AddName(_resources[index].Name);
+        if (p.Depth >= 0 && p.DepthAccess == DepthAccess.Write) frame.AddName(_resources[p.Depth].Name);
+        foreach (int w in p.Writes) frame.AddName(_resources[w].Name);
+        int writes = frame.NameCount - start;
+        foreach (int r in p.Reads) frame.AddName(_resources[r].Name);
+        ref var record = ref frame.Add();
+        record.Name = p.Name;
+        record.Kind = p.Kind;
+        record.Barriers = barriers;
+        record.Draws = draws;
+        record.Dispatches = dispatches;
+        record.NamesStart = start;
+        record.Writes = writes;
+        record.Reads = frame.NameCount - start - writes;
+        frame.Draws += draws;
+    }
+
+    private void AddBarrier(in ResourceBarrier barrier)
+    {
+        if (_barrierCount == _barriers.Length) Array.Resize(ref _barriers, _barriers.Length * 2);
+        _barriers[_barrierCount++] = barrier;
     }
 
     private void Require(GraphResource r, ResourceStates state)
     {
         r.UavPending = false;
         if (r.State == state) return;
-        _barriers.Add(new ResourceBarrier(new ResourceTransitionBarrier(r.Handle!, r.State, state)));
+        AddBarrier(new ResourceBarrier(new ResourceTransitionBarrier(r.Handle!, r.State, state)));
         r.State = state;
     }
 
@@ -423,11 +513,11 @@ public sealed class RenderGraph
     {
         if (r.State != ResourceStates.UnorderedAccess)
         {
-            _barriers.Add(new ResourceBarrier(new ResourceTransitionBarrier(r.Handle!, r.State, ResourceStates.UnorderedAccess)));
+            AddBarrier(new ResourceBarrier(new ResourceTransitionBarrier(r.Handle!, r.State, ResourceStates.UnorderedAccess)));
             r.State = ResourceStates.UnorderedAccess;
         }
         else if (r.UavPending || !r.Written)
-            _barriers.Add(new ResourceBarrier(new ResourceUnorderedAccessViewBarrier(r.Handle!)));
+            AddBarrier(new ResourceBarrier(new ResourceUnorderedAccessViewBarrier(r.Handle!)));
         r.UavPending = false;
     }
 
@@ -438,7 +528,9 @@ public sealed class RenderGraph
 
     private void BindGraphics(ID3D12GraphicsCommandList list, Pass p, GraphResource size)
     {
-        var rtvs = new CpuDescriptorHandle[p.Colors.Count];
+        // Не больше двух целей (RenderPassBuilder.Color) — на стеке, а не массив на проход (исправления после Пд).
+        Span<CpuDescriptorHandle> rtvs = stackalloc CpuDescriptorHandle[2];
+        rtvs = rtvs[..p.Colors.Count];
         for (int i = 0; i < rtvs.Length; i++) rtvs[i] = _resources[p.Colors[i].Resource].Rtv!.Value;
         CpuDescriptorHandle? dsv = p.Depth < 0 ? null
             : p.DepthAccess == DepthAccess.Write ? _resources[p.Depth].Dsv : _resources[p.Depth].ReadOnlyDsv;

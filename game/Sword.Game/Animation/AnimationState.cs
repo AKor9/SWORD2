@@ -23,16 +23,7 @@ public sealed class AnimationState(PosePool pool) : IStateContributor
         {
             h.Add(pool.GenerationAt(i));
             var pose = pool.HandleAt(i);
-            if (pose.IsNone) continue;
-            foreach (var q in pool.LocalRot(pose))
-            {
-                h.Add(q.X);
-                h.Add(q.Y);
-                h.Add(q.Z);
-                h.Add(q.W);
-            }
-            foreach (var p in pool.LocalPos(pose)) Add(ref h, p);
-            foreach (ref readonly var m in pool.Model(pose)) Add(ref h, m);
+            if (!pose.IsNone) AppendPose(ref h, pose);
         }
         var free = pool.FreeSlots;
         h.Add(free.Length);
@@ -82,6 +73,24 @@ public sealed class AnimationState(PosePool pool) : IStateContributor
             w.EndItem();
         }
         w.Matched = matched;
+    }
+
+    /// <summary>
+    /// Живая поза: повороты, смещения, модельные матрицы. Тело цикла по слотам — свой метод: хеш каждый тик (реплей, агент)
+    /// — долгий цикл (слоты × суставы) в методе раз в тик многоуровневый JIT заменял на ходу (OSR на главном потоке; исправления
+    /// после Пд). Порядок листьев тот же — хеш не меняется.
+    /// </summary>
+    private void AppendPose(ref StateHasher h, PoseHandle pose)
+    {
+        foreach (var q in pool.LocalRot(pose))
+        {
+            h.Add(q.X);
+            h.Add(q.Y);
+            h.Add(q.Z);
+            h.Add(q.W);
+        }
+        foreach (var p in pool.LocalPos(pose)) Add(ref h, p);
+        foreach (ref readonly var m in pool.Model(pose)) Add(ref h, m);
     }
 
     private static void Add(ref StateHasher h, Vector3 v)

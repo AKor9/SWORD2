@@ -172,6 +172,9 @@ public static partial class Program
             var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
             var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
             var playback = replay is null ? null : simulation.Play(replay);
+            // Живая игра (исправления после Пд, решение пользователя): тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy).
+            // Сверка реплея (--replay: виды фич, проверки) — каждый тик, как Headless и тесты.
+            simulation.Invariants.LivePeriods = replay is null;
             if (options.Overlays.FirstOrDefault(o => !ArenaClient.KnownOverlays.Contains(o)) is { } unknown)
                 throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,

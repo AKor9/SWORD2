@@ -236,7 +236,10 @@ public sealed class Hud
             y += rh;
             // После Пв: справа — заметных за прогон из всех (заметная — кадр не короче интервала показа монитора).
             float cw = d.TextRight(UiFace.Body, 12 * s, new(right, y), Dim, NoticeableText(new Line(buf), anomalies.NoticeableCount, anomalies.Detected));
-            var zone = new Line(buf).S(last.ZoneName.AsSpan(0, Math.Min(last.ZoneName.Length, 64))).S(" +").F(last.ZoneExcessMs, "F2").S(" мс").Text;
+            // Исправления после Пд: главной зоны нет (абсолютный порог на обычном кадре) — так и написано, без случайной зоны «+0».
+            var zone = last.HasZone
+                ? new Line(buf).S(last.ZoneName.AsSpan(0, Math.Min(last.ZoneName.Length, 64))).S(" +").F(last.ZoneExcessMs, "F2").S(" мс").Text
+                : new Line(buf).S(ProfileAnomaly.NoZoneText).Text;
             d.TextFit(UiFace.Num, 12 * s, new(x, y), Dim, zone, width - cw - 8 * s);
             y += rh;
         }

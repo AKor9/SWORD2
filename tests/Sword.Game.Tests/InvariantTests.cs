@@ -381,6 +381,33 @@ public sealed class GameInvariantTests
         Assert.Contains(details, first.Details);
     }
 
+    /// <summary>
+    /// Живая игра (исправления после Пд, решение пользователя): тяжёлые по цене в тике толпы — <c>animation.finite</c>,
+    /// <c>ecs.finite</c>, <c>physics.finite</c>, <c>physics.kinematicPose</c>, <c>physics.kinematicSpeed</c> — раз в 4 тика, остальные
+    /// (и <c>movement.rootOverlap</c> со счётом тиков подряд) — каждый тик. Неисправность, которая держится (NaN корня с тика 25),
+    /// поймана не позже чем через 3 тика — на тике 28; в тестах (не живая игра) — на тике 25 (<see cref="Fault_CaughtOnItsTick_AfterItsStage"/>).
+    /// </summary>
+    [Fact]
+    public void LiveGame_HeavyEveryFourTicks_PersistentFaultCaughtWithinPeriod()
+    {
+        string[] heavy = ["ecs.finite", "animation.finite", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed"];
+        var sim = Build(GameFault.NaNRoot);
+        Assert.All(sim.Invariants.List().Where(i => i.Enabled), i => Assert.Equal(1, i.Every));   // не живая игра — каждый тик
+        sim.Invariants.LivePeriods = true;
+        foreach (var i in sim.Invariants.List().Where(i => i.Enabled))
+            Assert.True(i.Every == (heavy.Contains(i.Id) ? InvariantCost.HeavyPeriod : 1), $"{i.Id}: раз в {i.Every}");
+        for (int t = 0; t <= (int)GameFaultModule.Tick + 3; t++)
+        {
+            sim.Enqueue(new PlayerCommand { Move = new Vector2(0, 1) });
+            sim.Step();
+        }
+        var first = sim.Invariants.Recent().First(v => v.Id == "ecs.finite");
+        Assert.Equal(GameFaultModule.Tick + 3, first.Tick);   // 28 — ближайшая проверка раз в 4 после тика 25
+        Assert.Contains("Transform.Position.X = NaN", first.Details);
+        Assert.Equal(8, sim.Invariants.Find("ecs.finite")!.Evaluations);              // тики 0, 4, …, 28
+        Assert.Equal(29, sim.Invariants.Find("movement.rootOverlap")!.Evaluations);   // каждый тик: счёт тиков подряд
+    }
+
     [Fact]
     public void RootOverlap_OnDemandRuns_DoNotAdvanceTicksInARow()
     {

@@ -326,7 +326,13 @@ Add-Step 'headless-smoke' {
         # После Пв: лимиты файлов по классам — код/JIT/GC 20, «машина» 5 (ожидания GPU и заметных у Headless нет): не больше 25.
         elseif (-not $a.limits -or [int]$a.limits.general.files -gt 20 -or [int]$a.limits.machine.files -gt 5 -or [int]$a.limits.gpu.files -ne 0 -or [int]$a.limits.noticeable.files -ne 0) { $problems += "--profile-threshold 0.001: лимиты файлов по классам — $($a.limits | ConvertTo-Json -Compress -Depth 3)" }
         elseif ($files.Count -lt 1 -or $files.Count -gt 25 -or [int]$a.written -ne $files.Count) { $problems += "--profile-threshold 0.001: файлов аномалий $($files.Count) (в итоге — $($a.written)), ждали 1…25 (20 код/JIT/GC + 5 «машина»)" }
-        elseif (-not $first -or $first.format -ne 'sword-profile-anomaly' -or -not $first.mainZone.name -or $first.class -notin @('code', 'jit', 'gc', 'gpu', 'machine')) { $problems += "файл аномалии $($files[0].FullName): формат $($first.format), зона $($first.mainZone.name), класс $($first.class)" }
+        # Исправления после Пд: порог 0.001 — аномалия и на тике не дольше обычного; у такого главной зоны нет (mainZone.name null и
+        # mainZone.note «главной зоны нет»), у остальных — имя зоны. Одно из двух — у каждого файла.
+        elseif (-not $first -or $first.format -ne 'sword-profile-anomaly' -or $first.class -notin @('code', 'jit', 'gc', 'gpu', 'machine') -or
+            @($files | ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } | Where-Object {
+                -not ([bool]$_.mainZone.name -xor ([string]$_.mainZone.note).StartsWith('главной зоны нет')) }).Count -gt 0) {
+            $problems += "файл аномалии $($files[0].FullName): формат $($first.format), зона $($first.mainZone.name) ($($first.mainZone.note)), класс $($first.class); у каждого файла — имя главной зоны или «главной зоны нет»"
+        }
         elseif (-not $firstTrace -or @($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count -lt 10) { $problems += "трасса аномалии: событий X $(@($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count)" }
         elseif (-not $ringTrace -or @($ringTrace.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count -lt 100) { $problems += "--profile-trace: trace.json — $($forced.profile.trace)" }
         else {
@@ -474,6 +480,8 @@ else {
                 $bare = Invoke-App 'no-hud' @('--frames', '3', '--no-hud')
                 if (-not $bare.ok) { $problems += "прогон с --no-hud: $($bare.error)" }
                 elseif ($bare.hud.shown -ne $false -or @($bare.report.passes | Where-Object { $_.name -eq 'hud' }).Count -ne 0) { $problems += "--no-hud: HUD показан ($($bare.hud.shown)) или проход hud есть" }
+                # Исправления после Пд: без F7 и заказанного слоя капсулы тел не снимаются (только таз игрока) — 0 в итоге.
+                elseif ($bare.bodies.shown -ne $false -or [int]$bare.bodies.capsules -ne 0 -or [int]$bare.bodies.drawn -ne 0) { $problems += "без F7: капсулы сняты — $($bare.bodies | ConvertTo-Json -Compress)" }
                 # Точка 4а: PageUp и R (удержание нажимает их в первом кадре) — команды арены в записи Sword.exe; Headless
                 # повторяет запись с теми же хешами; врагов 11, кадр рисует 12 бойцов.
                 $arenaFile = Join-Path $dir 'arena.swreplay'
@@ -806,6 +814,9 @@ Add-Step 'agent-smoke' {
             if ($ids -notcontains $id) { $problems += "Headless: invariant.list — нет $id" }
         }
         if ([int]$list.violationsTotal -ne 0) { $problems += "Headless: нарушения инвариантов: $($list.recent | ConvertTo-Json -Compress -Depth 4)" }
+        # Исправления после Пд: Headless (и агент в нём) — все кодовые инварианты каждый тик (точная остановка), периоды — только в живой игре.
+        $notEvery = @($list.invariants | Where-Object { $_.enabled -and [int]$_.every -ne 1 } | ForEach-Object { "$($_.id)=$($_.every)" })
+        if ($list.livePeriods -ne $false -or $notEvery.Count -gt 0) { $problems += "Headless: инварианты не каждый тик — livePeriods $($list.livePeriods), $($notEvery -join ', ')" }
         $x0 = [double](Call-Stdio 'entity.get' @{ entity = 'player' }).components.Transform.Position.X
         $null = Call-Stdio 'invariant.define' @{ id = 'agent.playerNear'; must = @{ field = 'Transform.Position.X'; lessThan = $x0 + 1 }; where = @{ entity = 'player' } }
         $null = Call-Stdio 'command.send' @{ command = 'PlayerCommand'; fields = @{ Move = @{ X = 1; Y = 0 } }; repeat = 240 }
@@ -942,6 +953,10 @@ Add-Step 'agent-smoke' {
             $inv = Call-Http 'invariant.list' @{}
             $checked = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.evaluations -gt 0 }).Count
             if ($checked -lt 6 -or [int]$inv.violationsTotal -ne 0) { $problems += "App: инварианты — проверялось $checked, нарушений $($inv.violationsTotal): $($inv.recent | ConvertTo-Json -Compress -Depth 4)" }
+            # Исправления после Пд (решение пользователя): живая игра — тяжёлые инварианты раз в 4 тика, остальные — каждый тик.
+            $heavyIds = @('ecs.finite', 'animation.finite', 'physics.finite', 'physics.kinematicPose', 'physics.kinematicSpeed')
+            $badEvery = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.every -ne $(if ($heavyIds -contains $_.id) { 4 } else { 1 }) } | ForEach-Object { "$($_.id)=$($_.every)" })
+            if ($inv.livePeriods -ne $true -or $badEvery.Count -gt 0) { $problems += "App: инварианты живой игры — livePeriods $($inv.livePeriods), период не тот: $($badEvery -join ', ')" }
             # Этап П, точка Па: profile.stages в живой игре — включение с начала следующего кадра, итоги по кадрам: фазы кадра,
             # тики, проходы графа.
             $null = Call-Http 'profile.stages' @{ enable = $true }

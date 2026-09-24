@@ -305,27 +305,38 @@ public static class RootCollision
     /// (<c>a.Dead</c>, <c>b.Dead</c>). <paramref name="contacts"/> — толчки пар, колонн и края за вызов по местам
     /// (перезаписываются; только учёт — корни и скорости он не трогает).
     /// </summary>
+    /// <remarks>
+    /// Тело прохода по бойцу — свой метод (<see cref="Fighter"/>): за вызов ~1000 пар, и долгий цикл в методе, который зовётся
+    /// раз в тик, многоуровневый JIT заменял на ходу (OSR) — компиляция 1,5 мс на главном потоке в первые секунды толпы
+    /// («Разбор Пд», вопрос 3; исправлено по решению пользователя). Порядок вычислений тот же.
+    /// </remarks>
     public static void Resolve(Span<Vector3> roots, Span<Vector3> velocities, ReadOnlySpan<bool> present, Span<RootContacts> contacts)
     {
         int n = Math.Min(Math.Min(roots.Length, velocities.Length), Math.Min(present.Length, contacts.Length));
         for (int i = 0; i < n; i++) contacts[i] = RootContacts.None;
         for (int iter = 0; iter < MovementRules.CollisionIterations; iter++)
             for (int i = 0; i < n; i++)
-            {
-                if (!present[i]) continue;
-                for (int j = i + 1; j < n; j++)
-                {
-                    if (!present[j]) continue;
-                    Pair(ref roots[i], ref velocities[i], ref roots[j], ref velocities[j], out var push, out float overlap);
-                    if (overlap <= 0) continue;
-                    Record(ref contacts[i], push, overlap, j);
-                    Record(ref contacts[j], -push, overlap, i);
-                }
-                var before = roots[i];
-                foreach (var pillar in ArenaLayout.Pillars) RootCollisionSystem.PushOutOfPillar(ref roots[i], ref velocities[i], pillar);
-                RootCollisionSystem.KeepInsideArena(ref roots[i], ref velocities[i]);
-                contacts[i].Obstacle += roots[i] - before;
-            }
+                if (present[i]) Fighter(roots[..n], velocities[..n], present[..n], contacts[..n], i);
+    }
+
+    /// <summary>
+    /// Боец <paramref name="i"/> одного прохода: пары со всеми следующими, затем колонны и край арены (<c>ResolveRoots</c>
+    /// SWORD, тело цикла по бойцам).
+    /// </summary>
+    private static void Fighter(Span<Vector3> roots, Span<Vector3> velocities, ReadOnlySpan<bool> present, Span<RootContacts> contacts, int i)
+    {
+        for (int j = i + 1; j < roots.Length; j++)
+        {
+            if (!present[j]) continue;
+            Pair(ref roots[i], ref velocities[i], ref roots[j], ref velocities[j], out var push, out float overlap);
+            if (overlap <= 0) continue;
+            Record(ref contacts[i], push, overlap, j);
+            Record(ref contacts[j], -push, overlap, i);
+        }
+        var before = roots[i];
+        foreach (var pillar in ArenaLayout.Pillars) RootCollisionSystem.PushOutOfPillar(ref roots[i], ref velocities[i], pillar);
+        RootCollisionSystem.KeepInsideArena(ref roots[i], ref velocities[i]);
+        contacts[i].Obstacle += roots[i] - before;
     }
 
     /// <summary>

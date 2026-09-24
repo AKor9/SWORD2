@@ -1,4 +1,5 @@
 using Sword.Engine.Platform;
+using Sword.Engine.Render;
 using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Client;
@@ -185,4 +186,13 @@ public readonly struct FrameInput
 /// при заданном числе тиков на кадр — 1).
 /// </param>
 /// <param name="Stats">FPS, шаг и работа прошлого кадра, тики этого (<see cref="FrameStats"/>).</param>
-public readonly record struct FrameView(float Alpha, int Ticks, float Seconds, FrameStats Stats);
+public readonly record struct FrameView(float Alpha, int Ticks, float Seconds, FrameStats Stats)
+{
+    /// <summary>
+    /// Снимок этого кадра, заказанный инструментом (агент: <c>capture.bundle</c> — ID-буфер, слои), если заказ уже есть: он
+    /// приходит в точке обслуживания, до <c>Extract</c>, — игра снимает в мир представления то, что нужно только снимку (слой
+    /// капсул; исправления после Пд). Тот же заказ кадр увидит в <c>RenderFrame.Capture</c>; null — снимка инструмента нет
+    /// (снимок F4 и <c>--shot</c> — без слоёв).
+    /// </summary>
+    public FrameCapture? Capture { get; init; }
+}

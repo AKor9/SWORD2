@@ -19,7 +19,9 @@ internal static class InvariantTools
         {
             Name = "invariant.list", Title = "Инварианты",
             Description = "Инварианты симуляции: id, чей (engine, core, модуль, agent), что касается, когда проверяется (after — " +
-                "стадия, runtime.export — конец тика; cost — каждый тик, раз в N тиков, по запросу), включён ли, проверок, нарушений, " +
+                "стадия, runtime.export — конец тика; cost — каждый тик, раз в N тиков, по запросу; every — как часто проверяется сейчас: " +
+                "период кодового инварианта действует только в живой игре — livePeriods, Sword.exe: тяжёлые раз в 4 тика), включён ли, " +
+                "проверок, нарушений, " +
                 "средняя стоимость проверки (мкс), последнее нарушение; recent — последние нарушения. filter — часть id.",
             Arguments = CoreTools.Props(
                 ("filter", CoreTools.Str("только id, содержащие строку")),
@@ -36,11 +38,12 @@ internal static class InvariantTools
                         .Select(i => Describe(i, defined.FirstOrDefault(d => (string?)d["id"] == i.Id))).ToList();
                     var last = invariants.Recent();
                     return (List: list, Recent: last.Skip(Math.Max(0, last.Count - recent)).ToList(), invariants.Total,
-                        invariants.EnabledByConfig, ctx.Point);
+                        invariants.EnabledByConfig, invariants.LivePeriods, ctx.Point);
                 }, call.Cancel);
                 return new ToolOutput(new JsonObject
                 {
                     ["enabledByConfig"] = r.EnabledByConfig,
+                    ["livePeriods"] = r.LivePeriods,
                     ["violationsTotal"] = r.Total,
                     ["invariants"] = new JsonArray([.. r.List.Select(i => (JsonNode?)i)]),
                     ["recent"] = new JsonArray([.. r.Recent.Select(v => (JsonNode?)ObservationTools.ViolationJson(v))]),
@@ -158,26 +161,51 @@ internal static class InvariantTools
             Name = "time.breakOnInvariant", Title = "Играть до нарушения инварианта",
             Description = "Играть, пока не нарушится инвариант (ids — какие; без них — любой включённый), и встать: Headless — посреди " +
                 "тика после нарушившего барьера (квитанция со stage; world.*, entity.get, invariant.run видят мир там), живая игра — " +
-                "после тика. Ответ — met, tick, stage и нарушения; не нарушился за maxTicks — met false. Дальше: time.step 1 доигрывает тик.",
+                "после тика. Ответ — met, tick, stage и нарушения; не нарушился за maxTicks — met false. Дальше: time.step 1 доигрывает тик. " +
+                "В живой игре тяжёлые инварианты проверяются раз в 4 тика (invariant.list: livePeriods, every) — на время ожидания они " +
+                "проверяются каждый тик: остановка на тике нарушения, а не до 3 тиков позже.",
             Arguments = CoreTools.Props(
                 ("ids", CoreTools.StrArray("id инвариантов (без них — любой включённый)")),
                 ("maxTicks", CoreTools.Int("не больше стольких тиков (по умолчанию 100 000)", 1, 10_000_000)),
                 ("timeoutSeconds", CoreTools.Num("сколько ждать, с (по умолчанию 60)", 0.1, 3600))),
             ReadOnly = false, Idempotent = false, Cost = ToolCost.Heavy,
-            Run = call =>
+            Run = async call =>
             {
                 var ids = call.Strings("ids");
-                return ObservationTools.Await(host, call, Math.Min(60, host.MaxWaitSeconds), (ctx, limit) =>
+                // Живая игра (исправления после Пд): периоды тяжёлых кодовых инвариантов сняты на время ожидания — агенту нужна
+                // точная остановка на тике нарушения; после ответа (и при ошибке, таймауте) — снова как было.
+                bool everyTick = false;
+                try
                 {
-                    var invariants = ctx.Invariants;
-                    foreach (string id in ids)
-                        if (invariants.Find(id) is { Enabled: false })
-                            throw new ArgumentException($"инвариант {id} выключен — invariant.enable {{ids:[\"{id}\"], enabled:true}}");
-                    if (ids.Count == 0 && !invariants.List().Any(i => i.Enabled))
-                        throw new ArgumentException("ни одного включённого инварианта — invariant.enable");
-                    return (host.Observation.ArmInvariant(ctx, ids.Count == 0 ? null : ids, limit), null);
-                }, host.Simulation is null ? "живая игра встаёт после тика нарушения; stage нарушения — в violations"
-                    : "стоим посреди тика после нарушившего барьера: invariant.run, entity.get — мир здесь; time.step 1 — доиграть тик");
+                    return await ObservationTools.Await(host, call, Math.Min(60, host.MaxWaitSeconds), (ctx, limit) =>
+                    {
+                        var invariants = ctx.Invariants;
+                        foreach (string id in ids)
+                            if (invariants.Find(id) is { Enabled: false })
+                                throw new ArgumentException($"инвариант {id} выключен — invariant.enable {{ids:[\"{id}\"], enabled:true}}");
+                        if (ids.Count == 0 && !invariants.List().Any(i => i.Enabled))
+                            throw new ArgumentException("ни одного включённого инварианта — invariant.enable");
+                        if (invariants.LivePeriods)
+                        {
+                            invariants.LivePeriods = false;
+                            everyTick = true;
+                        }
+                        return (host.Observation.ArmInvariant(ctx, ids.Count == 0 ? null : ids, limit), null);
+                    }, host.Simulation is null ? "живая игра встаёт после тика нарушения (на время ожидания тяжёлые — каждый тик); stage нарушения — в violations"
+                        : "стоим посреди тика после нарушившего барьера: invariant.run, entity.get — мир здесь; time.step 1 — доиграть тик").ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (everyTick)
+                        try
+                        {
+                            await host.Serve(ctx => ctx.Invariants.LivePeriods = true, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception e)
+                        {
+                            Log.Warning("agent", $"time.breakOnInvariant: периоды тяжёлых инвариантов не вернулись ({e.Message}) — проверяются каждый тик");
+                        }
+                }
             },
         });
     }
@@ -188,6 +216,7 @@ internal static class InvariantTools
         ["owner"] = i.Owner,
         ["scope"] = i.Scope.ToString().ToLowerInvariant(),
         ["cost"] = i.Cost.ToString(),
+        ["every"] = i.Every,
         ["after"] = i.After,
         ["enabled"] = i.Enabled,
         ["evaluations"] = i.Evaluations,

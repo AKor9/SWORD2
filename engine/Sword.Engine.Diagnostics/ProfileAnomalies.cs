@@ -182,6 +182,22 @@ public readonly record struct ProfileAnomaly(long Sequence, ProfilePeriod Period
     public const string NoticeableWord = "заметная";
 
     /// <summary>
+    /// Главной зоны нет (<see cref="Zone"/>): период не дольше своего среднего (сумма своего лишнего зон — лишнее периода — не
+    /// больше 0; у отдельной зоны бывает шум в микросекунды), а сработал абсолютный порог (<c>--profile-threshold</c>)
+    /// (исправления после Пд).
+    /// </summary>
+    public const int NoZone = -1;
+
+    /// <summary>Пояснение, когда главной зоны нет (<c>profile.stages</c>, файл аномалии).</summary>
+    public const string NoZoneNote = NoZoneText + ": период не дольше своего среднего — сработал абсолютный порог (--profile-threshold)";
+
+    /// <summary>Слова вместо главной зоны, когда её нет (журнал, файл, F2, <c>profile.stages</c>).</summary>
+    public const string NoZoneText = "главной зоны нет";
+
+    /// <summary>Есть главная зона (<see cref="NoZone"/> — нет).</summary>
+    public bool HasZone => Zone >= 0;
+
+    /// <summary>
     /// Коротко словами: «кадр 1234 (тик 383): 8.61 мс, медиана 0.37 — JIT; core.root-collision@Movement +7.90 мс»; заметная —
     /// «— машина, заметная (кадр 25.1 мс)».
     /// </summary>
@@ -194,8 +210,11 @@ public readonly record struct ProfileAnomaly(long Sequence, ProfilePeriod Period
                 ? TickTrigger ? $"тик {Tick} в кадре {Number}" : $"кадр {Number}"
                 : $"тик {Number}";
             string noticeable = Noticeable ? string.Format(ci, ", {0} (кадр {1:0.###} мс)", NoticeableWord, PeriodMs) : "";
-            return string.Format(ci, "{0}: {1:0.###} мс (медиана {2:0.###}, порог {3:0.###}) — {4}{8}; главная зона {5} {6:0.###} мс (+{7:0.###})",
-                what, Ms, MedianMs, ThresholdMs, AnomalyCauses.Word(Class), ZoneName, ZoneMs, ZoneExcessMs, noticeable);
+            return HasZone
+                ? string.Format(ci, "{0}: {1:0.###} мс (медиана {2:0.###}, порог {3:0.###}) — {4}{8}; главная зона {5} {6:0.###} мс (+{7:0.###})",
+                    what, Ms, MedianMs, ThresholdMs, AnomalyCauses.Word(Class), ZoneName, ZoneMs, ZoneExcessMs, noticeable)
+                : string.Format(ci, "{0}: {1:0.###} мс (медиана {2:0.###}, порог {3:0.###}) — {4}{5}; {6}",
+                    what, Ms, MedianMs, ThresholdMs, AnomalyCauses.Word(Class), noticeable, NoZoneText);
         }
     }
 
@@ -214,9 +233,10 @@ public readonly record struct ProfileAnomaly(long Sequence, ProfilePeriod Period
         ["classText"] = AnomalyCauses.Word(Class),
         ["noticeable"] = Noticeable,
         ["causes"] = Causes.ToJson(),
-        ["zone"] = ZoneName,
-        ["zoneMs"] = Math.Round(ZoneMs, 4),
-        ["zoneExcessMs"] = Math.Round(ZoneExcessMs, 4),
+        ["zone"] = HasZone ? ZoneName : null,
+        ["zoneMs"] = HasZone ? Math.Round(ZoneMs, 4) : null,
+        ["zoneExcessMs"] = HasZone ? Math.Round(ZoneExcessMs, 4) : null,
+        ["zoneNote"] = HasZone ? null : NoZoneNote,
         ["epoch"] = Epoch,
         ["file"] = Path,
         ["state"] = File.ToString().ToLowerInvariant(),
@@ -842,6 +862,9 @@ public sealed class ProfileAnomalies : IDisposable
         }
 
         public double AbsoluteMs => CpuProfiler.Ms(_absolute);
+
+        /// <summary>Порог абсолютный (<c>--profile-threshold</c>), а не по медиане.</summary>
+        public bool Absolute => _absolute > 0;
         public double MedianMs => _count >= _minSamples ? CpuProfiler.Ms(Median) : double.NaN;
         public double ThresholdMs => _count >= _minSamples ? CpuProfiler.Ms(Threshold) : double.NaN;
 

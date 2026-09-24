@@ -34,9 +34,11 @@ public sealed class InvariantToolsTests
         var list = await Ok(f, "invariant.list");
         Assert.Equal([("ecs.finite", true), ("ecs.entityRefs", false)], Ids(list));
         var finite = list["invariants"]![0]!;
-        Assert.Equal(("engine", "каждый тик", "runtime.export", 3), (finite["owner"]!.GetValue<string>(), finite["cost"]!.GetValue<string>(),
-            finite["after"]!.GetValue<string>(), finite["evaluations"]!.GetValue<int>()));
+        // Исправления после Пд: ecs.finite — тяжёлый (раз в 4 тика), но период кодового — только в живой игре: здесь каждый тик.
+        Assert.Equal(("engine", "раз в 4 тика", 1, "runtime.export", 3), (finite["owner"]!.GetValue<string>(), finite["cost"]!.GetValue<string>(),
+            finite["every"]!.GetValue<int>(), finite["after"]!.GetValue<string>(), finite["evaluations"]!.GetValue<int>()));
         Assert.True(list["enabledByConfig"]!.GetValue<bool>());
+        Assert.False(list["livePeriods"]!.GetValue<bool>());
 
         var on = await Ok(f, "invariant.enable", new JsonObject { ["ids"] = new JsonArray("ecs.*"), ["enabled"] = true });
         Assert.Equal(["ecs.finite", "ecs.entityRefs"], on["ids"]!.AsArray().Select(x => x!.GetValue<string>()));
@@ -48,6 +50,35 @@ public sealed class InvariantToolsTests
 
         var run = await Ok(f, "invariant.run");                                     // и выключенные, и «по запросу»
         Assert.Equal((2, 0), (run["checked"]!.GetValue<int>(), run["violated"]!.GetValue<int>()));
+    }
+
+    /// <summary>
+    /// Исправления после Пд: живая игра (<c>LivePeriods</c>, как Sword.exe) — <c>invariant.list</c> показывает <c>livePeriods</c> и
+    /// <c>every</c> 4 у тяжёлого; <c>time.breakOnInvariant</c> на время ожидания проверяет тяжёлые каждый тик (точная остановка),
+    /// после ответа — снова раз в 4.
+    /// </summary>
+    [Fact]
+    public async Task LivePeriods_ListShowsEvery_BreakChecksEveryTickWhileWaiting()
+    {
+        using var f = new AgentFixture();
+        f.Sim.Invariants.LivePeriods = true;   // до первого шага: симуляция на паузе
+        var list = await Ok(f, "invariant.list");
+        Assert.True(list["livePeriods"]!.GetValue<bool>());
+        Assert.Equal(4, list["invariants"]![0]!["every"]!.GetValue<int>());
+        await Ok(f, "invariant.define", new JsonObject
+        {
+            ["id"] = "agent.near", ["condition"] = JsonNode.Parse("""{"none":{"field":"Body.Position.X","greaterThan":5}}"""), ["after"] = "S",
+        });
+        await Ok(f, "command.send", new JsonObject { ["command"] = "Push", ["fields"] = new JsonObject { ["X"] = 1 }, ["repeat"] = 10 });
+        var hit = await Ok(f, "time.breakOnInvariant", new JsonObject { ["ids"] = new JsonArray("agent.near") });
+        Assert.Equal((3ul, "S"), (hit["tick"]!.GetValue<ulong>(), hit["stage"]!.GetValue<string>()));
+        // Тики 0, 1, 2 доиграны во время ожидания — ecs.finite проверен в каждом (без ожидания — только на тике 0).
+        list = await Ok(f, "invariant.list", new JsonObject { ["filter"] = "ecs.finite" });
+        Assert.Equal(3, list["invariants"]![0]!["evaluations"]!.GetValue<int>());
+        Assert.True(list["livePeriods"]!.GetValue<bool>());   // после ответа — периоды вернулись
+        await Ok(f, "time.step", new JsonObject { ["ticks"] = 5 });   // конец тика 3 и тики 4…7: раз в 4 — только тик 4
+        list = await Ok(f, "invariant.list", new JsonObject { ["filter"] = "ecs.finite" });
+        Assert.Equal(4, list["invariants"]![0]!["evaluations"]!.GetValue<int>());
     }
 
     [Fact]

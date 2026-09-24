@@ -25,8 +25,9 @@ public sealed class ClientAgent : IClientTool, ITickGate
     private readonly ConcurrentQueue<CaptureRequest> _captures = new();
     private CaptureRequest? _inFlight;
 
-    // Последний показанный кадр (поток кадра) — для render.graph.
-    private IReadOnlyList<RenderPassReport> _shownPasses = [];
+    // Последний показанный кадр (поток кадра) — для render.graph. Проходы — не ссылкой каждый кадр, а по запросу
+    // (RenderGraph.LastFrame строит отчёт лениво — кадр графа 0 Б, исправления после Пд): точка обслуживания идёт до записи
+    // следующего кадра, последний исполненный кадр графа — показанный.
     private int _shownWidth, _shownHeight, _shownPipelines;
     private ulong _shownFrame, _shownTick;
 
@@ -110,7 +111,6 @@ public sealed class ClientAgent : IClientTool, ITickGate
     {
         // Граф, размер и тик показанного кадра — вместе: точка обслуживания следующего кадра идёт уже после его тиков.
         var renderer = _client.Renderer;
-        _shownPasses = renderer.Graph.LastFrame;
         _shownWidth = renderer.Width;
         _shownHeight = renderer.Height;
         _shownPipelines = renderer.PipelineCount;
@@ -370,7 +370,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 // потоке кадра: они обновляются на месте в начале кадра.
                 var snapshot = await _host.Serve(_ => _shownFrame == 0
                     ? throw new InvalidOperationException("ни одного кадра ещё не показано — повторите")
-                    : (Passes: _client.Renderer.Gpu.Join(_shownPasses), Gpu: GpuJson(), _client.Renderer.AdapterName, Width: _shownWidth,
+                    : (Passes: _client.Renderer.Gpu.Join(_client.Renderer.Graph.LastFrame), Gpu: GpuJson(), _client.Renderer.AdapterName, Width: _shownWidth,
                         Height: _shownHeight, Pipelines: _shownPipelines, Frame: _shownFrame, Tick: _shownTick), call.Cancel).ConfigureAwait(false);
                 var list = new JsonArray();
                 foreach (var p in snapshot.Passes)   // список кадра не меняется после исполнения графа

@@ -351,7 +351,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     public void Extract(in FrameView view)
     {
-        _view.Extract(_simulation!, view.Alpha);
+        // Капсулы всех бойцов — только когда их рисуют (F7, --overlay capsules) или их слой заказан снимком инструмента (заказ
+        // известен до Extract — FrameView.Capture); иначе — только таз игрока: камера, тень, кольцо (исправления после Пд).
+        _view.Extract(_simulation!, view.Alpha, allBodies: ShowBodies || view.Capture?.WantsLayer(CapsulesOverlay) == true);
         _stats = view.Stats;
     }
 
@@ -453,9 +455,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private void DrawHud(RenderFrame frame)
     {
         var renderer = _renderer!;
-        int draws = 0;
-        var passes = renderer.Graph.LastFrame;
-        for (int i = 0; i < passes.Count; i++) draws += passes[i].Draws;
+        int draws = renderer.Graph.LastFrameDraws;   // без отчёта прохода: он строится только по запросу (0 Б/кадр — исправления после Пд)
         _ui!.Clear();
         // Сводка F2 — раз в 0,25 с из итогов профайлера (в остальных кадрах — сравнение времени), только когда секция видна.
         if (_hud.ShowProfiler) _digest?.Update(System.Diagnostics.Stopwatch.GetTimestamp());

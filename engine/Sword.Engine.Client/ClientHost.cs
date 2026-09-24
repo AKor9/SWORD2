@@ -105,14 +105,16 @@ public sealed record ClientOptions
 /// Итог работы клиента: чем кончилось, сколько кадров и как быстро. Для людей и агента (JSON).
 ///
 /// Бюджет обычного кадра считается только по обычным кадрам. Служебные — <see cref="ServiceFrames"/>: первый
-/// (компиляция шейдеров), кадры со сменой размера (ожидание GPU, пересоздание целей, в том числе при перетаскивании
-/// рамки) и кадр снимка (ожидание GPU, PNG) — в <see cref="AverageFrameMs"/>, <see cref="MaxFrameMs"/>,
+/// (компиляция шейдеров), кадры до первого сыгранного тика включительно (тик 0 строит мир: пулы, первые буферы Extract —
+/// исправления после Пд: при дробной доле тика и по часам его играет не первый кадр, а второй), кадры со сменой размера
+/// (ожидание GPU, пересоздание целей, в том числе при перетаскивании рамки) и кадр снимка (ожидание GPU, PNG) — в <see cref="AverageFrameMs"/>, <see cref="MaxFrameMs"/>,
 /// <see cref="AllocatedBytesPerFrame"/> и <see cref="Gen0Collections"/> не входят. Кадр — от конца прошлого до конца
 /// этого, вместе с прокачкой сообщений. <see cref="AllocatedBytesPerFrame"/> — выделения главного потока (другие потоки
 /// процесса не в счёт); <see cref="Gen0Collections"/> — сборки поколения 0, пришедшиеся на обычные кадры (сборка
 /// останавливает весь процесс, поэтому считается любая). <see cref="Machine"/> — машина за замер (точка Пб): с бенчем — кадры
-/// замера, без него — с конца первого кадра до выхода; загрузка системы другими процессами, частота, GC, JIT и вердикт
-/// «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт). Точка Пг: <see cref="Passes"/> — проходы последнего
+/// замера (до последнего кадра замера — его снимок и выход уже вне окна), без него — с конца кадра, сыгравшего первый тик, до
+/// выхода (исправления после Пд; без симуляции — с конца первого кадра); загрузка системы другими процессами, частота, GC, JIT
+/// и вердикт «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт). Точка Пг: <see cref="Passes"/> — проходы последнего
 /// кадра с GPU-временем того же кадра (после ожидания простоя GPU в конце прогона), <see cref="Gpu"/> — GPU-время этого кадра
 /// целиком и сумма проходов. После Пв (решение пользователя): служебные — ещё кадры инструментов (<see cref="ToolFrames"/>:
 /// точка обслуживания выполняла запросы агента — выделения и время агента, а не игры); <see cref="DisplayHz"/> — частота
@@ -245,6 +247,9 @@ public sealed class ClientHost : IDisposable
         _displayHz = window.RefreshHz;
         Profiler.DisplayHz = _displayHz;
         MachineSample.Take();   // первый снимок машины — здесь: его разовая компиляция и статика — не в кадрах Run
+        // Исправления после Пд: выход из цикла Run зовёт AbandonFrame впервые после последнего кадра — его компиляция (JIT на
+        // главном потоке) попадала в окно машины бенча и давала вердикт «среда». Кадра ещё нет — вызов ничего не бросает.
+        Profiler.AbandonFrame();
         try
         {
             game.Initialize(_renderer, _clock?.Link);
@@ -286,9 +291,11 @@ public sealed class ClientHost : IDisposable
         var bench = _options.BenchSeconds > 0 ? new FrameBench(_options.BenchSeconds) : null;
         var profiler = Profiler;
         bool profileMeasuring = false;
-        // Окно машины (точка Пб): границы замера — не каждый кадр. С бенчем — с первого кадра замера, без него — с конца первого.
-        MachineSample? machineStart = null;
-        bool takeMachine = false;
+        // Окно машины (точка Пб): границы замера — не каждый кадр. С бенчем — с первого кадра замера до последнего кадра замера
+        // (его снимок и выход — вне окна); без него — с конца кадра, сыгравшего первый тик (постройка мира и её JIT — не в окне;
+        // исправления после Пд), до выхода.
+        MachineSample? machineStart = null, machineEnd = null;
+        bool takeMachine = false, machineFromFirstTick = false;
 
         while (true)
         {
@@ -345,20 +352,28 @@ public sealed class ClientHost : IDisposable
             _edges.Note(input);   // фронты кадра — до ближайшего тика (раздел 7)
             profiler.End(_zones.Input);
             profiler.Begin(_zones.Simulate);
+            // Кадр до первого сыгранного тика включительно — служебный (исправления после Пд): тик 0 строит мир.
+            bool beforeFirstTick = _simulation is not null && _simulation.Tick == 0;
             int ticks = _clock?.RunFrame(seconds) ?? 0;
             profiler.End(_zones.Simulate);
             profiler.Begin(_zones.Tools);
             // Точка обслуживания инструментов: тики кадра сыграны, мир согласован (и на паузе). Выполнены запросы агента — кадр
             // инструментов (после Пв): служебный — не в среднем и бюджете кадра, профайлер не судит его как кадр.
             bool toolWork = ServeTools();
+            // Заказ снимка инструмента — сразу после точки обслуживания, до Extract: игра видит его в FrameView.Capture и снимает в
+            // мир представления нужное только снимку (исправления после Пд). В кадре со своим снимком (прогона, F4) он не идёт.
+            var (toolCapture, capturer) = ToolCapture();
             profiler.End(_zones.Tools);
-            _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds, _meter.Stats(ticks, _vsync));
+            _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds, _meter.Stats(ticks, _vsync)) { Capture = toolCapture };
             profiler.Begin(_zones.Extract);
             _game.Extract(_view);
             profiler.End(_zones.Extract);
             double simTime = _clock is { } clock ? clock.Link.Tick * (double)clock.Link.Dt : 0;
             // Последний кадр замера — по игровому времени после тиков кадра (BenchRecorder.Done SWORD).
             bool lastBenchFrame = bench?.Done(simTime) == true;
+            // Окно машины бенча кончается здесь (исправления после Пд): шаг этого кадра в замер не идёт, а его снимок (--shot:
+            // компиляция PNG и копии, OSR) и выход — уже не замер. Снимок машины — внутри служебного кадра: его ~50 мкс не судятся.
+            if (lastBenchFrame && machineStart is not null) machineEnd = MachineSample.Take();
             string? shotPath = null;
             if (_options.ScreenshotPath is not null && (bench is not null ? lastBenchFrame : frames + 1 == _screenshotFrame))
                 shotPath = _options.ScreenshotPath;
@@ -366,7 +381,7 @@ public sealed class ClientHost : IDisposable
                 shotPath = ScreenshotFile();
             double preRenderMs = Stopwatch.GetElapsedTime(cpuStart).TotalMilliseconds;
             profiler.Begin(_zones.Render);
-            RenderFrame(shotPath, required: shotPath == _options.ScreenshotPath, tools: true);
+            RenderFrame(shotPath, required: shotPath == _options.ScreenshotPath, tools: true, toolCapture, capturer);
             profiler.End(_zones.Render);
             double cpuMs = preRenderMs + _renderer.LastRecordMs;
             if (_options.MaxFps > 0)
@@ -380,9 +395,10 @@ public sealed class ClientHost : IDisposable
             long allocated = GC.GetAllocatedBytesForCurrentThread();
             int gen0 = GC.CollectionCount(0);
             double ms = Stopwatch.GetElapsedTime(last, now).TotalMilliseconds;
-            // Служебный кадр: первый, со сменой размера с конца прошлого кадра (и из цикла перетаскивания рамки), снимок; после Пв —
-            // и кадр инструментов (профайлеру — отдельной пометкой: в кольце видно, почему кадр не судился).
-            bool service = frames == 0 || _resizes != lastResizes || shotPath is not null || _toolCaptured;
+            // Служебный кадр: первый, до первого сыгранного тика включительно (исправления после Пд), со сменой размера с конца прошлого
+            // кадра (и из цикла перетаскивания рамки), снимок; после Пв — и кадр инструментов (профайлеру — отдельной пометкой: в
+            // кольце видно, почему кадр не судился).
+            bool service = frames == 0 || beforeFirstTick || _resizes != lastResizes || shotPath is not null || _toolCaptured;
             if (_window.RefreshHz != _displayHz)
             {
                 _displayHz = _window.RefreshHz;   // окно перенесли на монитор с другой частотой (поле окна — без вызовов ОС)
@@ -395,7 +411,12 @@ public sealed class ClientHost : IDisposable
                 profileMeasuring = true;
                 takeMachine = true;
             }
-            if (bench is null && frames == 0) takeMachine = true;
+            if (bench is null && !machineFromFirstTick)
+            {
+                // Без бенча — с конца кадра, сыгравшего первый тик; пока тиков нет (пауза агента) — хотя бы с конца первого кадра.
+                if (frames == 0) takeMachine = true;
+                if (_simulation is null || _simulation.Tick > 0) takeMachine = machineFromFirstTick = true;
+            }
             profiler.EndFrame(_view.Alpha, service || lastBenchFrame, toolWork);
             if (toolWork)
             {
@@ -447,7 +468,7 @@ public sealed class ClientHost : IDisposable
             }
         }
         profiler.AbandonFrame();   // выход посреди кадра (окно закрыто, Escape, инструмент): кадр не доделан — не в итогах
-        var machine = machineStart is { } ms0 ? MachineReport.Between(ms0, MachineSample.Take(), computeBound: false) : null;
+        var machine = machineStart is { } ms0 ? MachineReport.Between(ms0, machineEnd ?? MachineSample.Take(), computeBound: false) : null;
         var benchReport = bench?.Result();
         if (benchReport is not null)
         {
@@ -539,21 +560,14 @@ public sealed class ClientHost : IDisposable
     /// F4 не записался — ошибка в журнал, игра идёт дальше.
     /// </param>
     /// <param name="tools">Кадр главного цикла: инструменты могут заказать снимок. Итог кадра они получают всегда.</param>
-    private void RenderFrame(string? screenshot = null, bool required = true, bool tools = false)
+    /// <param name="toolCapture">Снимок, заказанный инструментом <paramref name="capturer"/> до Extract (<see cref="ToolCapture"/>).</param>
+    private void RenderFrame(string? screenshot = null, bool required = true, bool tools = false, FrameCapture? toolCapture = null,
+        IClientTool? capturer = null)
     {
         _frame++;
         _toolCaptured = false;
         // Снимок инструмента — в кадре без своего снимка (прогона или F4): инструмент просит, пока не получит.
-        FrameCapture? toolCapture = null;
-        IClientTool? capturer = null;
-        if (tools && screenshot is null)
-            foreach (var t in _tools)
-                if (t.Capture(_frame) is { } c)
-                {
-                    toolCapture = c;
-                    capturer = t;
-                    break;
-                }
+        if (!tools || screenshot is not null) (toolCapture, capturer) = (null, null);
         var capture = screenshot is not null ? new FrameCapture(screenshot) : toolCapture;
         bool captured = true;
         try
@@ -583,6 +597,17 @@ public sealed class ClientHost : IDisposable
     }
 
     private bool _toolCaptured;
+
+    /// <summary>
+    /// Заказ снимка инструмента на следующий кадр (<c>_frame + 1</c>) — первый заказавший. Инструмент держит заказ, пока не
+    /// получит итог (<see cref="IClientTool.Presented"/>): спросить и не снять (кадр со своим снимком) — не потерять заказ.
+    /// </summary>
+    private (FrameCapture? Capture, IClientTool? Tool) ToolCapture()
+    {
+        foreach (var t in _tools)
+            if (t.Capture(_frame + 1) is { } c) return (c, t);
+        return (null, null);
+    }
 
     /// <summary>Точка обслуживания инструментов; истина — хоть один выполнил работу (кадр инструментов, после Пв).</summary>
     private bool ServeTools()
@@ -673,7 +698,7 @@ public sealed class ClientHost : IDisposable
             // Кадр без тиков: очередь кадра пуста — события прошлого кадра не обрабатываются второй раз.
             _clock?.EmptyFrame();
             ServeTools();   // тянут рамку — главный цикл стоит, инструменты обслуживаются отсюда
-            _game.Extract(_view with { Ticks = 0, Seconds = 0, Stats = _view.Stats with { Ticks = 0 } });
+            _game.Extract(_view with { Ticks = 0, Seconds = 0, Stats = _view.Stats with { Ticks = 0 }, Capture = null });
             RenderFrame();
         }
         catch (Exception ex)

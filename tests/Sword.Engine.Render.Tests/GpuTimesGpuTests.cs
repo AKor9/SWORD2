@@ -227,15 +227,30 @@ public sealed class GpuTimesGpuTests : IDisposable, ILogSink
         AssertNoDebugMessages();
     }
 
+    /// <remarks>
+    /// Исправления после Пд: кадр графа — 0 Б (отчёт прохода — по запросу, барьеры и дескрипторы — без массивов на проход), поэтому
+    /// здесь не «столько же, сколько без таймстемпов», а 0: работа проходов — готовые делегаты (замыкание на кадр выделяло бы само).
+    /// </remarks>
     [Fact]
     public void Timestamps_AddNoBytesPerFrame()
     {
         using var storage = _renderer.CreateStorage<uint>("test.bytes", 64);
+        RenderGraph g = null!;
+        RenderBuffer s = default;
+        Action<RenderPassContext> spin = ctx =>
+        {
+            ctx.SetPipeline(new ComputePipelineDesc(Shader, "CsSpin"));
+            ctx.SetConstant(0, 16u);
+            ctx.SetConstant(4, g.UavOf(s));
+            ctx.Dispatch(1);
+        };
         Action<RenderFrame> build = f =>
         {
-            Spin(f, storage, "test.a", 16);
-            Spin(f, storage, "test.b", 16);
-            f.Graph.AddPass("test.clear").Color(f.Graph.BackBuffer, System.Numerics.Vector4.Zero);
+            g = f.Graph;
+            s = g.Import(storage);
+            g.AddComputePass("test.a").Write(s).Execute(spin);
+            g.AddComputePass("test.b").Write(s).Execute(spin);
+            g.AddPass("test.clear").Color(g.BackBuffer, System.Numerics.Vector4.Zero);
         };
         (long Bytes, double RecordMs) Measure(int frames)
         {
@@ -260,8 +275,9 @@ public sealed class GpuTimesGpuTests : IDisposable, ILogSink
         var again = Measure(frames);
         _output.WriteLine($"байт на кадр: с таймстемпами {on.Bytes}, без {off.Bytes}, снова с ними {again.Bytes}; запись кадра на CPU " +
             $"(отладочный слой, GPU-валидация): {on.RecordMs:F4} / {off.RecordMs:F4} / {again.RecordMs:F4} мс");
-        Assert.Equal(off.Bytes, on.Bytes);
-        Assert.Equal(off.Bytes, again.Bytes);
+        Assert.Equal(0, off.Bytes);
+        Assert.Equal(0, on.Bytes);
+        Assert.Equal(0, again.Bytes);
         Assert.True(_renderer.Gpu.Sequence > sequence + 3);
         AssertNoDebugMessages();
     }
