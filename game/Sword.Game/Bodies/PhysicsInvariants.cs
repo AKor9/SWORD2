@@ -11,11 +11,12 @@ namespace Sword.Game.Bodies;
 
 /// <summary>
 /// Инварианты физики (раздел 8 плана, этап 5), их регистрирует ядро рядом с участником хеша <c>physics</c>:
-/// <c>physics.finite</c> — после стадии Physics (тела ставятся при постройке в Gameplay и по позе в PrePhysics — 5б, а стадия
-/// Physics до этапа 7 пуста: после неё видно ровно то, что поставил PrePhysics; шаг физики — этап 7);
+/// <c>physics.finite</c> — после стадии Physics (тела ставятся при постройке в Gameplay и по позе в PrePhysics — 5б; с 7з в стадии
+/// Physics — шаг физики трупов: после неё видно и то, что поставил PrePhysics, и то, что насчитал шаг);
 /// <c>physics.kinematicPose</c> и <c>physics.kinematicSpeed</c> — после PrePhysics (5б: капсулы живого бойца стоят на суставах
 /// позы тика, их скорости правдоподобны); <c>physics.bodyRefs</c> — в конце End, когда хуки всех барьеров тика отработали.
-/// Проверки внутри шага — с шагом (этап 7). С 7ж у бойца 14 тел: тело клинка (11) — на мече в кисти позы, массы тел конечны.
+/// С 7ж у бойца 14 тел: тело клинка (11) — на мече в кисти позы, массы тел конечны. С 7з позу и скорость постановки сверяют только
+/// кинематические тела; инварианты тел на физике — <see cref="Ragdoll.CorpseInvariants"/>.
 /// </summary>
 public static class PhysicsInvariants
 {
@@ -129,7 +130,8 @@ public static class PhysicsInvariants
     /// (<see cref="BladePlacement.BodyOf"/>), полудлина — половина отрезка меча (смена меча меняет форму). Ловит постановку, которая не
     /// прошла (капсулы остались на прошлой позе или корне), перепутанные тела (<see cref="BodyRef"/> двух бойцов обменялись) и тело,
     /// сдвинутое после постановки. Бойцы без живой позы или с негодным телом пропускаются (их ловят <c>animation.*</c>,
-    /// <c>physics.bodyRefs</c>), мёртвые — тоже (7ж): их тела уже не по позе (сдвиг командой сцены, труп на физике — 7з). До первого
+    /// <c>physics.bodyRefs</c>), мёртвые — тоже (7ж): их тела уже не по позе (сдвиг командой сцены, труп на физике — 7з), и с 7з — любое тело не
+    /// в кинематике (режимы согласует <c>physics.modes</c>). До первого
     /// тика (проверка «сейчас» на свежем сеансе, после <c>time.seek 0</c>) капсулы сверяются с позой постройки (<see cref="StartPose"/>):
     /// по ней их поставила сборка мира (5в), а поза бойца до первого тика — поза привязки (её считает первый тик).
     /// </summary>
@@ -178,6 +180,7 @@ public static class PhysicsInvariants
             {
                 int segment = BodySegs.Segment(k);
                 var s = physics.Get(physics.Body(body, k));
+                if (s.Mode != BodyMode.Kinematic) continue;   // 7з: тело на физике ставит шаг, не поза
                 Vector3 a, b;
                 if (BodySegs.IsFlesh(segment)) (a, b) = BodyPlacement.Ends(model, joints, w, segment);
                 else
@@ -242,7 +245,8 @@ public static class PhysicsInvariants
     /// в <see cref="Transform"/> — вычтены) не больше <see cref="MaxRelativeSpeed"/> (тело клинка — <see cref="MaxBladeSpeed"/>, 7ж), угловая
     /// поперёк оси (<see cref="Swing"/>; 6в) — не больше <see cref="MaxAngularSpeed"/>. Ловит скачок, который постановка приняла за движение: постройка или сброс без
     /// постановки при постройке (прошлая постановка — там, где тело стояло до постройки), чужая или испорченная поза, неверный
-    /// шаг. Толчки корней при спауне внахлёст, колонны, ступени и поворот курса — движение мира бойца, их предел не видит.
+    /// шаг. Толчки корней при спауне внахлёст, колонны, ступени и поворот курса — движение мира бойца, их предел не видит. С 7з — только
+    /// кинематические тела (тела на физике держит <c>physics.simulatedSpeed</c>).
     /// </summary>
     private sealed class KinematicSpeed(IPhysicsWorld physics) : IInvariant
     {
@@ -283,6 +287,7 @@ public static class PhysicsInvariants
                     for (int k = 0; k < BodySegs.Bodies; k++)
                     {
                         var s = physics.Get(physics.Body(body, k));
+                        if (s.Mode != BodyMode.Kinematic) continue;   // 7з: тело на физике — physics.simulatedSpeed
                         float v = Vector3.Distance(s.Position, Vector3.Transform(s.PrevPosition, carry)) / dt, w = Swing(s);
                         int segment = BodySegs.Segment(k);
                         float limit = BodySegs.IsFlesh(segment) ? MaxRelativeSpeed : MaxBladeSpeed;

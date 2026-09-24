@@ -1,0 +1,191 @@
+using System.Numerics;
+using Sword.Engine.Animation;
+using Sword.Engine.Physics;
+using Sword.Game.Bodies;
+using Sword.Game.Contracts;
+
+namespace Sword.Game.Ragdoll;
+
+/// <summary>
+/// Суставы трупа бойца (7з) — данные игры: 13 суставов по дереву сегментов (<c>Fighter.Parent</c>, <c>Fighter.Joints.Limits</c> SWORD
+/// 2eab13b — отправная точка, research-solver-joints §3). Сустав <c>j</c> — ребёнок сегмента <c>j + 1</c> (порядок решения — от таза к
+/// листьям, как цикл <c>s = 1…13</c>): позвоночник, шея, плечо и локоть левые, плечо и локоть правые, бедро и колено левые, бедро и
+/// колено правые, запястье (клинок, <see cref="Wrist"/>), голеностопы. Точка сустава на ребёнке — нижний конец оси его капсулы
+/// <c>(0, −полудлина, 0)</c>: у плоти это сустав скелета, от которого идёт капсула (<see cref="BodyPlacement"/>), у клинка — хват
+/// (<see cref="BladeBody.GripLocal"/>). Пределы наклона и скручивания — от позы смерти (привязка), податливость — из настроек (ручка
+/// «мягкость суставов», у трупа не 0). Шарниры (локти и колени) — жёсткие, ось — <b>анатомическая</b>: ось сгиба кости ребёнка скелета
+/// (<see cref="Anatomy"/>), перенесённая позой смерти в систему капсулы ребёнка; знак сгиба — +1 (ось задана так, что сгиб —
+/// положительный поворот). У SWORD знак сгиба брался по сгибу в позе смерти — почти прямое колено сгибалось «назад».
+/// </summary>
+public sealed class CorpseJoints
+{
+    /// <summary>Суставов у трупа бойца: по суставу на каждое тело, кроме таза.</summary>
+    public const int Count = BodySegs.Bodies - 1;
+
+    /// <summary>Сустав запястья (предплечье правое → клинок): выключается при каждой смерти — меч выпадает (решение 6 этапа 7).</summary>
+    public const int Wrist = BodySegs.Weapon - 1;
+
+    /// <summary>Сустав, чей ребёнок — сегмент <paramref name="segment"/> (1…13); у таза сустава нет.</summary>
+    public static int JointOf(int segment) => segment - 1;
+
+    /// <summary>Родитель сегмента по дереву тела (<c>Fighter.Parent</c>): таз — корень (−1).</summary>
+    public static int Parent(int segment) => segment switch
+    {
+        BodySegs.Pelvis => -1,
+        BodySegs.Torso or BodySegs.ThighL or BodySegs.ThighR => BodySegs.Pelvis,
+        BodySegs.Head or BodySegs.UArmL or BodySegs.UArmR => BodySegs.Torso,
+        BodySegs.FArmL => BodySegs.UArmL,
+        BodySegs.FArmR => BodySegs.UArmR,
+        BodySegs.ShinL => BodySegs.ThighL,
+        BodySegs.ShinR => BodySegs.ThighR,
+        BodySegs.Weapon => BodySegs.FArmR,
+        BodySegs.FootL => BodySegs.ShinL,
+        BodySegs.FootR => BodySegs.ShinR,
+        _ => throw new ArgumentOutOfRangeException(nameof(segment), segment, "сегмент тела — 0…13"),
+    };
+
+    /// <summary>Пределы шарнира: сгиб от выпрямленного, рад, и люфт оси, рад.</summary>
+    public readonly record struct HingeLimits(float BendMin, float BendMax, float AxisSlack);
+
+    /// <summary>Пределы наклона-скручивания от позы смерти, рад: наклон по X (вперёд-назад у ног и корпуса), по Z, скручивание.</summary>
+    public readonly record struct SwingLimits(float SwingXMin, float SwingXMax, float SwingZ, float Twist);
+
+    // Отправные пределы — таблица Limits SWORD (research-solver-joints §3): X у капсул бойца — «вправо» бойца; наклон +X бедра — сгиб
+    // вперёд, корпуса и шеи — назад.
+    public static readonly SwingLimits Spine = new(-0.9f, 0.35f, 0.45f, 0.6f);
+    public static readonly SwingLimits Neck = new(-0.8f, 0.6f, 0.5f, 1.25f);
+    public static readonly SwingLimits Shoulder = new(-2.6f, 2.6f, 2.0f, 1.3f);
+    public static readonly SwingLimits Hip = new(-0.7f, 2.0f, 0.8f, 0.6f);
+    public static readonly SwingLimits WristLimits = new(-1.5f, 1.5f, 1.5f, 3.0f);
+    public static readonly SwingLimits Ankle = new(-0.8f, 0.8f, 0.35f, 0.6f);
+    public static readonly HingeLimits Elbow = new(0, 2.6f, 0.05f);
+    public static readonly HingeLimits Knee = new(0, 2.5f, 0.2f);
+
+    private readonly Anatomy _anatomy;
+
+    public CorpseJoints(Anatomy anatomy) => _anatomy = anatomy;
+
+    /// <summary>Анатомия шарниров скелета, по которой строятся описания.</summary>
+    public Anatomy Hinges => _anatomy;
+
+    /// <summary>
+    /// Описания 13 суставов трупа по позе смерти (<see cref="IPhysicsWorld.SetJoints"/> привяжет их по ней же): точки — по нынешней форме
+    /// капсул (полудлины), оси шарниров — анатомические оси костей позы <paramref name="model"/> в мире бойца
+    /// <paramref name="fighterWorld"/>, в системе капсулы ребёнка. Памяти не выделяет.
+    /// </summary>
+    public void Describe(IPhysicsWorld physics, ArticulationHandle body, ReadOnlySpan<Matrix4x4> model, in Matrix4x4 fighterWorld,
+        Span<JointDesc> joints)
+    {
+        if (joints.Length < Count) throw new ArgumentException($"нужно {Count} мест", nameof(joints));
+        for (int segment = 1; segment < BodySegs.Bodies; segment++)
+        {
+            int j = JointOf(segment), parent = Parent(segment);
+            var child = physics.Get(physics.Body(body, BodySegs.Body(segment)));
+            var anchor = new Vector3(0, -child.HalfLength, 0);
+            int p = BodySegs.Body(parent), c = BodySegs.Body(segment);
+            joints[j] = segment switch
+            {
+                BodySegs.Torso => Swing(p, c, anchor, Spine),
+                BodySegs.Head => Swing(p, c, anchor, Neck),
+                BodySegs.UArmL or BodySegs.UArmR => Swing(p, c, anchor, Shoulder),
+                BodySegs.ThighL or BodySegs.ThighR => Swing(p, c, anchor, Hip),
+                BodySegs.Weapon => Swing(p, c, anchor, WristLimits),
+                BodySegs.FootL or BodySegs.FootR => Swing(p, c, anchor, Ankle),
+                BodySegs.FArmL or BodySegs.FArmR => Hinge(p, c, anchor, Elbow, _anatomy.Axis(segment, model, fighterWorld, child.Rotation)),
+                _ => Hinge(p, c, anchor, Knee, _anatomy.Axis(segment, model, fighterWorld, child.Rotation)),
+            };
+        }
+    }
+
+    private static JointDesc Swing(int parent, int child, Vector3 anchor, in SwingLimits l) =>
+        JointDesc.SwingTwist(parent, child, anchor, l.SwingXMin, l.SwingXMax, l.SwingZ, l.Twist);
+
+    private static JointDesc Hinge(int parent, int child, Vector3 anchor, in HingeLimits l, Vector3 axis) =>
+        JointDesc.Hinge(parent, child, anchor, l.BendMin, l.BendMax, l.AxisSlack, 1) with { HingeAxis = axis };
+
+    /// <summary>
+    /// Анатомические оси шарниров скелета (7з): у локтя и колена — ось сгиба в системе кости ребёнка (lowerarm, calf), найденная по клипам
+    /// библиотеки при сборке: среднее направление <c>u × v</c> (u — кость родителя, v — кость ребёнка, обе в системе ребёнка) по всем
+    /// кадрам, где сустав согнут заметно (<c>|u × v| ≥ </c><see cref="BendSine"/>): ось, вокруг которой сустав сгибается в анимации, — ось
+    /// сгиба, и сгиб вокруг неё — положительный. У Manny пака — −Y кости у всех четырёх (разброс — косинус к среднему ≥ 0,67; 24 тыс.
+    /// кадров на сустав). Если клипы сустав почти не сгибают (синтетический скелет тестов) или кости не идут цепочкой, — запасная ось:
+    /// «вправо» бойца (ось X капсул) со знаком сгиба (колено — назад, локоть — вперёд у опущенной руки).
+    /// </summary>
+    public sealed class Anatomy
+    {
+        /// <summary>Синус сгиба, с которого кадр участвует в поиске оси (≈ 17°).</summary>
+        public const float BendSine = 0.3f;
+
+        /// <summary>Сколько таких кадров нужно, чтобы ось считалась найденной.</summary>
+        public const int MinSamples = 30;
+
+        private readonly int[] _joint = new int[BodySegs.Bodies];
+        private readonly Vector3[] _local = new Vector3[BodySegs.Bodies];
+        private readonly bool[] _found = new bool[BodySegs.Bodies];
+
+        /// <summary>По библиотеке клипов (суставы тела — <paramref name="joints"/>).</summary>
+        public Anatomy(ClipLibrary clips, BodyJoints joints)
+        {
+            Find(clips, BodySegs.FArmL, joints.UArmL, joints.LArmL, joints.HandL);
+            Find(clips, BodySegs.FArmR, joints.UArmR, joints.LArmR, joints.HandR);
+            Find(clips, BodySegs.ShinL, joints.ThighL, joints.CalfL, joints.FootL);
+            Find(clips, BodySegs.ShinR, joints.ThighR, joints.CalfR, joints.FootR);
+        }
+
+        /// <summary>Ось найдена по клипам (иначе — запасная «вправо» бойца).</summary>
+        public bool Found(int segment) => _found[segment];
+
+        /// <summary>Ось сгиба в системе кости ребёнка (найденная).</summary>
+        public Vector3 Local(int segment) => _local[segment];
+
+        private void Find(ClipLibrary clips, int segment, int parent, int child, int grandchild)
+        {
+            _joint[segment] = child;
+            var parents = clips.Skeleton.JointParents;
+            if (parents[child] != parent || parents[grandchild] != child) return;   // не цепочка — запасная ось
+            int jc = clips.JointCount, frames = clips.FrameCount, n = 0;
+            var sum = Vector3.Zero;
+            var rot = clips.LocalRot;
+            var pos = clips.LocalPos;
+            for (int f = 0; f < frames; f++) Sample(rot[f * jc + child], pos[f * jc + child], pos[f * jc + grandchild], ref sum, ref n);
+            if (n < MinSamples || sum.LengthSquared() < 1e-12f) return;
+            _local[segment] = Vector3.Normalize(sum);
+            _found[segment] = true;
+        }
+
+        /// <summary>Кадр: кость родителя (в системе ребёнка — <c>conj(rot)·pos</c> ребёнка) и кость ребёнка (положение внука).</summary>
+        private static void Sample(Quaternion childRot, Vector3 childPos, Vector3 grandchildPos, ref Vector3 sum, ref int n)
+        {
+            var u = Vector3.Transform(childPos, Quaternion.Conjugate(childRot));
+            var v = grandchildPos;
+            float lu = u.Length(), lv = v.Length();
+            if (!(lu > 1e-6f && lv > 1e-6f)) return;
+            var cross = Vector3.Cross(u / lu, v / lv);
+            float s = cross.Length();
+            if (!(s >= BendSine)) return;
+            sum += cross / s;
+            n++;
+        }
+
+        /// <summary>
+        /// Ось шарнира сегмента <paramref name="segment"/> (предплечье или голень) в системе его капсулы (поворот
+        /// <paramref name="capsule"/>) по позе <paramref name="model"/> в мире бойца <paramref name="fighterWorld"/>: сгиб вокруг неё —
+        /// положительный.
+        /// </summary>
+        public Vector3 Axis(int segment, ReadOnlySpan<Matrix4x4> model, in Matrix4x4 fighterWorld, Quaternion capsule)
+        {
+            Vector3 world;
+            if (_found[segment])
+                world = Vector3.TransformNormal(_local[segment], model[_joint[segment]] * fighterWorld);
+            else
+            {
+                // «Вправо» бойца — X мира бойца со знаком: поза описана с +X влево (Mirror в FighterShape), «вправо» — −X мира бойца.
+                var right = -Vector3.TransformNormal(Vector3.UnitX, fighterWorld);
+                world = segment is BodySegs.ShinL or BodySegs.ShinR ? -right : right;
+            }
+            var local = Vector3.Transform(world, Quaternion.Conjugate(capsule));
+            float l = local.Length();
+            return l > 1e-6f ? local / l : Vector3.UnitX;
+        }
+    }
+}

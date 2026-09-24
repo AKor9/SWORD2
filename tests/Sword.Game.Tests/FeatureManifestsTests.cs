@@ -48,10 +48,10 @@ public sealed class FeatureManifestsTests
     }
 
     /// <summary>
-    /// Фичи в работе — README есть, манифест ещё не написан (этап идёт точками): «Рэгдолл» — манифест <c>ragdoll</c> на 7л (7ж завела
-    /// README фичи). Приёмки у них нет, пока нет манифеста.
+    /// Фичи в работе — README есть, манифест ещё не написан (этап идёт точками). Сейчас таких нет: «Рэгдолл» (README — 7ж) получил манифест
+    /// <c>ragdoll</c> на 7з (сценарии, инварианты, проверки; метрики, виды и бюджеты — 7л). Приёмки у фичи нет, пока нет манифеста.
     /// </summary>
-    private static readonly string[] InProgress = ["Ragdoll"];
+    private static readonly string[] InProgress = [];
 
     [Fact]
     public void EveryFeature_HasManifest_ChecklistMatchesReadme()
@@ -69,7 +69,8 @@ public sealed class FeatureManifestsTests
             }
             Assert.True(manifest, $"у фичи {feature} нет {FeatureManifest.FileName} (раздел 12 плана: без манифеста фича не принимается)");
         }
-        Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "movement", "profiler", "tools"], manifests.Select(m => m.Id));
+        Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "movement", "profiler", "ragdoll", "tools"],
+            manifests.Select(m => m.Id));
         foreach (var m in manifests)
         {
             Assert.True(File.Exists(m.Doc), $"{m.Id}: нет {m.Doc}");
@@ -173,5 +174,7 @@ public sealed class EnemiesFeatureVerifyTests() : FeatureVerifyTests("enemies");
 public sealed class MovementFeatureVerifyTests() : FeatureVerifyTests("movement");
 
 public sealed class ProfilerFeatureVerifyTests() : FeatureVerifyTests("profiler");
+
+public sealed class RagdollFeatureVerifyTests() : FeatureVerifyTests("ragdoll");
 
 public sealed class ToolsFeatureVerifyTests() : FeatureVerifyTests("tools");

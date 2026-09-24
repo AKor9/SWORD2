@@ -178,7 +178,8 @@ public static class PhysicsTools
 /// сегмент — имя <see cref="BodySegs.Name"/> (<c>pelvis</c>, <c>forearm.l</c>…), поле — <c>Position</c>, <c>Rotation</c>,
 /// <c>PrevPosition</c>, <c>PrevRotation</c>, <c>Velocity</c>, <c>AngularVelocity</c>, <c>EndA</c>, <c>EndB</c>, <c>StartPosition</c> (7ж)
 /// (без компоненты — длина вектора), <c>Radius</c>, <c>HalfLength</c>, <c>Mass</c> (7ж); сегмент клинка — <c>blade</c> (7ж); и по всему телу — <c>Body.MaxSpeed</c>, <c>Body.MaxAngularSpeed</c> (самая
-/// быстрая капсула, м/с и рад/с). Нет тела — NaN.
+/// быстрая капсула, м/с и рад/с); с 7з — тело целиком (<see cref="CorpseFields"/>): <c>Body.Com</c>, <c>Body.ComVelocity</c>, <c>Body.KineticEnergy</c>,
+/// <c>Body.Energy</c>. Нет тела — NaN.
 /// </summary>
 public sealed class BodyFields : IEntityFields
 {
@@ -187,7 +188,8 @@ public sealed class BodyFields : IEntityFields
     private static readonly string[] Quaternions = ["Rotation", "PrevRotation"];
 
     public IReadOnlyList<string> Known { get; } =
-        ["Body.<сегмент>.Position|Rotation|PrevPosition|PrevRotation|Velocity|AngularVelocity|EndA|EndB|StartPosition[.X|.Y|.Z|.W]", "Body.<сегмент>.Radius|HalfLength|Mass", "Body.MaxSpeed", "Body.MaxAngularSpeed"];
+        ["Body.<сегмент>.Position|Rotation|PrevPosition|PrevRotation|Velocity|AngularVelocity|EndA|EndB|StartPosition[.X|.Y|.Z|.W]", "Body.<сегмент>.Radius|HalfLength|Mass", "Body.MaxSpeed", "Body.MaxAngularSpeed",
+            .. CorpseFields.Known];
 
     public EntityFieldReader? Compile(string path, string at)
     {
@@ -195,6 +197,7 @@ public sealed class BodyFields : IEntityFields
         string rest = path[Prefix.Length..];
         if (rest == "MaxSpeed") return (in ServiceContext ctx, Entity e) => Max(ctx, e, angular: false);
         if (rest == "MaxAngularSpeed") return (in ServiceContext ctx, Entity e) => Max(ctx, e, angular: true);
+        if (CorpseFields.Compile(rest, path, at) is { } whole) return whole;   // 7з: тело целиком — центр масс, энергии
         int segment = -1;
         string field = "";
         for (int k = 0; k < BodySegs.Bodies; k++)

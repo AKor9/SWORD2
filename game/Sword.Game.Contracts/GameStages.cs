@@ -134,6 +134,32 @@ public static class GameLabels
     /// <summary>End (7ж), реактивная по <c>Removed&lt;Dead&gt;</c>: ожившему (постройка заново) или ушедшему мёртвому — привязка скина снята.</summary>
     public static readonly SystemLabel SkinRelease = new("core.skin-release");
 
+    /// <summary>
+    /// Intent, первой (7з), реактивная по <c>ResourceChanged&lt;RagdollRules&gt;</c>: ручки «Рэгдолл» сменили правила трупа (система
+    /// <c>tuning.ragdoll</c> в Begin) — настройки физики и профиль трупа заменяются до шага этого тика.
+    /// </summary>
+    public static readonly SystemLabel RagdollRules = new("core.ragdoll-rules");
+
+    /// <summary>
+    /// Gameplay (после <see cref="SkinCapture"/>, до <see cref="RootSteer"/>) и Settle (после <see cref="SkinCapture"/>) (7з), реактивная
+    /// по <c>Added&lt;Dead&gt;</c>: переход в труп — скорости тел урезаны, суставы привязаны по позе смерти, сустав запястья выключен (меч
+    /// выпадает), все тела — на физике с профилем трупа. В Gameplay — смерти командой сцены (по телам прошлого тика), в Settle — от
+    /// ударов и кровопотери этого тика. Уже перешедших пропускает.
+    /// </summary>
+    public static readonly SystemLabel DeathToRagdoll = new("core.death-to-ragdoll");
+
+    /// <summary>Physics (7з): шаг физики на тик — тела трупов (интеграция, суставы, контакты, толчки живых).</summary>
+    public static readonly SystemLabel PhysicsStep = new("core.physics-step");
+
+    /// <summary>Physics, после <see cref="PhysicsStep"/> (7з): корень мёртвого идёт за тазом трупа по земле (x, z).</summary>
+    public static readonly SystemLabel CorpseRoot = new("core.corpse-root");
+
+    /// <summary>
+    /// Aftermath, после <see cref="Respawn"/> (7з): труп с нечисловым телом (любое поле любого из 14 тел) строится заново на месте
+    /// корня — живым, тела ставит постройка следующего тика.
+    /// </summary>
+    public static readonly SystemLabel BodyRebuild = new("core.body-rebuild");
+
     /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
     public static readonly SystemLabel ActionRelease = new("core.action-release");
 

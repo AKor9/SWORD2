@@ -18,7 +18,7 @@ namespace Sword.Game.Tests;
 /// Труп на экране (7и) на настоящем устройстве (слой отладки D3D12 с GPU-валидацией) и настоящем контенте (Manny из пака): враг убит
 /// командой сцены, его тела сдвинуты («сдвинуть тела») — скин трупа идёт за телами; ID-буфер: пиксель головы трупа — его сущность и
 /// сегмент «голова», легенда — «голова трупа врага 1», меч на теле клинка — «клинок трупа врага 1», все пиксели трупа — в его рамке по
-/// телам; слои снимка капсул, суставов и контактов сняты, у пустых — заметки (трасса выключена, суставов нет); K включает трассу физики
+/// телам; слои снимка капсул, суставов и контактов сняты, у пустого — заметка (трасса выключена; суставы трупа с 7з есть); K включает трассу физики
 /// и выключает только включённую сам; кадр с трупами и всеми оверлеями на экране — 0 Б. Любое предупреждение D3D12 — провал.
 /// </summary>
 [Collection("game-gpu")]
@@ -122,9 +122,9 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
             var result = renderer.LastCapture!;
             Assert.Equal(3, result.Layers.Count);
             Assert.All(result.Layers, l => Assert.True(File.Exists(l.Path)));
-            // Слои без данных — с заметками: трасса выключена, суставов нет (до 7з суставы у трупа не ставит никто).
+            // Слой без данных — с заметкой: трасса выключена. Суставы у трупа есть (13, переход в труп 7з) — заметки «суставов нет» нет.
             Assert.Contains(result.Notes, n => n.StartsWith("contacts: трасса физики выключена", StringComparison.Ordinal));
-            Assert.Contains(result.Notes, n => n.StartsWith("joints: суставов нет", StringComparison.Ordinal));
+            Assert.DoesNotContain(result.Notes, n => n.StartsWith("joints: суставов нет", StringComparison.Ordinal));
             Assert.Equal(BodySegs.Bodies * 4, arena.DrawnCapsules);
 
             var raw = File.ReadAllBytes(result.IdsRawPath!);

@@ -20,6 +20,11 @@
 `physics.bodies` — «меняет» (trace переключает режим сеанса, не мир); сначала читается тело, затем действие с трассой: ошибка вызова
 трассу не переключает.
 
+7з: вычисляемые поля тела целиком — `CorpseFields` (часть `BodyFields`): `Body.Com[.X|.Y|.Z]`, `Body.ComVelocity[…]` (без компоненты —
+длина), `Body.KineticEnergy`, `Body.Energy` — по виду тел (`CorpseMetrics` игры); читают `watch.add`, `entity.history`, метрики и — с 7з —
+условия (`time.runUntil`, `replay.observe`, проверки манифеста). Тесты — `RagdollCorpseTests.Agent_CorpseFields_…`,
+`Agent_RunUntilCorpseAtRest_ByComputedField`.
+
 - Имя — подсказка, не идентичность: в ответах сущность всегда и номером.
 - Исполняется в точке обслуживания: только чтение мира. Данные вне ECS — только через виды только для чтения
   (`IAnimationView`, `IBodyView`, `ICombatView`), не через ресурсы-классы симуляции (ресурсы-значения ECS, например

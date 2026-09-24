@@ -232,11 +232,11 @@ public sealed class RagdollSceneTests
 
     /// <summary>
     /// Смерть без удара (<see cref="SceneAction.Kill"/>): метка <see cref="Dead"/> с временем тика и причиной «команда», здоровье не
-    /// тронуто; меч ещё в руке (тело клинка — кинематическое на кисти позы смерти; выпадение — 7з); мёртвый замирает — тела не двигаются.
-    /// Уже мёртвому — ничего; убитый враг засчитан; причины других смертей — проба и кровопотеря.
+    /// тронуто; с 7з мёртвый — труп на физике с тика смерти: все тела на физике, сустав запястья выключен (меч выпал), тела падают. Уже
+    /// мёртвому — ничего (труп не переходит второй раз); убитый враг засчитан; причины других смертей — проба и кровопотеря.
     /// </summary>
     [Fact]
-    public void Kill_ByCommand_DeadWithCommandCause_SwordStillInHand_Frozen()
+    public void Kill_ByCommand_DeadWithCommandCause_BecomesCorpse()
     {
         var (sim, physics, _) = Create("arena.enemies=2");
         for (int t = 0; t < 10; t++) Step(sim);
@@ -248,15 +248,19 @@ public sealed class RagdollSceneTests
         Assert.Equal(hp, sim.World.Get<Health>(enemy).Hp);
         Assert.Equal(1, sim.World.Resource<ArenaStats>().Kills);
         var body = Body(sim, enemy);
-        var frozen = Enumerable.Range(0, BodySegs.Bodies).Select(k => physics.Get(physics.Body(body, k))).ToArray();
+        var start = Enumerable.Range(0, BodySegs.Bodies).Select(k => physics.Get(physics.Body(body, k))).ToArray();
         var blade = sim.World.Get<Blade>(enemy);
-        Assert.True(Vector3.Distance(frozen[BodySegs.Weapon].EndB, blade.Tip) < 1e-4f);   // меч в руке
-        Assert.All(frozen, s => Assert.Equal(BodyMode.Kinematic, s.Mode));
-        Step(sim, Kill(1));   // уже мёртвому — ничего
+        // тик смерти командой: переход в Gameplay по телам прошлого тика, шаг этого тика — первый шаг трупа (начало шага — поза смерти)
+        Assert.True(Vector3.Distance(start[BodySegs.Weapon].StartPosition + Vector3.Transform(new Vector3(0, start[BodySegs.Weapon].HalfLength, 0),
+            start[BodySegs.Weapon].StartRotation), blade.Tip) < 1e-4f);   // меч был в руке
+        Assert.All(start, s => Assert.Equal(BodyMode.Simulated, s.Mode));
+        Assert.False(physics.IsJointEnabled(body, Ragdoll.CorpseJoints.Wrist));
+        var bindings = Enumerable.Range(0, Ragdoll.CorpseJoints.Count).Select(j => physics.Binding(body, j)).ToArray();
+        Step(sim, Kill(1));   // уже мёртвому — ничего: и труп тот же (суставы не перепривязаны)
         Assert.Equal(dead, sim.World.Get<Dead>(enemy));
+        Assert.Equal(bindings, Enumerable.Range(0, Ragdoll.CorpseJoints.Count).Select(j => physics.Binding(body, j)));
         for (int t = 0; t < 30; t++) Step(sim);
-        for (int k = 0; k < BodySegs.Bodies; k++)
-            Assert.Equal((frozen[k].Position, frozen[k].Rotation), (physics.Get(physics.Body(body, k)).Position, physics.Get(physics.Body(body, k)).Rotation));
+        Assert.True(physics.Get(physics.Body(body, BodySegs.Pelvis)).Position.Y < start[BodySegs.Pelvis].Position.Y - 0.1f, "труп не падает");
 
         // Проба — причина «проба»; кровопотеря после пробы — «кровопотеря»; игрок убит командой — тоже «команда».
         sim.Enqueue(new StrikeProbe { Attacker = 0, Victim = 2, Part = BodySegs.Head, Damage = 1000 });
@@ -313,13 +317,15 @@ public sealed class RagdollSceneTests
         Assert.Equal(new Vector3(4, 0, 4), sim.World.Get<PrevTransform>(Fighter(sim, 2)).Position);
         Step(sim, Place(2, 5, 5, 0), Kill(2));
         Assert.True(sim.World.Has<Dead>(Fighter(sim, 2)));
-        Assert.Equal(new Vector3(5, 0, 5), sim.World.Get<Transform>(Fighter(sim, 2)).Position);   // мёртвый не двигается
+        // стоит мёртвым в точке — труп с тика смерти (7з): корень — за тазом тела постройки
+        Assert.True(Vector3.Distance(new Vector3(5, 0, 5), sim.World.Get<Transform>(Fighter(sim, 2)).Position) < 0.2f);
         Clean(sim);
     }
 
     /// <summary>
-    /// Сдвиг тел трупа (<see cref="SceneAction.ShiftBodies"/>): все 14 тел мёртвого — ровно на вектор, без скорости, поворот прежний;
-    /// корень и поза не двигаются. Живому и убитому этим же тиком — ничего; нечисловой сдвиг — ничего.
+    /// Сдвиг тел трупа (<see cref="SceneAction.ShiftBodies"/>): все 14 тел мёртвого — ровно на вектор, без скорости, поворот прежний (в Intent,
+    /// до шага: поза начала шага тика — сдвинутая, скорость после шага — только от шага); поза не двигается, корень — за тазом (7з). Живому
+    /// и убитому этим же тиком — ничего; нечисловой сдвиг — ничего.
     /// </summary>
     [Fact]
     public void ShiftBodies_MovesOnlyCorpseBodies_WithoutVelocity()
@@ -338,10 +344,12 @@ public sealed class RagdollSceneTests
         for (int k = 0; k < BodySegs.Bodies; k++)
         {
             var s = physics.Get(physics.Body(body, k));
-            Assert.Equal((before[k].Position + offset, before[k].Rotation), (s.Position, s.Rotation));
-            Assert.Equal((Vector3.Zero, Vector3.Zero, s.Position, s.Position), (s.Velocity, s.AngularVelocity, s.PrevPosition, s.StartPosition));
+            Assert.Equal((before[k].Position + offset, before[k].Rotation), (s.StartPosition, s.StartRotation));   // начало шага — сдвинутое
+            Assert.True(Vector3.Distance(s.Position, s.StartPosition) < 0.01f && s.Velocity.Length() < 0.5f, $"тело {k}: сдвиг со скоростью {s.Velocity}");
         }
-        Assert.Equal(root, sim.World.Get<Transform>(enemy));
+        var pelvis = physics.Get(physics.Body(body, BodySegs.Pelvis)).Position;
+        Assert.Equal((pelvis.X, pelvis.Z, root.Facing), (sim.World.Get<Transform>(enemy).Position.X, sim.World.Get<Transform>(enemy).Position.Z,
+            sim.World.Get<Transform>(enemy).Facing));
         // живого тело ставит поза: его сдвиг не прошёл — таз там, где поставила постановка тика (рядом с прежним)
         Assert.True(Vector3.Distance(aliveBefore.Position, physics.Get(physics.Body(alive, BodySegs.Pelvis)).Position) < 0.2f);
         Clean(sim);   // physics.kinematicPose мёртвого не сверяет: его тела уже не по позе
@@ -414,8 +422,9 @@ public sealed class RagdollSceneTests
 
     /// <summary>
     /// Привязка скина мёртвого (<see cref="ISkinView"/>): снята в тик смерти по позе и телам смерти — сустав × привязка (система тела его
-    /// сегмента) = сустав позы смерти в мире бойца, пока тела стоят (смерть командой — Gameplay, пробой — Settle); тела сдвинуты — скин идёт
-    /// за ними ровно на сдвиг; у живого привязки нет; ожил — сброшена. Хеш участника <c>skin</c> видит привязку.
+    /// сегмента в момент смерти) = сустав позы смерти в мире бойца (смерть командой — Gameplay: тела прошлого тика; пробой — Settle: тела этого
+    /// тика); с 7з тела трупа падают — скин идёт за ними (уходит от позы смерти), привязка не меняется; тела лежащего трупа сдвинуты — скин
+    /// сдвигается с ними; у живого привязки нет; ожил — сброшена. Хеш участника <c>skin</c> видит привязку.
     /// </summary>
     [Fact]
     public void SkinBinding_JointTimesBinding_IsDeathPose_AndFollowsBodies()
@@ -435,19 +444,24 @@ public sealed class RagdollSceneTests
         Assert.False(skins.TryGet(sim.World.Get<BodyRef>(enemy), out _, out _));
         ulong emptySkin = sim.HashState().Parts["skin"];
 
-        float Error(Entity e, Vector3 shift)
+        // тела и корень врага — до тика смерти командой (их и снимает Gameplay)
+        var enemyRoot = sim.World.Get<Transform>(enemy);
+        var enemyBodies = Enumerable.Range(0, BodySegs.Bodies).Select(k => bodies.Body(sim.World.Get<BodyRef>(enemy), k).World).ToArray();
+
+        float Error(Entity e, Vector3 shift, Transform? deathRoot = null, Matrix4x4[]? deathBodies = null)
         {
             var bodyRef = sim.World.Get<BodyRef>(e);
             Assert.True(skins.TryGet(bodyRef, out var binding, out float time));
             Assert.Equal(sim.World.Get<Dead>(e).Time, time);
             Assert.Equal(poses.JointCount, binding.Length);
             var model = poses.Model(sim.World.Get<PoseRef>(e));
-            var root = sim.World.Get<Transform>(e);
+            var root = deathRoot ?? sim.World.Get<Transform>(e);
             var fighter = BodyPlacement.World(root.Position, root.Facing);
             float worst = 0;
             for (int j = 0; j < binding.Length; j++)
             {
-                var skin = binding[j] * bodies.Body(bodyRef, BodySegs.Body(bodies.JointSegment(j))).World;
+                int body = BodySegs.Body(bodies.JointSegment(j));
+                var skin = binding[j] * (deathBodies is null ? bodies.Body(bodyRef, body).World : deathBodies[body]);
                 var pose = model[j] * fighter;
                 worst = MathF.Max(worst, Vector3.Distance(skin.Translation, pose.Translation + shift));
                 // поворот сустава — тот же (строки системы сустава)
@@ -460,14 +474,26 @@ public sealed class RagdollSceneTests
         // смерть командой (снимок в Gameplay) и пробой (снимок в Settle) в одном тике
         sim.Enqueue(new StrikeProbe { Attacker = 1, Victim = 0, Part = BodySegs.Head, Damage = 1000 });
         Step(sim, Kill(1));
-        Assert.True(Error(enemy, Vector3.Zero) < 1e-4f, $"враг: {Error(enemy, Vector3.Zero)}");
-        Assert.True(Error(player, Vector3.Zero) < 1e-4f, $"игрок: {Error(player, Vector3.Zero)}");
+        Assert.True(Error(enemy, Vector3.Zero, enemyRoot, enemyBodies) < 1e-4f, $"враг: {Error(enemy, Vector3.Zero, enemyRoot, enemyBodies)}");
+        Assert.True(Error(player, Vector3.Zero) < 1e-4f, $"игрок: {Error(player, Vector3.Zero)}");   // смерть в Settle — после шага, тела те же
         Assert.NotEqual(emptySkin, sim.HashState().Parts["skin"]);
-        for (int t = 0; t < 20; t++) Step(sim);
-        Assert.True(Error(enemy, Vector3.Zero) < 1e-4f);   // тела стоят — поза смерти
+        var binding0 = skins.TryGet(sim.World.Get<BodyRef>(enemy), out var b0, out _) ? b0.ToArray() : [];
+        for (int t = 0; t < 240; t++) Step(sim);
+        Assert.Equal(binding0, skins.TryGet(sim.World.Get<BodyRef>(enemy), out var b1, out _) ? b1.ToArray() : []);   // привязка не меняется
+        Assert.True(Error(enemy, Vector3.Zero, enemyRoot) > 0.05f, "скин не пошёл за падающими телами");   // труп лёг — скин с ним
+        // лежащий труп сдвинут: скин — ровно на сдвиг (шаг сдвинутого, с 5 см над землёй — доли мм)
+        var lying = Enumerable.Range(0, BodySegs.Bodies).Select(k => bodies.Body(sim.World.Get<BodyRef>(enemy), k).World).ToArray();
         var shift = new Vector3(0.4f, 0.05f, -0.3f);
         Step(sim, Shift(1, shift));
-        Assert.True(Error(enemy, shift) < 1e-4f, $"скин не пошёл за телами: {Error(enemy, shift)}");
+        float moved = 0;
+        for (int j = 0; j < binding0.Length; j++)
+        {
+            int body = BodySegs.Body(bodies.JointSegment(j));
+            var before = (binding0[j] * lying[body]).Translation;
+            var after = (binding0[j] * bodies.Body(sim.World.Get<BodyRef>(enemy), body).World).Translation;
+            moved = MathF.Max(moved, Vector3.Distance(after - before, shift));
+        }
+        Assert.True(moved < 0.01f, $"скин не пошёл за телами: {moved}");
         var described = JsonNode.Parse(sim.DescribeState("skin", new DescribeQuery()))!;
         Assert.Equal((2, poses.JointCount), (described["captured"]!.GetValue<int>(), described["joints"]!.GetValue<int>()));
         Clean(sim);
@@ -551,7 +577,8 @@ public sealed class RagdollSceneTests
 
     /// <summary>
     /// Агент: команда сцены по имени (<c>command.send SceneCommand</c>), <c>physics.bodies</c> — тело клинка, массы и привязка скина
-    /// мёртвого (есть, время смерти, суставов; <c>drift</c> — 0, пока тела стоят, и длина сдвига, когда сдвинуты).
+    /// мёртвого (есть, время смерти, суставов; <c>drift</c> — насколько скин ушёл от позы бойца в нынешнем корне; с 7з труп на физике — не 0),
+    /// режим тел трупа — simulated.
     /// </summary>
     [Fact]
     public async Task Agent_SceneCommandByName_PhysicsBodiesShowsBladeMassesAndSkin()
@@ -588,7 +615,7 @@ public sealed class RagdollSceneTests
             var skin = dead["skin"]!;
             Assert.True(skin["captured"]!.GetValue<bool>());
             Assert.Equal(TestAssets.Joints.Length, skin["joints"]!.GetValue<int>());
-            Assert.Equal(0, skin["drift"]!.GetValue<double>(), 3);
+            Assert.True(skin["drift"]!.GetValue<double>() >= 0);   // 7з: труп на физике — скин уходит от позы бойца с первого шага
             var blade = dead["capsules"]![0]!;
             Assert.Equal(("blade", 1.4), (blade["name"]!.GetValue<string>(), blade["mass"]!.GetValue<double>()));
             Assert.Equal(12, dead["capsules"]![1]!["mass"]!.GetValue<double>(), 4);
@@ -600,7 +627,8 @@ public sealed class RagdollSceneTests
             });
             await Call("time.step", new JsonObject { ["ticks"] = 1 });
             var shifted = await Call("physics.bodies", new JsonObject { ["entity"] = "enemy 1" });
-            Assert.Equal(0.5, shifted["skin"]!["drift"]!.GetValue<double>(), 3);
+            Assert.True(shifted["skin"]!["drift"]!.GetValue<double>() >= 0);
+            Assert.Equal("simulated", shifted["capsules"]![0]!["mode"]!.GetValue<string>());
             Assert.False((await Call("physics.bodies", new JsonObject { ["entity"] = "player" }))["skin"]!["captured"]!.GetValue<bool>());
             var why = await Call("entity.get", new JsonObject { ["entity"] = "enemy 1", ["components"] = new JsonArray("Dead") });
             Assert.Contains("Command", why.ToJsonString());

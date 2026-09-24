@@ -393,7 +393,8 @@ internal static class ObservationTools
         if (stage is not null && host.Simulation is null) throw new InvalidOperationException("time.break — только Sword.Headless --agent (в живой игре тик посреди кадра не останавливается)");
         return Await(host, call, stage is null ? Math.Min(30, host.MaxWaitSeconds) : 60, (ctx, limit) =>
         {
-            var predicate = ObservationPredicate.Compile(condition, ctx, host.Catalog, host.Names);
+            // 7з: поле условия может быть вычисляемым полем игры (Body.ComVelocity — «труп успокоился»), как у наблюдения
+            var predicate = ObservationPredicate.Compile(condition, ctx, host.Catalog, host.Names, fields: host.Fields);
             return (host.Observation.Arm(ctx, predicate, stage, limit), predicate.Cost(ctx.World));
         }, stage is null ? "условие проверяется после каждого тика; tick — сыграно тиков, когда оно выполнилось"
             : "стоим посреди тика после стадии: time.step 1 — доиграть тик, time.break — следующее попадание");

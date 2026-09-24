@@ -37,6 +37,15 @@ public sealed class CharacterAssets
     /// <summary>Номер сустава <see cref="HandJoint"/> в скелете.</summary>
     public int Hand { get; }
 
+    private Ragdoll.CorpseJoints.Anatomy? _hinges;
+
+    /// <summary>
+    /// Анатомические оси шарниров трупа (7з: локти и колени — ось сгиба кости по клипам библиотеки, <see cref="Ragdoll.CorpseJoints.Anatomy"/>) —
+    /// считаются один раз на ассеты (десятки мс на паке), дальше общие для симуляций процесса: только чтение.
+    /// </summary>
+    public Ragdoll.CorpseJoints.Anatomy Hinges =>
+        LazyInitializer.EnsureInitialized(ref _hinges, () => new Ragdoll.CorpseJoints.Anatomy(Clips, new Bodies.BodyJoints(Clips.Skeleton)));
+
     private CharacterAssets(ClipLibrary clips, ActionTable actions, WeaponTable weapons, StrikeTable strikes, int hand)
     {
         Clips = clips;

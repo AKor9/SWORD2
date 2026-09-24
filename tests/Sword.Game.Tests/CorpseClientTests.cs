@@ -39,12 +39,24 @@ public sealed class CorpseClientTests
         public readonly SimulationClock Clock;
         public readonly List<SceneCommand> Pending = [];
 
-        public Scene(int enemies)
+        /// <param name="still">
+        /// 7з: труп на физике падает — тестам показа, которым нужен неподвижный труп (скин = поза смерти, сдвиг — ровно на вектор), сцена
+        /// «без падения»: у трупа нет земли, тяжести профиля трупа, скорости при переходе и толчков живых — тела трупа стоят.
+        /// </param>
+        public Scene(int enemies, bool still = false)
         {
             IPhysicsWorld? physics = null;
-            Sim = Simulation.Build(ConfigSet.Empty($"arena.enemies={enemies}"), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
+            string[] sets = still
+                ? [$"arena.enemies={enemies}", "ragdoll.deathMaxSpeed=0", "ragdoll.deathMaxAngularSpeed=0", "ragdoll.pushForce=0"]
+                : [$"arena.enemies={enemies}"];
+            Sim = Simulation.Build(ConfigSet.Empty(sets), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
                 [.. Bootstrap.SwordSimulation.Modules(), new Probe(p => physics = p)]);
             Physics = physics!;
+            if (still)
+            {
+                Physics.SetGround(null);
+                Physics.ReplaceDynamics(1, Physics.GetDynamics(1) with { Gravity = 0 });   // профиль трупа (7з) — без тяжести
+            }
             Clock = new SimulationClock(Sim, (link, _) =>
             {
                 foreach (var c in Pending) link.Enqueue(c);
@@ -76,11 +88,13 @@ public sealed class CorpseClientTests
 
     private static FighterView Shown(ArenaView view, Entity e) => view.Fighters.Single(f => f.Entity == e);
 
-    /// <summary>Сустав позы смерти в мире: модельная матрица пула × мир бойца (как снимок привязки, 7ж).</summary>
-    private static Matrix4x4[] DeathPose(Simulation sim, Entity e)
+    /// <summary>
+    /// Сустав позы смерти в мире: модельная матрица пула × мир бойца (как снимок привязки, 7ж). 7з: корень мёртвого идёт за тазом трупа —
+    /// корень смерти тест снимает до тика смерти (в тике смерти корень мёртвого не рулится).
+    /// </summary>
+    private static Matrix4x4[] DeathPose(Simulation sim, Entity e, Transform root)
     {
         var model = sim.World.View<IAnimationView>().Model(sim.World.Get<PoseRef>(e));
-        var root = sim.World.Get<Transform>(e);
         var world = BodyPlacement.World(root.Position, root.Facing);
         var pose = new Matrix4x4[model.Length];
         for (int j = 0; j < pose.Length; j++) pose[j] = model[j] * world;
@@ -98,20 +112,21 @@ public sealed class CorpseClientTests
 
     /// <summary>
     /// Скин трупа (7и) — сустав = привязка × тело его сегмента: пока тела стоят, это поза смерти (≤ 0,1 мм и по осям) при любой доле тика
-    /// (застывшие кинематические тела трупа — поза тика: интерполяция к прошлой постановке живого не качает труп); меч — на теле клинка:
-    /// до сдвига — там же, где в кисти позы смерти; «сдвинуть тела» (команда сцены) — суставы, меч и капсулы трупа ровно на вектор сдвига,
-    /// рамка трупа — по его телам. Живой — как раньше (поза пула, не труп).
+    /// (7з: тела трупа — на физике, показ — от позы начала тика; неподвижный труп — сцена «без падения»); меч — на теле клинка: до сдвига —
+    /// там же, где в кисти позы смерти; «сдвинуть тела» (команда сцены) — суставы, меч и капсулы трупа ровно на вектор сдвига, рамка трупа —
+    /// по его телам. Живой — как раньше (поза пула, не труп). Падение трупа и скин за ним — <c>RagdollSceneTests</c>, <c>RagdollCorpseTests</c>.
     /// </summary>
     [Fact]
     public void CorpseSkin_IsDeathPose_ThenFollowsShiftedBodies_SwordOnBladeBody()
     {
-        var scene = new Scene(enemies: 2);
+        var scene = new Scene(enemies: 2, still: true);
         var view = new ArenaView(Field);
         scene.Frames(20, view);
         var enemy = scene.Fighter(1);
+        var root = scene.Sim.World.Get<Transform>(enemy);
         scene.Pending.Add(Kill(1));
         scene.Frames(3, view);
-        var death = DeathPose(scene.Sim, enemy);
+        var death = DeathPose(scene.Sim, enemy, root);
         int hand = scene.Sim.World.View<ICombatView>().HandJoint;
         foreach (float alpha in (float[])[0.1f, 0.5f, 1f])
         {
@@ -147,7 +162,7 @@ public sealed class CorpseClientTests
         for (int k = 0; k < capsules.Length; k++)
         {
             Assert.True(Vector3.Distance(capsules[k].Center, capsulesBefore[k].Center + offset) <= 1e-4f, $"капсула {k} трупа не на сдвиге");
-            Assert.False(capsules[k].Simulated);   // до 7з тела трупа кинематические
+            Assert.True(capsules[k].Simulated);   // 7з: тела трупа — на физике
             // рамка трупа — по его телам
             Assert.True(Inside(capsules[k].EndA, shifted) && Inside(capsules[k].EndB, shifted), $"капсула {k} вне рамки трупа");
         }
@@ -201,15 +216,15 @@ public sealed class CorpseClientTests
     }
 
     /// <summary>
-    /// Суставы тела (7и, оверлей <c>joints</c>): у живого суставов нет; у трупа с суставами (здесь их ставит тест — таблица суставов игры
-    /// появится с 7з) — точка сустава на ребёнке и точка на родителе в мире по показанным телам: после привязки по позе совпадают, ошибка
+    /// Суставы тела (7и, оверлей <c>joints</c>): у живого суставов нет; у трупа с суставами (здесь их ставит тест вместо таблицы суставов
+    /// игры 7з; труп — в сцене «без падения») — точка сустава на ребёнке и точка на родителе в мире по показанным телам: после привязки по позе совпадают, ошибка
     /// точки и выход — 0; тело ребёнка сдвинуто отдельно — точки разошлись на сдвиг, вид называет ошибку точки; выключенный сустав — так и
     /// показан. Без флага суставов — не снимаются.
     /// </summary>
     [Fact]
     public void Joints_OnCorpseBodies_AnchorsAndErrorFromView()
     {
-        var scene = new Scene(enemies: 1);
+        var scene = new Scene(enemies: 1, still: true);
         var view = new ArenaView(Field);
         scene.Frames(10, view, joints: true);
         Assert.Equal(0, view.JointTotal);   // у живых суставов нет
@@ -257,7 +272,7 @@ public sealed class CorpseClientTests
     /// Трасса физики — диагностический режим <c>physics.trace</c> (7и): включают его владелец и агент между тиками, мир и хеш от него не
     /// зависят (хеши 60 тиков с режимом и без — те же); вид отладки физики — выключено, пусто, после включения — трасса идёт (шагов столько,
     /// сколько тиков со Step), контакты последнего подшага — в сочленение и номер тела, мир — пустое сочленение; выключили — снова пусто.
-    /// Шага физики в игре до 7з нет — контакты даёт шаг мира в тесте (тело трупа на физике над землёй арены).
+    /// 7з: шаг физики — каждый тик игры; контакты с землёй даёт упавший труп.
     /// </summary>
     [Fact]
     public void TraceMode_ContactsThroughView_DoesNotChangeHash()
@@ -282,35 +297,29 @@ public sealed class CorpseClientTests
         }
         Assert.Throws<ArgumentException>(() => traced.Sim.Diagnostics.Set("physics.nope", true));
 
-        // Тело трупа на физике над землёй в центре арены и шаг мира — контакт с землёй в трассе.
+        // Труп на физике падает на землю арены (шаг физики — каждый тик игры, 7з) — контакты с землёй в трассе.
         var enemy = traced.Fighter(1);
         traced.Pending.Add(Kill(1));
-        traced.Clock.RunFrame(0);
-        var physics = traced.Physics;
-        physics.SetGround(ArenaGround.Instance);
-        var a = FighterBodies.Handle(traced.Sim.World.Get<BodyRef>(enemy));
-        var foot = physics.Body(a, BodySegs.FootL);
-        var state = physics.Get(foot);
-        physics.Place(foot, new Vector3(0.5f, state.Radius * 0.5f, 0.5f), Quaternion.Identity);
-        physics.SetMode(foot, BodyMode.Simulated);
-        physics.Step(traced.Sim.Dt);
+        for (int i = 0; i < 90; i++) traced.Clock.RunFrame(0);
         view.Extract(traced.Clock.Link, 1, contacts: true);
         Assert.True(view.TraceOn);
         var contacts = view.Contacts;
         Assert.NotEmpty(contacts.ToArray());
+        var a = FighterBodies.Handle(traced.Sim.World.Get<BodyRef>(enemy));
         var ground = contacts.ToArray().First(c => c.Source == PhysicsContactSource.Ground);
-        Assert.Equal((a.Index, a.Generation, BodySegs.Body(BodySegs.FootL)), (ground.Body.Index, ground.Body.Generation, ground.BodyIndex));
+        Assert.Equal((a.Index, a.Generation), (ground.Body.Index, ground.Body.Generation));
+        Assert.InRange(ground.BodyIndex, 0, BodySegs.Bodies - 1);
         Assert.Equal((0, -1), (ground.Other.Generation, ground.OtherIndex));   // мир
-        Assert.True(ground.Normal.Y > 0.99f && ground.Depth > 0, $"{ground}");
+        Assert.True(ground.Normal.Y > 0.9f && ground.Depth > 0, $"{ground}");   // земля арены — с уклоном
         var run = debug.TraceSummary(PhysicsTracePeriod.Run);
-        Assert.Equal(1, run.Steps);
+        Assert.Equal(150, run.Steps);   // 60 + 90 тиков с режимом — столько шагов
         Assert.True(debug.TraceSource(PhysicsTracePeriod.Run, PhysicsContactSource.Ground).Contacts > 0);
         view.Extract(traced.Clock.Link, 1);   // контакты не заказаны — не снимаются
         Assert.Equal(0, view.ContactCount);
 
         traced.Sim.Diagnostics.ResetWindow(IPhysicsDebugView.TraceMode);
         Assert.Equal(0, debug.TraceSummary(PhysicsTracePeriod.Window).Steps);
-        Assert.Equal(1, debug.TraceSummary(PhysicsTracePeriod.Run).Steps);
+        Assert.Equal(150, debug.TraceSummary(PhysicsTracePeriod.Run).Steps);
         traced.Sim.Diagnostics.Set(IPhysicsDebugView.TraceMode, false);
         view.Extract(traced.Clock.Link, 1, contacts: true);
         Assert.False(view.TraceOn);

@@ -28,7 +28,8 @@ public static class CombatInvariants
     /// меча в системе кисти hand_r позы тика в мире бойца (<see cref="BladePlacement.Of"/>). Ловит постановку, которая не прошла
     /// (клинок остался на прошлой позе, корне или мече), клинок чужого бойца, сдвинутый после постановки, нечисловой. Посреди
     /// тика до PrePhysics (проверка «сейчас») — не проверяется: клинок ещё прошлого тика; до первого тика — сверка с позой постройки
-    /// (клинки бойцов сборки мира поставила сборка мира, как тела).
+    /// (клинки бойцов сборки мира поставила сборка мира, как тела). Мёртвые (7з) — нет: их клинок-отрезок стоит, где был в тик смерти (это
+    /// держит <c>combat.dead</c>), а корень мёртвого идёт за тазом трупа.
     /// </summary>
     private sealed class BladeOnHand(PosePool poses, WeaponTable weapons, int hand, StartPoseModel start) : IInvariant
     {
@@ -45,7 +46,7 @@ public static class CombatInvariants
             var world = ctx.World;
             bool built = Stages.BeforeFirstTick(ctx);
             var buildModel = built ? start.Of(world.Resource<StartPose>()) : default;
-            _query ??= world.Query().With<Fighter>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Read<Blade>();
+            _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Read<Blade>();
             var table = weapons.Weapons;
             foreach (var chunk in world.Iterate(_query))
             {

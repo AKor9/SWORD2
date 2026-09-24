@@ -239,6 +239,12 @@ public static class FeatureVerifier
         }
         foreach (string m in manifest.RequiredModules.Where(m => !sim.ActiveModules.Contains(m)))
             failures.Add($"модуль {m} не активен (активны: {string.Join(", ", sim.ActiveModules)})");
+        // 7з: диагностические режимы сценария — с тика 0 (мир, хеш и реплей от них не зависят)
+        foreach (string d in scenario.Diagnostics)
+        {
+            if (sim.Diagnostics.Has(d)) sim.Diagnostics.Set(d, true);
+            else failures.Add($"диагностического режима {d} нет в симуляции");
+        }
         if (replay is not null) sim.Play(hashes ? replay : replay.Head(replay.Ticks, hashes: false));
         var catalog = new Catalog(sim);
         foreach (var c in scenario.Commands)
@@ -299,7 +305,9 @@ public static class FeatureVerifier
             hub.Attach(sim, catalog, env.Names);
             var ctx = new ServiceContext(sim);
 
-            var checks = scenario.Checks.Select(c => (Check: c, Predicate: ObservationPredicate.Compile(c.Condition, ctx, catalog, env.Names))).ToList();
+            // 7з: проверки читают и вычисляемые поля игры (env.Fields — тело бойца вне ECS: Body.Com, Body.Energy…), как метрики
+            var checks = scenario.Checks.Select(c => (Check: c, Predicate: ObservationPredicate.Compile(c.Condition, ctx, catalog, env.Names,
+                fields: env.Fields))).ToList();
             foreach (var (c, _) in checks)
                 if ((c.To ?? 0) > ticks) throw new ArgumentException($"проверка {c.Id}: окно до {c.To} за концом сценария ({ticks})");
             var state = new (ulong? FirstTrue, ulong? FirstFalse, long True, bool Last)[checks.Count];

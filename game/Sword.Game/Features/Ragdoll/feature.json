@@ -1,0 +1,291 @@
+// Приёмка фичи «Рэгдолл» (этап 7). 7з — сценарии командами сцен (SceneCommand), инварианты и проверки: s8 — труп на ступенях
+// пирамиды в 5 местах (покой: центр масс, кинетическая энергия — вычисляемые поля тела Body.ComVelocity, Body.KineticEnergy,
+// Game.Agent.CorpseFields), s4 — два трупа внахлёст, толпа 32 трупов. Диагностический режим physics.trace (ключ сценария
+// diagnostics) — с тика 0: по трассе физики проверяются инварианты physics.energy и physics.pushes. Метрики, виды и бюджеты — 7л.
+// Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature ragdoll). Ослабить
+// ожидания — только правкой с сообщением пользователю.
+{
+  "format": "sword-feature",
+  "version": 1,
+  "id": "ragdoll",
+  "title": "Рэгдолл (этап 7; 7ж — команды сцен и привязка скина, 7и — труп на экране, 7з — труп на физике: переход в труп, суставы, корень за тазом, ручки «Рэгдолл», инварианты трупа)",
+  "doc": "README.md",
+  "sourceRoots": [
+    "game/Sword.Game/Ragdoll",
+    "game/Sword.Game.Contracts/Scene.cs",
+    "game/Sword.Game.Contracts/GameStages.cs",
+    "game/Sword.Game.Contracts/PhysicsDebug.cs",
+    "game/Sword.Game/Bodies/PhysicsState.cs",
+    "game/Sword.Game/Bodies/PhysicsInvariants.cs",
+    "game/Sword.Game/Bodies/PhysicsDebug.cs",
+    "game/Sword.Game/Combat/DamageInvariants.cs",
+    "game/Sword.Game/GameCore.cs",
+    "game/Sword.Game.Agent/CorpseFields.cs",
+    "game/Sword.Game.Agent/PhysicsTools.cs",
+    "game/Sword.Game.Client/ArenaView.cs",
+    "engine/Sword.Engine.Physics"
+  ],
+  "requiredModules": ["locomotion"],
+  "scenarios": [
+    {
+      "id": "s8-a",
+      "title": "s8: труп на ступенях пирамиды — враг поставлен в (−12,5; 0) и убит командой в стойке; через 2 с окно покоя 5 с: центр масс успокаивается, энергия в покое не растёт",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 842,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": -12.5, "Y": 0 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг мёртв с тика смерти", "expect": "always", "from": 2,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
+        },
+        {
+          "id": "com-rest", "title": "окно покоя: скорость центра масс трупа ≤ 0,2 м/с", "expect": "always", "from": 242,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "lessOrEqual": 0.2 }] }
+        },
+        {
+          "id": "no-pumping", "title": "окно покоя: кинетическая энергия трупа не держится выше 0,2 Дж 1 с подряд — энергию в покое не накачивает (досыпание у кромки ступени — всплески до 0,4 Дж короче 0,2 с; подъём полной энергии над началом окна — тест RagdollCorpseContentTests.S8_…, ≤ 0,05 Дж)", "expect": "never", "from": 242,
+          "condition": { "for": 120, "that": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "greaterThan": 0.2 }] } }
+        },
+        {
+          "id": "kinetic-end", "title": "в конце окна кинетическая энергия ≤ 0,03 Дж — труп лежит", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "lessOrEqual": 0.03 }] }
+        },
+        {
+          "id": "on-steps", "title": "труп остался у места смерти: центр масс — ближе 1,5 м по каждой оси", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.Com.X", "between": [-14, -11] }, { "field": "Body.Com.Z", "between": [-1.5, 1.5] }] }
+        }
+      ]
+    },
+    {
+      "id": "s8-b",
+      "title": "s8: труп на ступенях пирамиды — враг поставлен в (−19; 0) и убит командой в стойке; через 2 с окно покоя 5 с: центр масс успокаивается, энергия в покое не растёт",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 842,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": -19, "Y": 0 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг мёртв с тика смерти", "expect": "always", "from": 2,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
+        },
+        {
+          "id": "com-rest", "title": "окно покоя: скорость центра масс трупа ≤ 0,2 м/с", "expect": "always", "from": 242,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "lessOrEqual": 0.2 }] }
+        },
+        {
+          "id": "no-pumping", "title": "окно покоя: кинетическая энергия трупа не держится выше 0,2 Дж 1 с подряд — энергию в покое не накачивает (досыпание у кромки ступени — всплески до 0,4 Дж короче 0,2 с; подъём полной энергии над началом окна — тест RagdollCorpseContentTests.S8_…, ≤ 0,05 Дж)", "expect": "never", "from": 242,
+          "condition": { "for": 120, "that": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "greaterThan": 0.2 }] } }
+        },
+        {
+          "id": "kinetic-end", "title": "в конце окна кинетическая энергия ≤ 0,03 Дж — труп лежит", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "lessOrEqual": 0.03 }] }
+        },
+        {
+          "id": "on-steps", "title": "труп остался у места смерти: центр масс — ближе 1,5 м по каждой оси", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.Com.X", "between": [-20.5, -17.5] }, { "field": "Body.Com.Z", "between": [-1.5, 1.5] }] }
+        }
+      ]
+    },
+    {
+      "id": "s8-c",
+      "title": "s8: труп на ступенях пирамиды — враг поставлен в (−13; 0) и убит командой в стойке; через 2 с окно покоя 5 с: центр масс успокаивается, энергия в покое не растёт",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 842,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": -13, "Y": 0 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг мёртв с тика смерти", "expect": "always", "from": 2,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
+        },
+        {
+          "id": "com-rest", "title": "окно покоя: скорость центра масс трупа ≤ 0,2 м/с", "expect": "always", "from": 242,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "lessOrEqual": 0.2 }] }
+        },
+        {
+          "id": "no-pumping", "title": "окно покоя: кинетическая энергия трупа не держится выше 0,2 Дж 1 с подряд — энергию в покое не накачивает (досыпание у кромки ступени — всплески до 0,4 Дж короче 0,2 с; подъём полной энергии над началом окна — тест RagdollCorpseContentTests.S8_…, ≤ 0,05 Дж)", "expect": "never", "from": 242,
+          "condition": { "for": 120, "that": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "greaterThan": 0.2 }] } }
+        },
+        {
+          "id": "kinetic-end", "title": "в конце окна кинетическая энергия ≤ 0,03 Дж — труп лежит", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "lessOrEqual": 0.03 }] }
+        },
+        {
+          "id": "on-steps", "title": "труп остался у места смерти: центр масс — ближе 1,5 м по каждой оси", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.Com.X", "between": [-14.5, -11.5] }, { "field": "Body.Com.Z", "between": [-1.5, 1.5] }] }
+        }
+      ]
+    },
+    {
+      "id": "s8-d",
+      "title": "s8: труп на ступенях пирамиды — враг поставлен в (−20,02; 0) и убит командой в стойке; через 2 с окно покоя 5 с: центр масс успокаивается, энергия в покое не растёт",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 842,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": -20.02, "Y": 0 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг мёртв с тика смерти", "expect": "always", "from": 2,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
+        },
+        {
+          "id": "com-rest", "title": "окно покоя: скорость центра масс трупа ≤ 0,2 м/с", "expect": "always", "from": 242,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "lessOrEqual": 0.2 }] }
+        },
+        {
+          "id": "no-pumping", "title": "окно покоя: кинетическая энергия трупа не держится выше 0,2 Дж 1 с подряд — энергию в покое не накачивает (досыпание у кромки ступени — всплески до 0,4 Дж короче 0,2 с; подъём полной энергии над началом окна — тест RagdollCorpseContentTests.S8_…, ≤ 0,05 Дж)", "expect": "never", "from": 242,
+          "condition": { "for": 120, "that": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "greaterThan": 0.2 }] } }
+        },
+        {
+          "id": "kinetic-end", "title": "в конце окна кинетическая энергия ≤ 0,03 Дж — труп лежит", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "lessOrEqual": 0.03 }] }
+        },
+        {
+          "id": "on-steps", "title": "труп остался у места смерти: центр масс — ближе 1,5 м по каждой оси", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.Com.X", "between": [-21.52, -18.52] }, { "field": "Body.Com.Z", "between": [-1.5, 1.5] }] }
+        }
+      ]
+    },
+    {
+      "id": "s8-e",
+      "title": "s8: труп на ступенях пирамиды — враг поставлен в (−16; −4) и убит командой в стойке; через 2 с окно покоя 5 с: центр масс успокаивается, энергия в покое не растёт",
+      "set": ["arena.enemies=1", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 842,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": -16, "Y": -4 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 }
+      ],
+      "checks": [
+        {
+          "id": "corpse", "title": "враг мёртв с тика смерти", "expect": "always", "from": 2,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "component": "Dead" }] }
+        },
+        {
+          "id": "com-rest", "title": "окно покоя: скорость центра масс трупа ≤ 0,2 м/с", "expect": "always", "from": 242,
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.ComVelocity", "lessOrEqual": 0.2 }] }
+        },
+        {
+          "id": "no-pumping", "title": "окно покоя: кинетическая энергия трупа не держится выше 0,2 Дж 1 с подряд — энергию в покое не накачивает (досыпание у кромки ступени — всплески до 0,4 Дж короче 0,2 с; подъём полной энергии над началом окна — тест RagdollCorpseContentTests.S8_…, ≤ 0,05 Дж)", "expect": "never", "from": 242,
+          "condition": { "for": 120, "that": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "greaterThan": 0.2 }] } }
+        },
+        {
+          "id": "kinetic-end", "title": "в конце окна кинетическая энергия ≤ 0,03 Дж — труп лежит", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.KineticEnergy", "lessOrEqual": 0.03 }] }
+        },
+        {
+          "id": "on-steps", "title": "труп остался у места смерти: центр масс — ближе 1,5 м по каждой оси", "expect": "atEnd",
+          "condition": { "all": [{ "entity": "enemy 1" }, { "field": "Body.Com.X", "between": [-17.5, -14.5] }, { "field": "Body.Com.Z", "between": [-5.5, -2.5] }] }
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "title": "s4: два трупа внахлёст — враги в (±0,36; 1,5) убиты командой, в следующем тике тела второго сдвинуты без скорости на (−0,52; 0; 0) — тазы в ~0,2 м: расходятся не быстрее скорости выталкивания, без разлёта, успокаиваются",
+      "set": ["arena.enemies=2", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 603,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 1, "Position": { "X": -0.36, "Y": 1.5 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Place", "Slot": 2, "Position": { "X": 0.36, "Y": 1.5 }, "Facing": 0 }, "from": 0, "to": 1 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 1, "to": 2 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 2 }, "from": 1, "to": 2 },
+        { "command": "SceneCommand", "fields": { "Action": "ShiftBodies", "Slot": 2, "Offset": { "X": -0.52, "Y": 0, "Z": 0 } }, "from": 2, "to": 3 }
+      ],
+      "checks": [
+        {
+          "id": "corpses", "title": "оба врага мертвы", "expect": "always", "from": 2,
+          "condition": { "count": { "all": [{ "component": "EnemyTag" }, { "component": "Dead" }] }, "equals": 2 }
+        },
+        {
+          "id": "pop", "title": "первые 0,25 с после сдвига: горизонтальная скорость центра масс каждого трупа ≤ 1,5 м/с (1,5 × PopSpeed 1 м/с) — выход из внахлёста не выстреливает", "expect": "always", "from": 3, "to": 33,
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "any": [{ "field": "Body.ComVelocity.X", "greaterThan": 1.5 }, { "field": "Body.ComVelocity.X", "lessThan": -1.5 }, { "field": "Body.ComVelocity.Z", "greaterThan": 1.5 }, { "field": "Body.ComVelocity.Z", "lessThan": -1.5 }] }] } }
+        },
+        {
+          "id": "no-scatter", "title": "без разлёта: центры масс трупов — в 2,5 м от точки смерти (0; 1,5)", "expect": "always", "from": 3,
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "any": [{ "field": "Body.Com.X", "greaterThan": 2.5 }, { "field": "Body.Com.X", "lessThan": -2.5 }, { "field": "Body.Com.Z", "greaterThan": 4 }, { "field": "Body.Com.Z", "lessThan": -1 }] }] } }
+        },
+        {
+          "id": "calm", "title": "через 5 с оба трупа успокоились: кинетическая энергия ≤ 0,1 Дж", "expect": "atEnd",
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "Body.KineticEnergy", "greaterThan": 0.1 }] } }
+        }
+      ]
+    },
+    {
+      "id": "crowd32",
+      "title": "толпа 32 трупов: 32 мирных врага подходят к игроку в центре арены, на тике 600 все убиты командой — трупы падают друг на друга: без разлёта и роста энергии, через 5 с покой (возрождение — за концом сценария)",
+      "set": ["arena.enemies=32", "combat.enemiesAttack=false"],
+      "diagnostics": ["physics.trace"],
+      "ticks": 1201,
+      "commands": [
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 1 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 2 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 3 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 4 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 5 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 6 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 7 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 8 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 9 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 10 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 11 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 12 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 13 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 14 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 15 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 16 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 17 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 18 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 19 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 20 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 21 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 22 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 23 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 24 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 25 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 26 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 27 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 28 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 29 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 30 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 31 }, "from": 600, "to": 601 },
+        { "command": "SceneCommand", "fields": { "Action": "Kill", "Slot": 32 }, "from": 600, "to": 601 }
+      ],
+      "checks": [
+        {
+          "id": "all-dead", "title": "все 32 врага мертвы до конца сценария", "expect": "always", "from": 601,
+          "condition": { "count": { "all": [{ "component": "EnemyTag" }, { "component": "Dead" }] }, "equals": 32 }
+        },
+        {
+          "id": "no-scatter", "title": "без разлёта: центры масс трупов — в 8 м от игрока в центре арены", "expect": "always", "from": 601,
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "any": [{ "field": "Body.Com.X", "greaterThan": 8 }, { "field": "Body.Com.X", "lessThan": -8 }, { "field": "Body.Com.Z", "greaterThan": 8 }, { "field": "Body.Com.Z", "lessThan": -8 }] }] } }
+        },
+        {
+          "id": "calm", "title": "через 5 с куча успокоилась: кинетическая энергия каждого трупа ≤ 1 Дж", "expect": "atEnd",
+          "condition": { "none": { "all": [{ "component": "EnemyTag" }, { "field": "Body.KineticEnergy", "greaterThan": 1 }] } }
+        }
+      ]
+    }
+  ],
+  "invariants": ["ecs.*", "physics.*", "ragdoll.*", "combat.dead", "arena.slots"],
+  "checklist": [
+    "Бой: убить врага ударами — труп падает под тяжестью и ложится на землю (не проваливается, не подпрыгивает, не улетает); меч выпадает из руки и лежит на земле отдельно от трупа.",
+    "Убить врага на ступенях пирамиды (к западу от центра, около (−16; 0)) — труп ложится на ступени и за 2–3 с затихает: не сползает без конца и не дрожит.",
+    "Убить нескольких врагов рядом, чтобы трупы упали друг на друга, — расходятся спокойно, без разлёта; в куче из многих трупов стопы и мечи могут вздрагивать — известная ошибка (README «Рэгдолл», «7з»): отметить, насколько это заметно.",
+    "Через 8 с убитый враг возрождается и стоит, как живой, без рывка тел; R — все встают; умереть игроком — камера и кольцо остаются на тазу трупа игрока.",
+    "F7 — капсулы трупа с крестом в центре (тела на физике); J — суставы трупа: зелёные шарики, запястье серое (меч выпал); K — контакты трупа с землёй."
+  ]
+}

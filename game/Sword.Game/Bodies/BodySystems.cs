@@ -53,7 +53,8 @@ public sealed class StartPoseModel(ClipLibrary clips)
 /// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, до курса и разгона (<see cref="GameLabels.BodySetup"/>): построенному
 /// бойцу — форма тела и капсулы без скорости по позе постройки (<c>Fighter.Build</c> → <c>PlaceBuilt</c> SWORD 2eab13b: тела
 /// переставляются, а не создаются — у бойца, построенного заново, те же тела). Корень и курс — постройки: <see cref="Transform"/>
-/// до <c>core.root-steer</c> этого тика. Поза постройки — <see cref="StartPose"/> (<see cref="StartPoseModel"/>).
+/// до <c>core.root-steer</c> этого тика. Поза постройки — <see cref="StartPose"/> (<see cref="StartPoseModel"/>). С 7з построенный заново
+/// труп сначала снова живой (<see cref="Ragdoll.Corpse.Revive"/>: кинематика, профиль по умолчанию, суставы включены).
 ///
 /// Бойцов сборки мира ставит сборка мира (<see cref="PlaceWorldBuilt"/>, после наполнения мира модулями — 5в: как SWORD
 /// после <c>AttachRig</c>). Их записи <c>Added</c> система видит в тике 1 (записи сборки мира доставляются первому
@@ -77,6 +78,9 @@ public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, St
                 continue;
             var handle = FighterBodies.Handle(body);
             if (!BodyPlacement.Placeable(physics, handle)) continue;
+            // 7з: построенный заново мёртвый (возрождение, сброс R, команда сцены, пересборка) — снова живой: тела кинематические, профиль
+            // по умолчанию, суставы включены; тела плоти и клинка ставятся без скорости по позе постройки.
+            Ragdoll.Corpse.Revive(physics, handle);
             BodyPlacement.Build(physics, handle, model, joints, root.Position, root.Facing);
         }
     }
@@ -118,7 +122,7 @@ public sealed class KinematicPlacementSystem(IPhysicsWorld physics, BodyJoints j
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>();
-        // Мёртвый (6г) замирает до рэгдолла (этап 7): капсулы стоят, скорости последнего тика жизни не обнуляются — их возьмёт рэгдолл.
+        // Мёртвый — труп на физике (7з): его тела двигает шаг физики, а не поза; скорости последнего тика жизни берёт переход в труп.
         _query = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
     }
 

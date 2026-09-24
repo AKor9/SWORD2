@@ -1,0 +1,864 @@
+using System.Numerics;
+using System.Text.Json.Nodes;
+using Sword.Engine.Content;
+using Sword.Engine.Ecs;
+using Sword.Engine.Introspection;
+using Sword.Engine.Physics;
+using Sword.Engine.Runtime;
+using Sword.Game.Animation;
+using Sword.Game.Arena;
+using Sword.Game.Bodies;
+using Sword.Game.Contracts;
+using Sword.Game.Ragdoll;
+using Xunit.Abstractions;
+
+namespace Sword.Game.Tests;
+
+/// <summary>
+/// Точка 7з этапа 7 «Смерть и рэгдолл» — труп на физике, свои тесты свойств (со SWORD не сравниваем): переход в труп (режим, профиль, суставы,
+/// запястье — меч выпадает, скорости урезаны), покой и энергия трупа на ровной земле и на ступенях пирамиды, вывернутая в землю конечность,
+/// утопленный труп, два трупа внахлёст, возрождение, корень мёртвого за тазом, ручка «Рэгдолл» в реплее, пересборка нечислового трупа,
+/// инварианты-неисправности, вычисляемые поля трупа и 0 Б/тик на толпе трупов. Контент — синтетический (<see cref="TestAssets"/>: быстро,
+/// стопы скелета тестов — в земле на 4,5 см, поэтому труп на нём «выходит» из земли), трупы на ступенях — ещё и на эталонном паке
+/// (<see cref="RagdollCorpseContentTests"/>: настоящая поза стойки).
+/// </summary>
+public sealed class RagdollCorpseTests(ITestOutputHelper output)
+{
+    /// <summary>Модуль теста: берёт физику после сборки мира и (по желанию) ставит свою систему в стадию.</summary>
+    internal sealed class Probe(Action<IPhysicsWorld> take, params (string Stage, ISystem System)[] systems) : IModule
+    {
+        public string Id => "probe";
+
+        public void Configure(SimulationBuilder b)
+        {
+            b.OnWorldBuilt(w => take(w.Resource<IPhysicsWorld>()));
+            foreach (var (stage, system) in systems) b.System(stage, system);
+        }
+    }
+
+    internal sealed record Game(Simulation Sim, IPhysicsWorld Physics);
+
+    internal static Game Create(CharacterAssets assets, string sets, params (string Stage, ISystem System)[] systems)
+    {
+        IPhysicsWorld? physics = null;
+        var sim = Simulation.Build(ConfigSet.Empty(sets.Split(';', StringSplitOptions.RemoveEmptyEntries)), GameStages.All,
+            b => GameCore.Configure(b, assets), [.. Bootstrap.SwordSimulation.Modules(), new Probe(p => physics = p, systems)]);
+        return new Game(sim, physics!);
+    }
+
+    private static Game Create(string sets, params (string Stage, ISystem System)[] systems) => Create(TestAssets.Assets, sets, systems);
+
+    internal static void Step(Simulation sim, params SceneCommand[] commands)
+    {
+        foreach (var c in commands) sim.Enqueue(c);
+        sim.Step();
+    }
+
+    internal static Entity Fighter(Simulation sim, int slot)
+    {
+        foreach (var chunk in sim.World.Iterate(sim.World.Query().With<Fighter>().Read<FighterSlot>()))
+            for (int i = 0; i < chunk.Count; i++)
+                if (chunk.Read<FighterSlot>()[i].Index == slot) return chunk.Entities[i];
+        throw new InvalidOperationException($"нет бойца на месте {slot}");
+    }
+
+    internal static ArticulationHandle Body(Simulation sim, Entity e) => FighterBodies.Handle(sim.World.Get<BodyRef>(e));
+
+    internal static void Clean(Simulation sim) => Assert.True(sim.Invariants.Total == 0,
+        string.Join("; ", sim.Invariants.Recent().Take(5).Select(v => $"{v.Id} тик {v.Tick} {v.Stage}: {v.Details}")));
+
+    internal static SceneCommand Kill(int slot) => new() { Action = SceneAction.Kill, Slot = slot };
+
+    internal static SceneCommand Place(int slot, float x, float z, float facing = 0) =>
+        new() { Action = SceneAction.Place, Slot = slot, Position = new Vector2(x, z), Facing = facing };
+
+    internal static SceneCommand Shift(int slot, Vector3 offset) => new() { Action = SceneAction.ShiftBodies, Slot = slot, Offset = offset };
+
+    /// <summary>Итоги тела бойца (центр масс, скорость, энергии) — по виду тел, как вычисляемые поля агента.</summary>
+    internal static CorpseMetrics.Totals Totals(Simulation sim, Entity e) => CorpseMetrics.Of(sim.World.View<IBodyView>(), sim.World.Get<BodyRef>(e));
+
+    /// <summary>Наибольшая скорость тел сочленения, м/с.</summary>
+    internal static float MaxSpeed(IPhysicsWorld physics, ArticulationHandle a)
+    {
+        float v = 0;
+        for (int k = 0; k < physics.BodyCount(a); k++) v = MathF.Max(v, physics.Get(physics.Body(a, k)).Velocity.Length());
+        return v;
+    }
+
+    /// <summary>Наибольшая глубина торцов тел сочленения в земле арены, м.</summary>
+    internal static float Depth(IPhysicsWorld physics, ArticulationHandle a)
+    {
+        Span<GroundTouch> touches = stackalloc GroundTouch[IGround.MaxTouches];
+        float depth = 0;
+        for (int k = 0; k < physics.BodyCount(a); k++)
+        {
+            var s = physics.Get(physics.Body(a, k));
+            foreach (var end in (ReadOnlySpan<Vector3>)[s.EndA, s.EndB])
+            {
+                int n = ArenaGround.Instance.Touches(end, s.Radius, touches);
+                for (int t = 0; t < n; t++) depth = MathF.Max(depth, touches[t].Depth);
+            }
+        }
+        return depth;
+    }
+
+    // ── переход в труп ──────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Смерть командой (Gameplay) и пробой (Settle): все 14 тел — на физике с профилем трупа, 13 суставов (сустав j — ребёнок тела j + 1),
+    /// запястье выключено — меч выпадает, прочие включены; оси шарниров — единичные, знак сгиба +1; привязка — по позе смерти (сразу после
+    /// перехода ошибка точки 0); скорости тел урезаны до 6 м/с и 20 рад/с; привязка скина снята. Повторная регистрация (Gameplay видит смерть
+    /// прошлого тика) труп не трогает: привязка суставов та же.
+    /// </summary>
+    [Fact]
+    public void Death_BecomesCorpse_AllBodiesOnPhysics_WristOff_JointsBoundAtDeathPose()
+    {
+        var (sim, physics) = Create("arena.enemies=2;combat.enemiesAttack=false");
+        for (int t = 0; t < 60; t++) sim.Step();
+        var rules = sim.World.Resource<RagdollRules>();
+        var byCommand = Fighter(sim, 1);
+        var byProbe = Fighter(sim, 2);
+        sim.Enqueue(Kill(1));
+        sim.Enqueue(new StrikeProbe { Attacker = 0, Victim = 2, Part = BodySegs.Torso, Damage = 1000 });
+        sim.Step();
+        foreach (var e in new[] { byCommand, byProbe })
+        {
+            Assert.True(sim.World.Has<Dead>(e));
+            var a = Body(sim, e);
+            Assert.True(sim.World.View<ISkinView>().TryGet(sim.World.Get<BodyRef>(e), out _, out _), "привязка скина снята");
+            Assert.Equal(CorpseJoints.Count, physics.JointCount(a));
+            for (int k = 0; k < BodySegs.Bodies; k++)
+            {
+                var s = physics.Get(physics.Body(a, k));
+                Assert.Equal(BodyMode.Simulated, s.Mode);
+                Assert.Equal(1, (int)s.Profile);
+            }
+            for (int j = 0; j < CorpseJoints.Count; j++)
+            {
+                var d = physics.Joint(a, j);
+                Assert.Equal((CorpseJoints.Parent(j + 1), j + 1), (d.Parent, d.Child));
+                Assert.Equal(j != CorpseJoints.Wrist, physics.IsJointEnabled(a, j));
+                if (d.Kind == JointKind.Hinge) Assert.True(MathF.Abs(d.HingeAxis.Length() - 1) < 1e-4f && d.BendSign == 1, $"шарнир {j}: ось {d.HingeAxis}, знак {d.BendSign}");
+                Assert.Equal(new Vector3(0, -physics.Get(physics.Body(a, j + 1)).HalfLength, 0), d.ChildAnchor);
+            }
+            Assert.Equal(JointKind.SwingTwist, physics.Joint(a, CorpseJoints.Wrist).Kind);
+        }
+        // Смерть пробой — в Settle: шага ещё не было, привязка — ошибка точки 0 и скорости урезаны.
+        var probe = Body(sim, byProbe);
+        for (int j = 0; j < CorpseJoints.Count; j++) Assert.True(physics.MeasureJoint(probe, j).PointError < 1e-4f, $"сустав {j}");
+        for (int k = 0; k < BodySegs.Bodies; k++)
+        {
+            var s = physics.Get(physics.Body(probe, k));
+            Assert.True(s.Velocity.Length() <= rules.DeathMaxSpeed + 1e-4f && s.AngularVelocity.Length() <= rules.DeathMaxAngularSpeed + 1e-3f);
+        }
+        var bindings = Enumerable.Range(0, CorpseJoints.Count).Select(j => physics.Binding(probe, j)).ToArray();
+        sim.Step();   // Gameplay видит Added<Dead> прошлого тика — уже труп, привязка та же
+        Assert.Equal(bindings, Enumerable.Range(0, CorpseJoints.Count).Select(j => physics.Binding(probe, j)));
+        for (int t = 0; t < 120; t++) sim.Step();
+        Clean(sim);
+    }
+
+    /// <summary>
+    /// Анатомия шарниров: у синтетического скелета клипы колени и локти почти не сгибают — ось запасная («вправо» бойца со знаком сгиба);
+    /// у Manny пака — найдена по клипам (−Y кости, <see cref="RagdollCorpseContentTests"/>). Ось в системе капсулы — поперёк оси капсулы.
+    /// </summary>
+    [Fact]
+    public void Hinges_FallbackAxis_OnSyntheticRig_AcrossTheBone()
+    {
+        var anatomy = TestAssets.Assets.Hinges;
+        foreach (int seg in new[] { BodySegs.FArmL, BodySegs.FArmR, BodySegs.ShinL, BodySegs.ShinR }) Assert.False(anatomy.Found(seg));
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false");
+        Step(sim, Place(1, 3, 3, 0.7f));
+        Step(sim, Kill(1));
+        var a = Body(sim, Fighter(sim, 1));
+        foreach (int j in new[] { CorpseJoints.JointOf(BodySegs.FArmL), CorpseJoints.JointOf(BodySegs.ShinR) })
+        {
+            var d = physics.Joint(a, j);
+            Assert.Equal(JointKind.Hinge, d.Kind);
+            Assert.True(MathF.Abs(d.HingeAxis.Y) < 0.2f, $"сустав {j}: ось шарнира {d.HingeAxis} вдоль кости");
+            var m = physics.MeasureJoint(a, j);
+            Assert.True(m.Excess < 0.05f, $"сустав {j}: поза смерти вне пределов шарнира на {m.Excess} рад (сгиб {m.Bend})");
+        }
+    }
+
+    // ── покой и энергия ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Покой трупа (окно 5 с после 2 с падения; замеры — README «Рэгдолл», «7з», допуски ~2–4× к худшему): скорость центра масс, м/с (замер
+    /// ≤ 0,10 — синтетический труп на ровной земле ещё досыпает первые секунды окна, на ступенях пака ≤ 0,062); кинетическая энергия в конце
+    /// окна, Дж (замер ≤ 0,0102 — труп, вывернутый в землю, через 2 с после выхода); подъём полной энергии над началом окна, Дж (замер ≤ 0,012 — досыпание у кромки ступени; итог — убыль).
+    /// </summary>
+    internal const float RestComSpeed = 0.2f, RestKineticEnd = 0.03f, RestEnergyRise = 0.05f;
+
+    /// <summary>
+    /// Труп на ровной земле: за 2 с ложится, дальше окно покоя 5 с — центр масс успокаивается, энергия в покое не растёт (<see cref="RestComSpeed"/>,
+    /// <see cref="RestKineticEnd"/>, <see cref="RestEnergyRise"/>), тела в земле — не глубже 1 см, суставы держат; инварианты чисты.
+    /// </summary>
+    [Fact]
+    public void Corpse_OnFlatGround_Settles_EnergyAtRestDoesNotGrow()
+    {
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false");
+        Step(sim, Place(1, 4, 4, 1.1f));
+        Step(sim, Kill(1));
+        var e = Fighter(sim, 1);
+        var rest = RestWindow(sim, physics, e, settle: 240, window: 600);
+        output.WriteLine($"ровная земля: {rest}");
+        Assert.True(rest.ComSpeed <= RestComSpeed && rest.KineticEnd <= RestKineticEnd, rest.ToString());
+        Assert.True(rest.EnergyRise <= RestEnergyRise, rest.ToString());
+        Assert.True(rest.Depth <= 0.01f && rest.Point <= 0.01f, rest.ToString());
+        Clean(sim);
+    }
+
+    internal readonly record struct Rest(float ComSpeed, float ComDrift, double EnergyRise, float KineticMax, float KineticEnd, float Depth, float Point, float Excess)
+    {
+        public override string ToString() =>
+            FormattableString.Invariant($"ЦМ ≤ {ComSpeed:F4} м/с, сдвиг {ComDrift:F4} м; энергия над началом окна ≤ {EnergyRise:G3} Дж; кинетическая ≤ {KineticMax:F4}, в конце {KineticEnd:F5} Дж; глубина ≤ {Depth:F4} м; суставы — точка {Point * 1000:F2} мм, выход {Excess:F4} рад");
+    }
+
+    /// <summary>Окно покоя: <paramref name="settle"/> тиков — лечь, затем <paramref name="window"/> тиков — замер центра масс, энергии, глубины, суставов.</summary>
+    internal static Rest RestWindow(Simulation sim, IPhysicsWorld physics, Entity e, int settle, int window)
+    {
+        for (int t = 0; t < settle; t++) sim.Step();
+        var a = Body(sim, e);
+        var start = Totals(sim, e);
+        float comSpeed = 0, depth = 0, point = 0, excess = 0, keMax = 0;
+        double rise = double.NegativeInfinity;
+        var last = start;
+        for (int t = 0; t < window; t++)
+        {
+            sim.Step();
+            last = Totals(sim, e);
+            comSpeed = MathF.Max(comSpeed, last.ComVelocity.Length());
+            rise = Math.Max(rise, last.Energy - start.Energy);
+            keMax = MathF.Max(keMax, last.KineticEnergy);
+            depth = MathF.Max(depth, Depth(physics, a));
+            for (int j = 0; j < physics.JointCount(a); j++)
+            {
+                if (!physics.IsJointEnabled(a, j)) continue;
+                var m = physics.MeasureJoint(a, j);
+                (point, excess) = (MathF.Max(point, m.PointError), MathF.Max(excess, m.Excess));
+            }
+        }
+        return new Rest(comSpeed, Vector3.Distance(start.Com, last.Com), rise, keMax, last.KineticEnergy, depth, point, excess);
+    }
+
+    // ── конечность в земле, утопленный труп, трупы внахлёст ─────────────────────────────────────────────────────────
+
+    /// <summary>Система теста: в тике <paramref name="tick"/> после шага физики — действие над физикой (порча, сдвиг тела).</summary>
+    internal sealed class AfterStep(ulong tick, Action<IPhysicsWorld, World> act, IPhysicsWorld[] physics) : IContinuousSystem
+    {
+        public void Setup(SystemSetup s) => s.Label(new SystemLabel("test.after-step")).After(GameLabels.CorpseRoot).Writes<Transform>();
+
+        public void Run(in SystemContext ctx)
+        {
+            if (ctx.World.Resource<SimTime>().Tick == tick) act(physics[0], ctx.World);
+        }
+    }
+
+    /// <summary>
+    /// Труп вывернут в землю (лежащий труп повёрнут как целое вокруг таза на 0,35 рад — суставы целы, ноги или голова с руками уходят в землю
+    /// до ~0,3 м; без скорости, после шага): землю покидает не быстрее скорости выталкивания, через суставы — весь труп, но не разгоняется:
+    /// скорость центра масс не выше 1,5 · PopSpeed, кинетическая энергия — не выше <see cref="LimbKinetic"/>, через 2 с — покой. Конец —
+    /// до возрождения (8 с).
+    /// </summary>
+    [Fact]
+    public void LimbTwistedIntoGround_DoesNotLaunchCorpse()
+    {
+        var holder = new IPhysicsWorld[1];
+        const ulong twist = 400;   // труп уже лёг (3,3 с)
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Physics, new AfterStep(twist, (p, w) =>
+        {
+            var a = FighterBodies.Handle(w.Get<BodyRef>(FighterIn(w, 1)));
+            var pivot = p.Get(p.Body(a, BodySegs.Pelvis)).Position;
+            var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitX, 0.35f);
+            for (int k = 0; k < BodySegs.Bodies; k++)
+            {
+                var b = p.Body(a, k);
+                var s = p.Get(b);
+                p.Place(b, pivot + Vector3.Transform(s.Position - pivot, turn), Quaternion.Normalize(turn * s.Rotation));
+            }
+        }, holder)));
+        holder[0] = physics;
+        Step(sim, Place(1, 6, 2));
+        Step(sim, Kill(1));
+        var e = Fighter(sim, 1);
+        while (sim.Tick < twist) sim.Step();
+        float pop = sim.World.Resource<RagdollRules>().PopSpeed;
+        float keBefore = Totals(sim, e).KineticEnergy;
+        float comSpeed = 0, ke = 0, depth = 0;
+        for (int t = 0; t < 120; t++)
+        {
+            sim.Step();
+            var totals = Totals(sim, e);
+            comSpeed = MathF.Max(comSpeed, totals.ComVelocity.Length());
+            ke = MathF.Max(ke, totals.KineticEnergy);
+            if (t == 0) depth = Depth(physics, Body(sim, e));
+        }
+        var rest = RestWindow(sim, physics, e, settle: 240, window: 120);
+        output.WriteLine(FormattableString.Invariant($"вывернут в землю на {depth:F3} м: до — кинетическая {keBefore:F3} Дж; после — ЦМ ≤ {comSpeed:F3} м/с, кинетическая ≤ {ke:F2} Дж; через 2 с — {rest}"));
+        Assert.True(depth > 0.1f, $"в землю ушло только {depth} м");
+        Assert.True(comSpeed <= 1.5f * pop, $"ЦМ разогнался до {comSpeed} м/с");
+        Assert.True(ke <= LimbKinetic, $"кинетическая энергия {ke} Дж");
+        Assert.True(rest.ComSpeed <= RestComSpeed && rest.KineticEnd <= RestKineticEnd && rest.Depth <= 0.01f, rest.ToString());
+        Clean(sim);
+    }
+
+    /// <summary>Кинетическая энергия трупа, когда из земли выходит вывернутое предплечье, Дж (замер — README «7з»; лежащий труп — ~0 до порчи).</summary>
+    private const float LimbKinetic = 20;
+
+    private static Entity FighterIn(World world, int slot)
+    {
+        foreach (var chunk in world.Iterate(world.Query().With<Fighter>().Read<FighterSlot>()))
+            for (int i = 0; i < chunk.Count; i++)
+                if (chunk.Read<FighterSlot>()[i].Index == slot) return chunk.Entities[i];
+        throw new InvalidOperationException($"нет бойца на месте {slot}");
+    }
+
+    /// <summary>
+    /// Утопленный труп (лежащий труп сдвинут командой сцены на 0,3 м вниз, без скорости): выходит не быстрее скорости выталкивания — центр масс
+    /// поднимается за тик не больше <c>1,5 · PopSpeed · dt</c> (замер ≤ 1,33: земля выводит старую глубину тела не быстрее PopSpeed, а сустав,
+    /// тянущий соседа вниз, даёт «новую» глубину, которую земля решает целиком), выходит весь (глубина ≤ 1 см) и не подпрыгивает (после выхода
+    /// центр масс не выше, чем был до утопления, больше чем на 2 см); ручка «выталкивание» замедляет выход.
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(0.5f)]
+    public void SunkCorpse_ExitsNoFasterThanPopSpeed(float popSpeed)
+    {
+        var (sim, physics) = Create(FormattableString.Invariant($"arena.enemies=1;combat.enemiesAttack=false;ragdoll.popSpeed={popSpeed}"));
+        Step(sim, Place(1, -4, 5));
+        Step(sim, Kill(1));
+        var e = Fighter(sim, 1);
+        for (int t = 0; t < 360; t++) sim.Step();
+        var a = Body(sim, e);
+        float y0 = Totals(sim, e).Com.Y;
+        Step(sim, Shift(1, new Vector3(0, -0.3f, 0)));
+        float limit = popSpeed * sim.World.Resource<SimTime>().Dt, rise = 0, prev = Totals(sim, e).Com.Y;
+        int ticks = 0;
+        while (Depth(physics, a) > 0.01f && ticks < 600)
+        {
+            sim.Step();
+            float y = Totals(sim, e).Com.Y;
+            rise = MathF.Max(rise, y - prev);
+            prev = y;
+            ticks++;
+        }
+        float top = 0;
+        for (int t = 0; t < 240; t++)
+        {
+            sim.Step();
+            top = MathF.Max(top, Totals(sim, e).Com.Y - y0);
+        }
+        output.WriteLine(FormattableString.Invariant($"PopSpeed {popSpeed}: вышел за {ticks} тиков, подъём ЦМ за тик ≤ {rise * 1000:F2} мм (предел {limit * 1000:F2}), над прежним ≤ {top * 1000:F1} мм"));
+        Assert.True(ticks < 600, "не вышел из земли");
+        Assert.True(rise <= limit * 1.5f, $"подъём за тик {rise} при пределе {limit}");
+        Assert.True(top <= 0.02f, $"подпрыгнул на {top} м");
+        Clean(sim);
+    }
+
+    /// <summary>
+    /// Сцена s4 — два трупа внахлёст: враги в (±0,36; 1,5) убиты, в следующем тике тела второго сдвинуты без скорости так, что тазы — в 0,2 м:
+    /// расходятся (выход — не быстрее скорости выталкивания): горизонтальная скорость центров масс друг относительно друга в первые 0,25 с — не
+    /// больше 1,5 · PopSpeed (замер ≤ 0,65 м/с при 1 м/с); без разлёта: тазы в конце — не дальше 2,5 м (трупы в рост 1,8 м падают в разные стороны:
+    /// замер 1,9 м), оба успокоились.
+    /// </summary>
+    [Fact]
+    public void TwoCorpsesOverlapping_SeparateCalmly_S4()
+    {
+        var (sim, physics) = Create("arena.enemies=2;combat.enemiesAttack=false");
+        Step(sim, Place(1, -0.36f, 1.5f), Place(2, 0.36f, 1.5f));
+        Step(sim, Kill(1), Kill(2));
+        var (e1, e2) = (Fighter(sim, 1), Fighter(sim, 2));
+        var (a1, a2) = (Body(sim, e1), Body(sim, e2));
+        var p1 = physics.Get(physics.Body(a1, 0)).Position;
+        var p2 = physics.Get(physics.Body(a2, 0)).Position;
+        Step(sim, Shift(2, new Vector3(p1.X - p2.X + 0.2f, 0, p1.Z - p2.Z)));
+        Assert.True(Vector3.Distance(physics.Get(physics.Body(a1, 0)).Position, physics.Get(physics.Body(a2, 0)).Position) < 0.25f);
+        float pop = sim.World.Resource<RagdollRules>().PopSpeed, rel = 0, relAll = 0;
+        for (int t = 0; t < 600; t++)
+        {
+            sim.Step();
+            var (c1, c2) = (Totals(sim, e1), Totals(sim, e2));
+            float r = new Vector2(c1.ComVelocity.X - c2.ComVelocity.X, c1.ComVelocity.Z - c2.ComVelocity.Z).Length();
+            relAll = MathF.Max(relAll, r);
+            if (t < 30) rel = MathF.Max(rel, r);   // расходятся из внахлёста — первые 0,25 с (дальше — падение каждого в свою сторону)
+        }
+        float dist = Vector3.Distance(physics.Get(physics.Body(a1, 0)).Position, physics.Get(physics.Body(a2, 0)).Position);
+        var (k1, k2) = (Totals(sim, e1).KineticEnergy, Totals(sim, e2).KineticEnergy);
+        output.WriteLine(FormattableString.Invariant($"s4: относительная скорость ЦМ за 0,25 с ≤ {rel:F3} м/с, за 5 с ≤ {relAll:F3}; тазы в конце в {dist:F3} м, кинетическая {k1:F4} и {k2:F4} Дж"));
+        Assert.True(rel <= 1.5f * pop, $"расходятся со скоростью {rel} м/с");
+        Assert.True(dist <= 2.5f, $"разлетелись: тазы в {dist} м");
+        Assert.True(k1 <= 0.1f && k2 <= 0.1f, $"не успокоились: {k1}, {k2} Дж");
+        Clean(sim);
+    }
+
+    // ── меч, возрождение, корень ────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Меч выпадает при каждой смерти: сустав запястья выключен, тело клинка — свободное тело трупа; через 3 с лежит на земле (оба конца оси —
+    /// у земли, не выше радиуса + 2 см; скорость ≤ 2 см/с), хват ушёл от кисти (от конца предплечья) — меч не держится в руке. Клинок-отрезок
+    /// мёртвого стоит, где был в тик смерти.
+    /// </summary>
+    [Fact]
+    public void Sword_DropsFromHand_LiesOnGround()
+    {
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false");
+        Step(sim, Place(1, 2, 6, 2.2f));
+        for (int t = 0; t < 30; t++) sim.Step();
+        Step(sim, Kill(1));
+        var e = Fighter(sim, 1);
+        var a = Body(sim, e);
+        var blade = sim.World.Get<Blade>(e);
+        for (int t = 0; t < 360; t++) sim.Step();
+        var sword = physics.Get(physics.Body(a, BodySegs.Weapon));
+        var forearm = physics.Get(physics.Body(a, BodySegs.FArmR));
+        float groundA = ArenaTerrain.Height(sword.EndA.X, sword.EndA.Z), groundB = ArenaTerrain.Height(sword.EndB.X, sword.EndB.Z);
+        output.WriteLine(FormattableString.Invariant($"меч: концы на {sword.EndA.Y - groundA:F3} и {sword.EndB.Y - groundB:F3} м над землёй, скорость {sword.Velocity.Length():F4}, хват от кисти {Vector3.Distance(sword.EndA, forearm.EndB):F3} м"));
+        Assert.False(physics.IsJointEnabled(a, CorpseJoints.Wrist));
+        Assert.True(sword.EndA.Y - groundA <= sword.Radius + 0.02f && sword.EndB.Y - groundB <= sword.Radius + 0.02f, "меч не лежит на земле");
+        Assert.True(sword.Velocity.Length() <= 0.02f);
+        Assert.Equal(blade, sim.World.Get<Blade>(e));
+        Clean(sim);
+    }
+
+    /// <summary>
+    /// Возрождение возвращает кинематику: труп, построенный заново (команда сцены «поставить», сброс R, возрождение врага через 8 с) — все 14
+    /// тел кинематические, профиль по умолчанию, суставы (от прошлой смерти) включены, тела — по позе (инварианты чисты), без скачка скорости;
+    /// следующая смерть — снова труп.
+    /// </summary>
+    [Fact]
+    public void Revival_ReturnsKinematics_DefaultProfile_JointsEnabled()
+    {
+        var (sim, physics) = Create("arena.enemies=2;combat.enemiesAttack=false");
+        for (int t = 0; t < 30; t++) sim.Step();
+        Step(sim, Kill(1), Kill(2));
+        for (int t = 0; t < 120; t++) sim.Step();
+        var (e1, e2) = (Fighter(sim, 1), Fighter(sim, 2));
+        Assert.True(Corpse.IsCorpse(physics, Body(sim, e1)));
+        Step(sim, Place(1, 3, 3));   // команда сцены — Gameplay того же тика строит тело
+        AssertAlive(physics, Body(sim, e1));
+        for (int t = 0; t < 30; t++) sim.Step();
+        AssertAlive(physics, Body(sim, e1));
+        while (sim.World.Has<Dead>(e2)) sim.Step();   // возрождение врага через 8 с (Aftermath) — тело ставит Gameplay следующего тика
+        sim.Step();
+        AssertAlive(physics, Body(sim, e2));
+        Step(sim, Kill(1));
+        Assert.True(Corpse.IsCorpse(physics, Body(sim, e1)));
+        sim.Enqueue(new ArenaCommand { Action = ArenaAction.Reset });   // сброс R — все построены заново в Begin
+        sim.Step();
+        AssertAlive(physics, Body(sim, e1));
+        for (int t = 0; t < 30; t++) sim.Step();
+        Clean(sim);
+    }
+
+    private static void AssertAlive(IPhysicsWorld physics, ArticulationHandle a)
+    {
+        for (int k = 0; k < BodySegs.Bodies; k++)
+        {
+            var s = physics.Get(physics.Body(a, k));
+            Assert.Equal((BodyMode.Kinematic, (byte)0, false), (s.Mode, s.Profile, s.Grounded));
+            Assert.True(s.Velocity.Length() < 30, $"тело {k}: скорость {s.Velocity.Length()}");
+        }
+        for (int j = 0; j < physics.JointCount(a); j++) Assert.True(physics.IsJointEnabled(a, j), $"сустав {j} выключен у живого");
+    }
+
+    /// <summary>
+    /// Корень мёртвого идёт за тазом (7з): после смерти игрока (x, z) корня — ровно (x, z) таза каждый тик, курс прежний; враги идут к трупу
+    /// игрока (×0,2 — не бьют) и встают у его таза, а не у места смерти.
+    /// </summary>
+    [Fact]
+    public void DeadRoot_FollowsPelvis_EnemiesWalkToPlayersCorpse()
+    {
+        var (sim, physics) = Create("arena.enemies=3;combat.enemiesAttack=false");
+        for (int t = 0; t < 10; t++) sim.Step();
+        var player = Fighter(sim, 0);
+        Step(sim, Kill(0));
+        float facing = sim.World.Get<Transform>(player).Facing;
+        var a = Body(sim, player);
+        for (int t = 0; t < 1200; t++)
+        {
+            sim.Step();
+            var root = sim.World.Get<Transform>(player);
+            var pelvis = physics.Get(physics.Body(a, BodySegs.Pelvis)).Position;
+            Assert.Equal((pelvis.X, pelvis.Z, facing), (root.Position.X, root.Position.Z, root.Facing));
+        }
+        var at = sim.World.Get<Transform>(player).Position;
+        foreach (int slot in new[] { 1, 2, 3 })
+        {
+            float d = Vector3.Distance(sim.World.Get<Transform>(Fighter(sim, slot)).Position with { Y = 0 }, at with { Y = 0 });
+            Assert.True(d < 3.5f, $"враг {slot} в {d} м от трупа игрока");
+        }
+        Clean(sim);
+    }
+
+    // ── ручки, реплей, пересборка ───────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Ручки «Рэгдолл» — секция ragdoll (8 ручек, значения по умолчанию — правила), система tuning.ragdoll в Begin; команда ручки посреди
+    /// прогона с трупами меняет правила (ресурс), настройки физики и профиль трупа до шага того же тика и воспроизводится реплеем — те же
+    /// хеши всех участников.
+    /// </summary>
+    [Fact]
+    public void RagdollKnob_MidRun_ChangesPhysics_ReplaysWithSameHashes()
+    {
+        var (sim, physics) = Create("arena.enemies=2;combat.enemiesAttack=false");
+        var knobs = sim.Tuning.Where(k => k.Section == RagdollKnobs.Section).ToList();
+        Assert.Equal(["ragdoll.friction", "ragdoll.pushForce", "ragdoll.popSpeed", "ragdoll.jointCompliance", "ragdoll.corpseMaxSpeed",
+            "ragdoll.corpseMaxAngularSpeed", "ragdoll.deathMaxSpeed", "ragdoll.deathMaxAngularSpeed"], knobs.Select(k => k.Name));
+        var d = new RagdollSettings();
+        Assert.Equal(d.PopSpeed, sim.Knob(RagdollKnobs.PopSpeed)!.Read(sim.World));
+        Assert.Equal((d.PopSpeed, d.Friction, d.JointCompliance), (physics.Settings.PopSpeed, physics.Settings.StaticFriction, physics.Settings.JointLimitCompliance));
+        Assert.Contains(sim.World.Systems, s => s.Label == "tuning.ragdoll" && s.Stage == GameStages.Begin);
+        Assert.Contains(sim.World.Systems, s => s.Label == GameLabels.RagdollRules.Name && s.Stage == GameStages.Intent);
+        var recorder = sim.Record(new ReplayInfo("test", "tests", "none"));
+        for (int t = 0; t < 20; t++) sim.Step();
+        Step(sim, Kill(1));
+        for (int t = 0; t < 40; t++) sim.Step();
+        sim.Enqueue(new TuningCommand { Knob = TuningKey.Of(RagdollKnobs.PopSpeed), Value = 2.5f });
+        sim.Enqueue(new TuningCommand { Knob = TuningKey.Of(RagdollKnobs.CorpseMaxSpeed), Value = 9 });
+        sim.Step();
+        Assert.Equal(2.5f, sim.World.Resource<RagdollRules>().PopSpeed);
+        Assert.Equal(2.5f, physics.Settings.PopSpeed);
+        Assert.Equal(9f, physics.GetDynamics(1).MaxSpeed);
+        Step(sim, Kill(2));
+        for (int t = 0; t < 120; t++) sim.Step();
+        var replay = Replay.Parse(recorder.ToReplay().ToJson());
+        var again = Simulation.Build(replay.CreateConfig(), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
+            [.. Bootstrap.SwordSimulation.Modules(), new Probe(_ => { })]);
+        var player = again.Play(replay);
+        while (again.Tick < replay.Ticks) again.Step();
+        Assert.Null(player.Divergence);
+        Assert.Equal((int)replay.Ticks + 1, player.HashesChecked);   // и тика 0
+        Assert.Equal(sim.HashState().Total, again.HashState().Total);
+        Clean(sim);
+    }
+
+    /// <summary>
+    /// Пересборка нечислового трупа: тело трупа стало нечисловым (порча после шага) — <c>physics.finite</c> называет его в этом же тике, в
+    /// Aftermath труп строится заново на месте корня (живым), в следующем тике тела ставит постройка — всё конечно, кинематика. Живого с
+    /// нечисловым телом (ошибка выше физики) пересборка не чинит.
+    /// </summary>
+    [Fact]
+    public void NonFiniteCorpse_RebuiltAtRoot_AliveAndFinite()
+    {
+        var holder = new IPhysicsWorld[1];
+        const ulong fault = 150;
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Physics, new AfterStep(fault, (p, w) =>
+        {
+            var b = p.Body(FighterBodies.Handle(w.Get<BodyRef>(FighterIn(w, 1))), BodySegs.ShinL);
+            p.Place(b, new Vector3(float.NaN), Quaternion.Identity);
+        }, holder)));
+        holder[0] = physics;
+        Step(sim, Place(1, 5, -5, 1));
+        Step(sim, Kill(1));
+        var e = Fighter(sim, 1);
+        while (sim.Tick < fault) sim.Step();
+        var root = sim.World.Get<Transform>(e).Position;
+        sim.Step();   // тик порчи: после шага — нечисловая голень, в Aftermath — постройка заново
+        Assert.Contains(sim.Invariants.Recent(), v => v.Id == "physics.finite" && v.Tick == fault);
+        Assert.False(sim.World.Has<Dead>(e));   // построен заново в Aftermath — на месте корня (корень до шага тика порчи — рядом: труп лежит)
+        Assert.True(Vector2.Distance(new Vector2(root.X, root.Z), new Vector2(sim.World.Get<Transform>(e).Position.X, sim.World.Get<Transform>(e).Position.Z)) < 0.05f);
+        sim.Step();
+        var a = Body(sim, e);
+        Assert.True(Corpse.Finite(physics, a));
+        AssertAlive(physics, a);
+    }
+
+    // ── инварианты-неисправности ────────────────────────────────────────────────────────────────────────────────────
+
+    public enum CorpseFault { Modes, Speed, Joints, Ground, InArena, Energy, Pushes, DeadRoot }
+
+    /// <summary>Порча трупа в тике <paramref name="tick"/>: после шага (Physics), энергия — до шага, настройки толчков — в Settle.</summary>
+    private sealed class Fault(CorpseFault fault, ulong tick, IPhysicsWorld[] physics) : IContinuousSystem
+    {
+        private Query _dead = null!;
+
+        public void Setup(SystemSetup s)
+        {
+            s.Label(new SystemLabel("test.fault")).Writes<Transform>();
+            _dead = s.Query().With<Dead>().Write<Transform>();
+            if (fault is CorpseFault.Energy) s.Before(GameLabels.PhysicsStep);
+            else if (fault is not CorpseFault.Pushes) s.After(GameLabels.CorpseRoot);
+        }
+
+        public void Run(in SystemContext ctx)
+        {
+            if (ctx.World.Resource<SimTime>().Tick != tick) return;
+            var p = physics[0];
+            var world = ctx.World;
+            var e = FighterIn(world, 1);
+            var a = FighterBodies.Handle(world.Get<BodyRef>(e));
+            var head = p.Body(a, BodySegs.Head);
+            var s = p.Get(head);
+            switch (fault)
+            {
+                case CorpseFault.Modes: p.SetMode(head, BodyMode.Kinematic); break;
+                case CorpseFault.Speed: s.Velocity = new Vector3(100, 0, 0); p.Set(head, s); break;
+                case CorpseFault.Joints: p.Place(head, s.Position + new Vector3(0, 0, 1), s.Rotation); break;
+                case CorpseFault.Ground: p.Place(head, s.Position with { Y = -1 }, s.Rotation); break;
+                case CorpseFault.InArena: p.Place(head, new Vector3(0, 1, 70), s.Rotation); break;
+                case CorpseFault.Energy: p.Place(head, s.Position - new Vector3(0, 1.5f, 0), s.Rotation); break;
+                case CorpseFault.Pushes: p.Settings = p.Settings with { HitDvShare = 1e-4f }; break;
+                case CorpseFault.DeadRoot:
+                    foreach (var chunk in ctx.Iterate(_dead))
+                    {
+                        var roots = chunk.Write<Transform>();
+                        for (int i = 0; i < roots.Length; i++) roots[i].Position += new Vector3(0.5f, 0, 0);
+                    }
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Удар по трупу в Resolve тика <paramref name="tick"/> (как ударит 7к): импульс в таз, Δv точки — в трассу этого тика.</summary>
+    private sealed class HitCorpse(ulong tick, IPhysicsWorld[] physics) : IContinuousSystem
+    {
+        public void Setup(SystemSetup s) => s.Label(new SystemLabel("test.hit"));
+
+        public void Run(in SystemContext ctx)
+        {
+            if (ctx.World.Resource<SimTime>().Tick != tick) return;
+            var p = physics[0];
+            var pelvis = p.Body(FighterBodies.Handle(ctx.World.Get<BodyRef>(FighterIn(ctx.World, 1))), BodySegs.Pelvis);
+            p.ApplyHit(pelvis, p.Get(pelvis).Position, new Vector3(0, 0, 30), 10, ArticulationHandle.None);
+        }
+    }
+
+    /// <summary>
+    /// Инварианты трупа ловят порчу на своём тике: режим тела трупа (<c>physics.modes</c>), скорость 100 м/с (<c>physics.simulatedSpeed</c>),
+    /// оторванная голова (<c>physics.joints</c>), тело в земле на метр (<c>physics.ground</c>), тело за стеной (<c>physics.inArena</c>), голова
+    /// на 1,5 м ниже шеи до шага — сустав рывком стягивает её в шаге (<c>physics.energy</c>, диагностический: включается явно вместе с режимом
+    /// <c>physics.trace</c>), доля Δv удара
+    /// выше настройки (удар по трупу в Resolve, настройки подменены в Settle — <c>physics.pushes</c>), корень мёртвого не за тазом (<c>combat.dead</c>).
+    /// До порчи — чисто.
+    /// </summary>
+    [Theory]
+    [InlineData(CorpseFault.Modes, "physics.modes", GameStages.Physics)]
+    [InlineData(CorpseFault.Speed, "physics.simulatedSpeed", GameStages.Physics)]
+    [InlineData(CorpseFault.Joints, "physics.joints", GameStages.Physics)]
+    [InlineData(CorpseFault.Ground, "physics.ground", GameStages.Physics)]
+    [InlineData(CorpseFault.InArena, "physics.inArena", GameStages.Physics)]
+    [InlineData(CorpseFault.Energy, "physics.energy", GameStages.Physics)]
+    [InlineData(CorpseFault.Pushes, "physics.pushes", GameStages.End)]
+    [InlineData(CorpseFault.DeadRoot, "combat.dead", GameStages.End)]
+    public void CorpseInvariants_CatchFault_OnItsTick(CorpseFault fault, string id, string stage)
+    {
+        var holder = new IPhysicsWorld[1];
+        const ulong tick = 120;
+        IContinuousSystem system = new Fault(fault, tick, holder);
+        var (sim, physics) = fault is CorpseFault.Pushes
+            ? Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Resolve, new HitCorpse(tick, holder)), (GameStages.Settle, system))
+            : Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Physics, system));
+        holder[0] = physics;
+        sim.Invariants.SetEnabled("physics.energy", true);
+        sim.Invariants.SetEnabled("physics.pushes", true);
+        sim.Diagnostics.Set(IPhysicsDebugView.TraceMode, true);   // трасса физики — диагностический режим 7и: по ней меряют energy и pushes
+        Step(sim, Place(1, -6, -6, 0.4f));
+        Step(sim, Kill(1));
+        while (sim.Tick < tick) sim.Step();   // номер идущего тика (SimTime.Tick) — сыграно до него: следующий шаг — тик порчи
+        Clean(sim);
+        sim.Step();
+        var hit = sim.Invariants.Recent().FirstOrDefault(v => v.Id == id);
+        Assert.True(hit.Id == id, $"{id} не поймал {fault}; нарушения: {string.Join("; ", sim.Invariants.Recent().Take(3))}");
+        Assert.Equal((tick, stage), (hit.Tick, hit.Stage));
+        output.WriteLine($"{fault}: {hit}");
+    }
+
+    // ── агент, хеш, память ──────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Вычисляемые поля тела целиком (<see cref="Agent.BodyFields"/>: <c>Body.Com</c>, <c>Body.ComVelocity</c>, <c>Body.KineticEnergy</c>,
+    /// <c>Body.Energy</c>) — те же, что итоги по видам тел; условие языка наблюдений читает их полем сущности (проверки манифеста фичи).
+    /// </summary>
+    [Fact]
+    public void Agent_CorpseFields_AndConditionsReadThem()
+    {
+        var (sim, _) = Create("arena.enemies=1;combat.enemiesAttack=false");
+        Step(sim, Place(1, 3, -3));
+        Step(sim, Kill(1));
+        for (int t = 0; t < 20; t++) sim.Step();
+        var e = Fighter(sim, 1);
+        var fields = new Agent.BodyFields();
+        var ctx = new ServiceContext(sim);
+        var totals = Totals(sim, e);
+        Assert.Equal(totals.Com.Y, fields.Compile("Body.Com.Y", "t")!(ctx, e), 5);
+        Assert.Equal(totals.ComVelocity.Length(), fields.Compile("Body.ComVelocity", "t")!(ctx, e), 5);
+        Assert.Equal(totals.KineticEnergy, fields.Compile("Body.KineticEnergy", "t")!(ctx, e), 4);
+        Assert.Equal(totals.Energy, fields.Compile("Body.Energy", "t")!(ctx, e), 3);
+        Assert.True(totals.KineticEnergy > 0 && totals.Energy > totals.KineticEnergy);
+        Assert.Throws<ArgumentException>(() => fields.Compile("Body.Com.Q", "t"));
+        var catalog = new Catalog(sim);
+        var names = new Agent.SwordAgent.ArenaNames();
+        var rising = ObservationPredicate.Compile(JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"field":"Body.Com.Y","lessThan":5}]}"""), ctx, catalog, names,
+            fields: fields);
+        Assert.True(rising.Evaluate(ctx));
+        var never = ObservationPredicate.Compile(JsonNode.Parse("""{"exists":{"all":[{"component":"EnemyTag"},{"field":"Body.Energy","greaterThan":1e6}]}}"""), ctx,
+            catalog, names, fields: fields);
+        Assert.False(never.Evaluate(ctx));
+        Assert.Throws<ArgumentException>(() => ObservationPredicate.Compile(JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"field":"Body.Energy","lessThan":1}]}"""),
+            ctx, catalog, names));   // без вычисляемых полей — не поле компонента
+    }
+
+    /// <summary>
+    /// Агент (7з): «играть, пока труп не успокоится» — <c>time.runUntil</c> с условием по вычисляемому полю тела (<c>Body.KineticEnergy</c>) после
+    /// смерти командой сцены: встаёт после падения (труп сначала падает — кинетическая энергия растёт), <c>watch.add</c> + <c>entity.history</c>
+    /// показывают энергию трупа по тикам.
+    /// </summary>
+    [Fact]
+    public async Task Agent_RunUntilCorpseAtRest_ByComputedField()
+    {
+        var (sim, _) = Create("arena.enemies=1;combat.enemiesAttack=false");
+        Step(sim, Place(1, 3, -3));
+        var host = new Sword.Engine.Agent.AgentHost(new Sword.Engine.Agent.AgentHostOptions
+        {
+            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
+            Service = new ServiceQueue(), Log = new Sword.Engine.Diagnostics.LogRing(16),
+            ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"), Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
+        });
+        Agent.SwordAgent.Register(host);
+        using var stop = new CancellationTokenSource();
+        var loop = new Thread(() => Sword.Engine.Agent.SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
+        loop.Start();
+        try
+        {
+            async Task<JsonObject> Call(string tool, JsonObject? args = null)
+            {
+                var request = new JsonObject
+                {
+                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
+                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
+                };
+                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
+                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
+                return r["structuredContent"]!.AsObject();
+            }
+
+            await Call("watch.add", new JsonObject { ["entities"] = new JsonArray("enemy 1"), ["fields"] = new JsonArray("Body.KineticEnergy") });
+            await Call("command.send", new JsonObject { ["command"] = "SceneCommand", ["fields"] = JsonNode.Parse("""{"Action":"Kill","Slot":1}""") });
+            var falling = await Call("time.runUntil", new JsonObject
+            {
+                ["condition"] = JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"component":"Dead"},{"field":"Body.KineticEnergy","greaterThan":5}]}"""),
+                ["maxTicks"] = 240,
+            });
+            Assert.True(falling["met"]!.GetValue<bool>(), falling.ToJsonString());
+            var rest = await Call("time.runUntil", new JsonObject
+            {
+                ["condition"] = JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"component":"Dead"},{"field":"Body.KineticEnergy","lessThan":0.05}]}"""),
+                ["maxTicks"] = 1200,
+            });
+            Assert.True(rest["met"]!.GetValue<bool>(), rest.ToJsonString());
+            var rows = (await Call("entity.history", new JsonObject { ["entity"] = "enemy 1" }))["rows"]!.AsArray();
+            var energy = rows.Select(r => r!["values"]!["Body.KineticEnergy"]!.GetValue<double>()).ToArray();
+            Assert.True(energy.Max() > 30, string.Join(", ", energy.Take(10)));   // падение трупа — в истории наблюдения
+        }
+        finally
+        {
+            stop.Cancel();
+            host.Service.Wake();
+            loop.Join(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    /// <summary>
+    /// Хеш <c>physics</c> (7з) видит суставы, их привязку и включённость и отдачу: переключение сустава трупа меняет хеш участника, описание
+    /// показывает суставы трупа (описание, привязка, замер) и часть <c>passes</c>.
+    /// </summary>
+    [Fact]
+    public void PhysicsPart_HashesJoints_DescribeShowsThem()
+    {
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false");
+        Step(sim, Place(1, 3, 3));
+        Step(sim, Kill(1));
+        var a = Body(sim, Fighter(sim, 1));
+        ulong before = sim.HashState().Parts["physics"];
+        physics.SetJointEnabled(a, 0, false);
+        Assert.NotEqual(before, sim.HashState().Parts["physics"]);
+        physics.SetJointEnabled(a, 0, true);
+        Assert.Equal(before, sim.HashState().Parts["physics"]);
+        var corpse = JsonNode.Parse(sim.DescribeState("physics", new DescribeQuery(a.ToString())))!["items"]![0]!;
+        Assert.Equal(CorpseJoints.Count, corpse["jointCount"]!.GetValue<int>());
+        Assert.False(corpse["joint10"]!["enabled"]!.GetValue<bool>());   // запястье — меч выпал
+        Assert.Equal("Hinge", corpse["joint7"]!["kind"]!.GetValue<string>());   // колено левое
+        Assert.NotNull(corpse["joint7"]!["hingeAxis"]);
+        Assert.NotNull(corpse["joint0"]!["measure"]!["pointError"]);
+        Assert.NotNull(corpse["reaction"]);
+        var passes = JsonNode.Parse(sim.DescribeState("physics", new DescribeQuery("passes")))!["items"]![0]!;
+        Assert.Equal("passes", passes["id"]!.GetValue<string>());
+    }
+
+    /// <summary>
+    /// Толпа 32 трупов (все враги убиты командой около игрока; синтетический контент): не разлетается (центры масс — в 8 м от игрока), через
+    /// 5 с — покой; 0 Б на тик 240 тиков после прогрева; время стадии Physics — в выводе (Debug, ориентир).
+    /// </summary>
+    [Fact]
+    public void Crowd32Corpses_NoScatter_Settle_ZeroBytesPerTick()
+    {
+        var (sim, physics) = Create("arena.enemies=32;combat.enemiesAttack=false");
+        for (int t = 0; t < 600; t++) sim.Step();
+        for (int s = 1; s <= 32; s++) sim.Enqueue(Kill(s));
+        sim.Step();
+        var enemies = Enumerable.Range(1, 32).Select(s => Fighter(sim, s)).ToArray();
+        for (int t = 0; t < 600; t++) sim.Step();
+        var center = sim.World.Get<Transform>(Fighter(sim, 0)).Position;
+        float far = enemies.Max(e => Vector2.Distance(new Vector2(Totals(sim, e).Com.X, Totals(sim, e).Com.Z), new Vector2(center.X, center.Z)));
+        float ke = enemies.Max(e => Totals(sim, e).KineticEnergy);
+        var timer = new StageTimer(sim);
+        sim.Observe(timer);
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int t = 0; t < 240; t++)
+        {
+            timer.Begin();
+            sim.Step();
+        }
+        long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds / 240;
+        double physicsMs = timer.MeanMilliseconds(timer.Stages.ToList().IndexOf(GameStages.Physics));
+        foreach (var i in sim.Invariants.List().Where(i => i.Violations > 0)) output.WriteLine($"  нарушено {i.Id}: {i.Violations}");
+        foreach (var v in sim.Invariants.Recent().Take(3)) output.WriteLine($"  {v}");
+        output.WriteLine(FormattableString.Invariant($"толпа 32 трупов: ЦМ до {far:F2} м от игрока, кинетическая ≤ {ke:F3} Дж через 5 с; тик {ms:F2} мс, стадия Physics {physicsMs:F2} мс (Debug, с инвариантами после барьера); {bytes} Б за 240 тиков"));
+        Assert.True(far <= 8, $"разлетелись: {far} м");
+        Assert.True(ke <= 1, $"не успокоились: {ke} Дж");
+        Assert.True(bytes == 0, $"240 тиков толпы трупов выделили {bytes} Б");
+        Clean(sim);
+    }
+}
+
+/// <summary>
+/// 7з на эталонном паке (категория Content): оси шарниров Manny найдены по клипам (−Y кости); сцена s8 — труп на ступенях пирамиды в 5 местах
+/// (убит командой в стойке): через 2 с окно покоя 5 с — центр масс успокаивается, энергия в покое не растёт, суставы держат, глубина мала.
+/// </summary>
+[Trait("Category", "Content")]
+public sealed class RagdollCorpseContentTests(ITestOutputHelper output)
+{
+    private static CharacterAssets Pak => FeatureManifestsTests.Reference.Value.Assets;
+
+    [Fact]
+    public void Hinges_FoundFromClips_OnManny()
+    {
+        var anatomy = Pak.Hinges;
+        foreach (int seg in new[] { BodySegs.FArmL, BodySegs.FArmR, BodySegs.ShinL, BodySegs.ShinR })
+        {
+            Assert.True(anatomy.Found(seg), BodySegs.Name(seg));
+            Assert.True(Vector3.Dot(anatomy.Local(seg), -Vector3.UnitY) > 0.99f, $"{BodySegs.Name(seg)}: {anatomy.Local(seg)}");
+        }
+    }
+
+    public static TheoryData<float, float> S8Places => new() { { -12.5f, 0 }, { -19f, 0 }, { -13f, 0 }, { -20.02f, 0 }, { -16f, -4f } };
+
+    [Theory]
+    [MemberData(nameof(S8Places))]
+    public void S8_CorpseOnPyramidSteps_Settles_EnergyAtRestDoesNotGrow(float x, float z)
+    {
+        var (sim, physics) = RagdollCorpseTests.Create(Pak, "arena.enemies=1;combat.enemiesAttack=false");
+        RagdollCorpseTests.Step(sim, RagdollCorpseTests.Place(1, x, z));
+        RagdollCorpseTests.Step(sim, RagdollCorpseTests.Kill(1));
+        var e = RagdollCorpseTests.Fighter(sim, 1);
+        var rest = RagdollCorpseTests.RestWindow(sim, physics, e, settle: 240, window: 600);
+        output.WriteLine(FormattableString.Invariant($"s8 ({x}; {z}): {rest}"));
+        Assert.True(rest.ComSpeed <= RagdollCorpseTests.RestComSpeed && rest.KineticEnd <= RagdollCorpseTests.RestKineticEnd, rest.ToString());
+        Assert.True(rest.EnergyRise <= RagdollCorpseTests.RestEnergyRise, rest.ToString());
+        Assert.True(rest.Depth <= 0.01f && rest.Point <= 0.01f, rest.ToString());
+        RagdollCorpseTests.Clean(sim);
+    }
+}

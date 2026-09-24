@@ -80,7 +80,7 @@ public static class ReplayObservation
             else if (string.Equals(type, InvariantRecord.Type, StringComparison.OrdinalIgnoreCase)) violationLines = true;
             else journals.Add(ObservationPredicate.ResolveJournal(simulation.World, type, "events").Id);
         }
-        var condition = options.Condition is null ? null : ObservationPredicate.Compile(options.Condition, ctx, catalog, names);
+        var condition = options.Condition is null ? null : ObservationPredicate.Compile(options.Condition, ctx, catalog, names, fields: fields);
         if (condition is not null) result.ConditionCost = condition.Cost(simulation.World);
         var watch = options.Watch is null ? null : hub.AddWatch(ctx, options.Watch);
 

@@ -384,14 +384,16 @@ public sealed class GameInvariantTests
 
     /// <summary>
     /// Живая игра (исправления после Пд, решение пользователя): тяжёлые по цене в тике толпы — <c>animation.finite</c>,
-    /// <c>ecs.finite</c>, <c>physics.finite</c>, <c>physics.kinematicPose</c>, <c>physics.kinematicSpeed</c> — раз в 4 тика, остальные
+    /// <c>ecs.finite</c>, <c>physics.finite</c>, <c>physics.kinematicPose</c>, <c>physics.kinematicSpeed</c> и инварианты трупа 7з
+    /// (<c>physics.modes</c>, <c>simulatedSpeed</c>, <c>joints</c>, <c>ground</c>, <c>inArena</c>) — раз в 4 тика, остальные
     /// (и <c>movement.rootOverlap</c> со счётом тиков подряд) — каждый тик. Неисправность, которая держится (NaN корня с тика 25),
     /// поймана не позже чем через 3 тика — на тике 28; в тестах (не живая игра) — на тике 25 (<see cref="Fault_CaughtOnItsTick_AfterItsStage"/>).
     /// </summary>
     [Fact]
     public void LiveGame_HeavyEveryFourTicks_PersistentFaultCaughtWithinPeriod()
     {
-        string[] heavy = ["ecs.finite", "animation.finite", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed"];
+        string[] heavy = ["ecs.finite", "animation.finite", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed",
+            "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena"];   // 7з: инварианты трупа — по всем телам
         var sim = Build(GameFault.NaNRoot);
         Assert.All(sim.Invariants.List().Where(i => i.Enabled), i => Assert.Equal(1, i.Every));   // не живая игра — каждый тик
         sim.Invariants.LivePeriods = true;
@@ -433,7 +435,7 @@ public sealed class GameInvariantTests
     public void FairGame_NoViolations_AllCoreInvariantsChecked()
     {
         var sim = TestAssets.Simulation();
-        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "ragdoll.skin", "combat.blade", "combat.weapons", "combat.control", "combat.health", "combat.dead", "combat.hits", "combat.respawn", "locomotion.poses"],
+        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "ragdoll.skin", "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena", "physics.energy", "physics.pushes", "combat.blade", "combat.weapons", "combat.control", "combat.health", "combat.dead", "combat.hits", "combat.respawn", "locomotion.poses"],
             sim.Invariants.List().Select(i => i.Id));
         for (int t = 0; t < 400; t++)
         {

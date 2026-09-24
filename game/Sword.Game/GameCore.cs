@@ -45,7 +45,12 @@ namespace Sword.Game;
 /// причина смерти (<see cref="DeathCause"/>); команды сцен (<see cref="SceneCommand"/>: <see cref="SceneCommandSystem"/> в Intent,
 /// <see cref="ScenePlayerIntentSystem"/> в Gameplay); привязка скина мёртвого (<see cref="SkinBindings"/>, снимок —
 /// <see cref="SkinCaptureSystem"/> в Gameplay и Settle, сброс — <see cref="SkinReleaseSystem"/> в End; вид <see cref="ISkinView"/>,
-/// участник хеша <c>skin</c>, инвариант <c>ragdoll.skin</c>). Регистрации ядра — без токена модуля.
+/// участник хеша <c>skin</c>, инвариант <c>ragdoll.skin</c>). Этап 7з: труп на физике — шаг физики (<see cref="PhysicsStepSystem"/>, Physics) с
+/// землёй, стеной и колоннами арены (<see cref="ArenaGround"/>), переход в труп (<see cref="DeathToRagdollSystem"/> в Gameplay и Settle: суставы
+/// <see cref="CorpseJoints"/>, меч выпадает, профиль трупа), возрождение — снова кинематика (<see cref="Corpse.Revive"/> в постройке тела),
+/// корень мёртвого за тазом (<see cref="CorpseRootSystem"/>), пересборка нечислового тела (<see cref="BodyRebuildSystem"/>, Aftermath), правила
+/// трупа и ручки «Рэгдолл» (<see cref="RagdollRules"/> из секции <c>ragdoll</c>, <see cref="RagdollKnobs"/>), инварианты трупа
+/// (<see cref="CorpseInvariants"/>). Регистрации ядра — без токена модуля.
 ///
 /// Порядок <c>DuelArena.Tick</c> SWORD — по стадиям: команды арены (из цикла кадра SWORD до тика) — Begin; команда игрока и
 /// ИИ врагов — Intent. Порядок <c>KinematicBegin</c> — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
@@ -85,8 +90,16 @@ public static class GameCore
     public static void Configure(SimulationBuilder b, CharacterAssets assets)
     {
         var poses = new PosePool(assets.Clips);   // пул поз — у каждой симуляции свой: ассеты только читаются
+        // 7з: правила трупа — ресурс мира из секции ragdoll (ручки «Рэгдолл»); настройки физики и профиль трупа из них производны.
+        var ragdoll = RagdollRules.From(b.Config.Section<RagdollSettings>(RagdollKnobs.Section));
         // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 14 тел — с 7ж и клинок), дальше растёт удвоением.
-        var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies);
+        var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies, ragdoll.Physics(PhysicsSettings.Default));
+        // 7з: статический мир трупов — аналитическая земля арены (рельеф и ярусы пирамиды), стена и колонны (7е); профиль трупа — №1.
+        physics.SetGround(ArenaGround.Instance);
+        physics.SetWall(ArenaGround.WallRadius);
+        physics.SetPillars(ArenaGround.Pillars);
+        int corpseProfile = physics.RegisterDynamics(ragdoll.Corpse());
+        var corpseJoints = new CorpseJoints(assets.Hinges);
         var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
         var jointSegments = JointSegments.Build(assets.Clips.Skeleton);   // сустав скелета → сегмент тела (ID-буфер 5в, привязка скина 7ж)
         var skins = new SkinBindings(jointSegments, ArenaRules.MaxFighters);   // 7ж: привязки скина мёртвых — по слотам сочленений
@@ -113,7 +126,7 @@ public static class GameCore
             .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>()
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>().Command<SceneCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
-            .Resource(PlayerInventory.All(weapons.Count, playerWeapon)).Resource(CombatRules.From(combat)).Resource(ArenaStats.Start)
+            .Resource(PlayerInventory.All(weapons.Count, playerWeapon)).Resource(CombatRules.From(combat)).Resource(ArenaStats.Start).Resource(ragdoll)
             .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 }).Resource(skins)
             .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, jointSegments))
             .ReadView<ICombatView>(new CombatView(weapons, assets.Strikes, assets.Hand)).ReadView<ISkinView>(new SkinView(skins))
@@ -125,8 +138,9 @@ public static class GameCore
             .Invariant(new RootOverlapInvariant())
             .Invariants(PhysicsInvariants.For(physics, poses, joints, start, weapons, assets.Hand))
             .Invariant(new SkinInvariant(physics, skins))
+            .Invariants(CorpseInvariants.For(physics, corpseProfile))
             .Invariants(CombatInvariants.For(poses, weapons, assets.Hand, start, strikes))
-            .Invariants(DamageInvariants.For())
+            .Invariants(DamageInvariants.For(physics))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>()
             // Бой (6г): касания, попадания, заявки на отруб и смерти — клиенту (HUD 6е, кровь — этап 12) и агенту (events.history: без
@@ -136,6 +150,8 @@ public static class GameCore
         PhysicsDebug.Register(b, physics);   // 7и: вид суставов и трассы физики, режим physics.trace — мир, хеш и реплей не меняют
         // 6е: ручки «Бой» — поля правил боя (ресурс из секции combat), изменение на ходу — команда ручки (система tuning.combat в Begin).
         CombatKnobs.Register(b);
+        // 7з: ручки «Рэгдолл» — поля правил трупа (секция ragdoll), команда ручки — система tuning.ragdoll в Begin, замена настроек физики — Intent.
+        RagdollKnobs.Register(b, physics, corpseProfile);
 
         b.System(GameStages.Begin, new PrevTransformSystem())
             .System(GameStages.Begin, new ArenaCommandSystem(weapons.Count))
@@ -146,6 +162,7 @@ public static class GameCore
             .System(GameStages.Gameplay, new BodySetupSystem(physics, joints, start))
             .System(GameStages.Gameplay, new BladeSetupSystem(physics, weapons, assets.Hand, start))
             .System(GameStages.Gameplay, new SkinCaptureSystem(physics, skins, gameplay: true))
+            .System(GameStages.Gameplay, new DeathToRagdollSystem(physics, corpseJoints, corpseProfile, gameplay: true))
             .System(GameStages.Gameplay, new EnemyCommandSystem())
             .System(GameStages.Gameplay, new ScenePlayerIntentSystem())
             .System(GameStages.Gameplay, new RootSteerSystem(strikes))
@@ -157,13 +174,17 @@ public static class GameCore
             .System(GameStages.Movement, new RootCollisionSystem())
             .System(GameStages.PrePhysics, new KinematicPlacementSystem(physics, joints))
             .System(GameStages.PrePhysics, new BladePlacementSystem(physics, weapons, assets.Hand))
+            .System(GameStages.Physics, new PhysicsStepSystem(physics))
+            .System(GameStages.Physics, new CorpseRootSystem(physics))
             .System(GameStages.Combat, new StrikeDetectionSystem(physics, strikes))
             .System(GameStages.Resolve, new HitApplySystem())
             .System(GameStages.React, new HitReactionSystem())
             .System(GameStages.Aftermath, new BleedSystem())
             .System(GameStages.Aftermath, new RespawnSystem(weapons.Count))
+            .System(GameStages.Aftermath, new BodyRebuildSystem(physics))
             .System(GameStages.Settle, new ArenaStatsSystem())
             .System(GameStages.Settle, new SkinCaptureSystem(physics, skins, gameplay: false))
+            .System(GameStages.Settle, new DeathToRagdollSystem(physics, corpseJoints, corpseProfile, gameplay: false))
             .System(GameStages.End, new PoseReleaseSystem())
             .System(GameStages.End, new ActionPoseReleaseSystem())
             .System(GameStages.End, new SkinReleaseSystem(skins));

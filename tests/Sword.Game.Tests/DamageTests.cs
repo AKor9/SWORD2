@@ -207,11 +207,12 @@ public sealed class DamageTests
     }
 
     /// <summary>
-    /// Труп — не цель и замирает (до рэгдолла): после смерти проба не даёт попадания; корень, курс, действие, поза и клинок стоят, хотя
-    /// ИИ живого вёл бы его к игроку; капсулы стоят и хранят скорости последнего тика жизни (их возьмёт рэгдолл, этап 7).
+    /// Труп — не цель (до 7к) и не действует: после смерти проба не даёт попадания; курс, действие, поза и клинок-отрезок стоят, хотя ИИ
+    /// живого вёл бы его к игроку. С 7з тела — труп на физике: в тик смерти (Settle) скорости последней постановки живого урезаны переходом
+    /// (≤ 6 м/с), дальше труп падает; корень идёт за тазом трупа.
     /// </summary>
     [Fact]
-    public void Corpse_NotTarget_Frozen_CapsuleVelocitiesKept()
+    public void Corpse_NotTarget_DoesNotAct_OnPhysics_RootFollowsPelvis()
     {
         var sim = Create("arena.enemies=1", "combat.enemiesAttack=false");
         var enemy = Enemy(sim);
@@ -224,6 +225,7 @@ public sealed class DamageTests
         BodySnapshot Capsule() => bodies.Body(body, BodySegs.Body(BodySegs.Pelvis));
         var capsule = Capsule();
         Assert.True(capsule.Velocity.Length() > 0.1f, $"враг шёл — скорость капсулы таза {capsule.Velocity}");
+        Assert.True(capsule.Simulated && capsule.Velocity.Length() <= sim.World.Resource<Ragdoll.RagdollRules>().DeathMaxSpeed + 1e-4f);
         var root = sim.World.Get<Transform>(enemy);
         var action = sim.World.Get<AnimatorAction>(enemy);
         var tip = sim.World.Get<Blade>(enemy).Tip;
@@ -235,11 +237,12 @@ public sealed class DamageTests
         Step(sim, 120);
         Assert.True(sim.Export.Frame<Event<Hit>>().IsEmpty);
         Assert.Single(sim.Export.Frame<Event<StrikeContact>>().ToArray());   // касание есть, попадания нет — труп
-        Assert.Equal(root, sim.World.Get<Transform>(enemy));
+        var now = sim.World.Get<Transform>(enemy);
+        Assert.Equal((root.Facing, Capsule().Position.X, Capsule().Position.Z), (now.Facing, now.Position.X, now.Position.Z));   // корень — за тазом
         Assert.Equal((action.Kind, action.Time, action.Weight), (sim.World.Get<AnimatorAction>(enemy).Kind, sim.World.Get<AnimatorAction>(enemy).Time, sim.World.Get<AnimatorAction>(enemy).Weight));
         Assert.Equal(tip, sim.World.Get<Blade>(enemy).Tip);
         Assert.Equal(pose, anim.Model(poseRef).ToArray());
-        Assert.Equal((capsule.Position, capsule.Velocity, capsule.AngularVelocity), (Capsule().Position, Capsule().Velocity, Capsule().AngularVelocity));
+        Assert.True(Capsule().Position.Y < capsule.Position.Y - 0.3f, $"труп не упал: таз {capsule.Position.Y} → {Capsule().Position.Y}");
         Clean(sim);
     }
 
@@ -306,8 +309,8 @@ public sealed class DamageTests
     }
 
     /// <summary>
-    /// Мёртвый игрок: команды не действуют (ход не разгоняет), враги подходят ×0,2 (намерение — 0,2 от составляющих ИИ) и не бьют; сброс
-    /// арены (R) строит игрока заново — жив, здоровье полное, статистика с нуля.
+    /// Мёртвый игрок: команды не действуют (ход не разгоняет; корень — за тазом трупа, 7з), враги подходят ×0,2 (намерение — 0,2 от
+    /// составляющих ИИ, к корню — тазу трупа) и не бьют; сброс арены (R) строит игрока заново — жив, здоровье полное, статистика с нуля.
     /// </summary>
     [Fact]
     public void DeadPlayer_Frozen_EnemiesCalm_ResetRevives()
@@ -319,9 +322,12 @@ public sealed class DamageTests
         Probe(sim, 1, 0, BodySegs.Torso, 200);
         Step(sim, 1);
         Assert.True(sim.World.Has<Dead>(player));
-        var root = sim.World.Get<Transform>(player);
-        Step(sim, 30, new PlayerCommand { Move = new Vector2(0, 1), Attack = true });
-        Assert.Equal(root, sim.World.Get<Transform>(player));
+        Step(sim, 29, new PlayerCommand { Move = new Vector2(0, 1), Attack = true });
+        var root = sim.World.Get<Transform>(player);   // корень, к которому думает ИИ последнего тика (Intent — до шага физики)
+        Step(sim, 1, new PlayerCommand { Move = new Vector2(0, 1), Attack = true });
+        var pelvis = sim.World.View<IBodyView>().Body(sim.World.Get<BodyRef>(player), BodySegs.Body(BodySegs.Pelvis)).Position;
+        var now = sim.World.Get<Transform>(player);
+        Assert.Equal((pelvis.X, pelvis.Z, root.Facing), (now.Position.X, now.Position.Z, now.Facing));   // 7з: корень мёртвого — за тазом
         Assert.Equal(0, sim.World.Get<AnimatorAction>(player).AttackSerial);
         // враг: намерение — 0,2 от ИИ, ударов нет, хотя подошёл бы и таймер вышел
         var terms = sim.World.Get<EnemyAiTerms>(enemy);
@@ -612,7 +618,7 @@ public sealed class DamageTests
         Assert.Contains(details, first.Details);
     }
 
-    /// <summary><c>combat.dead</c>: мёртвый сдвинут — нарушение в тике сдвига.</summary>
+    /// <summary><c>combat.dead</c>: мёртвый сдвинут (корень ушёл от таза трупа, 7з) — нарушение в тике сдвига.</summary>
     [Fact]
     public void Fault_DeadMoved_Caught()
     {
@@ -625,7 +631,7 @@ public sealed class DamageTests
         Step(sim, 1);
         var first = sim.Invariants.Recent().First(v => v.Id == "combat.dead");
         Assert.Equal(DamageFaultModule.Tick, first.Tick);
-        Assert.Contains("мёртвый", first.Details);
+        Assert.Contains("не за тазом", first.Details);
     }
 }
 

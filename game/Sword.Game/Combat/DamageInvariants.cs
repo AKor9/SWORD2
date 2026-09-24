@@ -2,20 +2,22 @@ using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Sword.Engine.Ecs;
+using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
 using Sword.Game.Animation;
+using Sword.Game.Bodies;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Combat;
 
 /// <summary>
 /// Инварианты урона (раздел 8 плана; этап 6г), их регистрирует ядро: <c>combat.health</c> и <c>combat.dead</c> — в конце End (здоровье
-/// согласовано, мёртвый замер), <c>combat.hits</c> — после Resolve (попадания тика по правилам прохода клинка), <c>combat.respawn</c> — в
-/// конце End (мёртвый враг не лежит дольше 8 с).
+/// согласовано, мёртвый не действует, корень — за тазом трупа, 7з), <c>combat.hits</c> — после Resolve (попадания тика по правилам прохода
+/// клинка), <c>combat.respawn</c> — в конце End (мёртвый враг не лежит дольше 8 с).
 /// </summary>
 public static class DamageInvariants
 {
-    public static IEnumerable<IInvariant> For() => [new HealthState(), new DeadFrozen(), new Hits(), new Respawn()];
+    public static IEnumerable<IInvariant> For(IPhysicsWorld physics) => [new HealthState(), new DeadFrozen(physics), new Hits(), new Respawn()];
 
     private static string Text(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
 
@@ -73,12 +75,14 @@ public static class DamageInvariants
     }
 
     /// <summary>
-    /// <c>combat.dead</c> — мёртвый не действует и не движется (до рэгдолла — этап 7): с конца тика смерти у него те же корень и курс,
-    /// действие (вид, время, вес, номер удара) и клинок, пока метку не снимет постройка заново. Память — по номеру сущности. В конце End.
+    /// <c>combat.dead</c> — мёртвый не действует (в конце End): с конца тика смерти у него те же курс, действие (вид, время, вес, номер
+    /// удара) и клинок-отрезок, пока метку не снимет постройка заново; с 7з корень мёртвого не стоит, а идёт за тазом трупа — (x, z) корня
+    /// равны (x, z) тела таза (<c>core.corpse-root</c> после шага физики; со следующего тика после смерти: смерть от удара переходит в труп в
+    /// Settle, и таз двинется в следующем шаге). Память — по номеру сущности.
     /// </summary>
-    private sealed class DeadFrozen : IInvariant
+    private sealed class DeadFrozen(IPhysicsWorld physics) : IInvariant
     {
-        private record struct Frozen(Entity Entity, Vector3 Position, float Facing, ActionKind Kind, float Time, float Weight, int Serial, Vector3 Tip);
+        private record struct Frozen(Entity Entity, float Facing, ActionKind Kind, float Time, float Weight, int Serial, Vector3 Tip);
 
         private ReadQuery? _dead;
         private Frozen[] _memory = [];
@@ -91,17 +95,27 @@ public static class DamageInvariants
         public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
         {
             var world = ctx.World;
-            _dead ??= world.Query().With<Fighter>().With<Dead>().Read<Transform>().Read<AnimatorAction>().Read<Blade>();
+            float time = world.Resource<SimTime>().Time;
+            // корень за тазом сверяется, когда шаг физики этого тика прошёл (проверка «сейчас» до Physics — таз мог сдвинуть сдвиг сцены)
+            bool followed = PhysicsDone(ctx.Stage);
+            _dead ??= world.Query().With<Fighter>().Read<Dead>().Read<Transform>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
             foreach (var chunk in world.Iterate(_dead))
             {
                 var entities = chunk.Entities;
+                var dead = chunk.Read<Dead>();
                 var roots = chunk.Read<Transform>();
                 var actions = chunk.Read<AnimatorAction>();
                 var blades = chunk.Read<Blade>();
+                var bodies = chunk.Read<BodyRef>();
                 for (int i = 0; i < entities.Length; i++)
                 {
                     var e = entities[i];
-                    var now = new Frozen(e, roots[i].Position, roots[i].Facing, actions[i].Kind, actions[i].Time, actions[i].Weight, actions[i].AttackSerial, blades[i].Tip);
+                    if (followed && dead[i].Time < time && Pelvis(bodies[i], roots[i]) is { } problem)
+                    {
+                        violations.Report(e, problem);
+                        if (violations.Full) return;
+                    }
+                    var now = new Frozen(e, roots[i].Facing, actions[i].Kind, actions[i].Time, actions[i].Weight, actions[i].AttackSerial, blades[i].Tip);
                     if ((uint)e.Index >= (uint)_memory.Length) Array.Resize(ref _memory, Math.Max(e.Index + 1, _memory.Length * 2));
                     ref var before = ref _memory[e.Index];
                     // Первый тик смерти (или другой боец на этом номере) — запомнить; иначе должен совпасть с запомненным.
@@ -111,7 +125,7 @@ public static class DamageInvariants
                         continue;
                     }
                     if (now == before) continue;
-                    violations.Report(e, Text($"мёртвый (с {world.Get<Dead>(e).Time} с) изменился: корень {before.Position} → {now.Position}, курс {before.Facing} → {now.Facing}, действие {before.Kind} {before.Time} → {now.Kind} {now.Time}, номер удара {before.Serial} → {now.Serial}, кончик {before.Tip} → {now.Tip}"));
+                    violations.Report(e, Text($"мёртвый (с {dead[i].Time} с) действует: курс {before.Facing} → {now.Facing}, действие {before.Kind} {before.Time} → {now.Kind} {now.Time}, номер удара {before.Serial} → {now.Serial}, кончик {before.Tip} → {now.Tip}"));
                     before = now;
                     if (violations.Full) return;
                 }
@@ -119,6 +133,35 @@ public static class DamageInvariants
             // ожившие (построены заново) — память по номеру сотрётся при следующей смерти: сущность та же, но запись — прошлой смерти
             for (int i = 0; i < _memory.Length; i++)
                 if (!_memory[i].Entity.IsNull && !world.Has<Dead>(_memory[i].Entity)) _memory[i] = default;
+        }
+
+        /// <summary>Корень мёртвого не за тазом трупа (таз на физике и числовой) — что не так; иначе null.</summary>
+        private string? Pelvis(BodyRef bodyRef, in Transform root)
+        {
+            var body = FighterBodies.Handle(bodyRef);
+            if (!BodyPlacement.Placeable(physics, body)) return null;   // негодное тело — physics.bodyRefs
+            var pelvis = physics.Get(physics.Body(body, BodySegs.Body(BodySegs.Pelvis)));
+            if (pelvis.Mode != BodyMode.Simulated || !pelvis.IsFinite) return null;   // не труп — physics.modes, нечисловой — physics.finite
+            if (root.Position.X == pelvis.Position.X && root.Position.Z == pelvis.Position.Z) return null;
+            return Text($"корень мёртвого ({root.Position.X}, {root.Position.Z}) не за тазом трупа ({pelvis.Position.X}, {pelvis.Position.Z})");
+        }
+
+        /// <summary>Шаг физики этого тика прошёл: проверка в конце тика или посреди него после Physics.</summary>
+        private static bool PhysicsDone(string stage)
+        {
+            var stages = GameStages.All;
+            for (int i = 0; i < stages.Count; i++)
+                if (stages[i] == stage) return i >= PhysicsIndex;
+            return true;   // между тиками
+        }
+
+        private static readonly int PhysicsIndex = IndexOf(GameStages.Physics);
+
+        private static int IndexOf(string stage)
+        {
+            for (int i = 0; i < GameStages.All.Count; i++)
+                if (GameStages.All[i] == stage) return i;
+            throw new InvalidOperationException($"нет стадии {stage}");
         }
     }
 

@@ -10,9 +10,12 @@ namespace Sword.Game.Bodies;
 /// число тел и их слоты; порядок свободных слотов сочленений; по слотам тел — поколение, у живого — сочленение-владелец,
 /// режим, форма (радиус, полудлина), положение, поворот, прошлые положение и поворот, скорость и угловая скорость; с 7ж — поза
 /// начала тика, масса, обратная масса, обратная инерция, касание земли, профиль динамики, вид толчка (все поля тела 7б); порядок
-/// свободных слотов тел (от него зависят хэндлы будущих тел); с 7ж — профили динамики мира (таблица по номерам). Суставы, проходы
-/// и отдача (7в, 7д) войдут в 7з — до слияния их члены — заготовки. Кто держит сочленение (<c>BodyRef</c>), хеширует участник
-/// <c>ecs</c>. <see cref="Describe"/> — ровно эти поля.
+/// свободных слотов тел (от него зависят хэндлы будущих тел); с 7ж — профили динамики мира (таблица по номерам); с 7з — у живых
+/// сочленений суставы (описание, привязка — точка на родителе и поза покоя, включён ли; 7в) и накопленная отдача (7д), проходы пар живых
+/// сочленений «толкающий → цель» (<see cref="IPhysicsWorld.Pass"/>, по слотам, толкающий ≠ цель; 7д) — всё, от чего зависит следующий шаг.
+/// Журнал пределов и контакты подшага сбрасываются в начале шага, границы и настройки физики выводятся (настройки — из правил трупа, ресурса
+/// мира) — не хешируются. Кто держит сочленение (<c>BodyRef</c>), хеширует участник <c>ecs</c>. <see cref="Describe"/> — эти поля (проходы —
+/// только непустые) и, для людей, замер суставов.
 /// </summary>
 public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
 {
@@ -30,7 +33,10 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             int n = physics.BodyCount(a);
             h.Add(n);
             for (int k = 0; k < n; k++) h.Add(physics.Body(a, k).Index);
+            Joints(ref h, a);
+            Add(ref h, physics.Reaction(a));
         }
+        Passes(ref h, arts);
         var freeArts = physics.FreeArticulations;
         h.Add(freeArts.Length);
         foreach (int slot in freeArts) h.Add(slot);
@@ -54,6 +60,62 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             h.Add(d.GroundAngularFriction);
             h.Add(d.MaxSpeed);
             h.Add(d.MaxAngularSpeed);
+        }
+    }
+
+    /// <summary>Суставы сочленения (7з): описание, привязка, включён ли — по порядку решения.</summary>
+    private void Joints(ref StateHasher h, ArticulationHandle a)
+    {
+        int n = physics.JointCount(a);
+        h.Add(n);
+        for (int j = 0; j < n; j++)
+        {
+            var d = physics.Joint(a, j);
+            h.Add(d.Parent);
+            h.Add(d.Child);
+            Add(ref h, d.ChildAnchor);
+            h.Add((int)d.Kind);
+            h.Add(d.BendMin);
+            h.Add(d.BendMax);
+            h.Add(d.AxisSlack);
+            Add(ref h, d.HingeAxis);
+            h.Add((int)d.BendSign);
+            h.Add(d.SwingXMin);
+            h.Add(d.SwingXMax);
+            h.Add(d.SwingZ);
+            h.Add(d.Twist);
+            h.Add(d.LimitCompliance.HasValue);
+            h.Add(d.LimitCompliance ?? 0);
+            var binding = physics.Binding(a, j);
+            Add(ref h, binding.ParentAnchor);
+            Add(ref h, binding.Rest);
+            h.Add(physics.IsJointEnabled(a, j));
+        }
+    }
+
+    /// <summary>Проходы пар живых сочленений «толкающий → цель» (7з) — по слотам, толкающий ≠ цель (тело цикла по толкающим — свой метод).</summary>
+    private void Passes(ref StateHasher h, int arts)
+    {
+        for (int i = 0; i < arts; i++)
+        {
+            var pusher = physics.ArticulationAt(i);
+            if (!pusher.IsNone) PassesOf(ref h, pusher, arts);
+        }
+    }
+
+    private void PassesOf(ref StateHasher h, ArticulationHandle pusher, int arts)
+    {
+        for (int j = 0; j < arts; j++)
+        {
+            var target = physics.ArticulationAt(j);
+            if (target.IsNone || j == pusher.Index) continue;
+            var p = physics.Pass(pusher, target);
+            h.Add(p.Strike);
+            h.Add(p.Number);
+            h.Add(p.Inside);
+            h.Add(p.Potential);
+            h.Add(p.Remaining);
+            h.Add(p.EmptyTicks);
         }
     }
 
@@ -88,10 +150,12 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
     /// <summary>
     /// Сводка (сочленений, тел, слотов, свободных, профилей) и сочленения по слотам (часть — <c>2v1</c>: тела по номеру в сочленении,
     /// у тела — хэндл, режим, форма, постановка, прошлая постановка, скорости; с 7ж — поза начала тика, масса, обратные масса и
-    /// инерция, касание земли, профиль, толчок); часть <c>slots</c> — свободные слоты в порядке выдачи с конца и поколения
-    /// свободных; часть <c>dynamics</c> (7ж) — профили динамики по номерам. Отбор: сочленение <c>2v1</c> (из <c>BodyRef</c>:
-    /// <c>Index</c>v<c>Generation</c>), <c>slots</c> или <c>dynamics</c>. Тело <c>i</c> сочленения бойца — сегмент <c>i</c> (с 7ж): 0…10 —
-    /// pelvis…shin.r, 11 — клинок (blade), 12 — foot.l, 13 — foot.r.
+    /// инерция, касание земли, профиль, толчок; с 7з — отдача и суставы: описание, привязка, включён ли и замер — ошибка точки, углы,
+    /// выход за предел; замер не хешируется, он — из позы); часть <c>slots</c> — свободные слоты в порядке выдачи с конца и поколения
+    /// свободных; часть <c>dynamics</c> (7ж) — профили динамики по номерам; часть <c>passes</c> (7з) — непустые проходы пар. Отбор:
+    /// сочленение <c>2v1</c> (из <c>BodyRef</c>: <c>Index</c>v<c>Generation</c>), <c>slots</c>, <c>dynamics</c> или <c>passes</c>. Тело
+    /// <c>i</c> сочленения бойца — сегмент <c>i</c> (с 7ж): 0…10 — pelvis…shin.r, 11 — клинок (blade), 12 — foot.l, 13 — foot.r; сустав <c>j</c>
+    /// трупа — ребёнок тела <c>j + 1</c> (10 — запястье).
     /// </summary>
     public void Describe(StateWriter w, in DescribeQuery q)
     {
@@ -137,7 +201,36 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             }
             w.EndItem();
         }
+        if (filter is null or "passes" && Take(ref matched, q)) WritePasses(w);
         w.Matched = matched;
+    }
+
+    /// <summary>Непустые проходы пар (7з): толкающий → цель, номер удара и прохода, открыт ли, потенциал, остаток, пустых тиков.</summary>
+    private void WritePasses(StateWriter w)
+    {
+        w.BeginItem("passes");
+        int arts = physics.ArticulationCapacity;
+        for (int i = 0; i < arts; i++)
+        {
+            var pusher = physics.ArticulationAt(i);
+            if (pusher.IsNone) continue;
+            for (int j = 0; j < arts; j++)
+            {
+                var target = physics.ArticulationAt(j);
+                if (target.IsNone || i == j) continue;
+                var p = physics.Pass(pusher, target);
+                if (p == default) continue;
+                w.BeginObject($"{pusher}->{target}");
+                w.Value("strike", p.Strike);
+                w.Value("number", p.Number);
+                w.Value("inside", p.Inside);
+                w.Value("potential", p.Potential);
+                w.Value("remaining", p.Remaining);
+                w.Value("emptyTicks", p.EmptyTicks);
+                w.EndObject();
+            }
+        }
+        w.EndItem();
     }
 
     private static bool Take(ref int matched, in DescribeQuery q)
@@ -183,7 +276,52 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             w.Value("source", s.Source.ToString());
             w.EndObject();
         }
+        Write(w, "reaction", physics.Reaction(a));
+        int joints = physics.JointCount(a);
+        w.Value("jointCount", joints);
+        for (int j = 0; j < joints; j++) WriteJoint(w, a, j);
         w.EndItem();
+    }
+
+    /// <summary>Сустав (7з): описание, привязка, включён ли; замер в нынешней позе (для людей, не хешируется).</summary>
+    private void WriteJoint(StateWriter w, ArticulationHandle a, int j)
+    {
+        var d = physics.Joint(a, j);
+        var binding = physics.Binding(a, j);
+        var m = physics.MeasureJoint(a, j);
+        w.BeginObject("joint" + j.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        w.Value("parent", d.Parent);
+        w.Value("child", d.Child);
+        w.Value("kind", d.Kind.ToString());
+        w.Value("enabled", physics.IsJointEnabled(a, j));
+        Write(w, "childAnchor", d.ChildAnchor);
+        if (d.Kind == JointKind.Hinge)
+        {
+            w.Value("bendMin", d.BendMin);
+            w.Value("bendMax", d.BendMax);
+            w.Value("axisSlack", d.AxisSlack);
+            Write(w, "hingeAxis", d.HingeAxis);
+            w.Value("bendSign", (int)d.BendSign);
+        }
+        else
+        {
+            w.Value("swingXMin", d.SwingXMin);
+            w.Value("swingXMax", d.SwingXMax);
+            w.Value("swingZ", d.SwingZ);
+            w.Value("twist", d.Twist);
+        }
+        if (d.LimitCompliance is { } c) w.Value("limitCompliance", c);
+        else w.Value("limitCompliance", "settings");
+        Write(w, "parentAnchor", binding.ParentAnchor);
+        Write(w, "rest", binding.Rest);
+        w.BeginObject("measure");
+        w.Value("pointError", m.PointError);
+        w.Value("bend", m.Bend);
+        w.Value("swing", m.Swing);
+        w.Value("twist", m.Twist);
+        w.Value("excess", m.Excess);
+        w.EndObject();
+        w.EndObject();
     }
 
     private static void Add(ref StateHasher h, Vector3 v)

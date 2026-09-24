@@ -115,17 +115,19 @@ public sealed class ObservationPredicate
 
     /// <summary>
     /// Компилировать условие (поток симуляции, в точке обслуживания: имена сущностей разрешаются здесь один раз).
-    /// <paramref name="record"/> — журнал, на записи которого условие (<see cref="PredicateScope.Record"/>).
+    /// <paramref name="record"/> — журнал, на записи которого условие (<see cref="PredicateScope.Record"/>). <paramref name="fields"/> —
+    /// вычисляемые поля игры (<see cref="IEntityFields"/>, 7з): лист <c>{field:"Body.Energy", lessThan:…}</c> на сущности, которого нет в
+    /// компонентах, читает игра (число; нет значения — NaN, сравнения с ним ложны); без них — только поля компонентов.
     /// </summary>
     /// <exception cref="ArgumentException">Неизвестный узел, поле, тип, сравнение не по виду поля — с путём в условии.</exception>
     public static ObservationPredicate Compile(JsonNode? source, in ServiceContext ctx, Catalog catalog, IEntityNames? names,
-        PredicateScope scope = PredicateScope.World, JournalInfo? record = null)
+        PredicateScope scope = PredicateScope.World, JournalInfo? record = null, IEntityFields? fields = null)
     {
         if (source is null) throw new ArgumentException("условие пусто; " + Syntax);
         if (scope == PredicateScope.Record && record is null) throw new ArgumentException("условие на запись — нужен журнал");
         // Узлы, собранные в памяти, хранят значение своего типа (int не читается как double); из текста — любые числа.
         source = JsonNode.Parse(source.ToJsonString())!;
-        var c = new Compiler(ctx, catalog, names, record);
+        var c = new Compiler(ctx, catalog, names, record, fields);
         var root = c.Compile(source, scope == PredicateScope.World ? PredicateScope.World : scope, "условие", out bool usesEntity);
         bool perEntity = c.PerEntity;
         if (scope == PredicateScope.World && usesEntity)
@@ -313,6 +315,12 @@ public sealed class ObservationPredicate
         public override bool Eval(in Env env) => env.Entity == target;
     }
 
+    /// <summary>Вычисляемое поле игры на сущности (<see cref="IEntityFields"/>, 7з): число; нет сущности или значения — ложь.</summary>
+    private sealed class ComputedFieldNode(EntityFieldReader read, Check[] checks) : Node
+    {
+        public override bool Eval(in Env env) => !env.Entity.IsNull && TestValue(checks, read(env.Ctx, env.Entity));
+    }
+
     private sealed class FieldNode(int component, FieldLayout layout, int[] leaves, Check[] checks) : Node
     {
         public readonly int Component = component;
@@ -474,7 +482,7 @@ public sealed class ObservationPredicate
 
     // ── компиляция ─────────────────────────────────────────────────────────
 
-    private sealed class Compiler(ServiceContext ctx, Catalog catalog, IEntityNames? names, JournalInfo? record)
+    private sealed class Compiler(ServiceContext ctx, Catalog catalog, IEntityNames? names, JournalInfo? record, IEntityFields? fields = null)
     {
         public int Nodes;
         public bool History, Stateful, PerEntity;
@@ -535,6 +543,9 @@ public sealed class ObservationPredicate
                         return new RecordFieldNode(layout, leaves, Checks(o, at, "field", layout, leaves, type));
                     }
                     usesEntity = EntityScope(scope, at, "field");
+                    // 7з: вычисляемое поле игры (тело бойца вне ECS — Body.*) — если путь не поле компонента
+                    if (fields is not null && !IsComponentPath(path) && fields.Compile(path, $"{at}.field") is { } read)
+                        return new ComputedFieldNode(read, NumberChecks(o, at, "field"));
                     var (component, clayout, cleaves, ctype) = ComponentPath(path, at);
                     return new FieldNode(component.Id, clayout, cleaves, Checks(o, at, "field", clayout, cleaves, ctype));
                 }
@@ -564,7 +575,7 @@ public sealed class ObservationPredicate
                     Node? where = null;
                     if (o["where"] is { } w)
                     {
-                        var inner = new Compiler(ctx, catalog, names, journal);
+                        var inner = new Compiler(ctx, catalog, names, journal, fields);
                         where = inner.Compile(w, PredicateScope.Record, $"{at}.where", out _);
                         Nodes += inner.Nodes;
                     }
@@ -619,6 +630,16 @@ public sealed class ObservationPredicate
                 }
             }
             throw new InvalidOperationException(form);
+        }
+
+        /// <summary>Путь начинается с имени компонента мира (иначе он может быть вычисляемым полем игры).</summary>
+        private bool IsComponentPath(string path)
+        {
+            int dot = path.IndexOf('.');
+            string head = dot < 0 ? path : path[..dot];
+            foreach (var c in ctx.World.Components)
+                if (c.Type.Name == head || c.Type.FullName == head) return true;
+            return false;
         }
 
         private static readonly string[] Forms =

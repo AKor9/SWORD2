@@ -662,6 +662,28 @@ public class JointsSolverTests(ITestOutputHelper output)
         Assert.True(float.IsFinite(sink));
     }
 
+    /// <summary>
+    /// 7з: место под суставы дерева (тел − 1) и журнал — за слотом с создания сочленения: первый <c>SetJoints</c> бойца посреди игры (первая
+    /// смерть на этом слоте) и шаги с его суставами на физике не выделяют памяти; суставов у созданного сочленения по-прежнему нет.
+    /// </summary>
+    [Fact]
+    public void FirstSetJoints_OfTree_AfterCreation_DoesNotAllocate()
+    {
+        var w = JointsRig.World(9.81f);
+        var warm = JointsRig.Fighter(w, Vector3.Zero, BodyMode.Simulated);
+        w.SetJoints(warm, JointsRig.FighterJoints(w, warm));   // прогрев JIT путей SetJoints и шага с суставами
+        for (int t = 0; t < 5; t++) w.Step(JointsRig.Tick);
+        var fresh = JointsRig.Fighter(w, new Vector3(3, 0, 0), BodyMode.Simulated);
+        Assert.Equal(0, w.JointCount(fresh));
+        var joints = JointsRig.FighterJoints(w, fresh);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        w.SetJoints(fresh, joints);
+        for (int t = 0; t < 5; t++) w.Step(JointsRig.Tick);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(allocated == 0, $"первый SetJoints 13 суставов нового сочленения и 5 шагов выделили {allocated} Б");
+        Assert.Equal(joints.Length, w.JointCount(fresh));
+    }
+
     // Допуски — по своим замерам (≈ 2× к худшему, как бюджеты этапов 4–6; замеры — в выводе тестов и README «7в»).
 
     /// <summary>

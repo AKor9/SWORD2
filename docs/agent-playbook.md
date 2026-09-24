@@ -571,7 +571,8 @@ capsules`).
    капсулах, легенда «голова трупа врага 1», рамка трупа в `entities` — по его телам.
 2. Суставы трупа: `physics.bodies {"entity":"enemy 1"}` → `joints` (`list`: родитель, ребёнок, `enabled` — у запястья трупа false, меч
    выпал; `pointError`, м; `excess`, рад — выход за предел; `excessMax`); картинкой — `capture.bundle {"overlays":["joints"]}` (зелёный — в
-   пределах, оранжевый…красный — выход, серый — выключен, красный отрезок — точка на родителе разошлась). У живых суставов нет (`joints: null`).
+   пределах, оранжевый…красный — выход, серый — выключен, красный отрезок — точка на родителе разошлась). У живых суставов нет (`joints: null`);
+   у возрождённого (7з) — суставы прошлого трупа, все включены (тела кинематические — решатель их не трогает).
 3. Трасса физики — диагностический режим (мир, хеш, реплей не меняет): `physics.bodies {"trace":"on"}` → поиграть (`time.step`,
    `time.runUntil`) → `physics.bodies {"trace":"show","events":16}` — `trace.last` (последний тик), `trace.window` (с `reset`), `trace.run` (с
    включения): `speed.max` и чьё тело, `speed.p99`, `angularSpeed`, `capped` (упоры в потолок профиля), `nonFinite`, `sources` (поправки по
@@ -584,3 +585,30 @@ capsules`).
    Трасса выключена — слой пуст, в `notes` — почему. Числа контактов по источникам — `physics.bodies {"trace":"show"}` → `trace.contacts`.
 5. Виды фич с оверлеями: `views[].overlays` — `capsules`, `blades`, `joints`, `contacts` (Sword.exe `--overlay contacts` включает трассу с
    первого кадра — и при `--replay`).
+
+## Труп на физике (7з)
+
+Мёртвый — труп на физике (фича «Рэгдолл», раздел «7з»): переход в труп в тике смерти, 13 суставов, меч выпадает, корень — за тазом.
+1. Переход: `command.send {"command":"SceneCommand","fields":{"Action":"Kill","Slot":1}}` → `time.step 1` → `physics.bodies
+   {"entity":"enemy 1"}` — у всех 14 тел `mode: simulated`, `profile: 1` (профиль трупа), `joints` — 13, у запястья `enabled: false`;
+   смерть от удара — так же (переход — в Settle того же тика). Системы — `ecs.explainSystem {"name":"core.death-to-ragdoll"}`.
+2. «Играть, пока труп не ляжет» — условие по вычисляемому полю тела: `time.runUntil {"condition":{"all":[{"entity":"enemy 1"},
+   {"component":"Dead"},{"field":"Body.KineticEnergy","lessThan":0.05}]},"maxTicks":1200}`. Центр масс и энергия по тикам —
+   `watch.add {"entities":["enemy 1"],"fields":["Body.ComVelocity","Body.KineticEnergy","Body.Energy","Body.Com.Y"]}` → `entity.history
+   {"entity":"enemy 1"}` (покой: `Body.ComVelocity` ≤ 0,05 м/с, `Body.KineticEnergy` — сотые доли джоуля и убывает). Те же поля — в
+   `replay.observe` (`watch`, `condition`) и в проверках и метриках манифестов.
+3. Инварианты трупа — `invariant.list`: `physics.modes`, `physics.simulatedSpeed`, `physics.joints`, `physics.ground`, `physics.inArena`
+   (после Physics; в Headless — каждый тик). Рост энергии и толчки — диагностические и читают трассу физики: `physics.bodies
+   {"trace":"on"}` и `invariant.enable {"ids":["physics.energy","physics.pushes"],"enabled":true}` (без трассы им нечего проверять);
+   встать на нарушении — `time.breakOnInvariant {"ids":["physics.energy"]}`, затем `physics.bodies {"trace":"show"}` — `energy.growth`, чьё
+   тело. Нечисловой труп («взрыв» решателя) строится заново живым в точке корня (`core.body-rebuild`, Aftermath; `physics.finite` —
+   нарушение на тике взрыва).
+4. Суставы и проходы в хеше: расхождение реплея называет участника `physics`; `state.describe {"part":"physics","filter":"1v1"}` —
+   сочленение: `jointCount`, `jointN` (вид, пределы, точки, `enabled`, `measure` — ошибка точки, сгиб, наклон, скручивание, выход),
+   `reaction`; `{"part":"physics","filter":"passes"}` — непустые проходы пар.
+5. Ручки «Рэгдолл» (секция `ragdoll`, `world.types` — у ресурса `RagdollRules`): `command.send {"command":"TuningCommand","fields":
+   {"Knob":"ragdoll.popSpeed","Value":3}}` — шаг этого тика уже по новым настройкам (в реплее); перебор — `experiment.sweep` по
+   `ragdoll.popSpeed`/`ragdoll.friction` на реплее со смертями.
+6. Сцены фичи: s8 — `Place` врага на ступени пирамиды (`{"X":-16,"Y":0}`), тиком позже `Kill`; s4 — два `Place` в (±0,36; 1,5), `Kill`
+   обоим, тиком позже `ShiftBodies` второго на `{"X":-0.52,"Y":0,"Z":0}`; приёмка — `feature.verify {"id":"ragdoll"}` (сценарии включают
+   режим `physics.trace` ключом `diagnostics`).

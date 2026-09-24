@@ -342,10 +342,11 @@ public class CombatUiTests
     {
         var sim = Create();
         Assert.Equal([CombatKnobs.PlayerDamage, CombatKnobs.PlayerSharpness, CombatKnobs.EnemiesAttack, CombatKnobs.PlayerInvulnerable,
-            CombatKnobs.DashSpeed, CombatKnobs.DashTime, CombatKnobs.DashCooldown, CombatKnobs.DashInvulnerable], sim.Tuning.Select(k => k.Name));
+            CombatKnobs.DashSpeed, CombatKnobs.DashTime, CombatKnobs.DashCooldown, CombatKnobs.DashInvulnerable],
+            sim.Tuning.Where(k => k.Section == CombatKnobs.Section).Select(k => k.Name));   // 7з: и ручки «Рэгдолл» — своей секцией
         var d = new CombatSettings();
         Assert.Equal(new float[] { d.PlayerDamage, d.PlayerSharpness, 1, 0, d.DashSpeed, d.DashTime, d.DashCooldown, d.DashInvulnerable },
-            sim.Tuning.Select(k => k.Default));
+            sim.Tuning.Where(k => k.Section == CombatKnobs.Section).Select(k => k.Default));
         var damage = sim.Knob(CombatKnobs.PlayerDamage)!;
         Assert.Equal((0.2f, 5f, true, "PlayerDamage", typeof(CombatRules)), (damage.Min, damage.Max, damage.Log, damage.Field, damage.Resource));
         Assert.All(sim.Tuning, k => Assert.InRange(k.Default, k.Min, k.Max));

@@ -86,6 +86,19 @@ public sealed partial class PhysicsWorld
         // Массивы остаются за слотом (следующее сочленение того же размера — без выделения памяти).
         _jointCount[articulation] = 0;
         _jointHitCount[articulation] = 0;
+        JointsReserve(articulation, _artCount[articulation] - 1);
+    }
+
+    /// <summary>
+    /// Место под суставы дерева сочленения (тел − 1) и их журнал — за слотом с его создания (7з): первый <see cref="SetJoints"/> дерева
+    /// посреди игры (переход бойца в труп) памяти не выделяет. Слот, где место уже есть, — ничего.
+    /// </summary>
+    private void JointsReserve(int a, int joints)
+    {
+        if (joints <= 0) return;
+        var records = _joints[a];
+        if (records is null || records.Length < joints) _joints[a] = new JointRecord[joints];
+        JointsEnsureLog(a, 2 * joints * _settings.Substeps);
     }
 
     partial void SolveJoints(float h, int substep)

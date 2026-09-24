@@ -191,6 +191,83 @@ public sealed class FeatureTests : IDisposable
         Assert.False(none.Ok);
     }
 
+    /// <summary>Диагностический режим теста (7з): запоминает, включён ли он был в первом тике.</summary>
+    private sealed class SeenMode : IDiagnosticMode
+    {
+        public string Id => "test.mode";
+        public string Title => "режим теста";
+        public bool Enabled { get; private set; }
+        public bool? FirstTick;
+
+        public void SetEnabled(bool enabled) => Enabled = enabled;
+
+        public void ResetWindow()
+        {
+        }
+    }
+
+    private sealed class SeenModule(SeenMode mode) : IModule
+    {
+        public string Id => "diag";
+
+        public void Configure(SimulationBuilder b) => b.Diagnostic(mode).System("S1", new Seen(mode));
+    }
+
+    private sealed class Seen(SeenMode mode) : Ecs.IContinuousSystem
+    {
+        public void Setup(Ecs.SystemSetup s) => s.Label(new Ecs.SystemLabel("diag.seen"));
+
+        public void Run(in Ecs.SystemContext ctx) => mode.FirstTick ??= mode.Enabled;
+    }
+
+    /// <summary>
+    /// 7з: проверка сценария читает вычисляемое поле игры (<see cref="IEntityFields"/>, как метрика: тела бойца вне ECS); ключ сценария
+    /// <c>diagnostics</c> включает диагностические режимы симуляции до тика 0 (инварианты манифеста читают по ним трассу физики игры) — в
+    /// каждой симуляции сценария; режима нет в симуляции — провал словами; Id не по правилу инварианта — ошибка разбора.
+    /// </summary>
+    [Fact]
+    public void Verify_Check_ReadsComputedField_ScenarioDiagnosticsFromTickZero()
+    {
+        var modes = new List<SeenMode>();
+        Simulation WithMode(ConfigSet config)
+        {
+            var mode = new SeenMode();
+            modes.Add(mode);
+            var sim = Simulation.Build(config, ["S1", "S2"], [new TestModule(), new SeenModule(mode)]);
+            config.Complete();
+            return sim;
+        }
+        string json = $$"""
+            {
+              "format": "sword-feature", "version": 1, "id": "diag", "title": "режимы", "doc": "README.md", "sourceRoots": ["feat"],
+              "scenarios": [
+                { "id": "push", "ticks": 5, "diagnostics": ["test.mode"], "commands": [{{Push}}],
+                  "checks": [{ "id": "twice", "expect": "atEnd", "condition": { "all": [{ "entity": "{{First}}" }, { "field": "Twice.X", "equals": 10 }] } }] },
+                { "id": "plain", "ticks": 2 }
+              ],
+              "checklist": ["посмотреть"]
+            }
+            """;
+        var m = FeatureManifest.Load(Manifest(json));
+        Assert.Equal(["test.mode"], m.Scenarios[0].Diagnostics);
+        Assert.Empty(m.Scenarios[1].Diagnostics);
+        var env = new FeatureEnvironment { RepoRoot = _root, Build = WithMode, Info = Info, Optimized = false, Fields = new TwiceFields() };
+        var options = new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Views = false, Budgets = false };
+        var report = FeatureVerifier.Verify(m, env, options);
+        Assert.True(report.Ok, string.Join('|', report.Failures));
+        Assert.Equal([true, false], modes.Select(x => x.FirstTick));   // сценарий push — режим с тика 0; plain — выключен
+
+        // Поле игры в проверке без полей игры — провал (Twice — не компонент); режима нет в симуляции — провал словами.
+        var noFields = FeatureVerifier.Verify(m, new FeatureEnvironment { RepoRoot = _root, Build = WithMode, Info = Info, Optimized = false },
+            options with { OutputDirectory = Path.Combine(_root, "out2") });
+        Assert.False(noFields.Ok);
+        var unknown = FeatureManifest.Load(Manifest(json.Replace("\"test.mode\"", "\"test.nope\"")));
+        var failed = FeatureVerifier.Verify(unknown, env, options with { OutputDirectory = Path.Combine(_root, "out3") });
+        Assert.Contains(failed.Failures, f => f.Contains("диагностического режима test.nope нет"));
+        var e = Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"test.mode\"", "\"Test\""))));
+        Assert.Contains("diagnostics «Test»", e.Message);
+    }
+
     /// <summary>
     /// 6ж: метрика поля ресурса мира (<c>resource</c> вместо сущности: статистика арены игры — <c>ArenaStats.LastDamage</c>) — значение после
     /// тика и статистика окна; нет ресурса в пути — провал метрики словами.

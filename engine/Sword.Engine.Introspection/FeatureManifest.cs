@@ -238,9 +238,15 @@ public sealed record FeatureScenario
     public IReadOnlyList<ScenarioCommand> Commands { get; init; } = [];
     public IReadOnlyList<FeatureCheck> Checks { get; init; } = [];
 
+    /// <summary>
+    /// Диагностические режимы симуляции (7з; <c>Simulation.Diagnostics</c>, например <c>physics.trace</c>), включённые с тика 0: мир, хеш и
+    /// реплей от них не зависят — их читают инварианты манифеста (<c>physics.energy</c>, <c>physics.pushes</c> — по трассе физики).
+    /// </summary>
+    public IReadOnlyList<string> Diagnostics { get; init; } = [];
+
     internal static FeatureScenario Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "title", "replay", "ticks", "set", "commands", "checks");
+        r.Only("id", "title", "replay", "ticks", "set", "diagnostics", "commands", "checks");
         string id = r.String("id");
         if (!FeatureManifest.IsValidId(id.Replace('-', '_'))) throw new ArgumentException($"{r.At}.id «{id}»: {FeatureManifest.IdRule} (и '-')");
         var commands = r.Objects("commands", optional: true).Select(ScenarioCommand.Parse).ToList();
@@ -249,10 +255,13 @@ public sealed record FeatureScenario
         if (replay is null && ticks is null) throw new ArgumentException($"{r.At}: без реплея нужно ticks — сколько тиков играть");
         var checks = r.Objects("checks", optional: true).Select(FeatureCheck.Parse).ToList();
         FeatureManifest.Unique(checks.Select(c => c.Id), $"{r.At}.checks");
+        var diagnostics = r.Strings("diagnostics", optional: true);
+        foreach (string d in diagnostics)   // Id режима — как у инварианта (physics.trace); есть ли такой — проверяет прогон
+            if (!Runtime.IInvariant.IsValidId(d)) throw new ArgumentException($"{r.At}.diagnostics «{d}»: {Runtime.IInvariant.IdRule}");
         return new FeatureScenario
         {
             Id = id, Title = r.OptionalString("title"), Replay = replay, Ticks = ticks, Sets = r.Strings("set", optional: true),
-            Commands = commands, Checks = checks,
+            Diagnostics = diagnostics, Commands = commands, Checks = checks,
         };
     }
 }

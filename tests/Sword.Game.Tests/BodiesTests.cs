@@ -349,7 +349,9 @@ public sealed class BodiesTests
         Assert.NotNull(player["0"]!["invInertia"]);
         var dynamics = JsonNode.Parse(a.DescribeState("physics", new DescribeQuery("dynamics")))!["items"]![0]!;
         Assert.Equal(9.81f, dynamics["0"]!["gravity"]!.GetValue<float>());
-        Assert.Equal(1, JsonNode.Parse(a.DescribeState("physics", new DescribeQuery()))!["dynamicsProfiles"]!.GetValue<int>());
+        // 7з: профиль 0 — по умолчанию, 1 — трупа (потолки ручек «Рэгдолл»)
+        Assert.Equal(2, JsonNode.Parse(a.DescribeState("physics", new DescribeQuery()))!["dynamicsProfiles"]!.GetValue<int>());
+        Assert.Equal(15f, dynamics["1"]!["maxSpeed"]!.GetValue<float>());
         var slots = JsonNode.Parse(a.DescribeState("physics", new DescribeQuery("slots")))!["items"]![0]!;
         Assert.Equal(ArenaRules.MaxFighters - 3, slots["freeArticulations"]!.AsArray().Count);
 

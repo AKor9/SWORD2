@@ -139,20 +139,19 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
 /// прошлое = нынешнему (<see cref="BladePlacement.Place"/>). С 7ж у живого — и тело клинка: кинематическая цель тика по той же кисти
 /// (<see cref="IPhysicsWorld.SetKinematicTarget"/>: скорости — разностью за тик, как у тел плоти); сменился меч — новая форма и
 /// постановка без скорости (<see cref="BladePlacement.BuildBody"/>: фантомной скорости от старого меча к новому нет, как у отрезка).
-/// Мёртвый (до трупа на физике — 7з) замирает: его тело клинка не ставится, клинок-отрезок — по застывшей позе, как было. Боец без
-/// позы или с номером меча вне таблицы пропускается — его ловят <c>animation.owners</c> и <c>combat.weapons</c>. Памяти не выделяет.
+/// Мёртвый пропускается (7з): его тело клинка — на физике (меч выпал, сустав запястья выключен), клинок-отрезок стоит, где был в тик смерти
+/// (удара у мёртвого нет; корень мёртвого идёт за тазом — отрезок по застывшей позе ехал бы с ним). Боец без позы или с номером меча вне
+/// таблицы пропускается — его ловят <c>animation.owners</c> и <c>combat.weapons</c>. Памяти не выделяет.
 /// </summary>
 public sealed class BladePlacementSystem(IPhysicsWorld physics, WeaponTable weapons, int hand) : IContinuousSystem
 {
-    private Query _alive = null!, _dead = null!;
+    private Query _alive = null!;
 
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.BladePlacement).After(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<WeaponSlot>()
             .Reads<BodyRef>().Writes<Blade>();
-        var fighters = s.Query().With<Fighter>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Write<Blade>();
-        _alive = fighters.Without<Dead>().Read<BodyRef>();
-        _dead = fighters.With<Dead>();
+        _alive = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Write<Blade>().Read<BodyRef>();
     }
 
     public void Run(in SystemContext ctx)
@@ -169,17 +168,9 @@ public sealed class BladePlacementSystem(IPhysicsWorld physics, WeaponTable weap
             for (int i = 0; i < blades.Length; i++)
                 Place(pool, ref blades[i], roots[i], poses[i], slots[i].Index, FighterBodies.Handle(bodies[i]), dt);
         }
-        foreach (var chunk in ctx.Iterate(_dead))
-        {
-            var blades = chunk.Write<Blade>();
-            var roots = chunk.Read<Transform>()[..blades.Length];
-            var poses = chunk.Read<PoseRef>()[..blades.Length];
-            var slots = chunk.Read<WeaponSlot>()[..blades.Length];
-            for (int i = 0; i < blades.Length; i++) Place(pool, ref blades[i], roots[i], poses[i], slots[i].Index, ArticulationHandle.None, dt);
-        }
     }
 
-    /// <summary>Клинок бойца и (живому — <paramref name="body"/> не пустой) тело клинка.</summary>
+    /// <summary>Клинок живого бойца и тело клинка.</summary>
     private void Place(PosePool pool, ref Blade blade, in Transform root, PoseRef poseRef, int weapon, ArticulationHandle body, float dt)
     {
         var pose = new PoseHandle(poseRef.Index, poseRef.Generation);
@@ -188,7 +179,7 @@ public sealed class BladePlacementSystem(IPhysicsWorld physics, WeaponTable weap
         var handWorld = BladePlacement.Hand(pool.Model(pose), hand, root.Position, root.Facing);
         bool fresh = blade.Weapon != weapon;
         BladePlacement.Place(ref blade, Vector3.Transform(table[weapon].BladeBase, handWorld), Vector3.Transform(table[weapon].BladeTip, handWorld), weapon);
-        if (body.IsNone || !BodyPlacement.Placeable(physics, body)) return;
+        if (!BodyPlacement.Placeable(physics, body)) return;
         if (fresh)
         {
             BladePlacement.BuildBody(physics, body, weapons, weapon, handWorld);
