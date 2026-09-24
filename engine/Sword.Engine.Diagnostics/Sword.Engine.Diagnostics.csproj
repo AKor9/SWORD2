@@ -9,4 +9,10 @@
     <ProjectReference Include="..\Sword.Engine.Core\Sword.Engine.Core.csproj" />
   </ItemGroup>
 
+  <!-- Поддельные часы профайлера (ProfileClock) — только тестам: внутренний конструктор CpuProfiler, не публичный режим. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Engine.Runtime.Tests" />
+    <InternalsVisibleTo Include="Sword.Engine.Agent.Tests" />
+  </ItemGroup>
+
 </Project>

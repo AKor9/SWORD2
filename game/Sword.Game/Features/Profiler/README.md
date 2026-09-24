@@ -260,6 +260,7 @@ Release, .NET 10.0.11, Ryzen 7 7800X3D, RTX 5070, 2026-09-23 (прогоны п�
 Анализ агентских инструментов (раздел 8): состояние профайлера — вне мира и хеша, агенту — через расширение существующих
 инструментов; свойства «0 Б на главном потоке», «те же хеши», «первая аномалия без JIT», «выключенный стоит ~0» держат тесты и
 `verify.ps1`, а не инвариант симуляции (профайлер вне мира); включение, порог, F2 — не команды симуляции (в реплей не идут).
+Поддельные часы (`ProfileClock`) — только тестам: агенту не нужны и не видны (не режим продукта).
 Не хватает (предложения Пд, отдельными задачами): байтов зон конкретного периода в `history` и трассе, событий JIT вне кадров в
 окне машины (`machine.jit`), замеров GPU внутри прохода (`gpu.<проход>/<часть>`); этап 14 — панель, `profile.captureWhen` с
 условием мира, часы CPU и GPU; событий ядра (ETW) — не делаем.
@@ -271,6 +272,12 @@ Release, .NET 10.0.11, Ryzen 7 7800X3D, RTX 5070, 2026-09-23 (прогоны п�
   `ProfilerAnomalyTests` (суд, класс, главная зона и «нет», файл и трасса, лимиты, ведро, запас заметных, заметность, кадры
   инструментов, писатель, первая аномалия без JIT, 0 Б — `Capture_ZeroBytesOnMainThread_EvenInAnomalyFrames`),
   `MachineVerdictRefinementTests`, `ProfilerGpuTests` (GPU-зоны вне дерева CPU, аномалия «ожидание GPU»).
+- Часы профайлера подменяемы в тестах: внутренний `ProfileClock` (время и счётчики среды) и конструктор `CpuProfiler(history,
+  clock)` (`InternalsVisibleTo` — Runtime.Tests, Agent.Tests); у продукта часов нет — `Stopwatch` и `ProfileCounters.Read`.
+  Суд, класс, главная зона, ведро и лимиты в `ProfilerAnomalyTests`, `ProfilerGpuTests` и
+  `ProfileToolsTests.ProfileStages_AnomaliesThresholdAndTrace` — на поддельных часах (длительности и доля CPU — от теста, от
+  нагрузки машины не зависят; `FakeClock_RealThreadDelays_ChangeNothing`); на настоящих — JIT и события среды, 0 Б и 0 методов
+  JIT пути аномалии, счётчики `ProfilerRuntimeTests`.
 - `tests/Sword.Engine.Render.Tests/GpuTimesGpuTests` (категория Gpu, GPU-валидация: долгий проход, сумма ≤ кадра, `Lag` 3 и 0,
   брошенные кадры и смена размера, 0 Б на кадр, переполнение 255), `WindowRefreshGpuTests` (частота монитора окна).
 - `FeatureTests`, `MachineVerdictTests` (Introspection), `ProfileToolsTests` (Agent), `FrameToolsTests` (Client), `HudTests`,

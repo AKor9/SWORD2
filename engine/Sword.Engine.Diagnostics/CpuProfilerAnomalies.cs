@@ -243,7 +243,7 @@ public sealed partial class CpuProfiler
             zoneTime = pending.ZoneTime;
             zoneExcess = pending.ZoneExcess;
         }
-        long now = Stopwatch.GetTimestamp();
+        long now = Now();   // ведро жетонов — по часам профайлера (поддельные в тестах)
         var cls = causes.Class;
         // Заметная: кадр App не короче интервала показа — хотя бы одно обновление экрана показало прежний кадр (поле, не свойство:
         // путь аномалии не зовёт некомпилированного).

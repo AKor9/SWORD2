@@ -8,12 +8,14 @@ namespace Sword.Engine.Runtime.Tests;
 /// GPU-время проходов в профайлере кадра (этап П, точка Пг) без GPU: рендер пишет времена разобранного кадра зонами вида
 /// <see cref="ProfileZoneKind.Gpu"/> (<see cref="CpuProfiler.RecordGpu"/>) — они вне дерева CPU (своё время кадра, главная
 /// зона и сводка зон CPU их не видят), в отчёте — секция <c>frames.gpu</c> с отставанием, в сводке F2 — свои строки, в файле
-/// аномалии «ожидание GPU» — разбор по проходам; 0 байт на кадр.
+/// аномалии «ожидание GPU» — разбор по проходам; 0 байт на кадр. Время кадров — поддельные часы (<see cref="FakeProfileClock"/>):
+/// суд и разбор аномалии не зависят от нагрузки машины.
 /// </summary>
 [Collection(RuntimeEventsCollection.Name)]
 public sealed class ProfilerGpuTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "sword-gpu-profile-tests", Guid.NewGuid().ToString("N")[..8]);
+    private readonly FakeProfileClock _clock = new();
 
     public void Dispose()
     {
@@ -26,23 +28,21 @@ public sealed class ProfilerGpuTests : IDisposable
         }
     }
 
-    private static void SpinCpu(double ms)
-    {
-        ulong until = ThreadClock.Cycles() + (ulong)(ms / 1000 * ThreadClock.CyclesPerSecond);
-        while (ThreadClock.Cycles() < until) { }
-    }
-
     private sealed record Zones(int Work, int Wait, int Frame, int A, int B);
 
     private static Zones Register(CpuProfiler p) => new(p.Zone("work"), p.Zone("wait", ProfileZoneKind.GpuWait),
         p.Zone(CpuProfiler.GpuFrameName, ProfileZoneKind.Gpu), p.Zone("gpu.a", ProfileZoneKind.Gpu), p.Zone("gpu.b", ProfileZoneKind.Gpu));
 
-    /// <summary>Кадр: работа, ожидание GPU; с <paramref name="gpu"/> — времена кадра на 3 раньше (кадр 2 мс: a — <paramref name="a"/>, b — 0,25).</summary>
-    private static void Frame(CpuProfiler p, Zones z, ulong number, bool gpu, double a = 1.5, double wait = 0)
+    /// <summary>
+    /// Кадр: ожидание GPU, работа, 10 мкс своего (вне зон); с <paramref name="gpu"/> — времена кадра на 3 раньше (кадр 2 мс: a —
+    /// <paramref name="a"/>, b — 0,25).
+    /// </summary>
+    private void Frame(CpuProfiler p, Zones z, ulong number, bool gpu, double a = 1.5, double wait = 0)
     {
         p.BeginFrame(number);
+        _clock.Run(0.01);
         p.Begin(z.Wait);
-        if (wait > 0) SpinCpu(wait);
+        if (wait > 0) _clock.Run(wait);
         p.End(z.Wait);
         if (gpu)
         {
@@ -59,7 +59,7 @@ public sealed class ProfilerGpuTests : IDisposable
     [Fact]
     public void GpuZones_OutsideCpuTree_ReportSection_Digest_ZeroBytes()
     {
-        var p = new CpuProfiler(64);
+        var p = new CpuProfiler(64, _clock);
         p.SetEnabled(true);
         var z = Register(p);
         var digest = new ProfileDigest(p);
@@ -77,6 +77,7 @@ public sealed class ProfilerGpuTests : IDisposable
         var frame = stats.Single(s => s.Name == "frame");
         // GPU-время — не дочернее кадра: своё время кадра не съедено двумя миллисекундами GPU.
         Assert.True(frame.MeanMs < 1 && frame.SelfMs > 0, $"кадр {frame.MeanMs} мс, своё {frame.SelfMs}");
+        Assert.Equal(0.01, frame.SelfMs, 4);
 
         var report = p.Report();
         var frames = report["frames"]!;
@@ -95,7 +96,7 @@ public sealed class ProfilerGpuTests : IDisposable
         Assert.Equal("gpu.a", summary["gpu"]!["passes"]![0]!["name"]!.GetValue<string>());
 
         // Сводка F2: зоны CPU — без GPU, проходы GPU — свои строки (имя без «gpu.»).
-        long now = Stopwatch.GetTimestamp();
+        long now = _clock.Now;
         digest.Update(now);
         for (ulong f = 41; f <= 60; f++) Frame(p, z, f, gpu: true);
         now += Stopwatch.Frequency;
@@ -123,20 +124,22 @@ public sealed class ProfilerGpuTests : IDisposable
     [Fact]
     public void GpuWaitAnomaly_GpuSection_ByPasses_OfFrameItWaitedFor()
     {
-        var p = new CpuProfiler(64);
+        var p = new CpuProfiler(64, _clock);
         var anomalies = p.CaptureAnomalies(new AnomalyOptions { Directory = _dir });
         p.SetEnabled(true);
         var z = Register(p);
         for (ulong f = 1; f <= 100; f++) Frame(p, z, f, gpu: true);
-        // Кадр 101 ждёт GPU 8 мс (ожидание — счётный цикл внутри зоны ожидания), а разобранный в нём кадр 98 — долгий проход a.
+        // Кадр 101 ждёт GPU 8 мс (ожидание внутри зоны ожидания), а разобранный в нём кадр 98 — долгий проход a.
         Frame(p, z, 101, gpu: true, a: 6.5, wait: 8);
         for (ulong f = 102; f <= 120; f++) Frame(p, z, f, gpu: true);
         Assert.True(anomalies.Flush(TimeSpan.FromSeconds(10)));
 
         var list = anomalies.List();
-        var x = list.Single(e => e.Number == 101);
-        Assert.True(x.Class is AnomalyClass.GpuWait or AnomalyClass.Machine, $"{x.Text} [{x.Causes}]");
+        var x = Assert.Single(list);   // других аномалий нет (поддельные часы: и «машины»)
+        Assert.Equal(101ul, x.Number);
+        Assert.Equal(AnomalyClass.GpuWait, x.Class);
         Assert.True(x.Causes.GpuWaitMs >= 7, $"ожидание GPU в разборе {x.Causes.GpuWaitMs} мс");
+        Assert.Equal(8, x.Causes.GpuWaitMs, 3);
         Assert.DoesNotContain("gpu.", x.ZoneName);   // GPU-время — не главная зона CPU
         Assert.Equal(AnomalyFile.Written, x.File);
         var json = JsonNode.Parse(File.ReadAllText(x.Path!))!.AsObject();

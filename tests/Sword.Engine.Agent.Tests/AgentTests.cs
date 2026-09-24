@@ -67,7 +67,9 @@ public sealed class AgentFixture : IDisposable
     private readonly Thread _loop;
     private int _id;
 
-    public AgentFixture(bool paused = true)
+    /// <param name="paused">Время стоит (Headless под агентом стартует на паузе).</param>
+    /// <param name="profiler">Профайлер сеанса вместо своего у хоста (тесты профайлера — на поддельных часах); подключается до цикла.</param>
+    public AgentFixture(bool paused = true, CpuProfiler? profiler = null)
     {
         Sim = Simulation.Build(ConfigSet.Empty(), ["S"], [new PushModule()]);
         Ring = new LogRing(64);
@@ -82,6 +84,7 @@ public sealed class AgentFixture : IDisposable
             Stop = () => Stopped = true,
             ServiceTimeout = TimeSpan.FromSeconds(5),
         }) { Names = new FirstName() };
+        if (profiler is not null) Host.Profiler = profiler;
         _loop = new Thread(() => SimulationLoop.Run(Sim, Host, _stop.Token)) { IsBackground = true };
         _loop.Start();
     }

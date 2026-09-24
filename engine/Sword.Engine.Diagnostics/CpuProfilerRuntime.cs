@@ -42,11 +42,12 @@ public sealed partial class CpuProfiler
     private ProfileCounters ReadCounters()
     {
         CounterReads++;
-        return ProfileCounters.Read();
+        var clock = _clock;
+        return clock is null ? ProfileCounters.Read() : clock.Counters();   // поддельные часы (тесты) — их счётчики
     }
 
     /// <summary>Стек раскручен не концом зоны (исключение, несогласованный конец): лента знает новую глубину.</summary>
-    private void MarkDepth() => _timeline?.Write(System.Diagnostics.Stopwatch.GetTimestamp(), 0, _depth, ProfileTimeline.Kind.Depth);
+    private void MarkDepth() => _timeline?.Write(Now(), 0, _depth, ProfileTimeline.Kind.Depth);
 
     /// <summary>
     /// Диагностический режим (точка Пб): <paramref name="on"/> — слушатель событий среды (<see cref="RuntimeEvents"/>:

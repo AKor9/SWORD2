@@ -79,6 +79,9 @@ public sealed partial class CpuProfiler
     private readonly int _history;
     private bool _enabled, _pending, _wanted;
 
+    /// <summary>Поддельные часы (тесты, <see cref="ProfileClock"/>); null — настоящие (продукт).</summary>
+    private readonly ProfileClock? _clock;
+
     private readonly List<string> _names = [];
     private readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
     private int[] _parent = [];
@@ -96,6 +99,15 @@ public sealed partial class CpuProfiler
     /// <param name="history">Периодов в кольце кадров и в кольце тиков (0 — без кольца: только средние и максимумы).</param>
     public CpuProfiler(int history = DefaultHistory) : this(history, off: false)
     {
+    }
+
+    /// <summary>
+    /// Профайлер на поддельных часах (тесты без зависимости от нагрузки): время зон и периодов, счётчики среды, ведро жетонов
+    /// аномалий — от <paramref name="clock"/>.
+    /// </summary>
+    internal CpuProfiler(int history, ProfileClock clock) : this(history, off: false)
+    {
+        _clock = clock;
     }
 
     private CpuProfiler(int history, bool off)
@@ -275,6 +287,17 @@ public sealed partial class CpuProfiler
         if (_enabled) Pop(zone);
     }
 
+    /// <summary>
+    /// Сейчас — отсчёты <see cref="Stopwatch"/>; у профайлера на поддельных часах (тесты) — их время. Проверка поля на null —
+    /// в невстраиваемых путях включённого (выключенный сюда не заходит).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal long Now()
+    {
+        var clock = _clock;
+        return clock is null ? Stopwatch.GetTimestamp() : clock.Timestamp();
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void Push(int zone)
     {
@@ -286,7 +309,7 @@ public sealed partial class CpuProfiler
         }
         _stackZone[d] = zone;
         _stackBytes[d] = GC.GetAllocatedBytesForCurrentThread();
-        long now = Stopwatch.GetTimestamp();
+        long now = Now();
         _stackTime[d] = now;
         _depth = d + 1;
         _timeline?.Write(now, zone, d + 1, ProfileTimeline.Kind.Begin);
@@ -295,7 +318,7 @@ public sealed partial class CpuProfiler
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void Pop(int zone)
     {
-        long now = Stopwatch.GetTimestamp();
+        long now = Now();
         long bytes = GC.GetAllocatedBytesForCurrentThread();
         int d = _depth - 1;
         if (d < 0 || _stackZone[d] != zone)
@@ -385,7 +408,7 @@ public sealed partial class CpuProfiler
         if (!_enabled) return;
         _frames.Open(number);
         _frameAt = 0;
-        _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, 0, ProfileTimeline.Kind.FrameOpen, (long)number);
+        _timeline?.Write(Now(), FrameZone, 0, ProfileTimeline.Kind.FrameOpen, (long)number);
         _frames.Start = ReadCounters();
         Push(FrameZone);
         _frames.StartTs = _stackTime[0];
@@ -427,7 +450,7 @@ public sealed partial class CpuProfiler
         service |= _interruptedFrame;
         _interruptedFrame = false;
         var counters = ReadCounters().Since(_frames.Start);
-        _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
+        _timeline?.Write(Now(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
         if (_anomalies is not null) FrameAnomaly(alpha, service, tools, counters);   // точка Пв: аномалия кадра или его тика
         _frames.Record(alpha, service | tools, ulong.MaxValue, counters, tools);
         _frameAt = -1;
@@ -447,7 +470,7 @@ public sealed partial class CpuProfiler
         if (_frameAt >= 0)
         {
             _depth = _frameAt;
-            _timeline?.Write(Stopwatch.GetTimestamp(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
+            _timeline?.Write(Now(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
         }
         _frameAt = -1;
         _frames.Clear();
@@ -481,7 +504,7 @@ public sealed partial class CpuProfiler
         if (_frameAt >= 0) _frames.NoteTick(tick);
         _ticks.Open(tick);
         _tickAt = _depth;
-        _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickOpen, (long)tick);
+        _timeline?.Write(Now(), TickZone, _depth, ProfileTimeline.Kind.TickOpen, (long)tick);
         _ticks.Start = ReadCounters();
         Push(TickZone);
         _ticks.StartTs = _stackTime[_tickAt];
@@ -505,7 +528,7 @@ public sealed partial class CpuProfiler
         bool interrupted = _interruptedTick;
         _interruptedTick = false;
         var counters = ReadCounters().Since(_ticks.Start);
-        _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
+        _timeline?.Write(Now(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
         // Точка Пв: аномалия тика (в кадре App — пишется с кадром); тик, прерванный ожиданием агента, — служебный, не судится.
         if (_anomalies is not null && !interrupted) TickAnomaly(counters);
         _ticks.Record(1, service: interrupted, _frameAt >= 0 ? _frames.Number : ulong.MaxValue, counters);
@@ -517,7 +540,7 @@ public sealed partial class CpuProfiler
         _depth = _tickAt;
         _tickAt = -1;
         _ticks.Clear();
-        _timeline?.Write(Stopwatch.GetTimestamp(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
+        _timeline?.Write(Now(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
     }
 
     /// <summary>В периоде остались открытые зоны: Debug — исключение, Release — счётчик и раскрутка до зоны периода.</summary>

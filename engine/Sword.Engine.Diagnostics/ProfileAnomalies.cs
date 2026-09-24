@@ -330,7 +330,7 @@ public sealed class ProfileAnomalies : IDisposable
         for (int i = 0; i < Slots; i++) SlotPool[i] = new AnomalySlot(capacity, options.Recent);
         Pending = new PendingTick(capacity);
         _tokens = options.Burst;
-        _refilled = Stopwatch.GetTimestamp();
+        _refilled = profiler.Now();   // ведро — по часам профайлера (поддельные в тестах: частота файлов не зависит от нагрузки)
         _writer = new Thread(WriterLoop) { IsBackground = true, Name = "sword.profile.anomalies" };
         _writer.Start();
     }

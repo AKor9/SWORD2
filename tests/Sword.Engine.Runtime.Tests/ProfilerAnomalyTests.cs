@@ -12,14 +12,21 @@ namespace Sword.Engine.Runtime.Tests;
 /// лимит файлов и частота; 0 байт на главном потоке и в кадре аномалии; хеши симуляции те же; Chrome Trace — корректный JSON
 /// с правильной вложенностью (X кольца, B/E ленты).
 ///
-/// Обычные кадры и тики тестов — пустые (единицы микросекунд): чтобы их не сняли с процессора посреди периода под
-/// параллельной нагрузкой тестов. Если сняли больше чем на 2 мс — это аномалия класса «машина», и так и должно быть:
-/// такие допускаются там, где проверяется «аномалий нет».
+/// Суд, класс, главная зона, лимиты, ведро и заметность — на поддельных часах (<see cref="FakeProfileClock"/>, решение
+/// пользователя после 7з-3): длительность каждой зоны и её доля на CPU заданы тестом (<see cref="FakeProfileClock.Run"/> — счёт,
+/// <see cref="FakeProfileClock.OffCpu"/> — поток вне CPU), настоящего времени профайлер не читает — снятие потока тестов с
+/// процессора под параллельной нагрузкой ни лишних аномалий «машина», ни другого класса, ни пропуска файла по частоте не даёт,
+/// поэтому проверки — точные. На настоящих часах — только то, что меряет настоящее: JIT и события среды (диагностический режим),
+/// 0 байт и 0 методов JIT пути аномалии в продукте, хеши симуляции, трассы.
 /// </summary>
 [Collection(RuntimeEventsCollection.Name)]
 public sealed class ProfilerAnomalyTests : IDisposable
 {
+    /// <summary>Обычный период на поддельных часах — 10 мкс счёта.</summary>
+    private const double NormalMs = 0.01;
+
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "sword-anomaly-tests", Guid.NewGuid().ToString("N")[..8]);
+    private readonly FakeProfileClock _clock = new();
 
     public void Dispose()
     {
@@ -39,19 +46,25 @@ public sealed class ProfilerAnomalyTests : IDisposable
         while (ThreadClock.Cycles() < until) { }
     }
 
-    private CpuProfiler Profiler(out ProfileAnomalies anomalies, AnomalyOptions? options = null, int history = 64)
+    /// <summary>
+    /// Профайлер с захватом аномалий — на поддельных часах теста (<see cref="_clock"/>); <paramref name="realClock"/> — на
+    /// настоящих (продукт: проверка 0 байт в кадрах аномалии).
+    /// </summary>
+    private CpuProfiler Profiler(out ProfileAnomalies anomalies, AnomalyOptions? options = null, int history = 64, bool realClock = false)
     {
-        var p = new CpuProfiler(history);
+        var p = realClock ? new CpuProfiler(history) : new CpuProfiler(history, _clock);
         anomalies = p.CaptureAnomalies(options ?? new AnomalyOptions { Directory = _dir });
         p.SetEnabled(true);
         return p;
     }
 
-    private static void Frame(CpuProfiler p, ulong number, int zone, Action? work = null)
+    /// <summary>Кадр с одной зоной и работой в ней; без работы — обычный (<see cref="NormalMs"/> счёта на поддельных часах).</summary>
+    private void Frame(CpuProfiler p, ulong number, int zone, Action? work = null)
     {
         p.BeginFrame(number);
         p.Begin(zone);
-        work?.Invoke();
+        if (work is null) _clock.Run(NormalMs);
+        else work();
         p.End(zone);
         p.EndFrame(1, service: false);
     }
@@ -59,22 +72,21 @@ public sealed class ProfilerAnomalyTests : IDisposable
     private static JsonObject ReadJson(string path) => JsonNode.Parse(File.ReadAllText(path))!.AsObject();
 
     /// <summary>
-    /// Аномалия периода <paramref name="number"/> — единственная, кроме «машины» у пустых периодов (снятие потока тестов с
-    /// процессора под параллельной нагрузкой — своя, честная аномалия: допускается); что было — в тексте провала.
+    /// Аномалия периода <paramref name="number"/> — единственная в списке (поддельные часы: снятия потока с процессора нет, и
+    /// «машины» у обычных периодов — тоже); что было — в тексте провала.
     /// </summary>
     private static ProfileAnomaly Only(ProfileAnomalies a, ulong number)
     {
         var list = a.List();
         string all = string.Join(" | ", list.Select(x => $"{x.Text} [{x.Causes}]"));
-        Assert.True(list.Count(x => x.Number == number) == 1, $"аномалий периода {number} не одна: {all}");
-        Assert.True(list.All(x => x.Number == number || x.Class == AnomalyClass.Machine), $"лишние аномалии: {all}");
-        return list.Single(x => x.Number == number);
+        Assert.True(list.Count == 1 && list[0].Number == number, $"ждали одну аномалию — периода {number}: {all}");
+        return list[0];
     }
 
     /// <summary>
-    /// Класс медленного периода: ожидаемый (<paramref name="expected"/>, его доля ≥ <paramref name="minMs"/>) — или «машина», но
-    /// только если поток под нагрузкой тестов сняли с процессора дольше, чем длилась сама причина (снятие больше её доли —
-    /// честная «машина»; так бывает, когда все сборки тестов идут параллельно).
+    /// Класс медленного периода на настоящих часах (JIT — настоящая компиляция): ожидаемый (<paramref name="expected"/>, его доля ≥
+    /// <paramref name="minMs"/>) — или «машина», но только если поток под нагрузкой тестов сняли с процессора дольше, чем длилась
+    /// сама причина (снятие больше её доли — честная «машина»; так бывает, когда все сборки тестов идут параллельно).
     /// </summary>
     private static void ClassOf(in ProfileAnomaly x, AnomalyClass expected, double part, double minMs)
     {
@@ -95,25 +107,24 @@ public sealed class ProfilerAnomalyTests : IDisposable
         p.BeginFrame(101);
         p.Begin(work);
         p.Begin(slow);
-        SpinCpu(10);
+        _clock.Run(10);
         p.End(slow);
         p.End(work);
         p.EndFrame(1, false);
         for (ulong f = 102; f <= 200; f++) Frame(p, f, work);
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
 
-        var list = a.List();
         var only = Only(a, 101);
         Assert.Equal(ProfilePeriod.Frame, only.Period);
         Assert.Equal(101ul, only.Number);
-        ClassOf(only, AnomalyClass.Code, only.Causes.CodeMs, 9);
+        Assert.Equal(AnomalyClass.Code, only.Class);
+        Assert.Equal(10 - NormalMs, only.Causes.CodeMs, 3);   // лишнее сверх медианы — всё за код (поток на CPU)
         Assert.Equal("slow", only.ZoneName);
         Assert.True(only.Ms >= 10 && only.ZoneExcessMs >= 9, $"кадр {only.Ms} мс, лишнее зоны {only.ZoneExcessMs}");
         Assert.Equal(AnomalyFile.Written, only.File);
 
-        // Ровно один файл — этого кадра (плюс файлы «машины», если поток тестов снимали с процессора больше чем на 2 мс).
-        Assert.Equal(list.Count(x => x.File == AnomalyFile.Written), Files().Length);
-        Assert.Equal(1, list.Count(x => x.File == AnomalyFile.Written && x.Number == 101));
+        // Ровно один файл — этого кадра.
+        Assert.Single(Files());
         string file = only.Path!;
         Assert.True(File.Exists(file));
         Assert.EndsWith("anomaly-frame-101.json", file);
@@ -135,6 +146,49 @@ public sealed class ProfilerAnomalyTests : IDisposable
     }
 
     /// <summary>
+    /// Независимость от нагрузки — по устройству: на поддельных часах настоящие задержки потока (сон 5 мс — поток по-настоящему вне
+    /// CPU дольше порога кадра 2 мс, как снятие с процессора под нагрузкой) в обычных кадрах, в медленном и между кадрами не меняют
+    /// ни списка аномалий, ни класса, ни главной зоны, ни длительности, ни судьбы файла — итог тот же, что без них (на настоящих
+    /// часах такие кадры были бы аномалиями «машина»).
+    /// </summary>
+    [Fact]
+    public void FakeClock_RealThreadDelays_ChangeNothing()
+    {
+        (ulong, AnomalyClass, AnomalyFile, string, double)[] Run(bool delays)
+        {
+            var clock = new FakeProfileClock();
+            var p = new CpuProfiler(64, clock);
+            var a = p.CaptureAnomalies(new AnomalyOptions { Directory = Path.Combine(_dir, delays ? "delays" : "plain"), Trace = false });
+            p.SetEnabled(true);
+            int work = p.Zone("work"), slow = p.Zone("slow");
+            for (ulong f = 1; f <= 60; f++)
+            {
+                p.BeginFrame(f);
+                p.Begin(work);
+                clock.Run(NormalMs);
+                if (delays && f % 10 == 0) Thread.Sleep(5);   // поток вне CPU по-настоящему — часы профайлера стоят
+                if (f == 50)
+                {
+                    p.Begin(slow);
+                    clock.Run(10);
+                    if (delays) Thread.Sleep(5);
+                    p.End(slow);
+                }
+                p.End(work);
+                p.EndFrame(1, false);
+                if (delays && f % 10 == 5) Thread.Sleep(5);   // и между кадрами
+            }
+            Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
+            var result = a.List().Select(x => (x.Number, x.Class, x.File, x.ZoneName, Math.Round(x.Ms, 6))).ToArray();
+            a.Dispose();
+            return result;
+        }
+        var plain = Run(delays: false);
+        Assert.Equal([(50ul, AnomalyClass.Code, AnomalyFile.Written, "slow", 10 + NormalMs)], plain);
+        Assert.Equal(plain, Run(delays: true));
+    }
+
+    /// <summary>
     /// Исправления после Пд (замечание проверяющего): абсолютный порог сработал на кадре короче обычного — ни одна зона не дольше
     /// своего среднего; главной зоны нет (а не случайная зона «frame.resize 0 мс (+0)») — в записи, тексте журнала, JSON
     /// <c>profile.stages</c> и файле. Кадр дольше обычного при том же пороге — с главной зоной, как раньше.
@@ -148,17 +202,22 @@ public sealed class ProfilerAnomalyTests : IDisposable
             FilesPerSecond = 1000, Trace = false,
         });
         int work = p.Zone("work"), idle = p.Zone("idle");
-        for (ulong f = 1; f <= 40; f++) Frame(p, f, work, () => SpinCpu(3));
+        for (ulong f = 1; f <= 40; f++)
+        {
+            Frame(p, f, work, () => _clock.Run(3));   // с 33-го — тоже аномалии (дольше абсолютного порога)
+            Assert.True(a.Flush(TimeSpan.FromSeconds(10)));   // писатель свободен: файл кадра 41 не «занят»
+        }
         p.BeginFrame(41);   // выше абсолютного порога, но вдесятеро короче обычного
         p.Begin(idle);
         p.End(idle);
         p.Begin(work);
-        SpinCpu(0.3);
+        _clock.Run(0.3);
         p.End(work);
         p.EndFrame(1, false);
+        Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
         p.BeginFrame(42);   // дольше обычного — главная зона есть
         p.Begin(work);
-        SpinCpu(12);
+        _clock.Run(12);
         p.End(work);
         p.EndFrame(1, false);
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
@@ -195,10 +254,11 @@ public sealed class ProfilerAnomalyTests : IDisposable
         {
             p.BeginTick(t);
             p.Begin(sys);
+            _clock.Run(NormalMs);
             if (t == 200)
             {
                 p.Begin(slow);
-                SpinCpu(10);   // 10 мс на CPU: класс «код», даже если поток снимали с процессора (меньше чем на 10 мс)
+                _clock.Run(10);   // 10 мс на CPU — класс «код»
                 p.End(slow);
             }
             p.End(sys);
@@ -209,7 +269,8 @@ public sealed class ProfilerAnomalyTests : IDisposable
         Assert.Equal(ProfilePeriod.Tick, only.Period);
         Assert.Equal(200ul, only.Number);
         Assert.Equal("slow", only.ZoneName);
-        ClassOf(only, AnomalyClass.Code, only.Causes.CodeMs, 9);
+        Assert.Equal(AnomalyClass.Code, only.Class);
+        Assert.Equal(10, only.Causes.CodeMs, 3);
         var json = ReadJson(only.Path!);
         Assert.Equal("tick", json["period"]!.GetValue<string>());
         Assert.Equal("tick > sys > slow", json["mainZone"]!["path"]!.GetValue<string>());
@@ -231,10 +292,11 @@ public sealed class ProfilerAnomalyTests : IDisposable
             {
                 p.BeginTick(tick);
                 p.Begin(sys);
+                _clock.Run(NormalMs);
                 if (f == 150 && k == 1)
                 {
                     p.Begin(slow);
-                    SpinCpu(1.5);   // тик: порог ~1 мс сверх медианы — аномалия; кадр: порог ~2 мс — нет
+                    _clock.Run(1.5);   // тик: порог — 1 мс сверх медианы — аномалия; кадр: порог — 2 мс — нет
                     p.End(slow);
                 }
                 p.End(sys);
@@ -247,15 +309,16 @@ public sealed class ProfilerAnomalyTests : IDisposable
         var only = Only(a, 150);
         Assert.Equal(ProfilePeriod.Frame, only.Period);
         Assert.Equal(150ul, only.Number);
-        ClassOf(only, AnomalyClass.Code, only.Causes.CodeMs, 1.3);
-        // Сработал тик (кадр — не дольше своего порога ~2 мс); если поток снимали посреди счёта и кадр вышел за 2 мс — сработал и
-        // кадр: файл всё равно один, тик в нём — тот же.
-        Assert.True(only.TickTrigger || only.PeriodMs > 2, $"сработал кадр {only.PeriodMs} мс, а не тик");
+        Assert.Equal(AnomalyClass.Code, only.Class);
+        Assert.Equal(1.5, only.Causes.CodeMs, 3);   // разбор — тика: лишнее сверх его медианы
+        // Сработал тик: кадр (1,52 мс при медиане 0,02) — не дольше своего порога 2,02 мс; файл — кадра, тик в нём.
+        Assert.True(only.TickTrigger, $"сработал кадр {only.PeriodMs} мс, а не тик");
+        Assert.Equal(1.5 + 2 * NormalMs, only.PeriodMs, 3);
         Assert.Equal(299ul, only.Tick);
         Assert.Equal("slow", only.ZoneName);
         Assert.EndsWith("anomaly-frame-150.json", only.Path);
         var json = ReadJson(only.Path!);
-        Assert.Equal(only.TickTrigger ? "tick" : "frame", json["trigger"]!.GetValue<string>());
+        Assert.Equal("tick", json["trigger"]!.GetValue<string>());
         Assert.Equal(299ul, json["tick"]!["number"]!.GetValue<ulong>());
         Assert.Equal("frame > frame.simulate > tick > sys > slow", json["mainZone"]!["path"]!.GetValue<string>());
         Assert.NotNull(json["windowTicks"]);
@@ -275,15 +338,16 @@ public sealed class ProfilerAnomalyTests : IDisposable
         {
             p.BeginTick(t);
             p.Begin(obs);
+            _clock.Run(NormalMs);
             if (t == 60)
             {
                 p.Interrupt();   // агент стоит посреди тика
-                Thread.Sleep(30);
+                _clock.OffCpu(30);
             }
             if (t == 100)
             {
                 p.Begin(slow);
-                SpinCpu(20);   // 20 мс на CPU: класс «код», даже если поток снимали с процессора (меньше чем на 20 мс)
+                _clock.Run(20);   // 20 мс на CPU — класс «код»
                 p.End(slow);
             }
             p.End(obs);
@@ -291,7 +355,8 @@ public sealed class ProfilerAnomalyTests : IDisposable
         }
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
         var only = Only(a, 100);
-        ClassOf(only, AnomalyClass.Code, only.Causes.CodeMs, 18);
+        Assert.Equal(AnomalyClass.Code, only.Class);
+        Assert.Equal(20, only.Causes.CodeMs, 3);
         Assert.False(only.Noticeable);   // после Пв: тик без кадров не «заметный» (показа нет), хоть он и дольше 16,7 мс
         Assert.DoesNotContain(a.List(), x => x.Number == 60);   // прерванный — не аномалия (и не «машина»)
         Assert.Equal(1, p.Count(ProfilePeriod.Tick).Service);
@@ -321,19 +386,24 @@ public sealed class ProfilerAnomalyTests : IDisposable
         {
             p.BeginFrame(f);
             p.Begin(z);
+            _clock.Run(NormalMs);
             if (f % 3 == 0)
             {
                 p.BeginTick(tick++);
+                _clock.Run(NormalMs / 2);
                 p.EndTick();
             }
             p.End(z);
             p.EndFrame(1, false);
         }
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
-        // Аномалии могут быть только от снятия потока с процессора (параллельные тесты) — и тогда класс «машина».
-        Assert.All(a.List(), x => Assert.Equal(AnomalyClass.Machine, x.Class));
+        // Ровный прогон — ни одной аномалии и ни одного файла (поддельные часы: снятия потока с процессора нет).
+        Assert.Empty(a.List());
+        Assert.Empty(Files());
         Assert.True(a.Thresholds.FrameMs >= 2, $"порог кадра {a.Thresholds.FrameMs} мс");   // медиана + 2 мс
         Assert.True(a.Thresholds.TickMs >= 1, $"порог тика {a.Thresholds.TickMs} мс");
+        Assert.Equal(NormalMs + 2, a.Thresholds.FrameMs, 3);   // медиана кадра — обычный кадр (у двух из трёх нет тика)
+        Assert.Equal(NormalMs / 2 + 1, a.Thresholds.TickMs, 3);
         a.Dispose();
     }
 
@@ -343,23 +413,23 @@ public sealed class ProfilerAnomalyTests : IDisposable
         var p = Profiler(out var a);
         int z = p.Zone("z");
         // Первые MinSamples кадров не судятся (прогрев свежего процесса), служебный кадр — тоже.
-        Frame(p, 1, z, () => SpinCpu(5));
+        Frame(p, 1, z, () => _clock.Run(5));
         for (ulong f = 2; f <= 60; f++) Frame(p, f, z);
         p.BeginFrame(61);
         p.Begin(z);
-        SpinCpu(5);
+        _clock.Run(5);
         p.End(z);
         p.EndFrame(1, service: true);
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
-        Assert.DoesNotContain(a.List(), x => x.Class != AnomalyClass.Machine);
+        Assert.Empty(a.List());
         a.Dispose();
     }
 
     /// <summary>
     /// После Пв (решение пользователя): заметная — кадр не короче интервала показа (частота монитора владельца кадров; неизвестна —
     /// 60 Гц). Порог суда тот же: кадр в 3 мс — аномалия, но не заметная; кадр в 12 мс при 100 Гц — заметная. Правило — точно по
-    /// длительности кадра (снятие потока с процессора может удлинить короткий — тогда и он заметный, и это верно). Заметность — в
-    /// записи, тексте (строка журнала), файле, счёте и JSON (<c>profile.stages</c>).
+    /// длительности кадра (на настоящих часах снятие потока с процессора удлинило бы короткий — тогда и он заметный, и это верно).
+    /// Заметность — в записи, тексте (строка журнала), файле, счёте и JSON (<c>profile.stages</c>).
     /// </summary>
     [Fact]
     public void Noticeable_FrameNotShorterThanDisplayInterval()
@@ -374,21 +444,23 @@ public sealed class ProfilerAnomalyTests : IDisposable
         for (ulong f = 1; f <= 100; f++)
         {
             Frame(p, f, work);
-            if (f == 60) Frame(p, ++f, work, () => SpinCpu(3));    // кадр 61: аномалия (порог ~2 мс), короче интервала
+            if (f == 60) Frame(p, ++f, work, () => _clock.Run(3));    // кадр 61: аномалия (порог ~2 мс), короче интервала
         }
         p.BeginFrame(101);
         p.Begin(slow);
-        SpinCpu(12);   // кадр 101: не короче 10 мс — заметная
+        _clock.Run(12);   // кадр 101: не короче 10 мс — заметная
         p.End(slow);
         p.EndFrame(1, false);
         for (ulong f = 102; f <= 140; f++) Frame(p, f, work);
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
 
         var list = a.List();
+        Assert.Equal([61ul, 101ul], list.Select(x => x.Number));
         Assert.All(list, x => Assert.Equal(x.PeriodMs >= a.NoticeableMs, x.Noticeable));   // правило — точно
         var small = Assert.Single(list, x => x.Number == 61);
-        if (small.PeriodMs < 10) Assert.False(small.Noticeable);
-        Assert.DoesNotContain(ProfileAnomaly.NoticeableWord, small.Noticeable ? "" : small.Text);
+        Assert.Equal(3, small.PeriodMs, 3);
+        Assert.False(small.Noticeable);
+        Assert.DoesNotContain(ProfileAnomaly.NoticeableWord, small.Text);
         var big = Assert.Single(list, x => x.Number == 101);
         Assert.True(big.Noticeable);
         Assert.Contains($"— {AnomalyCauses.Word(big.Class)}, заметная (кадр ", big.Text);   // строка журнала — это Text
@@ -418,7 +490,7 @@ public sealed class ProfilerAnomalyTests : IDisposable
         {
             Directory = _dir, MaxFiles = 5, MaxFilesGpuWait = 2, MaxFilesMachine = 2, NoticeableFiles = 1, Burst = 100, Trace = false,
         });
-        p.DisplayHz = 25;   // интервал 40 мс: сон и счёт в 3 мс — не заметные даже с грубым таймером сна (15,6 мс)
+        p.DisplayHz = 25;   // интервал 40 мс: ожидание, снятие с процессора и счёт в 3 мс — не заметные
         int work = p.Zone("work"), fence = p.Zone("fence", ProfileZoneKind.GpuWait);
         ulong f = 0;
         void Normal(int n)
@@ -433,26 +505,27 @@ public sealed class ProfilerAnomalyTests : IDisposable
             return f - 20;
         }
         Normal(100);
-        var gpu = Enumerable.Range(0, 6).Select(_ => Slow(fence, () => SpinCpu(3))).ToList();         // ожидание GPU (вид зоны)
-        var machine = Enumerable.Range(0, 6).Select(_ => Slow(work, () => Thread.Sleep(3))).ToList(); // поток вне CPU
-        var code = Enumerable.Range(0, 3).Select(_ => Slow(work, () => SpinCpu(3))).ToList();         // после всех чужих
-        ulong noticeable = Slow(fence, () => SpinCpu(45));   // ожидание GPU, лимит класса исчерпан, но заметная (≥ 40 мс)
+        var gpu = Enumerable.Range(0, 6).Select(_ => Slow(fence, () => _clock.Run(3))).ToList();        // ожидание GPU (вид зоны)
+        var machine = Enumerable.Range(0, 6).Select(_ => Slow(work, () => _clock.OffCpu(3))).ToList();  // поток вне CPU
+        var code = Enumerable.Range(0, 3).Select(_ => Slow(work, () => _clock.Run(3))).ToList();        // после всех чужих
+        ulong noticeable = Slow(fence, () => _clock.Run(45));   // ожидание GPU, лимит класса исчерпан, но заметная (≥ 40 мс)
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
 
         var list = a.List();
         string all = string.Join(" | ", list.Select(x => $"{x.Number} {x.Class} {x.File} {x.Noticeable}"));
         ProfileAnomaly At(ulong n) => Assert.Single(list, x => x.Number == n);
-        // Классы — те, что задуманы (снятие потока с процессора дольше причины — честная «машина»; тогда проверка ниже — по факту).
-        Assert.True(gpu.Count(n => At(n).Class == AnomalyClass.GpuWait) >= 4, all);
-        Assert.True(machine.Count(n => At(n).Class == AnomalyClass.Machine) >= 4, all);
-        Assert.All(code, n => Assert.True(At(n).Class is AnomalyClass.Code or AnomalyClass.Machine, all));
+        // Аномалии — только задуманные, классы — те, что задуманы (поддельные часы: снятия потока тестов с процессора нет).
+        Assert.Equal([.. gpu, .. machine, .. code, noticeable], list.Select(x => x.Number));
+        Assert.All(gpu, n => Assert.Equal(AnomalyClass.GpuWait, At(n).Class));
+        Assert.All(machine, n => Assert.Equal(AnomalyClass.Machine, At(n).Class));
+        Assert.All(code, n => Assert.Equal(AnomalyClass.Code, At(n).Class));
         // «Ожидание GPU» и «машина» — не больше своих лимитов, остальные — «сверх лимита класса», но в списке.
         Assert.Equal(2, list.Count(x => x.Class == AnomalyClass.GpuWait && x.File == AnomalyFile.Written && !x.Noticeable));
         Assert.Equal(2, list.Count(x => x.Class == AnomalyClass.Machine && x.File == AnomalyFile.Written && !x.Noticeable));
-        Assert.True(list.Count(x => x.File == AnomalyFile.ClassLimit) >= 6, all);
+        Assert.Equal(8, list.Count(x => x.File == AnomalyFile.ClassLimit));
         Assert.All(list.Where(x => x.File == AnomalyFile.ClassLimit), x => Assert.True(x.Class is AnomalyClass.GpuWait or AnomalyClass.Machine));
         // Код — после 12 чужих аномалий — всё равно с файлами (раньше общий лимит 20 съедала чужая нагрузка).
-        Assert.All(code.Where(n => At(n).Class == AnomalyClass.Code), n => Assert.Equal(AnomalyFile.Written, At(n).File));
+        Assert.All(code, n => Assert.Equal(AnomalyFile.Written, At(n).File));
         // Заметная — пишется из запаса заметных.
         var seen = At(noticeable);
         Assert.True(seen.Noticeable, all);
@@ -484,38 +557,41 @@ public sealed class ProfilerAnomalyTests : IDisposable
         int work = p.Zone("work"), fence = p.Zone("fence", ProfileZoneKind.GpuWait);
         ulong f = 0;
         for (int i = 0; i < 100; i++) Frame(p, ++f, work);
-        long start = Stopwatch.GetTimestamp();
+        long start = _clock.Now;
         var stream = new List<ulong>();
-        for (int k = 0; k < 30; k++)   // поток «ожиданий GPU» — быстрее ведра (30 за ~0,15 с при 2 жетонах сразу и 2 в секунду)
+        for (int k = 0; k < 30; k++)   // поток «ожиданий GPU» — быстрее ведра (30 за ~0,12 с при 2 жетонах сразу и 2 в секунду)
         {
-            Frame(p, ++f, fence, () => SpinCpu(4));
+            Frame(p, ++f, fence, () => _clock.Run(4));
             stream.Add(f);
             for (int i = 0; i < 4; i++) Frame(p, ++f, work);
         }
-        double streamSec = Stopwatch.GetElapsedTime(start).TotalSeconds;
+        double streamSec = (_clock.Now - start) / (double)Stopwatch.Frequency;
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
         var list = a.List();
         string all = string.Join(" | ", list.Select(x => $"{x.Number} {x.Class} {x.File} {x.Noticeable}"));
-        var fromStream = list.Where(x => stream.Contains(x.Number)).ToList();
-        Assert.True(fromStream.Count >= 25, all);   // «машина» под нагрузкой тестов тоже заметная — судьба та же
-        Assert.All(fromStream, x => Assert.True(x.Noticeable, all));
-        // Файлов потока — не больше жетонов: 2 сразу и 2 в секунду (+1 — округление), а не 1 + весь запас (6), как до Пд.
+        Assert.Equal(stream, list.Select(x => x.Number));   // аномалии — только поток (поддельные часы: «машины» нет)
+        var fromStream = list.ToList();
+        Assert.All(fromStream, x => Assert.True(x.Noticeable && x.Class == AnomalyClass.GpuWait, all));
+        // Файлов потока — не больше жетонов: 2 сразу и 2 в секунду (+1 — округление), а не 1 + весь запас (6), как до Пд. Поток
+        // на поддельных часах — 0,1212 с (+0,24 жетона): файлов ровно 2 — лимит класса (1) и один из запаса, остальные — по частоте.
         int streamFiles = fromStream.Count(x => x.File == AnomalyFile.Written);
         int tokens = 2 + (int)Math.Ceiling(streamSec * 2) + 1;
         Assert.True(streamFiles <= tokens, $"файлов потока {streamFiles} > жетонов {tokens} за {streamSec:0.###} с: {all}");
-        Assert.True(fromStream.Count(x => x.File == AnomalyFile.Rate) >= fromStream.Count - tokens, all);
+        Assert.Equal(2, streamFiles);
+        Assert.Equal(28, fromStream.Count(x => x.File == AnomalyFile.Rate));
         int reserveUsed = a.LimitsJson()["noticeable"]!["files"]!.GetValue<int>();
         Assert.True(reserveUsed < 6, $"запас потрачен потоком: {reserveUsed}; {all}");
+        Assert.Equal(1, reserveUsed);
 
-        // Ведро наполнилось — заметная аномалия кода (лимит кода 0) пишется из оставшегося запаса.
-        Thread.Sleep(700);
-        Frame(p, ++f, work, () => SpinCpu(4));
+        // Ведро наполнилось (0,7 с — +1,4 жетона) — заметная аномалия кода (лимит кода 0) пишется из оставшегося запаса.
+        _clock.OffCpu(700);   // между кадрами: в периоды не входит
+        Frame(p, ++f, work, () => _clock.Run(4));
         ulong code = f;
         for (int i = 0; i < 4; i++) Frame(p, ++f, work);
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
         var seen = Assert.Single(a.List(), x => x.Number == code);
         Assert.True(seen.Noticeable, all);
-        Assert.True(seen.Class is AnomalyClass.Code or AnomalyClass.Machine, $"{seen.Class}");
+        Assert.Equal(AnomalyClass.Code, seen.Class);
         Assert.Equal(AnomalyFile.Written, seen.File);
         Assert.Equal(reserveUsed + 1, a.LimitsJson()["noticeable"]!["files"]!.GetValue<int>());
         a.Dispose();
@@ -541,10 +617,11 @@ public sealed class ProfilerAnomalyTests : IDisposable
             p.Begin(sim);
             p.BeginTick(tick++);
             p.Begin(sys);
+            _clock.Run(NormalMs);
             if (tickMs > 0)
             {
                 p.Begin(slow);
-                SpinCpu(tickMs);
+                _clock.Run(tickMs);
                 p.End(slow);
             }
             p.End(sys);
@@ -554,14 +631,14 @@ public sealed class ProfilerAnomalyTests : IDisposable
             if (toolMs > 0)
             {
                 p.Begin(agent);
-                SpinCpu(toolMs);   // запрос агента в точке обслуживания
+                _clock.Run(toolMs);   // запрос агента в точке обслуживания
                 p.End(agent);
             }
             p.End(tools);
             if (frameMs > 0)
             {
                 p.Begin(stall);
-                SpinCpu(frameMs);
+                _clock.Run(frameMs);
                 p.End(stall);
             }
             p.EndFrame(1, service: false, tools: toolWork);
@@ -584,9 +661,10 @@ public sealed class ProfilerAnomalyTests : IDisposable
         Assert.Equal("slow", tickInTools.ZoneName);
         Assert.False(tickInTools.Noticeable);   // длина кадра — за агентом, не за тиком
         var normal = Assert.Single(list, x => x.Number == 161);
-        ClassOf(normal, AnomalyClass.Code, normal.Causes.CodeMs, 9);
+        Assert.Equal(AnomalyClass.Code, normal.Class);
+        Assert.Equal(10, normal.Causes.CodeMs, 3);
         Assert.Equal("stall", normal.ZoneName);
-        Assert.True(list.All(x => x.Number is 141 or 161 || x.Class == AnomalyClass.Machine), all);
+        Assert.Equal([141ul, 161ul], list.Select(x => x.Number));   // других аномалий нет (поддельные часы: и «машины»)
 
         // Кольцо: кадры инструментов — служебные с пометкой; итоги — без них.
         var ring = p.Recent(ProfilePeriod.Frame, 200);
@@ -688,16 +766,15 @@ public sealed class ProfilerAnomalyTests : IDisposable
     [Fact]
     public void FileLimit_Rate_ListKeepsAll()
     {
-        // Кадры в 5 мкс: класс — шум (вне CPU против лишнего сверх медианы — доли микросекунды), бывает, что все — «машина». Поэтому у
-        // «машины» — свой лимит того же размера, и счёт — по обоим местам лимита: хоть одно из них (68 аномалий) переполнено точно.
+        // Кадры в 5 мкс при абсолютном пороге в один отсчёт часов: каждый — аномалия; лишнего сверх медианы нет — класс «код»
+        // (всё по нулям — код; поддельные часы: поток на CPU весь кадр, «машины» нет). У «машины» — свой лимит (4): его не трогают.
         var options = new AnomalyOptions
         {
             Directory = _dir, AbsoluteMs = 0.00001, MaxFiles = 4, Burst = 100, MaxFilesGpuWait = 0, MaxFilesMachine = 4, NoticeableFiles = 0,
         };
         var p = Profiler(out var a, options);
         int z = p.Zone("z");
-        // Кадр — не короче 5 мкс: пустой бывает в один отсчёт часов (0,1 мкс) — не дольше порога в один отсчёт.
-        Action work = () => SpinCpu(0.005);
+        Action work = () => _clock.Run(0.005);
         for (ulong f = 1; f <= 100; f++)
         {
             Frame(p, f, z, work);
@@ -706,13 +783,12 @@ public sealed class ProfilerAnomalyTests : IDisposable
         Assert.True(a.Flush(TimeSpan.FromSeconds(10)));
         var list = a.List();
         Assert.Equal(100 - options.MinSamples, list.Count);   // судятся с 33-го кадра — каждый дольше порога
-        int machine = list.Count(x => x.Class == AnomalyClass.Machine), general = list.Count - machine;
-        Assert.DoesNotContain(list, x => x.Class == AnomalyClass.GpuWait);
-        int written = Math.Min(4, general) + Math.Min(4, machine);
-        Assert.Equal(written, list.Count(x => x.File == AnomalyFile.Written));
-        Assert.Equal(general - Math.Min(4, general), list.Count(x => x.File == AnomalyFile.Limit));
-        Assert.Equal(machine - Math.Min(4, machine), list.Count(x => x.File == AnomalyFile.ClassLimit));
-        Assert.Equal(written, Files().Length);
+        Assert.All(list, x => Assert.Equal(AnomalyClass.Code, x.Class));
+        int general = list.Count;
+        Assert.Equal(4, list.Count(x => x.File == AnomalyFile.Written));
+        Assert.Equal(general - 4, list.Count(x => x.File == AnomalyFile.Limit));
+        Assert.Equal(0, list.Count(x => x.File == AnomalyFile.ClassLimit));
+        Assert.Equal(4, Files().Length);
         a.Dispose();
 
         // Частота: два файла сразу, дальше жетонов почти нет.
@@ -727,6 +803,7 @@ public sealed class ProfilerAnomalyTests : IDisposable
         Assert.True(b.Flush(TimeSpan.FromSeconds(10)));
         Assert.Equal(2, b.List().Count(x => x.File == AnomalyFile.Written));
         Assert.Contains(b.List(), x => x.File == AnomalyFile.Rate);
+        Assert.Equal(60 - options.MinSamples - 2, b.List().Count(x => x.File == AnomalyFile.Rate));   // 0,15 мс кадров — 0 жетонов
         Assert.Equal(2, Files().Length);
         b.Dispose();
     }
@@ -760,7 +837,7 @@ public sealed class ProfilerAnomalyTests : IDisposable
         {
             var p = Profiler(out var a, new AnomalyOptions { Directory = _dir, AbsoluteMs = 0.00001, MaxFiles = 100, Burst = 100, Trace = false });
             int z = p.Zone("z");
-            Action work = () => SpinCpu(0.005);
+            Action work = () => _clock.Run(0.005);
             for (ulong f = 1; f <= 33; f++) Frame(p, f, z, work);   // кадр 33 — первая аномалия, её файл держит журнал
             Assert.True(sink.Entered.Wait(TimeSpan.FromSeconds(10)));
             // Кадры 34 и 35 — в два свободных места, дальше — «писатель занят»; всего аномалий больше ёмкости списка.
@@ -851,10 +928,11 @@ public sealed class ProfilerAnomalyTests : IDisposable
         }
     }
 
+    /// <summary>0 байт на главном потоке и в кадрах аномалии — у продукта: на настоящих часах.</summary>
     [Fact]
     public void Capture_ZeroBytesOnMainThread_EvenInAnomalyFrames()
     {
-        var p = Profiler(out var a, new AnomalyOptions { Directory = _dir, MaxFiles = 100, Burst = 100 });
+        var p = Profiler(out var a, new AnomalyOptions { Directory = _dir, MaxFiles = 100, Burst = 100 }, realClock: true);
         int[] zones = [.. Enumerable.Range(0, 20).Select(i => p.Zone("zone" + i))];
         int slow = p.Zone("slow"), slowTick = p.Zone("slowTick");
         ulong tick = 0;
@@ -1057,14 +1135,15 @@ public sealed class ProfilerAnomalyTests : IDisposable
         }
     }
 
+    /// <summary>Сводка F2 — по своему времени зон; на поддельных часах (снятие потока с процессора не переставит строки).</summary>
     [Fact]
     public void Digest_TopZonesBySelfTime_NoAllocations()
     {
-        var p = new CpuProfiler(64);
+        var p = new CpuProfiler(64, _clock);
         p.SetEnabled(true);
         int big = p.Zone("big"), small = p.Zone("small"), child = p.Zone("child");
         var digest = new ProfileDigest(p);
-        long now = Stopwatch.GetTimestamp();
+        long now = _clock.Now;
         void Frames(int n)
         {
             for (int i = 0; i < n; i++)
@@ -1072,12 +1151,12 @@ public sealed class ProfilerAnomalyTests : IDisposable
                 p.BeginFrame((ulong)i);
                 p.Begin(big);
                 p.Begin(child);
-                SpinCpu(0.2);
+                _clock.Run(0.2);
                 p.End(child);
-                SpinCpu(0.05);
+                _clock.Run(0.05);
                 p.End(big);
                 p.Begin(small);
-                SpinCpu(0.1);
+                _clock.Run(0.1);
                 p.End(small);
                 p.EndFrame(1, false);
             }
@@ -1093,7 +1172,9 @@ public sealed class ProfilerAnomalyTests : IDisposable
         Assert.Equal("small", digest.Name(1));
         Assert.Equal("big", digest.Name(2));
         Assert.InRange(digest.Ms(0), 0.15, 5);
+        Assert.Equal((0.2, 0.1, 0.05), (Math.Round(digest.Ms(0), 3), Math.Round(digest.Ms(1), 3), Math.Round(digest.Ms(2), 3)));
         Assert.True(digest.FrameMs >= digest.Ms(0) + digest.Ms(1));
+        Assert.Equal(0.35, digest.FrameMs, 3);
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++) digest.Update(now + i);   // в окне — только сравнение времени
         now += Stopwatch.Frequency;

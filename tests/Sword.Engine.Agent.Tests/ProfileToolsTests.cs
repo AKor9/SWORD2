@@ -90,21 +90,54 @@ public class ProfileToolsTests
     }
 
     /// <summary>
+    /// Поддельные часы профайлера сеанса (<see cref="ProfileClock"/>): каждое чтение времени — шаг <see cref="StepTicks"/> (зоны и
+    /// тики длятся столько, сколько в них чтений, — у одинаковых тиков одинаково), поток всё время на CPU; сборок и JIT нет. Шаг
+    /// меняет тест между вызовами инструментов (симуляция стоит в точке обслуживания). Настоящего времени профайлер на них не
+    /// читает — суд, класс, главная зона и ведро жетонов не зависят от нагрузки машины.
+    /// </summary>
+    private sealed class SteppingClock : ProfileClock
+    {
+        private long _now = System.Diagnostics.Stopwatch.Frequency, _cycles, _step;
+
+        /// <summary>Шаг часов на чтение, отсчёты <see cref="System.Diagnostics.Stopwatch"/>.</summary>
+        public long StepTicks
+        {
+            get => Volatile.Read(ref _step);
+            set => Volatile.Write(ref _step, value);
+        }
+
+        public override long Timestamp()
+        {
+            long step = StepTicks;
+            _now += step;
+            _cycles += (long)Math.Ceiling(step * ThreadClock.CyclesPerSecond / System.Diagnostics.Stopwatch.Frequency) + 1;   // на CPU весь шаг
+            return _now;
+        }
+
+        public override ProfileCounters Counters() => new(_cycles, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    /// <summary>
     /// Точка Пв: <c>profile.stages</c> — аномалии (без настройки exe — «не настроен»; <c>threshold</c> настраивает захват в
     /// артефакты сеанса и ставит абсолютный порог; список — период, мс, класс, главная зона, файл; <c>anomalies</c> — сколько);
-    /// <c>threshold: 0</c> — снова по медиане; <c>trace</c> — кольцо в Chrome Trace JSON; порог меньше нуля — ошибка.
+    /// <c>threshold: 0</c> — снова по медиане; <c>trace</c> — кольцо в Chrome Trace JSON; порог меньше нуля — ошибка. Профайлер
+    /// сеанса — на поддельных часах (решение пользователя после 7з-3: под нагрузкой тик 32 бывал не дольше среднего — главной зоны
+    /// не было): судимые тики вдвое дольше несудимых — у каждого своё лишнее и главная зона.
     /// </summary>
     [Fact]
     public async Task ProfileStages_AnomaliesThresholdAndTrace()
     {
-        using var f = new AgentFixture();
+        var clock = new SteppingClock { StepTicks = System.Diagnostics.Stopwatch.Frequency / 1_000_000 };   // 1 мкс на чтение
+        using var f = new AgentFixture(profiler: new CpuProfiler(CpuProfiler.DefaultHistory, clock));
         var (on, error) = await f.Tool("profile.stages", new JsonObject { ["enable"] = true });
         Assert.False(error, on.ToJsonString());
         Assert.Equal(JsonValueKind.String, on["anomalies"]!.GetValueKind());   // захват не настроен (exe не задал каталог)
 
         var (set, _) = await f.Tool("profile.stages", new JsonObject { ["threshold"] = 0.0001 });
         Assert.Equal("absolute", set["anomalies"]!["threshold"]!["mode"]!.GetValue<string>());
-        await f.Tool("time.step", new JsonObject { ["ticks"] = 60 });   // первые 32 тика не судятся
+        await f.Tool("time.step", new JsonObject { ["ticks"] = 32 });   // первые 32 тика не судятся
+        clock.StepTicks *= 2;                                           // судимые — вдвое дольше: дольше своего среднего
+        await f.Tool("time.step", new JsonObject { ["ticks"] = 28 });
         Assert.True(f.Host.Profiler.FlushAnomalies(TimeSpan.FromSeconds(10)));
 
         var (r, _) = await f.Tool("profile.stages", new JsonObject { ["anomalies"] = 100 });
@@ -116,15 +149,19 @@ public class ProfileToolsTests
         Assert.Equal("tick", first["period"]!.GetValue<string>());
         Assert.Equal(32, first["number"]!.GetValue<int>());
         Assert.Contains(first["class"]!.GetValue<string>(), (string[])["code", "jit", "gc", "machine"]);
-        Assert.False(string.IsNullOrEmpty(first["zone"]!.GetValue<string>()));
+        Assert.All(list, x => Assert.Equal("code", x!["class"]!.GetValue<string>()));   // поток на CPU весь тик, JIT и GC нет
+        Assert.All(list, x => Assert.False(string.IsNullOrEmpty(x!["zone"]?.GetValue<string>()), x!.ToJsonString()));
         string file = first["file"]!.GetValue<string>();
         Assert.StartsWith(f.Host.Artifacts, file);
         Assert.Equal(ProfileAnomalies.FileFormat, JsonNode.Parse(File.ReadAllText(file))!["format"]!.GetValue<string>());
-        // Ведро: до 5 файлов сразу, дальше — 1 в секунду; писатель занят всеми тремя местами — «busy». Список — все 28.
+        // Ведро: до 5 файлов сразу, дальше — 1 в секунду; писатель занят всеми тремя местами — «busy». Список — все 28. Тики на
+        // поддельных часах — миллисекунды: новых жетонов нет — 5 отданы (записаны или «busy»: первые три места свободны), 23 — по частоте.
         int written = a["written"]!.GetValue<int>(), rate = a["suppressed"]!["rate"]!.GetValue<int>(), busy = a["suppressed"]!["busy"]!.GetValue<int>();
         Assert.InRange(written, 1, 5);
+        Assert.InRange(written, 3, 5);
         Assert.Equal(28, written + rate + busy);
         Assert.True(rate > 0);
+        Assert.Equal(23, rate);
 
         var (brief, _) = await f.Tool("profile.stages", new JsonObject { ["anomalies"] = 0, ["threshold"] = 0, ["trace"] = true });
         Assert.Empty(brief["anomalies"]!["list"]!.AsArray());
