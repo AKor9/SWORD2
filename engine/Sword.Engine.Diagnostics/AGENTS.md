@@ -5,7 +5,8 @@ Neutral, зависит только от Core. Сейчас: журнал (`Log
 точка Па), счётчики среды и машины (точка Пб: `ProfileCounters`, `MachineSample`/`MachineReport`, `RuntimeMeter`,
 `RuntimeEvents`), захват аномалий, Chrome Trace и сводка HUD (точка Пв: `ProfileAnomalies`, `AnomalyReport`, `ChromeTrace`,
 `ProfileDigest`), GPU-время проходов в профайлере кадра (точка Пг: зоны вида `Gpu`, `CpuProfilerGpu.cs`), ручки (`TuningGroup`,
-`Tuning.cs`, часть точки 6е). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
+`Tuning.cs`, часть точки 6е). Фича и замеры профайлера — [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md)
+и история этапа П — [docs/history/profiler.md](../../docs/history/profiler.md).
 
 - Ручки — `TuningGroup` (перенос `Diagnostics/Tuning.cs` SWORD 2eab13b): группа (вкладка панели F3 `Engine.DevTools`) из
   заголовков, чисел (`Float`, `Int` — запись округлена), флагов (`Bool`), кнопок (`Button`) и строк состояния (`Info`). Значение —

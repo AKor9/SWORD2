@@ -5,7 +5,7 @@ namespace Sword.Engine.Content;
 /// в каталоге exe или выше — сначала <see cref="PakName"/>, затем эталонный <see cref="ReferencePakName"/>. Каталог
 /// россыпью игра не читает. Единственное место, где записан этот порядок.
 ///
-/// Эталонный пак SWORD (этап 0 ARCHITECTURE_PLAN.md) — источник, пока пекарня не перенесена в SWORD2; собранный
+/// Эталонный пак SWORD (этап 0, docs/history/stage-0-1.md) — источник, пока пекарня не перенесена в SWORD2; собранный
 /// пекарней <see cref="PakName"/> рядом его заменяет.
 /// </summary>
 public static class ContentLocator

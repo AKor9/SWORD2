@@ -392,7 +392,7 @@ public static class RootCollision
     /// <remarks>
     /// Тело прохода по бойцу — свой метод (<see cref="Fighter"/>): за вызов ~1000 пар, и долгий цикл в методе, который зовётся
     /// раз в тик, многоуровневый JIT заменял на ходу (OSR) — компиляция 1,5 мс на главном потоке в первые секунды толпы
-    /// («Разбор Пд», вопрос 3; исправлено по решению пользователя). Порядок вычислений тот же.
+    /// (docs/history/profiler.md, «Разбор Пд», вопрос 3; исправлено по решению пользователя). Порядок вычислений тот же.
     /// </remarks>
     public static void Resolve(Span<Vector3> roots, Span<Vector3> velocities, ReadOnlySpan<bool> present, Span<RootContacts> contacts)
     {

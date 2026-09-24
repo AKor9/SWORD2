@@ -3,7 +3,7 @@ using System.Numerics;
 namespace Sword.Engine.Physics;
 
 // 7д: толчки живых (кинематических) тел — бюджет пары, проход, отдача, импульс удара (идеи — KinematicContacts, HitImpulse,
-// PrepareKinematicContacts SWORD 2eab13b; свой путь — README «7д»). Крючки KinematicGrow, KinematicReset, BeginKinematicSubstep,
+// PrepareKinematicContacts SWORD 2eab13b; свой путь — docs/history/engine-physics.md, «7д»). Крючки KinematicGrow, KinematicReset, BeginKinematicSubstep,
 // PushKinematic, EndKinematicSubstep объявлены в PhysicsWorld.cs (контракт 7б).
 public sealed partial class PhysicsWorld
 {

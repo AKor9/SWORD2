@@ -3,7 +3,7 @@ using System.Numerics;
 namespace Sword.Engine.Physics;
 
 // 7в: внутренние типы и математика суставов. Открытые типы (JointDesc, JointBinding, JointLimitHit, JointMeasure) — Contract.cs,
-// члены мира и крючки — PhysicsWorld.Joints.cs. Идеи — Fighter.Joints SWORD 2eab13b (источник, не образец; README «7в»).
+// члены мира и крючки — PhysicsWorld.Joints.cs. Идеи — Fighter.Joints SWORD 2eab13b (источник, не образец; docs/history/engine-physics.md, «7в»).
 
 /// <summary>
 /// Сустав сочленения в мире (7в): описание, привязка (точка на родителе в системе родителя, поза покоя
@@ -110,7 +110,7 @@ internal static class Joints
     /// Шарнир: градиент сгиба (со знаком описания) по повороту ребёнка, мир: <c>знак · (n − (b·n)·b⊥/|b⊥|²)</c>, где n — ось
     /// шарнира родителя, b — ось капсулы ребёнка, b⊥ — её часть поперёк n. У ребёнка, чья ось капсулы не перпендикулярна оси
     /// шарнира (уход в пределах люфта), градиент отклонён от n; по родителю — с обратным знаком (сгиб не меняется от общего
-    /// поворота). Поправка сгиба — вдоль него (README «7в»: поправка предела — вдоль градиента меры).
+    /// поворота). Поправка сгиба — вдоль него (README физики, «Решения и почему»: поправка предела — вдоль градиента меры).
     /// </summary>
     public static Vector3 BendGradient(in JointDesc d, Quaternion child, Vector3 n)
     {

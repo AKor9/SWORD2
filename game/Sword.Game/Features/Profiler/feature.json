@@ -4,7 +4,7 @@
   // систем (budgets[].systems в отчёте) и 0 Б на тик с ним. Пб (GC, JIT, машина): отчёт бюджета несёт budgets[].machine —
   // вердикт «код или машина»; пределы не менялись. Пв (аномалии, Chrome Trace, F2): манифест не менялся — захват аномалий меряют
   // тесты и verify.ps1 (App и F2 — вне feature.verify). Пг (GPU-время проходов): манифест не менялся — GPU-время меряют
-  // GPU-тесты и verify.ps1 (app-smoke, agent-smoke; у Headless GPU нет). Пд (разбор открытых вопросов, README — «Разбор Пд»)
+  // GPU-тесты и verify.ps1 (app-smoke, agent-smoke; у Headless GPU нет). Пд (разбор открытых вопросов, docs/history/profiler.md — «Разбор Пд»)
   // манифест не меняла: чек-лист этапа сведён к 7 главным пунктам, ожидания те же; доводка после Пв (заметность, лимиты файлов
   // по классам, кадры инструментов) манифест не меняла — её меряют тесты и verify.ps1 (headless-smoke — лимиты, agent-smoke — toolFrames и порог заметности). Формат — FeatureManifest (Sword.Engine.Introspection), исполняет feature.verify
   // (Sword.Headless --feature profiler). Ослабить ожидания — только правкой с сообщением пользователю.

@@ -12,7 +12,7 @@ namespace Sword.Engine.Physics.Tests;
 /// настройки, профиль динамики, земля, стена, колонны; цепочка по куче — на одно касание; из-под спящих уходит опора (возрождение, сдвиг,
 /// удаление нижнего) — лежавшие на нём просыпаются и ложатся, падающий будит лежащих на нём (проверка 7з-3); спящее — неподвижная опора медленному неспящему;
 /// детерминизм с пробуждениями; 0 Б на шаг; трасса — пробуждения по причинам, спящие не в скоростях. Замер — куча 32 трупов засыпает, шаг
-/// спящей кучи (в выводе; Release — README физики, «7з-3»).
+/// спящей кучи (в выводе; Release — docs/history/engine-physics.md, «7з-3»).
 /// </summary>
 public class SleepTests(ITestOutputHelper output)
 {
@@ -425,7 +425,8 @@ public class SleepTests(ITestOutputHelper output)
     [Fact]
     public void Pile32_FallsAsleep_SleepingPileStepIsCheap()
     {
-        // куча 32 трупов теста сведения (8 слоёв по 4 над кромкой ступени) со сном игры: засыпает; шаг спящей кучи — в выводе (Release — README)
+        // куча 32 трупов теста сведения (8 слоёв по 4 над кромкой ступени) со сном игры: засыпает; шаг спящей кучи — в выводе
+        // (Release — docs/history/engine-physics.md, «7з-3»)
         var ground = new StepGround(new Vector3(0, -1, -3), new Vector3(3, 0.2f, 3));
         var w = new PhysicsWorld(settings: Sleepy);
         w.SetGround(ground);

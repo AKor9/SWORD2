@@ -110,7 +110,8 @@
   тело цикла в отдельный метод, иначе многоуровневый JIT заменяет его на ходу (OSR) — синхронная компиляция 1,5…3,5 мс на
   главном потоке в первые секунды (`RootCollision.Resolve`, `EcsInvariants`, `AnimationState.AppendHash` — исправлены).
   `AggressiveOptimization` — только тонкому методу из вызовов или примитивному циклу, которому PGO не нужен (пиксели, байты): у
-  счётного кода он теряет PGO (+3 % тика, «Разбор Пд»). Проверка — `Sword.Headless --ticks 3600 --units 32 --move 1,0 --profile
+  счётного кода он теряет PGO (+3 % тика, [docs/history/profiler.md](../../docs/history/profiler.md), «Разбор Пд»).
+  Проверка — `Sword.Headless --ticks 3600 --units 32 --move 1,0 --profile
   runtime`: в `events.recent.jitMain` отчёта нет `osr`; все компиляции процесса — `DOTNET_JitDisasmSummary=1
   DOTNET_JitStdOutFile=<файл>` (строки `Tier1-OSR`).
 - **Период инвариантов — только в живой игре** (исправления после Пд, решение пользователя): период кодового инварианта

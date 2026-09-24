@@ -101,8 +101,8 @@ internal static class Screenshot
     /// </summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
-    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe IReadOnlyList<IdCoverage> SaveIds(ID3D12Resource readback, string pngPath, string rawPath, int width, int height, int rowPitch)
@@ -147,8 +147,8 @@ internal static class Screenshot
     /// </summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
-    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe void SaveLayer(ID3D12Resource readback, string path, int width, int height, int rowPitch, byte[]? under)
@@ -182,8 +182,8 @@ internal static class Screenshot
     /// </summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
-    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe (float Min, float Max, float Coverage) SaveDepth(ID3D12Resource readback, string path, int width, int height, int rowPitch)
@@ -230,8 +230,8 @@ internal static class Screenshot
     /// <summary>Записать снятый кадр: расширение .bmp — BMP, иначе PNG; вернёт цвет кадра (RGB по строкам) — под слои снимка.</summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — «Разбор Пд», вопрос 4). Вынос тела в метод на строку не
-    /// спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe byte[] Save(ID3D12Resource readback, string path, int width, int height, int rowPitch)

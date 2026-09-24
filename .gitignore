@@ -6,7 +6,7 @@ obj/
 TestResults/
 BenchmarkDotNet.Artifacts/
 
-# Пак контента *.swpak — вне git, в том числе эталонный Content.reference.swpak (этап 0 ARCHITECTURE_PLAN.md).
+# Пак контента *.swpak — вне git, в том числе эталонный Content.reference.swpak (этап 0, docs/history/stage-0-1.md).
 *.swpak
 *.swpak.tmp
 

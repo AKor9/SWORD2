@@ -5,7 +5,7 @@ namespace Sword.Engine.Physics;
 
 // 7г: статический мир (земля, стена, колонны), контакты подшага — с миром, пары сочленений, скоростной проход — и границы
 // сочленений. Земля по граням — Ground.cs; шаг — PhysicsWorld.Step.cs. Идеи — SolveContacts, PushOut, SolvedDepth, Collide,
-// PrevOverlap, SolveContactVelocities, UpdateBounds SWORD 2eab13b (research-arena-tick §1.3); свои решения — README «7г».
+// PrevOverlap, SolveContactVelocities, UpdateBounds SWORD 2eab13b (research-arena-tick §1.3); свои решения — docs/history/engine-physics.md, «7г».
 public sealed partial class PhysicsWorld
 {
     /// <summary>Запас буфера скоростного прохода — контактов на слот тела (растёт вместе со слотами тел; переполнение — удвоение, разово).</summary>

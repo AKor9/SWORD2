@@ -4,7 +4,7 @@ namespace Sword.Engine.Physics;
 
 // 7д: трасса физики — сторона мира: включение, крючки Trace* (объявлены в PhysicsWorld.cs, поле _trace — там же) и начало
 // шага для трассы. Данные и сводки — класс PhysicsTrace (PhysicsTrace.Data.cs, PhysicsTrace.Stats.cs). Идеи — RagTrace SWORD
-// 2eab13b (свой путь — README «7д»).
+// 2eab13b (свой путь — docs/history/engine-physics.md, «7д»).
 public sealed partial class PhysicsWorld
 {
     public PhysicsTrace EnableTrace(PhysicsTrace? trace = null)

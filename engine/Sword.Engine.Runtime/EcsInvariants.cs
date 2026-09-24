@@ -46,7 +46,8 @@ internal static class EcsInvariants
         {
             var (components, resources) = _data ??= Prepare(world, k => k is FieldLayout.Kind.F32 or FieldLayout.Kind.F64);
             // Тело обхода по сущности — свой метод: иначе долгий цикл (сущности × компоненты × листья) в методе, который зовётся
-            // раз в тик, многоуровневый JIT заменял на ходу (OSR 2,2…3,5 мс на главном потоке — «Разбор Пд», вопрос 3).
+            // раз в тик, многоуровневый JIT заменял на ходу (OSR 2,2…3,5 мс на главном потоке — docs/history/profiler.md,
+            // «Разбор Пд», вопрос 3).
             for (int i = 0, n = world.EntitySlots; i < n; i++)
             {
                 var e = world.EntityAt(i);

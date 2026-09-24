@@ -31,8 +31,8 @@ public readonly record struct InvariantCost
     public const int HeavyPeriod = 4;
 
     /// <summary>
-    /// Тяжёлый кодовый инвариант (цена в тике толпы — от ~2 % тика, «Разбор Пд» вопрос 7): в живой игре — раз в
-    /// <see cref="HeavyPeriod"/> тика, иначе — каждый тик.
+    /// Тяжёлый кодовый инвариант (цена в тике толпы — от ~2 % тика, docs/history/profiler.md, «Разбор Пд» вопрос 7): в живой
+    /// игре — раз в <see cref="HeavyPeriod"/> тика, иначе — каждый тик.
     /// </summary>
     public static InvariantCost Heavy => new(HeavyPeriod);
 

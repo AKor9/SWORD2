@@ -89,8 +89,9 @@ public sealed class RenderGraph
     private ulong _frameConstants;
 
     /// <summary>
-    /// Сырые данные исполненного прохода (исправления после Пд, «Разбор Пд» вопрос 6): отчёт <see cref="RenderPassReport"/> строится
-    /// из них только по запросу (<see cref="LastFrame"/>: агент, итог прогона), а в кадре — ни списков, ни строк, ни записей.
+    /// Сырые данные исполненного прохода (исправления после Пд, docs/history/profiler.md, «Разбор Пд» вопрос 6): отчёт
+    /// <see cref="RenderPassReport"/> строится из них только по запросу (<see cref="LastFrame"/>: агент, итог прогона), а в кадре —
+    /// ни списков, ни строк, ни записей.
     /// Имена записей и чтений — ссылки на имена ресурсов подряд в <see cref="FrameRecords.Names"/> с <see cref="NamesStart"/>.
     /// </summary>
     private struct PassRecord
