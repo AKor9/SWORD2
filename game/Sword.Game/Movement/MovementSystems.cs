@@ -187,17 +187,22 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
 /// на ходу — 12 рад/с. Масштаб поворота и хода действия (<c>TurnScale</c>, <c>MoveScale</c>; 6в — <see cref="ActionLayer.TurnScale"/>,
 /// <see cref="ActionLayer.MoveScale"/>): у игрока ход не замедляется никогда, поворот в окне урона — 0,6; у врага в ударе — 0,35 и
 /// 0,35. У игрока здесь же — прибавка скорости рывка тика (<see cref="PlayerActions.Boost"/>; корень сдвигает Movement).
+/// 8е: у <c>Agile</c> курс и скорость ведёт действующая модель контроллера тика (<see cref="Model"/> → <see cref="Steer(in SteerModel, ref Transform, ref Vector3, float)"/>);
+/// бойцу с компонентом <see cref="SteerModel"/> (игрок на Motion Matching — его ставит модуль Locomotion) система пишет туда эту же модель
+/// — одна правда предсказания траектории MM. У бойца без компонента — те же выражения, побитово как до 8е.
 /// </summary>
 public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
 {
-    private Query _agile = null!, _steady = null!;
+    private Query _agile = null!, _published = null!, _steady = null!;
 
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.RootSteer).Reads<FighterCommand>().Reads<AnimatorMotion>().Writes<Transform>().Writes<RootVelocity>()
-            .Writes<AnimatorAction>().Writes<PlayerControl>();
-        _agile = s.Query().With<Fighter>().Without<Dead>().With<PlayerTag>().Read<FighterCommand>().Read<AnimatorAction>().Write<Transform>()
+            .Writes<AnimatorAction>().Writes<PlayerControl>().Writes<SteerModel>();
+        var agile = s.Query().With<Fighter>().Without<Dead>().With<PlayerTag>().Read<FighterCommand>().Read<AnimatorAction>().Write<Transform>()
             .Write<RootVelocity>().Write<PlayerControl>();
+        _agile = agile.Without<SteerModel>();
+        _published = agile.Write<SteerModel>();
         _steady = s.Query().With<Fighter>().Without<Dead>().Without<PlayerTag>().Read<FighterCommand>().Read<AnimatorMotion>().Write<Transform>()
             .Write<RootVelocity>().Write<AnimatorAction>();
     }
@@ -207,19 +212,8 @@ public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
         float dt = ctx.World.Resource<SimTime>().Dt;
         var rules = ctx.World.Resource<CombatRules>();
         var attacks = strikes.Attacks;
-        foreach (var chunk in ctx.Iterate(_agile))
-        {
-            var t = chunk.Write<Transform>();
-            var intent = chunk.Read<FighterCommand>()[..t.Length];
-            var a = chunk.Read<AnimatorAction>()[..t.Length];
-            var v = chunk.Write<RootVelocity>()[..t.Length];
-            var control = chunk.Write<PlayerControl>()[..t.Length];
-            for (int i = 0; i < t.Length; i++)
-            {
-                Steer(intent[i], ref t[i], ref v[i].Value, dt, ActionLayer.TurnScale(a[i], true, attacks), ActionLayer.MoveScale(a[i], true));
-                PlayerActions.Boost(ref control[i], rules, dt);
-            }
-        }
+        foreach (var chunk in ctx.Iterate(_agile)) Agile(chunk, dt, rules, attacks, publish: false);
+        foreach (var chunk in ctx.Iterate(_published)) Agile(chunk, dt, rules, attacks, publish: true);
         var clips = ctx.World.Resource<PosePool>().Clips;
         var actions = ctx.World.Resource<ActionTable>();
         foreach (var chunk in ctx.Iterate(_steady))
@@ -234,16 +228,55 @@ public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
         }
     }
 
+    /// <summary><c>Agile</c> бойцов чанка: модель тика, курс и скорость по ней, прибавка рывка; с <paramref name="publish"/> — модель в <see cref="SteerModel"/>.</summary>
+    private static void Agile(ChunkView chunk, float dt, in CombatRules rules, ReadOnlySpan<AttackInfo> attacks, bool publish)
+    {
+        var t = chunk.Write<Transform>();
+        var intent = chunk.Read<FighterCommand>()[..t.Length];
+        var a = chunk.Read<AnimatorAction>()[..t.Length];
+        var v = chunk.Write<RootVelocity>()[..t.Length];
+        var control = chunk.Write<PlayerControl>()[..t.Length];
+        var models = publish ? chunk.Write<SteerModel>()[..t.Length] : default;
+        for (int i = 0; i < t.Length; i++)
+        {
+            var model = Model(intent[i], ActionLayer.TurnScale(a[i], true, attacks), ActionLayer.MoveScale(a[i], true));
+            Steer(model, ref t[i], ref v[i].Value, dt);
+            PlayerActions.Boost(ref control[i], rules, dt);
+            if (publish) models[i] = model;
+        }
+    }
+
+    /// <summary>
+    /// Действующая модель контроллера <c>Agile</c> на тик (8е): разгон <see cref="MovementRules.Accel"/>, предел поворота
+    /// <see cref="MovementRules.TurnRate"/>·<paramref name="turnScale"/>, цель скорости — желаемая по земле ·<paramref name="moveScale"/>,
+    /// цель курса — курс-цель намерения.
+    /// </summary>
+    public static SteerModel Model(in FighterCommand intent, float turnScale = 1, float moveScale = 1) => new()
+    {
+        Rate = MovementRules.Accel,
+        TurnRate = MovementRules.TurnRate * turnScale,
+        GoalVelocity = new Vector3(intent.DesiredVelocity.X, 0, intent.DesiredVelocity.Z) * moveScale,
+        GoalYaw = intent.FacingGoal,
+    };
+
     /// <summary>
     /// <c>Agile</c>: курс не быстрее <see cref="MovementRules.TurnRate"/>·<paramref name="turnScale"/>, затем скорость к желаемой
     /// ·<paramref name="moveScale"/> — порядок и выражения SWORD (при масштабах 1 — побитово как без действий).
     /// </summary>
-    public static void Steer(in FighterCommand intent, ref Transform t, ref Vector3 velocity, float dt, float turnScale = 1, float moveScale = 1)
+    public static void Steer(in FighterCommand intent, ref Transform t, ref Vector3 velocity, float dt, float turnScale = 1, float moveScale = 1) =>
+        Steer(Model(intent, turnScale, moveScale), ref t, ref velocity, dt);
+
+    /// <summary>
+    /// Шаг контроллера по модели тика (8е): курс — на <c>clamp(IEEERemainder(цель − курс, 2π), ±TurnRate·dt)</c>, затем скорость —
+    /// <c>v += (цель − v)·min(1, Rate·dt)</c>, Y = 0. Выражения и порядок — те же, что до 8е (побитово), и те же, что у модели предсказания
+    /// Motion Matching (<c>TrajectoryModel</c> движка): корень на новую скорость переносит <see cref="RootControlSystem"/>.
+    /// </summary>
+    public static void Steer(in SteerModel model, ref Transform t, ref Vector3 velocity, float dt)
     {
-        float df = MathF.IEEERemainder(intent.FacingGoal - t.Facing, MathF.Tau);
-        float turn = MovementRules.TurnRate * turnScale;
-        t.Facing += Math.Clamp(df, -turn * dt, turn * dt);
-        Accelerate(intent, ref velocity, dt, moveScale);
+        float df = MathF.IEEERemainder(model.GoalYaw - t.Facing, MathF.Tau);
+        t.Facing += Math.Clamp(df, -model.TurnRate * dt, model.TurnRate * dt);
+        velocity += (model.GoalVelocity - velocity) * MathF.Min(1, model.Rate * dt);
+        velocity.Y = 0;
     }
 
     /// <summary>

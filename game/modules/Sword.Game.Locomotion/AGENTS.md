@@ -1,7 +1,7 @@
 # Sword.Game.Locomotion — правила
 
-Модуль Locomotion (`locomotion`): локомоция клипами у всех бойцов, позже — Motion Matching игрока. Описание —
-[README.md](README.md).
+Модуль Locomotion (`locomotion`): локомоция клипами у врагов (и у игрока при `locomotion.player = clips` — значение в коде), Motion
+Matching игрока при `mm` (`sword.json` игры). Описание — [README.md](README.md).
 
 - Модуль не видит ядро игры (`Sword.Game`) и другие модули: вход — компоненты и метки `Game.Contracts`, клипы слотов —
   `Game.Data.ActionTable` (ресурс), позы — `PosePool` (ресурс) и `PoseRef` бойца.
@@ -19,8 +19,15 @@
   оттуда, копий констант нет). Имя клипа — только классификация (стойка, походка); продолжение, направление и прошлое — по
   замеру (`MotionClipInfo`).
 - База MM — одна на процесс и отбор (`GaspMotionBase.For`, кэш по экземпляру `ClipLibrary` из `PosePool`), неизменяема
-  (тест `SharedMotionData_ExposeNoWritableData`). Ошибка данных — `InvalidDataException` с причиной; с 8е — ошибка старта,
+  (тест `SharedMotionData_ExposeNoWritableData`). Ошибка данных — `InvalidDataException` с причиной; в игре — ошибка старта,
   без отката на клипы (решение 9).
+- `locomotion.player = clips` регистрирует ровно то же, что до 8е: мир без `sword.json` (тесты, сценарии фич, эталоны SWORD2) — побитово
+  тот же (`ReferenceReplaysTests` без перезаписи). Компоненты, системы, ручки, участник хеша `locomotion` MM — только при `mm`.
+- MM игрока (8е): корень и курс ведёт ядро; будущее запроса — модель контроллера тика из компонента `SteerModel` (одна правда — не
+  копировать выражения контроллера в модуль); поза постройки игрока — `FighterStartPose` (кадр стойки базы, ставится при сборке мира);
+  шаг — одно задание `PosePool.Motion` в `PoseRef` игрока (своих поз нет); игрок исключён из `LegacyLocomotion` (одну позу пишет одна
+  система). Сброс — только по `Added<Fighter>` (флаг `Restart`), мёртвый (`Dead`) не трогается. Авторитетное состояние — компонент
+  `MotionMatchState` (участник `ecs`, все числа конечны) и хранилище проигрывателей с историями (участник `locomotion`). Тик — 0 Б.
 
-Проверка: `tests/Sword.Game.Tests/AnimationTests`, эталоны SWORD2 (`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke`,
-`without-modules`, `agent-smoke`.
+Проверка: `tests/Sword.Game.Tests/AnimationTests`, `tests/Sword.Game.Tests/Locomotion/` (MM — `MotionMatchTests`, на паке), эталоны
+SWORD2 (`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke` (со `sword.json` — MM), `without-modules`, `agent-smoke`.

@@ -132,7 +132,8 @@ public static class PhysicsInvariants
     /// сдвинутое после постановки. Бойцы без живой позы или с негодным телом пропускаются (их ловят <c>animation.*</c>,
     /// <c>physics.bodyRefs</c>), мёртвые — тоже (7ж): их тела уже не по позе (сдвиг командой сцены, труп на физике — 7з), и с 7з — любое тело не
     /// в кинематике (режимы согласует <c>physics.modes</c>). До первого
-    /// тика (проверка «сейчас» на свежем сеансе, после <c>time.seek 0</c>) капсулы сверяются с позой постройки (<see cref="StartPose"/>):
+    /// тика (проверка «сейчас» на свежем сеансе, после <c>time.seek 0</c>) капсулы сверяются с позой постройки бойца (своей —
+/// <see cref="FighterStartPose"/>, 8е — или общей <see cref="StartPose"/>):
     /// по ней их поставила сборка мира (5в), а поза бойца до первого тика — поза привязки (её считает первый тик).
     /// </summary>
     private sealed class KinematicPose(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start, WeaponTable weapons,
@@ -151,7 +152,6 @@ public static class PhysicsInvariants
             var world = ctx.World;
             // До первого тика тела стоят по позе постройки (сборка мира), а не по позе бойца: её ещё не считал ни один тик.
             bool built = BeforeFirstTick(ctx);
-            var buildModel = built ? start.Of(world.Resource<StartPose>()) : default;
             _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<BodyRef>().Read<WeaponSlot>();
             foreach (var chunk in world.Iterate(_query))
             {
@@ -165,7 +165,9 @@ public static class PhysicsInvariants
                     var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                     var body = FighterBodies.Handle(bodies[i]);
                     if (!poses.IsAlive(pose) || !BodyPlacement.Placeable(physics, body)) continue;
-                    if (Problem(built ? buildModel : poses.Model(pose), roots[i], body, slots[i].Index) is not { } problem) continue;
+                    // 8е: поза постройки — своя у бойца (FighterStartPose) или общая
+                    var model = built ? start.Of(StartPoseModel.For(world, entities[i])) : poses.Model(pose);
+                    if (Problem(model, roots[i], body, slots[i].Index) is not { } problem) continue;
                     violations.Report(entities[i], problem);   // одна строка на бойца
                     if (violations.Full) return;
                 }

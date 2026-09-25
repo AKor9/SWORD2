@@ -139,7 +139,7 @@ public static class AnimationInvariants
         public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
         {
             int capacity = pool.Capacity;
-            if (_free.Length < capacity) _free = new bool[capacity];
+            if (_free.Length < capacity) _free = new bool[Math.Max(capacity, pool.Reserved)];   // под запас пула (8е): рост в нём — без выделений
             else Array.Clear(_free, 0, capacity);
             foreach (int slot in pool.FreeSlots)
             {
@@ -188,7 +188,7 @@ public static class AnimationInvariants
             _refs ??= world.Query().Read<PoseRef>();
             _bare ??= world.Query().With<Fighter>().Without<PoseRef>();
             int capacity = pool.Capacity;
-            if (_owner.Length < capacity) _owner = new Entity[capacity];
+            if (_owner.Length < capacity) _owner = new Entity[Math.Max(capacity, pool.Reserved)];   // под запас пула (8е): рост в нём — без выделений
             else Array.Clear(_owner, 0, capacity);
 
             foreach (var chunk in world.Iterate(_bare))
@@ -245,7 +245,7 @@ public static class AnimationInvariants
             _steady ??= world.Query().With<Fighter>();
             _states ??= world.Query().Read<AnimatorAction>();
             int capacity = pool.Capacity;
-            if (_owner.Length < capacity) _owner = new Entity[capacity];
+            if (_owner.Length < capacity) _owner = new Entity[Math.Max(capacity, pool.Reserved)];   // под запас пула (8е): рост в нём — без выделений
             else Array.Clear(_owner, 0, capacity);
 
             foreach (var chunk in world.Iterate(_steady))

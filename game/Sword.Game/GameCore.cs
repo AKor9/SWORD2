@@ -103,7 +103,7 @@ public static class GameCore
         var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
         var jointSegments = JointSegments.Build(assets.Clips.Skeleton);   // сустав скелета → сегмент тела (ID-буфер 5в, привязка скина 7ж)
         var skins = new SkinBindings(jointSegments, ArenaRules.MaxFighters);   // 7ж: привязки скина мёртвых — по слотам сочленений
-        var start = new StartPoseModel(assets.Clips);   // поза постройки тела: сборка мира, постройка командой, инвариант
+        var start = new StartPoseModel(assets.Clips);   // поза постройки тела (общая и своя у бойца — 8е): сборка мира, постройка командой, инвариант
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
@@ -123,6 +123,9 @@ public static class GameCore
             .Component<PoseRef>().Component<AnimatorMotion>().Component<AnimatorAction>().Component<ActionPoses>().Component<BodyRef>()
             .Component<WeaponSlot>().Component<Blade>().Component<PlayerControl>().Component<AttackCombo>().Component<EnemyAttack>()
             .Component<Health>().Component<Dead>().Component<StrikePairs>().Component<Flinch>().Component<HitImpulse>().Component<Recoil>()
+            // 8е: своя поза постройки бойца и действующая модель контроллера — компоненты контрактов, которые ставит модуль (игроку на Motion
+            // Matching); ядро читает и пишет их тем, у кого они есть. Бойцы без них — как до 8е (хеш ecs — от компонентов на сущностях).
+            .Component<FighterStartPose>().Component<SteerModel>()
             .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>()
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>().Command<SceneCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })

@@ -81,7 +81,8 @@ public static class BladePlacement
 
 /// <summary>
 /// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, после постройки тела и до курса (<see cref="GameLabels.BladeSetup"/>):
-/// построенному бойцу — клинок по позе постройки (<see cref="StartPose"/>) в корне и курсе постройки, без прошлого
+/// построенному бойцу — клинок по позе постройки (своей — <see cref="FighterStartPose"/>, 8е — или общей <see cref="StartPose"/>) в корне и
+/// курсе постройки, без прошлого
 /// (<c>PlaceBuilt</c> → <c>PlaceBodies(f, 0)</c> SWORD: <c>first</c> — <c>KinPrevBase = bladeBase</c>): первая постановка тика
 /// после постройки заметает клинок от позы постройки к позе тика, как в SWORD. Ставится командой (на барьере Gameplay).
 /// С 7ж — и тело клинка: форма меча в руке и постановка без скорости по той же кисти (<see cref="BladePlacement.BuildBody"/>) —
@@ -92,12 +93,11 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
 {
     public void Setup(SystemSetup s) =>
         s.Label(GameLabels.BladeSetup).After(GameLabels.BodySetup).Before(GameLabels.RootSteer).Reads<Transform>().Reads<WeaponSlot>()
-            .Reads<BodyRef>().Sets<Blade>().NextTickOk<Added<Fighter>>();
+            .Reads<BodyRef>().Reads<FighterStartPose>().Sets<Blade>().NextTickOk<Added<Fighter>>();
 
     public void React(in SystemContext ctx, ReadOnlySpan<Added<Fighter>> added)
     {
         var world = ctx.World;
-        var model = start.Of(world.Resource<StartPose>());
         foreach (var a in added)
         {
             // Удалён на том же барьере, без клинка или с чужим номером меча (его ловит combat.weapons) — ставить нечего.
@@ -105,6 +105,7 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
                 || !world.TryGet<WeaponSlot>(a.Entity, out var slot) || (uint)slot.Index >= (uint)weapons.Count)
                 continue;
             ctx.Cause = a.Cause;   // причина постройки бойца — родитель клинка (state.why, 6д)
+            var model = start.Of(StartPoseModel.For(world, a.Entity));   // 8е: своя поза постройки бойца или общая
             ctx.Commands.Set(a.Entity, BladePlacement.Built(model, hand, weapons, slot.Index, root.Position, root.Facing));
             if (world.TryGet<BodyRef>(a.Entity, out var body))
                 BladePlacement.BuildBody(physics, FighterBodies.Handle(body), weapons, slot.Index, BladePlacement.Hand(model, hand, root.Position, root.Facing));
@@ -114,7 +115,6 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
     /// <summary>Клинки бойцов сборки мира — по позе постройки (<c>OnWorldReady</c>, как тела: <c>PlaceBuilt</c> после <c>AttachRig</c>).</summary>
     public static void PlaceWorldBuilt(World world, IPhysicsWorld physics, WeaponTable weapons, int hand, StartPoseModel start)
     {
-        var model = start.Of(world.Resource<StartPose>());
         var built = new List<(Entity Entity, Blade Blade)>();
         foreach (var chunk in world.Iterate(world.Query().With<Fighter>().With<Blade>().Read<Transform>().Read<WeaponSlot>().Read<BodyRef>()))
         {
@@ -124,6 +124,7 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
             for (int i = 0; i < chunk.Count; i++)
             {
                 if ((uint)slots[i].Index >= (uint)weapons.Count) continue;
+                var model = start.Of(StartPoseModel.For(world, chunk.Entities[i]));
                 built.Add((chunk.Entities[i], BladePlacement.Built(model, hand, weapons, slots[i].Index, roots[i].Position, roots[i].Facing)));
                 BladePlacement.BuildBody(physics, FighterBodies.Handle(bodies[i]), weapons, slots[i].Index,
                     BladePlacement.Hand(model, hand, roots[i].Position, roots[i].Facing));

@@ -1,7 +1,8 @@
 # Анимация и локомоция клипами (этап 2)
 
 Персонаж ходит и бегает клипами: стойка, ходьба и бег в 8 сторон с кроссфейдом и темпом по скорости — как игрок SWORD
-без Motion Matching. Позы считает подсистема `Sword.Engine.Animation` (пул поз, задания пачкой), выбор клипа — модуль
+без Motion Matching. Так ходят враги всегда и игрок при `locomotion.player = clips` (значение в коде: тесты, сценарии фич, эталоны); в игре
+(`sword.json`) игрок — на Motion Matching (этап 8, модуль Locomotion). Позы считает подсистема `Sword.Engine.Animation` (пул поз, задания пачкой), выбор клипа — модуль
 Locomotion, аниматор бойца (вход слоя движения, слой действий, итоговая поза) — ядро игры, отрисовка — клиент по позе тика.
 Этап сделан (точки 2а–2в); история (точки, сверки со SWORD до 7а) — [docs/history/animation.md](../../../../docs/history/animation.md).
 
@@ -37,8 +38,9 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 запрос в `AnimatorAction.Snapshots`, копия итоговой позы прошлого тика — `ActionSnapshotSystem` первой в Animation (поза
 `ActionPoses.Snap`), слой верха — задание пула `BlendMasked` по маске `ActionRules.UpperMask`.
 
-Не перенесено: фиксация и постановка стоп, `FootDown` (этап 9), Motion Matching и визуальное смещение (этап 8); рука и IK
-кисти — с блоком (Guard отложен — решение 16).
+Не перенесено: фиксация и постановка стоп, `FootDown` (этап 9); визуальное смещение — не переносится (решение этапа 8); рука и IK
+кисти — с блоком (Guard отложен — решение 16). Motion Matching игрока — модуль Locomotion (этап 8,
+[README модуля](../../../modules/Sword.Game.Locomotion/README.md), «Motion Matching игрока в тике (8е)»).
 
 ## Устройство
 
@@ -77,7 +79,8 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 
 ## Что проверить в игре
 
-Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет).
+Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет). В игре (`sword.json`) игрок — на Motion
+Matching (этап 8): пункты про игрока — с `--set locomotion.player=clips`; враги — клипами всегда.
 
 1. `Sword.exe` — Manny стоит в боевой стойке одноручного хвата (клип `1HM_Idle_Standing`; с 6б — с мечом в руке), слегка
    покачивается, а не стоит в T-позе.
@@ -97,12 +100,12 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 
 | что | чем агент это видит и проверяет |
 |---|---|
-| компоненты `PoseRef`, `AnimatorMotion`, `LegacyLocomotionState` | `entity.get` / `world.query` по имени (поля, хэндлы поз — номер и поколение) |
+| компоненты `PoseRef`, `AnimatorMotion`, `LegacyLocomotionState` (враги; игрок — при `locomotion.player = clips`), `MotionMatchState` (игрок на Motion Matching, 8е) | `entity.get` / `world.query` по имени (поля, хэндлы поз — номер и поколение) |
 | клип — номер в библиотеке | `anim.clips` (номер ↔ ID, длительность, цикл, скорость корня) |
 | слой действий | `anim.pose` — поле `action` (действие, клип с именем, время, вес, `yawDelta`, `rootDelta`); `entity.get` → `AnimatorAction`; инвариант `animation.actions` |
 | поза — данные подсистемы, не ECS | `anim.pose` (суставы в пространстве персонажа и в мире, счётчики пула) |
 | поза Manny на экране | `capture.bundle` (картинка кадра; оверлея скелета нет) |
-| порядок систем | `ecs.plan`, `ecs.explainSystem` (`core.root-steer` → `core.animator-input` → `locomotion.legacy` → `core.animator-pose` → `core.animation-tick`) |
+| порядок систем | `ecs.plan`, `ecs.explainSystem` (`core.root-steer` → `core.animator-input` → `locomotion.legacy` (и `locomotion.mm` игрока на MM) → `core.animator-pose` → `core.animation-tick`) |
 | регрессия | `feature.verify animation` (эталон SWORD2 `animation.swreplay`, сценарий `locomotion`), `replay.check` |
 | подсистема-участник | участник хеша `animation` (`AnimationState`, [Детерминизм](../Determinism/README.md)): пул поз в `state.hash`, позы по суставам — `state.describe`; инварианты — `animation.finite`, `animation.settled`, `animation.pool`, `animation.owners` (`AnimationInvariants`), у локомоции — `locomotion.poses`; API пула допускает второй экземпляр (дифференциальный прогон) |
 

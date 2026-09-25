@@ -64,7 +64,8 @@
       agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
                             (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
                             time.step, игрок ушёл по +X, ecs.explainSystem, играет клип бега (anim.clips по номеру
-                            из LegacyLocomotionState), anim.pose, physics.bodies (5б), state.hash, state.describe; реплеи (этап 3б) —
+                            из MotionMatchState — игрок со sword.json на Motion Matching, 8е), участник хеша locomotion,
+                            anim.pose, physics.bodies (5б), state.hash, state.describe; реплеи (этап 3б) —
                             replay.save, time.seek назад и вперёд к тому же хешу, session.start с реплеем — совпал,
                             replay.check; этап 3д — feature.list, feature.verify, experiment.fork (ветка с другой
                             командой расходится на тике после неё), experiment.compare; этап П — profile.stages (включить,
@@ -913,15 +914,17 @@ Add-Step 'agent-smoke' {
         if (-not ($x -gt 3.5)) { $problems += "Headless: игрок не ушёл по +X за 120 тиков: x = $x" }
         $explain = Call-Stdio 'ecs.explainSystem' @{ name = 'PlayerCommand' }
         if ($explain.stage -ne 'Intent' -or -not $explain.source) { $problems += "Headless: ecs.explainSystem — стадия $($explain.stage), источник $($explain.source)" }
-        # Этап 2: бегущий игрок играет клип бега (номер клипа в состоянии локомоции → имя через anim.clips), поза — живая.
-        $loco = Call-Stdio 'entity.get' @{ entity = 'player'; components = @('LegacyLocomotionState') }
-        $clip = Call-Stdio 'anim.clips' @{ index = [int]$loco.components.LegacyLocomotionState.Clip }
+        # Этап 2, с 8е — Motion Matching: игрок со sword.json (locomotion.player = mm) играет клип бега базы MM (номер клипа в состоянии
+        # MM → имя через anim.clips), поза — живая; враги — на клипах (LegacyLocomotionState).
+        $loco = Call-Stdio 'entity.get' @{ entity = 'player'; components = @('MotionMatchState') }
+        $clip = Call-Stdio 'anim.clips' @{ index = [int]$loco.components.MotionMatchState.Clip }
         $clipName = "$(@($clip.clips)[0].name)"
-        if ($clipName -notmatch 'Run') { $problems += "Headless: после бега играет клип «$clipName», ждали бег" }
+        if ($clipName -notmatch 'Run' -or $clipName -notlike 'locomotion/*') { $problems += "Headless: после бега играет клип «$clipName», ждали бег базы MM (locomotion/*Run*)" }
+        if ([int]$loco.components.MotionMatchState.Searches -lt 5) { $problems += "Headless: MM игрока — поисков $($loco.components.MotionMatchState.Searches) за 120 тиков" }
         $pose = Call-Stdio 'anim.pose' @{ entity = 'player'; joints = @('pelvis', 'head') }
         # Этап 3: хеш состояния по участникам и описание участника animation по суставу.
         $hash = Call-Stdio 'state.hash' @{}
-        if ("$($hash.total)" -notmatch '^[0-9A-F]{16}$' -or -not $hash.parts.animation) { $problems += "Headless: state.hash — $($hash | ConvertTo-Json -Compress)" }
+        if ("$($hash.total)" -notmatch '^[0-9A-F]{16}$' -or -not $hash.parts.animation -or -not $hash.parts.locomotion) { $problems += "Headless: state.hash — $($hash | ConvertTo-Json -Compress)" }
         $described = Call-Stdio 'state.describe' @{ part = 'animation'; filter = 'pelvis'; take = 1 }
         if ([int]$described.matched -lt 3 -or -not @($described.items)[0].pelvis) { $problems += "Headless: state.describe animation — поз $($described.matched)" }
         $pelvisY = @($pose.joints)[0].model[1]
@@ -975,7 +978,7 @@ Add-Step 'agent-smoke' {
         # Этап 3г: базовые инварианты движка, анимации и модуля не нарушены; свой инвариант агента — остановка на нарушении.
         $list = Call-Stdio 'invariant.list' @{}
         $ids = @($list.invariants | ForEach-Object { $_.id })
-        foreach ($id in @('ecs.finite', 'animation.finite', 'animation.settled', 'animation.pool', 'animation.owners', 'locomotion.poses')) {
+        foreach ($id in @('ecs.finite', 'animation.finite', 'animation.settled', 'animation.pool', 'animation.owners', 'locomotion.poses', 'locomotion.mm')) {
             if ($ids -notcontains $id) { $problems += "Headless: invariant.list — нет $id" }
         }
         if ([int]$list.violationsTotal -ne 0) { $problems += "Headless: нарушения инвариантов: $($list.recent | ConvertTo-Json -Compress -Depth 4)" }

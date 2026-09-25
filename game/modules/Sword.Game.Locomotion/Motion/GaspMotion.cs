@@ -37,7 +37,8 @@ public sealed class GaspSelection
 /// Политика контента GASP для Motion Matching — одно место умолчаний модуля (у движка своих нет): источник и отбор клипов, схема
 /// признаков (45 признаков: траектория, прошлое, корень, стопы, колени, таз, курс таза и груди — суставы UE5 Manny по именам),
 /// параметры постройки базы, порог «стоит» и окно направления политики графа, порог бега модели скоростей. Идеи — <c>LocoFeatures</c>,
-/// <c>LocoKinematics</c>, <c>LocoDatabase</c>, <c>LocomotionModule</c> SWORD 2eab13b; значения — отправная точка, ручки — с 8е.
+/// <c>LocoKinematics</c>, <c>LocoDatabase</c>, <c>LocomotionModule</c> SWORD 2eab13b; значения — отправная точка. С 8е — и умолчания ручек
+/// «Локомоция» (<c>locomotion.*</c>: период поиска, порог смены, полупериод перехода, размах темпа, веса групп) и постоянные проигрывания игрока.
 /// </summary>
 public static class GaspMotion
 {
@@ -46,7 +47,7 @@ public static class GaspMotion
 
     /// <summary>
     /// Отбор по умолчанию — регулярка по короткому имени: все клипы, кроме стрейфа по кругу (<c>Circle_Strafe</c>: циклы 2,6–14 с почти на
-    /// месте — совпадали с запросом «стою» и держали персонажа на круге). Ключ конфига <c>locomotion.clips</c> — с 8е.
+    /// месте — совпадали с запросом «стою» и держали персонажа на круге). Ключ конфига — <c>locomotion.clips</c>.
     /// </summary>
     public const string DefaultClips = "^(?!.*Circle_Strafe)";
 
@@ -58,7 +59,7 @@ public static class GaspMotion
 
     /// <summary>
     /// Скорость ввода, выше которой модель скоростей данных берёт бег, м/с: между шагом (1,6) и бегом (4,2) контроллера ядра;
-    /// значим только на разгоне и торможении (ручка — с 8е).
+    /// в тике (8е) походку масштаба данных выбирает скорость управления (|цель| — 1,6 или 4,2), порог их разделяет. Не ручка.
     /// </summary>
     public const float RunInputSpeed = 2.5f;
 
@@ -109,6 +110,52 @@ public static class GaspMotion
         ("курс таза", FeatureKind.JointPairFacing, 0.5f, 0.1f, ["thigh_l", "thigh_r"]),
         ("курс груди", FeatureKind.JointPairFacing, 0.25f, 0.1f, ["clavicle_l", "clavicle_r"]),
     ];
+
+    /// <summary>
+    /// Ключи ручек весов групп (<c>locomotion.weight…</c>, 8е) — в порядке <see cref="Groups"/>; значение по умолчанию ручки — вес группы
+    /// там же.
+    /// </summary>
+    public static readonly IReadOnlyList<string> WeightKeys =
+    [
+        "weightTrajectory", "weightTrajectoryFacing", "weightPast", "weightRootVelocity", "weightRootYawRate", "weightFeet",
+        "weightFeetVelocity", "weightKnees", "weightPelvis", "weightPelvisVelocity", "weightPelvisFacing", "weightChestFacing",
+    ];
+
+    // Проигрывание игрока в тике (8е): умолчания ручек «Локомоция» (locomotion.*) и постоянные системы Motion Matching игрока.
+
+    /// <summary>
+    /// Период поиска, с (ручка <c>locomotion.searchPeriod</c>): поиск — через целое число тиков <c>round(период × частота тика)</c>, не
+    /// меньше 1 (0,1 с при 120 Гц — 12 тиков), счётчиком тиков, а не накоплением времени во float.
+    /// </summary>
+    public const float SearchPeriod = 0.1f;
+
+    /// <summary>
+    /// Порог смены (ручка <c>locomotion.switchGain</c>), в единицах цены поиска (взвешенная сумма квадратов разниц нормализованных
+    /// признаков): найденный кадр сменяет текущий (искомый), только если дешевле его больше чем на порог. Единственный механизм держаться своего
+    /// клипа (скидки продолжению нет — поиск идёт без неё) — выбран по замеру переходов в секунду (README модуля, «8е»): скидка — доля цены
+    /// продолжения, и чем хуже текущий кадр подходит, тем труднее с него уйти; порог постоянен.
+    /// </summary>
+    public const float SwitchGain = 2f;
+
+    /// <summary>Полупериод затухания смещений инерциализации, с (ручка <c>locomotion.inertialHalflife</c>).</summary>
+    public const float InertialHalflife = 0.1f;
+
+    /// <summary>
+    /// Размах темпа проигрывания (ручка <c>locomotion.rateRange</c>): темп — скорость корня / скорость корня клипа в текущем кадре в
+    /// пределах 1 ± размах; медленнее <see cref="StandSpeed"/> хоть одна из них — 1.
+    /// </summary>
+    public const float RateRange = 0.4f;
+
+    /// <summary>
+    /// Сглаживание темпа — полупериод, с: темп идёт к цели экспонентой (0 — без сглаживания). Выбран по замеру (README модуля, «8е»).
+    /// </summary>
+    public const float RateHalflife = 0.05f;
+
+    /// <summary>Окно пропуска своего клипа, с: кадры своего клипа ближе к текущему (у цикла — по кругу) не кандидаты поиска.</summary>
+    public const float SkipSeconds = 0.2f;
+
+    /// <summary>Скачок цели скорости: <c>|цель − цель прошлого поиска| &gt; доля·max(1, |цель|)</c> м/с — поиск в этом же тике.</summary>
+    public const float GoalJump = 0.5f;
 
     /// <summary>Схема GASP на скелете: суставы — <see cref="Skeleton.Find"/> по именам <see cref="Groups"/> и <see cref="ContactJoints"/>.</summary>
     /// <exception cref="InvalidDataException">В скелете нет сустава — сообщение называет сустав и группу.</exception>

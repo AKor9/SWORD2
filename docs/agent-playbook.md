@@ -41,8 +41,14 @@
 2. `time.step {"ticks":120}`; `entity.get {"entity":"player","components":["Transform","RootVelocity"]}` — x ≈ 3,94, скорость 4,2 м/с.
 
 **Проверить анимацию бойца.**
-1. `entity.get {"entity":"player","components":["LegacyLocomotionState","AnimatorMotion"]}` — какой клип играет (номер), время клипа,
-   доля кроссфейда; сглаженная скорость и «идёт».
+1. Клипами (враги; игрок — при `locomotion.player=clips`: тесты, сценарии фич, эталоны) —
+   `entity.get {"entity":"enemy 1","components":["LegacyLocomotionState","AnimatorMotion"]}`: какой клип играет (номер), время клипа, доля
+   кроссфейда; сглаженная скорость и «идёт». Игрок в игре (`sword.json`: `locomotion.player=mm`) — на Motion Matching:
+   `entity.get {"entity":"player","components":["MotionMatchState","SteerModel"]}` — клип (номер), кадр в клипе, доля, темп, поисков и смен,
+   итог последнего поиска (цена, цена продолжения, 12 групп), модель контроллера тика; база и проигрыватель —
+   `state.describe {"part":"locomotion","filter":"base"}` (сводка, отпечаток) и `{"filter":"0v1:foot"}`; ручки —
+   `command.send {"command":"TuningCommand","fields":{"Knob":"locomotion.switchGain","Value":1}}`; MM против клипов —
+   `experiment.fork` с веткой `{"set":["locomotion.player=clips"]}`.
 2. `anim.clips {"index":N}` — имя клипа по номеру (или `{"filter":"Run"}`): длительность, цикл, скорость корневого движения; страницы по 50
    (`skip` из `continuationToken`).
 3. `anim.pose {"entity":"player"}` — суставы (таз, голова, кисти, стопы) в пространстве персонажа и в мире; `pool` — живые позы и задания

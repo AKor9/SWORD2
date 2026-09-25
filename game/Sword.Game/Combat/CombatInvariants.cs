@@ -45,7 +45,6 @@ public static class CombatInvariants
             if (Stages.MidTickBefore(ctx, GameStages.PrePhysics)) return;
             var world = ctx.World;
             bool built = Stages.BeforeFirstTick(ctx);
-            var buildModel = built ? start.Of(world.Resource<StartPose>()) : default;
             _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Read<Blade>();
             var table = weapons.Weapons;
             foreach (var chunk in world.Iterate(_query))
@@ -60,7 +59,8 @@ public static class CombatInvariants
                     var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                     int weapon = slots[i].Index;
                     if (!poses.IsAlive(pose) || (uint)weapon >= (uint)table.Length) continue;   // их ловят animation.owners, combat.weapons
-                    if (Problem(built ? buildModel : poses.Model(pose), table[weapon], weapon, roots[i], blades[i]) is not { } problem) continue;
+                    var model = built ? start.Of(StartPoseModel.For(world, entities[i])) : poses.Model(pose);   // 8е: своя поза постройки или общая
+                    if (Problem(model, table[weapon], weapon, roots[i], blades[i]) is not { } problem) continue;
                     violations.Report(entities[i], problem);
                     if (violations.Full) return;
                 }

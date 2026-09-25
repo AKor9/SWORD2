@@ -91,6 +91,17 @@ public sealed class AnimationTests
     }
 
     /// <summary>
+    /// Список Id модулей игры (<see cref="Bootstrap.SwordSimulation.ModuleIds"/>: секция модуля, которого нет в сборке, пропускается) знает
+    /// каждый модуль сборки: забытая строка у нового модуля уронила бы сборку без него на общем <c>sword.json</c> (шаг <c>without-modules</c>).
+    /// </summary>
+    [Fact]
+    public void ModuleIds_ListEveryModuleOfTheBuild()
+    {
+        foreach (var module in Bootstrap.SwordSimulation.Modules()) Assert.Contains(module.Id, Bootstrap.SwordSimulation.ModuleIds);
+        Assert.Equal(Bootstrap.SwordSimulation.ModuleIds.Count, Bootstrap.SwordSimulation.ModuleIds.Distinct().Count());
+    }
+
+    /// <summary>
     /// Ассеты анимации общие для всех симуляций (<see cref="Animation.CharacterAssets"/>): у их типов нет открытых путей
     /// записи — ни изменяемых массивов наружу, ни открытых полей, ни сеттеров.
     /// </summary>
