@@ -24,7 +24,8 @@ internal static class ExperimentTools
                 "[{command, fields, from, to}] на тиках from…to−1 не раньше at (перебивают команды реплея своего типа), cut — " +
                 "команды реплея после at не идут}. Каждая ветка — до ticks тиков (по умолчанию длина реплея), запись с хешами " +
                 "каждого тика — в артефакты. Ответ — по ветке: сравнение с базой (firstHashTick — после скольких тиков хеши " +
-                "разошлись, участники; firstCommandTick), measure в конце ([{entity, field}]), нарушения инвариантов, мс на тик. " +
+                "разошлись, участники; firstCommandTick), measure в конце ([{entity, field}]; поле — и вычисляемое поле игры, как у метрик: " +
+                "Body.foot.l.Position, MotionMatch.JointJump), нарушения инвариантов, мс на тик. " +
                 "Команда тика at меняет состояние после at+1 тиков. Дальше — experiment.compare по файлам веток. Только Headless.",
             Arguments = CoreTools.Props(
                 ("replay", CoreTools.Str("реплей: путь, имя в каталоге артефактов или «session»")),
@@ -56,7 +57,7 @@ internal static class ExperimentTools
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(call.Cancel);
                 timeout.CancelAfter(TimeSpan.FromSeconds(Math.Min(call.Number("timeoutSeconds", 120, 1, 3600), host.MaxWaitSeconds)));
                 var branches = await Task.Run(() => Experiments.Fork(replay, at, ticks, variants, measure, session.Build, session.Info, host.Names,
-                    timeout.Token), timeout.Token).ConfigureAwait(false);
+                    timeout.Token, host.Fields), timeout.Token).ConfigureAwait(false);
 
                 string stem = ReplayTools.ArtifactName($"fork-{Path.GetFileNameWithoutExtension(path)}-t{at}")[..^Replay.Extension.Length];
                 var list = new JsonArray();

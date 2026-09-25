@@ -531,6 +531,41 @@ public sealed class FeatureTests : IDisposable
         Assert.Null(seen);
     }
 
+    /// <summary>
+    /// 8и: пик зоны профайлера в бюджете (<c>zones</c>) — из прогона бюджета с профайлером: в отчёте пик (наибольшее время зоны за тик),
+    /// среднее, вызовы и доля тиков; в Debug предел не судится, в Release пик выше предела — провал словами, ниже — нет; зоны нет в прогоне —
+    /// провал в любой сборке; предел не больше 0 — ошибка разбора.
+    /// </summary>
+    [Fact]
+    public void Verify_Budget_ZonePeak_LimitOnlyInRelease_MissingZoneFails()
+    {
+        RecordReplay("rec.swreplay", 30);
+        string Json(string zones) => Good().Replace("\"repeats\": 3, \"warmup\": 5 }", $"\"repeats\": 1, \"warmup\": 5, \"zones\": {zones} }}");
+        FeatureReport Run(string zones, bool optimized) => FeatureVerifier.Verify(FeatureManifest.Load(Manifest(Json(zones))),
+            new FeatureEnvironment { RepoRoot = _root, Build = Build, Info = Info, Optimized = optimized },
+            new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Views = false });
+
+        var m = FeatureManifest.Load(Manifest(Json("{ \"test.mover@S1\": 0.5 }")));
+        Assert.Equal(0.5, m.Budgets[0].Zones["test.mover@S1"]);
+
+        // Debug: пик меряется (зона системы — вызов на каждый тик замера), предел не судится.
+        var debug = Run("{ \"test.mover@S1\": 0.000001 }", optimized: false);
+        Assert.True(debug.Ok, string.Join("\n", debug.Failures));
+        var zone = debug.Json["budgets"]![0]!["zones"]!["test.mover@S1"]!;
+        Assert.Equal((1.0, 1.0, "stage.S1"), (zone["calls"]!.GetValue<double>(), zone["presence"]!.GetValue<double>(), zone["parent"]!.GetValue<string>()));
+        Assert.True(zone["peakMs"]!.GetValue<double>() >= zone["meanMs"]!.GetValue<double>());
+
+        // Release: пик выше предела — провал; предел с запасом — нет.
+        var tight = Run("{ \"test.mover@S1\": 0.000001 }", optimized: true);
+        Assert.Contains(tight.Failures, f => f.StartsWith("бюджет push: зона test.mover@S1 — пик ", StringComparison.Ordinal) && f.Contains("предел 0.000001"));
+        Assert.True(Run("{ \"test.mover@S1\": 1000 }", optimized: true).Ok);
+
+        // Зоны нет в прогоне — провал и в Debug.
+        Assert.Contains(Run("{ \"no.such\": 1 }", optimized: false).Failures, f => f.Contains("нет зоны no.such"));
+        var e = Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(Json("{ \"test.mover@S1\": 0 }"))));
+        Assert.Contains("пределы — положительные", e.Message);
+    }
+
     // ── эксперименты ──────────────────────────────────────────────────────
 
     private static ScenarioCommand Order(float x, ulong from, ulong to) =>
@@ -546,12 +581,14 @@ public sealed class FeatureTests : IDisposable
             new ForkVariant("double", [], [Order(2, 20, 21)], Cut: false),
             new ForkVariant("stop", [], [], Cut: true),
             new ForkVariant("seed", ["sim.seed=7"], [], Cut: false),
-        ], [new ForkMeasure(first, "Body.Position.X")], Build, Info, null);
+        ], [new ForkMeasure(first, "Body.Position.X"), new ForkMeasure(first, "Twice.X")], Build, Info, null, fields: new TwiceFields());
 
         Assert.Equal(["base", "double", "stop", "seed"], branches.Select(b => b.Name));
         Assert.All(branches, b => Assert.Null(b.Error));
         Assert.Null(branches[0].PlaybackDivergence);                              // база повторяет файл
         Assert.Equal(40.0, branches[0].Measures[$"{first}:Body.Position.X"]);
+        Assert.Equal(80.0, branches[0].Measures[$"{first}:Twice.X"]);             // 8и: замер ветки — и вычисляемое поле игры
+        Assert.Equal(82.0, branches[1].Measures[$"{first}:Twice.X"]);
         // Команда тика 20 меняет состояние после 21 тика; до того ветка — база бит в бит.
         var d = branches[1].VsBase!;
         Assert.Equal((20ul, 21ul, 20ul), (d.FirstCommandTick, d.FirstHashTick, d.LastCommonHash));

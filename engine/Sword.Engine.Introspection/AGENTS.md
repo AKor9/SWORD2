@@ -93,5 +93,12 @@
 - Метрики фич, 8з: статистика окна — ещё `p95` (ближайший ранг, как `p99`); ключ `skipUndefined` — тики без значения (NaN вычисляемого
   поля: скольжение опорной стопы без стопы на земле) не входят в окно (в отчёте — `defined`), окно без значений — провал; без ключа NaN в
   окне — провал «значения нет», как раньше. Проверка — `FeatureTests.Verify_Metric_P95_SkipUndefined`.
+- 8и: пик зоны профайлера в бюджете — ключ `budgets[].zones` (`{"locomotion.search": 0.25}`, `FeatureBudget.Zones`): наибольшее время зоны за
+  тик после прогрева в прогоне бюджета с профайлером (`SimulationMeasure.Zones` — все зоны профайлера замера; кольца нет — среднее, максимум,
+  вызовы, доля тиков), в отчёте `budgets[].zones` (пик, среднее, вызовы, доля, родитель, предел); как время — судится только в Release,
+  зоны нет в прогоне — провал в любой сборке. Нужен для редкой дорогой работы, которую медиана тика прячет (поиск MM раз в 12 тиков).
+  Проверка — `FeatureTests.Verify_Budget_ZonePeak_LimitOnlyInRelease_MissingZoneFails`. `Experiments.Fork(…, fields)` — замер ветки читает и
+  вычисляемые поля игры (как метрики; `experiment.fork` передаёт `AgentHost.Fields`): поза ветки — `Body.foot.l.Position`, `MotionMatch.*`;
+  проверка — `FeatureTests.Fork_BranchDivergesOnTickAfterChange_ConfigFromStart`.
 
 Проверка: `tests/Sword.Engine.Introspection.Tests`; причинность — `Sword.Game.Tests/CausalityTests` (нужна игра: бой).

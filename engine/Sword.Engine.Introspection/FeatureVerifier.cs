@@ -595,9 +595,32 @@ public static class FeatureVerifier
         // Время систем (точка Па): ещё один прогон — с профайлером CPU; медиана и пределы выше — без него. Байты этого прогона
         // держат тот же предел: включённый профайлер не выделяет памяти.
         var (profiledSim, profiledReplay) = Prepare(manifest, scenario, env, ["sim.invariants=false"], failures, hashes: false);
+        // 8и: пик зон бюджета (zones) — из этого прогона: зона, её пик (наибольшее за тик), предел; зоны нет — провал в любой сборке.
+        var zonePeaks = new List<(string Zone, double PeakMs, double Limit, string Why)>();
         if (profiledSim is not null)
         {
             var profiled = SimulationMeasure.Run(profiledSim, scenario.Ticks ?? profiledReplay!.Ticks, budget.Warmup, cancel, profile: true);
+            if (budget.Zones.Count > 0)
+            {
+                string zoneWhy = profiled.Machine is { Verdict: not MachineVerdict.Code } pm ? $" — {pm.Text}" : "";
+                var zones = new JsonObject();
+                foreach (var (zone, limit) in budget.Zones)
+                {
+                    if (profiled.Zones?.FirstOrDefault(z => z.Name == zone) is not { } z)
+                    {
+                        failures.Add($"нет зоны {zone} в прогоне с профайлером (зона без вызовов после прогрева не видна)");
+                        zones[zone] = new JsonObject { ["limit"] = limit, ["measured"] = "зоны нет" };
+                        continue;
+                    }
+                    zones[zone] = new JsonObject
+                    {
+                        ["peakMs"] = Math.Round(z.MaxMs, 5), ["meanMs"] = Math.Round(z.MeanMs, 5), ["calls"] = Math.Round(z.Calls, 4),
+                        ["presence"] = Math.Round(z.Presence, 4), ["parent"] = z.Parent, ["limit"] = limit,
+                    };
+                    zonePeaks.Add((zone, z.MaxMs, limit, zoneWhy));
+                }
+                json["zones"] = zones;
+            }
             json["profiled"] = new JsonObject
             {
                 ["note"] = "отдельный прогон с профайлером CPU — время систем; медиана и пределы бюджета — прогоны без него",
@@ -619,6 +642,8 @@ public static class FeatureVerifier
                 if (!runs[0].Stages.TryGetValue(stage, out _)) failures.Add($"нет стадии {stage}; есть: {string.Join(", ", runs[0].Stages.Keys)}");
                 else if ((double)stages[stage]! > limit2) failures.Add($"стадия {stage} — {stages[stage]} мс/тик, предел {Fmt(limit2)}{why}");
             }
+            foreach (var (zone, peak, limit3, zoneWhy) in zonePeaks)
+                if (peak > limit3) failures.Add($"зона {zone} — пик {Fmt(Math.Round(peak, 5))} мс за тик, предел {Fmt(limit3)}{zoneWhy}");
         }
         json["stageLimits"] = new JsonObject([.. budget.Stages.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))]);
         json["ok"] = failures.Count == 0;
@@ -699,6 +724,12 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
     public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; init; }
 
     /// <summary>
+    /// Все зоны профайлера за тик после прогрева (8и: пик зоны — <see cref="ProfileZoneStats.MaxMs"/>, бюджет <c>zones</c>) — только у прогона с
+    /// профайлером, иначе null. Кольца у профайлера замера нет: медиана и p99 — NaN, есть среднее, максимум, вызовы и доля тиков.
+    /// </summary>
+    public IReadOnlyList<ProfileZoneStats>? Zones { get; init; }
+
+    /// <summary>
     /// Машина за замер (точка Пб): от первого тика после прогрева до конца — поток на CPU, загрузка системы, частота, GC и JIT
     /// во время замера, вердикт «код или машина». Снимки — на границах замера, вне тиков (в мс на тик не входят).
     /// </summary>
@@ -744,10 +775,12 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
         var machine = machineStart is { } first ? MachineReport.Between(first, MachineSample.Take(), computeBound: true) : null;
         sim.Unobserve(timer);
         IReadOnlyList<KeyValuePair<string, double>>? systems = null;
+        IReadOnlyList<ProfileZoneStats>? zones = null;
         ProfileRuntimeStats? runtime = null;
         if (profiler is not null)
         {
-            systems = [.. profiler.Stats(ProfilePeriod.Tick).Where(z => z.Name.Contains('@')).Select(z => KeyValuePair.Create(z.Name, z.MeanMs))];
+            zones = profiler.Stats(ProfilePeriod.Tick);
+            systems = [.. zones.Where(z => z.Name.Contains('@')).Select(z => KeyValuePair.Create(z.Name, z.MeanMs))];
             runtime = profiler.RuntimeStats(ProfilePeriod.Tick);
             sim.AttachProfiler(CpuProfiler.Off);
         }
@@ -756,6 +789,7 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
             measured == 0 ? 0 : allocated / (double)measured)
         {
             Systems = systems,
+            Zones = zones,
             Machine = machine,
             Runtime = runtime,
         };

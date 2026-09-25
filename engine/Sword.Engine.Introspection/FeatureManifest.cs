@@ -407,8 +407,8 @@ public sealed record FeatureView(string Id, string Scenario, ulong Tick, string?
 
 /// <summary>
 /// Бюджет производительности сценария: мс на тик (медиана <see cref="Repeats"/> прогонов без инвариантов, как бенч), мс
-/// стадий, выделенные байты на тик после <see cref="Warmup"/> тиков прогрева; кадр App (<see cref="Frame"/>, точка 4д).
-/// Время проверяется только в оптимизированной сборке (Release); байты — всегда.
+/// стадий, выделенные байты на тик после <see cref="Warmup"/> тиков прогрева; кадр App (<see cref="Frame"/>, точка 4д); пик зон
+/// профайлера (<see cref="Zones"/>, 8и). Время проверяется только в оптимизированной сборке (Release); байты — всегда.
 /// </summary>
 public sealed record FeatureBudget
 {
@@ -420,31 +420,45 @@ public sealed record FeatureBudget
     public int Repeats { get; init; } = 5;
     public int Warmup { get; init; } = 120;
 
+    /// <summary>
+    /// Пик зон профайлера CPU, мс (8и; ключ <c>zones</c>: <c>{"locomotion.search": 0.6}</c>): наибольшее время зоны за тик после прогрева в
+    /// прогоне бюджета с профайлером (<see cref="SimulationMeasure.Zones"/>) — редкая дорогая работа (поиск Motion Matching раз в 12 тиков),
+    /// которую медиана тика прячет. Как время — проверяется только в Release; зоны нет в прогоне — провал в любой сборке.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> Zones { get; init; } = new Dictionary<string, double>();
+
     /// <summary>Бюджет кадра App на записи сценария; null — кадр не меряется.</summary>
     public FeatureFrameBudget? Frame { get; init; }
 
-    /// <summary>Есть что мерить в симуляции (мс на тик, стадии, байты), а не только кадр.</summary>
-    public bool HasSimulation => MsPerTick is not null || Stages.Count > 0 || AllocatedBytesPerTick is not null;
+    /// <summary>Есть что мерить в симуляции (мс на тик, стадии, байты, зоны), а не только кадр.</summary>
+    public bool HasSimulation => MsPerTick is not null || Stages.Count > 0 || AllocatedBytesPerTick is not null || Zones.Count > 0;
 
     internal static FeatureBudget Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "scenario", "msPerTick", "stages", "allocatedBytesPerTick", "repeats", "warmup", "frame");
-        var stages = new Dictionary<string, double>(StringComparer.Ordinal);
-        if (r.OptionalObject("stages") is { } o)
-            foreach (var (key, _) in o)
-                stages[key] = new FeatureManifest.Reader(o, $"{r.At}.stages").Number(key);
+        r.Only("id", "scenario", "msPerTick", "stages", "allocatedBytesPerTick", "repeats", "warmup", "zones", "frame");
         var b = new FeatureBudget
         {
-            Id = r.String("id"), Scenario = r.String("scenario"), MsPerTick = r.OptionalNumber("msPerTick"), Stages = stages,
+            Id = r.String("id"), Scenario = r.String("scenario"), MsPerTick = r.OptionalNumber("msPerTick"), Stages = Limits(r, "stages"),
             AllocatedBytesPerTick = r.OptionalNumber("allocatedBytesPerTick"),
             Repeats = (int)(r.OptionalInteger("repeats", 1, 50) ?? 5), Warmup = (int)(r.OptionalInteger("warmup", 0, 100_000) ?? 120),
+            Zones = Limits(r, "zones"),
             Frame = r.OptionalObject("frame") is { } f ? FeatureFrameBudget.Parse(new FeatureManifest.Reader(f, $"{r.At}.frame")) : null,
         };
         if (!b.HasSimulation && b.Frame is null)
-            throw new ArgumentException($"{r.At}: нечего проверять — msPerTick, stages, allocatedBytesPerTick или frame");
-        if (b.MsPerTick <= 0 || b.Stages.Values.Any(v => v <= 0) || b.AllocatedBytesPerTick < 0)
+            throw new ArgumentException($"{r.At}: нечего проверять — msPerTick, stages, allocatedBytesPerTick, zones или frame");
+        if (b.MsPerTick <= 0 || b.Stages.Values.Any(v => v <= 0) || b.Zones.Values.Any(v => v <= 0) || b.AllocatedBytesPerTick < 0)
             throw new ArgumentException($"{r.At}: пределы — положительные (байты — не меньше 0)");
         return b;
+    }
+
+    /// <summary>Пределы по именам (<c>stages</c>, <c>zones</c>): объект «имя → число».</summary>
+    private static Dictionary<string, double> Limits(FeatureManifest.Reader r, string key)
+    {
+        var limits = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (r.OptionalObject(key) is { } o)
+            foreach (var (name, _) in o)
+                limits[name] = new FeatureManifest.Reader(o, $"{r.At}.{key}").Number(name);
+        return limits;
     }
 }
 

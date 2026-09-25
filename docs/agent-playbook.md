@@ -235,11 +235,15 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 без одиночных выбросов `max`); потолок «не больше L» — `expected` = `tolerance` = L/2. Величина, определённая не в каждом тике (NaN:
 скольжение опорной стопы без стопы на земле), — `"skipUndefined": true`: такие тики не входят в окно (в отчёте — `defined`), окно без
 значений — провал; без ключа NaN в окне — провал «значения нет».
+Редкая дорогая работа (поиск MM раз в 12 тиков), которую медиана тика прячет, — пик зоны профайлера в бюджете: `"zones": {"locomotion.search":
+0.25}` — наибольшее время зоны за тик в прогоне бюджета с профайлером, мс; в отчёте `budgets[].zones` (пик, среднее, вызовы, доля тиков);
+судится в Release.
 
 **Эксперимент «что если».**
 1. `experiment.fork {"replay":"my.swreplay","at":300,"variants":[{"name":"back","commands":[{"command":"PlayerCommand","fields":{"Move":{"X":-1,"Y":0}},"from":300,"to":301}]},{"name":"nolo","set":["modules.locomotion.enabled=false"]}],"measure":[{"entity":"player","field":"Transform.Position"}]}`
    — база и ветки параллельно; `vsBase.firstHashTick` (команда тика T — это T+1; ключ конфига — с тика 0), `measure`, `file` — запись
-   ветки; `cut: true` — команды реплея после развилки не идут.
+   ветки; `cut: true` — команды реплея после развилки не идут. `measure` читает и вычисляемые поля игры (`Body.foot.l.Position.X`,
+   `MotionMatch.JointJump`); по тикам — `replay.observe` по `file` веток.
 2. `experiment.compare {"a":<file базы>,"b":<file ветки>}` — заголовки и конфиг, первый тик с разными командами, первый хеш с разными
    участниками, листья описаний (`путь`, `a`, `b`).
 3. `experiment.sweep {"params":{"arena.enemies":[0,8,16,32]},"replay":"<артефакты enemies>/scenario-crowd.swreplay","repeats":7}` — по
@@ -446,8 +450,11 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 6. Цена поиска: `profile.stages {"enable":true,"reset":true}` → тики → `profile.stages {"prefix":"locomotion"}` — зона `locomotion.search`
    (под `locomotion.mm@Animation`).
 7. MM против клипов: `experiment.fork {"replay":"session","at":0,"variants":[{"name":"clips","set":["locomotion.player=clips"]}],
-   "measure":[{"entity":"player","field":"Transform.Position"}]}` (у клипов — другие участники хеша, это ожидаемо); ручки — `command.send {"command":"TuningCommand","fields":{"Knob":"locomotion.switchGain","Value":1}}`
-   (`searchPeriod`, `inertialHalflife`, `rateRange`, `weight…`), перебор — `experiment.sweep`.
+   "measure":[{"entity":"player","field":"Transform.Position"},{"entity":"player","field":"Body.foot.l.Position.X"}]}` (у клипов — другие
+   участники хеша `ecs`, `physics`, это ожидаемо; корень тот же, поза — другая); ручки — `command.send {"command":"TuningCommand","fields":{"Knob":"locomotion.switchGain","Value":1}}`
+   (`searchPeriod`, `inertialHalflife`, `rateRange`, `weight…`), перебор — `experiment.sweep {"params":{"locomotion.searchPeriod":[0.05,0.1,0.2],
+   "sim.invariants":[false]},"replay":"<artifacts/features/locomotion>/scenario-run8.swreplay"}` (время — в Release; качество — `replay.observe`
+   записи сценария с `set` и полями `MotionMatch.*`).
 8. Реплей с другой базой (контент, `locomotion.clips`, процессор без AVX2): `replay.check` — в `warnings` `сведения реплея:
    locomotion.base: в реплее …, в симуляции …`, в `divergence.cause` — «вероятная причина»; отпечаток — `state.describe {"part":"locomotion",
    "filter":"base"}`, строка старта — `log.tail {"category":"locomotion"}`.
@@ -455,6 +462,10 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    действующий вес (к ручке не быстрее 4/с), слой позы постройки (`Layer*`); кисть относительно груди — `anim.pose {"entity":"player",
    "joints":["hand_r","spine_05"]}`; вес — ручка `locomotion.armWeight` (`command.send {"command":"TuningCommand","fields":{"Knob":
    "locomotion.armWeight","Value":0}}` — рука клипа); инвариант `locomotion.mmArm`. Замеры `MotionMatch.*` руку не видят (выход MM).
+10. Приёмка: `feature.verify {"id":"locomotion"}` (Headless `--feature locomotion`) — 12 сценариев (`set` — `locomotion.player=mm`), 60 метрик
+    (скольжение, скачок, переходов и поисков по сценариям), 3 вида с оверлеем `mm`, бюджеты `run` и `crowd` с пиком поиска (`zones`); записи
+    сценариев — `artifacts/features/locomotion/scenario-*.swreplay`. В рабочем дереве сервер MCP сеанса — из основного дерева: свою сборку
+    Headless — командной строкой или клиентом MCP по stdio (`Sword.Headless.exe --agent --idle-exit 0`, строка JSON-RPC на сообщение).
 
 ## Если что-то не так
 

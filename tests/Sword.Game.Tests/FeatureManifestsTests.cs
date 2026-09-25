@@ -69,7 +69,8 @@ public sealed class FeatureManifestsTests
             }
             Assert.True(manifest, $"у фичи {feature} нет {FeatureManifest.FileName} (раздел 12 плана: без манифеста фича не принимается)");
         }
-        Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "movement", "profiler", "ragdoll", "tools"],
+        // 8и: манифест locomotion — в папке модуля (game/modules/Sword.Game.Locomotion), md — README модуля.
+        Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "locomotion", "movement", "profiler", "ragdoll", "tools"],
             manifests.Select(m => m.Id));
         foreach (var m in manifests)
         {
@@ -170,6 +171,8 @@ public sealed class ControlFeatureVerifyTests() : FeatureVerifyTests("control");
 public sealed class DeterminismFeatureVerifyTests() : FeatureVerifyTests("determinism");
 
 public sealed class EnemiesFeatureVerifyTests() : FeatureVerifyTests("enemies");
+
+public sealed class LocomotionFeatureVerifyTests() : FeatureVerifyTests("locomotion");
 
 public sealed class MovementFeatureVerifyTests() : FeatureVerifyTests("movement");
 

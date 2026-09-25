@@ -56,10 +56,12 @@ public static class Experiments
     /// <summary>
     /// Развилка: реплей <paramref name="replay"/> до тика <paramref name="at"/> и дальше ветками — база (реплей как есть) и
     /// <paramref name="variants"/>; каждая — до <paramref name="ticks"/> тиков, параллельно (свои симуляции на своих
-    /// потоках). Результат — ветки по порядку: база первой.
+    /// потоках). Результат — ветки по порядку: база первой. Замер в конце ветки (<paramref name="measure"/>) читает и вычисляемые поля игры
+    /// (<paramref name="fields"/>, 8и: капсулы тела <c>Body.foot.l.Position</c>, замер Motion Matching <c>MotionMatch.*</c>) — как метрики фич.
     /// </summary>
     public static IReadOnlyList<ForkBranch> Fork(Replay replay, ulong at, ulong ticks, IReadOnlyList<ForkVariant> variants,
-        IReadOnlyList<ForkMeasure> measure, Func<ConfigSet, Simulation> build, ReplayInfo info, IEntityNames? names, CancellationToken cancel = default)
+        IReadOnlyList<ForkMeasure> measure, Func<ConfigSet, Simulation> build, ReplayInfo info, IEntityNames? names, CancellationToken cancel = default,
+        IEntityFields? fields = null)
     {
         if (at > ticks) throw new ArgumentException($"at {at}: развилка за концом прогона ({ticks} тиков)");
         if (variants.Count == 0) throw new ArgumentException("variants: хотя бы одна ветка");
@@ -79,7 +81,7 @@ public static class Experiments
         try
         {
             Parallel.For(0, all.Length, new ParallelOptions { CancellationToken = cancel }, i =>
-                branches[i] = Branch(replay, at, ticks, all[i], measure, build, info, names, cancel));
+                branches[i] = Branch(replay, at, ticks, all[i], measure, build, info, names, fields, cancel));
         }
         catch (AggregateException e) when (e.InnerExceptions.All(x => x is OperationCanceledException))
         {
@@ -95,7 +97,7 @@ public static class Experiments
     }
 
     private static ForkBranch Branch(Replay replay, ulong at, ulong ticks, ForkVariant? v, IReadOnlyList<ForkMeasure> measure,
-        Func<ConfigSet, Simulation> build, ReplayInfo info, IEntityNames? names, CancellationToken cancel)
+        Func<ConfigSet, Simulation> build, ReplayInfo info, IEntityNames? names, IEntityFields? fields, CancellationToken cancel)
     {
         string name = v?.Name ?? BaseBranch;
         try
@@ -109,7 +111,7 @@ public static class Experiments
                 var type = catalog.Command(c.Command);
                 sim.EnqueueRaw(type, c.From, FieldCodec.Encode(type, c.Fields), checked((int)(c.To - c.From)));
             }
-            var probes = measure.Select(m => new FieldProbe(catalog, names, m.Entity, m.Field, "measure")).ToList();
+            var probes = measure.Select(m => new FieldProbe(catalog, names, m.Entity, m.Field, "measure", fields)).ToList();
             long started = Stopwatch.GetTimestamp();
             while (sim.Tick < ticks)
             {
