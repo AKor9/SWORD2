@@ -74,7 +74,7 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
                 Assert.False(sim.World.Has<FighterStartPose>(e));   // враги строятся по общей позе постройки
             }
         Assert.Contains("locomotion", sim.StateParts);
-        Assert.Equal(5 + GaspMotion.WeightKeys.Count, sim.Tuning.Count(k => k.Section == LocomotionKnobs.Section));   // + вес руки
+        Assert.Equal(10 + GaspMotion.WeightKeys.Count, sim.Tuning.Count(k => k.Section == LocomotionKnobs.Section));   // + вес руки, поворот на месте
         var s = State(sim);
         var view = sim.World.View<IAnimationView>();
         string clip = view.ClipName(s.Clip);

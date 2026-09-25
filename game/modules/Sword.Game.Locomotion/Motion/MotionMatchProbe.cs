@@ -89,9 +89,10 @@ public sealed class MotionMatchProbe
     /// <summary>
     /// Замер тика проигрывателя <paramref name="player"/> (<paramref name="history"/> — его история корня, <paramref name="dt"/> — тик, с):
     /// скачок сустава и скольжение опорной стопы — суставы контакта на земле по разметке кадра проигрывателя, горизонтальная скорость в
-    /// мире (корень тика и прошлого тика — две последние записи истории, подряд по тикам).
+    /// мире (корень тика и прошлого тика — две последние записи истории, подряд по тикам). Стопы — вне корпуса скручивания: в мире они по
+    /// курсу ног — курс корня − расхождение тика (<paramref name="twist"/>) и прошлого тика (<paramref name="twistBefore"/>).
     /// </summary>
-    public MotionMatchMeasure Measure(MotionPlayerHandle player, RootHistory? history, float dt)
+    public MotionMatchMeasure Measure(MotionPlayerHandle player, RootHistory? history, float dt, float twist = 0, float twistBefore = 0)
     {
         if (!Poses(player, dt)) return MotionMatchMeasure.None;
         var (jump, joint) = Jump();
@@ -103,8 +104,8 @@ public sealed class MotionMatchProbe
         for (int k = 0; k < contacts.Length; k++) feet += bits >> k & 1;
         if (feet == 0 || history is not { Count: >= 2 } h || h[h.Count - 1].Tick != h[h.Count - 2].Tick + 1)
             return new MotionMatchMeasure(float.NaN, -1, feet, jump, joint);
-        var now = h[h.Count - 1].Root;
-        var prev = h[h.Count - 2].Root;
+        var now = h[h.Count - 1].Root with { Yaw = h[h.Count - 1].Root.Yaw - twist };
+        var prev = h[h.Count - 2].Root with { Yaw = h[h.Count - 2].Root.Yaw - twistBefore };
         float slide = 0;
         int slideJoint = -1;
         for (int k = 0; k < contacts.Length; k++)

@@ -68,7 +68,8 @@ public sealed class MotionMatchView(MotionMatchRuntime runtime) : IMotionMatchVi
         if (!TryState(fighter, out var s, out var p)) return false;
         var db = runtime.Database;
         status = new MotionMatchStatus(p.Frame, db.Clips[db.ClipOf[p.Frame]].LibraryClip, db.FrameInClip(p.Frame), p.Alpha, s.Rate,
-            !_world.Has<Dead>(fighter), s.SearchWas, s.SinceSearch, s.Searches, s.Switches, p.Transitions, db.Contacts[p.Frame]);
+            !_world.Has<Dead>(fighter), s.SearchWas, s.SinceSearch, s.Searches, s.Switches, p.Transitions, db.Contacts[p.Frame], s.Twist, s.Chest,
+            s.TurnClip, s.Turns);
         return true;
     }
 
@@ -153,6 +154,6 @@ public sealed class MotionMatchView(MotionMatchRuntime runtime) : IMotionMatchVi
     public MotionMatchMeasure Measure(Entity fighter)
     {
         if (!TryState(fighter, out var s, out _) || _world.Has<Dead>(fighter)) return MotionMatchMeasure.None;
-        return _probe.Measure(s.Player, runtime.HistoryAt(s.Player.Index), _world.Resource<SimTime>().Dt);
+        return _probe.Measure(s.Player, runtime.HistoryAt(s.Player.Index), _world.Resource<SimTime>().Dt, s.Twist, s.TwistBefore);
     }
 }

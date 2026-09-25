@@ -61,8 +61,42 @@ public struct MotionMatchState
     /// <inheritdoc cref="Frame"/>
     public int Transitions;
 
+    /// <summary>
+    /// Поворот на месте (<see cref="TurnInPlace"/>): курс ног в мире, рад — стоя идёт за поворотом корня клипа (с подгонкой
+    /// <see cref="TurnWarp"/>), на ходу — курс корня − <see cref="Twist"/>.
+    /// </summary>
+    public float FeetYaw;
+
+    /// <summary>
+    /// Расхождение δ = wrap(курс корня − курс ног) этого тика, рад, в пределах потолка <c>locomotion.turnMax</c>: поза бойца скручена на −δ
+    /// (ноги и таз — по курсу ног, грудь, голова и руки — по курсу корня). <see cref="TwistBefore"/> — δ прошлого тика (замер скольжения стоп).
+    /// + — корень левее ног (курс + от +Z к +X).
+    /// </summary>
+    public float Twist, TwistBefore;
+
+    /// <summary>
+    /// Выравнивание груди, рад: стоя — курс груди позы постройки − курс груди выхода проигрывателя (клип сам уводит грудь от корня), на ходу —
+    /// 0; идёт к цели не быстрее <see cref="GaspMotion.ChestRate"/>. Скручивание поворачивает грудь на него.
+    /// </summary>
+    public float Chest;
+
+    /// <summary>Клип поворота на месте (номер библиотеки), пока корень клипа ещё поворачивается; −1 — поворота нет.</summary>
+    public int TurnClip;
+
+    /// <summary>Подгонка следующего шага: курс ног += поворот корня клипа за шаг × она (1 — вне поворота; 0…<see cref="GaspMotion.TurnWarpMax"/>).</summary>
+    public float TurnWarp;
+
+    /// <summary>Сколько курс корня стоит (стоя), с — для выдержки <c>locomotion.turnHold</c>.</summary>
+    public float Still;
+
+    /// <summary>Поворотов на месте (клипов поворота) с постройки.</summary>
+    public int Turns;
+
     /// <summary>Новое состояние: проигрывателя нет, первый шаг — с нуля.</summary>
-    public static MotionMatchState Fresh => new() { Restart = true, Rate = 1, Frame = -1, Clip = -1, ClipFrame = -1, Match = NoMatch };
+    public static MotionMatchState Fresh => new()
+    {
+        Restart = true, Rate = 1, Frame = -1, Clip = -1, ClipFrame = -1, Match = NoMatch, TurnClip = -1, TurnWarp = 1,
+    };
 
     /// <summary>Итог «поиска не было» — кадр −1, цены −1 (конечные).</summary>
     public static MotionMatch NoMatch => new(-1, -1, -1, 0, 0, default);

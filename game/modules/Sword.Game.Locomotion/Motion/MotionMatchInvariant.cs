@@ -9,7 +9,9 @@ namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
 /// <c>locomotion.mm</c> (лёгкий — каждый тик, после End): у живого бойца на Motion Matching проигрыватель живой и свой (не у двух бойцов),
-/// его кадр — кадр базы, доля — в [0, 1), переходов не меньше 0, перенос корня и смещения суставов конечны; темп — в 1 ± размах ручки. Своих поз
+/// его кадр — кадр базы, доля — в [0, 1), переходов не меньше 0, перенос корня и смещения суставов конечны; темп — в 1 ± размах ручки; поворот
+/// на месте: курс ног и расхождение конечны, расхождение — в пределах потолка ручки <c>locomotion.turnMax</c>, клип поворота — −1 или клип
+/// поворота на месте базы, подгонка — в 0…<see cref="GaspMotion.TurnWarpMax"/>, выравнивание груди — в ±<see cref="GaspMotion.ChestMax"/>. Своих поз
 /// у MM нет (шаг пишет позу бойца <c>PoseRef</c> — её держит <c>animation.owners</c>). Бойцы на постройке заново (<see cref="MotionMatchState.Restart"/>)
 /// и мёртвые (их MM не трогает) — не проверяются. Подробные инварианты (затухание смещений, скачок сустава) — отдельно.
 /// </summary>
@@ -17,6 +19,9 @@ public sealed class MotionMatchInvariant(MotionMatchRuntime runtime) : IInvarian
 {
     /// <summary>Допуск темпа к пределам ручки.</summary>
     public const float RateTolerance = 1e-5f;
+
+    /// <summary>Допуск расхождения к потолку ручки, рад.</summary>
+    public const float TwistTolerance = 1e-5f;
 
     private ReadQuery? _query;
     private Entity[] _owner = new Entity[4];
@@ -31,7 +36,8 @@ public sealed class MotionMatchInvariant(MotionMatchRuntime runtime) : IInvarian
         if (!runtime.Ready) return;
         var world = ctx.World;
         _query ??= world.Query().With<Fighter>().Without<Dead>().Read<MotionMatchState>();
-        float range = world.Resource<LocomotionRules>().RateRange;
+        var rules = world.Resource<LocomotionRules>();
+        float range = rules.RateRange, max = rules.TurnMax * MathF.PI / 180;
         var players = runtime.Players;
         if (_owner.Length < players.Capacity) Array.Resize(ref _owner, players.Capacity);
         Array.Clear(_owner);
@@ -41,7 +47,7 @@ public sealed class MotionMatchInvariant(MotionMatchRuntime runtime) : IInvarian
             var states = chunk.Read<MotionMatchState>();
             for (int i = 0; i < entities.Length; i++)
             {
-                if (Problem(entities[i], states[i], range) is not { } problem) continue;
+                if ((Problem(entities[i], states[i], range) ?? Turn(states[i], max)) is not { } problem) continue;
                 violations.Report(entities[i], problem);
                 if (violations.Full) return;
             }
@@ -64,6 +70,20 @@ public sealed class MotionMatchInvariant(MotionMatchRuntime runtime) : IInvarian
         if (!(float.IsFinite(s.Rate) && s.Rate >= 1 - range - RateTolerance && s.Rate <= 1 + range + RateTolerance))
             return Text($"темп {s.Rate} вне 1 ± {range}");
         return Offsets(players.RotationOffsets(s.Player), players.PositionOffsets(s.Player));
+    }
+
+    /// <summary>Поворот на месте бойца (не на постройке): всё в порядке — null.</summary>
+    private string? Turn(in MotionMatchState s, float max)
+    {
+        if (s.Restart) return null;
+        if (!(float.IsFinite(s.FeetYaw) && float.IsFinite(s.Twist) && float.IsFinite(s.TwistBefore) && float.IsFinite(s.Chest)))
+            return Text($"поворот на месте не конечен: курс ног {s.FeetYaw}, расхождение {s.Twist} (прошлое {s.TwistBefore}), грудь {s.Chest}");
+        if (MathF.Abs(s.Chest) > GaspMotion.ChestMax + TwistTolerance) return Text($"выравнивание груди {s.Chest} рад за пределом {GaspMotion.ChestMax}");
+        if (MathF.Abs(s.Twist) > max + TwistTolerance) return Text($"расхождение курса корня и ног {s.Twist} рад за потолком {max}");
+        if (!(s.TurnWarp >= 0 && s.TurnWarp <= GaspMotion.TurnWarpMax)) return Text($"подгонка поворота {s.TurnWarp} вне 0…{GaspMotion.TurnWarpMax}");
+        if (s.TurnClip >= 0 && !runtime.Turn.IsTurnClip(runtime.Database.FindClip(s.TurnClip)))
+            return $"клип поворота {s.TurnClip} — не поворот на месте базы";
+        return null;
     }
 
     private string? Offsets(ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos)

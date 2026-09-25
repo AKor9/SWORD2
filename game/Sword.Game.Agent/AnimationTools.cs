@@ -133,6 +133,11 @@ public static class AnimationTools
             ["frame"] = s.Frame, ["clip"] = s.Clip, ["clipName"] = Clip(s.Clip), ["clipFrame"] = s.ClipFrame, ["alpha"] = Round(s.Alpha),
             ["rate"] = Round(s.Rate), ["stepping"] = s.Stepping, ["searching"] = s.Searching, ["sinceSearch"] = s.SinceSearch,
             ["searches"] = s.Searches, ["switches"] = s.Switches, ["transitions"] = s.Transitions, ["feetOnGround"] = feet,
+            ["turnInPlace"] = new JsonObject
+            {
+                ["twistDegrees"] = Math.Round(s.Twist * 180 / MathF.PI, 2), ["chestDegrees"] = Math.Round(s.Chest * 180 / MathF.PI, 2),
+                ["turnClip"] = s.TurnClip, ["turnClipName"] = Clip(s.TurnClip), ["turns"] = s.Turns,
+            },
         };
         if (mm.TrySearch(e, out var q))
         {

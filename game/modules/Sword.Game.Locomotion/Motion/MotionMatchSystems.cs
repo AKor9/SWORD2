@@ -149,32 +149,45 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         float dt = time.Dt;
         if (s.Restart || !players.IsAlive(s.Player))
         {
-            Restart(ref s, motion, pose, pool, rules, period, dt);
+            Restart(ref s, t.Facing, motion, pose, pool, rules, period, dt);
             return;
         }
         var db = runtime.Database;
+        var turn = runtime.Turn;
         int current = runtime.CurrentFrame(s.Player);
         s.Rate = Rate(s.Rate, velocity, current >= 0 ? db.RootVelocity[current] : Vector3.Zero, rules.RateRange, dt);
         float goal = new Vector2(steer.GoalVelocity.X, steer.GoalVelocity.Z).Length();
         if (goal > GaspMotion.StandSpeed) s.ControlSpeed = goal;
-        int transition = -1;
+        bool standing = goal < GaspMotion.StandSpeed && new Vector2(velocity.X, velocity.Z).Length() < GaspMotion.StandSpeed && motion.Search;
+        var history = runtime.History(s.Player);
+        float lastFacing = history.Count > 0 ? history[history.Count - 1].Root.Yaw : t.Facing;
+        var output = players.State(s.Player);
+        float chest = standing && output.HasOutput ? turn.ChestFix(players.OutputRotations(s.Player), players.OutputPositions(s.Player)) : 0;
+        int transition = turn.Step(ref s, t.Facing, lastFacing, standing, current, output.RootStep.Yaw, chest, rules, dt);
+        if (transition >= 0) runtime.Diagnostics.Turned(s.Player, (long)time.Tick, current, transition);
         if (s.SinceSearch < int.MaxValue) s.SinceSearch++;
-        if (motion.Search && (s.SinceSearch >= period || !s.SearchWas || GoalJumped(s.SearchGoal, steer.GoalVelocity)))
-            transition = Search(ref s, t, velocity, steer, current, rules, time);
+        // Клип поворота на месте, пока его корень поворачивается, поиск не перебивает.
+        if (transition < 0 && !turn.Turning(s, current) && motion.Search
+            && (s.SinceSearch >= period || !s.SearchWas || GoalJumped(s.SearchGoal, steer.GoalVelocity)))
+            transition = Search(ref s, t, velocity, steer, current, rules, time, standing);
         s.SearchWas = motion.Search;
         pool.Motion(pose, players, s.Player, new MotionStep(dt * s.Rate, dt, transition, rules.InertialHalflife));
+        // Скручивание — после шага проигрывателя (он пишет позу целиком) и до руки с мечом (она — в системе груди).
+        if (s.Twist != 0 || s.Chest != 0) pool.Twist(pose, turn.Twist, -s.Twist, s.Chest);
     }
 
     /// <summary>
     /// Постройка (заново): проигрыватель заново (тот же слот — поколение +1: свободный выдаётся первым), история пуста, счётчики с нуля; кадр
     /// позы постройки без инерциализации — выход тика ровно поза постройки. Поиск — в следующем тике (счётчик «просрочен»).
     /// </summary>
-    private void Restart(ref MotionMatchState s, in AnimatorMotion motion, PoseHandle pose, PosePool pool, in LocomotionRules rules, int period, float dt)
+    private void Restart(ref MotionMatchState s, float facing, in AnimatorMotion motion, PoseHandle pose, PosePool pool, in LocomotionRules rules,
+        int period, float dt)
     {
         var players = runtime.Players;
         if (players.IsAlive(s.Player)) players.Free(s.Player);
         s = MotionMatchState.Fresh;
         s.Restart = false;
+        s.FeetYaw = facing;
         s.Player = players.Alloc();
         s.SinceSearch = period;
         s.SearchWas = motion.Search;
@@ -184,10 +197,10 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
 
     /// <summary>
     /// Поиск: запрос по модели контроллера и истории, лучший кадр (без скидки продолжению); сменяет текущий по порогу смены
-    /// (<see cref="Switches"/>) — переход (кадр), иначе −1.
+    /// (<see cref="Switches"/>) — переход (кадр), иначе −1. Стоя клип поворота на месте поиск не выбирает — его ставит поворот на месте.
     /// </summary>
     private int Search(ref MotionMatchState s, in Transform t, Vector3 velocity, in SteerModel steer, int current, in LocomotionRules rules,
-        in SimTime time)
+        in SimTime time, bool standing)
     {
         float dt = time.Dt;
         velocity.Y = 0;
@@ -207,7 +220,8 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         s.SinceSearch = 0;
         s.SearchGoal = steer.GoalVelocity;
         s.Match = Finite(match);
-        bool switches = Switches(match, current, current >= 0 && runtime.Database.Searchable[current], rules.SwitchGain);
+        bool switches = Switches(match, current, current >= 0 && runtime.Database.Searchable[current], rules.SwitchGain)
+            && !(standing && runtime.Turn.IsTurnFrame(match.Frame));
         diagnostics.Searched(s.Player, (long)time.Tick, reason, root, current, s.Match, switches, microseconds, query.Raw);
         if (!switches) return -1;
         s.Switches++;

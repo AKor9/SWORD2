@@ -21,6 +21,15 @@ public readonly record struct PoseMask(int Index)
 }
 
 /// <summary>
+/// Скручивание, зарегистрированное в пуле (<see cref="PosePool.AddTwist"/>): сустав-опора поворота всего тела и суставы корпуса с долями
+/// обратного поворота для <see cref="PosePool.Twist"/>.
+/// </summary>
+public readonly record struct PoseTwist(int Index)
+{
+    public override string ToString() => $"скручивание {Index}";
+}
+
+/// <summary>
 /// Память смешивания по маске (<see cref="PosePool.BlendMasked"/>): две позы — итог прошлого тика (<see cref="Output"/>) и итог по
 /// кратчайшей дуге прошлого тика (<see cref="Shortest"/>); <see cref="Continuous"/> — в них прошлый тик того же смешивания
 /// (иначе — только записать).
@@ -32,11 +41,11 @@ public readonly record struct BlendMemory(PoseHandle Output, PoseHandle Shortest
 
 /// <summary>
 /// Итог одного <see cref="PosePool.Tick"/>: сколько заданий каждого вида выполнено и сколько пропущено; <see cref="Motions"/> —
-/// шагов проигрывателей Motion Matching (<see cref="PosePool.Motion"/>).
+/// шагов проигрывателей Motion Matching (<see cref="PosePool.Motion"/>), <see cref="Twists"/> — скручиваний (<see cref="PosePool.Twist"/>).
 /// </summary>
-public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale, int Motions = 0)
+public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale, int Motions = 0, int Twists = 0)
 {
-    public int Total => Samples + Blends + Copies + ToModel + Motions;
+    public int Total => Samples + Blends + Copies + ToModel + Motions + Twists;
 }
 
 /// <summary>
@@ -44,7 +53,7 @@ public readonly record struct PoseTickStats(int Samples, int Blends, int Copies,
 /// и смещения всех суставов и модельные матрицы (итог прямой кинематики). Слоты лежат подряд в общих массивах.
 ///
 /// Позы меняются только заданиями: системы тика ставят <see cref="Sample"/>, <see cref="Blend"/>, <see cref="BlendMasked"/>,
-/// <see cref="AddMasked"/>, <see cref="Copy"/>, <see cref="ToModel"/>, <see cref="Motion"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
+/// <see cref="AddMasked"/>, <see cref="Copy"/>, <see cref="ToModel"/>, <see cref="Motion"/>, <see cref="Twist"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
 /// Animation), дальше позы читают (Pull, клиент). Порядок заданий одной позы сохраняется, поэтому итог совпадает
 /// с последовательными вызовами <c>SkeletalClips</c> SWORD. Задание к позе, освобождённой до <see cref="Tick"/>,
 /// пропускается (<see cref="PoseTickStats.Stale"/>). Установившийся тик не выделяет памяти.
@@ -54,16 +63,16 @@ public readonly record struct PoseTickStats(int Samples, int Blends, int Copies,
 /// </summary>
 public sealed partial class PosePool
 {
-    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel, Motion }
+    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel, Motion, Twist }
 
     private struct Job
     {
         public Op Op;
         public PoseHandle Dst, Src;
         public PoseHandle Ref;   // добавка по маске: поза, от которой считается отклонение
-        public int Clip;      // клип сэмпла или маска смешивания (добавки) по маске
-        public float Value;   // время клипа или вес смешивания
-        public float Stand;   // смешивание по маске: доля клипа в суставах вне маски
+        public int Clip;      // клип сэмпла, маска смешивания (добавки) по маске или скручивание
+        public float Value;   // время клипа, вес смешивания или угол скручивания
+        public float Stand;   // смешивание по маске: доля клипа в суставах вне маски; скручивание: поворот груди
         public BlendMemory Memory;   // смешивание по маске: память (None — без неё)
     }
 
@@ -97,6 +106,7 @@ public sealed partial class PosePool
     private MotionJob[] _motionJobs = [];
     private int _motionCount;
     private readonly List<float[]> _masks = [];
+    private readonly List<TwistSpec> _twists = [];
     private readonly float[] _layer;   // маска задания «смешать по маске» с долей stand — считается на задание
 
     public PosePool(ClipLibrary clips, int capacity = 16)
@@ -327,6 +337,69 @@ public sealed partial class PosePool
         Push(new Job { Op = Op.AddMasked, Dst = dst, Src = pose, Ref = reference, Clip = mask.Index, Value = weight });
     }
 
+    /// <summary>
+    /// Скручивание для <see cref="Twist"/>: <paramref name="bodyRoot"/> — сустав, через начало которого идёт вертикаль поворота всего тела;
+    /// <paramref name="spine"/> — суставы корпуса, <paramref name="weights"/> — их доли обратного поворота (≥ 0, в сумме 1). Суставы корпуса
+    /// поворачиваются в порядке «предок раньше потомка» (порядок аргумента не важен). Регистрируется при настройке симуляции, номер —
+    /// порядок регистрации.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Сустава нет в скелете.</exception>
+    /// <exception cref="ArgumentException">Суставов корпуса нет, они повторяются, их не столько, сколько долей, или доли не ≥ 0 и не в сумме 1.</exception>
+    public PoseTwist AddTwist(int bodyRoot, ReadOnlySpan<int> spine, ReadOnlySpan<float> weights)
+    {
+        if ((uint)bodyRoot >= (uint)_jc) throw new ArgumentOutOfRangeException(nameof(bodyRoot), bodyRoot, $"суставов в скелете {_jc}");
+        if (spine.Length == 0) throw new ArgumentException("скручиванию нужны суставы корпуса", nameof(spine));
+        if (spine.Length != weights.Length) throw new ArgumentException($"суставов корпуса {spine.Length}, а долей {weights.Length}", nameof(weights));
+        var parents = Skeleton.JointParents;
+        var depth = new int[spine.Length];
+        float sum = 0;
+        for (int k = 0; k < spine.Length; k++)
+        {
+            int j = spine[k];
+            if ((uint)j >= (uint)_jc) throw new ArgumentOutOfRangeException(nameof(spine), j, $"суставов в скелете {_jc}");
+            if (spine[..k].Contains(j)) throw new ArgumentException($"сустав {Skeleton.JointNames[j]} в корпусе дважды", nameof(spine));
+            if (!(float.IsFinite(weights[k]) && weights[k] >= 0))
+                throw new ArgumentException($"доля сустава {Skeleton.JointNames[j]} — {weights[k]}, а не конечное ≥ 0", nameof(weights));
+            sum += weights[k];
+            for (int a = parents[j]; a >= 0; a = parents[a]) depth[k]++;
+        }
+        if (MathF.Abs(sum - 1) > 1e-4f) throw new ArgumentException($"доли корпуса в сумме {sum}, а не 1", nameof(weights));
+        int[] order = [.. Enumerable.Range(0, spine.Length).OrderBy(k => depth[k])];
+        int[] spineJoints = spine.ToArray(), spineOrdered = new int[order.Length];
+        float[] weightArray = weights.ToArray(), weightOrdered = new float[order.Length];
+        for (int k = 0; k < order.Length; k++)
+        {
+            spineOrdered[k] = spineJoints[order[k]];
+            weightOrdered[k] = weightArray[order[k]];
+        }
+        var tops = new List<int>();
+        for (int j = 0; j < _jc; j++)
+            if (parents[j] < 0) tops.Add(j);
+        _twists.Add(new TwistSpec(bodyRoot, spineOrdered, weightOrdered, [.. tops]));
+        return new PoseTwist(_twists.Count - 1);
+    }
+
+    /// <summary>Скручиваний в пуле.</summary>
+    public int TwistCount => _twists.Count;
+
+    /// <summary>
+    /// Задание: скручивание позы <paramref name="dst"/> на <paramref name="yaw"/> рад (курс: + от +Z к +X, как <c>Matrix4x4.CreateRotationY</c>).
+    /// Весь скелет поворачивается на <paramref name="yaw"/> вокруг вертикали модели (+Y) через начало сустава-опоры (у корневых суставов —
+    /// локальный поворот и смещение), затем каждый сустав корпуса — на −доля·(<paramref name="yaw"/> − <paramref name="chest"/>) вокруг
+    /// вертикали модели в своей точке: ноги и таз уходят на <paramref name="yaw"/>, а суставы после всего корпуса (грудь, шея, голова, руки) в
+    /// модели повёрнуты на <paramref name="chest"/> от того, как до задания (0 — так же; их положение сдвигается на горизонтальные плечи корпуса
+    /// — сантиметры). Меняет локальную позу; модельные матрицы — <see cref="ToModel"/>. Оба угла 0 — поза побитово прежняя.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Скручивания нет в пуле или угол не конечен.</exception>
+    public void Twist(PoseHandle dst, PoseTwist twist, float yaw, float chest = 0)
+    {
+        Check(dst);
+        if ((uint)twist.Index >= (uint)_twists.Count) throw new ArgumentOutOfRangeException(nameof(twist), twist, $"скручиваний в пуле {_twists.Count}");
+        if (!float.IsFinite(yaw)) throw new ArgumentOutOfRangeException(nameof(yaw), yaw, "угол скручивания — конечный");
+        if (!float.IsFinite(chest)) throw new ArgumentOutOfRangeException(nameof(chest), chest, "поворот груди — конечный");
+        Push(new Job { Op = Op.Twist, Dst = dst, Clip = twist.Index, Value = yaw, Stand = chest });
+    }
+
     /// <summary>Задание: локальная поза <paramref name="src"/> — в <paramref name="dst"/>.</summary>
     public void Copy(PoseHandle dst, PoseHandle src)
     {
@@ -379,7 +452,7 @@ public sealed partial class PosePool
     /// <summary>Исполнить все задания очереди по порядку и очистить её.</summary>
     public PoseTickStats Tick()
     {
-        int samples = 0, blends = 0, copies = 0, models = 0, stale = 0, motions = 0;
+        int samples = 0, blends = 0, copies = 0, models = 0, stale = 0, motions = 0, twists = 0;
         var clips = Clips;
         for (int n = 0; n < _jobCount; n++)
         {
@@ -442,6 +515,10 @@ public sealed partial class PosePool
                     if (RunMotion(in _motionJobs[job.Clip], d)) motions++;
                     else stale++;
                     break;
+                case Op.Twist:
+                    if (job.Value != 0 || job.Stand != 0) ApplyTwist(_twists[job.Clip], _rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), job.Value, job.Stand);
+                    twists++;
+                    break;
             }
         }
         _jobCount = 0;
@@ -450,7 +527,7 @@ public sealed partial class PosePool
             Array.Clear(_motionJobs, 0, _motionCount);   // хранилища не держатся очередью после тика
             _motionCount = 0;
         }
-        return LastTick = new PoseTickStats(samples, blends, copies, models, stale, motions);
+        return LastTick = new PoseTickStats(samples, blends, copies, models, stale, motions, twists);
     }
 
     /// <summary>
@@ -482,6 +559,55 @@ public sealed partial class PosePool
             var delta = Quaternion.Conjugate(reference[j]) * pose[j];
             rot[j] = Quaternion.Normalize(rot[j] * Quaternion.Slerp(Quaternion.Identity, delta, k));
         }
+    }
+
+    /// <summary>Скручивание (<see cref="AddTwist"/>): опора, суставы корпуса предками вперёд, их доли, корневые суставы скелета.</summary>
+    private sealed record TwistSpec(int BodyRoot, int[] Spine, float[] Weights, int[] Tops);
+
+    /// <summary>
+    /// Скручивание (<see cref="Twist"/>). Вектор слева, <c>model = local · model родителя</c> (<see cref="Skeleton.ToModel"/>): поворот всего
+    /// тела W = T(−c)·Ry·T(c) — справа к локальной матрице корневых суставов; обратный поворот сустава корпуса на θ в его точке — модельный
+    /// поворот R·Ry(θ), то есть локальный <c>r' = conj(P)·y·P·r</c> (P — модельный поворот родителя после прошлых шагов), θ = −доля·(yaw −
+    /// chest). Циклы по суставам — в своём методе: <see cref="Tick"/> зовётся раз в тик.
+    /// </summary>
+    private void ApplyTwist(TwistSpec twist, Span<Quaternion> rot, Span<Vector3> pos, float yaw, float chest)
+    {
+        if (yaw != 0)
+        {
+            var c = ModelOrigin(twist.BodyRoot, rot, pos);
+            var q = Quaternion.CreateFromAxisAngle(Vector3.UnitY, yaw);
+            foreach (int t in twist.Tops)
+            {
+                rot[t] = Quaternion.Normalize(q * rot[t]);
+                pos[t] = Vector3.Transform(pos[t] - c, q) + c;
+            }
+        }
+        var parents = Skeleton.JointParents;
+        for (int k = 0; k < twist.Spine.Length; k++)
+        {
+            int j = twist.Spine[k];
+            var p = ModelRotation(parents[j], rot);
+            var y = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -twist.Weights[k] * (yaw - chest));
+            rot[j] = Quaternion.Normalize(Quaternion.Conjugate(p) * y * p * rot[j]);
+        }
+    }
+
+    /// <summary>Начало сустава <paramref name="joint"/> в модели — прямой кинематикой по цепочке его предков.</summary>
+    private Vector3 ModelOrigin(int joint, ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos)
+    {
+        var parents = Skeleton.JointParents;
+        var v = pos[joint];
+        for (int a = parents[joint]; a >= 0; a = parents[a]) v = Vector3.Transform(v, rot[a]) + pos[a];
+        return v;
+    }
+
+    /// <summary>Поворот сустава <paramref name="joint"/> в модели (−1 — тождество): <c>Q = Q родителя · r</c>.</summary>
+    private Quaternion ModelRotation(int joint, ReadOnlySpan<Quaternion> rot)
+    {
+        var parents = Skeleton.JointParents;
+        var q = Quaternion.Identity;
+        for (int a = joint; a >= 0; a = parents[a]) q = rot[a] * q;
+        return q;
     }
 
     /// <summary>

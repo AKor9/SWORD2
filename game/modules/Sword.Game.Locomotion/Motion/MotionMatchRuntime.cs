@@ -24,6 +24,9 @@ public sealed class MotionMatchRuntime
     public MotionMatcher Matcher { get; private set; } = null!;
     public MotionQuery Query { get; private set; } = null!;
 
+    /// <summary>Поворот на месте: скручивание позы, клипы поворота базы, остаток поворота их корня (<see cref="TurnInPlace"/>).</summary>
+    public TurnInPlace Turn { get; private set; } = null!;
+
     /// <summary>Диагностика: последний поиск слота, запрошенный переход тика, время поиска, зона профайлера — вне хеша.</summary>
     public MotionMatchDiagnostics Diagnostics { get; private set; } = null!;
 
@@ -50,7 +53,7 @@ public sealed class MotionMatchRuntime
 
     /// <summary>
     /// База из библиотеки пула поз и отбора <paramref name="pattern"/> (кэш процесса — две симуляции строят её один раз), хранилище на
-    /// одного бойца с запасом, поиск, запрос, кадр постройки.
+    /// одного бойца с запасом, поиск, запрос, кадр постройки, поворот на месте (скручивание — в пуле поз).
     /// </summary>
     /// <exception cref="InvalidDataException">Данные не дают базы MM (нет клипов GASP, нет сустава, имя не разбирается, отбор — не регулярка).</exception>
     public void Init(PosePool pool, string pattern, float tickSeconds)
@@ -84,6 +87,7 @@ public sealed class MotionMatchRuntime
         var clip = Database.Clips[Math.Max(idle, 0)];
         StartFrame = clip.Start;
         StartPose = new FighterStartPose { Clip = clip.LibraryClip, Time = 0 };
+        Turn = new TurnInPlace(Base, pool, StartFrame);
         _histories = new RootHistory?[Players.Capacity];
     }
 

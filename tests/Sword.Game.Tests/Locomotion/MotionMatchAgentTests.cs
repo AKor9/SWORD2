@@ -529,8 +529,9 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
     // ── F3 ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Вкладка F3 «Локомоция» (клиент модуль не видит — ручки по секции): 17 ручек (поиск и переход, 12 весов, вес руки) по порядку регистрации, строки
-    /// состояния по виду — клип, поиск, время поиска, переходов/с — пишут текст на стек без выделений; при <c>clips</c> вкладки нет.
+    /// Вкладка F3 «Локомоция» (клиент модуль не видит — ручки по секции): 22 ручки (поиск и переход, 12 весов, вес руки, 5 ручек поворота на
+    /// месте) по порядку регистрации, строки состояния по виду — клип, поиск, время поиска, переходов/с, поворот на месте — пишут текст на
+    /// стек без выделений; при <c>clips</c> вкладки нет.
     /// </summary>
     [Fact]
     public void TuningGroup_KnobsAndRows_NoAllocations()
@@ -542,12 +543,12 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
         Assert.NotNull(group);
         Assert.Equal((LocomotionKnobs.Section, "Локомоция"), (group.Id, group.Title));
         Assert.Equal(sim.Tuning.Where(k => k.Section == LocomotionKnobs.Section).Select(k => k.Key).Order(), group.Values().Keys.Order());
-        Assert.Equal(["MOTION MATCHING ИГРОКА", "ПОИСК, ПЕРЕХОД, ВЕСА ГРУПП, РУКА"], group.Items.OfType<TuningHeader>().Select(h => h.Label));
+        Assert.Equal(["MOTION MATCHING ИГРОКА", "ПОИСК, ПЕРЕХОД, ВЕСА ГРУПП, РУКА, ПОВОРОТ"], group.Items.OfType<TuningHeader>().Select(h => h.Label));
         Assert.Equal(sim.Tuning.Where(k => k.Section == LocomotionKnobs.Section).Select(k => k.Key),
-            group.Items.OfType<TuningFloat>().Select(f => f.Key));   // порядок регистрации: поиск и переход, веса, вес руки
-        Assert.Equal(17, group.Items.OfType<TuningFloat>().Count());
+            group.Items.OfType<TuningFloat>().Select(f => f.Key));   // порядок регистрации: поиск и переход, веса, вес руки, поворот
+        Assert.Equal(22, group.Items.OfType<TuningFloat>().Count());
         var rows = group.Items.OfType<TuningInfo>().ToList();
-        Assert.Equal(["клип", "поиск", "время поиска", "переходов/с"], rows.Select(r => r.Label));
+        Assert.Equal(["клип", "поиск", "время поиска", "переходов/с", "поворот на месте"], rows.Select(r => r.Label));
         long bytes = 0;
         Span<char> d = stackalloc char[128];
         for (int f = 0; f < 400; f++)

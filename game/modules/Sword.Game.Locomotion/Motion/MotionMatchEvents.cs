@@ -10,7 +10,8 @@ namespace Sword.Game.Locomotion.Motion;
 /// тика — события <see cref="MotionTransition"/> (журнал ECS: <c>events.history</c>; экспорт клиенту). Пул исполнил задания тика
 /// (<c>core.animation-tick</c>), а вид состояния в компоненте ещё прошлого тика: переходов за тик — счётчик проигрывателя минус счётчик
 /// компонента. Запрошенный поиском (диагностика: тик и кадр запроса) — событие «поиск» (откуда — текущий кадр поиска, куда — кадр входа
-/// найденного, цены поиска, повод); остальные — рёбра графа (порядок в тике — как в задании: ребро при продвижении, затем запрос): откуда
+/// найденного, цены поиска, повод), запрошенный поворотом на месте — событие «поворот на месте» (откуда — текущий кадр, куда — первый кадр
+/// клипа поворота); остальные — рёбра графа (порядок в тике — как в задании: ребро при продвижении, затем запрос): откуда
 /// — кадр ребра от кадра прошлого тика вперёд по графу, куда — его вход, цена — кадр входа против признаков кадра ребра с весами поиска.
 /// В режиме причинности (<c>state.why</c>) родитель события — решение «MM: …» с поводом (корень). Мёртвого не касается; 0 Б.
 /// </summary>
@@ -21,7 +22,7 @@ public sealed class MotionMatchEventSystem(MotionMatchRuntime runtime) : IContin
     /// <summary>Решения журнала причинности — пояснения (строки-константы: в тике не строятся).</summary>
     public const string StartNote = "MM: первый поиск после постройки", ScheduleNote = "MM: поиск по расписанию",
         GoalJumpNote = "MM: поиск — скачок цели скорости", AfterActionNote = "MM: поиск после действия всем телом",
-        EdgeNote = "MM: ребро графа — вход продолжения";
+        EdgeNote = "MM: ребро графа — вход продолжения", TurnNote = "MM: поворот на месте — клип поворота";
 
     private Query _query = null!;
 
@@ -51,7 +52,8 @@ public sealed class MotionMatchEventSystem(MotionMatchRuntime runtime) : IContin
         int count = st.Transitions - s.Transitions;
         if (count <= 0 || s.Frame < 0) return;
         var search = runtime.Diagnostics.Last(s.Player);
-        bool requested = search is not null && search.RequestedTick == tick;
+        bool turned = runtime.Diagnostics.TurnedAt(s.Player, tick, out int turnFrom, out _);
+        bool requested = turned || search is not null && search.RequestedTick == tick;
         int transitions = s.Transitions;
         if (count > (requested ? 1 : 0))
         {
@@ -59,7 +61,9 @@ public sealed class MotionMatchEventSystem(MotionMatchRuntime runtime) : IContin
             float cost = from >= 0 && to >= 0 ? runtime.Matcher.Cost(runtime.Database.FeatureRow(from), runtime.Weights, to, out _) : -1;
             Send(ctx, e, MotionTransitionKind.Edge, MotionSearchReason.None, from, to, cost, -1, ++transitions, EdgeNote);
         }
-        if (requested)
+        if (turned)
+            Send(ctx, e, MotionTransitionKind.TurnInPlace, MotionSearchReason.None, turnFrom, st.Frame, -1, -1, st.Transitions, TurnNote);
+        else if (requested)
         {
             var match = search!.Match;
             Send(ctx, e, MotionTransitionKind.Search, search.Reason, search.Current, st.Frame, match.Cost, match.ContinuationCost,

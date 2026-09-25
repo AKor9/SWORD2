@@ -46,6 +46,7 @@ public sealed class MotionMatchDiagnostics
 
     private readonly MotionDatabase _db;
     private Record?[] _records = [];
+    private (int Generation, long Tick, int From, int To)[] _turns = new (int, long, int, int)[4];   // слоты проигрывателей — запас: первый поворот не выделяет
     private CpuProfiler _profiler = CpuProfiler.Off;
     private int _zone;
     private long _started;
@@ -125,6 +126,24 @@ public sealed class MotionMatchDiagnostics
             r.Requested = match.Frame;
         }
         query.CopyTo(r.Query);
+    }
+
+    /// <summary>Поворот на месте проигрывателя <paramref name="player"/> в тике <paramref name="tick"/>: запрошен переход из кадра <paramref name="from"/> в <paramref name="to"/>.</summary>
+    public void Turned(MotionPlayerHandle player, long tick, int from, int to)
+    {
+        if (player.Index >= _turns.Length) Array.Resize(ref _turns, Math.Max(player.Index + 1, _turns.Length * 2));
+        _turns[player.Index] = (player.Generation, tick, from, to);
+    }
+
+    /// <summary>В тике <paramref name="tick"/> этой жизни проигрывателя был поворот на месте: откуда и куда.</summary>
+    public bool TurnedAt(MotionPlayerHandle player, long tick, out int from, out int to)
+    {
+        from = to = -1;
+        if (player.IsNone || player.Index >= _turns.Length) return false;
+        var r = _turns[player.Index];
+        if (r.Generation != player.Generation || r.Tick != tick) return false;
+        (from, to) = (r.From, r.To);
+        return true;
     }
 
     private Record Slot(int index)

@@ -30,14 +30,18 @@ public enum MotionTransitionKind : byte
 
     /// <summary>Ребро графа базы: конец нециклического клипа или ранний выход — вход продолжения.</summary>
     Edge = 1,
+
+    /// <summary>Поворот на месте: стоя курс корня ушёл от курса ног — первый кадр клипа поворота (<c>Stand_Turn_*</c>; запрошенный переход).</summary>
+    TurnInPlace = 2,
 }
 
 /// <summary>
 /// Событие (журнал ECS — <c>events.history {"types":["MotionTransition"]}</c>, причина — <c>state.why {"cause":N}</c> в режиме
 /// причинности): переход проигрывателя Motion Matching бойца с инерциализацией. Откуда — кадр базы, с которого ушёл проигрыватель (у поиска
-/// — текущий кадр, с которым сравнивалось продолжение; у ребра — кадр ребра), куда — кадр входа; клипы — номера библиотеки
-/// (<see cref="IAnimationView.ClipName"/>). Цена: у поиска — цена найденного кадра и цена продолжения (−1 — продолжения не было); у ребра —
-/// цена кадра входа против признаков кадра ребра с весами поиска (насколько шов похож; продолжения нет — −1). Шлёт модуль Locomotion
+/// — текущий кадр, с которым сравнивалось продолжение; у ребра — кадр ребра; у поворота на месте — текущий кадр), куда — кадр входа; клипы —
+/// номера библиотеки (<see cref="IAnimationView.ClipName"/>). Цена: у поиска — цена найденного кадра и цена продолжения (−1 — продолжения не
+/// было); у ребра — цена кадра входа против признаков кадра ребра с весами поиска (насколько шов похож; продолжения нет — −1); у поворота на
+/// месте — −1. Шлёт модуль Locomotion
 /// (Movement, после исполнения заданий пула), только при <c>locomotion.player = mm</c>.
 /// </summary>
 public struct MotionTransition
@@ -63,10 +67,13 @@ public readonly record struct MotionMatchBase(int Clips, int Frames, int Searcha
 /// Состояние Motion Matching бойца после тика: кадр базы, клип библиотеки и кадр в нём, доля интервала, темп; <see cref="Stepping"/> —
 /// проигрыватель идёт (у мёртвого стоит), <see cref="Searching"/> — поиск разрешён (не под действием всем телом), тиков с последнего
 /// поиска; счётчики с постройки — поисков, смен кадра поиском, переходов (поиском и по рёбрам графа); контакты стоп кадра — бит k — сустав
-/// <see cref="IMotionMatchView.ContactJoint"/>(k) на земле (по разметке базы).
+/// <see cref="IMotionMatchView.ContactJoint"/>(k) на земле (по разметке базы). Поворот на месте: <see cref="Twist"/> — расхождение курса
+/// корня и курса ног, рад (+ — корень левее: курс + от +Z к +X; ноги и таз — по курсу ног, грудь — по курсу корня), <see cref="Chest"/> —
+/// выравнивание груди, рад, <see cref="TurnClip"/> — клип поворота на месте, пока его корень поворачивается (−1 — нет), <see cref="Turns"/> —
+/// поворотов с постройки.
 /// </summary>
 public readonly record struct MotionMatchStatus(int Frame, int Clip, int ClipFrame, float Alpha, float Rate, bool Stepping, bool Searching,
-    int SinceSearch, int Searches, int Switches, int Transitions, int Contacts);
+    int SinceSearch, int Searches, int Switches, int Transitions, int Contacts, float Twist = 0, float Chest = 0, int TurnClip = -1, int Turns = 0);
 
 /// <summary>
 /// Последний поиск бойца: тик, повод, текущий кадр (−1 — не было), найденный кадр, его клип и кадр в клипе, цена и цена продолжения

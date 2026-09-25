@@ -33,6 +33,13 @@ public sealed record LocomotionSettings
     /// <summary>Вес руки с мечом (<c>locomotion.armWeight</c>): стойка оружия по маске правой руки поверх позы MM.</summary>
     public float ArmWeight { get; init; } = SwordArm.DefaultWeight;
 
+    // Поворот на месте: углы — градусы, времена — секунды (GaspMotion.Turn*).
+    public float TurnAngle { get; init; } = GaspMotion.TurnAngle;
+    public float TurnSmallAngle { get; init; } = GaspMotion.TurnSmallAngle;
+    public float TurnHold { get; init; } = GaspMotion.TurnHold;
+    public float TurnMax { get; init; } = GaspMotion.TurnMax;
+    public float TurnReturn { get; init; } = GaspMotion.TurnReturn;
+
     // Веса 12 групп признаков — ключи GaspMotion.WeightKeys, значения по умолчанию — веса GaspMotion.Groups.
     public float WeightTrajectory { get; init; } = GaspMotion.Groups[0].Weight;
     public float WeightTrajectoryFacing { get; init; } = GaspMotion.Groups[1].Weight;
@@ -78,6 +85,12 @@ public struct LocomotionRules
     /// <summary>Вес руки с мечом (<c>armWeight</c>), 0…1.</summary>
     public float ArmWeight;
 
+    /// <summary>
+    /// Поворот на месте (<see cref="TurnInPlace"/>): порог клипа поворота и малый угол, градусы (<c>turnAngle</c>, <c>turnSmallAngle</c>), выдержка, с
+    /// (<c>turnHold</c>), потолок расхождения, градусы (<c>turnMax</c>), возврат на ходу, с (<c>turnReturn</c>).
+    /// </summary>
+    public float TurnAngle, TurnSmallAngle, TurnHold, TurnMax, TurnReturn;
+
     public float WeightTrajectory, WeightTrajectoryFacing, WeightPast, WeightRootVelocity, WeightRootYawRate, WeightFeet, WeightFeetVelocity,
         WeightKnees, WeightPelvis, WeightPelvisVelocity, WeightPelvisFacing, WeightChestFacing;
 
@@ -91,6 +104,11 @@ public struct LocomotionRules
             InertialHalflife = Check(s.InertialHalflife, "inertialHalflife", 1e-3f, 10),
             RateRange = Check(s.RateRange, "rateRange", 0, 0.99f),
             ArmWeight = Check(s.ArmWeight, "armWeight", 0, 1),
+            TurnAngle = Check(s.TurnAngle, "turnAngle", 1, 180),
+            TurnSmallAngle = Check(s.TurnSmallAngle, "turnSmallAngle", 0, 180),
+            TurnHold = Check(s.TurnHold, "turnHold", 0, 10),
+            TurnMax = Check(s.TurnMax, "turnMax", 0, 180),
+            TurnReturn = Check(s.TurnReturn, "turnReturn", 0.01f, 5),
             WeightTrajectory = s.WeightTrajectory, WeightTrajectoryFacing = s.WeightTrajectoryFacing, WeightPast = s.WeightPast,
             WeightRootVelocity = s.WeightRootVelocity, WeightRootYawRate = s.WeightRootYawRate, WeightFeet = s.WeightFeet,
             WeightFeetVelocity = s.WeightFeetVelocity, WeightKnees = s.WeightKnees, WeightPelvis = s.WeightPelvis,
@@ -153,6 +171,19 @@ public static class LocomotionKnobs
                 hint: $"вес группы признаков «{GaspMotion.Groups[g].Name}» в цене кадра");
         }
         SwordArm.Knob(t, d.ArmWeight);   // вес руки с мечом
+        t.Float("turnAngle", "поворот: порог", (in LocomotionRules r) => r.TurnAngle, (ref LocomotionRules r, float v) => r.TurnAngle = v,
+                1, 180, d.TurnAngle, format: "0",
+                hint: "стоя курс корня ушёл от ног дальше, градусы, — сразу клип поворота на месте (Stand_Turn); меньше — ноги стоят, корпус скручивается")
+            .Float("turnSmallAngle", "поворот: малый угол", (in LocomotionRules r) => r.TurnSmallAngle,
+                (ref LocomotionRules r, float v) => r.TurnSmallAngle = v, 0, 180, d.TurnSmallAngle, format: "0",
+                hint: "курс стоит дольше выдержки, а расхождение с ногами больше, градусы, — ноги доворачиваются клипом поворота")
+            .Float("turnHold", "поворот: выдержка", (in LocomotionRules r) => r.TurnHold, (ref LocomotionRules r, float v) => r.TurnHold = v,
+                0, 3, d.TurnHold, format: "0.00", hint: "сколько секунд курс корня стоит, прежде чем ноги доворачиваются на малое расхождение")
+            .Float("turnMax", "поворот: потолок", (in LocomotionRules r) => r.TurnMax, (ref LocomotionRules r, float v) => r.TurnMax = v,
+                0, 180, d.TurnMax, format: "0",
+                hint: "наибольшее расхождение курса корня и ног, градусы: дальше ноги подтягиваются (скользят); 0 — без скручивания и клипов поворота")
+            .Float("turnReturn", "поворот: возврат на ходу", (in LocomotionRules r) => r.TurnReturn, (ref LocomotionRules r, float v) => r.TurnReturn = v,
+                0.01f, 1, d.TurnReturn, format: "0.00", hint: "пошёл — расхождение ног и корня гаснет к 0 не дольше стольких секунд");
     }
 
     private static float Weight(in LocomotionRules r, int group)
