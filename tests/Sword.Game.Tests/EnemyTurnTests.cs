@@ -16,7 +16,7 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 4г: поворот врага на месте — слой действий аниматора (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>),
+/// Поворот врага на месте — слой действий аниматора (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>),
 /// ветка не-<c>Agile</c> <c>KinematicSteer</c> (<see cref="RootSteerSystem.SteerSteady"/>), команда врагу
 /// (<see cref="EnemyCommand"/>), инвариант <c>animation.actions</c>. Тестовый контент: клипы поворота — 90° влево и вправо,
 /// разворот, 1 с, корень чуть вперёд (<see cref="TestAssets"/>). На паке контента — сценарий <c>turn</c> манифеста <c>enemies</c>.
@@ -197,7 +197,7 @@ public sealed class EnemyTurnTests
     {
         var sim = Create();
         var p = GameCore.Player(sim.World);
-        // 6б: слой действий есть и у игрока, но без действий (удары — 6в): поворот — контроллером, клипом — никогда.
+        // Слой действий есть и у игрока, но без действий: поворот — контроллером, клипом — никогда.
         Assert.Equal(AnimatorAction.None, sim.World.Get<AnimatorAction>(p));
         Assert.True(sim.World.Get<ActionPoses>(p).Layer.IsNone);
         // взгляд назад стоя: 12 рад/с сразу, без клипа
@@ -424,7 +424,7 @@ public sealed class EnemyTurnTests
             Assert.True(action["yawDelta"]!.GetValue<double>() > 0);
             Assert.InRange(action["weight"]!.GetValue<double>(), 0.5, 1);
             var player = await Call("anim.pose", new JsonObject { ["joints"] = new JsonArray("pelvis") });
-            Assert.Equal("None", player["action"]!["kind"]!.GetValue<string>());   // 6б: слой у игрока есть, действий нет
+            Assert.Equal("None", player["action"]!["kind"]!.GetValue<string>());   // слой у игрока есть, действий нет
             var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "AnimatorAction" });
             Assert.Contains("YawDelta", describe.ToJsonString());
             Assert.Contains("animation.actions", (await Call("invariant.list")).ToJsonString());

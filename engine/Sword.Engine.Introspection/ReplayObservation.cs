@@ -56,7 +56,7 @@ public sealed class ReplayObserveResult
 public static class ReplayObservation
 {
     /// <param name="simulation">Симуляция, собранная из конфига реплея (<see cref="Replay.CreateConfig"/>), на тике 0.</param>
-    /// <param name="fields">Вычисляемые поля игры для наблюдения (<c>Body.*</c>, 5г); null — только компоненты.</param>
+    /// <param name="fields">Вычисляемые поля игры для наблюдения (<c>Body.*</c>); null — только компоненты.</param>
     public static ReplayObserveResult Run(Simulation simulation, Replay replay, IEntityNames? names, ReplayObserveOptions options,
         CancellationToken cancel = default, IEntityFields? fields = null)
     {

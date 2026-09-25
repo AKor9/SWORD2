@@ -97,7 +97,7 @@ public sealed class AgentHost
     public ServiceQueue Service => _options.Service;
 
     /// <summary>
-    /// Наблюдение агента (этап 3в): история событий, наблюдения <c>watch.*</c>, условие остановки. Подключает к симуляции
+    /// Наблюдение агента: история событий, наблюдения <c>watch.*</c>, условие остановки. Подключает к симуляции
     /// хозяин цикла (<see cref="Observe"/>): Headless — <see cref="SimulationLoop"/> (к каждой симуляции сеанса), живая игра —
     /// exe при старте агента.
     /// </summary>
@@ -150,7 +150,7 @@ public sealed class AgentHost
 
     /// <summary>
     /// Вычисляемые поля сущностей игры (<see cref="IEntityFields"/>): метрики <c>feature.verify</c> читают их как поля, наблюдения
-    /// (<c>watch.add</c>, <c>replay.observe</c>, 5г) пишут их по тикам.
+    /// (<c>watch.add</c>, <c>replay.observe</c>) пишут их по тикам.
     /// </summary>
     public IEntityFields? Fields
     {
@@ -159,13 +159,13 @@ public sealed class AgentHost
     }
 
     /// <summary>
-    /// Профайлер CPU (точка Па; <c>profile.stages</c>): у Headless — свой, <see cref="SimulationLoop"/> подключает его к каждой
+    /// Профайлер CPU (<c>profile.stages</c>): у Headless — свой, <see cref="SimulationLoop"/> подключает его к каждой
     /// симуляции сеанса; у живой игры exe задаёт профайлер клиента (кадр, тики, проходы). Читать и менять — только в точке
     /// обслуживания (однопоточный).
     /// </summary>
     public CpuProfiler Profiler { get; set; } = new();
 
-    /// <summary>Где манифесты фич и чем снимать виды (<c>feature.*</c>, этап 3д) — задаёт exe игры; null — фич нет.</summary>
+    /// <summary>Где манифесты фич и чем снимать виды (<c>feature.*</c>) — задаёт exe игры; null — фич нет.</summary>
     public FeatureSetup? Features { get; set; }
 
     /// <summary>Последний кадр клиента (App); у Headless — null. Пишет поток кадра, читает поток агента.</summary>

@@ -65,7 +65,7 @@ public sealed class SkeletonProcessor : AssetProcessor<SkeletonParams>, IAssetPr
     }
 }
 
-/// <summary>Параметры меша персонажа (единица skin.mesh) — анатомия (Б5) читает по ссылке путь меша, под чью кожу прячется.</summary>
+/// <summary>Параметры меша персонажа (единица skin.mesh) — анатомия читает по ссылке путь меша, под чью кожу прячется.</summary>
 public sealed class SkinMeshParams
 {
     [Description("Скелет и риг (единица anim.skeleton): поза покоя и кости.")]

@@ -9,7 +9,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Причинность (раздел 8 плана, 6д): <c>state.why</c> — почему поле сущности такое: последние изменения, система, тик, источник и
+/// Причинность (раздел 8 плана): <c>state.why</c> — почему поле сущности такое: последние изменения, система, тик, источник и
 /// цепочка причин до корня (команда, решение ИИ) из журнала причинности; для непрерывных полей — честно грубо: какая регистрация
 /// писала столбец в каком тике. Режим включают <c>session.start {causality:true}</c> и ключ <c>--causality</c> (Headless, App).
 /// </summary>
@@ -60,7 +60,7 @@ internal static class CauseTools
     }
 
     /// <summary>
-    /// <c>state.why {cause}</c> (8з): цепочка записи журнала причинности по номеру до корня — событие (переход Motion Matching, попадание) ←
+    /// <c>state.why {cause}</c>: цепочка записи журнала причинности по номеру до корня — событие (переход Motion Matching, попадание) ←
     /// решение или команда. Режим выключен — <c>enabled: false</c>; запись вытеснена — ошибка вызова со словами.
     /// </summary>
     private static async Task<ToolOutput> Cause(AgentHost host, ToolCall call)

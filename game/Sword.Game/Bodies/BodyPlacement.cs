@@ -26,7 +26,7 @@ public sealed class BodyJoints
     public BodyJoints(Skeleton skeleton)
     {
         int J(string n) => skeleton.Find(n) is var i and >= 0 ? i
-            : throw new InvalidDataException($"в скелете {skeleton.Id} нет сустава «{n}» — на нём стоит капсула тела бойца (5б)");
+            : throw new InvalidDataException($"в скелете {skeleton.Id} нет сустава «{n}» — на нём стоит капсула тела бойца");
         Pelvis = J("pelvis"); Spine = J("spine_01"); Neck = J("neck_01"); Head = J("head");
         UArmL = J("upperarm_l"); LArmL = J("lowerarm_l"); HandL = J("hand_l");
         UArmR = J("upperarm_r"); LArmR = J("lowerarm_r"); HandR = J("hand_r");
@@ -37,7 +37,7 @@ public sealed class BodyJoints
 
 /// <summary>
 /// Постановка капсул тела на позу (<c>DuelArena.PlaceBodies</c> SWORD 2eab13b без клинка, <c>BodyPlacer</c>, фиксации стоп и
-/// визуального смещения — этапы 6, 9, 8): мир бойца — поворот на курс и перенос в корень на высоте рельефа под корнем
+/// визуального смещения): мир бойца — поворот на курс и перенос в корень на высоте рельефа под корнем
 /// (<c>KinWorld</c>); сустав в мире — перенос модельной матрицы в мир бойца; капсула — между двумя точками: центр — середина,
 /// поворот — <see cref="AnimMath.FromBasis"/>(направление, «вправо» бойца). Выражения и порядок — SWORD.
 /// </summary>
@@ -124,7 +124,7 @@ public static class BodyPlacement
 
     /// <summary>
     /// Постройка бойца (<c>Fighter.Build</c> → <c>PlaceBuilt</c> SWORD): форма тела с массой от места и курса постройки
-    /// (<see cref="FighterShape"/>: радиусы, полудлины, массы — 7ж) и капсулы плоти без скорости (<see cref="IPhysicsWorld.Place"/>) по
+    /// (<see cref="FighterShape"/>: радиусы, полудлины, массы) и капсулы плоти без скорости (<see cref="IPhysicsWorld.Place"/>) по
     /// позе постройки <paramref name="startModel"/> в корне постройки. Тело клинка (11) — по мечу в руке, его строит клинок
     /// (<c>Combat.BladeSetupSystem</c>).
     /// </summary>

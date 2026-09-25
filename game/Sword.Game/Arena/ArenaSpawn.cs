@@ -13,7 +13,7 @@ namespace Sword.Game.Arena;
 
 /// <summary>
 /// Секция конфига <c>arena</c>. Значение в коде — пустая арена (0 врагов): так собирается мир без <c>sword.json</c> —
-/// тесты, сценарии фич и реплеи, записанные до этапа 4 (в их итоговом конфиге секции нет). Игра берёт число из
+/// тесты, сценарии фич и реплеи, в итоговом конфиге которых секции нет. Игра берёт число из
 /// <c>sword.json</c> — 10, как <c>Units</c> SWORD; ключ exe <c>--units N</c> — то же, что <c>--set arena.enemies=N</c>.
 /// </summary>
 public sealed record ArenaSettings
@@ -24,8 +24,8 @@ public sealed record ArenaSettings
 
 /// <summary>
 /// Постройка бойца на арене — <c>DuelArena.Reset/Spawn</c> и <c>Fighter.Build</c> SWORD 2eab13b: место, корень, курс,
-/// зерно, меч в руке (<see cref="WeaponSlot"/>, 6б: враг — случайный меч пака, игрок — меч инвентаря) и таймер удара врага
-/// (<see cref="EnemyAttack"/>, 6в: <c>EnemyAi.Built</c>; у игрока — 0). Числа — счётчиковым ГСЧ SWORD2 (потоки
+/// зерно, меч в руке (<see cref="WeaponSlot"/>: враг — случайный меч пака, игрок — меч инвентаря) и таймер удара врага
+/// (<see cref="EnemyAttack"/>: <c>EnemyAi.Built</c>; у игрока — 0). Числа — счётчиковым ГСЧ SWORD2 (потоки
 /// <see cref="ArenaRules.SpawnStream"/> и <see cref="EnemyAiRules.AttackStream"/>), а не <c>Random(7)</c> SWORD.
 /// </summary>
 public readonly record struct FighterSpawn(int Slot, Vector3 Position, float Facing, float Seed, int Weapon, float AttackTimer = 0)
@@ -58,10 +58,10 @@ public static class ArenaRules
     private static uint Sample(uint batch, int slot, uint k) => unchecked((batch * MaxFighters + (uint)slot) * 3 + k);
 
     /// <summary>
-    /// Номер выборки меча врага (6б) — новая выборка того же потока, не сдвигающая прежние: номера <see cref="Sample"/> (угол,
+    /// Номер выборки меча врага — новая выборка того же потока, не сдвигающая прежние: номера <see cref="Sample"/> (угол,
     /// радиус, зерно) — от 0 вверх по три на место и партию, номер меча — со старшего бита (<see cref="WeaponSampleBase"/>) по
     /// одному на место и партию: совпасть с прежними они могли бы только при партии больше 21 миллиона команд в тике. Поэтому
-    /// расстановка (корни, курсы, зёрна) — та же, что до 6б.
+    /// расстановка (корни, курсы, зёрна) от выборки меча не зависит.
     /// </summary>
     private static uint WeaponSample(uint batch, int slot) => unchecked(WeaponSampleBase + batch * MaxFighters + (uint)slot);
 
@@ -69,7 +69,7 @@ public static class ArenaRules
     public const uint WeaponSampleBase = 1u << 31;
 
     /// <summary>
-    /// Партия постройки при возрождении врага (6г, стадия Aftermath): номер, которого нет у команд арены (партия — номер команды тика
+    /// Партия постройки при возрождении врага (стадия Aftermath): номер, которого нет у команд арены (партия — номер команды тика
     /// с 1), поэтому возрождение не делит чисел ни с одной постройкой того же тика; номера выборки угла, радиуса и зерна
     /// (до 99 миллионов) не доходят до номеров меча (<see cref="WeaponSampleBase"/>).
     /// </summary>
@@ -77,10 +77,10 @@ public static class ArenaRules
 
     /// <summary>
     /// Враг на месте <paramref name="slot"/> (<c>DuelArena.Spawn</c>): угол a = ГСЧ·τ, радиус r = 5 + ГСЧ·4 вокруг
-    /// <paramref name="center"/> (корня игрока — в SWORD таз его тела, тел до этапа 5 нет); дальше радиуса арены − 3 м —
+    /// <paramref name="center"/> (корня игрока — в SWORD таз его тела); дальше радиуса арены − 3 м —
     /// на этот радиус; курс — на центр (<c>atan2(p.X − pos.X, p.Z − pos.Z)</c>); зерно — третьим числом (в SWORD — в
     /// <c>Fighter.Build</c> тем же генератором после угла и радиуса); меч — случайный из <paramref name="weapons"/> мечей таблицы
-    /// своей выборкой (<c>f.WeaponKind = _rng.Next(Rig.Weapons.Length)</c> в <c>Spawn</c>; 6б).
+    /// своей выборкой (<c>f.WeaponKind = _rng.Next(Rig.Weapons.Length)</c> в <c>Spawn</c>).
     /// </summary>
     public static FighterSpawn Enemy(SimRandom rng, ulong tick, uint batch, int slot, Vector3 center, int weapons)
     {
@@ -91,7 +91,7 @@ public static class ArenaRules
         float lim = ArenaLayout.ArenaRadius - SpawnEdgeMargin;
         if (new Vector2(pos.X, pos.Z).Length() > lim) pos = Vector3.Normalize(pos) * lim;
         float facing = MathF.Atan2(center.X - pos.X, center.Z - pos.Z);
-        // Таймер удара (6в, EnemyAi.Built SWORD: 1 + ГСЧ·2) — свой поток: расстановка и мечи не сдвигаются.
+        // Таймер удара (EnemyAi.Built SWORD: 1 + ГСЧ·2) — свой поток: расстановка и мечи не сдвигаются.
         float timer = EnemyAiRules.FirstTimer
                       + rng.Float(EnemyAiRules.AttackStream, tick, Entity.Null, Sample(batch, slot, 0)) * EnemyAiRules.FirstTimerSpread;
         return new FighterSpawn(slot, pos, facing, rng.Float(SpawnStream, tick, Entity.Null, Sample(batch, slot, 2)),
@@ -106,13 +106,13 @@ public static class ArenaRules
         new(0, Vector3.Zero, 0, rng.Float(SpawnStream, tick, Entity.Null, Sample(batch, 0, 2)), weapon);
 
     /// <summary>
-    /// Партия постройки командой сцены (7ж, <see cref="SceneAction.Place"/>): номер, которого нет ни у команд арены (с 1), ни у
+    /// Партия постройки командой сцены (<see cref="SceneAction.Place"/>): номер, которого нет ни у команд арены (с 1), ни у
     /// возрождения (<see cref="RespawnBatch"/>) — таймер удара поставленного врага не делит чисел ни с одной постройкой того же тика.
     /// </summary>
     public const uint SceneBatch = 2_000_000;
 
     /// <summary>
-    /// Боец места <paramref name="slot"/>, поставленный командой сцены (7ж; <c>PlaceFighter</c> сцен SWORD — <c>Build</c> в заданной
+    /// Боец места <paramref name="slot"/>, поставленный командой сцены (<c>PlaceFighter</c> сцен SWORD — <c>Build</c> в заданной
     /// точке): корень <paramref name="position"/> (y = 0), курс <paramref name="facing"/>, зерно и меч — прежние бойца (сцена ставит того
     /// же бойца, а не нового); таймер удара врага — как при постройке (<c>EnemyAi.Built</c>: 1 + ГСЧ·2, своя партия
     /// <see cref="SceneBatch"/>), у игрока — 0.
@@ -121,7 +121,7 @@ public static class ArenaRules
         Placed(rng, tick, slot, position, facing, seed, weapon, SceneBatch);
 
     /// <summary>
-    /// Партия постройки заново при нечисловом теле (7з, <c>core.body-rebuild</c>): номер, которого нет ни у команд арены, ни у возрождения, ни
+    /// Партия постройки заново при нечисловом теле (<c>core.body-rebuild</c>): номер, которого нет ни у команд арены, ни у возрождения, ни
     /// у команд сцены — таймер удара пересобранного врага не делит чисел с ними.
     /// </summary>
     public const uint RebuildBatch = 3_000_000;
@@ -140,12 +140,12 @@ public static class ArenaRules
 /// Боец — один набор компонентов у игрока и у врага (всё, что нужно движению и анимации): тег стороны, место, зерно,
 /// корень и прошлый корень (тот же — боец не «прилетает» в кадр из начала координат; <c>RenderPos = Pos</c> SWORD),
 /// скорость 0, намерение — стоять курсом постройки (<c>FacingGoal = facing</c>), точка взгляда, вход аниматора, поза,
-/// тело (<see cref="BodyRef"/> — пустой: сочленение заводит хук добавления на том же барьере, <c>Bodies.FighterBodies</c>, 5а),
-/// слой действий аниматора (<see cref="AnimatorAction"/> и его позы <see cref="ActionPoses"/>: у врага с 4г, у игрока с 6б),
-/// меч (<see cref="WeaponSlot"/>) и клинок (<see cref="Blade"/> — не поставлен: его ставит постройка в Gameplay, 6б); у игрока
-/// ещё управление боем (<see cref="PlayerControl"/>: буферы, рывок) и связка (<see cref="AttackCombo"/>) — 6в; у врага —
+/// тело (<see cref="BodyRef"/> — пустой: сочленение заводит хук добавления на том же барьере, <c>Bodies.FighterBodies</c>),
+/// слой действий аниматора (<see cref="AnimatorAction"/> и его позы <see cref="ActionPoses"/>),
+/// меч (<see cref="WeaponSlot"/>) и клинок (<see cref="Blade"/> — не поставлен: его ставит постройка в Gameplay); у игрока
+/// ещё управление боем (<see cref="PlayerControl"/>: буферы, рывок) и связка (<see cref="AttackCombo"/>); у врага —
 /// составляющие намерения ИИ (<see cref="EnemyAiTerms"/>), толчки столкновений (<see cref="RootContacts"/>) и таймер удара
-/// (<see cref="EnemyAttack"/>, 6в).
+/// (<see cref="EnemyAttack"/>).
 /// Три пути: сборка мира (немедленно, поза берётся сразу); новый боец командами тика (поза — пустой хэндл, её заводит
 /// <see cref="Animation.FighterSetupSystem"/> в Gameplay: команда может не сыграть, а поза из пула — не вернуться); постройка
 /// заново на той же сущности (<see cref="Rebuild"/> — <c>Fighter.Build</c> SWORD над тем же бойцом места).
@@ -176,7 +176,7 @@ public static class Fighters
             world.AddImmediate(e, StrikePairs.None);
         }
         world.AddImmediate(e, Health.Fresh);
-        world.AddImmediate(e, HitImpulse.None);   // 7к: импульс удара в тело и отдача корню — последние
+        world.AddImmediate(e, HitImpulse.None);   // импульс удара в тело и отдача корню — последние
         world.AddImmediate(e, Recoil.None);
         world.AddImmediate(e, AnimatorAction.None);
         world.AddImmediate(e, new ActionPoses());
@@ -201,7 +201,7 @@ public static class Fighters
     /// Боец командами тика (черновик): появится на барьере стадии со всеми компонентами; поза — пустой хэндл до
     /// <see cref="Animation.FighterSetupSystem"/>. <paramref name="intent"/> и <paramref name="gaze"/> — намерение и точка
     /// взгляда до Intent этого тика (стоять курсом постройки; игроку после сброса — прежняя точка взгляда, как в SWORD):
-    /// команду игрока и ИИ врага ставит Intent того же тика — он видит бойца после барьера Begin (6б).
+    /// команду игрока и ИИ врага ставит Intent того же тика — он видит бойца после барьера Begin.
     /// </summary>
     public static void Create(CommandBuffer c, in FighterSpawn s, in FighterCommand intent, in GazeTarget gaze, in EnemyAiTerms terms = default)
     {
@@ -223,7 +223,7 @@ public static class Fighters
             c.Add(d, StrikePairs.None);
         }
         c.Add(d, Health.Fresh);
-        c.Add(d, HitImpulse.None);   // 7к: импульс удара в тело и отдача корню — последние
+        c.Add(d, HitImpulse.None);   // импульс удара в тело и отдача корню — последние
         c.Add(d, Recoil.None);
         c.Add(d, AnimatorAction.None);
         c.Add(d, new ActionPoses());
@@ -248,7 +248,7 @@ public static class Fighters
     /// аниматора (<c>ResetAnimator</c>: без действия), меч (враг — новый случайный, игрок — меч инвентаря) и клинок (не
     /// поставлен — прошлого нет), у врага составляющие ИИ — заново; место, тег, поза, поза слоя действий и тело
     /// (<see cref="BodyRef"/> — как <c>Fighter.Bodies</c> SWORD при <c>Build</c>) — прежние. Одна функция на все постройки места
-    /// заново: сброс R, прибавленное и убавленное в одном тике место, возрождение (6г). Метка
+    /// заново: сброс R, прибавленное и убавленное в одном тике место, возрождение. Метка
     /// <see cref="Fighter"/> снимается и ставится на одном барьере — <c>Removed&lt;Fighter&gt;</c> и <c>Added&lt;Fighter&gt;</c>
     /// (протокол <c>Game.Contracts</c>): модули заводят своё состояние бойца с нуля (локомоция — со стойки, как
     /// <c>ResetAnimator</c> SWORD), имя и номер сущности у агента не меняются.
@@ -258,10 +258,10 @@ public static class Fighters
     {
         c.Remove<Fighter>(e);
         c.Add(e, new Fighter());
-        // 6г: здоровье — полное, мёртвый оживает (возрождение врага, сброс арены), вздрагивание игрока и пары удара врага — с нуля
+        // Здоровье — полное, мёртвый оживает (возрождение врага, сброс арены), вздрагивание игрока и пары удара врага — с нуля
         if (dead) c.Remove<Dead>(e);
         c.Set(e, Health.Fresh);
-        c.Set(e, HitImpulse.None);   // 7к: импульс удара и отдача — с нуля
+        c.Set(e, HitImpulse.None);   // импульс удара и отдача — с нуля
         c.Set(e, Recoil.None);
         c.Set(e, new FighterSeed { Value = s.Seed });
         var root = new Transform { Position = s.Position, Facing = s.Facing };
@@ -296,7 +296,7 @@ public static class Fighters
         .Adds<Health>().Adds<StrikePairs>().Adds<Flinch>().Adds<HitImpulse>().Adds<Recoil>()
         .DeclaresRebuild();
 
-    /// <summary>Объявления системы, которая только строит бойцов заново (<see cref="Rebuild"/>: возрождение врага, 6г).</summary>
+    /// <summary>Объявления системы, которая только строит бойцов заново (<see cref="Rebuild"/>: возрождение врага).</summary>
     public static SystemSetup DeclaresRebuild(this SystemSetup s) => s
         .Adds<Fighter>().Removes<Fighter>().Removes<Dead>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>().Sets<AnimatorAction>()

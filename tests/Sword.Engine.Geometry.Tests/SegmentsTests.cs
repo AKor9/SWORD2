@@ -4,7 +4,7 @@ using Sword.Engine.Geometry;
 namespace Sword.Engine.Geometry.Tests;
 
 /// <summary>
-/// <see cref="Segments.SegSeg"/> (этап 6г): первые два — тесты <c>XpbdTests</c> SWORD 2eab13b (<c>SegSeg_CrossingSegments</c>,
+/// <see cref="Segments.SegSeg"/>: первые два — тесты <c>XpbdTests</c> SWORD 2eab13b (<c>SegSeg_CrossingSegments</c>,
 /// <c>SegSeg_ParallelSegmentsClampToEnds</c>), дальше — края: вырожденные отрезки, параллельные с перекрытием, концы.
 /// </summary>
 public class SegmentsTests

@@ -6,7 +6,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Client;
 
 /// <summary>
-/// Оверлей Motion Matching игрока (8з; <c>mm</c> — M, <c>--overlay mm</c>, слой снимка <c>capture.bundle</c>) по виду
+/// Оверлей Motion Matching игрока (<c>mm</c> — M, <c>--overlay mm</c>, слой снимка <c>capture.bundle</c>) по виду
 /// <see cref="IMotionMatchView"/>: желаемая траектория — запрос последнего поиска (<see cref="DesiredColour"/>: прошлое, «сейчас», будущее с
 /// курсом), траектория найденного кадра от того же корня (<see cref="MatchedColour"/>), история корня (<see cref="HistoryColour"/>), суставы
 /// контакта стоп в позе кадра — на земле по разметке кадра базы (<see cref="GroundColour"/>, крупнее) или нет (<see cref="AirColour"/>).

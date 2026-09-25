@@ -6,7 +6,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent.Tests;
 
 /// <summary>
-/// Приёмка и эксперименты через агента (этап 3д): feature.list/verify над манифестом во временном каталоге,
+/// Приёмка и эксперименты через агента: feature.list/verify над манифестом во временном каталоге,
 /// experiment.fork/compare/sweep над записью сеанса — подопытная симуляция <see cref="PushModule"/> с построителем, как у
 /// Headless.
 /// </summary>

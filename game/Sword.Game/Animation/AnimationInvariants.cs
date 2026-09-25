@@ -13,7 +13,7 @@ namespace Sword.Game.Animation;
 /// <summary>
 /// Базовые инварианты анимации (раздел 8 плана), их регистрирует ядро рядом с участником хеша <c>animation</c>:
 /// <c>animation.finite</c>, <c>animation.settled</c> — после стадии Animation; <c>animation.pool</c>,
-/// <c>animation.owners</c>, <c>animation.actions</c> (слой действий, 4г) — в конце End, когда снятые позы уже возвращены в
+/// <c>animation.owners</c>, <c>animation.actions</c> (слой действий) — в конце End, когда снятые позы уже возвращены в
 /// пул. Позы слоёв модулей (локомоция) проверяют сами модули.
 /// </summary>
 public static class AnimationInvariants
@@ -31,7 +31,7 @@ public static class AnimationInvariants
     /// <remarks>
     /// Проверяются только исходные данные позы — локальные повороты и смещения (всё, из чего поза состоит; других данных у позы
     /// пула нет). Модельные матрицы — производные: <c>Skeleton.ToModel</c> из проверенных поворотов и смещений и неизменяемой
-    /// иерархии скелета, их чтение было 70 % цены проверки (0,037 → 0,024 мс в тике толпы, docs/history/profiler.md, «Разбор Пд»,
+    /// иерархии скелета, их чтение было 70 % цены проверки (0,037 → 0,024 мс в тике толпы, docs/history/profiler.md,
     /// вопрос 7; решение пользователя). Ошибку в них ловят другие средства: NaN в положении сустава уходит в капсулы тел (постановка читает
     /// положения суставов модельных матриц) — <c>physics.finite</c>, скачок положения — <c>physics.kinematicSpeed</c>; неверный
     /// вывод — хеш <c>animation</c> (матрицы в нём: реплеи и эталоны расходятся) и <c>AnimationTests</c> (модельные матрицы пула равны
@@ -139,7 +139,7 @@ public static class AnimationInvariants
         public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
         {
             int capacity = pool.Capacity;
-            if (_free.Length < capacity) _free = new bool[Math.Max(capacity, pool.Reserved)];   // под запас пула (8е): рост в нём — без выделений
+            if (_free.Length < capacity) _free = new bool[Math.Max(capacity, pool.Reserved)];   // под запас пула: рост в нём — без выделений
             else Array.Clear(_free, 0, capacity);
             foreach (int slot in pool.FreeSlots)
             {
@@ -188,7 +188,7 @@ public static class AnimationInvariants
             _refs ??= world.Query().Read<PoseRef>();
             _bare ??= world.Query().With<Fighter>().Without<PoseRef>();
             int capacity = pool.Capacity;
-            if (_owner.Length < capacity) _owner = new Entity[Math.Max(capacity, pool.Reserved)];   // под запас пула (8е): рост в нём — без выделений
+            if (_owner.Length < capacity) _owner = new Entity[Math.Max(capacity, pool.Reserved)];   // под запас пула: рост в нём — без выделений
             else Array.Clear(_owner, 0, capacity);
 
             foreach (var chunk in world.Iterate(_bare))
@@ -217,11 +217,11 @@ public static class AnimationInvariants
         }
     }
     /// <summary>
-    /// <c>animation.actions</c> (4г; с 6б — все бойцы) — слой действий аниматора согласован: у каждого бойца (враг с 4г, игрок с
-    /// 6б) он есть (<see cref="AnimatorAction"/> и <see cref="ActionPoses"/>) — иначе враг не поворачивает и не разгоняется
-    /// (<c>RootSteerSystem</c> ведёт не-<c>Agile</c> только со слоем), а удары этапа 6 игроку некуда ставить; состояние и поза — вместе; вес в 0…1, числа конечны;
+    /// <c>animation.actions</c> (все бойцы) — слой действий аниматора согласован: у каждого бойца (врага и игрока)
+    /// он есть (<see cref="AnimatorAction"/> и <see cref="ActionPoses"/>) — иначе враг не поворачивает и не разгоняется
+    /// (<c>RootSteerSystem</c> ведёт не-<c>Agile</c> только со слоем), а удары игроку некуда ставить; состояние и поза — вместе; вес в 0…1, числа конечны;
     /// клип задан тогда и только тогда, когда действие идёт; без действия вес 0; поворот — клипом поворота с растяжением
-    /// 0,5…1,6; поза слоя — живая, своя и не итоговая поза бойца; идёт действие — поза уже взята. С 6в: время — 0…длительность;
+    /// 0,5…1,6; поза слоя — живая, своя и не итоговая поза бойца; идёт действие — поза уже взята. Время — 0…длительность;
     /// удар — удар таблицы (его клип и слой), начат только оттуда, где боец мог ударить (<see cref="AnimatorAction.From"/>,
     /// <c>ActionLayer.CanAct</c>); вид рывка — только у игрока, клипом уклонения; доля клипа в ногах и переход от снимка — 0…1;
     /// снимок скопирован (<see cref="ActionPoses.Snapped"/>), идёт переход — поза снимка живая и своя; номер удара бойца не убывает
@@ -245,7 +245,7 @@ public static class AnimationInvariants
             _steady ??= world.Query().With<Fighter>();
             _states ??= world.Query().Read<AnimatorAction>();
             int capacity = pool.Capacity;
-            if (_owner.Length < capacity) _owner = new Entity[Math.Max(capacity, pool.Reserved)];   // под запас пула (8е): рост в нём — без выделений
+            if (_owner.Length < capacity) _owner = new Entity[Math.Max(capacity, pool.Reserved)];   // под запас пула: рост в нём — без выделений
             else Array.Clear(_owner, 0, capacity);
 
             foreach (var chunk in world.Iterate(_steady))
@@ -340,7 +340,7 @@ public static class AnimationInvariants
                     return $"неизвестное действие {(byte)a.Kind}";
             }
             var core = world.TryGet<PoseRef>(e, out var r) ? new PoseHandle(r.Index, r.Generation) : PoseHandle.None;
-            // Реакция на попадание (6г) начинается в стадии React, после Animation: её снимок скопирует и позу слоя возьмёт Animation
+            // Реакция на попадание начинается в стадии React, после Animation: её снимок скопирует и позу слоя возьмёт Animation
             // следующего тика — до того время реакции 0 (шаг действия — в Gameplay следующего тика).
             bool reacting = a.Kind == ActionKind.HitReact && a.Time == 0;
             if (!core.IsNone && poses.Snapped != a.Snapshots && !(reacting && poses.Snapped == a.Snapshots - 1))

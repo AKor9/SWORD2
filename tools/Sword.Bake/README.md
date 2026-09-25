@@ -5,7 +5,7 @@
 сведениями о сборке (`.bake/build.json`) и сравнение двух паков (`diff`). Об ассетах игры ядро не знает: встроенный
 обработчик — только `file.copy`, обработчики и сравнители форматов движка и игры приходят плагинами
 ([`Sword.Bake.Engine`](../Sword.Bake.Engine/README.md), затем [`Sword.Bake.Game`](../Sword.Bake.Game/README.md)). Консоль —
-`tools/Sword.Bake.Cli` (exe `sword-bake`); проект пекарни SWORD2 — [`Bake/`](../../Bake/README.md); Studio — позже (Б7).
+`tools/Sword.Bake.Cli` (exe `sword-bake`); проект пекарни SWORD2 — [`Bake/`](../../Bake/README.md); Studio — позже.
 
 ## Откуда
 
@@ -19,7 +19,7 @@ SWORD 2eab13b, перенесено как есть (решение раздел
 | `src/Sword.Content/Pak/PakBuildInfo.cs` | `engine/Sword.Engine.Content/Pak/PakBuildInfo.cs` | только пространство имён |
 | `tests/Sword.Bake.Tests` (Build, Layout, Provenance) | `tests/Sword.Bake.Tests` | только `using` |
 | `tests/Sword.Anim.Tests/ManifestWriterTests.cs` | `tests/Sword.Bake.Tests` | третий случай — на своём тестовом обработчике вместо плагинного `anim.pack` |
-| — (прототип — `inspect compare` плагина `Sword.Bake.Sword`, `Inspect.cs:102-208`) | `Core/PakDiff.cs`, `DiffExpectations.cs`, `ContentComparer.cs`; `diff` в CLI | новое (Б3): по оглавлению без распаковки, сравнители форматов от плагинов, сведения о сборке семантически, ожидаемые расхождения, `--json` |
+| — (прототип — `inspect compare` плагина `Sword.Bake.Sword`, `Inspect.cs:102-208`) | `Core/PakDiff.cs`, `DiffExpectations.cs`, `ContentComparer.cs`; `diff` в CLI | новое: по оглавлению без распаковки, сравнители форматов от плагинов, сведения о сборке семантически, ожидаемые расхождения, `--json` |
 
 `TreatWarningsAsErrors` и `Nullable` SWORD2 правок кода не потребовали.
 

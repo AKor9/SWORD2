@@ -15,7 +15,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 6е на шрифтах пака (категория Content): HUD боя (секция «ФИЗИКА И БОЙ» в панели, полоса здоровья и последний удар внизу, подпись
+/// На шрифтах пака (категория Content): HUD боя (секция «ФИЗИКА И БОЙ» в панели, полоса здоровья и последний удар внизу, подпись
 /// меча справа внизу, экран «ПАЛ») — в окне, буквы в шрифте, кадр без выделений; панель инвентаря — строка на меч, щелчок — «взять меч»,
 /// мышь над панелью; панель ручек F3 с вкладкой «Бой» — ползунок ставит команду ручки и показывает ожидающее значение до тика, кадр без
 /// выделений.
@@ -217,7 +217,7 @@ public sealed class CombatUiDrawTests : IDisposable
 }
 
 /// <summary>
-/// Точка 6е без видеокарты и шрифтов: справка F1 со всеми клавишами боя, тексты HUD боя, кольцо игрока, инвентарь (1–9 и щелчок —
+/// Без видеокарты и шрифтов: справка F1 со всеми клавишами боя, тексты HUD боя, кольцо игрока, инвентарь (1–9 и щелчок —
 /// команда арены «взять меч» после команд PageUp, PageDown, R, T тика, в реплее), ручки «Бой» (команда ручки в том же тике, смена
 /// правил прижимает таймеры, реплей с ручкой посреди прогона — те же хеши, ожидающее значение до тика, сохранение и загрузка в
 /// <c>sword.user.json</c>, агенту — <c>command.send</c> по имени ручки и диапазоны в <c>world.types</c>).
@@ -343,7 +343,7 @@ public class CombatUiTests
         var sim = Create();
         Assert.Equal([CombatKnobs.PlayerDamage, CombatKnobs.PlayerSharpness, CombatKnobs.EnemiesAttack, CombatKnobs.PlayerInvulnerable,
             CombatKnobs.DashSpeed, CombatKnobs.DashTime, CombatKnobs.DashCooldown, CombatKnobs.DashInvulnerable],
-            sim.Tuning.Where(k => k.Section == CombatKnobs.Section).Select(k => k.Name));   // 7з: и ручки «Рэгдолл» — своей секцией
+            sim.Tuning.Where(k => k.Section == CombatKnobs.Section).Select(k => k.Name));   // и ручки «Рэгдолл» — своей секцией
         var d = new CombatSettings();
         Assert.Equal(new float[] { d.PlayerDamage, d.PlayerSharpness, 1, 0, d.DashSpeed, d.DashTime, d.DashCooldown, d.DashInvulnerable },
             sim.Tuning.Where(k => k.Section == CombatKnobs.Section).Select(k => k.Default));
@@ -514,7 +514,7 @@ public class CombatUiTests
     public async Task Agent_KnobByName_RangesInWorldTypes_ValueInStateDescribe()
     {
         var sim = Create("arena.enemies=0");
-        sim.EnableCausality();   // 6д + 6е: команда ручки — корень причинности, замена правил — от неё
+        sim.EnableCausality();   // команда ручки — корень причинности, замена правил — от неё
         var host = new Sword.Engine.Agent.AgentHost(new Sword.Engine.Agent.AgentHostOptions
         {
             Mode = "headless", Catalog = new Sword.Engine.Introspection.Catalog(sim),
@@ -566,7 +566,7 @@ public class CombatUiTests
             Assert.Contains("3.5", state);
             var history = (await Call("events.history", new() { ["types"] = new JsonArray("TuningCommand") })).ToJsonString();
             Assert.Contains(CombatKnobs.PlayerDamage, history);
-            // Причинность (6д): команда ручки — корень (очередь агента), замена ресурса системой ручек — её ребёнок.
+            // Причинность: команда ручки — корень (очередь агента), замена ресурса системой ручек — её ребёнок.
             var root = (await Call("events.history", new() { ["types"] = new JsonArray("TuningCommand") }))["events"]![0]!["cause"]!;
             Assert.Equal(("Command", null), (root["kind"]!.GetValue<string>(), root["parent"]));
             Assert.Contains("агент", root["note"]!.GetValue<string>());

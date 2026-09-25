@@ -8,7 +8,7 @@ namespace Sword.Game.Animation;
 
 /// <summary>
 /// Ассеты бойца (<c>CharacterRig.TryLoad</c> SWORD): скелет Manny, поза привязки из его меша, все клипы библиотеки этого
-/// скелета, таблица действий (<c>combat/actions.json</c>), с этапа 6б — таблица оружия (мечи пака, <see cref="WeaponTable"/>) и
+/// скелета, таблица действий (<c>combat/actions.json</c>), таблица оружия (мечи пака, <see cref="WeaponTable"/>) и
 /// таблица ударов (<see cref="StrikeTable"/>: окна по клинку меча по умолчанию в кисти <see cref="HandJoint"/>). Без любого из
 /// них игра не стартует: боец SWORD2 — скелетный всегда (капсульных бойцов SWORD без рига здесь нет). Всё неизменяемо —
 /// общее для симуляций процесса.
@@ -28,10 +28,10 @@ public sealed class CharacterAssets
     public ClipLibrary Clips { get; }
     public ActionTable Actions { get; }
 
-    /// <summary>Мечи пака по алфавиту (этап 6б).</summary>
+    /// <summary>Мечи пака по алфавиту.</summary>
     public WeaponTable Weapons { get; }
 
-    /// <summary>Удары slash1–4, stab1–3: окна по клинку меча по умолчанию (этап 6б).</summary>
+    /// <summary>Удары slash1–4, stab1–3: окна по клинку меча по умолчанию.</summary>
     public StrikeTable Strikes { get; }
 
     /// <summary>Номер сустава <see cref="HandJoint"/> в скелете.</summary>
@@ -40,7 +40,7 @@ public sealed class CharacterAssets
     private Ragdoll.CorpseJoints.Anatomy? _hinges;
 
     /// <summary>
-    /// Анатомические оси шарниров трупа (7з: локти и колени — ось сгиба кости по клипам библиотеки, <see cref="Ragdoll.CorpseJoints.Anatomy"/>) —
+    /// Анатомические оси шарниров трупа (локти и колени — ось сгиба кости по клипам библиотеки, <see cref="Ragdoll.CorpseJoints.Anatomy"/>) —
     /// считаются один раз на ассеты (десятки мс на паке), дальше общие для симуляций процесса: только чтение.
     /// </summary>
     public Ragdoll.CorpseJoints.Anatomy Hinges =>

@@ -10,8 +10,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Agent;
 
 /// <summary>
-/// Инструменты тел (5б): <c>physics.bodies</c> — капсулы тела бойца по сегментам (имена «левое предплечье» и т. п.,
-/// центр, концы, поворот, скорость, прошлая постановка, форма; с 7ж — тело клинка, масса, режим, профиль, касание земли, поза
+/// Инструменты тел: <c>physics.bodies</c> — капсулы тела бойца по сегментам (имена «левое предплечье» и т. п.,
+/// центр, концы, поворот, скорость, прошлая постановка, форма; тело клинка, масса, режим, профиль, касание земли, поза
 /// начала тика и привязка скина мёртвого) через виды только для чтения <see cref="IBodyView"/>, <see cref="ISkinView"/>, и
 /// вычисляемые поля тела для метрик манифестов (<see cref="BodyFields"/>: <c>Body.pelvis.Position.Y</c>,
 /// <c>Body.MaxSpeed</c>…). Слоты и поколения тел — участник хеша <c>physics</c> (<c>state.describe physics</c>), привязки — <c>skin</c>.
@@ -27,11 +27,11 @@ public static class PhysicsTools
                 "клинок: капсула от хвата до кончика меча в руке, хват — конец A), имя (forearm.l) и название («левое предплечье»), центр, " +
                 "концы оси A и B, поворот, скорость и её модуль, угловая скорость и её модуль, прошлая постановка, поза начала тика, радиус, " +
                 "полудлина, м, масса, кг, режим (kinematic — ставит поза, simulated — на физике), профиль динамики, касание земли; сводка — " +
-                "самая быстрая капсула, масса тела, спит ли труп (asleep — физика его не считает, 7з-3) и счётчик покоя (restTime, с), " +
+                "самая быстрая капсула, масса тела, спит ли труп (asleep — физика его не считает) и счётчик покоя (restTime, с), " +
                 "привязка скина (skin: есть ли, время смерти, суставов, drift — насколько скин, " +
                 "привязка × тело, ушёл от позы бойца, м). segments — имена сегментов (по умолчанию все 14, blade — клинок). Слоты и " +
-                "поколения тел — state.describe physics, привязки скина — state.describe skin. 7и: joints — суставы тела (у трупа на физике: " +
-                "родитель, ребёнок, включён ли, ошибка точки, углы, выход за предел); 7з-4: self — самоколлизия трупа (пар, действуют ли, толщина, " +
+                "поколения тел — state.describe physics, привязки скина — state.describe skin. joints — суставы тела (у трупа на физике: " +
+                "родитель, ребёнок, включён ли, ошибка точки, углы, выход за предел); self — самоколлизия трупа (пар, действуют ли, толщина, " +
                 "пересекшихся пар и самая глубокая пара частей в своём теле, м); trace — трасса физики (диагностический режим physics.trace, " +
                 "мир, хеш и реплей не меняет): on — включить, off — выключить, reset — начать окно заново, show — сводка; в ответе trace — " +
                 "last (последний тик), window, run (с включения): скорости тел на физике и перцентили, поправки по источникам, толчки, удары, " +
@@ -48,7 +48,7 @@ public static class PhysicsTools
                 ["trace"] = new JsonObject
                 {
                     ["type"] = "string", ["enum"] = new JsonArray([.. PhysicsDebugJson.TraceActions.Select(a => (JsonNode?)a)]),
-                    ["description"] = "трасса физики (7и): on — включить (данные — с ближайшего тика), off — выключить, reset — начать окно " +
+                    ["description"] = "трасса физики: on — включить (данные — с ближайшего тика), off — выключить, reset — начать окно " +
                         "заново, show — только сводка; без аргумента — в ответе только traceOn",
                 },
                 ["events"] = new JsonObject
@@ -80,7 +80,7 @@ public static class PhysicsTools
                 }, call.Cancel);
                 return new ToolOutput(result.Data) { Point = result.Point };
             },
-            // 7и: trace on/off/reset меняет диагностический режим сеанса (не мир) — как profile.stages {enable}.
+            // trace on/off/reset меняет диагностический режим сеанса (не мир) — как profile.stages {enable}.
             ReadOnly = false,
         });
     }
@@ -137,13 +137,13 @@ public static class PhysicsTools
             ["bodyCount"] = count,
             ["fastest"] = new JsonObject { ["name"] = BodySegs.Name(BodySegs.Segment(fastest)), ["title"] = BodySegs.Title(BodySegs.Segment(fastest)), ["speed"] = Round(max) },
             ["mass"] = Round(mass),
-            // 7з-3: спит ли труп (физика его не считает) и счётчик покоя, с
+            // Спит ли труп (физика его не считает) и счётчик покоя, с
             ["asleep"] = view.IsAsleep(body),
             ["restTime"] = Round(view.RestTime(body)),
             ["skin"] = Skin(world, e, body, view),
-            // 7и: суставы тела (у трупа на физике) и включена ли трасса физики (сводка — аргументом trace).
+            // Суставы тела (у трупа на физике) и включена ли трасса физики (сводка — аргументом trace).
             ["joints"] = PhysicsDebugJson.Joints(world, body),
-            // 7з-4: самоколлизия — пары частей одного тела и самая глубокая в позе тика
+            // Самоколлизия — пары частей одного тела и самая глубокая в позе тика
             ["self"] = PhysicsDebugJson.Self(world, body),
             ["traceOn"] = world.TryView<IPhysicsDebugView>(out var debug) && debug.TraceOn,
             ["capsules"] = list,
@@ -151,7 +151,7 @@ public static class PhysicsTools
     }
 
     /// <summary>
-    /// Привязка скина тела (7ж): есть ли, время смерти, суставов и насколько скин (привязка × тело сегмента) ушёл от позы бойца
+    /// Привязка скина тела: есть ли, время смерти, суставов и насколько скин (привязка × тело сегмента) ушёл от позы бойца
     /// (модельная матрица × мир бойца): пока тела мёртвого стоят — 0; тела двинулись (сдвиг командой сцены, труп на физике) — больше.
     /// </summary>
     private static JsonObject Skin(WorldReader world, Entity e, BodyRef body, IBodyView bodies)
@@ -181,11 +181,11 @@ public static class PhysicsTools
 }
 
 /// <summary>
-/// Вычисляемые поля тела бойца (<see cref="IEntityFields"/>, 5б) — по <see cref="IBodyView"/>: <c>Body.&lt;сегмент&gt;.&lt;поле&gt;[.X|.Y|.Z|.W]</c>,
+/// Вычисляемые поля тела бойца (<see cref="IEntityFields"/>) — по <see cref="IBodyView"/>: <c>Body.&lt;сегмент&gt;.&lt;поле&gt;[.X|.Y|.Z|.W]</c>,
 /// сегмент — имя <see cref="BodySegs.Name"/> (<c>pelvis</c>, <c>forearm.l</c>…), поле — <c>Position</c>, <c>Rotation</c>,
-/// <c>PrevPosition</c>, <c>PrevRotation</c>, <c>Velocity</c>, <c>AngularVelocity</c>, <c>EndA</c>, <c>EndB</c>, <c>StartPosition</c> (7ж)
-/// (без компоненты — длина вектора), <c>Radius</c>, <c>HalfLength</c>, <c>Mass</c> (7ж); сегмент клинка — <c>blade</c> (7ж); и по всему телу — <c>Body.MaxSpeed</c>, <c>Body.MaxAngularSpeed</c> (самая
-/// быстрая капсула, м/с и рад/с); с 7з — тело целиком (<see cref="CorpseFields"/>): <c>Body.Com</c>, <c>Body.ComVelocity</c>, <c>Body.KineticEnergy</c>,
+/// <c>PrevPosition</c>, <c>PrevRotation</c>, <c>Velocity</c>, <c>AngularVelocity</c>, <c>EndA</c>, <c>EndB</c>, <c>StartPosition</c>
+/// (без компоненты — длина вектора), <c>Radius</c>, <c>HalfLength</c>, <c>Mass</c>; сегмент клинка — <c>blade</c>; и по всему телу — <c>Body.MaxSpeed</c>, <c>Body.MaxAngularSpeed</c> (самая
+/// быстрая капсула, м/с и рад/с); тело целиком (<see cref="CorpseFields"/>): <c>Body.Com</c>, <c>Body.ComVelocity</c>, <c>Body.KineticEnergy</c>,
 /// <c>Body.Energy</c>. Нет тела — NaN.
 /// </summary>
 public sealed class BodyFields : IEntityFields
@@ -200,12 +200,12 @@ public sealed class BodyFields : IEntityFields
 
     public EntityFieldReader? Compile(string path, string at)
     {
-        if (MotionFields.Compile(path, at) is { } motion) return motion;   // 8з: поля Motion Matching
+        if (MotionFields.Compile(path, at) is { } motion) return motion;   // поля Motion Matching
         if (!path.StartsWith(Prefix, StringComparison.Ordinal)) return null;
         string rest = path[Prefix.Length..];
         if (rest == "MaxSpeed") return (in ServiceContext ctx, Entity e) => Max(ctx, e, angular: false);
         if (rest == "MaxAngularSpeed") return (in ServiceContext ctx, Entity e) => Max(ctx, e, angular: true);
-        if (CorpseFields.Compile(rest, path, at) is { } whole) return whole;   // 7з: тело целиком — центр масс, энергии
+        if (CorpseFields.Compile(rest, path, at) is { } whole) return whole;   // тело целиком — центр масс, энергии
         int segment = -1;
         string field = "";
         for (int k = 0; k < BodySegs.Bodies; k++)

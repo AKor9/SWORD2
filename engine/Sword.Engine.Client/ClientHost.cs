@@ -89,19 +89,19 @@ public sealed record ClientOptions
     public IReadOnlyList<string> HeldActions { get; init; } = [];
 
     /// <summary>
-    /// Профайлер CPU (<see cref="ClientHost.Profiler"/>, точка Па) включён с первого кадра (<c>--profile</c>); с бенчем
+    /// Профайлер CPU (<see cref="ClientHost.Profiler"/>) включён с первого кадра (<c>--profile</c>); с бенчем
     /// итоги профайлера — только кадры замера (после прогрева). Выключенный стоит проверку флага на зону.
     /// </summary>
     public bool Profile { get; init; }
 
     /// <summary>
-    /// Диагностический режим профайлера (<c>--profile runtime</c>, точка Пб): события среды — выделения по типам, сборки,
+    /// Диагностический режим профайлера (<c>--profile runtime</c>): события среды — выделения по типам, сборки,
     /// JIT — с кадром, тиком и зоной (<see cref="CpuProfiler.SetEvents"/>); включает и профайлер. Дорогой: JIT медленнее.
     /// </summary>
     public bool ProfileEvents { get; init; }
 
     /// <summary>
-    /// Сторож кадров (6ж, <see cref="FrameWatchdog"/>): кадров нет дольше стольких секунд — <see cref="Stalled"/> со словами; 0 — без
+    /// Сторож кадров (<see cref="FrameWatchdog"/>): кадров нет дольше стольких секунд — <see cref="Stalled"/> со словами; 0 — без
     /// сторожа. Для проверочных прогонов (exe: <c>--frames</c>, <c>--bench</c>), чтобы бенч и снимки не висели без конца.
     /// </summary>
     public double StallSeconds { get; init; }
@@ -115,19 +115,19 @@ public sealed record ClientOptions
 ///
 /// Бюджет обычного кадра считается только по обычным кадрам. Служебные — <see cref="ServiceFrames"/>: первый
 /// (компиляция шейдеров), кадры до первого сыгранного тика включительно (тик 0 строит мир: пулы, первые буферы Extract —
-/// исправления после Пд: при дробной доле тика и по часам его играет не первый кадр, а второй), кадры со сменой размера
+/// при дробной доле тика и по часам его играет не первый кадр, а второй), кадры со сменой размера
 /// (ожидание GPU, пересоздание целей, в том числе при перетаскивании рамки) и кадр снимка (ожидание GPU, PNG) — в <see cref="AverageFrameMs"/>, <see cref="MaxFrameMs"/>,
 /// <see cref="AllocatedBytesPerFrame"/> и <see cref="Gen0Collections"/> не входят. Кадр — от конца прошлого до конца
 /// этого, вместе с прокачкой сообщений. <see cref="AllocatedBytesPerFrame"/> — выделения главного потока (другие потоки
 /// процесса не в счёт); <see cref="Gen0Collections"/> — сборки поколения 0, пришедшиеся на обычные кадры (сборка
-/// останавливает весь процесс, поэтому считается любая). <see cref="Machine"/> — машина за замер (точка Пб): с бенчем — кадры
+/// останавливает весь процесс, поэтому считается любая). <see cref="Machine"/> — машина за замер: с бенчем — кадры
 /// замера (до последнего кадра замера — его снимок и выход уже вне окна), без него — с конца кадра, сыгравшего первый тик, до
-/// выхода (исправления после Пд; без симуляции — с конца первого кадра); загрузка системы другими процессами, частота, GC, JIT
-/// и вердикт «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт). Точка Пг: <see cref="Passes"/> — проходы последнего
+/// выхода (без симуляции — с конца первого кадра); загрузка системы другими процессами, частота, GC, JIT
+/// и вердикт «код или машина» (кадр ждёт GPU — доля CPU потока в вердикт не идёт). <see cref="Passes"/> — проходы последнего
 /// кадра с GPU-временем того же кадра (после ожидания простоя GPU в конце прогона), <see cref="Gpu"/> — GPU-время этого кадра
-/// целиком и сумма проходов. После Пв (решение пользователя): служебные — ещё кадры инструментов (<see cref="ToolFrames"/>:
+/// целиком и сумма проходов. Решение пользователя: служебные — ещё кадры инструментов (<see cref="ToolFrames"/>:
 /// точка обслуживания выполняла запросы агента — выделения и время агента, а не игры); <see cref="DisplayHz"/> — частота
-/// монитора окна в конце прогона (0 — неизвестна), по ней профайлер судит «заметность» аномалии кадра. 6ж: <see cref="MinimizedFrames"/> —
+/// монитора окна в конце прогона (0 — неизвестна), по ней профайлер судит «заметность» аномалии кадра. <see cref="MinimizedFrames"/> —
 /// кадров, нарисованных в свёрнутом окне (проверочный прогон рисует и так; показ отбрасывает DXGI — время кадра без компоновки DWM).
 /// </summary>
 public sealed record ClientRunReport(
@@ -165,7 +165,7 @@ public sealed record ClientRunReport(
 /// (<see cref="SimulationClock"/>: очередь кадра, накопитель, команды тиков от игры) → мир представления с долей тика
 /// (<see cref="FrameView"/>, с числами кадра <see cref="FrameStats"/> для HUD) → кадр (проходы игры, её UI-проход) → показ;
 /// снимок по действию <see cref="Screenshot"/> (F4), бенч кадра (<see cref="ClientOptions.BenchSeconds"/>); панели интерфейса
-/// поверх кадра (<see cref="AddPanel"/>, DevTools: 6е) — в шаге ввода, до ввода игры, их квады — UI-проходом «panels» после игры.
+/// поверх кадра (<see cref="AddPanel"/>, DevTools) — в шаге ввода, до ввода игры, их квады — UI-проходом «panels» после игры.
 /// Окно и симуляцию создаёт exe и отдаёт сюда: клиент знает <see cref="IWindow"/>, API рендера (устройство D3D12 —
 /// внутри рендера) и симуляцию; клиентской части игры он отдаёт только <see cref="SimulationLink"/>.
 /// </summary>
@@ -208,7 +208,7 @@ public sealed class ClientHost : IDisposable
     private ExceptionDispatchInfo? _liveResizeError;
 
     /// <summary>
-    /// Проверочный прогон (<see cref="ClientOptions.MaxFrames"/> или бенч) рисует и в свёрнутом окне (6ж): иначе свёрнутое окно не даёт
+    /// Проверочный прогон (<see cref="ClientOptions.MaxFrames"/> или бенч) рисует и в свёрнутом окне: иначе свёрнутое окно не даёт
     /// кадров, а бенч считает игровое время — прогон висел без конца (28 мин). Живая игра в свёрнутом окне по-прежнему ждёт.
     /// </summary>
     private readonly bool _drawMinimized;
@@ -260,18 +260,18 @@ public sealed class ClientHost : IDisposable
         _renderer = new Renderer(new RendererOptions(window.NativeHandle, window.Width, window.Height,
             options.DebugLayer || options.GpuValidation, options.ShaderRoot ?? Path.Combine(AppContext.BaseDirectory, "Shaders"),
             options.GpuValidation), contract);
-        // Профайлер CPU (точка Па) — один на поток кадра: фазы кадра, тики симуляции, проходы графа, зоны игры. Рендеру —
+        // Профайлер CPU — один на поток кадра: фазы кадра, тики симуляции, проходы графа, зоны игры. Рендеру —
         // до Initialize: игра заводит свои зоны в нём же.
         _zones = new FrameZones(Profiler);
         _renderer.Profiler = Profiler;
         simulation?.AttachProfiler(Profiler);
         if (options.Profile) Profiler.SetEnabled(true);
         if (options.ProfileEvents) Profiler.SetEvents(true);
-        // После Пв: интервал показа — частота монитора окна (порог «заметной» аномалии кадра); окно перенесли — обновляется в кадре.
+        // Интервал показа — частота монитора окна (порог «заметной» аномалии кадра); окно перенесли — обновляется в кадре.
         _displayHz = window.RefreshHz;
         Profiler.DisplayHz = _displayHz;
         MachineSample.Take();   // первый снимок машины — здесь: его разовая компиляция и статика — не в кадрах Run
-        // Исправления после Пд: выход из цикла Run зовёт AbandonFrame впервые после последнего кадра — его компиляция (JIT на
+        // Выход из цикла Run зовёт AbandonFrame впервые после последнего кадра — его компиляция (JIT на
         // главном потоке) попадала в окно машины бенча и давала вердикт «среда». Кадра ещё нет — вызов ничего не бросает.
         Profiler.AbandonFrame();
         try
@@ -302,7 +302,7 @@ public sealed class ClientHost : IDisposable
     /// <summary>Главный цикл до закрытия окна, Escape или <see cref="ClientOptions.MaxFrames"/>.</summary>
     /// <remarks>
     /// Сразу оптимизированным: иначе многоуровневая компиляция через ~4 с заменяет долгий цикл на ходу (OSR) — разовый
-    /// кадр 6–8 мс между кадрами (найдено профайлером, точка Па; события JIT подтвердили компиляцию OSR этого метода).
+    /// кадр 6–8 мс между кадрами (найдено профайлером; события JIT подтвердили компиляцию OSR этого метода).
     /// Сам метод — тонкий, из вызовов: динамический PGO ему не нужен.
     /// </remarks>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
@@ -322,9 +322,8 @@ public sealed class ClientHost : IDisposable
         var bench = _options.BenchSeconds > 0 ? new FrameBench(_options.BenchSeconds) : null;
         var profiler = Profiler;
         bool profileMeasuring = false;
-        // Окно машины (точка Пб): границы замера — не каждый кадр. С бенчем — с первого кадра замера до последнего кадра замера
-        // (его снимок и выход — вне окна); без него — с конца кадра, сыгравшего первый тик (постройка мира и её JIT — не в окне;
-        // исправления после Пд), до выхода.
+        // Окно машины: границы замера — не каждый кадр. С бенчем — с первого кадра замера до последнего кадра замера
+        // (его снимок и выход — вне окна); без него — с конца кадра, сыгравшего первый тик (постройка мира и её JIT — не в окне), до выхода.
         MachineSample? machineStart = null, machineEnd = null;
         bool takeMachine = false, machineFromFirstTick = false;
 
@@ -354,7 +353,7 @@ public sealed class ClientHost : IDisposable
             {
                 // Свёрнутое окно не рисуется: DXGI ответил бы «перекрыто», а цикл крутился бы впустую. Инструменты
                 // обслуживаются и так — агент не ждёт, пока окно развернут. Кадра нет — и у профайлера. Проверочный прогон
-                // (кадры, бенч; 6ж) рисует и свёрнутым — в прежнем размере, показ DXGI отбрасывает.
+                // (кадры, бенч) рисует и свёрнутым — в прежнем размере, показ DXGI отбрасывает.
                 profiler.AbandonFrame();
                 ServeTools();
                 Thread.Sleep(16);
@@ -388,16 +387,16 @@ public sealed class ClientHost : IDisposable
             _edges.Note(input);   // фронты кадра — до ближайшего тика (раздел 7)
             profiler.End(_zones.Input);
             profiler.Begin(_zones.Simulate);
-            // Кадр до первого сыгранного тика включительно — служебный (исправления после Пд): тик 0 строит мир.
+            // Кадр до первого сыгранного тика включительно — служебный: тик 0 строит мир.
             bool beforeFirstTick = _simulation is not null && _simulation.Tick == 0;
             int ticks = _clock?.RunFrame(seconds) ?? 0;
             profiler.End(_zones.Simulate);
             profiler.Begin(_zones.Tools);
             // Точка обслуживания инструментов: тики кадра сыграны, мир согласован (и на паузе). Выполнены запросы агента — кадр
-            // инструментов (после Пв): служебный — не в среднем и бюджете кадра, профайлер не судит его как кадр.
+            // инструментов: служебный — не в среднем и бюджете кадра, профайлер не судит его как кадр.
             bool toolWork = ServeTools();
             // Заказ снимка инструмента — сразу после точки обслуживания, до Extract: игра видит его в FrameView.Capture и снимает в
-            // мир представления нужное только снимку (исправления после Пд). В кадре со своим снимком (прогона, F4) он не идёт.
+            // мир представления нужное только снимку. В кадре со своим снимком (прогона, F4) он не идёт.
             var (toolCapture, capturer) = ToolCapture();
             profiler.End(_zones.Tools);
             _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds, _meter.Stats(ticks, _vsync)) { Capture = toolCapture };
@@ -407,7 +406,7 @@ public sealed class ClientHost : IDisposable
             double simTime = _clock is { } clock ? clock.Link.Tick * (double)clock.Link.Dt : 0;
             // Последний кадр замера — по игровому времени после тиков кадра (BenchRecorder.Done SWORD).
             bool lastBenchFrame = bench?.Done(simTime) == true;
-            // Окно машины бенча кончается здесь (исправления после Пд): шаг этого кадра в замер не идёт, а его снимок (--shot:
+            // Окно машины бенча кончается здесь: шаг этого кадра в замер не идёт, а его снимок (--shot:
             // компиляция PNG и копии, OSR) и выход — уже не замер. Снимок машины — внутри служебного кадра: его ~50 мкс не судятся.
             if (lastBenchFrame && machineStart is not null) machineEnd = MachineSample.Take();
             string? shotPath = null;
@@ -431,8 +430,8 @@ public sealed class ClientHost : IDisposable
             long allocated = GC.GetAllocatedBytesForCurrentThread();
             int gen0 = GC.CollectionCount(0);
             double ms = Stopwatch.GetElapsedTime(last, now).TotalMilliseconds;
-            // Служебный кадр: первый, до первого сыгранного тика включительно (исправления после Пд), со сменой размера с конца прошлого
-            // кадра (и из цикла перетаскивания рамки), снимок; после Пв — и кадр инструментов (профайлеру — отдельной пометкой: в
+            // Служебный кадр: первый, до первого сыгранного тика включительно, со сменой размера с конца прошлого
+            // кадра (и из цикла перетаскивания рамки), снимок; ещё и кадр инструментов (профайлеру — отдельной пометкой: в
             // кольце видно, почему кадр не судился).
             bool service = frames == 0 || beforeFirstTick || _resizes != lastResizes || shotPath is not null || _toolCaptured;
             if (_window.RefreshHz != _displayHz)
@@ -459,7 +458,7 @@ public sealed class ClientHost : IDisposable
                 toolFrames++;
                 service = true;
             }
-            var gpu = _renderer.Gpu;   // точка Пг: GPU-время последнего разобранного кадра (на 3 раньше этого)
+            var gpu = _renderer.Gpu;   // GPU-время последнего разобранного кадра (на 3 раньше этого)
             _meter.Frame(ms, cpuMs, _renderer.LastFenceWaitMs, gpu.Valid ? gpu.FrameMs : 0, gpu.Valid ? gpu.PassesMs : 0);
             // Последний кадр замера (со снимком — ожидание GPU и PNG) в замер не входит: SWORD копит шаг кадра, измеренный
             // в начале следующего, и после последнего кадра выходит — его шаг не попадает в итог.
@@ -511,15 +510,15 @@ public sealed class ClientHost : IDisposable
         if (benchReport is not null)
         {
             Log.Info("bench", benchReport.ToString());
-            // Точка Пг: проходы GPU — мс на кадр, как «[bench]   проход  мс/кадр» BenchRecorder SWORD.
+            // Проходы GPU — мс на кадр, как «[bench]   проход  мс/кадр» BenchRecorder SWORD.
             foreach (var pass in benchReport.Passes ?? [])
                 Log.Info("bench", $"  {pass.Name,-22} {pass.Ms.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} мс/кадр GPU");
         }
-        // «вердикт: машина: …» / «вердикт: код: …» — без повтора слова «машина» (было «машина: машина: …», доводка Пб на Пв).
+        // «вердикт: машина: …» / «вердикт: код: …» — без повтора слова «машина» (не «машина: машина: …»).
         if (benchReport is not null && machine is not null) Log.Info("bench", "вердикт: " + machine.Text);
 
         _liveResizeError?.Throw();
-        // Точка Пг: GPU доделал отправленное — времена последнего кадра разобраны, проходы итога — с GPU-временем того же кадра.
+        // GPU доделал отправленное — времена последнего кадра разобраны, проходы итога — с GPU-временем того же кадра.
         _renderer.WaitForIdle();
         int steady = frames - serviceFrames;
         return new ClientRunReport(
@@ -555,7 +554,7 @@ public sealed class ClientHost : IDisposable
 
     private long _benchGpu;
 
-    /// <summary>Новые GPU-времена (раз на разобранный кадр, точка Пг) — в бенч: кадр целиком и проходы. 0 байт в установившемся режиме.</summary>
+    /// <summary>Новые GPU-времена (раз на разобранный кадр) — в бенч: кадр целиком и проходы. 0 байт в установившемся режиме.</summary>
     private void BenchGpu(FrameBench bench, double simTime)
     {
         var gpu = _renderer.Gpu;
@@ -648,7 +647,7 @@ public sealed class ClientHost : IDisposable
         return (null, null);
     }
 
-    /// <summary>Точка обслуживания инструментов; истина — хоть один выполнил работу (кадр инструментов, после Пв).</summary>
+    /// <summary>Точка обслуживания инструментов; истина — хоть один выполнил работу (кадр инструментов).</summary>
     private bool ServeTools()
     {
         if (_simulation is null) return false;
@@ -726,7 +725,7 @@ public sealed class ClientHost : IDisposable
     public Renderer Renderer => _renderer;
 
     /// <summary>
-    /// Профайлер CPU потока кадра (точка Па): кадр — период (зона <c>frame</c>) с фазами <c>frame.messages</c>,
+    /// Профайлер CPU потока кадра: кадр — период (зона <c>frame</c>) с фазами <c>frame.messages</c>,
     /// <c>frame.resize</c>, <c>frame.input</c> (в нём кадр панелей — <c>frame.panels</c>, если они подключены),
     /// <c>frame.simulate</c> (в нём тики — зона <c>tick</c>, стадии, системы,
     /// инварианты), <c>frame.tools</c>, <c>frame.extract</c> (зоны игры), <c>frame.render</c> (зоны рендера и

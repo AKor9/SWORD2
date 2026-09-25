@@ -10,13 +10,13 @@ namespace Sword.Game.Tests;
 /// <summary>
 /// Контент тестов игры в памяти: скелет «ue5_manny» из синтетических суставов (<c>SynthSkeleton</c> тестов SWORD), меш с
 /// его bind-матрицами и клипы по именам пака по умолчанию: локомоция — стойка, ходьба и бег в 8 сторон с корневым
-/// движением <see cref="WalkSpeed"/> и <see cref="RunSpeed"/> м/с, и поворот на месте (90° влево, вправо, разворот; 4г).
+/// движением <see cref="WalkSpeed"/> и <see cref="RunSpeed"/> м/с, и поворот на месте (90° влево, вправо, разворот).
 /// У каждого клипа своя поза (номер клипа — в наклоне бедра), чтобы по позе было видно, какой клип играет.
 /// </summary>
 public static class TestAssets
 {
     /// <summary>
-    /// Суставы: ноги, позвоночник и ключицы (этапы 2–4) и в конце — суставы капсул тела (5б: <c>spine_01</c>, шея, голова,
+    /// Суставы: ноги, позвоночник и ключицы и в конце — суставы капсул тела (<c>spine_01</c>, шея, голова,
     /// руки; номера прежних суставов не сдвинуты).
     /// </summary>
     public static readonly string[] Joints =
@@ -48,7 +48,7 @@ public static class TestAssets
     public static float Signature(int clipNumber) => 0.05f * (clipNumber + 1);
 
     /// <summary>
-    /// Поворот клипов поворота на месте за весь клип, рад (+ — влево): 90° влево, вправо и разворот (точка 4г), и их сдвиг
+    /// Поворот клипов поворота на месте за весь клип, рад (+ — влево): 90° влево, вправо и разворот, и их сдвиг
     /// корня вперёд, м (у клипов пака поворот тоже чуть смещает корень).
     /// </summary>
     public const float TurnLeftYaw = MathF.PI / 2, TurnRightYaw = -MathF.PI / 2, Turn180Yaw = MathF.PI, TurnDrift = 0.1f;
@@ -68,7 +68,7 @@ public static class TestAssets
         return clip;
     }
 
-    /// <summary>Оси взмаха плеча ударов slash1–4 (6в): разные направления замаха.</summary>
+    /// <summary>Оси взмаха плеча ударов slash1–4: разные направления замаха.</summary>
     private static readonly Vector3[] SlashAxes = [Vector3.UnitZ, Vector3.UnitX, -Vector3.UnitZ, -Vector3.UnitX];
 
     /// <summary>Скорость корня клипов уклонения, м/с (1,5 м за клип).</summary>
@@ -78,7 +78,7 @@ public static class TestAssets
     public const int SwingJoint = 19, SwingFrom = 6, SwingTo = 12;
     public const float SwingAngle = 1.2f;
 
-    /// <summary>Клип удара (6в): не цикл, плечо взмахивает вокруг <paramref name="axis"/> — кончик клинка быстрее 6 м/с (окно урона).</summary>
+    /// <summary>Клип удара: не цикл, плечо взмахивает вокруг <paramref name="axis"/> — кончик клинка быстрее 6 м/с (окно урона).</summary>
     private static ClipFile SwingClip(int number, Vector3 axis)
     {
         var clip = Clip(number, Vector3.Zero);
@@ -92,11 +92,11 @@ public static class TestAssets
         return clip;
     }
 
-    /// <summary>Сустав корпуса (<c>spine_05</c>, маска верха 1), которым отклоняется реакция на попадание (6г).</summary>
+    /// <summary>Сустав корпуса (<c>spine_05</c>, маска верха 1), которым отклоняется реакция на попадание.</summary>
     public const int HitJoint = 10;
 
     /// <summary>
-    /// Клип реакции на попадание (6г): не цикл, корпус (<see cref="HitJoint"/>) отклоняется на 0,5 рад к кадру 6 и возвращается, корень
+    /// Клип реакции на попадание: не цикл, корпус (<see cref="HitJoint"/>) отклоняется на 0,5 рад к кадру 6 и возвращается, корень
     /// отходит на 0,3 м (<paramref name="back"/> = −1 — назад, 1 — вперёд: удар в спину толкает вперёд).
     /// </summary>
     private static ClipFile HitClip(int number, float back)
@@ -136,7 +136,7 @@ public static class TestAssets
     }
 
     /// <summary>
-    /// Контент: скелет, меш, клипы, мечи (6б; <paramref name="weapons"/> false — без них); <paramref name="actionsJson"/> —
+    /// Контент: скелет, меш, клипы, мечи (<paramref name="weapons"/> false — без них); <paramref name="actionsJson"/> —
     /// combat/actions.json (null — нет файла).
     /// </summary>
     public static MemorySource Content(string? actionsJson = null, bool weapons = true)
@@ -160,7 +160,7 @@ public static class TestAssets
         content.Add("anim/sword_1h/1HM_TurnLeft90.swclip", TurnClip(n++, TurnLeftYaw).Write);
         content.Add("anim/sword_1h/1HM_TurnRight90.swclip", TurnClip(n++, TurnRightYaw).Write);
         content.Add("anim/sword_1h/1HM_Turn180.swclip", TurnClip(n++, Turn180Yaw).Write);
-        // Бой (6в): удары slash1–4 и уколы stab1–3 — взмах плеча (у удара есть окно урона), уклонения в 4 стороны. Свой источник —
+        // Бой: удары slash1–4 и уколы stab1–3 — взмах плеча (у удара есть окно урона), уклонения в 4 стороны. Свой источник —
         // после «sword_1h» по алфавиту: номера прежних клипов в библиотеке не сдвигаются.
         for (int k = 0; k < 4; k++) content.Add($"anim/test_combat/1HM_Slash0{k + 1}.swclip", SwingClip(n++, SlashAxes[k]).Write);
         for (int k = 0; k < 3; k++) content.Add($"anim/test_combat/1HM_Stab0{k + 1}.swclip", SwingClip(n++, Vector3.UnitX).Write);
@@ -172,12 +172,12 @@ public static class TestAssets
             evade.Loop = false;
             content.Add($"anim/test_combat/1HM_Evade_{evades[k]}.swclip", evade.Write);
         }
-        // Реакции на попадание (6г): корпус (spine_05) и плечо отклоняются назад — у вздрагивания игрока есть что добавить к верху тела,
+        // Реакции на попадание: корпус (spine_05) и плечо отклоняются назад — у вздрагивания игрока есть что добавить к верху тела,
         // у реакции врага — сдвиг корня назад. Свой источник — после «test_combat»: номера прежних клипов не сдвигаются.
         string[] hits = ["1HM_HitReact01", "1HM_HitReact02", "1HM_HitReact_Behind01"];
         for (int k = 0; k < 3; k++) content.Add($"anim/test_hit/{hits[k]}.swclip", HitClip(n++, k == 2 ? 1 : -1).Write);
         if (actionsJson is not null) content.Add("combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
-        // Оружие (6б): два статических меша в системе кисти — по алфавиту katana (0), sword_1h (1, меч по умолчанию).
+        // Оружие: два статических меша в системе кисти — по алфавиту katana (0), sword_1h (1, меч по умолчанию).
         if (!weapons) return content;
         content.Add("weapons/sword_1h.swmesh", Weapon(SwordTip).Write);
         content.Add("weapons/katana.swmesh", Weapon(KatanaTip).Write);

@@ -4,7 +4,7 @@ using static Sword.Engine.Physics.Tests.ContactsKit;
 namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
-/// Пары сочленений (7г): тела на физике внахлёст расходятся не быстрее скорости выталкивания, импульс сохраняется, после
+/// Пары сочленений: тела на физике внахлёст расходятся не быстрее скорости выталкивания, импульс сохраняется, после
 /// расхождения не разлетаются; свои тела сочленения не сталкиваются; пары без тела на физике не проверяются (ни границы, ни
 /// <c>SegSeg</c>); отсев — по свежим границам; границы сочленений.
 /// </summary>
@@ -99,7 +99,7 @@ public class ContactsPairTests
         int substeps = w.Settings.Substeps;
         Assert.Equal(2 * substeps, w.ContactsPairChecks);          // (k1, mixed), (k2, mixed); (k1, k2) — нет
         Assert.Equal(2 * 3 * substeps, w.ContactsNarrowChecks);    // тело на физике × 3 тела каждого кинематического
-        // Кинематические тела шаг не двигает (толчок живого — 7д).
+        // Кинематические тела шаг не двигает.
         Assert.Equal(new Vector3(0, 0.1f, 0), w.Get(w.Body(k1, 1)).Position);
     }
 

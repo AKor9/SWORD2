@@ -46,7 +46,7 @@ public sealed class AnimationState(PosePool pool) : IStateContributor
             else jointFilter = f;
         }
         w.Summary("capacity", pool.Capacity);
-        // Запас памяти (6ж, доводка: на арену из конфига и прибавку врагов — GameCore.ReservePoses): слотов и мест очереди без выделений;
+        // Запас памяти (на арену из конфига и прибавку врагов — GameCore.ReservePoses): слотов и мест очереди без выделений;
         // в хеш не входит.
         w.Summary("reserved", pool.Reserved);
         w.Summary("jobsReserved", pool.JobsReserved);
@@ -81,8 +81,8 @@ public sealed class AnimationState(PosePool pool) : IStateContributor
 
     /// <summary>
     /// Живая поза: повороты, смещения, модельные матрицы. Тело цикла по слотам — свой метод: хеш каждый тик (реплей, агент)
-    /// — долгий цикл (слоты × суставы) в методе раз в тик многоуровневый JIT заменял на ходу (OSR на главном потоке; исправления
-    /// после Пд). Порядок листьев тот же — хеш не меняется.
+    /// — долгий цикл (слоты × суставы) в методе раз в тик многоуровневый JIT заменял на ходу (OSR на главном потоке).
+    /// Порядок листьев тот же — хеш не меняется.
     /// </summary>
     private void AppendPose(ref StateHasher h, PoseHandle pose)
     {

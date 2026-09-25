@@ -116,7 +116,7 @@ public sealed class ObservationPredicate
     /// <summary>
     /// Компилировать условие (поток симуляции, в точке обслуживания: имена сущностей разрешаются здесь один раз).
     /// <paramref name="record"/> — журнал, на записи которого условие (<see cref="PredicateScope.Record"/>). <paramref name="fields"/> —
-    /// вычисляемые поля игры (<see cref="IEntityFields"/>, 7з): лист <c>{field:"Body.Energy", lessThan:…}</c> на сущности, которого нет в
+    /// вычисляемые поля игры (<see cref="IEntityFields"/>): лист <c>{field:"Body.Energy", lessThan:…}</c> на сущности, которого нет в
     /// компонентах, читает игра (число; нет значения — NaN, сравнения с ним ложны); без них — только поля компонентов.
     /// </summary>
     /// <exception cref="ArgumentException">Неизвестный узел, поле, тип, сравнение не по виду поля — с путём в условии.</exception>
@@ -315,7 +315,7 @@ public sealed class ObservationPredicate
         public override bool Eval(in Env env) => env.Entity == target;
     }
 
-    /// <summary>Вычисляемое поле игры на сущности (<see cref="IEntityFields"/>, 7з): число; нет сущности или значения — ложь.</summary>
+    /// <summary>Вычисляемое поле игры на сущности (<see cref="IEntityFields"/>): число; нет сущности или значения — ложь.</summary>
     private sealed class ComputedFieldNode(EntityFieldReader read, Check[] checks) : Node
     {
         public override bool Eval(in Env env) => !env.Entity.IsNull && TestValue(checks, read(env.Ctx, env.Entity));
@@ -543,7 +543,7 @@ public sealed class ObservationPredicate
                         return new RecordFieldNode(layout, leaves, Checks(o, at, "field", layout, leaves, type));
                     }
                     usesEntity = EntityScope(scope, at, "field");
-                    // 7з: вычисляемое поле игры (тело бойца вне ECS — Body.*) — если путь не поле компонента
+                    // Вычисляемое поле игры (тело бойца вне ECS — Body.*) — если путь не поле компонента
                     if (fields is not null && !IsComponentPath(path) && fields.Compile(path, $"{at}.field") is { } read)
                         return new ComputedFieldNode(read, NumberChecks(o, at, "field"));
                     var (component, clayout, cleaves, ctype) = ComponentPath(path, at);

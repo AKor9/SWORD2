@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 namespace Sword.Engine.Diagnostics;
 
 /// <summary>
-/// Захват аномалий (точка Пв): конец кадра и тика включённого профайлера — суд по порогу (<see cref="ProfileAnomalies"/>), при
+/// Захват аномалий: конец кадра и тика включённого профайлера — суд по порогу (<see cref="ProfileAnomalies"/>), при
 /// срабатывании — разбор причин, главная зона и копия данных для писателя. Всё — без выделений: массивы заведены при настройке
 /// и росте зон, код захвата скомпилирован заранее (иначе первая аномалия платила бы JIT в следующем кадре). Выключенный
 /// профайлер сюда не заходит: суд — в невстраиваемых <c>CloseFrame</c>/<c>CloseTick</c> включённого.
@@ -21,7 +21,7 @@ public sealed partial class CpuProfiler
     public ProfileAnomalies? Anomalies => _anomalies;
 
     /// <summary>
-    /// Настроить захват аномалий (точка Пв): судит только включённый профайлер; файлы — в <see cref="AnomalyOptions.Directory"/>.
+    /// Настроить захват аномалий: судит только включённый профайлер; файлы — в <see cref="AnomalyOptions.Directory"/>.
     /// Прежний захват закрывается (его очередь дописывается). Только на потоке владельца, не в кадре (выделяет, компилирует).
     /// </summary>
     /// <exception cref="InvalidOperationException">Это <see cref="Off"/>.</exception>
@@ -68,7 +68,7 @@ public sealed partial class CpuProfiler
             nameof(MeansOf)])
             RuntimeHelpers.PrepareMethod(typeof(CpuProfiler).GetMethod(name, any)!.MethodHandle);
         // И то, что они зовут только на аномалии (не встраивается в оптимизированный код захвата — иначе ~10 методов первой
-        // аномалии компилировались бы на главном потоке, найдено при приёмке Пв): список, ведро, места, снимок машины, класс.
+        // аномалии компилировались бы на главном потоке): список, ведро, места, снимок машины, класс.
         foreach (string name in (string[])[nameof(ProfileAnomalies.Record), nameof(ProfileAnomalies.Admit), nameof(ProfileAnomalies.Acquire),
             nameof(ProfileAnomalies.Submit), nameof(ProfileAnomalies.SetFile), nameof(ProfileAnomalies.Baseline), nameof(ProfileAnomalies.DropPending),
             nameof(ProfileAnomalies.NoteMachine), nameof(ProfileAnomalies.NoteLimit)])
@@ -90,8 +90,8 @@ public sealed partial class CpuProfiler
     }
 
     /// <summary>
-    /// Конец кадра (до записи в кольцо): суд кадра; аномальный тик кадра — пишется с ним. Кадр инструментов (<paramref name="tools"/>,
-    /// после Пв) как кадр не судится и в окно медианы не идёт — его лишнее время за работой агента; аномальный тик в нём — пишется
+    /// Конец кадра (до записи в кольцо): суд кадра; аномальный тик кадра — пишется с ним. Кадр инструментов (<paramref name="tools"/>)
+    /// как кадр не судится и в окно медианы не идёт — его лишнее время за работой агента; аномальный тик в нём — пишется
     /// (тики сыграны до точки обслуживания).
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -163,7 +163,7 @@ public sealed partial class CpuProfiler
     /// сверх среднего у зон вида <see cref="ProfileZoneKind.GpuWait"/>; вне CPU — настенное минус ожидания минус время потока
     /// (без паузы GC); остаток — код. Главная зона — наибольшее своё лишнее (лишнее зоны минус лишнее дочерних); ни у одной
     /// зоны своё лишнее не больше нуля — главной зоны нет (<see cref="ProfileAnomaly.NoZone"/>: абсолютный порог сработал на
-    /// периоде не дольше обычного — исправления после Пд, замечание проверяющего; раньше выходила случайная зона с «+0»); так же
+    /// периоде не дольше обычного — иначе выходила бы случайная зона с «+0»); так же
     /// при абсолютном пороге, если сам период не дольше своего среднего.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
@@ -195,7 +195,7 @@ public sealed partial class CpuProfiler
                 main = z;
             }
             var kind = (ProfileZoneKind)_kind[z];
-            // GPU-время прохода (точка Пг) — не время потока: в ожидания и разбор не идёт (его родителя нет — не главная зона).
+            // GPU-время прохода — не время потока: в ожидания и разбор не идёт (его родителя нет — не главная зона).
             if (kind is ProfileZoneKind.Work or ProfileZoneKind.Gpu) continue;
             wait += Ms(s.Time[z]);
             if (kind == ProfileZoneKind.GpuWait) gpu += Math.Max(0, Ms(excess[z]));
@@ -213,7 +213,7 @@ public sealed partial class CpuProfiler
 
     /// <summary>
     /// Аномалия периода (или кадра App с аномальным тиком): список, файл (если пускают лимит класса и частота; заметную — и сверх
-    /// лимита класса, из запаса заметных, но не сверх частоты) — копия писателю. Заметная (после Пв) — кадр не короче интервала показа
+    /// лимита класса, из запаса заметных, но не сверх частоты) — копия писателю. Заметная — кадр не короче интервала показа
     /// (<see cref="ProfileAnomalies.NoticeableMs"/>); тик без кадров и кадр инструментов (его длина — за работой агента) — нет.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]

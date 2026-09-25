@@ -8,7 +8,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Инструменты движка (раздел 8, точка 1е): сеанс, время, мир, команды, журнал, устройство. Чтение мира — копия в точке
+/// Инструменты движка (раздел 8): сеанс, время, мир, команды, журнал, устройство. Чтение мира — копия в точке
 /// обслуживания, разбор — здесь, на потоке агента.
 /// </summary>
 internal static class CoreTools
@@ -568,7 +568,7 @@ internal static class CoreTools
                 ["stableName"] = t.FullName,
                 ["fields"] = full || only is not null ? FieldCodec.Schema(t) : new JsonArray([.. FieldCodec.Fields(t).Select(f => (JsonNode?)JsonValue.Create(f.Name))]),
             };
-            // Ручки (6е): у ресурса — те, что живут в его полях (с диапазоном — в полном описании), у команды ручки — все.
+            // Ручки: у ресурса — те, что живут в его полях (с диапазоном — в полном описании), у команды ручки — все.
             var knobs = catalog.Tuning.Where(k => kind == "resource" ? k.Resource == t : t == typeof(Runtime.TuningCommand)).ToList();
             if (knobs.Count > 0)
                 entry["knobs"] = new JsonArray([.. knobs.Select(k => (JsonNode?)(full || only is not null ? Knob(k) : JsonValue.Create(k.Name)))]);
@@ -590,7 +590,7 @@ internal static class CoreTools
     }
 
     /// <summary>
-    /// Ручка для агента (6е): имя (ключ конфига и поле <c>Knob</c> команды <c>TuningCommand</c>), поле ресурса, вид, подпись и подсказка,
+    /// Ручка для агента: имя (ключ конфига и поле <c>Knob</c> команды <c>TuningCommand</c>), поле ресурса, вид, подпись и подсказка,
     /// диапазон, значение по умолчанию (в коде), шкала, владелец. Значение сейчас — <c>state.describe ecs</c> (ресурс).
     /// </summary>
     private static JsonObject Knob(Runtime.TuningKnob k) => new()

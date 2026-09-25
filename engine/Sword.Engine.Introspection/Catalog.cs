@@ -25,7 +25,7 @@ public sealed class Catalog
     }
 
     /// <summary>
-    /// Ручки симуляции (6е; <c>world.types</c> — у ресурса, в котором живут: имя, поле, диапазон, значение по умолчанию; изменение —
+    /// Ручки симуляции (<c>world.types</c> — у ресурса, в котором живут: имя, поле, диапазон, значение по умолчанию; изменение —
     /// <c>command.send TuningCommand</c>).
     /// </summary>
     public IReadOnlyList<Runtime.TuningKnob> Tuning { get; }

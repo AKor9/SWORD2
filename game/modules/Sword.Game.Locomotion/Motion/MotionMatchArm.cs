@@ -8,7 +8,7 @@ using Sword.Game.Data;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Рука с мечом игрока на Motion Matching (8ж; решение 3а этапа 8): клипы GASP — без меча, руки в них нейтральные, поэтому поверх позы MM
+/// Рука с мечом игрока на Motion Matching: клипы GASP — без меча, руки в них нейтральные, поэтому поверх позы MM
 /// правая рука берёт стойку оружия — клип слота <c>idle</c> таблицы действий (<see cref="ActionTable.Idle"/>) в момент <see cref="StanceTime"/> —
 /// смешиванием по маске руки (<see cref="Root"/> и всё его поддерево: ключица, плечо, предплечье, кисть, пальцы, скрутки и корректоры, сустав
 /// оружия) с весом ручки <c>locomotion.armWeight</c>. Порядок заданий тика: шаг MM (<c>locomotion.mm</c>) → рука (<c>locomotion.mm-arm</c>) →
@@ -100,7 +100,7 @@ public sealed class SwordArm
 }
 
 /// <summary>
-/// Состояние руки с мечом бойца на Motion Matching (8ж; компонент модуля — хеширует участник <c>ecs</c>, видно <c>entity.get</c>,
+/// Состояние руки с мечом бойца на Motion Matching (компонент модуля — хеширует участник <c>ecs</c>, видно <c>entity.get</c>,
 /// <c>watch.add</c>, <c>replay.observe</c>): поза стойки в пуле (источник смешивания по маске руки), её клип, действующий вес. Есть только у
 /// игрока на MM (<c>locomotion.player = mm</c>).
 /// </summary>
@@ -230,7 +230,7 @@ public sealed class SwordArmReleaseSystem : IReactiveSystem<Removed<MotionMatchA
 }
 
 /// <summary>
-/// <c>locomotion.mmArm</c> (8ж; лёгкий — каждый тик, после End): у бойца на Motion Matching есть рука с мечом; её вес конечен и в 0…1, клип
+/// <c>locomotion.mmArm</c> (лёгкий — каждый тик, после End): у бойца на Motion Matching есть рука с мечом; её вес конечен и в 0…1, клип
 /// стойки — клип библиотеки или −1; поза стойки живая, своя (не у двух бойцов) и не итоговая поза бойца (<see cref="PoseRef"/>). Пул — только
 /// через вид <see cref="IAnimationView"/>. Бойцы на постройке заново (<see cref="MotionMatchArm.Restart"/>) — не проверяются.
 /// </summary>

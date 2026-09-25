@@ -11,8 +11,8 @@ public enum ProfilePeriod
 }
 
 /// <summary>
-/// Вид зоны (точка Пв): обычная работа, ожидание GPU (забор кадра в полёте, показ) или простой (ограничитель кадров). По виду
-/// захват аномалий делит лишнее время периода на «код» и «ожидание GPU»; итогов вид не меняет. Точка Пг: <see cref="Gpu"/> —
+/// Вид зоны: обычная работа, ожидание GPU (забор кадра в полёте, показ) или простой (ограничитель кадров). По виду
+/// захват аномалий делит лишнее время периода на «код» и «ожидание GPU»; итогов вид не меняет. <see cref="Gpu"/> —
 /// GPU-время прохода, которое пишет рендер (<see cref="CpuProfiler.RecordGpu"/>), а не <c>Begin/End</c>: вне дерева CPU, в
 /// разбор времени кадра и в сводку F2 зон CPU не входит; в отчёте — своя секция <c>gpu</c>.
 /// </summary>
@@ -27,17 +27,17 @@ public enum ProfileZoneKind : byte
 /// <summary>
 /// Заголовок периода в кольце профайлера: номер кадра или тика, тики кадра (первый и сколько), доля тика кадра, время и
 /// выделенные байты периода, служебный ли кадр; у тика — кадр, в котором он сыгран (<see cref="ulong.MaxValue"/> — вне кадра);
-/// счётчики среды за период (точка Пб: такты потока, сборки и пауза GC, выделения процесса, JIT). Время — в отсчётах
-/// <see cref="Stopwatch"/>. Точка Пг: <paramref name="GpuFrame"/> — кадр, чьи GPU-времена записаны в этот кадр (зоны вида
+/// счётчики среды за период (такты потока, сборки и пауза GC, выделения процесса, JIT). Время — в отсчётах
+/// <see cref="Stopwatch"/>. <paramref name="GpuFrame"/> — кадр, чьи GPU-времена записаны в этот кадр (зоны вида
 /// <see cref="ProfileZoneKind.Gpu"/>; обычно этот минус 3 — кадры в полёте), <see cref="ulong.MaxValue"/> — не записаны.
-/// После Пв (решение пользователя): <paramref name="Tools"/> — кадр инструментов (точка обслуживания выполняла запросы агента):
+/// Решение пользователя: <paramref name="Tools"/> — кадр инструментов (точка обслуживания выполняла запросы агента):
 /// служебный (<paramref name="Service"/> тоже истина) — в кольце с этой пометкой, не в итогах и не судится как кадр.
 /// </summary>
 public readonly record struct ProfileHeader(ulong Number, ulong FirstTick, int Ticks, float Alpha, long Time, long Bytes, bool Service,
     ulong Frame, ProfileCounters Counters, ulong GpuFrame = ulong.MaxValue, bool Tools = false);
 
 /// <summary>
-/// Профайлер CPU (раздел 3 плана, точка Па): зоны с номерами, заведёнными заранее (<see cref="Zone"/> — при сборке мира,
+/// Профайлер CPU (раздел 3 плана): зоны с номерами, заведёнными заранее (<see cref="Zone"/> — при сборке мира,
 /// графа, реестра инвариантов), и стабильными именами; начало и конец зоны (<see cref="Begin"/>/<see cref="End"/>) — время
 /// (<see cref="Stopwatch.GetTimestamp"/>) и выделенные байты потока (<see cref="GC.GetAllocatedBytesForCurrentThread"/>);
 /// иерархия — стек открытых зон; агрегат на кадр (<see cref="BeginFrame"/>/<see cref="EndFrame"/>) и на тик
@@ -147,7 +147,7 @@ public sealed partial class CpuProfiler
 
     /// <summary>
     /// Частота обновления монитора, на котором показываются кадры, Гц; 0 — неизвестна (Headless, окно не сказало). Задаёт владелец
-    /// кадров (клиент — по окну). По ней захват аномалий судит «заметность» аномалии кадра (после Пв, решение пользователя):
+    /// кадров (клиент — по окну). По ней захват аномалий судит «заметность» аномалии кадра (решение пользователя):
     /// кадр не короче интервала показа <c>1000 / Гц</c> мс — хотя бы одно обновление экрана показало прежний кадр; неизвестна —
     /// <see cref="ProfileAnomalies.DefaultDisplayIntervalMs"/> (60 Гц). Менять — на потоке владельца.
     /// </summary>
@@ -184,7 +184,7 @@ public sealed partial class CpuProfiler
         return id;
     }
 
-    /// <summary>Номер зоны с видом (точка Пв: ожидание GPU, простой); вид задаётся при первой регистрации с ним.</summary>
+    /// <summary>Номер зоны с видом (ожидание GPU, простой); вид задаётся при первой регистрации с ним.</summary>
     public int Zone(string name, ProfileZoneKind kind)
     {
         int id = Zone(name);
@@ -232,7 +232,7 @@ public sealed partial class CpuProfiler
     private bool _interruptedFrame, _interruptedTick;
 
     /// <summary>
-    /// Открытые кадр и тик прерваны ожиданием вне кода (останов агента посреди тика — <c>time.break</c>, точка Пв): закроются
+    /// Открытые кадр и тик прерваны ожиданием вне кода (останов агента посреди тика — <c>time.break</c>): закроются
     /// служебными — в кольце, но не в итогах и не судятся захватом аномалий (иначе минуты ожидания агента были бы «аномалией»
     /// и испортили бы средние и максимум). У <see cref="Off"/> и без открытого периода — ничего.
     /// </summary>
@@ -254,7 +254,7 @@ public sealed partial class CpuProfiler
         if (_wanted && !_enabled) StartWindow();
         _enabled = _wanted;
         _timeline = _enabled ? _wantedTimeline : null;
-        if (_enabled) _anomalies?.RequestWarm();   // точка Пв: писатель аномалий компилирует свой код сейчас, а не посреди прогона
+        if (_enabled) _anomalies?.RequestWarm();   // писатель аномалий компилирует свой код сейчас, а не посреди прогона
     }
 
     /// <summary>
@@ -424,7 +424,7 @@ public sealed partial class CpuProfiler
     }
 
     /// <summary>
-    /// Конец кадра; <paramref name="tools"/> — кадр инструментов (после Пв, решение пользователя: точка обслуживания выполняла
+    /// Конец кадра; <paramref name="tools"/> — кадр инструментов (решение пользователя: точка обслуживания выполняла
     /// запросы агента): служебный — в кольце с пометкой <see cref="ProfileHeader.Tools"/>, не в средних и перцентилях, как кадр не
     /// судится; аномальный тик этого кадра — судится (тики сыграны до точки обслуживания, работа агента их не удлиняет).
     /// </summary>
@@ -451,7 +451,7 @@ public sealed partial class CpuProfiler
         _interruptedFrame = false;
         var counters = ReadCounters().Since(_frames.Start);
         _timeline?.Write(Now(), FrameZone, _depth, ProfileTimeline.Kind.FrameClose, (long)_frames.Number);
-        if (_anomalies is not null) FrameAnomaly(alpha, service, tools, counters);   // точка Пв: аномалия кадра или его тика
+        if (_anomalies is not null) FrameAnomaly(alpha, service, tools, counters);   // аномалия кадра или его тика
         _frames.Record(alpha, service | tools, ulong.MaxValue, counters, tools);
         _frameAt = -1;
     }
@@ -529,7 +529,7 @@ public sealed partial class CpuProfiler
         _interruptedTick = false;
         var counters = ReadCounters().Since(_ticks.Start);
         _timeline?.Write(Now(), TickZone, _depth, ProfileTimeline.Kind.TickClose, (long)_ticks.Number);
-        // Точка Пв: аномалия тика (в кадре App — пишется с кадром); тик, прерванный ожиданием агента, — служебный, не судится.
+        // Аномалия тика (в кадре App — пишется с кадром); тик, прерванный ожиданием агента, — служебный, не судится.
         if (_anomalies is not null && !interrupted) TickAnomaly(counters);
         _ticks.Record(1, service: interrupted, _frameAt >= 0 ? _frames.Number : ulong.MaxValue, counters);
         _tickAt = -1;
@@ -564,7 +564,7 @@ public sealed partial class CpuProfiler
         return (s.Count, s.Service);
     }
 
-    /// <summary>Кадров инструментов с последнего сброса (после Пв: часть служебных — <see cref="ProfileHeader.Tools"/>).</summary>
+    /// <summary>Кадров инструментов с последнего сброса (часть служебных — <see cref="ProfileHeader.Tools"/>).</summary>
     public int ToolFrames => _frames.ToolFrames;
 
     /// <summary>Последние <paramref name="count"/> периодов кольца (служебные — тоже), от старых к новым.</summary>
@@ -659,7 +659,7 @@ public sealed partial class CpuProfiler
         public int[] Hits = [];
         public int Count, Service, ToolFrames;
 
-        /// <summary>Счётчики среды на начале открытого периода и итоги с последнего сброса (без служебных; точка Пб).</summary>
+        /// <summary>Счётчики среды на начале открытого периода и итоги с последнего сброса (без служебных).</summary>
         public ProfileCounters Start, Totals;
         public int GcPeriods, JitPeriods, JitMainPeriods;
         public long MaxPauseTicks, MaxJitTicks;
@@ -669,13 +669,13 @@ public sealed partial class CpuProfiler
         public long[]? RingTime, RingBytes;
         public int[]? RingCalls;
 
-        /// <summary>Начало периода в кольце — отметка <see cref="Stopwatch"/> (точка Пв: Chrome Trace, окно аномалии).</summary>
+        /// <summary>Начало периода в кольце — отметка <see cref="Stopwatch"/> (Chrome Trace, окно аномалии).</summary>
         public long[]? RingStart;
 
         public ulong Number, FirstTick;
         public int Ticks;
 
-        /// <summary>Кадр, чьи GPU-времена записаны в открытый период (точка Пг); <see cref="ulong.MaxValue"/> — нет.</summary>
+        /// <summary>Кадр, чьи GPU-времена записаны в открытый период; <see cref="ulong.MaxValue"/> — нет.</summary>
         public ulong GpuFrame = ulong.MaxValue;
 
         /// <summary>Начало открытого периода — отметка <see cref="Stopwatch"/> открытия его зоны.</summary>
@@ -814,7 +814,7 @@ public sealed partial class CpuProfiler
 
 /// <summary>
 /// Зона за период (кадр или тик), мс: среднее, медиана, 99-й перцентиль, максимум; своё время (без дочерних), байты и
-/// вызовы в среднем на период, доля периодов, где зона была; вид зоны (точка Пг: <see cref="ProfileZoneKind.Gpu"/> — GPU-время
+/// вызовы в среднем на период, доля периодов, где зона была; вид зоны (<see cref="ProfileZoneKind.Gpu"/> — GPU-время
 /// прохода, мс на кадр, вне дерева CPU).
 /// </summary>
 public sealed record ProfileZoneStats(string Name, string? Parent, double MeanMs, double MedianMs, double P99Ms, double MaxMs,

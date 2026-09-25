@@ -20,7 +20,7 @@ public static class Program
     public const double MaxRatio = 1.30;
 
     /// <summary>
-    /// Цель профайлера (этап П, точка Па): пара Begin/End выключенного — не дороже стольких нс сверх пустого цикла (проверка
+    /// Цель профайлера: пара Begin/End выключенного — не дороже стольких нс сверх пустого цикла (проверка
     /// поля; при зоне на систему — ~60 пар на тик толпы, то есть меньше 0,1 мкс на тик).
     /// </summary>
     public const double MaxDisabledPairNs = 1.5;
@@ -45,10 +45,10 @@ public static class Program
             .AddExporter(MarkdownExporter.GitHub)
             .WithArtifactsPath(Path.Combine(outDir, "BenchmarkDotNet"));
 
-        // Профайлер CPU (точка Па) — свой итог artifacts/bench/profiler.json; --profiler — только он. В полном прогоне — последним:
+        // Профайлер CPU — свой итог artifacts/bench/profiler.json; --profiler — только он. В полном прогоне — последним:
         // бенчмарки идут в одном процессе, и его прогон не должен стоять перед замерами ECS и поз.
         if (args.Contains("--profiler")) return Profiler(config, outDir, quick) ? 0 : 1;
-        // Поиск Motion Matching (этап 8, точка 8в) — замер себе, не цель: свой итог artifacts/bench/motion.json, только по --motion.
+        // Поиск Motion Matching — замер себе, не цель: свой итог artifacts/bench/motion.json, только по --motion.
         if (args.Contains("--motion")) return MotionSearchReport.Run(config, outDir, quick) ? 0 : 1;
 
         var iteration = BenchmarkRunner.Run<EcsIteration>(config);
@@ -119,7 +119,7 @@ public static class Program
         }
         double loop = Ns(nameof(ProfilerZone.Loop)), disabled = Ns(nameof(ProfilerZone.Disabled)), enabled = Ns(nameof(ProfilerZone.Enabled));
         long disabledBytes = Bytes(nameof(ProfilerZone.Disabled)), enabledBytes = Bytes(nameof(ProfilerZone.Enabled));
-        // Точка Пб: счётчики среды, период, снимок машины, строка HUD — время и 0 байт.
+        // Счётчики среды, период, снимок машины, строка HUD — время и 0 байт.
         var counters = BenchmarkRunner.Run<ProfilerCounters>(config);
         var counterResults = counters.Reports.ToDictionary(r => r.BenchmarkCase.Descriptor.WorkloadMethod.Name, r => new
         {

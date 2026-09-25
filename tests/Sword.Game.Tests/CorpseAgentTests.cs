@@ -8,7 +8,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Агенту — трасса физики и суставы трупа (7и): расширение <c>physics.bodies</c> (раздел 8 плана — нового инструмента нет): схема
+/// Агенту — трасса физики и суставы трупа: расширение <c>physics.bodies</c> (раздел 8 плана — нового инструмента нет): схема
 /// (<c>trace</c> — on, off, reset, show; <c>events</c> — 0…64), неверные значения — ошибки вызова; on — диагностический режим
 /// <c>physics.trace</c> включён (мир и хеш те же), в ответе — last, window, run и контакты; reset — окно заново; off — выключен;
 /// <c>traceOn</c> — в каждом ответе, <c>joints</c> — null у тела без суставов.
@@ -63,7 +63,7 @@ public sealed class CorpseAgentTests
             Assert.False(plain["traceOn"]!.GetValue<bool>());
             Assert.Null(plain["trace"]);
             Assert.Null(plain["joints"]);   // у живого суставов нет
-            Assert.False(plain["asleep"]!.GetValue<bool>());   // 7з-3: сон трупа и счётчик покоя — у живого нет
+            Assert.False(plain["asleep"]!.GetValue<bool>());   // сон трупа и счётчик покоя — у живого нет
             Assert.Equal(0, plain["restTime"]!.GetValue<double>());
 
             Assert.Contains("trace", await Error(new JsonObject { ["trace"] = "maybe" }));
@@ -82,14 +82,14 @@ public sealed class CorpseAgentTests
                 var p = on[period]!;
                 Assert.NotNull(p["speed"]?["max"]);
                 Assert.NotNull(p["energy"]);
-                // 7з-2: рост у трупов в контакте друг с другом и по фазам подшага
+                // Рост у трупов в контакте друг с другом и по фазам подшага
                 Assert.NotNull(p["energy"]!["paired"]);
                 Assert.NotNull(p["energy"]!["pairedTotal"]);
                 foreach (string phase in (string[])["integrate", "joints", "world", "pairs", "pressed", "velocity", "contactVelocity", "relax"])
                     Assert.NotNull(p["energy"]!["phases"]![phase]);
                 Assert.IsType<JsonArray>(p["sources"]);
                 Assert.IsType<JsonArray>(p["top"]);
-                // 7з-3: сон — засыпания, спящие, касания спящих, пробуждения по причинам
+                // Сон — засыпания, спящие, касания спящих, пробуждения по причинам
                 foreach (string key in (string[])["sleeps", "asleepMax", "contacts", "wakes"]) Assert.NotNull(p["sleep"]![key]);
                 foreach (string reason in (string[])["push", "hit", "touch", "chain", "command", "settings"]) Assert.NotNull(p["sleep"]!["wakesBy"]![reason]);
             }

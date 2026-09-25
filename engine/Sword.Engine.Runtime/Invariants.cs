@@ -10,7 +10,7 @@ public enum InvariantScope { Entity, System, Subsystem, World, Client }
 /// <summary>
 /// Класс стоимости инварианта: проверять каждый тик (<see cref="EveryTick"/>), раз в N тиков (<see cref="Every"/>) или
 /// только по запросу (<see cref="OnDemand"/> — тяжёлые и советующие: <c>invariant.run</c>, <c>invariant.enable</c>).
-/// Исправления после Пд (решение пользователя): период кодового инварианта действует только в живой игре
+/// Решение пользователя: период кодового инварианта действует только в живой игре
 /// (<see cref="SimulationInvariants.LivePeriods"/> — Sword.exe); в тестах, verify, Headless и при сверке реплея кодовые проверяются
 /// каждый тик. Тяжёлые по замеру цены в тике толпы — <see cref="Heavy"/> (раз в <see cref="HeavyPeriod"/> тика в живой игре).
 /// Инвариант агента (<c>invariant.define every</c>) держит свой период всегда.
@@ -31,7 +31,7 @@ public readonly record struct InvariantCost
     public const int HeavyPeriod = 4;
 
     /// <summary>
-    /// Тяжёлый кодовый инвариант (цена в тике толпы — от ~2 % тика, docs/history/profiler.md, «Разбор Пд» вопрос 7): в живой
+    /// Тяжёлый кодовый инвариант (цена в тике толпы — от ~2 % тика, docs/history/profiler.md): в живой
     /// игре — раз в <see cref="HeavyPeriod"/> тика, иначе — каждый тик.
     /// </summary>
     public static InvariantCost Heavy => new(HeavyPeriod);
@@ -192,7 +192,7 @@ public sealed class SimulationInvariants
     private CpuProfiler _profiler = CpuProfiler.Off;
 
     /// <summary>
-    /// Профайлер CPU (точка Па): каждая проверка — зона <c>invariant.&lt;id&gt;</c>, заведённая здесь и при добавлении
+    /// Профайлер CPU: каждая проверка — зона <c>invariant.&lt;id&gt;</c>, заведённая здесь и при добавлении
     /// инварианта (<see cref="Add"/>), а не в тике.
     /// </summary>
     internal void AttachProfiler(CpuProfiler profiler)
@@ -218,7 +218,7 @@ public sealed class SimulationInvariants
     }
 
     /// <summary>
-    /// Живая игра (исправления после Пд, решение пользователя): кодовые инварианты с периодом (<see cref="InvariantCost.Heavy"/>)
+    /// Живая игра (решение пользователя): кодовые инварианты с периодом (<see cref="InvariantCost.Heavy"/>)
     /// проверяются раз в свой период; false (по умолчанию: тесты, <c>feature.verify</c>, Headless, сверка реплея) — каждый тик.
     /// Задаёт владелец (Sword.exe без <c>--replay</c>); на состояние и хеш не влияет. Нарушение, которое держится, в живой игре
     /// видно не позже чем через период − 1 тиков; нарушение, которое держится меньше периода, может не попасть в проверку.
@@ -327,7 +327,7 @@ public sealed class SimulationInvariants
         bool live = LivePeriods;
         foreach (var e in entries)
         {
-            // Период кодового инварианта — только в живой игре; инвариант агента держит свой всегда (исправления после Пд).
+            // Период кодового инварианта — только в живой игре; инвариант агента держит свой всегда.
             if ((live || !e.Code) && !e.Cost.Due(tick)) continue;
             int found = Evaluate(e, ctx, _found);
             if (found == 0) continue;

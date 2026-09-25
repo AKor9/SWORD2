@@ -1,10 +1,10 @@
 {
-  // Приёмка фичи «Детерминизм и реплеи» (этап 3). Эталоны SWORD2 повторяются бит в бит в Headless и в App (виды играют
+  // Приёмка фичи «Детерминизм и реплеи». Эталоны SWORD2 повторяются бит в бит в Headless и в App (виды играют
   // записи сценариев в Sword.exe --replay и сверяют его хеши с записью Headless).
   "format": "sword-feature",
   "version": 1,
   "id": "determinism",
-  "title": "Детерминизм и реплеи (этап 3)",
+  "title": "Детерминизм и реплеи",
   "doc": "README.md",
   "sourceRoots": [
     "engine/Sword.Engine.Runtime",

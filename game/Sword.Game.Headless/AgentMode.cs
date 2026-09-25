@@ -14,7 +14,7 @@ namespace Sword.Game.Headless;
 /// <c>Sword.Headless --agent</c> (раздел 8 плана): сервер MCP на stdio — клиент (Claude Code, Codex) сам запускает
 /// процесс. Симуляция стоит на паузе, время двигает агент; поток симуляции — главный: после каждого тика и на паузе он
 /// обслуживает очередь запросов агента (точка обслуживания), протокол — на своём потоке. stdout занят протоколом —
-/// журнал уходит в stderr и в кольцо <c>log.tail</c>. Выход (точка 6а) — конец stdin (клиент ушёл), конец родителя
+/// журнал уходит в stderr и в кольцо <c>log.tail</c>. Выход — конец stdin (клиент ушёл), конец родителя
 /// (обёртки клиента: клиент мог убить её, а вход держать), <c>session.stop</c>, простой без вызовов (<c>--idle-exit</c>:
 /// клиент держит сервер, пока открыт его сеанс, а сеансы настольных клиентов открыты часами); не вышел за
 /// <see cref="ExitDeadline"/> — сторож завершает процесс. Дети (Sword.exe видов и бюджетов) — в задании
@@ -61,7 +61,7 @@ public static partial class Program
         });
         SwordAgent.Register(host);
         host.Features = Features();
-        // Захват аномалий (точка Пв): судит включённый профайлер (--profile или profile.stages); файлы — в каталог прогона
+        // Захват аномалий: судит включённый профайлер (--profile или profile.stages); файлы — в каталог прогона
         // профайлера, туда же profile.json при выходе.
         string profileDir = ProfileDir("headless-agent");
         host.Profiler.CaptureAnomalies(new AnomalyOptions
@@ -71,7 +71,7 @@ public static partial class Program
         });
         // --profile: профайлер сеанса включён с начала (profile.stages включает и без ключа); отчёт — при выходе.
         if (profile) host.Profiler.SetEnabled(true);
-        if (profileEvents) host.Profiler.SetEvents(true);   // --profile runtime: диагностический режим (точка Пб)
+        if (profileEvents) host.Profiler.SetEvents(true);   // --profile runtime: диагностический режим
 
         var session = new AgentSimulation(sim, ReplayInfo.Current(host.ContentHash), build,
             sets => ConfigSet.Load(AppContext.BaseDirectory, sets));
@@ -130,7 +130,7 @@ public static partial class Program
     /// <summary><c>artifacts/agent</c> в корне репозитория (папка с SWORD.slnx выше exe), иначе рядом с exe.</summary>
     internal static string ArtifactsRoot() => Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "agent");
 
-    // ── приёмка фич (этап 3д) ─────────────────────────────────────────────
+    // ── приёмка фич ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Фичи: манифесты <c>feature.json</c> под <c>game</c> и <c>engine</c> репозитория, виды — <c>Sword.exe --replay</c> той же
@@ -148,7 +148,7 @@ public static partial class Program
 
     /// <summary>
     /// Sword.exe той же конфигурации сборки, что этот Headless (…\bin\Debug\… → App\bin\Debug; вне bin — сервер агента в
-    /// artifacts\agent-bin — по оптимизации сборки, точка 6б: <see cref="Game.Agent.AppLocator"/>); null — не собран.
+    /// artifacts\agent-bin — по оптимизации сборки: <see cref="Game.Agent.AppLocator"/>); null — не собран.
     /// </summary>
     internal static string? AppExe() => RepoRoot() is { } root ? Game.Agent.AppLocator.Find(root, AppContext.BaseDirectory, Optimized) : null;
 
@@ -181,9 +181,9 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Бюджет кадра (точка 4д): Sword.exe играет записанный сценарий бенчем (<c>--replay … --bench N</c>: первые 4 с — прогрев,
+    /// Бюджет кадра: Sword.exe играет записанный сценарий бенчем (<c>--replay … --bench N</c>: первые 4 с — прогрев,
     /// vsync выключен, справка скрыта), окно 640×480 без фокуса — как бенч <c>verify.ps1</c> app-smoke. Хеши App сверяются с
-    /// записью Headless: замер — ровно той игры, что сценарий. Оверлеи бюджета (5г) — <c>--overlay</c> на весь замер, как у вида.
+    /// записью Headless: замер — ровно той игры, что сценарий. Оверлеи бюджета — <c>--overlay</c> на весь замер, как у вида.
     /// </summary>
     private static FrameResult MeasureFrame(FrameRequest request, CancellationToken cancel)
     {
@@ -208,9 +208,9 @@ public static partial class Program
         if (frames <= 0) return new FrameResult(false, "кадров замера нет", frames, avg, p99, max);
         // Проходы последнего кадра — видно, что оверлеи бюджета нарисованы (капсулы тел — debug.bodies).
         string passes = report["report"]?["passes"] is JsonArray list ? string.Join(", ", list.Select(p => p?["name"]?.GetValue<string>())) : "?";
-        // Машина за замер App (точка Пб): вердикт «код или машина» — в подробностях и в отчёте бюджета.
+        // Машина за замер App: вердикт «код или машина» — в подробностях и в отчёте бюджета.
         var machine = report["report"]?["machine"] as JsonObject;
-        // 6ж: окно свернули во время бенча — прогон дорисован, но кадры без компоновки DWM (быстрее обычных): сказать словами.
+        // Окно свернули во время бенча — прогон дорисован, но кадры без компоновки DWM (быстрее обычных): сказать словами.
         int minimized = report["report"]?["minimizedFrames"]?.GetValue<int>() ?? 0;
         return new FrameResult(true, $"кадров замера {frames}: ср {avg} мс, p99 {p99} мс, макс {max} мс; хеши App совпали с записью " +
             $"(сверено {replay["hashesChecked"]}); проходы: {passes}; {report["report"]?["adapter"]}" +
@@ -223,7 +223,7 @@ public static partial class Program
 
     /// <summary>
     /// Запустить Sword.exe и прочитать итог JSON (последняя строка stdout); ошибка — словами. Sword.exe — в задании
-    /// <see cref="KillOnCloseJob.Shared"/> (точка 6а): Headless снят или упал — Sword.exe не остаётся сиротой.
+    /// <see cref="KillOnCloseJob.Shared"/>: Headless снят или упал — Sword.exe не остаётся сиротой.
     /// </summary>
     private static (JsonNode? Report, string? Error) RunApp(string exe, IEnumerable<string> args, CancellationToken cancel)
     {
@@ -244,7 +244,7 @@ public static partial class Program
         {
             process.Kill(entireProcessTree: true);
             if (cancel.IsCancellationRequested) throw;
-            // 6ж: предел запуска — страховка поверх сторожа кадров самого Sword.exe (--stall: «нет кадров N с», код 5).
+            // Предел запуска — страховка поверх сторожа кадров самого Sword.exe (--stall: «нет кадров N с», код 5).
             string last = "";
             try
             {

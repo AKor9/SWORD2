@@ -199,7 +199,7 @@ public sealed class WorldBuilder
             if (r.Cursors.Count > 1) r.AdvanceCursors();
             return;
         }
-        // Причина по умолчанию (6д): одно срабатывание — его причина; несколько — система ставит ctx.Cause сама на каждое.
+        // Причина по умолчанию: одно срабатывание — его причина; несколько — система ставит ctx.Cause сама на каждое.
         r.Buffer.Cause = world.Causality is not null && triggers.Length == 1 ? triggers[0].Cause : CauseId.None;
         ((IReactiveSystem<TTrigger>)r.System).React(new SystemContext(world, r, tick), triggers);
         r.Buffer.Cause = CauseId.None;

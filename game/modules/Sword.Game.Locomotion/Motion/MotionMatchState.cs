@@ -4,7 +4,7 @@ using Sword.Engine.Animation.Motion;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Состояние Motion Matching бойца (8е; компонент модуля — хеширует участник <c>ecs</c>, видно <c>entity.get</c>, <c>watch.add</c>,
+/// Состояние Motion Matching бойца (компонент модуля — хеширует участник <c>ecs</c>, видно <c>entity.get</c>, <c>watch.add</c>,
 /// <c>entity.history</c>, <c>replay.observe</c>): проигрыватель в хранилище модуля (<see cref="MotionMatchRuntime.Players"/> — его
 /// состояние, кадры и смещения суставов хеширует участник <c>locomotion</c>), счётчики и память поиска, темп. Есть только у игрока на MM
 /// (<c>locomotion.player = mm</c>). Все числа конечны (<c>ecs.finite</c>): нет продолжения — цена −1.

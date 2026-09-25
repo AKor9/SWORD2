@@ -8,7 +8,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Agent;
 
 /// <summary>
-/// Часть <c>physics.bodies</c> 7и — суставы тела и трасса физики агенту через вид <see cref="IPhysicsDebugView"/>: суставы бойца (описание,
+/// Часть <c>physics.bodies</c> — суставы тела и трасса физики агенту через вид <see cref="IPhysicsDebugView"/>: суставы бойца (описание,
 /// включён ли, замер — ошибка точки, углы, выход за предел) и трасса (диагностический режим <see cref="IPhysicsDebugView.TraceMode"/>:
 /// включить, выключить, начать окно заново; сводки последнего тика, окна и прогона, по источникам, самые быстрые и последние события
 /// быстрее порога, контакты последнего подшага по источникам). Нового инструмента нет — расширен существующий (раздел 8 плана).
@@ -25,7 +25,7 @@ public static class PhysicsDebugJson
     public static readonly string[] SourceNames = ["joints", "ground", "wall", "pair", "pushBody", "pushPass", "pushNoReaction", "self"];
 
     /// <summary>
-    /// Суставы тела бойца (7и): у живого суставов обычно нет (тела ставит поза), у трупа на физике — таблица суставов игры. Пусто — null.
+    /// Суставы тела бойца: у живого суставов обычно нет (тела ставит поза), у трупа на физике — таблица суставов игры. Пусто — null.
     /// </summary>
     public static JsonObject? Joints(WorldReader world, BodyRef body)
     {
@@ -58,7 +58,7 @@ public static class PhysicsDebugJson
     }
 
     /// <summary>
-    /// Самоколлизия тела (7з-4): пар в таблице, действуют ли (труп), толщина частей, в позе тика — пересекшихся пар и самая глубокая (капсулы как
+    /// Самоколлизия тела: пар в таблице, действуют ли (труп), толщина частей, в позе тика — пересекшихся пар и самая глубокая (капсулы как
     /// F7). Вида нет или пар нет — null.
     /// </summary>
     public static JsonObject? Self(WorldReader world, BodyRef body)
@@ -77,7 +77,7 @@ public static class PhysicsDebugJson
     }
 
     /// <summary>
-    /// Трасса физики (7и): действие <paramref name="action"/> (<see cref="TraceActions"/>; null — только флаг) в точке обслуживания
+    /// Трасса физики: действие <paramref name="action"/> (<see cref="TraceActions"/>; null — только флаг) в точке обслуживания
     /// (между тиками: режим не меняет ни мир, ни хеш, ни реплей), затем сводка: последний тик, окно, прогон (с включения), последние
     /// <paramref name="events"/> событий быстрее порога и контакты последнего подшага по источникам.
     /// </summary>
@@ -118,7 +118,7 @@ public static class PhysicsDebugJson
                 "позы / h (должен быть 0), псевдоимпульс за тик (Н·с), контакты и глубины (м); energy — рост энергии за подшаг, Дж (growth — " +
                 "труп без толчков живых и без контакта с другим трупом, должен быть около 0; paired — труп в контакте с трупом, передача; " +
                 "pairedTotal — сумма касавшихся; phases — где рост появился: integrate, joints, world, pairs, pressed (мир после пар), velocity, " +
-                "contactVelocity, relax); sleep — сон трупов (7з-3): sleeps — засыпаний, asleepMax — спящих на конец шага (наибольшее), contacts — " +
+                "contactVelocity, relax); sleep — сон трупов: sleeps — засыпаний, asleepMax — спящих на конец шага (наибольшее), contacts — " +
                 "касаний спящего трупа неспящим (опора), wakes/wakesBy — пробуждения: push (толчок живого), hit (удар), touch (касание движущегося " +
                 "трупа), chain (цепочка по куче), command (запись тела, суставы), settings (ручки)",
         };
@@ -214,7 +214,7 @@ public static class PhysicsDebugJson
         };
     }
 
-    /// <summary>Сон трупов накопителя (7з-3): засыпаний, спящих (наибольшее на конец шага), касаний спящих, пробуждений по причинам.</summary>
+    /// <summary>Сон трупов накопителя: засыпаний, спящих (наибольшее на конец шага), касаний спящих, пробуждений по причинам.</summary>
     private static JsonObject Sleep(in PhysicsTraceSleep z) => new()
     {
         ["sleeps"] = z.Sleeps, ["asleepMax"] = z.AsleepMax, ["contacts"] = z.Contacts, ["wakes"] = z.Wakes,

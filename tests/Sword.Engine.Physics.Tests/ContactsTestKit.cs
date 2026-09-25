@@ -3,8 +3,8 @@ using System.Numerics;
 namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
-/// Помощник тестов контактов и шага (7г): тестовые земли (<see cref="IGround"/> без состояния и без выделения памяти), постройка
-/// тел на физике, замеры глубины и перекрытия. Общий помощник 7б — <see cref="TestBodies"/>.
+/// Помощник тестов контактов и шага: тестовые земли (<see cref="IGround"/> без состояния и без выделения памяти), постройка
+/// тел на физике, замеры глубины и перекрытия. Общий помощник — <see cref="TestBodies"/>.
 /// </summary>
 internal static class ContactsKit
 {

@@ -9,10 +9,10 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Клинок бойца в мире (<c>FighterAnimator.Blade</c> и клинок в <c>DuelArena.PlaceBodies</c> SWORD 2eab13b; этап 6б): модельная
+/// Клинок бойца в мире (<c>FighterAnimator.Blade</c> и клинок в <c>DuelArena.PlaceBodies</c> SWORD 2eab13b): модельная
 /// матрица кисти позы в мире бойца (<see cref="BodyPlacement.World"/> — корень, курс, высота рельефа: тот же мир, что у капсул
 /// тела, «как показан боец»), основание и кончик клинка меча — в её системе. Масштаба клинка игрока (<c>SWORD_PLAYER_BLADE</c>,
-/// тест разреза SWORD) нет. С 7ж — и тело клинка (тело 11 сочленения, <see cref="BladeBody"/>): капсула от хвата (начало кисти) до
+/// тест разреза SWORD) нет. Тело клинка (тело 11 сочленения, <see cref="BladeBody"/>) — капсула от хвата (начало кисти) до
 /// кончика в той же системе кисти (<see cref="BodyOf"/>).
 /// </summary>
 public static class BladePlacement
@@ -29,7 +29,7 @@ public static class BladePlacement
     }
 
     /// <summary>
-    /// Тело клинка (7ж) в мире кисти <paramref name="hand"/>: хват — начало кисти, кончик — кончик клинка меча
+    /// Тело клинка в мире кисти <paramref name="hand"/>: хват — начало кисти, кончик — кончик клинка меча
     /// <paramref name="weapon"/> (тот же, что у <see cref="Of"/>: ось капсулы лежит на отрезке хват — кончик), центр — середина,
     /// поворот — ось Y вдоль клинка, X — опорная ось кисти <see cref="BladeBody.XHint"/> (<see cref="AnimMath.FromBasis"/>): тело
     /// клинка повёрнуто относительно кисти всегда одинаково.
@@ -64,7 +64,7 @@ public static class BladePlacement
     }
 
     /// <summary>
-    /// Тело клинка без скорости (7ж; постройка бойца, смена меча): форма меча <paramref name="weapon"/> — масса и радиус
+    /// Тело клинка без скорости (постройка бойца, смена меча): форма меча <paramref name="weapon"/> — масса и радиус
     /// <see cref="BladeBody"/>, полудлина — половина отрезка хват — кончик — и постановка по кисти <paramref name="hand"/>
     /// (<see cref="IPhysicsWorld.Place"/>). Сочленение негодно для бойца — ничего (его ловит <c>physics.bodyRefs</c>).
     /// </summary>
@@ -81,11 +81,11 @@ public static class BladePlacement
 
 /// <summary>
 /// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, после постройки тела и до курса (<see cref="GameLabels.BladeSetup"/>):
-/// построенному бойцу — клинок по позе постройки (своей — <see cref="FighterStartPose"/>, 8е — или общей <see cref="StartPose"/>) в корне и
+/// построенному бойцу — клинок по позе постройки (своей — <see cref="FighterStartPose"/> — или общей <see cref="StartPose"/>) в корне и
 /// курсе постройки, без прошлого
 /// (<c>PlaceBuilt</c> → <c>PlaceBodies(f, 0)</c> SWORD: <c>first</c> — <c>KinPrevBase = bladeBase</c>): первая постановка тика
 /// после постройки заметает клинок от позы постройки к позе тика, как в SWORD. Ставится командой (на барьере Gameplay).
-/// С 7ж — и тело клинка: форма меча в руке и постановка без скорости по той же кисти (<see cref="BladePlacement.BuildBody"/>) —
+/// Тело клинка — тоже: форма меча в руке и постановка без скорости по той же кисти (<see cref="BladePlacement.BuildBody"/>) —
 /// сразу, как тела плоти в <c>core.body-setup</c>. Бойцов сборки мира ставит сборка мира (<see cref="PlaceWorldBuilt"/>); тик 1
 /// ставит их ещё раз теми же значениями.
 /// </summary>
@@ -104,8 +104,8 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
             if (!world.IsAlive(a.Entity) || !world.Has<Blade>(a.Entity) || !world.TryGet<Transform>(a.Entity, out var root)
                 || !world.TryGet<WeaponSlot>(a.Entity, out var slot) || (uint)slot.Index >= (uint)weapons.Count)
                 continue;
-            ctx.Cause = a.Cause;   // причина постройки бойца — родитель клинка (state.why, 6д)
-            var model = start.Of(StartPoseModel.For(world, a.Entity));   // 8е: своя поза постройки бойца или общая
+            ctx.Cause = a.Cause;   // причина постройки бойца — родитель клинка (state.why)
+            var model = start.Of(StartPoseModel.For(world, a.Entity));   // своя поза постройки бойца или общая
             ctx.Commands.Set(a.Entity, BladePlacement.Built(model, hand, weapons, slot.Index, root.Position, root.Facing));
             if (world.TryGet<BodyRef>(a.Entity, out var body))
                 BladePlacement.BuildBody(physics, FighterBodies.Handle(body), weapons, slot.Index, BladePlacement.Hand(model, hand, root.Position, root.Facing));
@@ -137,10 +137,10 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
 /// <summary>
 /// PrePhysics, после капсул тела (<see cref="GameLabels.BladePlacement"/>): клинок каждого бойца — по позе этого тика в корне
 /// после Movement (<c>anim.Blade(world, …)</c> в <c>PlaceBodies</c> SWORD 2eab13b), прошлый — клинок прошлого тика; сменился меч —
-/// прошлое = нынешнему (<see cref="BladePlacement.Place"/>). С 7ж у живого — и тело клинка: кинематическая цель тика по той же кисти
+/// прошлое = нынешнему (<see cref="BladePlacement.Place"/>). У живого — и тело клинка: кинематическая цель тика по той же кисти
 /// (<see cref="IPhysicsWorld.SetKinematicTarget"/>: скорости — разностью за тик, как у тел плоти); сменился меч — новая форма и
 /// постановка без скорости (<see cref="BladePlacement.BuildBody"/>: фантомной скорости от старого меча к новому нет, как у отрезка).
-/// Мёртвый пропускается (7з): его тело клинка — на физике (меч выпал, сустав запястья выключен), клинок-отрезок стоит, где был в тик смерти
+/// Мёртвый пропускается: его тело клинка — на физике (меч выпал, сустав запястья выключен), клинок-отрезок стоит, где был в тик смерти
 /// (удара у мёртвого нет; корень мёртвого идёт за тазом — отрезок по застывшей позе ехал бы с ним). Боец без позы или с номером меча вне
 /// таблицы пропускается — его ловят <c>animation.owners</c> и <c>combat.weapons</c>. Памяти не выделяет.
 /// </summary>

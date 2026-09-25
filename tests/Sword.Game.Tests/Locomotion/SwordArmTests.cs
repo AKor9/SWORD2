@@ -12,7 +12,7 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Рука с мечом игрока на Motion Matching (8ж; категория Content — клипы GASP есть только в паке; <c>locomotion.player = mm</c>): кисть и
+/// Рука с мечом игрока на Motion Matching (категория Content — клипы GASP есть только в паке; <c>locomotion.player = mm</c>): кисть и
 /// клинок относительно груди (<c>spine_05</c> — родитель ключицы) — у стойки оружия (слот <c>idle</c>) стоя и на ходу; в ударе рука — у слоя
 /// действий; первый тик после постройки, R, смерть и возрождение — ровно поза постройки (со слоем руки), без скачков капсул и прохода
 /// клинка; ручка веса на ходу — плавно; смена меча — та же стойка; <c>clips</c> — ничего от руки; запас пула и 0 Б в тике.
@@ -349,7 +349,7 @@ public sealed class SwordArmTests(ITestOutputHelper output)
         for (int t = 0; t < 1200; t++)
         {
             // удары и рывки, затем вздрагивания (пробы удара по игроку); вместе не бьются — вздрагивание в ударе даёт скачок капсул и без руки
-            // (physics.kinematicSpeed при locomotion.player = clips — до 8е; запись в отчёте 8ж)
+            // (physics.kinematicSpeed при locomotion.player = clips)
             bool acting = t < 600;
             if (!acting && t % 90 == 45) sim.Enqueue(new StrikeProbe { Attacker = 1, Victim = 0, Part = BodySegs.UArmL, Damage = 0.5f });
             Step(sim, Moving(t % 600) with { Attack = acting && t % 50 == 7, Dash = acting && t % 300 == 150 });

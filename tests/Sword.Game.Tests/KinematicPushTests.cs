@@ -13,7 +13,7 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 7к этапа 7 — толчки живых и удары по трупам, свои тесты свойств (со SWORD не сравниваем): метки толчков (клинок в ударе — проходом),
+/// Толчки живых и удары по трупам, свои тесты свойств (со SWORD не сравниваем): метки толчков (клинок в ударе — проходом),
 /// отдача в корень (доля, масса, предел — игрок не теряет управления), живой проходит сквозь труп, теряя немного скорости, удар по трупу — импульс
 /// в часть с потолком Δv и из бюджета прохода, отдача атакующему (игроку слабее), серия ударов не разгоняет труп выше потолков, смертельный удар
 /// толкает падающий труп, клинки врагов толкают трупы врагов без урона, причинность импульса и отдачи — от попадания, повтор реплея, инварианты
@@ -39,7 +39,7 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
     /// Combat после проходов клинка, в тиках, где <paramref name="when"/> и бьющий в ударе с кончиком не медленнее 3,5 м/с (синтетические
     /// удары клинком никого не задевают). Точка — на оси части, в четверти полудлины от центра (удар с плечом), направление — от корня бьющего к
     /// точке по земле, скорость — кончика тика, урон <paramref name="damage"/>, номер удара — бьющего: дальше — тот же путь Resolve, что у
-    /// касания 6г; касаний на удар — не больше <paramref name="perStrike"/>. Проходы пар (<see cref="StrikePairs"/>) касание не трогает —
+    /// касания; касаний на удар — не больше <paramref name="perStrike"/>. Проходы пар (<see cref="StrikePairs"/>) касание не трогает —
     /// <c>combat.hits</c> в таких тестах выключен.
     /// </summary>
     internal sealed class InjectContact(int attacker, int victim, int part, Func<ulong, bool> when, IPhysicsWorld[] physics, float damage = 60.8f,
@@ -195,8 +195,8 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
         }
         float moved = Vector3.Distance(com0, RagdollCorpseTests.Totals(sim, enemy).Com);
         output.WriteLine(F($"s3: скорость до трупа {before:F3}, у трупа не ниже {near:F3} м/с; труп сдвинут на {moved:F3} м; толчок {push:F2} Н·с за {contact} тиков контакта (бюджет × время {rules.PushForce * contact * sim.Dt:F2}); доля пары {trace.Window.PairShare:F3}, выталкивание {trace.Window.PushPopSpeed:F4} м/с; отдача игроку — до {trace.Window.ReactionMax:F2} Н·с за тик"));
-        // До трупа игрок разгоняется (14 1/с) почти до 4,2: 7з-4 — с самоколлизией труп лёг иначе, центр масс ближе к игроку, разбег короче —
-        // 4,1987 (до 7з-4 — 4,2 до третьего знака).
+        // До трупа игрок разгоняется (14 1/с) почти до 4,2: с самоколлизией труп лёг иначе, центр масс ближе к игроку, разбег короче —
+        // 4,1987 (без самоколлизии — 4,2 до третьего знака).
         Assert.Equal(4.2f, before, 2);
         Assert.InRange(near, 4.0f, 4.19f);
         Assert.True(4.2f - near <= rules.RecoilMaxSpeed, $"скорость ушла от заданной на {4.2f - near}");
@@ -226,7 +226,7 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
         var arm = new InjectContact(0, 1, BodySegs.FArmL, t => t >= 350, holder, perStrike: 1);
         var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Combat, hits), (GameStages.Combat, arm));
         holder[0] = physics;
-        sim.Invariants.SetEnabled("combat.hits", false);   // касание теста мимо проходов 6г
+        sim.Invariants.SetEnabled("combat.hits", false);   // касание теста мимо проходов
         RagdollCorpseTests.Step(sim, RagdollCorpseTests.Place(1, 0, 3, MathF.PI));
         RagdollCorpseTests.Step(sim, RagdollCorpseTests.Kill(1));
         var player = Fighter(sim, 0);
@@ -366,7 +366,7 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
     // ── причинность, реплей ──────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Причинность (6д, 7к): импульс в тело трупа и отдача атакующему — от попадания: <c>state.why(труп, HitImpulse)</c> — Set ← Hit ←
+    /// Причинность: импульс в тело трупа и отдача атакующему — от попадания: <c>state.why(труп, HitImpulse)</c> — Set ← Hit ←
     /// касание; <c>state.why(игрок, Recoil)</c> — Set ← Hit того же удара.
     /// </summary>
     [Fact]
@@ -499,7 +499,7 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
         string faultStage = fault switch { PushFault.Sources => GameStages.PrePhysics, PushFault.HitSource => GameStages.Combat, _ => GameStages.Resolve };
         var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Combat, hits), (faultStage, system));
         holder[0] = physics;
-        sim.Invariants.SetEnabled("combat.hits", false);   // касание теста мимо проходов 6г
+        sim.Invariants.SetEnabled("combat.hits", false);   // касание теста мимо проходов
         RagdollCorpseTests.Step(sim, RagdollCorpseTests.Place(1, 0, 3, MathF.PI));
         RagdollCorpseTests.Step(sim, RagdollCorpseTests.Kill(1));
         while (system.Faulted == ulong.MaxValue && sim.Tick < 400)
@@ -518,7 +518,7 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
 
     /// <summary>
     /// Порча попадания (Resolve, после <c>core.hit-apply</c>) на тике <paramref name="tick"/>: попадание по трупу врага 1 без метки «по трупу»
-    /// (проба — проходы 6г не сверяются) или попадание клинком от трупа врага 1 в игрока.
+    /// (проба — проходы не сверяются) или попадание клинком от трупа врага 1 в игрока.
     /// </summary>
     private sealed class FakeHit(bool fromCorpse, ulong tick) : IContinuousSystem
     {
@@ -543,7 +543,7 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Пересмотренный <c>combat.hits</c> и <c>ragdoll.hitSource</c> (7к) ловят на своём тике (после Resolve): попадание по трупу без метки
+    /// <c>combat.hits</c> и <c>ragdoll.hitSource</c> ловят на своём тике (после Resolve): попадание по трупу без метки
     /// «по трупу» (<see cref="Hit.Corpse"/> расходится с «мертва до попаданий тика») и попадание клинком от трупа. До порчи — чисто.
     /// </summary>
     [Theory]
@@ -573,12 +573,12 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
 }
 
 /// <summary>
-/// 7к на паке игры (категория Content): настоящие удары клинком по трупу — s1 (удары по трупу серией: попадания по трупу, импульс ≤ бюджета
+/// На паке игры (категория Content): настоящие удары клинком по трупу — s1 (удары по трупу серией: попадания по трупу, импульс ≤ бюджета
 /// прохода, Δv ≤ доли скорости удара, труп сдвигается и переворачивается, тела — в потолках, причинность импульса до команды игрока), s3 (проход
 /// сквозь труп), s6 (постройка бойца на трупе — место наибольшего пересечения), клинки врагов толкают трупы врагов без урона. Числа — в выводе;
-/// пороги — ~2× к замеру (docs/history/ragdoll.md, «7к»). Толчки проверяются по трассе физики; выталкивание толчком сверх толкающей точки — с запасом
-/// 0,05 м/с (замер — до 1,026 м/с при <c>PopSpeed</c> 1: второй порядок поворота в проекции; <c>physics.pushes</c> 7з с запасом 1e-3 здесь не
-/// включается — docs/history/ragdoll.md, «7к» → «Известные ошибки»).
+/// пороги — ~2× к замеру (docs/history/ragdoll.md). Толчки проверяются по трассе физики; выталкивание толчком сверх толкающей точки — с запасом
+/// 0,05 м/с (замер — до 1,026 м/с при <c>PopSpeed</c> 1: второй порядок поворота в проекции; <c>physics.pushes</c> с запасом 1e-3 здесь не
+/// включается — docs/history/ragdoll.md, «Известные ошибки»).
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class KinematicPushContentTests(ITestOutputHelper output)
@@ -731,9 +731,9 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
     /// <summary>
     /// s6 — постройка бойца на трупе: враг 1 в (0; 1,5) убит, через 2 с враг 2 поставлен командой в место наибольшего пересечения с телами трупа и
     /// стоит (команда врагу): его тела расталкивают труп не быстрее своей точки + <c>PopSpeed</c> (стоит — 1 м/с) — без разлёта: центр масс трупа
-    /// ≤ 1 м/с (замер 0,48; 7з-2 — 0,69), сдвиг ≤ 0,8 м (0,04; 7з-2 — 0,58: труп лёг иначе — суставы после удара о землю сводятся не быстрее
+    /// ≤ 1 м/с (замер 0,69), сдвиг ≤ 0,8 м (0,58: суставы после удара о землю сводятся не быстрее
     /// <c>JointPopSpeed</c>, — место наибольшего пересечения пришлось на его центр масс, мера 2,05 против 1,65, и боец выталкивает труп на свою
-    /// ширину), тела ≤ 3 м/с (1,6); через 4 с покой (≤ 0,3 Дж; 0,04, 7з-4 — 0,16: живой стоит на трупе и качается в стойке, самоколлизия не
+    /// ширину), тела ≤ 3 м/с (1,6); через 4 с покой (≤ 0,3 Дж; 0,16: живой стоит на трупе и качается в стойке, самоколлизия не
     /// даёт частям уйти в своё тело — толчок держит их в движении, спать рядом с живым труп не может); враг 2 не отброшен (отдача в пределе).
     /// </summary>
     [Fact]

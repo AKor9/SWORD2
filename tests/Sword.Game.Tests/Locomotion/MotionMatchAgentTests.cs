@@ -20,7 +20,7 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Motion Matching игрока — агенту и на экран (8з; категория Content — клипы GASP есть только в паке): вид <see cref="IMotionMatchView"/>
+/// Motion Matching игрока — агенту и на экран (категория Content — клипы GASP есть только в паке): вид <see cref="IMotionMatchView"/>
 /// отдаёт осмысленное (кадр в базе, траектории конечны, цены групп в сумме — цена), при <c>clips</c> вида нет; события переходов
 /// <see cref="MotionTransition"/> сходятся со счётчиками (поиском — смены, всего — переходы) и с графом базы; тяжёлые инварианты
 /// <c>locomotion.mmDecay</c> и <c>locomotion.mmContinuity</c> ловят неисправность на её тике и в живой игре — раз в 4 тика; замеры
@@ -59,7 +59,7 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
         return new PlayerCommand { Move = new Vector2(MathF.Sin(a), MathF.Cos(a)), HasGaze = true, Gaze = new Vector3(0, 0, 60) };
     }
 
-    /// <summary>Сценарии замеров 8з: команда игрока на тик (12 с каждый).</summary>
+    /// <summary>Сценарии замеров: команда игрока на тик (12 с каждый).</summary>
     private static readonly (string Name, Func<int, PlayerCommand> Command)[] Scenarios =
     [
         ("бег по кругу 8 направлений", Circle),
@@ -163,7 +163,7 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
     // ── события переходов ────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Сценарии замеров 8з (12 с каждый: круг 8 направлений, зигзаг, шаг ↔ бег, старт и стоп, разворот, стрейф, бег с ударами и рывками):
+    /// Сценарии замеров (12 с каждый: круг 8 направлений, зигзаг, шаг ↔ бег, старт и стоп, разворот, стрейф, бег с ударами и рывками):
     /// события <see cref="MotionTransition"/> (экспорт тика) — поиском ровно столько, сколько смен, всего — сколько переходов проигрывателя;
     /// счётчик события растёт на 1; у поиска — повод, кадр входа найденного (вход кадра итога поиска), цена не больше цены продолжения без
     /// порога; у ребра — кадр ребра и его вход по графу, клипы — клипы кадров. На всех сценариях есть и смены по скачку цели, и рёбра графа
@@ -314,9 +314,9 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
     // ── замеры: скольжение опорной стопы и скачок сустава ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Сценарии 8з (12 с каждый, 1 с на разгон не считается): скольжение опорной стопы (среднее и p95 по тикам со стопой на земле) и
+    /// Сценарии (12 с каждый, 1 с на разгон не считается): скольжение опорной стопы (среднее и p95 по тикам со стопой на земле) и
     /// наибольший скачок сустава за тик — по виду (<see cref="IMotionMatchView.Measure"/>: те же числа, что у полей агента
-    /// <c>MotionMatch.FootSlide</c>, <c>MotionMatch.JointJump</c>), переходов в секунду — числа в вывод (база метрик 8и и порога инварианта
+    /// <c>MotionMatch.FootSlide</c>, <c>MotionMatch.JointJump</c>), переходов в секунду — числа в вывод (база метрик и порога инварианта
     /// скачка). Скачок — ниже предела <see cref="MotionMatchContinuityInvariant.Limit"/>, инварианты чисты.
     /// </summary>
     [Fact]
@@ -544,7 +544,7 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
         Assert.Equal(sim.Tuning.Where(k => k.Section == LocomotionKnobs.Section).Select(k => k.Key).Order(), group.Values().Keys.Order());
         Assert.Equal(["MOTION MATCHING ИГРОКА", "ПОИСК, ПЕРЕХОД, ВЕСА ГРУПП, РУКА"], group.Items.OfType<TuningHeader>().Select(h => h.Label));
         Assert.Equal(sim.Tuning.Where(k => k.Section == LocomotionKnobs.Section).Select(k => k.Key),
-            group.Items.OfType<TuningFloat>().Select(f => f.Key));   // порядок регистрации: поиск и переход, веса, вес руки (8ж)
+            group.Items.OfType<TuningFloat>().Select(f => f.Key));   // порядок регистрации: поиск и переход, веса, вес руки
         Assert.Equal(17, group.Items.OfType<TuningFloat>().Count());
         var rows = group.Items.OfType<TuningInfo>().ToList();
         Assert.Equal(["клип", "поиск", "время поиска", "переходов/с"], rows.Select(r => r.Label));

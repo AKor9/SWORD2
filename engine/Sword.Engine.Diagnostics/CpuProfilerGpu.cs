@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 namespace Sword.Engine.Diagnostics;
 
 /// <summary>
-/// GPU-время проходов в профайлере кадра (этап П, точка Пг): рендер пишет в открытый кадр времена кадра, разобранного в нём
+/// GPU-время проходов в профайлере кадра: рендер пишет в открытый кадр времена кадра, разобранного в нём
 /// (таймстемпы D3D12 — Rhi и Render, профайлер о GPU не знает), зонами вида <see cref="ProfileZoneKind.Gpu"/>: <c>gpu.frame</c>
 /// — кадр целиком, <c>gpu.&lt;проход&gt;</c> — проходы. Итоги, кольцо, медиана и p99 — как у зон CPU, но вне дерева CPU (родителя
 /// нет): в своё время кадра, главную зону аномалии и сводку зон CPU они не входят. Отставание — в заголовке кадра
@@ -12,10 +12,10 @@ namespace Sword.Engine.Diagnostics;
 /// </summary>
 public sealed partial class CpuProfiler
 {
-    /// <summary>Зона GPU-времени кадра целиком (точка Пг).</summary>
+    /// <summary>Зона GPU-времени кадра целиком.</summary>
     public const string GpuFrameName = "gpu.frame";
 
-    /// <summary>Префикс зон GPU-времени проходов (точка Пг).</summary>
+    /// <summary>Префикс зон GPU-времени проходов.</summary>
     public const string GpuPrefix = "gpu.";
 
     /// <summary>

@@ -6,11 +6,11 @@ using Sword.Game.Ragdoll;
 namespace Sword.Game.Agent;
 
 /// <summary>
-/// Вычисляемые поля тела бойца целиком (7з; часть <see cref="BodyFields"/>): <c>Body.Com[.X|.Y|.Z]</c> — центр масс тел, м;
+/// Вычисляемые поля тела бойца целиком (часть <see cref="BodyFields"/>): <c>Body.Com[.X|.Y|.Z]</c> — центр масс тел, м;
 /// <c>Body.ComVelocity[.X|.Y|.Z]</c> — его скорость, м/с (без компоненты — длина); <c>Body.KineticEnergy</c> — кинетическая энергия тел, Дж
 /// (поступательная и вращательная); <c>Body.Energy</c> — полная (плюс <c>m·g·y</c>), Дж. Для трупа — «успокоился ли» и «не растёт ли энергия в
 /// покое» (<c>watch.add</c>, <c>entity.history</c>, метрики и проверки манифеста фичи «Рэгдолл»); у живого — те же величины кинематических тел.
-/// 7з-3 — сон: <c>Body.Asleep</c> — 1, если труп спит (физика его не считает), иначе 0; <c>Body.RestTime</c> — счётчик покоя, с. 7з-4 —
+/// Сон: <c>Body.Asleep</c> — 1, если труп спит (физика его не считает), иначе 0; <c>Body.RestTime</c> — счётчик покоя, с;
 /// самоколлизия: <c>Body.SelfDepth</c> — насколько глубже всего часть тела вошла в свою другую часть (действующие пары самоколлизии — оба тела на
 /// физике, капсулы как F7), м; пар нет или живой (тела кинематические, в том числе возрождённый) — 0. Считает <see cref="CorpseMetrics"/> по виду тел (самоколлизию — вид диагностики физики). Нет тела — NaN.
 /// </summary>
@@ -52,7 +52,7 @@ public static class CorpseFields
         return t.Mass > 0 ? t : null;
     }
 
-    /// <summary>Тело бойца живо (7з-3): вид тел и ссылка на тело.</summary>
+    /// <summary>Тело бойца живо: вид тел и ссылка на тело.</summary>
     private static bool Body(in ServiceContext ctx, Entity e, out IBodyView view, out BodyRef body)
     {
         var world = ctx.World;

@@ -319,7 +319,7 @@ public class SimulationTests
     [Fact]
     public void OnWorldReady_RunsAfterEveryOnWorldBuilt_OfCoreAndModules()
     {
-        // Ядро ставит тело бойца по ресурсу, который модуль задаёт при сборке мира (5в): готовность — после всех сборок.
+        // Ядро ставит тело бойца по ресурсу, который модуль задаёт при сборке мира: готовность — после всех сборок.
         var order = new List<string>();
         var sim = Simulation.Build(ConfigSet.Empty(), Stages, b =>
         {

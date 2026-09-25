@@ -8,10 +8,10 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Arena;
 
 /// <summary>
-/// Begin, после <c>core.prev-transform</c> (с 6б; на этапах 4–6а — Intent), реактивная по <c>Event&lt;ArenaCommand&gt;</c>:
+/// Begin, после <c>core.prev-transform</c>, реактивная по <c>Event&lt;ArenaCommand&gt;</c>:
 /// команды арены тика по порядку — число врагов (<c>SetEnemyCount</c> SWORD: больше — новые места old+1…n спаунятся заново;
 /// меньше — последние места уходят), сброс (<c>Reset(EnemyCount)</c>: игрок заново в центре курсом 0, все враги заново) и меч
-/// игрока (6б: T — следующий меч инвентаря, <c>NextPlayerWeapon</c>; «взять меч N» — <c>EquipPlayerWeapon</c>). Порядок SWORD в
+/// игрока (T — следующий меч инвентаря, <c>NextPlayerWeapon</c>; «взять меч N» — <c>EquipPlayerWeapon</c>). Порядок SWORD в
 /// кадре — PageUp, PageDown, R, T — задаёт клиент.
 ///
 /// Команды тика сначала сводятся в итог (сколько врагов, какие места строятся заново и от какого центра, сброшен ли
@@ -21,10 +21,10 @@ namespace Sword.Game.Arena;
 /// по <c>Added&lt;Fighter&gt;</c>; прошлый корень = новому — телепорт без интерполяции); новое место — новая сущность, ушедшее —
 /// сущность снимается. Изменения видны с барьера Begin: команда игрока и ИИ врагов (Intent) этого тика уже видят арену после
 /// команд, как <c>PlayerController.Think</c> и <c>EnemyAi.Think</c> SWORD после <c>SetEnemyCount</c>/<c>Reset</c> (в SWORD команды
-/// арены — из цикла кадра до <c>arena.Tick</c>). Подпорки 4а и 4б (команда игрока и ИИ всех врагов, посчитанные здесь в тике
-/// команды) сняты: Intent их больше не нуждается. Игрок после сброса — с прежней точкой взгляда (<c>_cursor</c> контроллера SWORD
-/// сброс не трогает) и мечом инвентаря; враг при каждой постройке — со случайным мечом (<see cref="ArenaRules.Enemy"/>). С 6г
-/// постройка оживляет мёртвого (метка <see cref="Dead"/> снимается, здоровье полное), сброс обнуляет статистику арены
+/// арены — из цикла кадра до <c>arena.Tick</c>).
+/// Игрок после сброса — с прежней точкой взгляда (<c>_cursor</c> контроллера SWORD
+/// сброс не трогает) и мечом инвентаря; враг при каждой постройке — со случайным мечом (<see cref="ArenaRules.Enemy"/>).
+/// Постройка оживляет мёртвого (метка <see cref="Dead"/> снимается, здоровье полное), сброс обнуляет статистику арены
 /// (<see cref="ArenaStats"/>).
 /// </summary>
 public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<ArenaCommand>>
@@ -89,14 +89,14 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
             }
         }
         var cmd = ctx.Commands;
-        // Причина (state.why, 6д): постройка места — от команды своей партии, меч и число врагов — от последней команды тика.
+        // Причина (state.why): постройка места — от команды своей партии, меч и число врагов — от последней команды тика.
         ctx.Cause = commands[^1].Cause;
         if (inventory.Equipped != before.Equipped || inventory.Owned != before.Owned) cmd.SetResource(inventory);
         // Меч в руке игрока — меч инвентаря (сброс строит игрока сразу с ним).
         if (resetBatch == 0 && !player.IsNull && inventory.Equipped != before.Equipped)
             cmd.Set(player, new WeaponSlot { Index = inventory.Equipped });
         if (enemies == state.Enemies && resetBatch == 0 && !AnyMarked()) return;
-        // Доводка 6ж: врагов прибавилось — запас пула поз добирается здесь, до постройки новых бойцов (их позы — в Gameplay этого тика,
+        // Врагов прибавилось — запас пула поз добирается здесь, до постройки новых бойцов (их позы — в Gameplay этого тика,
         // слои боя — позже): рост пула посреди боя не выделяет памяти. Разовое выделение — в тике команды арены.
         if (enemies > state.Enemies) GameCore.ReservePoses(world.Resource<PosePool>(), enemies);
 
@@ -109,7 +109,7 @@ public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<Aren
             var gaze = world.TryGet<GazeTarget>(player, out var g) ? g : default;
             if (player.IsNull) Fighters.Create(cmd, playerSpawn, Fighters.Standing(playerSpawn), gaze);
             else Fighters.Rebuild(cmd, player, playerSpawn, Fighters.Standing(playerSpawn), gaze, Action(world, player), dead: world.Has<Dead>(player));
-            cmd.SetResource(ArenaStats.Start);   // 6г: сброс — статистика и последний удар с нуля (Kills = Hits = 0 SWORD)
+            cmd.SetResource(ArenaStats.Start);   // сброс — статистика и последний удар с нуля (Kills = Hits = 0 SWORD)
         }
         for (int slot = 1; slot < ArenaRules.MaxFighters; slot++)
         {

@@ -101,7 +101,7 @@ internal static class Screenshot
     /// </summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
     /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -147,7 +147,7 @@ internal static class Screenshot
     /// </summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
     /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -182,7 +182,7 @@ internal static class Screenshot
     /// </summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
     /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -230,7 +230,7 @@ internal static class Screenshot
     /// <summary>Записать снятый кадр: расширение .bmp — BMP, иначе PNG; вернёт цвет кадра (RGB по строкам) — под слои снимка.</summary>
     /// <remarks>
     /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md, «Разбор Пд», вопрос 4). Вынос тела
+    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
     /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

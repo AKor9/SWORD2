@@ -16,9 +16,9 @@ using Sword.Game.Data;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 6г «Урон, смерть, реакции, возрождение»: правила урона числами (<see cref="DamageRules"/>), проба удара командой
+/// Урон, смерть, реакции, возрождение: правила урона числами (<see cref="DamageRules"/>), проба удара командой
 /// тем же путём Resolve (урон, раны, кровотечение, заявка на отруб, смертельный укол только остриём, реакция, статистика),
-/// неуязвимость (настройка и рывок), трупы — цели (7к: попадание по трупу) и не действуют, кровопотеря, возрождение ровно через 8 с,
+/// неуязвимость (настройка и рывок), трупы — цели (попадание по трупу) и не действуют, кровопотеря, возрождение ровно через 8 с,
 /// мёртвый игрок (команды не действуют, враги ×0,2 и не бьют, R — заново), вздрагивание игрока (только верх, управление не отнимается),
 /// инварианты урона на неисправностях. Контент — синтетический (<see cref="TestAssets"/>); касания настоящих ударов пака — сценарии
 /// манифеста <c>combat</c> (дуэль, смерть игрока, рывок сквозь удар) и инвариант <c>combat.hits</c>.
@@ -207,9 +207,9 @@ public sealed class DamageTests
     }
 
     /// <summary>
-    /// Труп — снова цель (7к) и не действует: проба в труп — попадание по трупу (<see cref="Hit.Corpse"/>: урон и рана трупу, смерти и
+    /// Труп — цель и не действует: проба в труп — попадание по трупу (<see cref="Hit.Corpse"/>: урон и рана трупу, смерти и
     /// реакции нет, «убито» не растёт, в статистике — <see cref="ArenaStats.CorpseHits"/>, не <c>Hits</c>; импульса у пробы нет — скорости
-    /// удара нет); курс, действие, поза и клинок-отрезок стоят, хотя ИИ живого вёл бы его к игроку. С 7з тела — труп на физике: в тик смерти
+    /// удара нет); курс, действие, поза и клинок-отрезок стоят, хотя ИИ живого вёл бы его к игроку. Тела — труп на физике: в тик смерти
     /// (Settle) скорости последней постановки живого урезаны переходом (≤ 6 м/с), дальше труп падает; корень идёт за тазом трупа.
     /// </summary>
     [Fact]
@@ -238,7 +238,7 @@ public sealed class DamageTests
         sim.Export.BeginFrame();
         Probe(sim, 0, 1, BodySegs.Torso, 50);
         Step(sim, 120);
-        var hit = Assert.Single(sim.Export.Frame<Event<Hit>>().ToArray()).Record.Value;   // 7к: попадание по трупу
+        var hit = Assert.Single(sim.Export.Frame<Event<Hit>>().ToArray()).Record.Value;   // попадание по трупу
         Assert.Equal((true, false, BodySegs.Torso, 50f), (hit.Corpse, hit.Killed, hit.Part, hit.Damage));
         Assert.Single(sim.Export.Frame<Event<StrikeContact>>().ToArray());
         var wounded = sim.World.Get<Health>(enemy);
@@ -319,7 +319,7 @@ public sealed class DamageTests
     }
 
     /// <summary>
-    /// Мёртвый игрок: команды не действуют (ход не разгоняет; корень — за тазом трупа, 7з), враги подходят ×0,2 (намерение — 0,2 от
+    /// Мёртвый игрок: команды не действуют (ход не разгоняет; корень — за тазом трупа), враги подходят ×0,2 (намерение — 0,2 от
     /// составляющих ИИ, к корню — тазу трупа) и не бьют; сброс арены (R) строит игрока заново — жив, здоровье полное, статистика с нуля.
     /// </summary>
     [Fact]
@@ -337,7 +337,7 @@ public sealed class DamageTests
         Step(sim, 1, new PlayerCommand { Move = new Vector2(0, 1), Attack = true });
         var pelvis = sim.World.View<IBodyView>().Body(sim.World.Get<BodyRef>(player), BodySegs.Body(BodySegs.Pelvis)).Position;
         var now = sim.World.Get<Transform>(player);
-        Assert.Equal((pelvis.X, pelvis.Z, root.Facing), (now.Position.X, now.Position.Z, now.Facing));   // 7з: корень мёртвого — за тазом
+        Assert.Equal((pelvis.X, pelvis.Z, root.Facing), (now.Position.X, now.Position.Z, now.Facing));   // корень мёртвого — за тазом
         Assert.Equal(0, sim.World.Get<AnimatorAction>(player).AttackSerial);
         // враг: намерение — 0,2 от ИИ, ударов нет, хотя подошёл бы и таймер вышел
         var terms = sim.World.Get<EnemyAiTerms>(enemy);
@@ -628,7 +628,7 @@ public sealed class DamageTests
         Assert.Contains(details, first.Details);
     }
 
-    /// <summary><c>combat.dead</c>: мёртвый сдвинут (корень ушёл от таза трупа, 7з) — нарушение в тике сдвига.</summary>
+    /// <summary><c>combat.dead</c>: мёртвый сдвинут (корень ушёл от таза трупа) — нарушение в тике сдвига.</summary>
     [Fact]
     public void Fault_DeadMoved_Caught()
     {
@@ -646,9 +646,9 @@ public sealed class DamageTests
 }
 
 /// <summary>
-/// 6ж на паке игры (категория Content): бой толпы без выделений — 32 бьющих врага против неуязвимого игрока, он рубит связкой без
+/// На паке игры (категория Content): бой толпы без выделений — 32 бьющих врага против неуязвимого игрока, он рубит связкой без
 /// перерыва и поворачивается (сценарий <c>crowd</c> манифеста <c>combat</c>): касания, попадания, реакции, смерти и возрождения идут после
-/// прогрева, а тик — 0 байт. Нашло 6г: 539 Б/тик — рост пула поз посреди боя (~3,8 МБ: слои действий, снимки, память смешивания);
+/// прогрева, а тик — 0 байт. Нашлось: 539 Б/тик — рост пула поз посреди боя (~3,8 МБ: слои действий, снимки, память смешивания);
 /// исправлено запасом пула на полную арену (<see cref="PosePool.Reserve"/>, <see cref="GameCore.PosesPerFighter"/>).
 /// </summary>
 [Trait("Category", "Content")]
@@ -671,7 +671,7 @@ public sealed class DamageContentTests
     /// Прогрев — до первого возрождения (тик 1231): первая смерть и первая постройка заново выделяют разово (~46 КБ на мир: чанки новых
     /// архетипов — боец с меткой <see cref="Dead"/> и боец, снятый и поставленный заново на барьере; рост буферов команд боя, ~3 КБ) —
     /// docs/history/combat.md, «Бюджеты и замеры». Замер — ещё 1080 тиков боя: попадания, кровопотеря, новые смерти и возрождения;
-    /// с 7к — и удары по трупам (импульс в часть, проход) и толчки трупов живыми с отдачей в корень.
+    /// и удары по трупам (импульс в часть, проход) и толчки трупов живыми с отдачей в корень.
     /// </summary>
     [Fact]
     public void Fight_32AttackingEnemies_RealPack_AfterWarmup_DoesNotAllocate()
@@ -707,16 +707,16 @@ public sealed class DamageContentTests
         Assert.True(before.Kills >= 2 && after.Kills - before.Kills >= 3, $"убито до замера {before.Kills}, в замере {after.Kills - before.Kills}: смертей мало");
         Assert.True(after.Hits - before.Hits >= 10, $"попаданий в замере {after.Hits - before.Hits}");
         Assert.Contains(dead, e => !sim.World.Has<Dead>(e));   // возрождения — в замере
-        // 7к: в замере и удары по трупам (импульс в часть, проход, отдача), и толчки трупов живыми (отдача в корень)
+        // В замере и удары по трупам (импульс в часть, проход, отдача), и толчки трупов живыми (отдача в корень)
         Assert.True(after.CorpseHits - before.CorpseHits >= 1, $"попаданий по трупам в замере {after.CorpseHits - before.CorpseHits}");
         Assert.True(recoils > 100, $"отдач корню в замере {recoils}");
         Assert.Equal(0, allocated);
     }
 
     /// <summary>
-    /// Доводка 6ж: запас пула поз — на арену из конфига (<see cref="GameCore.ReservePoses"/>), прибавку врагов добирает команда арены до
+    /// Запас пула поз — на арену из конфига (<see cref="GameCore.ReservePoses"/>), прибавку врагов добирает команда арены до
     /// постройки новых бойцов. Арена из 10 врагов (запас 11 бойцов — 128 слотов) набрана PageUp до 32 (команда в тике 0: запас 33 бойцов —
-    /// 512 слотов, как был у каждой симуляции до доводки) и бьётся, как сценарий <c>crowd</c>: после прогрева — 0 Б/тик, пул за запас не
+    /// 512 слотов) и бьётся, как сценарий <c>crowd</c>: после прогрева — 0 Б/тик, пул за запас не
     /// рос (<see cref="PosePool.Reserved"/> тот же с тика команды до конца), ёмкость пула в бою — внутри запаса.
     /// </summary>
     [Fact]

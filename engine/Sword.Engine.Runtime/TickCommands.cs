@@ -71,7 +71,7 @@ internal sealed class TickCommands : IContinuousSystem
 
         /// <summary>
         /// Выдать команды тика <paramref name="tick"/>; прошедшие (раньше него) — отбросить. <paramref name="origin"/> — откуда
-        /// команда: в диагностическом режиме причинности она корень с этим пояснением (6д).
+        /// команда: в диагностическом режиме причинности она корень с этим пояснением.
         /// </summary>
         public void EmitDue(ulong tick, CommandBuffer commands, ICommandSink? sink, int type, string origin)
         {
@@ -135,7 +135,7 @@ internal sealed class TickCommands : IContinuousSystem
         }
     }
 
-    /// <summary>Откуда команда тика — пояснение корня в журнале причинности (6д).</summary>
+    /// <summary>Откуда команда тика — пояснение корня в журнале причинности.</summary>
     public static class Origins
     {
         /// <summary>Очередь владельца: клиент (клавиатура, мышь), exe, тесты — <see cref="Simulation.Enqueue{T}(in T)"/>.</summary>
@@ -202,7 +202,7 @@ internal sealed class TickCommands : IContinuousSystem
 /// стадии игры, поэтому в тот же тик попадают и записи самой последней стадии — записи объявленных срабатываний
 /// копируются с номером тика в очередь кадра. Кадр начинается с <see cref="BeginFrame"/>: кадр из трёх тиков получает
 /// записи всех трёх, кадр без тиков — ничего. Получатель берёт копии и на освобождение журналов симуляции не влияет.
-/// История наблюдений для агента (<c>ObservationHistory</c>) — второй получатель тех же копий, с этапом 3.
+/// История наблюдений для агента (<c>ObservationHistory</c>) — второй получатель тех же копий.
 /// </summary>
 public sealed class TickExport : IContinuousSystem
 {

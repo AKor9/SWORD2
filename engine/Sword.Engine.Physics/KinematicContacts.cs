@@ -2,9 +2,9 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// 7д: толчки живых (кинематических) тел — бюджет пары, проход, отдача, импульс удара (идеи — KinematicContacts, HitImpulse,
-// PrepareKinematicContacts SWORD 2eab13b; свой путь — docs/history/engine-physics.md, «7д»). Крючки KinematicGrow, KinematicReset, BeginKinematicSubstep,
-// PushKinematic, EndKinematicSubstep объявлены в PhysicsWorld.cs (контракт 7б).
+// Толчки живых (кинематических) тел — бюджет пары, проход, отдача, импульс удара (идеи — KinematicContacts, HitImpulse,
+// PrepareKinematicContacts SWORD 2eab13b; свой путь — docs/history/engine-physics.md). Крючки KinematicGrow, KinematicReset, BeginKinematicSubstep,
+// PushKinematic, EndKinematicSubstep объявлены в PhysicsWorld.cs.
 public sealed partial class PhysicsWorld
 {
     /// <summary>
@@ -94,7 +94,7 @@ public sealed partial class PhysicsWorld
         ref var p = ref KinematicPairOf(pusher, target);
         KinematicOpen(ref p);
         p.HitSeen = true;
-        SleepWake(target.Index, WakeReason.Hit);   // 7з-3: удар будит цель
+        SleepWake(target.Index, WakeReason.Hit);   // удар будит цель
     }
 
     public float SpendHit(ArticulationHandle pusher, ArticulationHandle target, float impulse)
@@ -114,7 +114,7 @@ public sealed partial class PhysicsWorld
         ref var s = ref _bodies[body.Index];
         float j = impulse.Length();
         if (!(j > 0)) return Vector3.Zero;
-        SleepWakeBody(body.Index, WakeReason.Hit);   // 7з-3: удар будит
+        SleepWakeBody(body.Index, WakeReason.Hit);   // удар будит
         var dir = impulse / j;
         var r = point - s.Position;
         float w = s.InvMassAt(r, dir);
@@ -151,7 +151,7 @@ public sealed partial class PhysicsWorld
         var applied = dir * j;
         Vector3 v0 = s.Velocity, w0 = s.AngularVelocity;
         Dynamics.ApplyImpulse(ref s, applied, r);
-        if (s.Mode == BodyMode.Simulated) StepMarkNonFinite(body.Index);   // 7з-2: счёт нечисловых — по записи тела
+        if (s.Mode == BodyMode.Simulated) StepMarkNonFinite(body.Index);   // счёт нечисловых — по записи тела
         if (_trace is { } trace)
         {
             float share = impactSpeed > 0 ? j * w / impactSpeed : 0;
@@ -324,14 +324,14 @@ public sealed partial class PhysicsWorld
         if (trace is not null) snap = new PhysicsTrace.Snap(phys.Position, phys.PrevPosition, phys.Rotation);
         var local = phys.ToLocal(point);   // материальная точка толчка — до поправки
         var saved = phys;
-        ContactsPoseBeforePair(body);      // 7з-2: мир после пар решает от позы до пар
+        ContactsPoseBeforePair(body);      // мир после пар решает от позы до пар
 
         float lambda = Xpbd.Contact(ref phys, point, normal, -depth, settings.ContactCompliance, h, max);
         if (lambda > 0 && w > 0) lambda = KinematicExactLimit(ref phys, in saved, local, point, prevPoint, normal, depth, (vKin + settings.PopSpeed) * h, lambda, h);
         if (lambda > 0)
         {
-            ContactsProbeOf(body);   // 7з-2: толчок сдвинул и повернул тело — щуп пар подшага нынешний
-            ContactsPress(body);     // 7з-2: толчок мог вдавить тело в землю — мир после пар
+            ContactsProbeOf(body);   // толчок сдвинул и повернул тело — щуп пар подшага нынешний
+            ContactsPress(body);     // толчок мог вдавить тело в землю — мир после пар
             if (pair.Used == 0) _kinematicSubstepPairs++;
             pair.Used = MathF.Min(_kinematicPairBudget, pair.Used + lambda);
             if (_kinematicPairBudget > 0) _kinematicSubstepShare = MathF.Max(_kinematicSubstepShare, pair.Used / _kinematicPairBudget);
@@ -347,8 +347,8 @@ public sealed partial class PhysicsWorld
     private const float KinematicLimitSlack = 1e-4f;
 
     /// <summary>
-    /// Точный предел скорости толчка (7з-2): λ предела считается линейно (<c>сдвиг = λ·w</c>), а поворот от поправки — нелинеен: точка
-    /// лёгкого тела (стопа, кисть) уходила за предел до 2,6 % (замер 7к: выталкивание 1,026 м/с при <c>PopSpeed</c> 1, инвариант
+    /// Точный предел скорости толчка: λ предела считается линейно (<c>сдвиг = λ·w</c>), а поворот от поправки — нелинеен: точка
+    /// лёгкого тела (стопа, кисть) уходила за предел до 2,6 % (замер: выталкивание 1,026 м/с при <c>PopSpeed</c> 1, инвариант
     /// <c>physics.pushes</c>). После поправки мерится настоящий сдвиг материальной точки вдоль нормали от прошлой позы; больше
     /// <paramref name="allowed"/> — тело возвращается в позу до толчка, и λ урезается в долю лишнего от собственного сдвига поправки (до
     /// трёх раз: ошибка — второго порядка, сходится сразу). Возвращает применённую λ.

@@ -74,7 +74,7 @@ public sealed class GraphicsDevice : IDisposable
     public double LastFenceWaitMs { get; private set; }
 
     /// <summary>
-    /// GPU-время кадра и проходов (точка Пг): разбор кадра N − <see cref="FrameCount"/> — в <see cref="BeginFrame"/>, после
+    /// GPU-время кадра и проходов: разбор кадра N − <see cref="FrameCount"/> — в <see cref="BeginFrame"/>, после
     /// ожидания его слота; после <see cref="WaitForIdle"/> — последнего отправленного.
     /// </summary>
     public GpuTimer Timer { get; }

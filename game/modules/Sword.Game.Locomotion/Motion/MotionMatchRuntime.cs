@@ -6,7 +6,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Motion Matching симуляции (8е): общая база на процесс (<see cref="GaspMotionBase"/>) и своё у симуляции — хранилище проигрывателей
+/// Motion Matching симуляции: общая база на процесс (<see cref="GaspMotionBase"/>) и своё у симуляции — хранилище проигрывателей
 /// (<see cref="MotionPlayers"/>), поиск (<see cref="MotionMatcher"/>), запрос (<see cref="MotionQuery"/>), истории корня по проигрывателям
 /// (<see cref="RootHistory"/>, номер — слот проигрывателя) и буфер весов. Авторитетное состояние — проигрыватели и истории: их хеширует и
 /// описывает участник <c>locomotion</c> (<see cref="MotionMatchHash"/>); поиск и запрос — рабочие буферы (их содержимое между тиками ни на
@@ -24,7 +24,7 @@ public sealed class MotionMatchRuntime
     public MotionMatcher Matcher { get; private set; } = null!;
     public MotionQuery Query { get; private set; } = null!;
 
-    /// <summary>Диагностика (8з): последний поиск слота, запрошенный переход тика, время поиска, зона профайлера — вне хеша.</summary>
+    /// <summary>Диагностика: последний поиск слота, запрошенный переход тика, время поиска, зона профайлера — вне хеша.</summary>
     public MotionMatchDiagnostics Diagnostics { get; private set; } = null!;
 
     /// <summary>Веса групп поиска — буфер на тик (из ручек <see cref="LocomotionRules"/>).</summary>
@@ -37,7 +37,7 @@ public sealed class MotionMatchRuntime
     public int StartFrame { get; private set; }
 
     /// <summary>
-    /// Поза постройки игрока на MM — клип библиотеки и момент кадра <see cref="StartFrame"/> (компонент <see cref="FighterStartPose"/>); 8ж — со
+    /// Поза постройки игрока на MM — клип библиотеки и момент кадра <see cref="StartFrame"/> (компонент <see cref="FighterStartPose"/>); со
     /// слоем руки с мечом (<see cref="SwordArm.Init"/>).
     /// </summary>
     public FighterStartPose StartPose { get; internal set; }
@@ -109,7 +109,7 @@ public sealed class MotionMatchRuntime
     }
 
     /// <summary>
-    /// Масштаб данных (8е): скорость клипов шага или бега базы в направлении <paramref name="velocity"/> относительно курса
+    /// Масштаб данных: скорость клипов шага или бега базы в направлении <paramref name="velocity"/> относительно курса
     /// <paramref name="yaw"/> (<see cref="GaitSpeedModel"/>, походка — по скорости управления) / скорость управления <paramref name="control"/>.
     /// Скорость управления не задана (0) или данных нет — 1. Без него запрос в скорости управления цеплялся бы за середины разгонов клипов.
     /// </summary>

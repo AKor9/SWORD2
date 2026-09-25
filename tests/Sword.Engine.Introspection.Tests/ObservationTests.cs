@@ -6,7 +6,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Introspection.Tests;
 
 /// <summary>
-/// Наблюдение (этап 3в): язык условий, история событий по журналам, узел наблюдения (условие остановки, останов посреди
+/// Наблюдение: язык условий, история событий по журналам, узел наблюдения (условие остановки, останов посреди
 /// тика, наблюдения), снимки и их разница. Подопытный — <see cref="TestModule"/>: тела X = 0…4, метки у чётных, Order в S1
 /// двигает все тела по X.
 /// </summary>
@@ -261,7 +261,7 @@ public class ObservationTests
         Assert.Throws<ArgumentException>(() => hub.AddWatch(new ServiceContext(fresh), (JsonObject)JsonNode.Parse("""{"fields":["Body.Nope"]}""")!));
     }
 
-    /// <summary>Вычисляемое поле игры (5г): <c>Twice.X</c> — удвоенный X тела, у сущности без тела — нет значения (NaN).</summary>
+    /// <summary>Вычисляемое поле игры: <c>Twice.X</c> — удвоенный X тела, у сущности без тела — нет значения (NaN).</summary>
     private sealed class TwiceFields : IEntityFields
     {
         public IReadOnlyList<string> Known { get; } = ["Twice.X"];
@@ -275,7 +275,7 @@ public class ObservationTests
     }
 
     /// <summary>
-    /// 5г: наблюдение пишет вычисляемые поля игры (<see cref="IEntityFields"/>: капсулы тела <c>Body.*</c> в SWORD) по тикам рядом
+    /// Наблюдение пишет вычисляемые поля игры (<see cref="IEntityFields"/>: капсулы тела <c>Body.*</c> в SWORD) по тикам рядом
     /// с листьями компонентов — лист F64; поля узел берёт при привязке, в том числе к новой симуляции; опечатка в поле игры — ошибка.
     /// </summary>
     [Fact]

@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Sword.Engine.Physics;
 
-// 7д: накопители трассы физики (последний тик, окно, прогон), событие, контакт. Все массивы заданы при создании: запись не
+// Накопители трассы физики (последний тик, окно, прогон), событие, контакт. Все массивы заданы при создании: запись не
 // выделяет памяти; строки — только в Summary и ToString (по запросу).
 public sealed partial class PhysicsTrace
 {
@@ -16,7 +16,7 @@ public sealed partial class PhysicsTrace
     /// <summary>Имя источника для сводки.</summary>
     public static string SourceName(PhysicsSource source) => SourceNames[(int)source];
 
-    /// <summary>Имя фазы подшага для сводки (7з-2).</summary>
+    /// <summary>Имя фазы подшага для сводки.</summary>
     public static string PhaseName(PhysicsPhase phase) => PhaseNames[(int)phase];
 
     /// <summary>
@@ -191,7 +191,7 @@ public sealed partial class PhysicsTrace
 
         /// <summary>
         /// Рост энергии за подшаг (кинетическая + m·g·y), Дж: наибольший у сочленения, которое живые в подшаге не толкали и которое не
-        /// касалось другого тела на физике (7з-2; инвариант <c>physics.energy</c>), и какого; наибольший у всех без толчков вместе (и
+        /// касалось другого тела на физике (инвариант <c>physics.energy</c>), и какого; наибольший у всех без толчков вместе (и
         /// касавшихся); наибольший у толкаемого живыми (толчок вправе добавлять энергию).
         /// </summary>
         public float EnergyGrowth { get; private set; }
@@ -200,7 +200,7 @@ public sealed partial class PhysicsTrace
         public float EnergyGrowthPushed { get; private set; }
 
         /// <summary>
-        /// Рост энергии за подшаг у сочленения, касавшегося другого тела на физике (7з-2: труп на трупе — энергия передаётся, рост одного —
+        /// Рост энергии за подшаг у сочленения, касавшегося другого тела на физике (труп на трупе — энергия передаётся, рост одного —
         /// не накачка), Дж, и какого; наибольший рост суммы всех касавшихся за подшаг (передача внутри суммы сокращается).
         /// </summary>
         public float EnergyGrowthPaired { get; private set; }
@@ -208,7 +208,7 @@ public sealed partial class PhysicsTrace
         public float EnergyGrowthPairedTotal { get; private set; }
 
         /// <summary>
-        /// Рост энергии сочленения без толчков живых за фазу подшага <paramref name="phase"/> (7з-2), Дж — наибольший (где энергия
+        /// Рост энергии сочленения без толчков живых за фазу подшага <paramref name="phase"/>, Дж — наибольший (где энергия
         /// появляется: суставы сводят разрыв, выталкивание, скоростной проход…), и у какого сочленения.
         /// </summary>
         public float PhaseGrowth(PhysicsPhase phase) => _phaseGrowth[(int)phase];
@@ -216,7 +216,7 @@ public sealed partial class PhysicsTrace
         public ArticulationHandle PhaseArticulation(PhysicsPhase phase) => _phaseArticulation[(int)phase];
 
         /// <summary>
-        /// Сон (7з-3): пробуждений спящих сочленений по причине; засыпаний; касаний спящего тела неспящим телом на физике в подшагах (спящее —
+        /// Сон: пробуждений спящих сочленений по причине; засыпаний; касаний спящего тела неспящим телом на физике в подшагах (спящее —
         /// неподвижная опора); наибольшее число спящих на конец шага (у последнего тика — сейчас).
         /// </summary>
         public int Wakes(WakeReason reason) => _wakes[(int)reason];

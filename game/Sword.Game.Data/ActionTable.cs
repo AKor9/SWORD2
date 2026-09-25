@@ -42,14 +42,14 @@ public static class ActionSlots
     public static int TurnRight { get; }
     public static int Turn180 { get; }
 
-    /// <summary>Слоты уклонения (<c>CharacterRig.EvadeForward/Back/Left/Right</c> SWORD): в SWORD2 — вид рывка (6в).</summary>
+    /// <summary>Слоты уклонения (<c>CharacterRig.EvadeForward/Back/Left/Right</c> SWORD): в SWORD2 — вид рывка.</summary>
     public static int EvadeForward { get; }
     public static int EvadeBack { get; }
     public static int EvadeLeft { get; }
     public static int EvadeRight { get; }
 
     /// <summary>
-    /// Слоты реакции на попадание (<c>CharacterRig.HitFront1/HitFront2/HitBack</c> SWORD, 6г): спереди — два клипа (выбор — ГСЧ),
+    /// Слоты реакции на попадание (<c>CharacterRig.HitFront1/HitFront2/HitBack</c> SWORD): спереди — два клипа (выбор — ГСЧ),
     /// сзади — один; враг играет реакцию действием (слой — слота), игрок — вздрагиванием (добавка поворотов по маске верха).
     /// </summary>
     public static int HitFront1 { get; }

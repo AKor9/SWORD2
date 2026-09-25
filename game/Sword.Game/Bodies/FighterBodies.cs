@@ -6,7 +6,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Тело бойца (этап 5а): сочленение из <see cref="BodySegs.Bodies"/> кинематических капсул в подсистеме Physics за
+/// Тело бойца: сочленение из <see cref="BodySegs.Bodies"/> кинематических капсул в подсистеме Physics за
 /// <see cref="BodyRef"/>. Время жизни — хуками ECS (раздел 5 плана), а не реактивными системами, как у позы: хук
 /// добавления заводит сочленение на том же барьере, где у сущности появился <see cref="BodyRef"/>, хук снятия освобождает
 /// его, когда компонент снят или сущность удалена, — и боец, построенный и снятый на одном барьере, тела не оставляет.
@@ -14,7 +14,7 @@ namespace Sword.Game.Bodies;
 /// Боец появляется с пустым <see cref="BodyRef"/> (<c>Fighters.Create</c>); постройка заново на той же сущности (сброс R,
 /// <c>Fighters.Rebuild</c>) компонент не трогает — тело то же, как тела <c>Fighter.Bodies</c> SWORD, которые
 /// <c>Build</c> переставляет, а не создаёт. Форму и постановку при постройке задаёт <see cref="BodySetupSystem"/> по
-/// <c>Added&lt;Fighter&gt;</c> (5б); до того новое тело без формы в начале координат (<see cref="BodyState.New"/> — как
+/// <c>Added&lt;Fighter&gt;</c>; до того новое тело без формы в начале координат (<see cref="BodyState.New"/> — как
 /// тело SWORD между конструктором бойца и <c>Build</c>).
 /// </summary>
 public static class FighterBodies

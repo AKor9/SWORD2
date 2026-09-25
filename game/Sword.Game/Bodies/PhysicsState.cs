@@ -8,13 +8,13 @@ namespace Sword.Game.Bodies;
 /// Участник хеша состояния <c>physics</c> (раздел 7 плана): авторитетное состояние подсистемы Physics симуляции. По слотам
 /// сочленений по возрастанию — поколение (у свободного — со знаком минус: от него зависит поколение следующего), у живого —
 /// число тел и их слоты; порядок свободных слотов сочленений; по слотам тел — поколение, у живого — сочленение-владелец,
-/// режим, форма (радиус, полудлина), положение, поворот, прошлые положение и поворот, скорость и угловая скорость; с 7ж — поза
-/// начала тика, масса, обратная масса, обратная инерция, касание земли, профиль динамики, вид толчка (все поля тела 7б); порядок
-/// свободных слотов тел (от него зависят хэндлы будущих тел); с 7ж — профили динамики мира (таблица по номерам); с 7з — у живых
-/// сочленений суставы (описание, привязка — точка на родителе и поза покоя, включён ли; 7в) и накопленная отдача (7д), с 7з-3 — сон и счётчик
-/// покоя (<see cref="IPhysicsWorld.IsAsleep"/>, <see cref="IPhysicsWorld.RestTime"/>), с 7з-4 — пары самоколлизии
+/// режим, форма (радиус, полудлина), положение, поворот, прошлые положение и поворот, скорость и угловая скорость; поза
+/// начала тика, масса, обратная масса, обратная инерция, касание земли, профиль динамики, вид толчка (все поля тела); порядок
+/// свободных слотов тел (от него зависят хэндлы будущих тел); профили динамики мира (таблица по номерам); у живых
+/// сочленений суставы (описание, привязка — точка на родителе и поза покоя, включён ли) и накопленная отдача, сон и счётчик
+/// покоя (<see cref="IPhysicsWorld.IsAsleep"/>, <see cref="IPhysicsWorld.RestTime"/>), пары самоколлизии
 /// (<see cref="IPhysicsWorld.SelfContacts"/>), проходы пар живых сочленений «толкающий → цель»
-/// (<see cref="IPhysicsWorld.Pass"/>, по слотам, толкающий ≠ цель; 7д) — всё, от чего зависит следующий шаг.
+/// (<see cref="IPhysicsWorld.Pass"/>, по слотам, толкающий ≠ цель) — всё, от чего зависит следующий шаг.
 /// Журнал пределов и контакты подшага сбрасываются в начале шага, границы и настройки физики выводятся (настройки — из правил трупа, ресурса
 /// мира) — не хешируются. Кто держит сочленение (<c>BodyRef</c>), хеширует участник <c>ecs</c>. <see cref="Describe"/> — эти поля (проходы —
 /// только непустые) и, для людей, замер суставов.
@@ -38,7 +38,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             Joints(ref h, a);
             SelfContacts(ref h, a);
             Add(ref h, physics.Reaction(a));
-            h.Add(physics.IsAsleep(a));   // 7з-3: сон и счётчик покоя — от них зависит следующий шаг
+            h.Add(physics.IsAsleep(a));   // сон и счётчик покоя — от них зависит следующий шаг
             h.Add(physics.RestTime(a));
         }
         Passes(ref h, arts);
@@ -68,7 +68,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         }
     }
 
-    /// <summary>Суставы сочленения (7з): описание, привязка, включён ли — по порядку решения.</summary>
+    /// <summary>Суставы сочленения: описание, привязка, включён ли — по порядку решения.</summary>
     private void Joints(ref StateHasher h, ArticulationHandle a)
     {
         int n = physics.JointCount(a);
@@ -98,7 +98,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         }
     }
 
-    /// <summary>Пары самоколлизии сочленения (7з-4) — по порядку решения.</summary>
+    /// <summary>Пары самоколлизии сочленения — по порядку решения.</summary>
     private void SelfContacts(ref StateHasher h, ArticulationHandle a)
     {
         var pairs = physics.SelfContacts(a);
@@ -110,7 +110,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         }
     }
 
-    /// <summary>Проходы пар живых сочленений «толкающий → цель» (7з) — по слотам, толкающий ≠ цель (тело цикла по толкающим — свой метод).</summary>
+    /// <summary>Проходы пар живых сочленений «толкающий → цель» — по слотам, толкающий ≠ цель (тело цикла по толкающим — свой метод).</summary>
     private void Passes(ref StateHasher h, int arts)
     {
         for (int i = 0; i < arts; i++)
@@ -153,7 +153,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         Add(ref h, s.PrevRotation);
         Add(ref h, s.Velocity);
         Add(ref h, s.AngularVelocity);
-        // 7ж: поля тела 7б — динамика
+        // поля динамики тела
         Add(ref h, s.StartPosition);
         Add(ref h, s.StartRotation);
         h.Add(s.Mass);
@@ -166,12 +166,12 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
 
     /// <summary>
     /// Сводка (сочленений, тел, слотов, свободных, профилей) и сочленения по слотам (часть — <c>2v1</c>: тела по номеру в сочленении,
-    /// у тела — хэндл, режим, форма, постановка, прошлая постановка, скорости; с 7ж — поза начала тика, масса, обратные масса и
-    /// инерция, касание земли, профиль, толчок; с 7з — отдача и суставы: описание, привязка, включён ли и замер — ошибка точки, углы,
-    /// выход за предел; замер не хешируется, он — из позы; с 7з-3 — <c>asleep</c>, <c>restTime</c>, в сводке — спящих); часть <c>slots</c> — свободные слоты в порядке выдачи с конца и поколения
-    /// свободных; часть <c>dynamics</c> (7ж) — профили динамики по номерам; часть <c>passes</c> (7з) — непустые проходы пар. Отбор:
+    /// у тела — хэндл, режим, форма, постановка, прошлая постановка, скорости; поза начала тика, масса, обратные масса и
+    /// инерция, касание земли, профиль, толчок; отдача и суставы: описание, привязка, включён ли и замер — ошибка точки, углы,
+    /// выход за предел; замер не хешируется, он — из позы; <c>asleep</c>, <c>restTime</c>, в сводке — спящих); часть <c>slots</c> — свободные слоты в порядке выдачи с конца и поколения
+    /// свободных; часть <c>dynamics</c> — профили динамики по номерам; часть <c>passes</c> — непустые проходы пар. Отбор:
     /// сочленение <c>2v1</c> (из <c>BodyRef</c>: <c>Index</c>v<c>Generation</c>), <c>slots</c>, <c>dynamics</c> или <c>passes</c>. Тело
-    /// <c>i</c> сочленения бойца — сегмент <c>i</c> (с 7ж): 0…10 — pelvis…shin.r, 11 — клинок (blade), 12 — foot.l, 13 — foot.r; сустав <c>j</c>
+    /// <c>i</c> сочленения бойца — сегмент <c>i</c>: 0…10 — pelvis…shin.r, 11 — клинок (blade), 12 — foot.l, 13 — foot.r; сустав <c>j</c>
     /// трупа — ребёнок тела <c>j + 1</c> (10 — запястье).
     /// </summary>
     public void Describe(StateWriter w, in DescribeQuery q)
@@ -184,7 +184,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         w.Summary("freeArticulations", physics.FreeArticulations.Length);
         w.Summary("freeBodies", physics.FreeBodies.Length);
         w.Summary("dynamicsProfiles", physics.DynamicsCount);
-        w.Summary("asleep", physics.AsleepCount);   // 7з-3
+        w.Summary("asleep", physics.AsleepCount);
         int matched = 0;
         for (int i = 0; i < physics.ArticulationCapacity; i++)
         {
@@ -223,7 +223,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         w.Matched = matched;
     }
 
-    /// <summary>Непустые проходы пар (7з): толкающий → цель, номер удара и прохода, открыт ли, потенциал, остаток, пустых тиков.</summary>
+    /// <summary>Непустые проходы пар: толкающий → цель, номер удара и прохода, открыт ли, потенциал, остаток, пустых тиков.</summary>
     private void WritePasses(StateWriter w)
     {
         w.BeginItem("passes");
@@ -295,12 +295,12 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             w.EndObject();
         }
         Write(w, "reaction", physics.Reaction(a));
-        w.Value("asleep", physics.IsAsleep(a));      // 7з-3
+        w.Value("asleep", physics.IsAsleep(a));
         w.Value("restTime", physics.RestTime(a));
         int joints = physics.JointCount(a);
         w.Value("jointCount", joints);
         for (int j = 0; j < joints; j++) WriteJoint(w, a, j);
-        // 7з-4: пары самоколлизии — «a-b» через запятую, по порядку решения
+        // пары самоколлизии — «a-b» через запятую, по порядку решения
         var self = physics.SelfContacts(a);
         w.Value("selfContactCount", self.Length);
         if (self.Length > 0)
@@ -312,7 +312,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         w.EndItem();
     }
 
-    /// <summary>Сустав (7з): описание, привязка, включён ли; замер в нынешней позе (для людей, не хешируется).</summary>
+    /// <summary>Сустав: описание, привязка, включён ли; замер в нынешней позе (для людей, не хешируется).</summary>
     private void WriteJoint(StateWriter w, ArticulationHandle a, int j)
     {
         var d = physics.Joint(a, j);

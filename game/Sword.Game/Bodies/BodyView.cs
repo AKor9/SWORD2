@@ -5,8 +5,8 @@ namespace Sword.Game.Bodies;
 
 /// <summary>
 /// Тела для наблюдателей (<see cref="IBodyView"/>): чтение подсистемы Physics без права её менять; сегменты суставов
-/// скелета — <see cref="JointSegments"/> (5в). С 7ж снимок тела несёт и динамику (поза начала тика, масса, режим, профиль, касание земли);
-/// с 7з-3 — сон сочленения (снимок, <see cref="IsAsleep"/>, <see cref="RestTime"/>).
+/// скелета — <see cref="JointSegments"/>. Снимок тела несёт и динамику (поза начала тика, масса, режим, профиль, касание земли)
+/// и сон сочленения (снимок, <see cref="IsAsleep"/>, <see cref="RestTime"/>).
 /// </summary>
 public sealed class BodyView(IPhysicsWorld physics, int[] jointSegments) : IBodyView
 {
@@ -22,7 +22,7 @@ public sealed class BodyView(IPhysicsWorld physics, int[] jointSegments) : IBody
         return Snapshot(physics.Get(physics.Body(a, index)), physics.IsAsleep(a));
     }
 
-    /// <summary>Снимок тела для наблюдателей из состояния подсистемы (<paramref name="asleep"/> — спит ли его сочленение, 7з-3).</summary>
+    /// <summary>Снимок тела для наблюдателей из состояния подсистемы (<paramref name="asleep"/> — спит ли его сочленение).</summary>
     public static BodySnapshot Snapshot(in BodyState s, bool asleep = false) =>
         new(s.Position, s.Rotation, s.PrevPosition, s.PrevRotation, s.Velocity, s.AngularVelocity, s.Radius, s.HalfLength, s.StartPosition,
             s.StartRotation, s.Mass, s.Mode == BodyMode.Simulated, s.Profile, s.Grounded, asleep);

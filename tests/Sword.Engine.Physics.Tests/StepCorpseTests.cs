@@ -6,7 +6,7 @@ using static Sword.Engine.Physics.Tests.ContactsKit;
 namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
-/// Точка 7з-2 (скорость и покой физики трупа), свои тесты свойств: унаследованный разрыв сустава сводится не быстрее
+/// Скорость и покой физики трупа, свои тесты свойств: унаследованный разрыв сустава сводится не быстрее
 /// <see cref="PhysicsSettings.JointPopSpeed"/> (до 1 см; новый и больший — сразу); трение между телами на физике — покоя (держит тело на
 /// наклонной опоре другого тела) и скольжения (гасит относительную скорость, импульс пары сохраняется); трение о землю не топит застарелую
 /// глубину; мир после пар — лёгкое тело под тяжёлым в землю не уходит; зоны профайлера по фазам подшага (выключенный и включённый — 0 Б); счёт сочленений с нечисловым телом на
@@ -35,7 +35,7 @@ public class StepCorpseTests(ITestOutputHelper output)
     [Fact]
     public void Joint_InheritedGap_WithoutLimit_ClosesAtOnce_NewGapClosesAtOnce()
     {
-        // без предела (∞) — как до 7з-2: весь унаследованный разрыв за подшаг
+        // без предела (∞): весь унаследованный разрыв за подшаг
         var (w, art, _, child) = GapPair(PhysicsSettings.Default with { JointPopSpeed = float.PositiveInfinity });
         var s = w.Get(child);
         w.Place(child, s.Position + new Vector3(0.005f, 0, 0), s.Rotation);
@@ -68,7 +68,7 @@ public class StepCorpseTests(ITestOutputHelper output)
         // Две опоры (r 15 см, вдоль Z, 200 кг): одна на полу, другая на ступени 20 см, центры в 0,6 м; лёгкий стержень лежит на обеих
         // поперёк — наклон 18,4°, тяжесть тянет его вдоль оси вниз. Трение покоя пар (общий бюджет тела) держит, скольжения по Кулону — гасит;
         // без трения стержень съезжает. Опоры зажаты колоннами с обеих сторон: круглая опора под стержнем катится (стержень на катках — не
-        // покой и в жизни; начальный толчок раскатывал опору без сопротивления), колонны держат центр, трение о землю — низ. Замеры 7з-2 до
+        // покой и в жизни; начальный толчок раскатывал опору без сопротивления), колонны держат центр, трение о землю — низ. Замеры до
         // исправлений: мир только после пар (опора осевшая на g·h² на время пар) — 13 мм за 2 с; мир до пар, но второй проход мира решал всю
         // глубину от начала подшага (поднимал опору на недотянутое первым проходом после трения пар) — 2 мм (опоры без колонн — ещё
         // раскатывались); с правкой — 0,14 мм.
@@ -132,8 +132,8 @@ public class StepCorpseTests(ITestOutputHelper output)
     {
         // Капсула (как стопа трупа) наклонена к торцу B (1 рад), он — в земле на 2 см и в прошлой позе (застарелая глубина: выходит не быстрее
         // PopSpeed — здесь 0,2 м/с, 0,4 мм за подшаг); каждый тик тело тянут к B и вниз (как сустав — стопу трупа в толпе). Трение покоя держит
-        // точку касания, поворот от поправки клонит тело на B и вдавливает торец сильнее, чем нормаль выводит: до 7з-2 торец уходил глубже
-        // начала (замер: 20 → 26 мм за 9 тиков; стопа в толпе трупов — 2 → 26 мм за 4 тика). С 7з-2 трение не делает торец глубже начала
+        // точку касания, поворот от поправки клонит тело на B и вдавливает торец сильнее, чем нормаль выводит: без правки торец уходил глубже
+        // начала (замер: 20 → 26 мм за 9 тиков; стопа в толпе трупов — 2 → 26 мм за 4 тика). С правкой трение не делает торец глубже начала
         // подшага: глубина не растёт, торец выходит.
         var ground = new FlatGround();
         var w = World(PhysicsSettings.Default with { PopSpeed = 0.2f }, ground);
@@ -159,7 +159,7 @@ public class StepCorpseTests(ITestOutputHelper output)
     public void LightBodyUnderHeavy_NotPressedIntoGround()
     {
         // Клинок (1,4 кг, r 3 см) на земле, поперёк — тяжёлое тело (20 кг): мир после пар выводит прижатый парой клинок из земли к концу
-        // подшага (7з-2; до — пара вдавливала его каждый подшаг, застарелая глубина выходила не быстрее PopSpeed: клинок под кучей тонул).
+        // подшага (без этого пара вдавливала его каждый подшаг, застарелая глубина выходила не быстрее PopSpeed: клинок под кучей тонул).
         var ground = new FlatGround();
         var w = World(PhysicsSettings.Default with { PopSpeed = 1 }, ground);
         var blade = Simulated(w, 1.4f, 0.03f, 0.5f, new Vector3(0, 0.03f, 0), AxisAlong(Vector3.UnitX));
@@ -200,7 +200,7 @@ public class StepCorpseTests(ITestOutputHelper output)
         }
         Assert.True(stats.Single(s => s.Name == "physics.ground").Calls == 2 * substeps, "physics.ground: мир и мир после пар в каждом подшаге");
         Assert.True(stats.Single(s => s.Name == "physics.bounds").Calls == substeps + 1, "physics.bounds: отсев подшагов и границы конца шага");
-        Assert.True(stats.Single(s => s.Name == "physics.sleep").Calls == 2, "physics.sleep (7з-3): пробуждение до подшагов и засыпание в конце шага");
+        Assert.True(stats.Single(s => s.Name == "physics.sleep").Calls == 2, "physics.sleep: пробуждение до подшагов и засыпание в конце шага");
         Assert.True(bytes == 0, $"включённый профайлер: {bytes} Б за 100 тиков");
 
         profiler.SetEnabled(false);
@@ -286,7 +286,7 @@ public class StepCorpseTests(ITestOutputHelper output)
     public void Trace_PairedArticulations_GrowthApartFromSingle()
     {
         // Два тела на физике внахлёст (разные сочленения) выходят друг из друга: рост их энергии — «в контакте» (передача, сумма касавшихся),
-        // а не рост одиночного сочленения (инвариант physics.energy, 7з-2).
+        // а не рост одиночного сочленения (инвариант physics.energy).
         var w = World(PhysicsSettings.Default with { PopSpeed = 1 });
         var trace = w.EnableTrace();
         Simulated(w, 5, 0.1f, 0.3f, Vector3.Zero, AxisAlong(Vector3.UnitX), ProfileVacuum);

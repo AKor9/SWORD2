@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Пак контента (раздел 3 ARCHITECTURE_PLAN.md; история этапа 0 — docs/history/stage-0-1.md): закрепить или проверить пак
+    Пак контента (раздел 3 ARCHITECTURE_PLAN.md; история — docs/history/stage-0-1.md): закрепить или проверить пак
     контента игры Content.reference.swpak.
 
 .DESCRIPTION
@@ -125,7 +125,7 @@ if ($Pin) {
 
     $gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [ordered]@{ name = $_.Name; driver = $_.DriverVersion } })
     $reference = [ordered]@{
-        purpose       = 'Пак контента игры SWORD2 (Content.reference.swpak — вне git, только для чтения): на нём идут тесты категории Content, сценарии фич (feature.verify) и эталоны SWORD2 tests/reference/replays. Закреплён на этапе 0 из пака SWORD 2eab13b (sourceRepo, sourceCommit — откуда он); со SWORD не сравниваем (решение 14, точка 7а). Целостность — tools/scripts/reference.ps1 -Check (SHA-256 и размер).'
+        purpose       = 'Пак контента игры SWORD2 (Content.reference.swpak — вне git, только для чтения): на нём идут тесты категории Content, сценарии фич (feature.verify) и эталоны SWORD2 tests/reference/replays. Закреплён из пака SWORD 2eab13b (sourceRepo, sourceCommit — откуда он); со SWORD не сравниваем (решение 14). Целостность — tools/scripts/reference.ps1 -Check (SHA-256 и размер).'
         sourceRepo    = $Source
         sourceCommit  = $head
         sourceClean   = -not $dirty

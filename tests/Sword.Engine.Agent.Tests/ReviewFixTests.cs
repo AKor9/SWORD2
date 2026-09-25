@@ -9,7 +9,7 @@ using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Agent.Tests;
 
-/// <summary>Проверки по замечаниям самопроверки 1е: протокол, отмена, аргументы, транспорты.</summary>
+/// <summary>Проверки: протокол, отмена, аргументы, транспорты.</summary>
 public class ProtocolFixTests
 {
     [Theory]

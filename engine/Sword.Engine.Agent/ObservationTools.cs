@@ -8,7 +8,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Наблюдение (этап 3в, раздел 8 плана): условие остановки (<c>time.runUntil {condition}</c>, <c>time.break</c> — посреди
+/// Наблюдение (раздел 8 плана): условие остановки (<c>time.runUntil {condition}</c>, <c>time.break</c> — посреди
 /// тика), наблюдения (<c>watch.*</c>) и история (<c>entity.history</c>, <c>events.history</c>), снимки и их сравнение
 /// (<c>world.snapshot</c>, <c>world.diff</c>). Условия — один язык (<see cref="ObservationPredicate"/>); компилируются в точке
 /// обслуживания, живут на потоке симуляции (<see cref="AgentHost.Observation"/>).
@@ -225,7 +225,7 @@ internal static class ObservationTools
                         selected[j.Id] = (filter, byEntity);
                     }
                     var rows = new List<(ulong Tick, int Stage, int Journal, byte[] Bytes, InvariantViolation? Violation, CauseStep? Cause)>();
-                    // Причина записи (6д): только в диагностическом режиме; поле Cause — последнее у всех записей журналов.
+                    // Причина записи: только в диагностическом режиме; поле Cause — последнее у всех записей журналов.
                     var causes = ctx.World.Causality is null ? null : CausalityQuery.SystemNames(ctx.World);
                     int total = 0;
                     void Consider(in ServiceContext ctx, ulong t, int journal, int stage, ReadOnlySpan<byte> bytes)
@@ -393,7 +393,7 @@ internal static class ObservationTools
         if (stage is not null && host.Simulation is null) throw new InvalidOperationException("time.break — только Sword.Headless --agent (в живой игре тик посреди кадра не останавливается)");
         return Await(host, call, stage is null ? Math.Min(30, host.MaxWaitSeconds) : 60, (ctx, limit) =>
         {
-            // 7з: поле условия может быть вычисляемым полем игры (Body.ComVelocity — «труп успокоился»), как у наблюдения
+            // Поле условия может быть вычисляемым полем игры (Body.ComVelocity — «труп успокоился»), как у наблюдения
             var predicate = ObservationPredicate.Compile(condition, ctx, host.Catalog, host.Names, fields: host.Fields);
             return (host.Observation.Arm(ctx, predicate, stage, limit), predicate.Cost(ctx.World));
         }, stage is null ? "условие проверяется после каждого тика; tick — сыграно тиков, когда оно выполнилось"

@@ -10,7 +10,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Детерминизм игры (этап 3, точка 3а): хеш состояния по участникам <c>ecs</c> и <c>animation</c> — два прогона с одними
+/// Детерминизм игры: хеш состояния по участникам <c>ecs</c> и <c>animation</c> — два прогона с одними
 /// командами совпадают тик в тик, запросы агента хеш не меняют, инструменты <c>state.hash</c> и <c>state.describe</c>.
 /// </summary>
 public sealed class DeterminismTests
@@ -30,7 +30,7 @@ public sealed class DeterminismTests
     {
         var a = TestAssets.Simulation();
         var b = TestAssets.Simulation();
-        Assert.Equal(["animation", "ecs", "physics", "skin"], a.StateParts);   // skin — привязки скина мёртвых (7ж)
+        Assert.Equal(["animation", "ecs", "physics", "skin"], a.StateParts);   // skin — привязки скина мёртвых
         var seen = new HashSet<ulong>();
         for (int t = 0; t < 400; t++)
         {

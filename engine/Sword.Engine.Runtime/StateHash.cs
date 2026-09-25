@@ -235,7 +235,7 @@ public sealed class FieldLayout
 
     /// <summary>
     /// План без поля верхнего уровня <paramref name="field"/> и его листьев: запись журнала без причины (<c>Cause</c>) — причина
-    /// диагностика (<c>state.why</c>, 6д), а не состояние: хеш и описание — только данные записи.
+    /// диагностика (<c>state.why</c>), а не состояние: хеш и описание — только данные записи.
     /// </summary>
     public FieldLayout Without(string field) =>
         new(Type, Size, [.. _leaves.Where(l => l.Path != field && !l.Path.StartsWith(field + ".", StringComparison.Ordinal))]);
@@ -450,7 +450,7 @@ public sealed class FieldLayout
 /// системы следующего тика); регистрации систем в порядке исполнения (включена ли, сколько записей каждого журнала не
 /// прочла). Номера записей и барьеров не входят: хеш не зависит от того, сколько тиков сыграно. Ресурсы со ссылками
 /// (пулы подсистем, ассеты) сюда не входят: их авторитетное состояние — у своих участников; у записи журнала со
-/// ссылками хешируется только возраст. Причина записи (<c>Cause</c>) не входит (6д): её заполняет только диагностический
+/// ссылками хешируется только возраст. Причина записи (<c>Cause</c>) не входит: её заполняет только диагностический
 /// режим причинности, а он хеш не меняет.
 /// </summary>
 internal sealed class EcsStateContributor(WorldReader world) : IStateContributor
@@ -472,7 +472,7 @@ internal sealed class EcsStateContributor(WorldReader world) : IStateContributor
             .Select(c => (c.Id, StateHasher.Of(c.Name), FieldLayout.Of(c.Type), c.Name))];
         _resources = [.. world.Resources.Where(r => r.Size > 0).OrderBy(r => r.Name, StringComparer.Ordinal)
             .Select(r => (r.Id, StateHasher.Of(r.Name), FieldLayout.Of(r.Type), r.Name))];
-        // Запись журнала — без причины (6д): причина есть только в диагностическом режиме, и хеш от него не зависит.
+        // Запись журнала — без причины: причина есть только в диагностическом режиме, и хеш от него не зависит.
         _journals = [.. world.Journals.Select(j => (StateHasher.Of(j.Name), j.EntrySize > 0 ? FieldLayout.Of(j.EntryType).Without(CauseField) : null, j.Name))];
         _systems = [.. world.Systems.Select(s => (StateHasher.Of(s.Name), s.Name))];
     }

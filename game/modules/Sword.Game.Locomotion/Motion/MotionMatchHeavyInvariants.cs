@@ -9,7 +9,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// <c>locomotion.mmDecay</c> (8з; тяжёлый — в живой игре раз в <see cref="InvariantCost.HeavyPeriod"/> тиков, после End): смещения
+/// <c>locomotion.mmDecay</c> (тяжёлый — в живой игре раз в <see cref="InvariantCost.HeavyPeriod"/> тиков, после End): смещения
 /// инерциализации не растут без перехода. Мера — энергия затухания сустава <c>E = |v|² + y²·|x|²</c> (x — смещение: вектор поворота или
 /// позиции движущегося сустава, v — его скорость, <c>y = HalflifeToDamping(полупериод)/2</c>): у критически демпфированной пружины, которой
 /// гаснут смещения (<c>dE/dt = −4y·|v|² ≤ 0</c>), она не растёт ни за один шаг, ни за несколько подряд; переход (поиском или по ребру графа)
@@ -109,14 +109,14 @@ public sealed class MotionMatchDecayInvariant(MotionMatchRuntime runtime) : IInv
 }
 
 /// <summary>
-/// <c>locomotion.mmContinuity</c> (8з; тяжёлый — в живой игре раз в <see cref="InvariantCost.HeavyPeriod"/> тиков, после End): наибольший
+/// <c>locomotion.mmContinuity</c> (тяжёлый — в живой игре раз в <see cref="InvariantCost.HeavyPeriod"/> тиков, после End): наибольший
 /// скачок сустава выхода проигрывателя за тик (в пространстве персонажа; <see cref="MotionMatchProbe"/>) не больше <see cref="Limit"/>. Выход
-/// прошлого тика восстанавливается из скоростей выхода — памяти между проверками нет. Предел — по замеру на сценариях 8з (~2× к худшему
-/// обычному движению: README модуля, «8з»). Постройка заново и мёртвые не проверяются.
+/// прошлого тика восстанавливается из скоростей выхода — памяти между проверками нет. Предел — по замеру на сценариях (~2× к худшему
+/// обычному движению: README модуля). Постройка заново и мёртвые не проверяются.
 /// </summary>
 public sealed class MotionMatchContinuityInvariant(MotionMatchRuntime runtime) : IInvariant
 {
-    /// <summary>Предел скачка сустава за тик, м (замер 8з: худший на сценариях — README модуля).</summary>
+    /// <summary>Предел скачка сустава за тик, м (замер: худший на сценариях — README модуля).</summary>
     public const float Limit = 0.25f;
 
     private readonly MotionMatchProbe _probe = new(runtime);

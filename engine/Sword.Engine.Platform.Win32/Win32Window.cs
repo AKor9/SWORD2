@@ -174,7 +174,7 @@ public sealed class Win32Window : IWindow
         if (Handle == nint.Zero)
             throw new InvalidOperationException($"CreateWindowEx failed: {Marshal.GetLastWin32Error()}");
 
-        // Размер клиентской части — до показа: у свёрнутого окна она нулевая (6ж — окно, показанное свёрнутым).
+        // Размер клиентской части — до показа: у свёрнутого окна она нулевая (окно, показанное свёрнутым).
         Dpi = (int)Math.Max(96, Win32Ui.GetDpiForWindow(Handle));
         ReadRefreshRate(Handle);
         Win32.GetClientRect(Handle, out var client);

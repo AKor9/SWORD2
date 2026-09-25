@@ -19,7 +19,7 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 6в «Удар и рывок»: выбор удара (<see cref="AttackPicker"/>: связка, сброс через 1,6 с, жест, без повтора клипа), удар игрока
+/// Удар и рывок: выбор удара (<see cref="AttackPicker"/>: связка, сброс через 1,6 с, жест, без повтора клипа), удар игрока
 /// командой (буфер 0,3 с, связка сразу после окна урона, ход не замедляется, хвост на бегу), снимок позы при прерывании, рывок (прибавка
 /// скорости без последствий для хода, назад без хода, перезарядка, неуязвимость), удар из рывка, удар ИИ по таймеру и командой врагу,
 /// мирные враги, инварианты слоя действий и управления на неисправностях, жест клиента (затухание по времени, удар по экрану),
@@ -446,7 +446,7 @@ public sealed class ActionTests
 
 public enum ActionFault { AttackWhenNotAllowed, SerialDecreased, TimeBeyondDuration, DashNaN, EnemyTimerNegative }
 
-/// <summary>Модуль-неисправность слоя действий и управления (6в): в конце тика <see cref="Tick"/> портит состояние.</summary>
+/// <summary>Модуль-неисправность слоя действий и управления: в конце тика <see cref="Tick"/> портит состояние.</summary>
 public sealed class ActionFaultModule(ActionFault fault) : IModule
 {
     public const ulong Tick = 25;

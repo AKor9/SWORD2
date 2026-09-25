@@ -14,7 +14,7 @@
 ## Откуда
 
 SWORD 2eab13b, `tools/Sword.Bake.Sword` — движковая часть; логика выпечки не менялась. Журнал переноса —
-[docs/history/baker.md](../../docs/history/baker.md), «Б4», «Б5».
+[docs/history/baker.md](../../docs/history/baker.md).
 
 | SWORD | SWORD2 | что изменилось |
 |---|---|---|
@@ -23,7 +23,7 @@ SWORD 2eab13b, `tools/Sword.Bake.Sword` — движковая часть; ло�
 | `Anim/AnimImport.cs` | `Anim/AnimImport.cs` | `SourceHash` без MVID сборок, `ToolVersion` 3 → 4; запись — `ClipFile` Formats; прежний клип читается целиком — `ClipContent` сравнивает и позы (`ClipFile.ReadHeader` без поз — для списка клипов предпросмотра) |
 | `Anim/PoseReport.cs` | `Anim/PoseReport.cs` | только `Raw`; `SkelCheck`, `Fingers` читали снятый формат `.swskel` — не перенесены |
 | `Processors/SkeletonProcessor.cs` (+ `SkinMeshProcessor`), `AnimPackProcessor.cs` | `Processors/` | форматы и константы путей — `Engine.Formats`, `ClipLibrary`; предпросмотры — `Preview/AnimPreview.cs` (у скелета без клипов — поза покоя меша и кости по bind-матрицам, в SWORD её не было), `Preview/MeshPreview.cs` |
-| `Inspect.cs` | `Inspect.cs` | живые `meshinfo`, `rawpose` (вывод — в поток команды); `compare` не перенесён — сравнение паков `bake diff` (Б3), сравнение клипов — `Anim/ClipContent.cs`; `skelcheck`, `fingers` — мёртвые |
+| `Inspect.cs` | `Inspect.cs` | живые `meshinfo`, `rawpose` (вывод — в поток команды); `compare` не перенесён — сравнение паков `bake diff`, сравнение клипов — `Anim/ClipContent.cs`; `skelcheck`, `fingers` — мёртвые |
 | — | `Anim/ContentFiles.cs`, `Anim/ClipContent.cs` | запись файла контента через `*.tmp` (как `ClipAsset.Save`); клипы по содержимому без `SourceHash` |
 | `Anim/MeshDecimate.cs`, `Anim/SpineChain.cs` | `Anim/` | открыты: их зовёт анатомия `Bake.Game` |
 | `Texture/*`, `Processors/TextureArrayProcessor.cs` | `Texture/`, `Processors/` | формат `.swtex` (`TextureData`) — в `Engine.Formats`, файл пишет его писатель; предпросмотр — `Preview/TexturePreview.cs` (BC1/BC4/BC5 распаковываются на CPU, BC7 — нет) |

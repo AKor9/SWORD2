@@ -6,7 +6,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Агенту и на экран (8з; только при <c>locomotion.player = mm</c>): вид <see cref="IMotionMatchView"/> для клиента и агента, события
+/// Агенту и на экран (только при <c>locomotion.player = mm</c>): вид <see cref="IMotionMatchView"/> для клиента и агента, события
 /// переходов <see cref="MotionTransition"/> (журнал ECS и экспорт клиенту) и их система <c>locomotion.mm-events</c>, тяжёлые инварианты
 /// <c>locomotion.mmDecay</c> и <c>locomotion.mmContinuity</c>, сведение реплея <c>locomotion.base</c> (отпечаток базы), рантайм MM —
 /// ресурсом мира (системы и проверки симуляции; клиенту — нет: у наблюдателя ресурсы только-значения). Зона профайлера
@@ -17,7 +17,7 @@ public static class MotionMatchObservers
     /// <summary>Имя сведения реплея — отпечаток базы (16 шестнадцатеричных цифр).</summary>
     public const string BaseFact = "locomotion.base";
 
-    /// <summary>Регистрации 8з (после регистраций MM игрока: сборка мира вида — после <see cref="MotionMatchRuntime.Init"/>).</summary>
+    /// <summary>Регистрации наблюдателей (после регистраций MM игрока: сборка мира вида — после <see cref="MotionMatchRuntime.Init"/>).</summary>
     public static void Register(SimulationBuilder b, MotionMatchRuntime runtime)
     {
         var view = new MotionMatchView(runtime);

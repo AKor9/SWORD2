@@ -425,7 +425,7 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 
 ## Motion Matching игрока
 
-Модуль Locomotion — [README](../game/modules/Sword.Game.Locomotion/README.md) («Motion Matching игрока в тике (8е)», «Агенту и на экран (8з)»).
+Модуль Locomotion — [README](../game/modules/Sword.Game.Locomotion/README.md) («Motion Matching игрока в тике», «Агенту и на экран»).
 Игрок на MM — при `locomotion.player=mm` (`sword.json` игры и Headless со `sword.json`; тесты, сценарии фич и эталоны — `clips`).
 
 **Проверить MM игрока.**
@@ -458,7 +458,7 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 8. Реплей с другой базой (контент, `locomotion.clips`, процессор без AVX2): `replay.check` — в `warnings` `сведения реплея:
    locomotion.base: в реплее …, в симуляции …`, в `divergence.cause` — «вероятная причина»; отпечаток — `state.describe {"part":"locomotion",
    "filter":"base"}`, строка старта — `log.tail {"category":"locomotion"}`.
-9. Рука с мечом (8ж): `entity.get {"entity":"player","components":["MotionMatchArm","FighterStartPose"]}` — поза стойки, её клип,
+9. Рука с мечом: `entity.get {"entity":"player","components":["MotionMatchArm","FighterStartPose"]}` — поза стойки, её клип,
    действующий вес (к ручке не быстрее 4/с), слой позы постройки (`Layer*`); кисть относительно груди — `anim.pose {"entity":"player",
    "joints":["hand_r","spine_05"]}`; вес — ручка `locomotion.armWeight` (`command.send {"command":"TuningCommand","fields":{"Knob":
    "locomotion.armWeight","Value":0}}` — рука клипа); инвариант `locomotion.mmArm`. Замеры `MotionMatch.*` руку не видят (выход MM).

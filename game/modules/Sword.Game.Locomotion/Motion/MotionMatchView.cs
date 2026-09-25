@@ -7,7 +7,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Вид Motion Matching для наблюдателей (8з; <see cref="IMotionMatchView"/> из <c>Game.Contracts</c> — клиент и агентская сборка модуль не
+/// Вид Motion Matching для наблюдателей (<see cref="IMotionMatchView"/> из <c>Game.Contracts</c> — клиент и агентская сборка модуль не
 /// видят): состояние бойца — компонент <see cref="MotionMatchState"/> и проигрыватель хранилища; последний поиск и траектории — диагностика
 /// (<see cref="MotionMatchDiagnostics"/>); история — история корня проигрывателя; замер тика — <see cref="MotionMatchProbe"/> (свой). Только
 /// читает; буферы ответов — свои, до следующего вызова. Мир — после сборки (<see cref="Attach"/>). Регистрирует модуль при

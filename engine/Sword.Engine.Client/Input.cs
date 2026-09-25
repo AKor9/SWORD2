@@ -217,7 +217,7 @@ public readonly record struct FrameView(float Alpha, int Ticks, float Seconds, F
     /// <summary>
     /// Снимок этого кадра, заказанный инструментом (агент: <c>capture.bundle</c> — ID-буфер, слои), если заказ уже есть: он
     /// приходит в точке обслуживания, до <c>Extract</c>, — игра снимает в мир представления то, что нужно только снимку (слой
-    /// капсул; исправления после Пд). Тот же заказ кадр увидит в <c>RenderFrame.Capture</c>; null — снимка инструмента нет
+    /// капсул). Тот же заказ кадр увидит в <c>RenderFrame.Capture</c>; null — снимка инструмента нет
     /// (снимок F4 и <c>--shot</c> — без слоёв).
     /// </summary>
     public FrameCapture? Capture { get; init; }

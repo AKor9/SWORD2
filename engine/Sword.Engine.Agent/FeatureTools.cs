@@ -5,15 +5,15 @@ using Sword.Engine.Introspection;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Где манифесты фич и чем снимать виды (этап 3д): корень репозитория, каталоги поиска <c>feature.json</c>, снимок вида в
+/// Где манифесты фич и чем снимать виды: корень репозитория, каталоги поиска <c>feature.json</c>, снимок вида в
 /// App (null — App нет), оптимизирована ли сборка (бюджеты времени — только в Release), замер кадра App для бюджета кадра
-/// (точка 4д; null — App нет). Задаёт exe игры.
+/// (null — App нет). Задаёт exe игры.
 /// </summary>
 public sealed record FeatureSetup(string RepoRoot, IReadOnlyList<string> Roots, Func<ViewRequest, CancellationToken, ViewResult>? CaptureView,
     bool Optimized, Func<FrameRequest, CancellationToken, FrameResult>? MeasureFrame = null);
 
 /// <summary>
-/// Приёмка фич (этап 3д, раздел 8 плана — «Контракт фичи»): <c>feature.list</c> — манифесты, <c>feature.verify</c> —
+/// Приёмка фич (раздел 8 плана — «Контракт фичи»): <c>feature.list</c> — манифесты, <c>feature.verify</c> —
 /// одним вызовом сценарии, инварианты, метрики, бюджеты и виды (<see cref="FeatureVerifier"/>). Отдельные симуляции той же
 /// композиции — сеанс не трогается; только Headless (пересборка симуляции).
 /// </summary>

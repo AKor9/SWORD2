@@ -6,7 +6,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Участник хеша состояния <c>locomotion</c> (8е; только при <c>locomotion.player = mm</c>): авторитетное состояние Motion Matching вне ECS —
+/// Участник хеша состояния <c>locomotion</c> (только при <c>locomotion.player = mm</c>): авторитетное состояние Motion Matching вне ECS —
 /// хранилище проигрывателей (по слотам по возрастанию: поколение, у живого — кадр, доля, переходов, есть ли выход, перенос корня последнего
 /// шага и восемь массивов суставов: смещения поворота и позиции и их скорости, скорости выхода, выход прошлого шага; затем порядок свободных
 /// слотов) и истории корня живых проигрывателей (записи по порядку: тик и корень). База в хеш не входит — производная контента, кода и
@@ -186,7 +186,7 @@ public sealed class MotionMatchHash(MotionMatchRuntime runtime) : IStateContribu
             w.EndObject();
         }
         w.EndArray();
-        DescribeSearch(w, player);   // 8з: последний поиск
+        DescribeSearch(w, player);   // последний поиск
         var names = db.Library.Skeleton.JointNames;
         var rotOffset = players.RotationOffsets(player);
         var rotOffsetVelocity = players.RotationOffsetVelocities(player);
@@ -214,7 +214,7 @@ public sealed class MotionMatchHash(MotionMatchRuntime runtime) : IStateContribu
     }
 
     /// <summary>
-    /// Последний поиск проигрывателя (8з; диагностика — в хеш не входит, время поиска — нет: от машины): тик, повод, текущий кадр, найденный
+    /// Последний поиск проигрывателя (диагностика — в хеш не входит, время поиска — нет: от машины): тик, повод, текущий кадр, найденный
     /// кадр с клипом и кадром в клипе, цены и цены групп по именам схемы, осмотрено, сменил ли кадр, корень запроса. Поиска не было — нет.
     /// </summary>
     private void DescribeSearch(StateWriter w, MotionPlayerHandle player)

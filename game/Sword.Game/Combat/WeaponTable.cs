@@ -5,12 +5,12 @@ using Sword.Game.Data;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Таблица оружия (<c>CharacterRig.Weapons</c> SWORD 2eab13b, этап 6б): все мечи пака (<c>weapons/*.swmesh</c>) в порядке
+/// Таблица оружия (<c>CharacterRig.Weapons</c> SWORD 2eab13b): все мечи пака (<c>weapons/*.swmesh</c>) в порядке
 /// списка контента — по алфавиту без учёта регистра, номер меча — номер в таблице (<see cref="WeaponSlot.Index"/>); клинок
 /// каждого — по его мешу (<see cref="WeaponMesh"/>: <c>MakeWeapon</c>). Меч по умолчанию — <see cref="DefaultName"/>, нет его —
 /// первый: по его клинку размечены окна ударов (<see cref="StrikeTable"/>). Ассет симуляции: неизменяема, общая для всех
 /// симуляций процесса, наружу — только <see cref="ReadOnlySpan{T}"/>. Без оружия игра не стартует (как <c>TryLoad</c> SWORD).
-/// С 7ж — и тело клинка каждого меча (<see cref="Bodies"/>: капсула от хвата до кончика, <see cref="BladeBody"/>), посчитанное
+/// В ней и тело клинка каждого меча (<see cref="Bodies"/>: капсула от хвата до кончика, <see cref="BladeBody"/>), посчитанное
 /// один раз при загрузке.
 /// </summary>
 public sealed class WeaponTable
@@ -24,7 +24,7 @@ public sealed class WeaponTable
     public ReadOnlySpan<WeaponInfo> Weapons => _weapons;
     public int Count => _weapons.Length;
 
-    /// <summary>Тело клинка меча по номеру (7ж; <see cref="WeaponInfo.Body"/> — то же, посчитанное заранее).</summary>
+    /// <summary>Тело клинка меча по номеру (<see cref="WeaponInfo.Body"/> — то же, посчитанное заранее).</summary>
     public ReadOnlySpan<BladeBody> Bodies => _bodies;
 
     /// <summary>Номер меча по умолчанию (<c>DefaultWeapon</c>).</summary>

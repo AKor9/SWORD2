@@ -26,12 +26,12 @@ public sealed class ClientAgent : IClientTool, ITickGate
     private CaptureRequest? _inFlight;
 
     // Последний показанный кадр (поток кадра) — для render.graph. Проходы — не ссылкой каждый кадр, а по запросу
-    // (RenderGraph.LastFrame строит отчёт лениво — кадр графа 0 Б, исправления после Пд): точка обслуживания идёт до записи
+    // (RenderGraph.LastFrame строит отчёт лениво — кадр графа 0 Б): точка обслуживания идёт до записи
     // следующего кадра, последний исполненный кадр графа — показанный.
     private int _shownWidth, _shownHeight, _shownPipelines;
     private ulong _shownFrame, _shownTick;
 
-    /// <summary>Кадров рендера отправлено к показу кадра <see cref="_shownFrame"/> (точка Пг: сверка GPU-времён по номеру).</summary>
+    /// <summary>Кадров рендера отправлено к показу кадра <see cref="_shownFrame"/> (сверка GPU-времён по номеру).</summary>
     private ulong _shownSubmitted;
 
     private sealed class CaptureRequest(string name, bool ids, IReadOnlyList<string> overlays)
@@ -71,7 +71,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
 
     /// <summary>
     /// Точка обслуживания кадра: запросы агента из очереди (не дольше <see cref="ServiceBudget"/>). Истина — выполнен хотя бы один:
-    /// кадр — кадр инструментов (после Пв: любой запрос выделяет на главном потоке и тратит время, которого у игры нет, — кадр
+    /// кадр — кадр инструментов (любой запрос выделяет на главном потоке и тратит время, которого у игры нет, — кадр
     /// служебный, в средних и бюджете его нет, профайлер не судит его как кадр).
     /// </summary>
     public bool Serve(Simulation simulation, ulong frame)
@@ -235,7 +235,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 "игрок не на MM — пусто, см. notes); капсулы — как показан боец: при alpha 1 ровно постановка последнего " +
                 "тика, physics.bodies; цвет кадра — без него",
             ["notes"] = result.Notes.Count > 0 ? new JsonArray([.. result.Notes.Select(n => (JsonNode?)n)]) : null,
-            // Точка Пг: кадр снимка ждёт простоя GPU — его GPU-время разобрано сразу (lagFrames 0), с копиями снимка в frameMs.
+            // Кадр снимка ждёт простоя GPU — его GPU-время разобрано сразу (lagFrames 0), с копиями снимка в frameMs.
             ["gpu"] = GpuJson(passes: true),
             ["entities"] = entities,
             ["rectNote"] = "rect — [x0, y0, x1, y1] в пикселях кадра, начало — левый верхний угол; рамка мира, спроецированная камерой",
@@ -272,7 +272,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
     }
 
     /// <summary>
-    /// GPU-время последнего разобранного кадра (точка Пг) против показанного: его номер кадра клиента (показанный минус
+    /// GPU-время последнего разобранного кадра против показанного: его номер кадра клиента (показанный минус
     /// отставание), кадр целиком и сумма проходов. Поток кадра. Времён ещё нет — null.
     /// </summary>
     private JsonObject? GpuJson(bool passes = false)
@@ -373,7 +373,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
             Run = async call =>
             {
                 // Снято в Presented на потоке кадра, читается в точке обслуживания на нём же: граф, размер, кадр и тик —
-                // одного показанного кадра, а не граф прошлого с тиком после тиков нового. GPU-времена (точка Пг) — тоже на
+                // одного показанного кадра, а не граф прошлого с тиком после тиков нового. GPU-времена — тоже на
                 // потоке кадра: они обновляются на месте в начале кадра.
                 var snapshot = await _host.Serve(_ => _shownFrame == 0
                     ? throw new InvalidOperationException("ни одного кадра ещё не показано — повторите")

@@ -16,7 +16,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Арена и враги, точка 4а: спаун кольцом курсом на игрока (<c>DuelArena.Spawn</c> SWORD), число врагов в пределах
+/// Арена и враги: спаун кольцом курсом на игрока (<c>DuelArena.Spawn</c> SWORD), число врагов в пределах
 /// (<c>SetEnemyCount</c>), сброс (<c>Reset</c>), клавиши PageUp/PageDown/R — команды арены ровно одним тиком и в реплее,
 /// детерминизм, инвариант мест, 0 байт на тик с 32 врагами, имена и команды агента.
 /// </summary>
@@ -57,7 +57,7 @@ public sealed class ArenaTests
 
     /// <summary>
     /// Враги построены кольцом 5–9 м вокруг <paramref name="center"/>, курсом на него (курс — <c>Atan2</c> на центр, побитово). Точка
-    /// постройки — <see cref="PrevTransform"/>: построенный командой в тике враг уже сделал в нём шаг (ИИ, точка 4б), а
+    /// постройки — <see cref="PrevTransform"/>: построенный командой в тике враг уже сделал в нём шаг (ИИ), а
     /// прошлый корень — точка постройки (<c>RenderPos = Pos</c>). <paramref name="thought"/> — тик уже сыгран: намерение —
     /// ИИ на центр; нет (сборка мира) — «стоять курсом постройки» (<c>FacingGoal = facing</c>, <c>Fighter.Build</c>).
     /// </summary>
@@ -110,7 +110,7 @@ public sealed class ArenaTests
             Assert.False(view.Model(w.Get<PoseRef>(e)).IsEmpty);
         }
 
-        // Враги идут к игроку (ИИ — точка 4б), локомоция у них идёт: состояние модуля.
+        // Враги идут к игроку (ИИ), локомоция у них идёт: состояние модуля.
         for (int t = 0; t < 60; t++) Step(sim);
         Assert.All(enemies.Zip(Enemies(sim)), p => Assert.True(p.Second.Root.Position.Length() < p.First.Root.Position.Length() - 0.5f,
             $"место {p.First.Slot}: {p.First.Root.Position} → {p.Second.Root.Position} — не подошёл к игроку"));
@@ -236,7 +236,7 @@ public sealed class ArenaTests
         // Локомоция — заново со стойки, как после FighterAnimator.Reset SWORD: без кроссфейда, время клипа — один тик.
         var loco = sim.World.Get<Locomotion.LegacyLocomotionState>(player);
         Assert.Equal((false, 1f, 1f / 120), (loco.Run, loco.Fade, loco.Time));
-        // …кроме стороны ходьбы: LegacyLocomotion.Reset SWORD не трогает _dir (найдено трассой толпы 4д).
+        // …кроме стороны ходьбы: LegacyLocomotion.Reset SWORD не трогает _dir (найдено трассой толпы).
         Assert.Equal(oldDir, loco.Dir);
 
         // Команда игрока тика сброса действует сразу (в SWORD Reset — до PlayerController.Think того же тика).
@@ -272,7 +272,7 @@ public sealed class ArenaTests
         var replay = Replay.Parse(recorder.ToReplay().ToJson());
         int arenaType = replay.CommandTypes.ToList().FindIndex(t => t.Name == typeof(ArenaCommand).FullName);
         Assert.True(arenaType >= 0, "команды арены нет в реплее");
-        Assert.Equal(["Action:u8", "Enemies:i32", "Weapon:i32"], replay.CommandTypes[arenaType].Fields);   // 6б: меч для EquipWeapon
+        Assert.Equal(["Action:u8", "Enemies:i32", "Weapon:i32"], replay.CommandTypes[arenaType].Fields);   // меч для EquipWeapon
         var first = replay.CommandsAt(0).Where(c => c.Type == arenaType).Select(c => ((ArenaAction)c.Leaves[0], (int)c.Leaves[1])).ToList();
         Assert.Equal([(ArenaAction.ChangeEnemies, 1), (ArenaAction.Reset, 0)], first);   // порядок SWORD: PageUp, затем R
         for (ulong t = 1; t < 6; t++) Assert.DoesNotContain(replay.CommandsAt(t), c => c.Type == arenaType);
@@ -357,7 +357,7 @@ public sealed class ArenaTests
     }
 
     /// <summary>
-    /// Профайлер CPU (точка Па) на толпе 32 врагов с инвариантами: включённый — 0 байт на тик; хеш каждого тика — тот же, что
+    /// Профайлер CPU на толпе 32 врагов с инвариантами: включённый — 0 байт на тик; хеш каждого тика — тот же, что
     /// без профайлера (он только читает часы); в итогах — тик, стадии игры, каждая система ядра и модуля, инварианты.
     /// </summary>
     [Fact]

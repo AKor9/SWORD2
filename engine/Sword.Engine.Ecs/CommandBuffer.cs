@@ -61,7 +61,7 @@ public sealed class CommandBuffer
     }
 
     /// <summary>
-    /// Причина следующих записей (<c>state.why</c>, 6д). В диагностическом режиме (<see cref="World.Causality"/>) — родитель:
+    /// Причина следующих записей (<c>state.why</c>). В диагностическом режиме (<see cref="World.Causality"/>) — родитель:
     /// каждая запись получает свою причину (номер записи журнала причинности), а эта становится её родителем; реактивная
     /// система ставит её по срабатыванию, которое обрабатывает (<see cref="SystemContext.Cause"/>). Вне режима запись несёт
     /// её как есть (обычно пусто). Перед каждым запуском системы — пусто.
@@ -199,7 +199,7 @@ public sealed class CommandBuffer
     }
 
     /// <summary>
-    /// Ёмкость заранее (<see cref="SystemSetup.ReserveCommands"/>, 6ж): записей команд, событий и байт значений за один барьер — пик
+    /// Ёмкость заранее (<see cref="SystemSetup.ReserveCommands"/>): записей команд, событий и байт значений за один барьер — пик
     /// (бой полной арены) не растит буфер посреди игры. Меньше заведённого — ничего; больше запаса — рост удвоением, как раньше.
     /// </summary>
     internal void Reserve(int commands, int events, int payloadBytes)
@@ -209,7 +209,7 @@ public sealed class CommandBuffer
         if (payloadBytes > Payload.Length) Array.Resize(ref Payload, payloadBytes);
     }
 
-    /// <summary>Ёмкость буфера: записей команд, событий, байт значений (тесты, 6ж).</summary>
+    /// <summary>Ёмкость буфера: записей команд, событий, байт значений (тесты).</summary>
     internal (int Commands, int Events, int PayloadBytes) Capacity => (Commands.Length, Events.Length, Payload.Length);
 
     private int Store<T>(in T value) where T : unmanaged

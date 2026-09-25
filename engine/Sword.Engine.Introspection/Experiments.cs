@@ -31,13 +31,13 @@ public sealed record SweepRow(IReadOnlyList<string> Sets, int Repeats, double Ms
     long Violations, string? Error)
 {
     /// <summary>
-    /// Мс систем на тик по убыванию (точка Па) — отдельный прогон с профайлером CPU после повторов (медиана — без него);
+    /// Мс систем на тик по убыванию — отдельный прогон с профайлером CPU после повторов (медиана — без него);
     /// null — не мерялось.
     /// </summary>
     public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; init; }
 
     /// <summary>
-    /// Машина за замеры повторов (точка Пб; круг прогрева и прогон с профайлером — не в счёт): поток на CPU, загрузка
+    /// Машина за замеры повторов (круг прогрева и прогон с профайлером — не в счёт): поток на CPU, загрузка
     /// системы, частота, GC и JIT во время замера, вердикт; null — замеров нет.
     /// </summary>
     public Sword.Engine.Diagnostics.MachineReport? Machine { get; init; }
@@ -57,7 +57,7 @@ public static class Experiments
     /// Развилка: реплей <paramref name="replay"/> до тика <paramref name="at"/> и дальше ветками — база (реплей как есть) и
     /// <paramref name="variants"/>; каждая — до <paramref name="ticks"/> тиков, параллельно (свои симуляции на своих
     /// потоках). Результат — ветки по порядку: база первой. Замер в конце ветки (<paramref name="measure"/>) читает и вычисляемые поля игры
-    /// (<paramref name="fields"/>, 8и: капсулы тела <c>Body.foot.l.Position</c>, замер Motion Matching <c>MotionMatch.*</c>) — как метрики фич.
+    /// (<paramref name="fields"/>: капсулы тела <c>Body.foot.l.Position</c>, замер Motion Matching <c>MotionMatch.*</c>) — как метрики фич.
     /// </summary>
     public static IReadOnlyList<ForkBranch> Fork(Replay replay, ulong at, ulong ticks, IReadOnlyList<ForkVariant> variants,
         IReadOnlyList<ForkMeasure> measure, Func<ConfigSet, Simulation> build, ReplayInfo info, IEntityNames? names, CancellationToken cancel = default,
@@ -204,16 +204,16 @@ public static class Experiments
     /// Перебор конфига (<c>experiment.sweep</c>): каждая комбинация значений ключей <paramref name="parameters"/> —
     /// <paramref name="repeats"/> прогонов по очереди (замеры времени не мешают друг другу): сценарий <paramref name="scenario"/>
     /// (или мир без команд) до <paramref name="ticks"/> тиков, первые <paramref name="warmup"/> — прогрев. Сначала круг
-    /// прогрева (каждая комбинация по разу без замера), затем повторы по кругу комбинаций (точка 4д: JIT свежего процесса).
+    /// прогрева (каждая комбинация по разу без замера), затем повторы по кругу комбинаций (JIT свежего процесса).
     /// Строка — медиана, разброс, стадии, байты на тик, число сущностей, хеш итога и одинаков ли он у всех прогонов, с кругом
     /// прогрева (детерминизм), нарушения.
     /// </summary>
     /// <param name="systems">
-    /// Время систем (точка Па): после повторов — ещё прогон каждой комбинации с профайлером CPU (зоны <c>метка@стадия</c>);
+    /// Время систем: после повторов — ещё прогон каждой комбинации с профайлером CPU (зоны <c>метка@стадия</c>);
     /// медиана, разброс и масштабирование — только из прогонов без него.
     /// </param>
     /// <param name="warmJit">
-    /// Между кругом прогрева и повторами — прогрев до затишья JIT (6ж, <see cref="Sword.Engine.Diagnostics.JitWarmup"/>, ≤ 1 с). Доводка 6ж:
+    /// Между кругом прогрева и повторами — прогрев до затишья JIT (<see cref="Sword.Engine.Diagnostics.JitWarmup"/>, ≤ 1 с),
     /// только в Release (<c>experiment.sweep</c> — по сборке сеанса), где судится и сравнивается время; в Debug и тестах — без него.
     /// </param>
     public static (IReadOnlyList<SweepRow> Rows, IReadOnlyList<string> Scaling) Sweep(Replay? scenario, ulong ticks,
@@ -228,7 +228,7 @@ public static class Experiments
         if (combinations > MaxCombinations) throw new ArgumentException($"комбинаций {combinations} — не больше {MaxCombinations}");
         if (ticks <= (ulong)warmup) throw new ArgumentException($"ticks {ticks} не больше прогрева {warmup}");
 
-        // Порядок прогонов (точка 4д): сначала круг прогрева — каждая комбинация по разу без замера, затем повторы по кругу
+        // Порядок прогонов: сначала круг прогрева — каждая комбинация по разу без замера, затем повторы по кругу
         // (все комбинации — повтор 1, все — повтор 2, …). Иначе первые комбинации свежего процесса мерились на
         // неоптимизированном коде: многоуровневый JIT переводит горячие методы на оптимизированный уровень в фоне, с
         // задержкой по времени (~0,1 с после последней новой компиляции), а прогрев в тиках у лёгкой комбинации — доли
@@ -238,8 +238,8 @@ public static class Experiments
         var runs = Combinations(parameters).Select(c => new SweepRun(c.Select(p => $"{p.Key}={p.Value}").ToList())).ToList();
         for (int r = -1; r < repeats; r++)
         {
-            // 6ж: после круга прогрева — ещё до затишья JIT (комбинации по кругу, без замера): круг лёгких комбинаций — доли мс, а фоновая
-            // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты повторов (JitWarmup). Доводка 6ж — только
+            // После круга прогрева — ещё до затишья JIT (комбинации по кругу, без замера): круг лёгких комбинаций — доли мс, а фоновая
+            // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты повторов (JitWarmup). Только
             // с warmJit (Release: в Debug время не судится).
             if (r == 0 && warmJit) WarmJit(runs, scenario, build);
             foreach (var run in runs)
@@ -296,8 +296,8 @@ public static class Experiments
     }
 
     /// <summary>
-    /// Прогрев до затишья JIT (6ж, <see cref="Sword.Engine.Diagnostics.JitWarmup"/>): у каждой комбинации без ошибок — одна тёплая симуляция
-    /// (строится при первом шаге, заново — никогда: доводка 6ж), шаги — по тику каждой по кругу.
+    /// Прогрев до затишья JIT (<see cref="Sword.Engine.Diagnostics.JitWarmup"/>): у каждой комбинации без ошибок — одна тёплая симуляция
+    /// (строится при первом шаге, заново — никогда), шаги — по тику каждой по кругу.
     /// </summary>
     private static Sword.Engine.Diagnostics.JitWarmupResult WarmJit(List<SweepRun> runs, Replay? scenario, Func<ConfigSet, Simulation> build)
     {

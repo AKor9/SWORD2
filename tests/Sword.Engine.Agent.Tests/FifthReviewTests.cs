@@ -8,7 +8,7 @@ using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Agent.Tests;
 
-/// <summary>Проверки по пятой самопроверке 1е: журнал, квитанции времени, пределы ожидания, сеансы HTTP, отмены.</summary>
+/// <summary>Проверки: журнал, квитанции времени, пределы ожидания, сеансы HTTP, отмены.</summary>
 public class FifthReviewTests
 {
     private static (Simulation Sim, ServiceQueue Service, AgentHost Host) Manual(TimeSpan? maxWait = null)

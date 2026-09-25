@@ -12,7 +12,7 @@ import os
 import unreal
 
 # Пак задаётся переменными окружения — скрипт один на все паки на скелете UE4 Mannequin.
-# По умолчанию — 1HM_Sword_Attacks_Finishers, как было.
+# По умолчанию — 1HM_Sword_Attacks_Finishers.
 #   SWORD_RTG_PACK        корень пака в UE, например /Game/CombatMasterAnimBundle
 #   SWORD_RTG_SUBDIR      папка с клипами внутри пака (по умолчанию /Animations)
 #   SWORD_RTG_OUT         куда положить клипы на UE5 Manny

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Тесты физики: хэндлы тел и сочленений, кинематическая капсула (этап 5), динамика тела и проекции XPBD (7б), 0 байт. -->
+  <!-- Тесты физики: хэндлы тел и сочленений, кинематическая капсула, динамика тела и проекции XPBD, 0 байт. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>

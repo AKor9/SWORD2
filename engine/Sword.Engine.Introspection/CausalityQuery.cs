@@ -30,7 +30,7 @@ public sealed record WhyAnswer(bool Enabled, Entity Entity, string? EntityName, 
     long Oldest, int Scanned);
 
 /// <summary>
-/// Причинность для агента (раздел 8 плана, <c>state.why</c>; 6д): поиск в журнале причинности мира (<see cref="WorldReader.Causality"/>)
+/// Причинность для агента (раздел 8 плана, <c>state.why</c>): поиск в журнале причинности мира (<see cref="WorldReader.Causality"/>)
 /// последних изменений поля сущности и цепочек до корня. Исполняется в точке обслуживания — только копии; журнал и мир не меняются.
 /// Точность — честно: дискретные факты (команды <c>Add/Set/Remove</c>, события) — точная цепочка; непрерывные поля (запись колонки на
 /// месте) — только какая регистрация писала столбец в каком тике.
@@ -75,7 +75,7 @@ public static class CausalityQuery
     }
 
     /// <summary>
-    /// Цепочка записи журнала причинности по её номеру (8з; <c>state.why {cause}</c>: номер — <c>cause.id</c> или <c>cause.parent</c> записи
+    /// Цепочка записи журнала причинности по её номеру (<c>state.why {cause}</c>: номер — <c>cause.id</c> или <c>cause.parent</c> записи
     /// <c>events.history</c>) до корня, не глубже <paramref name="depth"/>; режим выключен или запись вытеснена — null.
     /// </summary>
     public static WhyChange? WhyCause(in ServiceContext ctx, CauseId id, int depth, IEntityNames? names)

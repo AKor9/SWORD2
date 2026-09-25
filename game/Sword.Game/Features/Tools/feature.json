@@ -1,10 +1,10 @@
 {
-  // Приёмка фичи «Инструменты прототипа: HUD, снимок, бенч кадра» (точка 1д) — задним числом, этап 3д. HUD и бенч кадра —
+  // Приёмка фичи «Инструменты прототипа: HUD, снимок, бенч кадра». HUD и бенч кадра —
   // клиент: без окна — прогон Headless (600 тиков, 0 байт на тик), в App — кадр с HUD.
   "format": "sword-feature",
   "version": 1,
   "id": "tools",
-  "title": "Инструменты прототипа: HUD, снимок, бенч кадра (точка 1д)",
+  "title": "Инструменты прототипа: HUD, снимок, бенч кадра",
   "doc": "README.md",
   "sourceRoots": ["game/Sword.Game.Client/Hud", "engine/Sword.Engine.Ui", "game/Sword.Game.Headless"],
   "scenarios": [

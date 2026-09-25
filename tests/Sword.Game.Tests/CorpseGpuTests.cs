@@ -15,11 +15,11 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Труп на экране (7и) на настоящем устройстве (слой отладки D3D12 с GPU-валидацией) и настоящем контенте (Manny из пака): враг убит
-/// командой сцены и падает (труп на физике, 7з), его тела сдвинуты («сдвинуть тела») — скин трупа идёт за телами; ID-буфер: пиксель головы
+/// Труп на экране на настоящем устройстве (слой отладки D3D12 с GPU-валидацией) и настоящем контенте (Manny из пака): враг убит
+/// командой сцены и падает (труп на физике), его тела сдвинуты («сдвинуть тела») — скин трупа идёт за телами; ID-буфер: пиксель головы
 /// трупа — его сущность и сегмент «голова», легенда — «голова трупа врага 1», меч на теле клинка — «клинок трупа врага 1», все пиксели
-/// трупа — в его рамке по телам; слои снимка капсул, суставов и контактов сняты, у пустого — заметка (трасса выключена; суставы трупа с 7з
-/// есть); K включает трассу физики и выключает только включённую сам; кадр с трупами и всеми оверлеями на экране — 0 Б. 7и, часть 2 — вкладки
+/// трупа — в его рамке по телам; слои снимка капсул, суставов и контактов сняты, у пустого — заметка (трасса выключена; суставы трупа
+/// есть); K включает трассу физики и выключает только включённую сам; кадр с трупами и всеми оверлеями на экране — 0 Б. Вкладки
 /// F3 «Бой» и «Рэгдолл»; труп лёг (300 тиков после смерти, трасса по K): слои с данными — у капсул трупа кресты тел на физике (14, на земле
 /// — часть), суставов 13, контакты с землёй есть, заметок нет; «клинок трупа» — в ID-буфере. Любое предупреждение D3D12 — провал.
 /// </summary>
@@ -71,7 +71,7 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
     [Fact]
     public void CorpseSkin_IdBufferAndOverlays_TraceByKey()
     {
-        // 7з-4: сон — позже (10 с): контакты последнего подшага рисует только неспящий труп, а жёсткий труп с самоколлизией засыпает до тика 300
+        // Сон — позже (10 с): контакты последнего подшага рисует только неспящий труп, а жёсткий труп с самоколлизией засыпает до тика 300
         var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=3", "combat.enemiesAttack=false", "ragdoll.sleepTime=10"), CharacterAssets.LoadFromPak());
         var pending = new List<SceneCommand>();
         var clock = new SimulationClock(sim, (link, _) =>
@@ -94,7 +94,7 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
         try
         {
             arena.Initialize(renderer, clock.Link);
-            Assert.Equal(["Бой", "Рэгдолл"], arena.TuningGroups.Select(g => g.Title));   // вкладки F3 (7и, часть 2)
+            Assert.Equal(["Бой", "Рэгдолл"], arena.TuningGroups.Select(g => g.Title));   // вкладки F3
             // Бойцы приходят очередью кадра — Extract каждый кадр.
             void Frames(int n)
             {
@@ -126,7 +126,7 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
             var result = renderer.LastCapture!;
             Assert.Equal(3, result.Layers.Count);
             Assert.All(result.Layers, l => Assert.True(File.Exists(l.Path)));
-            // Слой без данных — с заметкой: трасса выключена. Суставы у трупа есть (13, переход в труп 7з) — заметки «суставов нет» нет.
+            // Слой без данных — с заметкой: трасса выключена. Суставы у трупа есть (13, переход в труп) — заметки «суставов нет» нет.
             Assert.Contains(result.Notes, n => n.StartsWith("contacts: трасса физики выключена", StringComparison.Ordinal));
             Assert.DoesNotContain(result.Notes, n => n.StartsWith("joints: суставов нет", StringComparison.Ordinal));
             Assert.Equal(BodySegs.Bodies * 4, arena.DrawnCapsules);
@@ -196,7 +196,7 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
             Assert.Equal(0, bytes);
             Assert.Equal(BodySegs.Bodies, arena.DrawnMarks);   // крест — у каждого тела трупа (живые — кинематические)
 
-            // Труп лёг (7и, часть 2): 300 тиков после смерти, трасса физики включена K (ShowContacts). Слои снимка — с данными.
+            // Труп лёг: 300 тиков после смерти, трасса физики включена K (ShowContacts). Слои снимка — с данными.
             Frames(300);
             Assert.True(sim.Diagnostics.IsEnabled(trace));
             var lying = new FrameCapture(Path.Combine(_dir, "lying.png"))

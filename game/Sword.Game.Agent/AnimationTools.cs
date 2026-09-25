@@ -9,7 +9,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Agent;
 
 /// <summary>
-/// Инструменты анимации (этап 2): поза бойца по суставам и библиотека клипов — через вид только для чтения
+/// Инструменты анимации: поза бойца по суставам и библиотека клипов — через вид только для чтения
 /// <see cref="IAnimationView"/>. Номер клипа в состояниях слоёв (<c>entity.get</c> → <c>LegacyLocomotionState.Clip</c>)
 /// переводится в имя через <c>anim.clips</c>.
 /// </summary>
@@ -118,7 +118,7 @@ public static class AnimationTools
     }
 
     /// <summary>
-    /// Motion Matching бойца (8з; вид <see cref="IMotionMatchView"/>): состояние, стопы на земле, последний поиск с группами, замер тика,
+    /// Motion Matching бойца (вид <see cref="IMotionMatchView"/>): состояние, стопы на земле, последний поиск с группами, замер тика,
     /// траектории в мире (<c>[t, x, z, курс]</c>), отпечаток базы.
     /// </summary>
     private static JsonObject MotionMatching(IAnimationView anim, IMotionMatchView mm, Entity e, in MotionMatchStatus s)
@@ -173,7 +173,7 @@ public static class AnimationTools
     }
 
     /// <summary>
-    /// Слой действий бойца (4г, <see cref="AnimatorAction"/>): действие, клип с именем, время и длительность, вес слоя и его
+    /// Слой действий бойца (<see cref="AnimatorAction"/>): действие, клип с именем, время и длительность, вес слоя и его
     /// сглаженная доля в позе, растяжение yaw клипа поворота и выход тика — поворот курса и сдвиг корня клипом.
     /// </summary>
     private static JsonObject Action(IAnimationView view, ICombatView? combat, in AnimatorAction a)

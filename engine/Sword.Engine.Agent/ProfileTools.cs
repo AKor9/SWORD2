@@ -4,7 +4,7 @@ using Sword.Engine.Diagnostics;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Профайлер CPU для агента (этап П, точка Па; раздел 8 плана — «диагностика»): <c>profile.stages</c> — зоны кадра и тика
+/// Профайлер CPU для агента (раздел 8 плана — «диагностика»): <c>profile.stages</c> — зоны кадра и тика
 /// (<see cref="CpuProfiler"/> хоста: у Headless — свой, подключается к каждой симуляции сеанса в <see cref="SimulationLoop"/>;
 /// у живой игры — профайлер клиента, его задаёт exe). Включение — диагностика, а не команда симуляции: состояние и хеш от
 /// профайлера не зависят. Итоги считаются в точке обслуживания (профайлер однопоточный), JSON — на потоке агента.
@@ -16,25 +16,25 @@ internal static class ProfileTools
         host.Add(new AgentTool
         {
             Name = "profile.stages", Title = "Профайлер CPU: зоны кадра и тика",
-            Description = "Где время кадра и тика (профайлер CPU, этап П): зоны — tick, стадии stage.<стадия>, системы <метка>@<стадия>, барьеры " +
+            Description = "Где время кадра и тика (профайлер CPU): зоны — tick, стадии stage.<стадия>, системы <метка>@<стадия>, барьеры " +
                 "barrier.<стадия>, инварианты invariant.<id>, sim.record (реплей и хеш), sim.observers (агент); в App ещё фазы кадра " +
                 "frame.messages/input/simulate/tools/extract/render/presented/wait, рендер frame.fenceWait/build/record/present, проходы " +
                 "render.<проход>, игра arena.*. На зону за кадр или тик: мс — среднее, медиана, p99, максимум, своё (без дочерних); " +
                 "байты, вызовы, доля периодов; history — последние периоды (кадр — тики кадра и доля тика). Выключен по умолчанию: " +
                 "enable=true включает (App — с начала следующего кадра, Headless — следующего тика; включённый — 0 Б на тик и кадр), " +
                 "затем time.step или просто время игры; reset — забыть итоги (после прогрева), write — profile.json в артефакты. " +
-                "runtime — среда за период (точка Пб): CPU главного потока против настенного (onCpuPct), сборки и пауза GC, методы и мс JIT " +
+                "runtime — среда за период: CPU главного потока против настенного (onCpuPct), сборки и пауза GC, методы и мс JIT " +
                 "(главный поток и процесс), выделения процесса; machine — машина с включения или reset: загрузка системы другими процессами, " +
                 "частота CPU, GC и JIT, вердикт код/среда/машина с причинами. events=true — диагностический режим: события среды " +
                 "(EventListener: выделения по типам, сборки и паузы, JIT с уровнями tier0/tier1/osr, фоновый ли) с кадром, тиком и зоной; " +
-                "дорогой (JIT медленнее), events=false — выключить. anomalies — захват аномалий (точка Пв): кадр или тик дольше порога " +
+                "дорогой (JIT медленнее), events=false — выключить. anomalies — захват аномалий: кадр или тик дольше порога " +
                 "(по умолчанию — медиана последних 128 + max(2 мс кадр / 1 мс тик, 0.75 медианы); threshold — абсолютный порог, мс, 0 — снова " +
                 "по медиане) пишется файлом anomaly-<frame|tick>-N.json (зоны, причины, события окна, машина) и трассой; в ответе — список: " +
                 "период, мс, класс причины (code/jit/gc/gpu/machine), главная зона, файл; noticeable — заметная (кадр App не короче " +
                 "интервала показа монитора, display.noticeableMs); файлов — по классам (limits: код/JIT/GC 20, ожидание GPU 5, машина 5, " +
                 "запас заметных 10). Кадры App, в которых точка обслуживания выполняла запросы агента (и этот вызов), — служебные " +
                 "(toolFrames, history[].tools): не в средних и как кадр не судятся. trace=true — кольцо в Chrome Trace JSON " +
-                "(Perfetto, chrome://tracing). gpu (App, точка Пг) — GPU-время кадра (frame) и проходов графа (passes, мс на кадр: " +
+                "(Perfetto, chrome://tracing). gpu (App) — GPU-время кадра (frame) и проходов графа (passes, мс на кадр: " +
                 "среднее, медиана, p99, максимум за окно; lagFrames — данные кадра N − 3, кадры в полёте); один кадр — render.graph. " +
                 "Меняет только профайлер, не симуляцию.",
             Arguments = CoreTools.Props(
@@ -87,7 +87,7 @@ internal static class ProfileTools
                     if (enable is { } on) p.SetEnabled(on);
                     if (events is { } diag) p.SetEvents(diag);
                     if (reset) p.Reset();
-                    // Точка Пв: порог аномалий; захват не настроен exe — файлы в артефакты сеанса.
+                    // Порог аномалий; захват не настроен exe — файлы в артефакты сеанса.
                     if (threshold is { } limit)
                     {
                         if (p.Anomalies is null && !p.IsOff) p.CaptureAnomalies(new AnomalyOptions { Directory = host.Artifacts });
@@ -122,21 +122,21 @@ internal static class ProfileTools
                     data["note"] = host.Mode == "app" ? "включение и выключение — с начала следующего кадра" : "включение и выключение — с начала следующего тика";
                 data["periods"] = section?["count"]?.DeepClone() ?? 0;
                 if (section?["service"] is { } service) data["serviceFrames"] = service.DeepClone();
-                // После Пв: из служебных — кадры инструментов (точка обслуживания выполняла запросы агента, в том числе этот).
+                // Из служебных — кадры инструментов (точка обслуживания выполняла запросы агента, в том числе этот).
                 if (section?["toolFrames"] is { } toolFrames) data["toolFrames"] = toolFrames.DeepClone();
                 data["window"] = section?["window"]?.DeepClone() ?? 0;
                 data["frames"] = report["frames"]?["count"]?.DeepClone() ?? 0;
                 data["ticks"] = report["ticks"]?["count"]?.DeepClone() ?? 0;
                 data["zonesTotal"] = r.Zones;
-                // Точка Пб: среда за период и машина с включения или сброса (вердикт «код или машина»); события — в диагностическом режиме.
+                // Среда за период и машина с включения или сброса (вердикт «код или машина»); события — в диагностическом режиме.
                 if (section?["runtime"] is { } runtime) data["runtime"] = runtime.DeepClone();
                 if (report["machine"] is { } machine) data["machine"] = machine.DeepClone();
                 data["events"] = r.Events is { } ev ? ev : "выключены (events: true — диагностический режим)";
-                // Точка Пв: аномалии — порог, счёт, последние (класс, главная зона, файл); файлы пишет фоновый поток: свежие — state queued.
+                // Аномалии — порог, счёт, последние (класс, главная зона, файл); файлы пишет фоновый поток: свежие — state queued.
                 data["anomalies"] = r.Anomalies is { } an ? an : "захват не настроен (threshold — настроить, файлы — в артефакты сеанса)";
                 if (traceFile is not null) data["trace"] = traceFile;
                 data["zones"] = section?["zones"]?.DeepClone() ?? new JsonArray();
-                // Точка Пг: GPU-время кадра и проходов (App) — среднее, медиана, p99 за окно, отставание данных (кадры в полёте).
+                // GPU-время кадра и проходов (App) — среднее, медиана, p99 за окно, отставание данных (кадры в полёте).
                 if (section?["gpu"] is { } gpu) data["gpu"] = gpu.DeepClone();
                 if (history > 0) data["history"] = section?["history"]?.DeepClone() ?? new JsonArray();
                 data["mismatches"] = report["mismatches"]?.DeepClone();

@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// 7б: динамика тел — форма с массой, режим, профили динамики, запись состояния, настройки.
+// Динамика тел — форма с массой, режим, профили динамики, запись состояния, настройки.
 public sealed partial class PhysicsWorld
 {
     /// <summary>Наибольшее число профилей динамики: номер профиля в теле — байт.</summary>
@@ -26,7 +26,7 @@ public sealed partial class PhysicsWorld
             if (value.Problem() is { } problem) throw new ArgumentException($"настройки физики: {problem}", nameof(value));
             bool changed = !value.Equals(_settings);
             _settings = value;
-            if (changed) SleepWakeAll(WakeReason.Settings);   // 7з-3: ручки будят спящих
+            if (changed) SleepWakeAll(WakeReason.Settings);   // ручки будят спящих
         }
     }
 
@@ -37,9 +37,9 @@ public sealed partial class PhysicsWorld
         if (!float.IsFinite(radius) || !(radius > 0)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "радиус тела с массой — конечный, больше 0");
         if (!float.IsFinite(halfLength) || halfLength < 0)
             throw new ArgumentOutOfRangeException(nameof(halfLength), halfLength, "полудлина — конечная, не меньше 0");
-        SleepWakeBody(body.Index, WakeReason.Command);   // 7з-3
+        SleepWakeBody(body.Index, WakeReason.Command);
         ref readonly var old = ref _bodies[body.Index];
-        if (old.Radius != radius || old.HalfLength != halfLength) SleepWakeAround(body.Index);   // 7з-3: лежавшие на нём спящие — по форме до записи
+        if (old.Radius != radius || old.HalfLength != halfLength) SleepWakeAround(body.Index);   // лежавшие на нём спящие — по форме до записи
         Dynamics.SetShape(ref _bodies[body.Index], mass, radius, halfLength);
     }
 
@@ -50,17 +50,17 @@ public sealed partial class PhysicsWorld
         ref var s = ref _bodies[body.Index];
         if (mode == BodyMode.Simulated && !(s.Mass > 0))
             throw new InvalidOperationException($"тело {body} без массы не может быть на физике: сначала SetShape с массой");
-        SleepWakeBody(body.Index, WakeReason.Command);   // 7з-3: смена режима будит
+        SleepWakeBody(body.Index, WakeReason.Command);   // смена режима будит
         if (s.Mode == BodyMode.Simulated && mode != BodyMode.Simulated) SleepWakeAround(body.Index);   // кинематическое спящих не держит
         s.Mode = mode;
-        StepMarkNonFinite(body.Index);   // 7з-2: нечисловое кинематическое тело, ставшее телом на физике, — в счёт нечисловых
+        StepMarkNonFinite(body.Index);   // нечисловое кинематическое тело, ставшее телом на физике, — в счёт нечисловых
     }
 
     public void SetDynamics(BodyHandle body, int profile)
     {
         Check(body);
         CheckProfile(profile);
-        if (_bodies[body.Index].Profile != profile) SleepWakeBody(body.Index, WakeReason.Command);   // 7з-3: смена профиля будит
+        if (_bodies[body.Index].Profile != profile) SleepWakeBody(body.Index, WakeReason.Command);   // смена профиля будит
         _bodies[body.Index].Profile = (byte)profile;
     }
 
@@ -79,7 +79,7 @@ public sealed partial class PhysicsWorld
         if (dynamics.Problem() is { } problem) throw new ArgumentException($"профиль динамики: {problem}", nameof(dynamics));
         if (_dynamics[profile].Equals(dynamics)) return;
         _dynamics[profile] = dynamics;
-        SleepWakeProfile(profile);   // 7з-3: спящие с телом этого профиля
+        SleepWakeProfile(profile);   // спящие с телом этого профиля
     }
 
     public BodyDynamics GetDynamics(int profile)
@@ -94,13 +94,13 @@ public sealed partial class PhysicsWorld
         if (Problem(state) is { } problem) throw new ArgumentException($"состояние тела {body}: {problem}", nameof(state));
         ref readonly var old = ref _bodies[body.Index];
         bool simulated = old.Mode == BodyMode.Simulated;
-        SleepWakeBody(body.Index, WakeReason.Command);   // 7з-3: запись тела будит
-        // 7з-3: лежавшие на нём спящие — по позе до записи, если тело ушло, сменило форму или перестало быть телом на физике (возрождение)
+        SleepWakeBody(body.Index, WakeReason.Command);   // запись тела будит
+        // Лежавшие на нём спящие — по позе до записи, если тело ушло, сменило форму или перестало быть телом на физике (возрождение)
         if (old.Position != state.Position || old.Rotation != state.Rotation || old.Radius != state.Radius || old.HalfLength != state.HalfLength
             || (simulated && state.Mode != BodyMode.Simulated))
             SleepWakeAround(body.Index);
         _bodies[body.Index] = state;
-        if (simulated || state.Mode == BodyMode.Simulated) StepMarkNonFinite(body.Index);   // 7з-2: режим мог смениться
+        if (simulated || state.Mode == BodyMode.Simulated) StepMarkNonFinite(body.Index);   // режим мог смениться
     }
 
     public void SetKinematicSource(BodyHandle body, KinematicSource source)

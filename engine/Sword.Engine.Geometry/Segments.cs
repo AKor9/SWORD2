@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace Sword.Engine.Geometry;
 
-/// <summary>Отрезки: ближайшие точки двух отрезков (проходы клинка против капсул тела, этап 6г).</summary>
+/// <summary>Отрезки: ближайшие точки двух отрезков (проходы клинка против капсул тела).</summary>
 public static class Segments
 {
     /// <summary>

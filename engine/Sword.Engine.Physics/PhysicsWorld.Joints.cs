@@ -2,10 +2,10 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// 7в: суставы сочленений — описания, привязка по текущей позе, проход решателя в подшаге (точка + предел по порядку
+// Суставы сочленений — описания, привязка по текущей позе, проход решателя в подшаге (точка + предел по порядку
 // суставов), журнал срабатываний пределов, расслабление скоростей, включение, замер. Крючки JointsGrow, JointsReset,
 // SolveJoints, RelaxJoints (объявлены в PhysicsWorld.cs); внутренние типы и математика — Joints.cs. Идеи — Fighter.Joints,
-// RebindJoints, цикл суставов SolveConstraints SWORD 2eab13b (источник, не образец; отличия — docs/history/engine-physics.md, «7в»).
+// RebindJoints, цикл суставов SolveConstraints SWORD 2eab13b (источник, не образец; отличия — docs/history/engine-physics.md).
 public sealed partial class PhysicsWorld
 {
     // По слотам сочленений: записи суставов (массив переиспользуется), их число, журнал срабатываний пределов за шаг.
@@ -21,7 +21,7 @@ public sealed partial class PhysicsWorld
         for (int j = 0; j < n; j++)
             if (JointsProblem(joints, j, _artCount[a]) is { } problem)
                 throw new ArgumentException($"сустав {j} сочленения {articulation}: {problem}", nameof(joints));
-        SleepWake(a, WakeReason.Command);   // 7з-3: суставы будят
+        SleepWake(a, WakeReason.Command);   // суставы будят
         var records = _joints[a];
         if (n > 0 && (records is null || records.Length < n)) _joints[a] = records = new JointRecord[n];
         for (int j = 0; j < n; j++) records![j] = JointRecord.Of(joints[j]);
@@ -44,7 +44,7 @@ public sealed partial class PhysicsWorld
     public void RebindJoints(ArticulationHandle articulation)
     {
         Check(articulation);
-        SleepWake(articulation.Index, WakeReason.Command);   // 7з-3
+        SleepWake(articulation.Index, WakeReason.Command);
         JointsRebind(articulation.Index);
     }
 
@@ -52,7 +52,7 @@ public sealed partial class PhysicsWorld
     {
         ref var r = ref JointsAt(articulation, joint);
         if (r.Enabled == enabled) return;
-        SleepWake(articulation.Index, WakeReason.Command);   // 7з-3: включение и выключение сустава будят
+        SleepWake(articulation.Index, WakeReason.Command);   // включение и выключение сустава будят
         r.Enabled = enabled;
     }
 
@@ -78,7 +78,7 @@ public sealed partial class PhysicsWorld
         return Joints.Measure(r, _bodies[members[r.Desc.Parent]], _bodies[members[r.Desc.Child]]);
     }
 
-    // ——— Крючки (контракт 7б) ———
+    // ——— Крючки ———
 
     partial void JointsGrow(int articulations, int bodies)
     {
@@ -98,7 +98,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Место под суставы дерева сочленения (тел − 1) и их журнал — за слотом с его создания (7з): первый <see cref="SetJoints"/> дерева
+    /// Место под суставы дерева сочленения (тел − 1) и их журнал — за слотом с его создания: первый <see cref="SetJoints"/> дерева
     /// посреди игры (переход бойца в труп) памяти не выделяет. Слот, где место уже есть, — ничего.
     /// </summary>
     private void JointsReserve(int a, int joints)
@@ -118,14 +118,14 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Сколько унаследованного разрыва точки сустава сводится за подшаг, м (7з-2): <c>JointPopSpeed · h</c> (∞ — весь); пишет
+    /// Сколько унаследованного разрыва точки сустава сводится за подшаг, м: <c>JointPopSpeed · h</c> (∞ — весь); пишет
     /// <see cref="SolveJoints"/>.
     /// </summary>
     private float _jointsPopDepth = float.PositiveInfinity;
 
     partial void RelaxJoints(float h, int substep)
     {
-        // 7з-4: трение суставов — доля относительной угловой скорости, гасимая за подшаг (неявный Эйлер k·h / (1 + k·h)); 0 — трения нет
+        // Трение суставов — доля относительной угловой скорости, гасимая за подшаг (неявный Эйлер k·h / (1 + k·h)); 0 — трения нет
         float k = _settings.JointFriction;
         float friction = k > 0 ? k * h / (1 + k * h) : 0;
         for (int a = 0; a < _artCapacity; a++)
@@ -163,7 +163,7 @@ public sealed partial class PhysicsWorld
         // Сначала предел (поворот вокруг центров масс), затем точка (у SWORD — наоборот; порядок Мюллера и др., 2020): поворот
         // предела уводит точку сустава, и при обратном порядке её сводит только следующий подшаг. Так после сустава его точка
         // сведена — ошибка точек в 5–10 раз меньше; за это у жёсткого упора остаётся малый заход (≈ 0,008 рад при 6 рад/с),
-        // который гаснет за 2–3 тика (docs/history/engine-physics.md, «7в», замеры).
+        // который гаснет за 2–3 тика (docs/history/engine-physics.md, замеры).
         float alpha = r.Desc.LimitCompliance ?? defaultCompliance;
         if (r.Desc.Kind == JointKind.Hinge)
         {
@@ -172,7 +172,7 @@ public sealed partial class PhysicsWorld
             var ac = Joints.ChildHingeAxis(r.Desc, c.Rotation);
             var cross = Vector3.Cross(ac, ap);
             float dot = Vector3.Dot(ac, ap);
-            // 7з-2: быстрое «в люфте» — atan2(|ac × ap|, ac·ap) ≤ люфт ⇔ |ac × ap|² ≤ (ac·ap)²·tg²(люфт) при ac·ap > 0
+            // Быстрое «в люфте» — atan2(|ac × ap|, ac·ap) ≤ люфт ⇔ |ac × ap|² ≤ (ac·ap)²·tg²(люфт) при ac·ap > 0
             if (!(dot > 0 && cross.LengthSquared() <= dot * dot * r.SlackTan2))
             {
                 float len = cross.Length();
@@ -206,7 +206,7 @@ public sealed partial class PhysicsWorld
                 JointsLimit(a, j, ref c, cs, ref p, ps, Vector3.Transform(twist, p.Rotation * r.Rest), alpha, h, substep);
         }
 
-        // Точка сустава — жёстко (α = 0); разрыв, унаследованный от прошлого подшага, — не быстрее JointPopSpeed (7з-2).
+        // Точка сустава — жёстко (α = 0); разрыв, унаследованный от прошлого подшага, — не быстрее JointPopSpeed.
         var pc = c.ToWorld(r.Desc.ChildAnchor);
         var pp = p.ToWorld(r.ParentAnchor);
         var gap = pc - pp;
@@ -221,7 +221,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Сколько разрыва точки сустава сводить в этом подшаге (7з-2; как <see cref="ContactsSolvedDepth"/> для глубины): старый разрыв —
+    /// Сколько разрыва точки сустава сводить в этом подшаге (как <see cref="ContactsSolvedDepth"/> для глубины): старый разрыв —
     /// та же пара точек в прошлых позах (начало подшага: его оставили контакты прошлого подшага, решаемые после суставов) — уходит не
     /// быстрее <see cref="PhysicsSettings.JointPopSpeed"/>; новый разрыв этого подшага (интеграция разнесла тела) — целиком. Без предела
     /// одна жёсткая поправка переводила разрыв 5…7 мм после удара трупа о землю в скорость ~3 м/с — всплеск энергии до 10 Дж за подшаг.
@@ -236,7 +236,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Наибольший разрыв точки сустава, который сводится с ограничением скорости, м (7з-2): больше — лишнее сводится сразу. Удар о землю
+    /// Наибольший разрыв точки сустава, который сводится с ограничением скорости, м: больше — лишнее сводится сразу. Удар о землю
     /// рвёт сустав на 5…7 мм — это сводится не быстрее <see cref="PhysicsSettings.JointPopSpeed"/>; труп, зажатый в куче (пары решаются после
     /// суставов), без предела отставания рвал сустав на сантиметры (замер: куча тестов — до 361 мм при падении). Замер (толпа 32 трупов на
     /// паке): 0,5 см — всплески s8 до 8 Дж; 1 см — до 2,5 Дж, разрыв при падении толпы ≤ 16 мм; 2 см — ≤ 25 мм.
@@ -260,7 +260,7 @@ public sealed partial class PhysicsWorld
     // ——— Расслабление скоростей ———
 
     /// <summary>
-    /// Расслабление скоростей сочленения в подшаге (после скоростного прохода контактов): (0) 7з-4 — трение суставов
+    /// Расслабление скоростей сочленения в подшаге (после скоростного прохода контактов): (0) трение суставов
     /// (<paramref name="friction"/> &gt; 0, <see cref="JointsFriction"/>): у каждого включённого сустава гасится доля относительной угловой
     /// скорости; (1) у каждого включённого сустава относительная скорость точек сустава гасится целиком импульсом в точку (<c>K j = −Δv</c>, K —
     /// полная 3×3: вращение перекладывает скорость в поперечные оси; трение — до точки: его угловой импульс сдвигает точки сустава, и (1) это
@@ -298,7 +298,7 @@ public sealed partial class PhysicsWorld
         if (dv.LengthSquared() < Joints.RelaxEpsilonSquared) return;
         Vector3 rc = pc - c.Position, rp = pp - p.Position;
         Vector3 kx = default, ky = default, kz = default;
-        // обратные инерции — матрицы подшага (7з-2: поза после обновления скоростей не меняется)
+        // обратные инерции — матрицы подшага (поза после обновления скоростей не меняется)
         ref readonly var wc = ref _stepInertia[members[r.Desc.Child]];
         ref readonly var wp = ref _stepInertia[members[r.Desc.Parent]];
         if (cs) Joints.AddPointMass(in wc, rc, ref kx, ref ky, ref kz);
@@ -309,7 +309,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Трение сустава (7з-4): относительная угловая скорость <c>ω = ω_c − ω_p</c> уменьшается на долю <paramref name="share"/> парой угловых
+    /// Трение сустава: относительная угловая скорость <c>ω = ω_c − ω_p</c> уменьшается на долю <paramref name="share"/> парой угловых
     /// импульсов <c>±L</c>, <c>L = K⁻¹·ω·share</c>, <c>K = I_c⁻¹ + I_p⁻¹</c> (обратные инерции в мире, матрицы подшага; кинематическая сторона —
     /// неподвижна, её слагаемого нет): проекция в метрике масс — энергия меняется на <c>−share·(1 − share/2)·ωᵀK⁻¹ω ≤ 0</c>, момент импульса пары
     /// сохраняется. Вырожденная K (не положительный определитель) — пропуск.
@@ -347,7 +347,7 @@ public sealed partial class PhysicsWorld
     /// относительная скорость точек сустава гасятся вместе — импульс в точку <c>j</c> и угловой <c>λn</c> из системы 4×4
     /// <c>[K B; Bᵀ w]·[j; λ] = −[Δv; u]</c> (дополнение Шура: две системы 3×3 с K). У SWORD гасилась только угловая
     /// скорость: у тела на точке сустава оставалась скорость центра, и следующий подшаг возвращал её вращением вокруг точки —
-    /// конечность отскакивала от упора (docs/history/engine-physics.md, «7в»). Импульс — проекция в метрике масс: энергии не добавляет.
+    /// конечность отскакивала от упора (docs/history/engine-physics.md). Импульс — проекция в метрике масс: энергии не добавляет.
     /// </summary>
     private void JointsRelaxLimit(JointRecord[] records, int[] members, in JointLimitHit hit)
     {

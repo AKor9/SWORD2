@@ -84,7 +84,7 @@ public static class Png
 
         /// <remarks>
         /// Сразу оптимизированным: цикл по байтам чанка (сотни КБ за вызов) многоуровневый JIT заменял на ходу (OSR на главном
-        /// потоке в кадре снимка — исправления после Пд); PGO табличному CRC не нужен.
+        /// потоке в кадре снимка); PGO табличному CRC не нужен.
         /// </remarks>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
         public static uint Update(uint crc, ReadOnlySpan<byte> data)

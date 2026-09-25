@@ -19,7 +19,7 @@ public enum DepthAccess
 
 /// <summary>
 /// Что проход сделал в кадре — для агента и журнала (<see cref="RenderGraph.LastFrame"/>). Строится по запросу из сырых данных
-/// кадра, а не в каждом кадре (исправления после Пд: кадр графа — 0 Б).
+/// кадра, а не в каждом кадре (кадр графа — 0 Б).
 /// </summary>
 /// <param name="Barriers">Переходов состояний и барьеров UAV перед проходом (одной пачкой).</param>
 public sealed record RenderPassReport(
@@ -89,7 +89,7 @@ public sealed class RenderGraph
     private ulong _frameConstants;
 
     /// <summary>
-    /// Сырые данные исполненного прохода (исправления после Пд, docs/history/profiler.md, «Разбор Пд» вопрос 6): отчёт
+    /// Сырые данные исполненного прохода (docs/history/profiler.md): отчёт
     /// <see cref="RenderPassReport"/> строится из них только по запросу (<see cref="LastFrame"/>: агент, итог прогона), а в кадре —
     /// ни списков, ни строк, ни записей.
     /// Имена записей и чтений — ссылки на имена ресурсов подряд в <see cref="FrameRecords.Names"/> с <see cref="NamesStart"/>.
@@ -145,7 +145,7 @@ public sealed class RenderGraph
 
     /// <summary>
     /// Проходы и барьеры последнего исполненного кадра. Строится при первом запросе после кадра (агент — <c>render.graph</c>,
-    /// итог прогона <c>--json</c>) и держится до следующего кадра: сам кадр отчёта не строит (0 Б/кадр — исправления после Пд).
+    /// итог прогона <c>--json</c>) и держится до следующего кадра: сам кадр отчёта не строит (0 Б/кадр).
     /// </summary>
     public IReadOnlyList<RenderPassReport> LastFrame => _lastFrame ??= BuildReport(_shown);
 
@@ -367,7 +367,7 @@ public sealed class RenderGraph
         var frame = _recording;
         frame.Clear();
         var profiler = _profiler;
-        var timer = _device.Timer;   // точка Пг: таймстемпы GPU вокруг каждого прохода (с его барьерами)
+        var timer = _device.Timer;   // таймстемпы GPU вокруг каждого прохода (с его барьерами)
         foreach (var p in _passes)
         {
             int zone = profiler.Enabled ? PassZone(p.Name) : 0;
@@ -529,7 +529,7 @@ public sealed class RenderGraph
 
     private void BindGraphics(ID3D12GraphicsCommandList list, Pass p, GraphResource size)
     {
-        // Не больше двух целей (RenderPassBuilder.Color) — на стеке, а не массив на проход (исправления после Пд).
+        // Не больше двух целей (RenderPassBuilder.Color) — на стеке, а не массив на проход.
         Span<CpuDescriptorHandle> rtvs = stackalloc CpuDescriptorHandle[2];
         rtvs = rtvs[..p.Colors.Count];
         for (int i = 0; i < rtvs.Length; i++) rtvs[i] = _resources[p.Colors[i].Resource].Rtv!.Value;
@@ -571,11 +571,11 @@ public sealed class RenderGraph
         }
     }
 
-    /// <summary>Зоны GPU-времени проходов (точка Пг): <c>gpu.&lt;проход&gt;</c> вида <see cref="ProfileZoneKind.Gpu"/>.</summary>
+    /// <summary>Зоны GPU-времени проходов: <c>gpu.&lt;проход&gt;</c> вида <see cref="ProfileZoneKind.Gpu"/>.</summary>
     private readonly Dictionary<string, int> _gpuZones = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Зона прохода: имена проходов стабильны (порядок регистрации — нет), поиск по имени не выделяет памяти. Точка Пг: вместе с
+    /// Зона прохода: имена проходов стабильны (порядок регистрации — нет), поиск по имени не выделяет памяти. Вместе с
     /// ней заводится и зона GPU-времени прохода — в том же кадре (первый кадр — служебный), а не через 3 кадра, когда придут его
     /// времена: иначе строки зон выделялись бы в обычном кадре.
     /// </summary>
@@ -590,7 +590,7 @@ public sealed class RenderGraph
         return zone;
     }
 
-    /// <summary>Зона GPU-времени прохода <paramref name="name"/> (точка Пг); нет — заводится.</summary>
+    /// <summary>Зона GPU-времени прохода <paramref name="name"/>; нет — заводится.</summary>
     internal int GpuZone(string name)
     {
         if (!_gpuZones.TryGetValue(name, out int zone))

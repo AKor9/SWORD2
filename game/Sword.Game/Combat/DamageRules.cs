@@ -4,7 +4,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Правила урона (этап 6г) — <c>DuelArena.KinematicStrikes</c>, <c>ApplyHits</c>, <c>ApplyHit</c>, <c>Fighter</c> (<c>HpMul</c>,
+/// Правила урона — <c>DuelArena.KinematicStrikes</c>, <c>ApplyHits</c>, <c>ApplyHit</c>, <c>Fighter</c> (<c>HpMul</c>,
 /// <c>SeverAt</c>, <c>SeverThreshold</c>, <c>AfterTick</c>) SWORD 2eab13b в отзывчивом режиме (<c>Fighter.Responsive</c>, по умолчанию
 /// включён). Чистые функции: константы, порядок вычислений float — SWORD.
 /// </summary>

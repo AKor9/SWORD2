@@ -5,7 +5,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Величины тела бойца целиком (7з) по снимкам его тел (<see cref="IBodyView"/>, <see cref="BodySnapshot"/>) — для наблюдателей: вычисляемые
+/// Величины тела бойца целиком по снимкам его тел (<see cref="IBodyView"/>, <see cref="BodySnapshot"/>) — для наблюдателей: вычисляемые
 /// поля агента (<c>Body.Com</c>, <c>Body.ComVelocity</c>, <c>Body.KineticEnergy</c>, <c>Body.Energy</c> — <c>watch.add</c>, <c>entity.history</c>,
 /// метрики и проверки манифестов) и тесты. Центр масс и его скорость — по массам тел; кинетическая энергия — поступательная и вращательная
 /// (инерция — точная капсулы, как у физики: <see cref="Dynamics.CapsuleInvInertia"/>); полная — плюс <c>m·g·y</c> (g — профиля по

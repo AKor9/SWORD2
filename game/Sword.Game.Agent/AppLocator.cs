@@ -4,7 +4,7 @@ namespace Sword.Game.Agent;
 /// Sword.exe для видов и бюджетов фич (<c>feature.verify</c>, <c>Sword.Headless --feature</c>): App той же конфигурации сборки,
 /// что Headless, — <c>game/Sword.Game.App/bin/&lt;конфигурация&gt;/…/Sword.exe</c> в корне репозитория. Конфигурация — по пути
 /// Headless (папка за <c>bin</c>: <c>…\bin\Debug\…</c>); Headless, собранный вне <c>bin</c> (сервер агента
-/// <c>tools/scripts/agent-headless.cmd</c> — <c>artifacts\agent-bin\headless\&lt;n&gt;</c>, точка 6б: там виды отвечали «Sword.exe не
+/// <c>tools/scripts/agent-headless.cmd</c> — <c>artifacts\agent-bin\headless\&lt;n&gt;</c>, где иначе виды отвечают «Sword.exe не
 /// собран»), — по оптимизации его сборки: Release или Debug.
 /// </summary>
 public static class AppLocator

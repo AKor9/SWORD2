@@ -25,8 +25,8 @@ public static class SwordSimulation
 
     /// <summary>
     /// Id всех модулей симуляции игры — и тех, что не вошли в эту сборку (<c>-p:Without&lt;Модуль&gt;=true</c>). Секция конфига модуля, которого
-    /// нет в сборке, пропускается, как у выключенного (<see cref="ConfigSet.Skip"/>): общий <c>sword.json</c> с его настройками (8е:
-    /// <c>locomotion.player</c>) не роняет запуск — без модуля игра стартует (решение 9). Новый модуль — строка здесь и в <see cref="Modules"/>.
+    /// нет в сборке, пропускается, как у выключенного (<see cref="ConfigSet.Skip"/>): общий <c>sword.json</c> с его настройками
+    /// (<c>locomotion.player</c>) не роняет запуск — без модуля игра стартует (решение 9). Новый модуль — строка здесь и в <see cref="Modules"/>.
     /// </summary>
     public static readonly IReadOnlyList<string> ModuleIds = ["locomotion"];
 

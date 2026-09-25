@@ -21,7 +21,7 @@ internal sealed class TraceData
 }
 
 /// <summary>
-/// Экспорт профайлера в Chrome Trace Event JSON (точка Пв) — открывается в Perfetto (ui.perfetto.dev, «Open trace file») и
+/// Экспорт профайлера в Chrome Trace Event JSON — открывается в Perfetto (ui.perfetto.dev, «Open trace file») и
 /// <c>chrome://tracing</c>; своей панели нет (панель — этап 14). Три процесса трассы:
 /// <list type="bullet">
 /// <item><b>кольцо</b> (pid 1): кадры (tid 1) и тики (tid 2) с настоящими началом и длительностью, зоны внутри — события «X»
@@ -137,7 +137,7 @@ public static class ChromeTrace
             w.WriteNumber("ticks", p.Header.Ticks);
             w.WriteNumber("alpha", Math.Round(p.Header.Alpha, 4));
             w.WriteBoolean("service", p.Header.Service);
-            if (p.Header.Tools) w.WriteBoolean("tools", true);   // после Пв: кадр инструментов (запросы агента)
+            if (p.Header.Tools) w.WriteBoolean("tools", true);   // кадр инструментов (запросы агента)
         }
         w.WriteNumber("gc", c.Collections);
         w.WriteNumber("jit", c.JitMethods);

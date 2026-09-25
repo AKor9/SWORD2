@@ -5,7 +5,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Introspection.Tests;
 
 /// <summary>
-/// Приёмка и эксперименты (этап 3д): манифест фичи (разбор и его ошибки), <see cref="FeatureVerifier"/> (сценарии,
+/// Приёмка и эксперименты: манифест фичи (разбор и его ошибки), <see cref="FeatureVerifier"/> (сценарии,
 /// проверки, хеши реплея, инварианты, метрики, бюджеты, виды) и <see cref="Experiments"/> (развилка расходится на тике
 /// изменения, сравнение описаний, перебор конфига). Подопытный — <see cref="TestModule"/>: тела X = 0…4, Order двигает все
 /// тела по X в S1.
@@ -126,7 +126,7 @@ public sealed class FeatureTests : IDisposable
     [InlineData("\"overlays\": [\"capsules\"]", "\"overlays\": [\"\"]", "views[0].overlays[0]: непустая строка")]
     [InlineData("\"at\": 5, \"expected\": 5", "\"at\": 5", "нужно field (или resource) и expected")]
     [InlineData("\"reference\": \"тест\", \"entity\"", "\"reference\": \"тест\", \"resource\": \"SimTime.Time\", \"entity\"", "metrics[0]: resource — поле ресурса мира, без entity и field")]
-    // 7а: со SWORD не сравниваем (решение 14) — источника «sword» и рядов против трассы в формате нет.
+    // Со SWORD не сравниваем (решение 14) — источника «sword» и рядов против трассы в формате нет.
     [InlineData("{ \"id\": \"xmax\", \"scenario\": \"push\",", "{ \"id\": \"xmax\", \"scenario\": \"push\", \"source\": \"sword\",", "metrics[1].source: неизвестный ключ")]
     [InlineData("{ \"id\": \"xmax\", \"scenario\": \"push\",", "{ \"id\": \"xmax\", \"scenario\": \"push\", \"trace\": \"t.json\",", "metrics[1].trace: неизвестный ключ")]
     [InlineData("{ \"id\": \"xmax\", \"scenario\": \"push\",", "{ \"id\": \"xmax\", \"scenario\": \"push\", \"series\": { \"x\": \"Body.Position.X\" },", "metrics[1].series: неизвестный ключ")]
@@ -147,7 +147,7 @@ public sealed class FeatureTests : IDisposable
         Assert.Contains(expected, e.Message);
     }
 
-    /// <summary>Вычисляемое поле игры (5б): <c>Twice.X</c> — удвоенный X тела; остальные пути — не его.</summary>
+    /// <summary>Вычисляемое поле игры: <c>Twice.X</c> — удвоенный X тела; остальные пути — не его.</summary>
     private sealed class TwiceFields : IEntityFields
     {
         public IReadOnlyList<string> Known { get; } = ["Twice.X"];
@@ -191,7 +191,7 @@ public sealed class FeatureTests : IDisposable
         Assert.False(none.Ok);
     }
 
-    /// <summary>Диагностический режим теста (7з): запоминает, включён ли он был в первом тике.</summary>
+    /// <summary>Диагностический режим теста: запоминает, включён ли он был в первом тике.</summary>
     private sealed class SeenMode : IDiagnosticMode
     {
         public string Id => "test.mode";
@@ -221,7 +221,7 @@ public sealed class FeatureTests : IDisposable
     }
 
     /// <summary>
-    /// 7з: проверка сценария читает вычисляемое поле игры (<see cref="IEntityFields"/>, как метрика: тела бойца вне ECS); ключ сценария
+    /// Проверка сценария читает вычисляемое поле игры (<see cref="IEntityFields"/>, как метрика: тела бойца вне ECS); ключ сценария
     /// <c>diagnostics</c> включает диагностические режимы симуляции до тика 0 (инварианты манифеста читают по ним трассу физики игры) — в
     /// каждой симуляции сценария; режима нет в симуляции — провал словами; Id не по правилу инварианта — ошибка разбора.
     /// </summary>
@@ -269,7 +269,7 @@ public sealed class FeatureTests : IDisposable
     }
 
     /// <summary>
-    /// 6ж: метрика поля ресурса мира (<c>resource</c> вместо сущности: статистика арены игры — <c>ArenaStats.LastDamage</c>) — значение после
+    /// Метрика поля ресурса мира (<c>resource</c> вместо сущности: статистика арены игры — <c>ArenaStats.LastDamage</c>) — значение после
     /// тика и статистика окна; нет ресурса в пути — провал метрики словами.
     /// </summary>
     [Fact]
@@ -300,7 +300,7 @@ public sealed class FeatureTests : IDisposable
     }
 
     /// <summary>
-    /// 7л: <c>stat: p99</c> — 99-й перцентиль окна ближайшим рангом (распределение без одиночных выбросов <c>max</c>): время после тиков
+    /// <c>stat: p99</c> — 99-й перцентиль окна ближайшим рангом (распределение без одиночных выбросов <c>max</c>): время после тиков
     /// 1…240 — k/120 с; p99 — 238-е значение (⌈0,99·240⌉), max — 240-е; окно из одного тика — его значение.
     /// </summary>
     [Fact]
@@ -327,7 +327,7 @@ public sealed class FeatureTests : IDisposable
         Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"stat\": \"p99\", \"from\": 12", "\"stat\": \"p50\", \"from\": 12"))));
     }
 
-    /// <summary>Вычисляемое поле (8з): <c>Even.T</c> — время симуляции после тика, определено только после тиков с чётным номером (иначе NaN).</summary>
+    /// <summary>Вычисляемое поле: <c>Even.T</c> — время симуляции после тика, определено только после тиков с чётным номером (иначе NaN).</summary>
     private sealed class EvenFields : IEntityFields
     {
         public IReadOnlyList<string> Known { get; } = ["Even.T"];
@@ -338,7 +338,7 @@ public sealed class FeatureTests : IDisposable
     }
 
     /// <summary>
-    /// 8з: <c>stat: p95</c> — 95-й перцентиль окна ближайшим рангом; <c>skipUndefined</c> — тики без значения (NaN: поле определено не в
+    /// <c>stat: p95</c> — 95-й перцентиль окна ближайшим рангом; <c>skipUndefined</c> — тики без значения (NaN: поле определено не в
     /// каждом тике — скольжение опорной стопы) не входят в окно: у <c>Even.T</c> после тиков 1…240 определены нечётные t (t/120 с) — среднее
     /// 120 значений 1,0, p95 — 114-е (227/120), наибольшее — 239/120; без ключа то же окно — провал «значения нет»; ключ со <c>stat: value</c> —
     /// ошибка разбора.
@@ -405,14 +405,14 @@ public sealed class FeatureTests : IDisposable
         Assert.Equal(0.0, budget["allocatedBytesPerTick"]!.GetValue<double>());
         Assert.Contains("Debug", budget["time"]!.GetValue<string>());
         Assert.Contains("S1", budget["stages"]!.AsObject().Select(p => p.Key));
-        // Точка Па: время систем — отдельный прогон с профайлером CPU; его байты — тот же предел (0).
+        // Время систем — отдельный прогон с профайлером CPU; его байты — тот же предел (0).
         Assert.Equal(["runtime.commands@runtime.commands", "runtime.export@runtime.export", "test.mover@S1", "test.reader@S2"], budget["systems"]!.AsObject().Select(p => p.Key).Order());
         Assert.Equal(0.0, budget["profiled"]!["allocatedBytesPerTick"]!.GetValue<double>());
 
         // Вид играет запись сценария Headless: те же команды и хеши каждого тика.
         Assert.NotNull(seen);
         Assert.Equal((30ul, "0.6,0.95,24", false), (seen!.Tick, seen.Camera, seen.Hud));
-        Assert.Equal(["capsules"], seen.Overlays);   // оверлеи вида (5в) — App рисует их поверх кадра (--overlay)
+        Assert.Equal(["capsules"], seen.Overlays);   // оверлеи вида — App рисует их поверх кадра (--overlay)
         Assert.Equal(["capsules"], m.Views[0].Overlays);
         Assert.Equal("capsules", j["views"]![0]!["overlays"]![0]!.GetValue<string>());
         var recorded = Replay.Load(seen.Replay);
@@ -461,7 +461,7 @@ public sealed class FeatureTests : IDisposable
     }
 
     /// <summary>
-    /// Бюджет кадра (точка 4д): App играет запись сценария бенчем; в Debug кадр только меряется, в Release — пределы среднего и
+    /// Бюджет кадра: App играет запись сценария бенчем; в Debug кадр только меряется, в Release — пределы среднего и
     /// 99-го перцентиля; разошедшиеся хеши App — провал; без видов (App не запускается) — не меряется; бенч длиннее записи — провал.
     /// </summary>
     [Fact]
@@ -499,7 +499,7 @@ public sealed class FeatureTests : IDisposable
         var debug = Run(m, optimized: false);
         Assert.True(debug.Ok, string.Join("\n", debug.Failures));
         Assert.Equal(("push", "frame", 5.0), (seen!.Feature, seen.Budget, seen.Seconds));
-        Assert.Equal(["capsules"], seen.Overlays);   // 5г: оверлеи бюджета кадра — App рисует их весь замер (--overlay)
+        Assert.Equal(["capsules"], seen.Overlays);   // оверлеи бюджета кадра — App рисует их весь замер (--overlay)
         Assert.Equal(60ul, Replay.Load(seen.Replay).Ticks);
         var frame = debug.Json["budgets"]![0]!["frame"]!;
         Assert.Equal((3.0, 3.5, 100L), (frame["averageMs"]!.GetValue<double>(), frame["p99Ms"]!.GetValue<double>(), frame["frames"]!.GetValue<long>()));
@@ -532,7 +532,7 @@ public sealed class FeatureTests : IDisposable
     }
 
     /// <summary>
-    /// 8и: пик зоны профайлера в бюджете (<c>zones</c>) — из прогона бюджета с профайлером: в отчёте пик (наибольшее время зоны за тик),
+    /// Пик зоны профайлера в бюджете (<c>zones</c>) — из прогона бюджета с профайлером: в отчёте пик (наибольшее время зоны за тик),
     /// среднее, вызовы и доля тиков; в Debug предел не судится, в Release пик выше предела — провал словами, ниже — нет; зоны нет в прогоне —
     /// провал в любой сборке; предел не больше 0 — ошибка разбора.
     /// </summary>
@@ -587,7 +587,7 @@ public sealed class FeatureTests : IDisposable
         Assert.All(branches, b => Assert.Null(b.Error));
         Assert.Null(branches[0].PlaybackDivergence);                              // база повторяет файл
         Assert.Equal(40.0, branches[0].Measures[$"{first}:Body.Position.X"]);
-        Assert.Equal(80.0, branches[0].Measures[$"{first}:Twice.X"]);             // 8и: замер ветки — и вычисляемое поле игры
+        Assert.Equal(80.0, branches[0].Measures[$"{first}:Twice.X"]);             // замер ветки — и вычисляемое поле игры
         Assert.Equal(82.0, branches[1].Measures[$"{first}:Twice.X"]);
         // Команда тика 20 меняет состояние после 21 тика; до того ветка — база бит в бит.
         var d = branches[1].VsBase!;
@@ -635,7 +635,7 @@ public sealed class FeatureTests : IDisposable
         Assert.Contains("S1", rows[0].Stages.Keys);
         Assert.Contains(scaling, s => s.StartsWith("sim.tickRate:", StringComparison.Ordinal));
 
-        // Порядок прогонов (4д): круг прогрева — каждая комбинация по разу, затем повторы по кругу комбинаций, а не все
+        // Порядок прогонов: круг прогрева — каждая комбинация по разу, затем повторы по кругу комбинаций, а не все
         // повторы одной подряд (первые комбинации свежего процесса иначе мерились на неоптимизированном JIT).
         var order = new List<string>();
         Simulation Logged(ConfigSet config)
@@ -645,12 +645,12 @@ public sealed class FeatureTests : IDisposable
             return sim;
         }
         var (warmed, _) = Experiments.Sweep(null, 20, [("sim.tickRate", ["60", "120"]), ("sim.seed", ["1", "2"])], 2, 5, Logged);
-        // Точка Па: после повторов — ещё круг с профайлером CPU (время систем); медианы — только из повторов.
+        // После повторов — ещё круг с профайлером CPU (время систем); медианы — только из повторов.
         string[] round = ["60/1", "60/2", "120/1", "120/2"];
         Assert.Equal([.. round, .. round, .. round, .. round], order);
         Assert.All(warmed, r => Assert.Equal(["runtime.commands@runtime.commands", "runtime.export@runtime.export", "test.mover@S1", "test.reader@S2"], r.Systems!.Select(p => p.Key).Order()));
-        // 6ж: с warmJit (Release) между кругом прогрева и повторами — прогрев до затишья JIT: у каждой комбинации одна тёплая симуляция, по
-        // кругу, без постройки заново (доводка 6ж) — построек ровно по одной на комбинацию.
+        // С warmJit (Release) между кругом прогрева и повторами — прогрев до затишья JIT: у каждой комбинации одна тёплая симуляция, по
+        // кругу, без постройки заново — построек ровно по одной на комбинацию.
         order.Clear();
         var (jitWarmed, _) = Experiments.Sweep(null, 20, [("sim.tickRate", ["60", "120"]), ("sim.seed", ["1", "2"])], 2, 5, Logged, systems: false,
             warmJit: true);

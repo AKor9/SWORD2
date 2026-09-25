@@ -6,7 +6,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Movement, после <c>core.root-collision</c> и до <c>locomotion.mm-history</c> (<c>locomotion.mm-events</c>; 8з): переходы проигрывателя
+/// Movement, после <c>core.root-collision</c> и до <c>locomotion.mm-history</c> (<c>locomotion.mm-events</c>): переходы проигрывателя
 /// тика — события <see cref="MotionTransition"/> (журнал ECS: <c>events.history</c>; экспорт клиенту). Пул исполнил задания тика
 /// (<c>core.animation-tick</c>), а вид состояния в компоненте ещё прошлого тика: переходов за тик — счётчик проигрывателя минус счётчик
 /// компонента. Запрошенный поиском (диагностика: тик и кадр запроса) — событие «поиск» (откуда — текущий кадр поиска, куда — кадр входа

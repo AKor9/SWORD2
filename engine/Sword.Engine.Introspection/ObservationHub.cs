@@ -31,7 +31,7 @@ public sealed class ObservationHub : ISimulationObserver
     private IEntityNames? _names;
 
     /// <summary>
-    /// Вычисляемые поля игры (<see cref="IEntityFields"/>, 5г): наблюдения (<c>watch.add</c>, <c>replay.observe</c>) пишут их
+    /// Вычисляемые поля игры (<see cref="IEntityFields"/>): наблюдения (<c>watch.add</c>, <c>replay.observe</c>) пишут их
     /// по тикам, как листья компонентов (<c>Body.MaxSpeed</c>, <c>Body.foot.l.Position.Y</c>); null — только компоненты.
     /// </summary>
     public IEntityFields? Fields { get; set; }
@@ -323,7 +323,7 @@ public sealed class ObservationHub : ISimulationObserver
 /// <summary>
 /// Наблюдение (<c>watch.add</c>): после каждого <see cref="Every"/>-го тика — строка на каждую подходящую сущность (заданные
 /// или все, для которых выполняется условие <c>where</c>) со значениями листьев полей <c>fields</c>. Строки — в кольце
-/// на <see cref="Capacity"/> строк; тик строки — <c>tickId</c> (сыграно тиков), как в квитанциях. С точки 5г поле может быть
+/// на <see cref="Capacity"/> строк; тик строки — <c>tickId</c> (сыграно тиков), как в квитанциях. Поле может быть
 /// вычисляемым полем игры (<see cref="IEntityFields"/>: капсулы тела <c>Body.*</c>) — лист <c>F64</c>, нет значения (NaN) — null.
 /// </summary>
 public sealed class Watch

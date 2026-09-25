@@ -15,10 +15,10 @@ namespace Sword.Game.App;
 
 /// <summary>
 /// Точка входа игры SWORD: композиция симуляции (<see cref="SwordSimulation"/> — та же, что у Headless), клиента
-/// (<see cref="ArenaClient"/>) и привязок ввода (секция конфига <c>input</c>: действия игры и клиента движка). Точка 1г:
+/// (<see cref="ArenaClient"/>) и привязок ввода (секция конфига <c>input</c>: действия игры и клиента движка).
 /// WASD относительно камеры, курсор — взгляд, колесо — зум; <c>--move</c> заменяет ввод заданной командой (проверочные
-/// прогоны). Точка 1д: HUD (FPS, справка — F1), снимок F4, бенч кадра (<c>--bench</c>). Точка 1е: <c>--agent</c> — сервер
-/// MCP для агента (AgentMode.cs; в сборке без агента его нет). Точка 6е: панели DevTools поверх кадра (DevToolsMode.cs; в
+/// прогоны). HUD (FPS, справка — F1), снимок F4, бенч кадра (<c>--bench</c>). <c>--agent</c> — сервер
+/// MCP для агента (AgentMode.cs; в сборке без агента его нет). Панели DevTools поверх кадра (DevToolsMode.cs; в
 /// сборке без DevTools его нет).
 /// </summary>
 public static partial class Program
@@ -33,7 +33,7 @@ public static partial class Program
     static partial void AddDevTools(List<IClientPanel> panels, bool bench);
 
     /// <summary>
-    /// Связать панели DevTools с игрой (DevToolsMode.cs, 6е): группы ручек клиента игры (заводятся в его <c>Initialize</c> — после
+    /// Связать панели DevTools с игрой (DevToolsMode.cs): группы ручек клиента игры (заводятся в его <c>Initialize</c> — после
     /// создания клиента движка), сохранение и загрузка, край под HUD. В сборке без DevTools вызова нет.
     /// </summary>
     static partial void ConnectDevTools(IReadOnlyList<IClientPanel> panels, ArenaClient arena);
@@ -66,7 +66,7 @@ public static partial class Program
         public double FrameSeconds;
         public double MaxFps;
         public bool NoHud;
-        /// <summary>Диагностический режим причинности (<c>--causality</c>, 6д): <c>state.why</c> агента; хеш и реплей не меняет.</summary>
+        /// <summary>Диагностический режим причинности (<c>--causality</c>): <c>state.why</c> агента; хеш и реплей не меняет.</summary>
         public bool Causality;
         public double Bench;
         public string? Screenshots;
@@ -82,9 +82,9 @@ public static partial class Program
         public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
         public readonly List<string> Overlays = [];
-        /// <summary>Окно показано свёрнутым, без фокуса (<c>--minimized</c>, 6ж): проверка, что прогон идёт и в свёрнутом окне.</summary>
+        /// <summary>Окно показано свёрнутым, без фокуса (<c>--minimized</c>): проверка, что прогон идёт и в свёрнутом окне.</summary>
         public bool Minimized;
-        /// <summary>Сторож кадров проверочного прогона (<c>--stall</c>, 6ж): нет кадров столько секунд — выход с ошибкой.</summary>
+        /// <summary>Сторож кадров проверочного прогона (<c>--stall</c>): нет кадров столько секунд — выход с ошибкой.</summary>
         public double StallSeconds = 60;
     }
 
@@ -205,9 +205,9 @@ public static partial class Program
                 throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а пак здесь — {content}: хеши сравнивать бессмысленно");
             var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
             var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
-            if (options.Causality) simulation.EnableCausality();   // 6д: диагностика — хеш и реплей те же
+            if (options.Causality) simulation.EnableCausality();   // диагностика — хеш и реплей те же
             var playback = replay is null ? null : simulation.Play(replay);
-            // Живая игра (исправления после Пд, решение пользователя): тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy).
+            // Живая игра (решение пользователя): тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy).
             // Сверка реплея (--replay: виды фич, проверки) — каждый тик, как Headless и тесты.
             simulation.Invariants.LivePeriods = replay is null;
             if (options.Overlays.FirstOrDefault(o => !ArenaClient.KnownOverlays.Contains(o)) is { } unknown)
@@ -216,7 +216,7 @@ public static partial class Program
                 showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay),
                 showJoints: options.Overlays.Contains(ArenaClient.JointsOverlay), showContacts: options.Overlays.Contains(ArenaClient.ContactsOverlay),
                 showMotion: options.Overlays.Contains(ArenaClient.MotionOverlay));
-            // Панели поверх кадра: инвентарь игры (6е: I — открыть, мышь над ним не бьёт) и DevTools (F3 — ручки).
+            // Панели поверх кадра: инвентарь игры (I — открыть, мышь над ним не бьёт) и DevTools (F3 — ручки).
             var panels = new List<IClientPanel> { arena.Inventory };
             AddDevTools(panels, bench: options.Bench > 0);
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions, .. panels.SelectMany(p => p.Actions)], config);
@@ -257,7 +257,7 @@ public static partial class Program
                 HeldActions = options.Hold,
                 Profile = options.Profile,
                 ProfileEvents = options.ProfileEvents,
-                // 6ж: проверочный прогон (кадры, бенч) — со сторожем: нет кадров StallSeconds — итог-ошибка и выход (код StalledExit),
+                // Проверочный прогон (кадры, бенч) — со сторожем: нет кадров StallSeconds — итог-ошибка и выход (код StalledExit),
                 // а не бенч без конца. Свёрнутое окно такой прогон и так рисует (ClientHost).
                 StallSeconds = options.Frames > 0 || options.Bench > 0 ? options.StallSeconds : 0,
                 Stalled = message => Stalled(message, options.Json),
@@ -267,7 +267,7 @@ public static partial class Program
                 foreach (var panel in panels) client.AddPanel(panel);
                 if (client.Panels is { } layer) layer.Scale = Hud.Scale;   // панели — в масштабе HUD (SWORD: Hud.UiScale)
                 ConnectDevTools(panels, arena);
-                // Захват аномалий (точка Пв): судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.
+            // Захват аномалий: судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.
                 profiler.CaptureAnomalies(new AnomalyOptions
                 {
                     Directory = profileDir, AbsoluteMs = options.ProfileThreshold,
@@ -301,7 +301,7 @@ public static partial class Program
                 if (!options.Json) Log.Info("replay", $"записан {Path.GetFullPath(options.Record)}: {recorded.Ticks} тиков, хешей {recorded.Hashes.Count}");
             }
 
-            // Профайлер (--profile, точка Па): отчёт — в артефакты прогона (файлы аномалий — дописаны: Write ждёт писателя).
+            // Профайлер (--profile): отчёт — в артефакты прогона (файлы аномалий — дописаны: Write ждёт писателя).
             string? profileFile = options.Profile
                 ? profiler.Write(Path.Combine(profileDir, "profile.json"), new System.Text.Json.Nodes.JsonObject
                 {
@@ -314,7 +314,7 @@ public static partial class Program
                 })
                 : null;
             if (profileFile is not null && !options.Json) Log.Info("profile", $"профайлер: {profileFile}");
-            // Точка Пв: кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
+            // Кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
             string? traceFile = options.ProfileTrace
                 ? profiler.WriteTrace(Path.Combine(profileDir, "trace.json"), new Dictionary<string, string> { ["process"] = "app" })
                 : null;
@@ -340,7 +340,7 @@ public static partial class Program
                     input = bindings.Keys,
                     // Окно: взяло ли фокус при показе и почему (--activate, --no-activate, SWORD_NO_ACTIVATE, default).
                     window = new { activate = options.Activate, activateBy = options.ActivateBy },
-                    // Арена последнего тика (этап 4а): заданное число врагов, бойцов в мире и отданных скиннингу в кадре.
+                    // Арена последнего тика: заданное число врагов, бойцов в мире и отданных скиннингу в кадре.
                     arena = new
                     {
                         enemies = simulation.World.Resource<ArenaState>().Enemies,
@@ -348,23 +348,23 @@ public static partial class Program
                         skinned = arena.SkinnedFighters,
                     },
                     hud = new { shown = arena.ShowsHud, help = arena.Hud.ShowHelp, profiler = arena.Hud.ShowProfiler, quads = arena.HudQuads, lines = arena.HelpLines },
-                    // Бой в HUD последнего кадра (6е): здоровье и смерть игрока, враги, убито, попаданий, последний удар, меч.
+                    // Бой в HUD последнего кадра: здоровье и смерть игрока, враги, убито, попаданий, последний удар, меч.
                     combat = arena.Combat,
-                    // Панели поверх кадра (6е): видна ли хоть одна в последнем кадре (F3 — ручки, I — инвентарь), открыт ли инвентарь, вкладки
+                    // Панели поверх кадра: видна ли хоть одна в последнем кадре (F3 — ручки, I — инвентарь), открыт ли инвентарь, вкладки
                     // ручек игры.
                     panels = new { shown = panelsShown, inventory = arena.Inventory.Open, tuning = arena.TuningGroups.Select(g => g.Title).ToArray() },
-                    // Капсулы тел (5в): показаны ли поверх персонажей (F7, --overlay capsules), сколько нарисовано в последнем
+                    // Капсулы тел: показаны ли поверх персонажей (F7, --overlay capsules), сколько нарисовано в последнем
                     // кадре и сколько капсул у бойцов кадра.
                     bodies = new { shown = arena.ShowBodies, drawn = arena.DrawnCapsules, capsules = arena.View.BodyCount },
-                    // Оружие (6б): мечей в руках бойцов кадра и отданных рендеру, клинков оверлея (F7, --overlay blades) — показаны ли и
+                    // Оружие: мечей в руках бойцов кадра и отданных рендеру, клинков оверлея (F7, --overlay blades) — показаны ли и
                     // сколько нарисовано.
                     weapons = new { armed = arena.View.WeaponCount, drawn = arena.DrawnWeapons, player = arena.PlayerWeapon },
                     blades = new { shown = arena.ShowBodies || arena.ShowBlades, drawn = arena.DrawnBlades },
-                    // 7и: трупы кадра (по телам), суставы (J, --overlay joints) и контакты физики (K, --overlay contacts; трасса физики).
+                    // Трупы кадра (по телам), суставы (J, --overlay joints) и контакты физики (K, --overlay contacts; трасса физики).
                     corpses = arena.View.CorpseCount,
                     joints = new { shown = arena.ShowJoints, drawn = arena.DrawnJoints },
                     contacts = new { shown = arena.ShowContacts, drawn = arena.DrawnContacts, trace = arena.View.TraceOn },
-                    // 8з: траектории Motion Matching игрока (M, --overlay mm): показаны ли, игрок на MM, примитивов нарисовано, стоп на земле.
+                    // Траектории Motion Matching игрока (M, --overlay mm): показаны ли, игрок на MM, примитивов нарисовано, стоп на земле.
                     motion = new { shown = arena.ShowMotion, available = arena.Motion.Available, drawn = arena.DrawnMotion, points = arena.Motion.Points, feetOnGround = arena.Motion.FeetOnGround },
                     recorded = recorded is null ? null : new
                     {
@@ -372,14 +372,14 @@ public static partial class Program
                         runs = recorded.Runs.Count, commands = recorded.CommandCount,
                         stateHash = recorded.Hashes.Count > 0 ? string.Join(' ', recorded.Hashes[^1].Parts.Select(p => p.ToString("X16"))) : null,
                     },
-                    // Профайлер (--profile, точка Па): файл отчёта и главные зоны кадра; без ключа — null.
+                    // Профайлер (--profile): файл отчёта и главные зоны кадра; без ключа — null.
                     profile = profileFile is null ? null : ProfileJson(profiler, profileFile, traceFile),
-                    // Профайлер кадра и без ключа (точка Пв): включён ли (ключом, F2, агентом), кадров в итогах, аномалий захвачено.
+                    // Профайлер кадра и без ключа: включён ли (ключом, F2, агентом), кадров в итогах, аномалий захвачено.
                     profiler = new
                     {
                         enabled = profiler.Enabled, frames = profiler.Count(ProfilePeriod.Frame).Periods,
                         anomalies = profiler.Anomalies?.Detected ?? 0,
-                        // После Пв: заметных (кадр не короче интервала показа монитора) и кадров инструментов (запросы агента).
+                        // Заметных (кадр не короче интервала показа монитора) и кадров инструментов (запросы агента).
                         noticeable = profiler.Anomalies?.NoticeableCount ?? 0, noticeableMs = profiler.Anomalies?.NoticeableMs,
                         toolFrames = profiler.ToolFrames,
                     },
@@ -413,11 +413,11 @@ public static partial class Program
         }
     }
 
-    /// <summary>Код выхода прогона, снятого сторожем кадров (6ж): кадров нет дольше <c>--stall</c> секунд.</summary>
+    /// <summary>Код выхода прогона, снятого сторожем кадров: кадров нет дольше <c>--stall</c> секунд.</summary>
     internal const int StalledExit = 5;
 
     /// <summary>
-    /// Сторож кадров сработал (поток таймера, 6ж): итог-ошибка словами (с <c>--json</c> — строкой JSON в stdout, как любая ошибка
+    /// Сторож кадров сработал (поток таймера): итог-ошибка словами (с <c>--json</c> — строкой JSON в stdout, как любая ошибка
     /// прогона) и выход процесса с кодом <see cref="StalledExit"/> — главный поток может стоять в ожидании GPU, ждать его нельзя.
     /// </summary>
     private static void Stalled(string message, bool json)
@@ -597,7 +597,7 @@ public static partial class Program
 
     /// <summary>
     /// Каталог прогона профайлера: <c>artifacts/profile/&lt;дата-время старта&gt;-app-&lt;pid&gt;</c> в корне репозитория, вне
-    /// репозитория — рядом с exe. В нём — файлы аномалий (по ходу, точка Пв), <c>profile.json</c> и <c>trace.json</c> (в конце);
+    /// репозитория — рядом с exe. В нём — файлы аномалий (по ходу), <c>profile.json</c> и <c>trace.json</c> (в конце);
     /// создаётся при первой записи.
     /// </summary>
     private static string ProfileDir() =>

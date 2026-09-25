@@ -14,16 +14,16 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Тела бойцов, точка 5а: сочленение из 13 кинематических капсул за <see cref="BodyRef"/>, время жизни — хуками ECS. Каждый
+/// Тела бойцов: сочленение из 13 кинематических капсул за <see cref="BodyRef"/>, время жизни — хуками ECS. Каждый
 /// боец получает тело на барьере своего появления; команды арены (PageUp, PageDown, число, сброс R) не оставляют ни лишних,
 /// ни чужих тел; сброс строит бойца заново с тем же телом; боец, созданный и снятый на одном барьере, тела не оставляет;
-/// участник хеша <c>physics</c> и его описание. Точка 5б: форма при постройке, постановка при постройке без скорости по позе
+/// участник хеша <c>physics</c> и его описание. Форма при постройке, постановка при постройке без скорости по позе
 /// постройки, капсулы по позе тика с разностными скоростями, вид тел <see cref="IBodyView"/>.
 /// </summary>
 public sealed class BodiesTests
 {
     /// <summary>
-    /// Подсистема физики симуляции снаружи не видна (мир владельцу — только для чтения, вид тел — 5в): тест берёт её модулем,
+    /// Подсистема физики симуляции снаружи не видна (мир владельцу — только для чтения): тест берёт её модулем,
     /// как система взяла бы ресурс, — после сборки мира.
     /// </summary>
     private sealed class Probe(Action<IPhysicsWorld> take, ISystem? system = null) : IModule
@@ -88,7 +88,7 @@ public sealed class BodiesTests
     }
 
     /// <summary>
-    /// Тело клинка бойца (7ж) по позе <paramref name="model"/> в корне и курсе: центр и поворот — капсула от хвата (начало кисти) до
+    /// Тело клинка бойца по позе <paramref name="model"/> в корне и курсе: центр и поворот — капсула от хвата (начало кисти) до
     /// кончика меча <paramref name="weapon"/> (<see cref="Combat.BladePlacement.BodyOf"/>).
     /// </summary>
     private static (Vector3 Position, Quaternion Rotation) Blade(ReadOnlySpan<Matrix4x4> model, Vector3 root, float facing, int weapon)
@@ -108,9 +108,9 @@ public sealed class BodiesTests
         Assert.Equal(new ArticulationHandle(0, 1), player);   // игрок строится первым
         for (int i = 0; i < BodySegs.Bodies; i++) Assert.Equal(player, physics.ArticulationOf(physics.Body(player, i)));
 
-        // 5в: тела бойцов сборки мира стоят до первого тика (как PlaceBuilt SWORD после AttachRig): форма — радиусы
+        // Тела бойцов сборки мира стоят до первого тика (как PlaceBuilt SWORD после AttachRig): форма — радиусы
         // Fighter.Radii и полудлины процедурной позы постройки (в корне и курсом постройки), капсулы — по позе постройки без
-        // скорости. Тик 1 ставит их при постройке ещё раз теми же значениями — состояние тел то же. 7ж: масса каждого тела —
+        // скорости. Тик 1 ставит их при постройке ещё раз теми же значениями — состояние тел то же. Масса каждого тела —
         // FighterShape.Masses (инерция — капсулы), тело клинка — по мечу в руке (радиус 0,03, полудлина — половина отрезка хват — кончик).
         var built = Snapshot(sim);
         Span<float> half = stackalloc float[BodySegs.Count];
@@ -277,7 +277,7 @@ public sealed class BodiesTests
         var before = Bodies(sim);
         Step(sim, Reset);
         var after = Bodies(sim);
-        // Как Fighter.Build SWORD над Fighter.Bodies: тот же боец места, те же тела (форма и постановка — заново, 5б).
+        // Как Fighter.Build SWORD над Fighter.Bodies: тот же боец места, те же тела (форма и постановка — заново).
         Assert.Equal(before, after);
 
         Step(sim, Change(-1));
@@ -333,15 +333,15 @@ public sealed class BodiesTests
 
         var d = JsonNode.Parse(a.DescribeState("physics", new DescribeQuery("0v1")))!;
         Assert.Equal(3, d["articulations"]!.GetValue<int>());
-        Assert.Equal(3 * 14, d["bodies"]!.GetValue<int>());   // 7ж: 14 тел на бойца — и клинок
+        Assert.Equal(3 * 14, d["bodies"]!.GetValue<int>());   // 14 тел на бойца — и клинок
         var player = d["items"]![0]!;
         Assert.Equal("0v1", player["id"]!.GetValue<string>());
         Assert.Equal(14, player["bodyCount"]!.GetValue<int>());
         Assert.Equal("Kinematic", player["0"]!["mode"]!.GetValue<string>());
         Assert.Equal("0v1", player["0"]!["body"]!.GetValue<string>());
-        Assert.Equal(FighterShape.Radii[BodySegs.FootR], player["13"]!["radius"]!.GetValue<float>());   // 5б: форма и постановка с тика 1
+        Assert.Equal(FighterShape.Radii[BodySegs.FootR], player["13"]!["radius"]!.GetValue<float>());   // форма и постановка с тика 1
         Assert.True(player["13"]!["halfLength"]!.GetValue<float>() > 0);
-        // 7ж: хешируются и описываются поля динамики тела и профили мира
+        // Хешируются и описываются поля динамики тела и профили мира
         Assert.Equal((12f, 1f / 12, 0), (player["0"]!["mass"]!.GetValue<float>(), player["0"]!["invMass"]!.GetValue<float>(), player["0"]!["profile"]!.GetValue<int>()));
         Assert.Equal((BladeBody.Mass, BladeBody.Radius), (player["11"]!["mass"]!.GetValue<float>(), player["11"]!["radius"]!.GetValue<float>()));
         Assert.Equal(("Body", false), (player["11"]!["source"]!.GetValue<string>(), player["11"]!["grounded"]!.GetValue<bool>()));
@@ -349,7 +349,7 @@ public sealed class BodiesTests
         Assert.NotNull(player["0"]!["invInertia"]);
         var dynamics = JsonNode.Parse(a.DescribeState("physics", new DescribeQuery("dynamics")))!["items"]![0]!;
         Assert.Equal(9.81f, dynamics["0"]!["gravity"]!.GetValue<float>());
-        // 7з: профиль 0 — по умолчанию, 1 — трупа (потолки ручек «Рэгдолл»)
+        // Профиль 0 — по умолчанию, 1 — трупа (потолки ручек «Рэгдолл»)
         Assert.Equal(2, JsonNode.Parse(a.DescribeState("physics", new DescribeQuery()))!["dynamicsProfiles"]!.GetValue<int>());
         Assert.Equal(15f, dynamics["1"]!["maxSpeed"]!.GetValue<float>());
         var slots = JsonNode.Parse(a.DescribeState("physics", new DescribeQuery("slots")))!["items"]![0]!;
@@ -359,7 +359,7 @@ public sealed class BodiesTests
         var usage = ArchitectureMap.ComponentUsage(a.World.Systems, typeof(BodyRef).FullName!, a.World.Hooks);
         Assert.Equal(["OnAdd", "OnRemove"], usage["hooks"]!.AsArray().Select(h => h!["hook"]!.GetValue<string>()));
         Assert.All(usage["hooks"]!.AsArray(), h => Assert.Null(h!["module"]));
-        Assert.Contains(usage["systems"]!.AsArray(), u => u!["system"]!.GetValue<string>() == "core.arena-command@Begin");   // 6б: команды арены — в Begin
+        Assert.Contains(usage["systems"]!.AsArray(), u => u!["system"]!.GetValue<string>() == "core.arena-command@Begin");   // команды арены — в Begin
     }
 
     [Fact]
@@ -375,7 +375,7 @@ public sealed class BodiesTests
             JointSegments.Build(names, parents));
         var skeleton = TestAssets.Assets.Clips.Skeleton;
         var segments = JointSegments.Build(skeleton);
-        Assert.All(segments, s => Assert.True(BodySegs.IsFlesh(s), $"сегмент {s} — не плоть"));   // скин — только на плоти (7ж: клинок — меч)
+        Assert.All(segments, s => Assert.True(BodySegs.IsFlesh(s), $"сегмент {s} — не плоть"));   // скин — только на плоти (клинок — меч)
         // Синтетический скелет: неизвестная кость — по родителю, без ключевого родителя — таз.
         Assert.Equal([BodySegs.Pelvis, BodySegs.ThighL, BodySegs.ThighL, BodySegs.Pelvis],
             JointSegments.Build(["pelvis", "thigh_l", "strap", "prop"], [-1, 0, 1, -1]));
@@ -417,7 +417,7 @@ public sealed class BodiesTests
             Assert.Equal(14, all["bodyCount"]!.GetValue<int>());
             var capsules = all["capsules"]!.AsArray();
             Assert.Equal(14, capsules.Count);
-            // 7ж: тело клинка, масса, режим, профиль; масса тела — сумма (74,8 кг), привязки скина у живого нет
+            // Тело клинка, масса, режим, профиль; масса тела — сумма (74,8 кг), привязки скина у живого нет
             var blade = capsules[BodySegs.Body(BodySegs.Weapon)]!;
             Assert.Equal(("blade", "клинок", 11), (blade["name"]!.GetValue<string>(), blade["title"]!.GetValue<string>(), blade["segment"]!.GetValue<int>()));
             Assert.Equal((1.4, 0.03), (blade["mass"]!.GetValue<double>(), blade["radius"]!.GetValue<double>()));
@@ -440,7 +440,7 @@ public sealed class BodiesTests
             Assert.True(bad["isError"]!.GetValue<bool>());
             Assert.Contains("нет сегмента «tail»", bad.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
 
-            // 5г: история капсул по тикам — watch.add с вычисляемыми полями тела, entity.history; последняя строка — те же числа,
+            // История капсул по тикам — watch.add с вычисляемыми полями тела, entity.history; последняя строка — те же числа,
             // что physics.bodies на этом тике.
             var watch = await Call("watch.add", new JsonObject { ["entities"] = new JsonArray("player"), ["fields"] = new JsonArray("Body.MaxSpeed", "Body.pelvis.Position.Y", "Transform.Position.X") });
             Assert.False(watch["isError"]?.GetValue<bool>() ?? false, watch.ToJsonString());
@@ -487,7 +487,7 @@ public sealed class BodiesTests
     [Fact]
     public void SegmentNumbering_BodyIsSegment_BladeIsBodyButNotFlesh()
     {
-        // Номера сегментов: 0…10, клинок 11, стопы 12 и 13; с 7ж тело i сочленения бойца — сегмент i (14 тел, клинок — тело 11).
+        // Номера сегментов: 0…10, клинок 11, стопы 12 и 13; тело i сочленения бойца — сегмент i (14 тел, клинок — тело 11).
         Assert.Equal(Enumerable.Range(0, 14), Enumerable.Range(0, BodySegs.Bodies).Select(BodySegs.Segment));
         Assert.All(Enumerable.Range(0, BodySegs.Bodies), i => Assert.Equal(i, BodySegs.Body(BodySegs.Segment(i))));
         Assert.Equal((11, -1, -1), (BodySegs.Body(BodySegs.Weapon), BodySegs.Body(14), BodySegs.Body(-1)));

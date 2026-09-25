@@ -1,10 +1,10 @@
 {
-  // Приёмка фичи «Движение игрока» (точка 1в) — задним числом, этап 3д. Формат — FeatureManifest (Sword.Engine.Introspection),
+  // Приёмка фичи «Движение игрока». Формат — FeatureManifest (Sword.Engine.Introspection),
   // исполняет feature.verify (Sword.Headless --feature movement). Ослабить ожидания — только правкой с сообщением пользователю.
   "format": "sword-feature",
   "version": 1,
   "id": "movement",
-  "title": "Движение игрока (точка 1в)",
+  "title": "Движение игрока",
   "doc": "README.md",
   "sourceRoots": ["game/Sword.Game/Movement", "game/Sword.Game/GameCore.cs", "game/Sword.Game/Arena"],
   "scenarios": [
@@ -108,15 +108,15 @@
       "entity": "player", "field": "Transform.Position.X", "expected": 61.4, "tolerance": 0.0001
     },
     {
-      "id": "column-x", "scenario": "column", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
+      "id": "column-x", "scenario": "column", "reference": "SWORD2: корень после 1440 тиков вдоль колонны",
       "entity": "player", "field": "Transform.Position.X", "expected": 38.376617, "tolerance": 0.0001
     },
     {
-      "id": "column-z", "scenario": "column", "reference": "SWORD2 3д: корень после 1440 тиков вдоль колонны",
+      "id": "column-z", "scenario": "column", "reference": "SWORD2: корень после 1440 тиков вдоль колонны",
       "entity": "player", "field": "Transform.Position.Z", "expected": 17.478165, "tolerance": 0.0001
     },
     {
-      "id": "gaze-facing", "scenario": "gaze", "reference": "SWORD2 3д: курс на точку взгляда (30, 0) после 600 тиков",
+      "id": "gaze-facing", "scenario": "gaze", "reference": "SWORD2: курс на точку взгляда (30, 0) после 600 тиков",
       "entity": "player", "field": "Transform.Facing", "expected": 2.332009, "tolerance": 0.0001
     }
   ],
@@ -132,6 +132,6 @@
     "`Sword.exe --move 27.7,11.4` — секунд через 7 добегает до ближайшей колонны, упирается и уходит вдоль неё, сквозь неё не проходит.",
     "`Sword.exe --move 1,1 --gaze 30,0` — бежит по диагонали, лицом доворачивает к точке (30, 0) и следит за ней, пока бежит.",
     "`Sword.exe --move 0,1 --walk` — заметно медленнее: шаг, а не бег.",
-    "Без ключей — Manny стоит в центре, как в точке 1б."
+    "Без ключей — Manny стоит в центре."
   ]
 }

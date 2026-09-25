@@ -38,7 +38,7 @@ void CsIncrement(uint3 id : SV_DispatchThreadID)
     if (id.x < gPass0) s[id.x] = s[id.x] + 1;
 }
 
-// Заведомо долгий проход (GpuTimesGpuTests, точка Пг): цепочка зависимых вычислений gPass0 шагов на поток — время растёт с числом
+// Заведомо долгий проход (GpuTimesGpuTests): цепочка зависимых вычислений gPass0 шагов на поток — время растёт с числом
 // шагов, а не с числом потоков; итог пишется в хранилище, чтобы компилятор не выбросил цикл.
 [numthreads(64, 1, 1)]
 void CsSpin(uint3 id : SV_DispatchThreadID)

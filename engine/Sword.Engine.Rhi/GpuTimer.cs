@@ -3,7 +3,7 @@ using Vortice.Direct3D12;
 namespace Sword.Engine.Rhi;
 
 /// <summary>
-/// GPU-время кадра и его проходов (этап П, точка Пг) — таймстемпы D3D12 на graphics-очереди, логика <c>GpuProfiler</c>
+/// GPU-время кадра и его проходов — таймстемпы D3D12 на graphics-очереди, логика <c>GpuProfiler</c>
 /// SWORD 2eab13b: куча запросов на <see cref="MaxScopes"/> замеров × <see cref="GraphicsDevice.FrameCount"/> кадров в полёте,
 /// <c>ResolveQueryData</c> в readback в конце кадра, разбор — после ожидания слота этого кадра в
 /// <see cref="GraphicsDevice.BeginFrame"/> (данные кадра N − 3, CPU не стоит ради них), частота — очереди.

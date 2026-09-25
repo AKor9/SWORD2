@@ -4,8 +4,8 @@ using Sword.Engine.Ecs;
 namespace Sword.Game.Contracts;
 
 /// <summary>
-/// Источник контакта и поправки трассы физики (7и) — как <c>PhysicsSource</c> подсистемы Physics, для наблюдателей без неё: суставы,
-/// земля, стена и колонны, пара тел на физике, толчок живого телом, клинком в ударе (проход), без отдачи (за отрубом), 7з-4 — самоколлизия
+/// Источник контакта и поправки трассы физики — как <c>PhysicsSource</c> подсистемы Physics, для наблюдателей без неё: суставы,
+/// земля, стена и колонны, пара тел на физике, толчок живого телом, клинком в ударе (проход), без отдачи (за отрубом), самоколлизия
 /// (части одного трупа между собой).
 /// </summary>
 public enum PhysicsContactSource : byte
@@ -20,7 +20,7 @@ public enum PhysicsContactSource : byte
     Self = 7,
 }
 
-/// <summary>Накопитель трассы физики (7и): последний тик, окно (с начала окна — сброс владельцем или агентом), прогон (с включения).</summary>
+/// <summary>Накопитель трассы физики: последний тик, окно (с начала окна — сброс владельцем или агентом), прогон (с включения).</summary>
 public enum PhysicsTracePeriod : byte
 {
     Last = 0,
@@ -29,7 +29,7 @@ public enum PhysicsTracePeriod : byte
 }
 
 /// <summary>
-/// Сустав сочленения тела (7и; оверлей <c>joints</c>, агент): тела родителя и ребёнка (номера тел сочленения — у бойца это сегменты
+/// Сустав сочленения тела (оверлей <c>joints</c>, агент): тела родителя и ребёнка (номера тел сочленения — у бойца это сегменты
 /// <see cref="BodySegs"/>), шарнир ли (иначе — наклон-скручивание), включён ли (сустав запястья трупа выключен — меч выпал); точка
 /// сустава на ребёнке и на родителе — в системах своих тел, м (описание и привязка сустава); замер в позе тика: ошибка точки, м, сгиб
 /// шарнира, наклон, скручивание, рад, выход за предел — наибольший по пределам сустава, рад (0 — в пределах).
@@ -38,7 +38,7 @@ public readonly record struct PhysicsJointView(int Parent, int Child, bool Hinge
     float PointError, float Bend, float Swing, float Twist, float Excess);
 
 /// <summary>
-/// Контакт последнего подшага последнего шага (7и; оверлей <c>contacts</c>): источник, тело на физике — сочленение и номер тела в нём,
+/// Контакт последнего подшага последнего шага (оверлей <c>contacts</c>): источник, тело на физике — сочленение и номер тела в нём,
 /// второе тело (сочленение пустое — мир: земля, стена, колонна; у толчка — кинематическое тело живого), точка на теле и нормаль к нему
 /// (мир), настоящая глубина и решённая за подшаг, м.
 /// </summary>
@@ -46,7 +46,7 @@ public readonly record struct PhysicsContactView(PhysicsContactSource Source, Bo
     Vector3 Point, Vector3 Normal, float Depth, float Solved);
 
 /// <summary>
-/// Сводка накопителя трассы (7и; агент — <c>physics.bodies {trace}</c>): шагов, подшагов, секунд; событий быстрее порога; скорости тел
+/// Сводка накопителя трассы (агент — <c>physics.bodies {trace}</c>): шагов, подшагов, секунд; событий быстрее порога; скорости тел
 /// на физике по подшагам — наибольшая (и чьё тело), перцентили p99 и p99,9, угловая — наибольшая и p99; упоров в потолок профиля, замеров
 /// и нечисловых; толчки живых — наибольшая доля бюджета пары и пар·подшагов, доля бюджета прохода, выталкивание сверх толкающего, м/с;
 /// отдача — наибольшая (чья) и сумма, Н·с; удары — число, урезанные потолком и проходом, доля Δv, Δv и Δω тела; трение покоя — касаний и
@@ -62,7 +62,7 @@ public readonly record struct PhysicsTraceSummary(int Steps, int Substeps, doubl
     float EnergyGrowth, BodyRef EnergyBody, float EnergyGrowthTotal, float EnergyGrowthPushed);
 
 /// <summary>
-/// Рост энергии за подшаг сверх сводки накопителя (7з-2; агент — <c>physics.bodies {trace}</c> → <c>energy</c>), Дж: у трупа, касавшегося
+/// Рост энергии за подшаг сверх сводки накопителя (агент — <c>physics.bodies {trace}</c> → <c>energy</c>), Дж: у трупа, касавшегося
 /// другого тела на физике (чьё), — передача при ударе трупа о труп, не накачка; наибольший рост суммы всех касавшихся друг друга за подшаг
 /// (инвариант <c>physics.energy</c>); наибольший рост сочленения без толчков живых по фазам подшага — интеграция, суставы, мир (земля, стена,
 /// колонны), пары, мир после пар (прижатые парами к земле), скорости по профилю, скоростной проход, расслабление суставов (где энергия
@@ -72,7 +72,7 @@ public readonly record struct PhysicsTraceEnergy(float Paired, BodyRef PairedBod
     float Pairs, float Pressed, float Velocity, float ContactVelocity, float Relax);
 
 /// <summary>
-/// Самоколлизия тела (7з-4; агент — <c>physics.bodies</c> → <c>self</c>): пар самоколлизии в таблице сочленения (у трупа — все пары тел, кроме
+/// Самоколлизия тела (агент — <c>physics.bodies</c> → <c>self</c>): пар самоколлизии в таблице сочленения (у трупа — все пары тел, кроме
 /// связанных суставом и торса с бёдрами), действуют ли (тела на физике — труп), толщина частей (ручка «самоколлизия»; 0 — выключена); в позе тика
 /// по капсулам (радиусы как есть, как F7) среди действующих пар (оба тела на физике; у живого — ни одной) — пересекшихся пар и самая глубокая:
 /// номера тел (у бойца — сегменты <see cref="BodySegs"/>; нет — −1) и глубина, м (нет — 0).
@@ -80,7 +80,7 @@ public readonly record struct PhysicsTraceEnergy(float Paired, BodyRef PairedBod
 public readonly record struct PhysicsSelfView(int Pairs, bool Active, float Scale, int Touching, int DeepestA, int DeepestB, float Depth);
 
 /// <summary>
-/// Сон трупов в накопителе трассы (7з-3; агент — <c>physics.bodies {trace}</c> → <c>sleep</c>): засыпаний; наибольшее число спящих на конец
+/// Сон трупов в накопителе трассы (агент — <c>physics.bodies {trace}</c> → <c>sleep</c>): засыпаний; наибольшее число спящих на конец
 /// шага; касаний спящего тела неспящим телом на физике в подшагах (спящее — неподвижная опора); пробуждений по причинам — толчок живого,
 /// удар, касание движущегося трупа, цепочка по куче, команда (запись тела, режим, профиль, суставы), настройки (ручки, земля).
 /// </summary>
@@ -92,7 +92,7 @@ public readonly record struct PhysicsTraceSleep(int Sleeps, int AsleepMax, int C
 }
 
 /// <summary>
-/// Накопленное трассой по источнику (7и): поправок; наибольшие сдвиг / h, м/с, угол / h, рад/с, скрытый сдвиг прошлой позы / h;
+/// Накопленное трассой по источнику: поправок; наибольшие сдвиг / h, м/с, угол / h, рад/с, скрытый сдвиг прошлой позы / h;
 /// псевдоимпульс за тик — наибольший и сумма, Н·с; контактов, наибольшая глубина и отложенная, м; погашено скоростным проходом, м/с;
 /// точный импульс толчков, Н·с.
 /// </summary>
@@ -100,7 +100,7 @@ public readonly record struct PhysicsTraceSource(int Count, float Linear, float 
     int Contacts, float Depth, float Deferred, float VelocitySolved, float Applied);
 
 /// <summary>
-/// Событие трассы (7и): тело на физике в тике шага <see cref="Step"/> (номер от включения) было быстрее порога — сочленение и номер
+/// Событие трассы: тело на физике в тике шага <see cref="Step"/> (номер от включения) было быстрее порога — сочленение и номер
 /// тела, масса, наибольшие скорость и угловая за тик, Δv удара перед шагом (0 — не было), главная поправка тика (источник с наибольшим
 /// сдвигом / h) — её сдвиг / h, м/с, и угол / h, рад/с.
 /// </summary>
@@ -108,7 +108,7 @@ public readonly record struct PhysicsTraceEvent(long Step, BodyRef Body, int Bod
     PhysicsContactSource Main, float MainLinear, float MainAngular);
 
 /// <summary>
-/// Диагностический вид физики для наблюдателей (7и; клиент — оверлеи <c>joints</c> и <c>contacts</c>, агент — <c>physics.bodies</c>):
+/// Диагностический вид физики для наблюдателей (клиент — оверлеи <c>joints</c> и <c>contacts</c>, агент — <c>physics.bodies</c>):
 /// только чтение (<c>WorldReader.View&lt;IPhysicsDebugView&gt;()</c>). Суставы сочленения тела (описание, привязка, замер) и трасса
 /// физики — диагностический режим <see cref="TraceMode"/> (включают владелец симуляции и агент — <c>Simulation.Diagnostics</c>; мир,
 /// хеш и реплей от неё не зависят): контакты последнего подшага, сводки накопителей, события быстрее порога. Выключенная трасса — пусто
@@ -125,7 +125,7 @@ public interface IPhysicsDebugView : IReadView
     /// <summary>Сустав <paramref name="joint"/> (0 … <see cref="JointCount"/> − 1) сочленения тела <paramref name="body"/>.</summary>
     PhysicsJointView Joint(BodyRef body, int joint);
 
-    /// <summary>Самоколлизия тела (7з-4): пары и самая глубокая в позе тика; тела нет — пусто.</summary>
+    /// <summary>Самоколлизия тела: пары и самая глубокая в позе тика; тела нет — пусто.</summary>
     PhysicsSelfView Self(BodyRef body);
 
     /// <summary>Трасса физики включена.</summary>
@@ -143,10 +143,10 @@ public interface IPhysicsDebugView : IReadView
     /// <summary>Сводка накопителя <paramref name="period"/>.</summary>
     PhysicsTraceSummary TraceSummary(PhysicsTracePeriod period);
 
-    /// <summary>Рост энергии накопителя <paramref name="period"/> сверх сводки (7з-2): в контакте трупов, их сумма, по фазам подшага.</summary>
+    /// <summary>Рост энергии накопителя <paramref name="period"/> сверх сводки: в контакте трупов, их сумма, по фазам подшага.</summary>
     PhysicsTraceEnergy TraceEnergy(PhysicsTracePeriod period);
 
-    /// <summary>Сон трупов накопителя <paramref name="period"/> (7з-3): засыпания, спящие, касания спящих, пробуждения по причинам.</summary>
+    /// <summary>Сон трупов накопителя <paramref name="period"/>: засыпания, спящие, касания спящих, пробуждения по причинам.</summary>
     PhysicsTraceSleep TraceSleep(PhysicsTracePeriod period);
 
     /// <summary>Накопленное накопителем <paramref name="period"/> по источнику <paramref name="source"/>.</summary>

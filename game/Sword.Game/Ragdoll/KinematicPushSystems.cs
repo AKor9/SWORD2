@@ -10,7 +10,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Толчки живых (7к): живой боец — кинематические тела, в шаге физики они толкают трупы (бюджет пары за подшаг, предел скорости толчка —
+/// Толчки живых: живой боец — кинематические тела, в шаге физики они толкают трупы (бюджет пары за подшаг, предел скорости толчка —
 /// толкающая точка + <see cref="PhysicsSettings.PopSpeed"/>), клинок в ударе — ещё и из бюджета прохода; отдача толчков и ударов по трупам —
 /// в корень живого. Идеи — <c>KinSource</c>, <c>PrepareKinematicContacts</c>, <c>ApplyReactions</c> SWORD 2eab13b (research-arena-tick §4) —
 /// источник, не образец.
@@ -35,7 +35,7 @@ public static class KinematicPush
         return m;
     }
 
-    /// <summary>Боец в ударе толкает клинком проходом: слой действий — удар, клинок поставлен (как у атакующего проходов клинка, 6г).</summary>
+    /// <summary>Боец в ударе толкает клинком проходом: слой действий — удар, клинок поставлен (как у атакующего проходов клинка).</summary>
     public static bool Striking(in AnimatorAction action, in Blade blade) => action.Kind == ActionKind.Attack && blade.Weapon >= 0;
 
     /// <summary>
@@ -58,7 +58,7 @@ public static class KinematicPush
 }
 
 /// <summary>
-/// Отдача живого бойца (7к): последняя, что получил корень, — сырой импульс тика от физики (толчки трупов телами и клинком, удары по трупам),
+/// Отдача живого бойца: последняя, что получил корень, — сырой импульс тика от физики (толчки трупов телами и клинком, удары по трупам),
 /// Н·с, прибавка к скорости корня, м/с (горизонталь × доля ручки / масса бойца, в пределе отклонения), и тик. Реактивный: <c>Set</c> в React
 /// (<c>core.root-recoil</c>) — только в тике, где отдача была; причина — последнее попадание этого бойца по трупу в тике (<c>state.why</c>:
 /// «отдача ← Hit ← касание ← начало удара»), без попадания (только толчки шага физики) — без причины. Постройка бойца — <see cref="None"/>.
@@ -79,13 +79,13 @@ public struct Recoil
 }
 
 /// <summary>
-/// PrePhysics, после постановки клинка (<see cref="GameLabels.KinematicSource"/>; 7к): чем толкают тела живого в шаге этого тика
+/// PrePhysics, после постановки клинка (<see cref="GameLabels.KinematicSource"/>): чем толкают тела живого в шаге этого тика
 /// (<c>KinSource</c> SWORD) — тело клинка бойца в ударе (<see cref="KinematicPush.Striking"/>) толкает проходом
 /// (<see cref="KinematicSource.Pass"/>: сверх бюджета пары — бюджет прохода пары), вне удара — телом, как остальные 13 тел
 /// (<see cref="KinematicSource.Body"/> — их никто не меняет). Бьющему — удар тика в физику (<see cref="IPhysicsWorld.PreparePass"/>, номер удара
-/// — <see cref="AnimatorAction.AttackSerial"/>, масса удара, скорость кончика |кончик − прошлый кончик| / dt — та же, что у проходов клинка 6г):
+/// — <see cref="AnimatorAction.AttackSerial"/>, масса удара, скорость кончика |кончик − прошлый кончик| / dt — та же, что у проходов клинка):
 /// новый номер — проходы «снаружи», потенциал этого тика — для всех пар бьющего, и клинки врагов толкают трупы врагов (урон — только пары
-/// игрок ↔ враг, 6г). Мёртвых пропускает (их тела на физике). Памяти не выделяет.
+/// игрок ↔ враг). Мёртвых пропускает (их тела на физике). Памяти не выделяет.
 /// </summary>
 public sealed class KinematicSourceSystem(IPhysicsWorld physics) : IContinuousSystem
 {
@@ -121,7 +121,7 @@ public sealed class KinematicSourceSystem(IPhysicsWorld physics) : IContinuousSy
 }
 
 /// <summary>
-/// React (<see cref="GameLabels.RootRecoil"/>; 7к): отдача тика — в корень живого (<c>ApplyReactions</c> SWORD). Физика копит у толкающего
+/// React (<see cref="GameLabels.RootRecoil"/>): отдача тика — в корень живого (<c>ApplyReactions</c> SWORD). Физика копит у толкающего
 /// минус импульс толчков (шаг) и ударов по трупам (Resolve); здесь каждый живой забирает свою (<see cref="IPhysicsWorld.TakeReaction"/>):
 /// горизонталь × доля (<see cref="RagdollRules.EnemyRecoil"/>, игроку — <see cref="RagdollRules.PlayerRecoil"/>) / масса бойца — в
 /// <see cref="RootVelocity"/>, не дальше предела отклонения от заданной скорости (<see cref="KinematicPush.RootDelta"/>,

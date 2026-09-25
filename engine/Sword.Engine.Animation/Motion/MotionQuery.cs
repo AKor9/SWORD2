@@ -1,7 +1,7 @@
 namespace Sword.Engine.Animation.Motion;
 
 /// <summary>
-/// Запрос поиска по схеме базы (точка 8в), в системе корня <c>state.Root</c>: траектория будущего — предсказание модели
+/// Запрос поиска по схеме базы, в системе корня <c>state.Root</c>: траектория будущего — предсказание модели
 /// контроллера (<see cref="TrajectoryModel.Predict(in TrajectoryState, ReadOnlySpan{float}, float, Span{TrajectoryState})"/>,
 /// один проход на все моменты) в моменты <see cref="MotionSchema.FutureTimes"/>; прошлое — из истории корня
 /// (<see cref="RootHistory.At"/>) в моменты <see cref="MotionSchema.PastTimes"/>; скорость и угловая скорость корня — из

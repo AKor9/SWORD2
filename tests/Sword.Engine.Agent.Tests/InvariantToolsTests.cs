@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace Sword.Engine.Agent.Tests;
 
 /// <summary>
-/// Инструменты инвариантов (этап 3г) через MCP над подопытной симуляцией (<see cref="PushModule"/>: тела X = 0, 1, 2,
+/// Инструменты инвариантов через MCP над подопытной симуляцией (<see cref="PushModule"/>: тела X = 0, 1, 2,
 /// Push сдвигает все по X): список, включение, проверка сейчас, свой инвариант, остановка на нарушении посреди тика,
 /// нарушения в истории.
 /// </summary>
@@ -34,7 +34,7 @@ public sealed class InvariantToolsTests
         var list = await Ok(f, "invariant.list");
         Assert.Equal([("ecs.finite", true), ("ecs.entityRefs", false)], Ids(list));
         var finite = list["invariants"]![0]!;
-        // Исправления после Пд: ecs.finite — тяжёлый (раз в 4 тика), но период кодового — только в живой игре: здесь каждый тик.
+        // ecs.finite — тяжёлый (раз в 4 тика), но период кодового — только в живой игре: здесь каждый тик.
         Assert.Equal(("engine", "раз в 4 тика", 1, "runtime.export", 3), (finite["owner"]!.GetValue<string>(), finite["cost"]!.GetValue<string>(),
             finite["every"]!.GetValue<int>(), finite["after"]!.GetValue<string>(), finite["evaluations"]!.GetValue<int>()));
         Assert.True(list["enabledByConfig"]!.GetValue<bool>());
@@ -53,7 +53,7 @@ public sealed class InvariantToolsTests
     }
 
     /// <summary>
-    /// Исправления после Пд: живая игра (<c>LivePeriods</c>, как Sword.exe) — <c>invariant.list</c> показывает <c>livePeriods</c> и
+    /// Живая игра (<c>LivePeriods</c>, как Sword.exe) — <c>invariant.list</c> показывает <c>livePeriods</c> и
     /// <c>every</c> 4 у тяжёлого; <c>time.breakOnInvariant</c> на время ожидания проверяет тяжёлые каждый тик (точная остановка),
     /// после ответа — снова раз в 4.
     /// </summary>

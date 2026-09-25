@@ -12,7 +12,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Клиент игры без окна и GPU (точка 1г): камера SWORD, команда игрока из ввода, мир представления с интерполяцией.
+/// Клиент игры без окна и GPU: камера SWORD, команда игрока из ввода, мир представления с интерполяцией.
 /// Ожидания — <c>RtsCamera</c>, <c>PlayerController</c>, <c>SkinCutPose.DrawnJoints</c> SWORD 2eab13b.
 /// </summary>
 public class CameraTests
@@ -86,7 +86,7 @@ public class PlayerIntentTests
     [Fact]
     public void F7_TogglesBodyCapsules_BindingFromConfig()
     {
-        // 5в: капсулы тел поверх персонажей — действие debug_bodies (F7 по умолчанию; F2, F3, F5, F6 заняты по SWORD).
+        // Капсулы тел поверх персонажей — действие debug_bodies (F7 по умолчанию; F2, F3, F5, F6 заняты по SWORD).
         Assert.Contains(ArenaInput.DebugBodies, ArenaInput.All);
         Assert.Equal(("debug_bodies", "F7"), (ArenaInput.DebugBodies.Name, ArenaInput.DebugBodies.DefaultKey));
         var bindings = InputBindings.Resolve([.. ArenaInput.All, .. ClientHost.Actions], ConfigSet.Empty("input.debug_bodies=F9"));
@@ -204,7 +204,7 @@ public class ArenaViewTests
             clock.RunFrame(frame);
             view.Extract(clock.Link, interpolate ? clock.Alpha : 1);
             if (view.Player is not { } p) continue;
-            // Тень и кольцо — таз (5в), там же, где его показывает кадр вместе с Manny: иначе они дрожат относительно бойца.
+            // Тень и кольцо — таз, там же, где его показывает кадр вместе с Manny: иначе они дрожат относительно бойца.
             Assert.Equal(view.Body(p)[BodySegs.Body(BodySegs.Pelvis)].Center with { Y = 0 }, view.PlayerMarker);
             if (last is { } x && i > fps * 1.5) speeds.Add((float)((p.Root.X - x) / frame));   // после разгона
             last = p.Root.X;
@@ -218,7 +218,7 @@ public class ArenaViewTests
     [InlineData(37.3)]
     public void Shown_Movement_IsSmooth_AtAnyFrameRate(double fps)
     {
-        // Точка 1г: «плавное движение при любой частоте кадров» — показанный игрок проходит за кадр ровно
+        // «Плавное движение при любой частоте кадров» — показанный игрок проходит за кадр ровно
         // скорость × шаг кадра, хотя тиков в кадрах разное число (120 Гц не делится на частоту кадров).
         var speeds = ShownSpeeds(fps, interpolate: true);
         Assert.NotEmpty(speeds);
@@ -322,7 +322,7 @@ public class ArenaViewTests
     [Fact]
     public void ShownCapsules_StayOnTheShownPose_AtAnyAlpha()
     {
-        // 5в: капсулы живого бойца — постановка тика, перенесённая в показанный мир бойца (SkinCutPose.DrawnJoints SWORD): на
+        // Капсулы живого бойца — постановка тика, перенесённая в показанный мир бойца (SkinCutPose.DrawnJoints SWORD): на
         // суставах той же позы тика в том же мире, в котором рисуется меш, — при любой доле тика (без отставания и дрожи).
         var joints = new Sword.Game.Bodies.BodyJoints(TestAssets.Assets.Clips.Skeleton);
         float worstShown = 0, worstLerp = 0;
@@ -341,7 +341,7 @@ public class ArenaViewTests
                 var bodyRef = sim.World.Get<BodyRef>(f.Entity);
                 for (int i = 0; i < body.Length; i++)
                 {
-                    // 7ж: тело клинка — от хвата (начало кисти) до кончика меча в руке, как показан боец
+                    // Тело клинка — от хвата (начало кисти) до кончика меча в руке, как показан боец
                     var (a, b) = body[i].Segment == BodySegs.Weapon ? BladeEnds(pose, f)
                         : Sword.Game.Bodies.BodyPlacement.Ends(pose, joints, f.World, body[i].Segment);
                     worstShown = MathF.Max(worstShown, Vector3.Distance(body[i].Center, (a + b) * 0.5f));
@@ -356,7 +356,7 @@ public class ArenaViewTests
         Assert.True(worstLerp > 0.01f, $"интерполяция постановок отстаёт от меша лишь на {worstLerp} м — тест ничего не различает");
     }
 
-    /// <summary>Хват и кончик меча бойца кадра в показанном мире (7ж: ось тела клинка).</summary>
+    /// <summary>Хват и кончик меча бойца кадра в показанном мире (ось тела клинка).</summary>
     private static (Vector3 A, Vector3 B) BladeEnds(ReadOnlySpan<Matrix4x4> pose, in FighterView f)
     {
         var hand = pose[TestAssets.Assets.Hand] * f.World;
@@ -366,7 +366,7 @@ public class ArenaViewTests
     [Fact]
     public void Extract_WithBodiesOf33Fighters_AllocatesNothing()
     {
-        // 5в: мир представления с капсулами 33 бойцов (с 7ж — 462 капсулы: и тело клинка) — без выделений в установившемся кадре.
+        // Мир представления с капсулами 33 бойцов (462 капсулы: и тело клинка) — без выделений в установившемся кадре.
         var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32"));
         var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new PlayerCommand { Move = new Vector2(1, 0) }), ticksPerFrame: 2);
         var view = new ArenaView(Field);
@@ -388,7 +388,7 @@ public class ArenaViewTests
     }
 
     /// <summary>
-    /// Исправления после Пд (docs/history/profiler.md, «Разбор Пд», вопрос 5): без капсул (F7 выключен, слой снимка не заказан)
+    /// Без капсул (F7 выключен, слой снимка не заказан)
     /// Extract читает только таз игрока — у бойцов кадра капсул нет, а точка тени и кольца и фокус камеры — те же числа, что при
     /// чтении тел всех бойцов, при любой доле тика; кадр по-прежнему без выделений.
     /// </summary>

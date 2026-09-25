@@ -72,7 +72,7 @@ public sealed class PrevTransformSystem : IContinuousSystem
 /// <summary>
 /// Intent: команда игрока тика → намерение бойца игрока (<c>PlayerController.Think</c>): желаемая скорость — направление
 /// команды на скорость бега или шага; точка взгляда запоминается (<see cref="GazeTarget"/>), курс-цель каждый тик — на
-/// неё от текущего корня, если она дальше 0,3 м. Тик без команды — стоять, взгляд — на прежнюю точку. С 6в — бой игрока
+/// неё от текущего корня, если она дальше 0,3 м. Тик без команды — стоять, взгляд — на прежнюю точку. Бой игрока
 /// (<see cref="PlayerActions"/>): фронты удара, укола и рывка — в буферы <see cref="PlayerControl"/>, рывок раньше удара,
 /// удар — когда слой действий позволяет, выбор удара — <see cref="AttackPicker"/> (укол — счётчиковый ГСЧ, свой поток).
 /// Несколько команд на тик — движение и жест последней, фронты — любой из них (нажатие не теряется).
@@ -85,7 +85,7 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
     {
         s.Label(GameLabels.PlayerCommand).ReadsJournal<Event<PlayerCommand>>().Reads<Transform>().Writes<FighterCommand>()
             .Writes<GazeTarget>().Writes<AnimatorAction>().Writes<PlayerControl>().Writes<AttackCombo>();
-        // мёртвый игрок (6г) замирает: команды игрока на него не действуют, пока сброс арены (R) не построит его заново
+        // мёртвый игрок замирает: команды игрока на него не действуют, пока сброс арены (R) не построит его заново
         _query = s.Query().With<PlayerTag>().Without<Dead>().Read<Transform>().Write<FighterCommand>().Write<GazeTarget>().Write<AnimatorAction>()
             .Write<PlayerControl>().Write<AttackCombo>();
     }
@@ -135,7 +135,7 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
         }
     }
 
-    /// <summary>Причина нажатия удара тика — последняя команда с <c>Attack</c> или <c>Stab</c> (диагностический режим, 6д); нет — пусто.</summary>
+    /// <summary>Причина нажатия удара тика — последняя команда с <c>Attack</c> или <c>Stab</c> (диагностический режим); нет — пусто.</summary>
     private static CauseId Press(ReadOnlySpan<Event<PlayerCommand>> commands)
     {
         for (int c = commands.Length - 1; c >= 0; c--)
@@ -144,7 +144,7 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
     }
 
     /// <summary>
-    /// Диагностический режим (6д): нажатие удара — в таблицу связей (удар выходит из буфера, может быть и тиками позже); удар начался —
+    /// Диагностический режим: нажатие удара — в таблицу связей (удар выходит из буфера, может быть и тиками позже); удар начался —
     /// шаг «начало удара» с родителем «последнее нажатие».
     /// </summary>
     private static void Caused(in SystemContext ctx, CausalityLog log, Entity e, CauseId press, int before, int serial)
@@ -182,14 +182,14 @@ public sealed class PlayerCommandSystem(StrikeTable strikes) : IContinuousSystem
 /// желаемую с разгоном <see cref="MovementRules.Accel"/>. Стоит до аниматора: в SWORD <c>anim.Tick</c> идёт между разгоном
 /// и переносом корня и видит новую скорость. <c>Agile</c> SWORD (<c>Agile = f.IsPlayer</c>) — боец с
 /// <see cref="PlayerTag"/>: курс — сразу контроллером, 12 рад/с. Боец не-<c>Agile</c> (враг, со слоем действий
-/// <see cref="AnimatorAction"/>; 4г): стоя курс догоняет цель со скоростью 2,5 рад/с, а отстал больше 45° — поворот на
+/// <see cref="AnimatorAction"/>): стоя курс догоняет цель со скоростью 2,5 рад/с, а отстал больше 45° — поворот на
 /// месте клипом (<see cref="ActionLayer.StartTurn"/>), и курс, пока он стоит, ведёт yaw клипа (<c>RootControlSystem</c>);
-/// на ходу — 12 рад/с. Масштаб поворота и хода действия (<c>TurnScale</c>, <c>MoveScale</c>; 6в — <see cref="ActionLayer.TurnScale"/>,
+/// на ходу — 12 рад/с. Масштаб поворота и хода действия (<c>TurnScale</c>, <c>MoveScale</c> — <see cref="ActionLayer.TurnScale"/>,
 /// <see cref="ActionLayer.MoveScale"/>): у игрока ход не замедляется никогда, поворот в окне урона — 0,6; у врага в ударе — 0,35 и
 /// 0,35. У игрока здесь же — прибавка скорости рывка тика (<see cref="PlayerActions.Boost"/>; корень сдвигает Movement).
-/// 8е: у <c>Agile</c> курс и скорость ведёт действующая модель контроллера тика (<see cref="Model"/> → <see cref="Steer(in SteerModel, ref Transform, ref Vector3, float)"/>);
+/// У <c>Agile</c> курс и скорость ведёт действующая модель контроллера тика (<see cref="Model"/> → <see cref="Steer(in SteerModel, ref Transform, ref Vector3, float)"/>);
 /// бойцу с компонентом <see cref="SteerModel"/> (игрок на Motion Matching — его ставит модуль Locomotion) система пишет туда эту же модель
-/// — одна правда предсказания траектории MM. У бойца без компонента — те же выражения, побитово как до 8е.
+/// — одна правда предсказания траектории MM. У бойца без компонента — те же выражения (побитово).
 /// </summary>
 public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
 {
@@ -247,7 +247,7 @@ public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
     }
 
     /// <summary>
-    /// Действующая модель контроллера <c>Agile</c> на тик (8е): разгон <see cref="MovementRules.Accel"/>, предел поворота
+    /// Действующая модель контроллера <c>Agile</c> на тик: разгон <see cref="MovementRules.Accel"/>, предел поворота
     /// <see cref="MovementRules.TurnRate"/>·<paramref name="turnScale"/>, цель скорости — желаемая по земле ·<paramref name="moveScale"/>,
     /// цель курса — курс-цель намерения.
     /// </summary>
@@ -267,8 +267,8 @@ public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
         Steer(Model(intent, turnScale, moveScale), ref t, ref velocity, dt);
 
     /// <summary>
-    /// Шаг контроллера по модели тика (8е): курс — на <c>clamp(IEEERemainder(цель − курс, 2π), ±TurnRate·dt)</c>, затем скорость —
-    /// <c>v += (цель − v)·min(1, Rate·dt)</c>, Y = 0. Выражения и порядок — те же, что до 8е (побитово), и те же, что у модели предсказания
+    /// Шаг контроллера по модели тика: курс — на <c>clamp(IEEERemainder(цель − курс, 2π), ±TurnRate·dt)</c>, затем скорость —
+    /// <c>v += (цель − v)·min(1, Rate·dt)</c>, Y = 0. Выражения и порядок — те же, что у модели предсказания
     /// Motion Matching (<c>TrajectoryModel</c> движка): корень на новую скорость переносит <see cref="RootControlSystem"/>.
     /// </summary>
     public static void Steer(in SteerModel model, ref Transform t, ref Vector3 velocity, float dt)
@@ -313,7 +313,7 @@ public sealed class RootSteerSystem(StrikeTable strikes) : IContinuousSystem
 /// <summary>
 /// Movement: перенос корня (<c>KinematicBegin</c> после <c>anim.Tick</c>): у бойца со слоем действий сначала курс —
 /// поворот клипом (<see cref="AnimatorAction.YawDelta"/>), затем у всех корень на скорость·dt по земле, затем сдвиг клипом
-/// действия (<see cref="AnimatorAction.RootDelta"/>) по новому курсу. У игрока в рывке (6в) корень после скорости сдвигается ещё
+/// действия (<see cref="AnimatorAction.RootDelta"/>) по новому курсу. У игрока в рывке корень после скорости сдвигается ещё
 /// на прибавку рывка·dt (<see cref="PlayerControl.Boost"/>): рывок ведёт контроллер, а не клип уклонения.
 /// </summary>
 public sealed class RootControlSystem : IContinuousSystem
@@ -361,7 +361,7 @@ public sealed class RootControlSystem : IContinuousSystem
     }
 
     /// <summary>
-    /// Со слоем действий: <c>Facing += YawDelta</c>, корень на скорость (и прибавку рывка <paramref name="boost"/>, 6в), сдвиг
+    /// Со слоем действий: <c>Facing += YawDelta</c>, корень на скорость (и прибавку рывка <paramref name="boost"/>), сдвиг
     /// клипом по курсу (порядок — идея SWORD).
     /// </summary>
     public static void Move(ref Transform t, Vector3 velocity, in AnimatorAction action, float dt, Vector3 boost = default)
@@ -381,7 +381,7 @@ public sealed class RootControlSystem : IContinuousSystem
 /// (<c>entity.get</c>, <c>watch.add</c>, условия и агрегаты) и манифест фичи. Хешируется (участник <c>ecs</c>): это
 /// производное состояние, детерминированное, как и сами корни. Только у врагов (как <c>EnemyAiTerms</c>): толчок игрока
 /// парами — <c>−Σ FromPlayer</c> по врагам (каждая пара сдвигает обоих на одну и ту же величину в разные стороны).
-/// Колонны и край арены — отдельно, <see cref="Obstacle"/> (4д): <see cref="Push"/> + <see cref="Obstacle"/> — весь сдвиг корня
+/// Колонны и край арены — отдельно, <see cref="Obstacle"/>: <see cref="Push"/> + <see cref="Obstacle"/> — весь сдвиг корня
 /// столкновениями за тик (с точностью до округления float).
 /// </summary>
 public struct RootContacts
@@ -401,7 +401,7 @@ public struct RootContacts
     /// <summary>Место бойца этой пары (0 — игрок); −1 — касаний не было.</summary>
     public int DeepestWith;
 
-    /// <summary>Сдвиг корня колоннами и краем арены за тик, м (оба прохода; точка 4д): то, чего пары не объясняют.</summary>
+    /// <summary>Сдвиг корня колоннами и краем арены за тик, м (оба прохода): то, чего пары не объясняют.</summary>
     public Vector3 Obstacle;
 
     /// <summary>Касаний не было.</summary>
@@ -418,14 +418,14 @@ public static class RootCollision
 {
     /// <summary>
     /// Корни и скорости по местам (0 — игрок, 1…32 — враги); <paramref name="present"/> — место занято. Пустое место
-    /// пропускается, как неактивное в SWORD (<c>i &lt; ActiveCount</c>); мёртвый (<c>a.Dead</c>, <c>b.Dead</c> SWORD, 6г) — тоже:
+    /// пропускается, как неактивное в SWORD (<c>i &lt; ActiveCount</c>); мёртвый (<c>a.Dead</c>, <c>b.Dead</c> SWORD) — тоже:
     /// <see cref="RootCollisionSystem"/> не отмечает его место занятым. <paramref name="contacts"/> — толчки пар, колонн и края за вызов по местам
     /// (перезаписываются; только учёт — корни и скорости он не трогает).
     /// </summary>
     /// <remarks>
     /// Тело прохода по бойцу — свой метод (<see cref="Fighter"/>): за вызов ~1000 пар, и долгий цикл в методе, который зовётся
     /// раз в тик, многоуровневый JIT заменял на ходу (OSR) — компиляция 1,5 мс на главном потоке в первые секунды толпы
-    /// (docs/history/profiler.md, «Разбор Пд», вопрос 3; исправлено по решению пользователя). Порядок вычислений тот же.
+    /// (docs/history/profiler.md, вопрос 3; исправлено по решению пользователя). Порядок вычислений тот же.
     /// </remarks>
     public static void Resolve(Span<Vector3> roots, Span<Vector3> velocities, ReadOnlySpan<bool> present, Span<RootContacts> contacts)
     {
@@ -511,7 +511,7 @@ public sealed class RootCollisionSystem : IContinuousSystem
     {
         s.Label(GameLabels.RootCollision).After(GameLabels.RootControl).Reads<FighterSlot>().Writes<Transform>()
             .Writes<RootVelocity>().Writes<RootContacts>();
-        // мёртвые (6г) из столкновений выпадают целиком, как в ResolveRoots SWORD (a.Dead, b.Dead): их корень стоит, живые проходят сквозь
+        // мёртвые из столкновений выпадают целиком, как в ResolveRoots SWORD (a.Dead, b.Dead): их корень стоит, живые проходят сквозь
         _fighters = s.Query().With<Fighter>().Without<Dead>().Read<FighterSlot>().Write<Transform>().Write<RootVelocity>();
         _viewers = s.Query().With<Fighter>().Without<Dead>().Read<FighterSlot>().Write<RootContacts>();
     }

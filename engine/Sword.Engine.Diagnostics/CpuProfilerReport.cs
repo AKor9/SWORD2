@@ -36,12 +36,12 @@ public sealed partial class CpuProfiler
             ["abandoned"] = Abandoned,
             ["counterReads"] = CounterReads,
         };
-        // Машина с начала окна (включение или сброс) — снимается здесь, на потоке владельца (точка Пб).
+        // Машина с начала окна (включение или сброс) — снимается здесь, на потоке владельца.
         if (Machine() is { } machine) json["machine"] = machine.ToJson();
         if (PeriodJson(ProfilePeriod.Frame, history, top, prefix) is { } frames) json["frames"] = frames;
         if (PeriodJson(ProfilePeriod.Tick, history, top, prefix) is { } ticks) json["ticks"] = ticks;
         if (_events is { } events) json["events"] = events.Summary(types: 40, recent: 100);
-        // Точка Пв: захваченные аномалии (порог, счёт, последние с классом, главной зоной и файлом).
+        // Захваченные аномалии (порог, счёт, последние с классом, главной зоной и файлом).
         if (_anomalies is { } anomalies) json["anomalies"] = anomalies.ToJson(max: 100);
         return json;
     }
@@ -68,10 +68,10 @@ public sealed partial class CpuProfiler
                 ["name"] = z.Name, ["meanMs"] = Round(z.MeanMs, 5), ["p99Ms"] = Round(z.P99Ms, 5), ["selfMs"] = Round(z.SelfMs, 5),
                 ["bytes"] = Round(z.Bytes, 1),
             })]),
-            // Точка Пб: среда за период (CPU потока против настенного, GC, JIT) — коротко.
+            // Среда за период (CPU потока против настенного, GC, JIT) — коротко.
             ["runtime"] = RuntimeJson(RuntimeStats(period)),
         };
-        // Точка Пг: GPU-время кадра и главные проходы (мс на кадр) — рядом с зонами CPU.
+        // GPU-время кадра и главные проходы (мс на кадр) — рядом с зонами CPU.
         if (period == ProfilePeriod.Frame && GpuJson(Stats(period), top: 5) is { } gpu) json["gpu"] = gpu;
         if (_events is { } events)
         {
@@ -84,7 +84,7 @@ public sealed partial class CpuProfiler
         }
         if (_anomalies is { } anomalies)
         {
-            // Точка Пв: аномалии коротко — сколько, по классам, последние пять.
+            // Аномалии коротко — сколько, по классам, последние пять.
             var a = anomalies.ToJson(max: 5);
             json["anomalies"] = new JsonObject
             {
@@ -115,9 +115,9 @@ public sealed partial class CpuProfiler
         if (period == ProfilePeriod.Frame)
         {
             json.Insert(1, "service", service);
-            json.Insert(2, "toolFrames", ToolFrames);   // после Пв: из служебных — кадры инструментов (запросы агента)
+            json.Insert(2, "toolFrames", ToolFrames);   // из служебных — кадры инструментов (запросы агента)
         }
-        // Точка Пг: GPU-время кадра и проходов (зоны вида Gpu) — своей секцией рядом с зонами CPU.
+        // GPU-время кадра и проходов (зоны вида Gpu) — своей секцией рядом с зонами CPU.
         if (period == ProfilePeriod.Frame && GpuJson(stats, top) is { } gpu) json["gpu"] = gpu;
         json["history"] = new JsonArray([.. recent.Select(h =>
         {
@@ -128,13 +128,13 @@ public sealed partial class CpuProfiler
                     ["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks),
                     ["alpha"] = Round(h.Alpha, 4), ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes, ["service"] = h.Service,
                     ["gpuFrame"] = h.GpuFrame == ulong.MaxValue ? null : h.GpuFrame,
-                    ["tools"] = h.Tools ? true : null,   // после Пв: кадр инструментов — почему служебный
+                    ["tools"] = h.Tools ? true : null,   // кадр инструментов — почему служебный
                 }
                 : new JsonObject
                 {
                     ["tick"] = h.Number, ["frame"] = h.Frame == ulong.MaxValue ? null : h.Frame, ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes,
                 };
-            // Точка Пб: время потока на CPU, выделения процесса, сборки, пауза, JIT периода.
+            // Время потока на CPU, выделения процесса, сборки, пауза, JIT периода.
             var c = h.Counters;
             entry["cpuMs"] = Round(c.CpuMs, 5);
             entry["processBytes"] = c.ProcessBytes;
@@ -149,7 +149,7 @@ public sealed partial class CpuProfiler
     }
 
     /// <summary>
-    /// Секция <c>gpu</c> кадров (точка Пг): кадр целиком (<c>gpu.frame</c>) и проходы (<c>gpu.&lt;проход&gt;</c>) — мс на кадр:
+    /// Секция <c>gpu</c> кадров: кадр целиком (<c>gpu.frame</c>) и проходы (<c>gpu.&lt;проход&gt;</c>) — мс на кадр:
     /// среднее, медиана, p99, максимум (<c>presence</c> — доля кадров с данными); отставание данных. Нет — null.
     /// </summary>
     private JsonObject? GpuJson(IReadOnlyList<ProfileZoneStats> stats, int top)
@@ -159,7 +159,7 @@ public sealed partial class CpuProfiler
         var frame = gpu.FirstOrDefault(z => z.Name == GpuFrameName);
         return new JsonObject
         {
-            ["note"] = "GPU-время (таймстемпы D3D12, точка Пг): кадр N несёт времена кадра N − lagFrames (кадры в полёте; разбор — после " +
+            ["note"] = "GPU-время (таймстемпы D3D12): кадр N несёт времена кадра N − lagFrames (кадры в полёте; разбор — после " +
                 "ожидания его слота, без стойла); frame — кадр целиком (проходы, барьеры, копии снимка), passes — проходы графа, мс на кадр " +
                 "(по всем кадрам итогов; presence — доля кадров с данными); частота GPU плавает, часы CPU и GPU не сопоставлены",
             ["lagFrames"] = RecentGpuLag(),
@@ -184,7 +184,7 @@ public sealed partial class CpuProfiler
             ["calls"] = Round(z.Calls, 3),
             ["presence"] = Round(z.Presence, 3),
         };
-        if (z.Kind != ProfileZoneKind.Work) json["kind"] = z.Kind.ToString();   // GpuWait, Idle (Пв), Gpu (Пг)
+        if (z.Kind != ProfileZoneKind.Work) json["kind"] = z.Kind.ToString();   // GpuWait, Idle, Gpu
         return json;
     }
 
@@ -219,7 +219,7 @@ public sealed partial class CpuProfiler
     }
 
     /// <summary>
-    /// Кольцо профайлера — в Chrome Trace Event JSON (точка Пв, <see cref="ChromeTrace"/>: Perfetto, <c>chrome://tracing</c>): кадры
+    /// Кольцо профайлера — в Chrome Trace Event JSON (<see cref="ChromeTrace"/>: Perfetto, <c>chrome://tracing</c>): кадры
     /// и тики кольца с настоящим временем и зонами (суммой вызовов за период), в диагностическом режиме — события среды окна. Не
     /// горячий путь (выделяет, пишет файл); только на потоке владельца. Каталог создаётся.
     /// </summary>

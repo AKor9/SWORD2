@@ -2,9 +2,9 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// 7з-4: самоколлизия — пары тел одного сочленения (таблица владельца, SetSelfContacts), решаются в проходе пар подшага после пар сочленений
+// Самоколлизия — пары тел одного сочленения (таблица владельца, SetSelfContacts), решаются в проходе пар подшага после пар сочленений
 // тем же контактом тело ↔ тело на физике (PhysicsWorld.Contacts.cs: ContactsSimulatedPair). Своя, не SWORD (у SWORD части трупа друг сквозь
-// друга проходили). Члены — с приставкой Self; README физики, «Устройство» → «Самоколлизия»; замеры — docs/history/engine-physics.md, «7з-4».
+// друга проходили). Члены — с приставкой Self; README физики, «Устройство» → «Самоколлизия»; замеры — docs/history/engine-physics.md.
 public sealed partial class PhysicsWorld
 {
     /// <summary>Пары самоколлизии по слотам сочленений (массив переиспользуется — место под все пары с создания сочленения) и их число.</summary>
@@ -29,7 +29,7 @@ public sealed partial class PhysicsWorld
             if (SelfProblem(pairs, i, n) is { } problem)
                 throw new ArgumentException($"пара {i} самоколлизии сочленения {articulation}: {problem}", nameof(pairs));
         if (pairs.SequenceEqual(_selfPairs[a].AsSpan(0, _selfCount[a]))) return;
-        SleepWake(a, WakeReason.Command);   // 7з-3: другие пары — другая физика сочленения
+        SleepWake(a, WakeReason.Command);   // другие пары — другая физика сочленения
         var stored = _selfPairs[a];
         if (stored is null || stored.Length < pairs.Length) _selfPairs[a] = stored = new BodyPair[Math.Max(pairs.Length, SelfCapacity(n))];
         pairs.CopyTo(stored);

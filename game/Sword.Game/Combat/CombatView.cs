@@ -3,19 +3,19 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Секция конфига <c>combat</c> (этап 6; ручки «Бой» — 6е). С 6б — меч в руке игрока при старте: имя меча пака
+/// Секция конфига <c>combat</c> (ручки «Бой»): меч в руке игрока при старте — имя меча пака
 /// (<c>SWORD_WEAPON</c> SWORD; без учёта регистра); неизвестное имя — ошибка конфига (в SWORD — сообщение и меч по умолчанию).
-/// С 6в — нападают ли враги, неуязвим ли игрок и рывок (в мир — ресурсом <see cref="CombatRules"/>).
+/// Нападают ли враги, неуязвим ли игрок и рывок — в мир ресурсом <see cref="CombatRules"/>.
 /// </summary>
 public sealed record CombatSettings
 {
     /// <summary>Меч игрока при старте (<c>combat.playerWeapon</c>): имя файла пака без расширения.</summary>
     public string PlayerWeapon { get; init; } = WeaponTable.DefaultName;
 
-    /// <summary>Враги бьют по таймеру ИИ (<c>combat.enemiesAttack</c>, по умолчанию да); нет — мирные враги (регрессия этапов 2–5).</summary>
+    /// <summary>Враги бьют по таймеру ИИ (<c>combat.enemiesAttack</c>, по умолчанию да); нет — мирные враги.</summary>
     public bool EnemiesAttack { get; init; } = true;
 
-    /// <summary>Игрок неуязвим (<c>combat.playerInvulnerable</c>, по умолчанию нет; действует с 6г).</summary>
+    /// <summary>Игрок неуязвим (<c>combat.playerInvulnerable</c>, по умолчанию нет).</summary>
     public bool PlayerInvulnerable { get; init; }
 
     /// <summary>
@@ -30,7 +30,7 @@ public sealed record CombatSettings
     public float DashInvulnerable { get; init; } = PlayerControlRules.DashInvulnerable;
 
     /// <summary>
-    /// Урон ударов игрока — множитель (<c>combat.playerDamage</c>, 6г; <c>SWORD_PLAYER_CUT</c>, ручка «урон» SWORD — по умолчанию 2) и
+    /// Урон ударов игрока — множитель (<c>combat.playerDamage</c>; <c>SWORD_PLAYER_CUT</c>, ручка «урон» SWORD — по умолчанию 2) и
     /// острота клинка игрока (<c>combat.playerSharpness</c>, ручка «острота» — 1): порог отруба части делится на неё (не меньше 0,05).
     /// </summary>
     public float PlayerDamage { get; init; } = DamageRules.PlayerDamage;

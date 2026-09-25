@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 namespace Sword.Engine.Diagnostics;
 
 /// <summary>
-/// Файл аномалии (точка Пв, формат <see cref="ProfileAnomalies.FileFormat"/>) и её трасса — на потоке писателя, из копии
+/// Файл аномалии (формат <see cref="ProfileAnomalies.FileFormat"/>) и её трасса — на потоке писателя, из копии
 /// владельца (<see cref="AnomalySlot"/>): период и порог, разбор причин и класс, главная зона с путём, зоны по своему лишнему
 /// времени и дерево зон, тик кадра App, последние периоды и счётчики окна, события среды окна (диагностический режим) или
 /// только счётчики, машина за окно с вердиктом.
@@ -47,7 +47,7 @@ internal static class AnomalyReport
         };
         json["class"] = AnomalyCauses.Key(record.Class);
         json["classText"] = AnomalyCauses.Word(record.Class);
-        // После Пв: заметная — кадр App не короче интервала показа (порог суда — «дольше обычного», заметность — «видно глазу»).
+        // Заметная — кадр App не короче интервала показа (порог суда — «дольше обычного», заметность — «видно глазу»).
         json["noticeable"] = record.Noticeable;
         json["display"] = new JsonObject
         {
@@ -67,12 +67,12 @@ internal static class AnomalyReport
         var mainZones = slot.TickTrigger && slot.HasTick
             ? Zones(slot.Zones, slot.TickTime, slot.TickBytes, slot.TickCalls, slot.TickMean, slot.Parent, slot.Kind, CpuProfiler.TickZone, name)
             : zones;
-        // Исправления после Пд: период не дольше своего среднего (абсолютный порог на обычном периоде) — главной зоны нет.
+        // Период не дольше своего среднего (абсолютный порог на обычном периоде) — главной зоны нет.
         json["mainZone"] = main >= 0 ? mainZones.ZoneJson(main, withPath: true) : NoMainZone();
         json["header"] = HeaderJson(slot.Header, slot.Period);
         json["zones"] = zones.Top(TopZones);
         json["tree"] = zones.Tree(root);
-        // Точка Пг: GPU-время кадра, забора которого ждал этот кадр, — по проходам (кадр N − 3: запаздывание разбора).
+        // GPU-время кадра, забора которого ждал этот кадр, — по проходам (кадр N − 3: запаздывание разбора).
         if (slot.Period == ProfilePeriod.Frame)
             json["gpu"] = zones.Gpu(slot.Number, slot.Header.GpuFrame) ?? (JsonNode)new JsonObject
             {
@@ -250,8 +250,8 @@ internal static class AnomalyReport
             json["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks);
             json["alpha"] = Math.Round(h.Alpha, 4);
             json["service"] = h.Service;
-            if (h.Tools) json["tools"] = true;   // после Пв: кадр инструментов (запросы агента) — служебный, как кадр не судится
-            if (h.GpuFrame != ulong.MaxValue) json["gpuFrame"] = h.GpuFrame;   // точка Пг: чьи GPU-времена в кадре
+            if (h.Tools) json["tools"] = true;   // кадр инструментов (запросы агента) — служебный, как кадр не судится
+            if (h.GpuFrame != ulong.MaxValue) json["gpuFrame"] = h.GpuFrame;   // чьи GPU-времена в кадре
         }
         else if (h.Frame != ulong.MaxValue) json["inFrame"] = h.Frame;
         json["cpuMs"] = R(c.CpuMs);
@@ -321,7 +321,7 @@ internal static class AnomalyReport
             .OrderByDescending(z => Self[z]).Take(n).Select(z => (JsonNode?)ZoneJson(z, withPath: false))]);
 
         /// <summary>
-        /// GPU-времена, записанные в кадр (точка Пг, зоны вида <see cref="ProfileZoneKind.Gpu"/>): кадр целиком и проходы по лишнему
+        /// GPU-времена, записанные в кадр (зоны вида <see cref="ProfileZoneKind.Gpu"/>): кадр целиком и проходы по лишнему
         /// времени против среднего. Нет — null.
         /// </summary>
         public JsonObject? Gpu(ulong number, ulong gpuFrame)
@@ -334,7 +334,7 @@ internal static class AnomalyReport
             {
                 ["frame"] = known ? gpuFrame : null,
                 ["lagFrames"] = known ? (long)(number - gpuFrame) : null,
-                ["note"] = "GPU-время кадра frame (точка Пг), разобранного в этом кадре после ожидания его слота: frame.fenceWait этого кадра ждал " +
+                ["note"] = "GPU-время кадра frame, разобранного в этом кадре после ожидания его слота: frame.fenceWait этого кадра ждал " +
                     "именно его (и кадры до него) — при классе gpu лишнее GPU-время видно здесь (excessMs — против среднего); frame.present ждёт " +
                     "очередь показа — её кадры (этот и два до него) ещё не разобраны, их GPU-времени здесь нет; частота GPU плавает",
             };

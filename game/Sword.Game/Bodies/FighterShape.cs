@@ -6,10 +6,10 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Форма тела бойца при постройке (5б) — радиусы <c>Fighter.Radii</c> и полудлины капсул из <c>Fighter.Build</c> SWORD
+/// Форма тела бойца при постройке — радиусы <c>Fighter.Radii</c> и полудлины капсул из <c>Fighter.Build</c> SWORD
 /// 2eab13b: полудлина — половина расстояния между концами сегмента в процедурной позе постройки
 /// (<c>Fighter.ComputeTargets</c> от корня на высоте земли). Длины считаются в мировых координатах от точки постройки, поэтому
-/// последние биты формы зависят от места и курса спауна — от них зависят концы капсул и побитовые удары (этап 6).
+/// последние биты формы зависят от места и курса спауна — от них зависят концы капсул и побитовые удары.
 ///
 /// Из живого рэгдолла взято ровно это вычисление — концы сегментов <c>_a/_b</c> в <c>ComputeTargets</c> и опора стоп
 /// <c>IdealFoot(leg, 0)</c> — с состоянием бойца сразу после <c>Build</c>: курс постройки, наклоны, поворот торса и
@@ -21,17 +21,17 @@ namespace Sword.Game.Bodies;
 public static class FighterShape
 {
     /// <summary>
-    /// Радиусы капсул по номерам сегментов 0…13 (<c>Fighter.Radii</c>; 11 — клинок: с 7ж его тело — <see cref="BladeBody.Radius"/>). Массив, а
-    /// не выражение коллекции в свойстве: в Debug оно выделяло новый массив на каждое чтение (216 Б на постройку бойца — возрождения толпы 6ж).
+    /// Радиусы капсул по номерам сегментов 0…13 (<c>Fighter.Radii</c>; 11 — клинок: его тело — <see cref="BladeBody.Radius"/>). Массив, а
+    /// не выражение коллекции в свойстве: в Debug оно выделяло новый массив на каждое чтение (216 Б на постройку бойца — возрождения толпы).
     /// </summary>
     public static ReadOnlySpan<float> Radii => RadiiValues;
 
     private static readonly float[] RadiiValues = [.15f, .17f, .13f, .065f, .055f, .065f, .055f, .09f, .07f, .09f, .07f, BladeBody.Radius, .045f, .045f];
 
     /// <summary>
-    /// Массы тел по номерам сегментов 0…13, кг (7ж; <c>Fighter.Masses</c> SWORD — отправная точка): таз 12, торс 20, голова 5, плечо 2,5,
-    /// предплечье 2, бедро 8, голень 4,5, стопа 1,2; клинок — <see cref="BladeBody.Mass"/> (1,4 для всех мечей, решение 3 этапа 7). Всего
-    /// 74,8 кг. Живому бойцу масса ничего не делает (тела кинематические); её берут труп (7з) и толчки (7д, 7к).
+    /// Массы тел по номерам сегментов 0…13, кг (<c>Fighter.Masses</c> SWORD — отправная точка): таз 12, торс 20, голова 5, плечо 2,5,
+    /// предплечье 2, бедро 8, голень 4,5, стопа 1,2; клинок — <see cref="BladeBody.Mass"/> (1,4 для всех мечей). Всего
+    /// 74,8 кг. Живому бойцу масса ничего не делает (тела кинематические); её берут труп и толчки.
     /// </summary>
     public static ReadOnlySpan<float> Masses => MassValues;
 
@@ -109,7 +109,7 @@ public static class FighterShape
         var yawUpper = Quaternion.CreateFromAxisAngle(Vector3.UnitY, facing + UpperLead);
         for (int i = 0; i < BodySegs.Count; i++)
         {
-            // ноги — ниже, прямо в мире; клинок — этап 6
+            // ноги — ниже, прямо в мире; клинок — не здесь
             if (i is >= BodySegs.ThighL and <= BodySegs.ShinR or BodySegs.FootL or BodySegs.FootR or Weapon) continue;
             var q = i == BodySegs.Pelvis ? yaw : yawUpper;
             _a[i] = origin + Vector3.Transform(Mirror(_a[i]), q);

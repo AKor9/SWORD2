@@ -7,7 +7,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Реплеи и сеанс (этап 3б, раздел 8 плана): запись сеанса с тика 0 (<c>replay.save</c>, <c>replay.status</c>), сверка
+/// Реплеи и сеанс (раздел 8 плана): запись сеанса с тика 0 (<c>replay.save</c>, <c>replay.status</c>), сверка
 /// реплея в отдельной симуляции (<c>replay.check</c>), сравнение двух реплеев (<c>replay.diff</c>), новая симуляция
 /// из конфига или реплея (<c>session.start</c>) и перемотка (<c>time.seek</c>). Пересборка симуляции — только у Headless
 /// (<see cref="AgentHost.Simulation"/> с построителем); запись и сравнение — везде.
@@ -401,7 +401,7 @@ internal static class ReplayTools
         ["warnings"] = new JsonArray([.. player.Warnings.Take(20).Select(w => (JsonNode?)w)]),
     };
 
-    /// <summary>Первое расхождение; <c>cause</c> (8з) — вероятная причина: сведения реплея не те, что у симуляции (другая база MM…).</summary>
+    /// <summary>Первое расхождение; <c>cause</c> — вероятная причина: сведения реплея не те, что у симуляции (другая база MM…).</summary>
     private static JsonObject Divergence(ReplayDivergence d)
     {
         var o = new JsonObject

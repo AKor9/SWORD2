@@ -17,35 +17,35 @@ namespace Sword.Game;
 /// Ядро игры (принцип 4 плана: то, без чего игры нет, — одна реализация, не модуль и не выключается): компоненты и
 /// команда игрока из <c>Game.Contracts</c>, движение корня, аниматор бойца (поза в пуле поз, слой движения для
 /// локомоции), начальный мир — игрок в центре арены курсом 0 (<c>DuelArena.Reset</c> SWORD: <c>Build(Player, 0, 0)</c>)
-/// и <c>arena.enemies</c> врагов кольцом вокруг него; команды арены (<see cref="ArenaCommand"/>: число врагов, сброс —
-/// этап 4а); ИИ врагов (<see cref="EnemyAiSystem"/> — этап 4б); столкновения корней бойцов между собой
-/// (<see cref="RootCollisionSystem"/>, инвариант <see cref="RootOverlapInvariant"/> — этап 4в); слой действий аниматора — поворот
-/// врага на месте клипом (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>) и команда врагу (<see cref="EnemyCommand"/>)
-/// — этап 4г; тело бойца — сочленение капсул в подсистеме Physics за <see cref="BodyRef"/>, время жизни — хуками ECS
-/// (<see cref="FighterBodies"/>, участник хеша <c>physics</c>, инварианты <c>physics.*</c> — этап 5а); форма тела и постановка
+/// и <c>arena.enemies</c> врагов кольцом вокруг него; команды арены (<see cref="ArenaCommand"/>: число врагов, сброс);
+/// ИИ врагов (<see cref="EnemyAiSystem"/>); столкновения корней бойцов между собой
+/// (<see cref="RootCollisionSystem"/>, инвариант <see cref="RootOverlapInvariant"/>); слой действий аниматора — поворот
+/// врага на месте клипом (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>) и команда врагу (<see cref="EnemyCommand"/>);
+/// тело бойца — сочленение капсул в подсистеме Physics за <see cref="BodyRef"/>, время жизни — хуками ECS
+/// (<see cref="FighterBodies"/>, участник хеша <c>physics</c>, инварианты <c>physics.*</c>); форма тела и постановка
 /// при постройке (<see cref="BodySetupSystem"/>), капсулы по позе тика (<see cref="KinematicPlacementSystem"/>, PrePhysics),
-/// поза постройки (<see cref="StartPose"/>), вид тел <see cref="IBodyView"/> — 5б; тела бойцов сборки мира стоят до первого
-/// тика, вид тел отдаёт клиенту сегменты суставов скелета (ID-буфер) — 5в. Этап 6б: команды арены — в стадии Begin (Intent
+/// поза постройки (<see cref="StartPose"/>), вид тел <see cref="IBodyView"/>; тела бойцов сборки мира стоят до первого
+/// тика, вид тел отдаёт клиенту сегменты суставов скелета (ID-буфер). Бой: команды арены — в стадии Begin (Intent
 /// видит арену после них), слой действий у всех бойцов, оружие — таблица мечей пака и таблица ударов (<see cref="CharacterAssets"/>),
 /// меч в руке (<see cref="WeaponSlot"/>: враг — случайный, игрок — <c>combat.playerWeapon</c>), инвентарь игрока
 /// (<see cref="PlayerInventory"/>, T), клинок каждого тика (<see cref="Blade"/>: постройка — <see cref="BladeSetupSystem"/>,
-/// тик — <see cref="BladePlacementSystem"/> в PrePhysics), вид <see cref="ICombatView"/>, инварианты <c>combat.*</c>. Этап 6в: удар
+/// тик — <see cref="BladePlacementSystem"/> в PrePhysics), вид <see cref="ICombatView"/>, инварианты <c>combat.*</c>; удар
 /// и вид рывка в слое действий (<see cref="ActionLayer"/>; снимок позы — <see cref="ActionSnapshotSystem"/>, слой верха — маска
 /// пула <c>ActionRules.UpperMask</c>), бой игрока (<see cref="PlayerControl"/>, <see cref="AttackCombo"/>), удар ИИ
-/// (<see cref="EnemyAttack"/>), правила боя <see cref="CombatRules"/> из секции <c>combat</c>, инвариант <c>combat.control</c>. Этап 6г:
+/// (<see cref="EnemyAttack"/>), правила боя <see cref="CombatRules"/> из секции <c>combat</c>, инвариант <c>combat.control</c>;
 /// урон по протоколу боя — проходы клинка (<see cref="StrikeDetectionSystem"/>, Combat → <see cref="StrikeContact"/>; пары
 /// <see cref="StrikePairs"/>; проба <see cref="StrikeProbe"/>), урон и смерть (<see cref="HitApplySystem"/>, Resolve → <see cref="Health"/>,
 /// <see cref="Dead"/>, <see cref="Hit"/>, <see cref="SeverRequested"/>), реакции (<see cref="HitReactionSystem"/>, React: враг — действие,
 /// игрок — вздрагивание <see cref="Flinch"/>), кровопотеря и возрождение (<see cref="BleedSystem"/>, <see cref="RespawnSystem"/>, Aftermath),
 /// статистика (<see cref="ArenaStatsSystem"/>, Settle → <see cref="ArenaStats"/>); мёртвый замирает (системы ядра и модуль локомоции
-/// его пропускают); инварианты <c>combat.health</c>, <c>combat.dead</c>, <c>combat.hits</c>, <c>combat.respawn</c>. Этап 6е: ручки «Бой»
+/// его пропускают); инварианты <c>combat.health</c>, <c>combat.dead</c>, <c>combat.hits</c>, <c>combat.respawn</c>; ручки «Бой»
 /// (<see cref="CombatKnobs"/>: поля <see cref="CombatRules"/>, команда ручки — система <c>tuning.combat</c> в Begin; смена правил —
-/// <see cref="CombatRulesChangeSystem"/>). Этап 7ж: тело бойца — 14 тел по номерам сегментов с массами (<see cref="FighterShape.Masses"/>),
+/// <see cref="CombatRulesChangeSystem"/>). Рэгдолл: тело бойца — 14 тел по номерам сегментов с массами (<see cref="FighterShape.Masses"/>),
 /// тело клинка по мечу в руке (<see cref="BladeBody"/>; постройка — <see cref="BladeSetupSystem"/>, тик — <see cref="BladePlacementSystem"/>);
 /// причина смерти (<see cref="DeathCause"/>); команды сцен (<see cref="SceneCommand"/>: <see cref="SceneCommandSystem"/> в Intent,
 /// <see cref="ScenePlayerIntentSystem"/> в Gameplay); привязка скина мёртвого (<see cref="SkinBindings"/>, снимок —
 /// <see cref="SkinCaptureSystem"/> в Gameplay и Settle, сброс — <see cref="SkinReleaseSystem"/> в End; вид <see cref="ISkinView"/>,
-/// участник хеша <c>skin</c>, инвариант <c>ragdoll.skin</c>). Этап 7з: труп на физике — шаг физики (<see cref="PhysicsStepSystem"/>, Physics) с
+/// участник хеша <c>skin</c>, инвариант <c>ragdoll.skin</c>); труп на физике — шаг физики (<see cref="PhysicsStepSystem"/>, Physics) с
 /// землёй, стеной и колоннами арены (<see cref="ArenaGround"/>), переход в труп (<see cref="DeathToRagdollSystem"/> в Gameplay и Settle: суставы
 /// <see cref="CorpseJoints"/>, меч выпадает, профиль трупа), возрождение — снова кинематика (<see cref="Corpse.Revive"/> в постройке тела),
 /// корень мёртвого за тазом (<see cref="CorpseRootSystem"/>), пересборка нечислового тела (<see cref="BodyRebuildSystem"/>, Aftermath), правила
@@ -61,21 +61,21 @@ namespace Sword.Game;
 public static class GameCore
 {
     /// <summary>
-    /// Поз пула на бойца в худшем случае (запас пула, 6ж): поза бойца, слой и снимок локомоции (модуль Locomotion), слой, снимок, две позы
-    /// памяти смешивания действий и две — перехода от снимка, две позы вздрагивания (игрок). У игрока на Motion Matching (8е–8ж) вместо слоя
+    /// Поз пула на бойца в худшем случае (запас пула): поза бойца, слой и снимок локомоции (модуль Locomotion), слой, снимок, две позы
+    /// памяти смешивания действий и две — перехода от снимка, две позы вздрагивания (игрок). У игрока на Motion Matching вместо слоя
     /// и снимка локомоции — одна поза стойки руки с мечом: не больше 10.
     /// </summary>
     public const int PosesPerFighter = 11;
 
     /// <summary>
-    /// Заданий пула на бойца за тик в худшем случае (запас очереди, 6ж): локомоция — до 4 (снимок, сэмпл, переход, копия; у игрока на Motion
+    /// Заданий пула на бойца за тик в худшем случае (запас очереди): локомоция — до 4 (снимок, сэмпл, переход, копия; у игрока на Motion
     /// Matching — шаг проигрывателя, сэмпл стойки руки и смешивание по маске руки — до 3), действие — до 3 (сэмпл, смешивание, переход от
     /// снимка), снимок — 1, вздрагивание — до 6 (два слота по 3), прямая кинематика — 1; с запасом — 16.
     /// </summary>
     public const int PoseJobsPerFighter = 16;
 
     /// <summary>
-    /// Запас пула поз на арену из <paramref name="enemies"/> врагов (6ж, доводка): (враги + игрок) × <see cref="PosesPerFighter"/> поз и
+    /// Запас пула поз на арену из <paramref name="enemies"/> врагов: (враги + игрок) × <see cref="PosesPerFighter"/> поз и
     /// × <see cref="PoseJobsPerFighter"/> заданий — бой (действия, вздрагивания, снимки, память смешивания) не растит пул посреди игры, тик
     /// боя — 0 Б. Зовут постройка симуляции (<c>arena.enemies</c>) и команда арены, прибавившая врагов (<see cref="ArenaCommandSystem"/>:
     /// тик команды, до постройки новых бойцов). Раньше запас был на полную арену у каждой симуляции (33 бойца — 512 слотов, ~7,6 МБ на
@@ -92,30 +92,30 @@ public static class GameCore
     public static void Configure(SimulationBuilder b, CharacterAssets assets)
     {
         var poses = new PosePool(assets.Clips);   // пул поз — у каждой симуляции свой: ассеты только читаются
-        // 7з: правила трупа — ресурс мира из секции ragdoll (ручки «Рэгдолл»); настройки физики и профиль трупа из них производны.
+        // Правила трупа — ресурс мира из секции ragdoll (ручки «Рэгдолл»); настройки физики и профиль трупа из них производны.
         var ragdoll = RagdollRules.From(b.Config.Section<RagdollSettings>(RagdollKnobs.Section));
-        // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 14 тел — с 7ж и клинок), дальше растёт удвоением.
+        // Физика — у каждой симуляции своя; слотов — на полную арену (33 бойца по 14 тел — с клинком), дальше растёт удвоением.
         var physics = new PhysicsWorld(ArenaRules.MaxFighters, ArenaRules.MaxFighters * BodySegs.Bodies, ragdoll.Physics(PhysicsSettings.Default));
-        // 7з: статический мир трупов — аналитическая земля арены (рельеф и ярусы пирамиды), стена и колонны (7е); профиль трупа — №1.
+        // Статический мир трупов — аналитическая земля арены (рельеф и ярусы пирамиды), стена и колонны; профиль трупа — №1.
         physics.SetGround(ArenaGround.Instance);
         physics.SetWall(ArenaGround.WallRadius);
         physics.SetPillars(ArenaGround.Pillars);
         int corpseProfile = physics.RegisterDynamics(ragdoll.Corpse());
         var corpseJoints = new CorpseJoints(assets.Hinges);
         var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
-        var jointSegments = JointSegments.Build(assets.Clips.Skeleton);   // сустав скелета → сегмент тела (ID-буфер 5в, привязка скина 7ж)
-        var skins = new SkinBindings(jointSegments, ArenaRules.MaxFighters);   // 7ж: привязки скина мёртвых — по слотам сочленений
-        var start = new StartPoseModel(assets.Clips);   // поза постройки тела (общая и своя у бойца — 8е): сборка мира, постройка командой, инвариант
+        var jointSegments = JointSegments.Build(assets.Clips.Skeleton);   // сустав скелета → сегмент тела (ID-буфер, привязка скина)
+        var skins = new SkinBindings(jointSegments, ArenaRules.MaxFighters);   // привязки скина мёртвых — по слотам сочленений
+        var start = new StartPoseModel(assets.Clips);   // поза постройки тела (общая и своя у бойца): сборка мира, постройка командой, инвариант
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
-        // 6ж: память пула — сразу на арену с боем (рост посреди боя выделял ~3,8 МБ на настоящем паке — 539 Б/тик бюджета толпы); доводка
-        // 6ж — на арену из конфига, прибавку врагов добирает команда арены.
+        // Память пула — сразу на арену с боем из конфига (рост посреди боя выделял ~3,8 МБ на настоящем паке — 539 Б/тик бюджета толпы);
+        // прибавку врагов добирает команда арены.
         ReservePoses(poses, arena.Enemies);
         var weapons = assets.Weapons;
         var strikes = assets.Strikes;
         var upper = poses.AddMask(ActionRules.UpperMask(assets.Clips.Skeleton));   // слой верха тела (удары): CharacterRig.UpperMask
-        var full = poses.AddMask(Enumerable.Repeat(1f, assets.Clips.JointCount).ToArray());   // всё тело: переход от снимка с памятью (6ж)
+        var full = poses.AddMask(Enumerable.Repeat(1f, assets.Clips.JointCount).ToArray());   // всё тело: переход от снимка с памятью
         var combat = b.Config.Section<CombatSettings>("combat");
         int playerWeapon = weapons.Find(combat.PlayerWeapon);
         if (playerWeapon < 0) throw new InvalidDataException($"combat.playerWeapon = «{combat.PlayerWeapon}»: такого меча нет; есть: {weapons.Names}");
@@ -125,8 +125,8 @@ public static class GameCore
             .Component<PoseRef>().Component<AnimatorMotion>().Component<AnimatorAction>().Component<ActionPoses>().Component<BodyRef>()
             .Component<WeaponSlot>().Component<Blade>().Component<PlayerControl>().Component<AttackCombo>().Component<EnemyAttack>()
             .Component<Health>().Component<Dead>().Component<StrikePairs>().Component<Flinch>().Component<HitImpulse>().Component<Recoil>()
-            // 8е: своя поза постройки бойца и действующая модель контроллера — компоненты контрактов, которые ставит модуль (игроку на Motion
-            // Matching); ядро читает и пишет их тем, у кого они есть. Бойцы без них — как до 8е (хеш ecs — от компонентов на сущностях).
+            // Своя поза постройки бойца и действующая модель контроллера — компоненты контрактов, которые ставит модуль (игроку на Motion
+            // Matching); ядро читает и пишет их тем, у кого они есть. Бойцы без них — общая поза и модель по умолчанию (хеш ecs — от компонентов на сущностях).
             .Component<FighterStartPose>().Component<SteerModel>()
             .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>()
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>().Command<SceneCommand>()
@@ -149,14 +149,14 @@ public static class GameCore
             .Invariants(DamageInvariants.For(physics))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>()
-            // Бой (6г): касания, попадания, заявки на отруб и смерти — клиенту (HUD 6е; кровь отложена — решение 15) и агенту (events.history: без
+            // Бой: касания, попадания, заявки на отруб и смерти — клиенту (HUD; кровь отложена — решение 15) и агенту (events.history: без
             // подписчика у события нет журнала).
             .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>();
         FighterBodies.Register(b, physics);
-        PhysicsDebug.Register(b, physics);   // 7и: вид суставов и трассы физики, режим physics.trace — мир, хеш и реплей не меняют
-        // 6е: ручки «Бой» — поля правил боя (ресурс из секции combat), изменение на ходу — команда ручки (система tuning.combat в Begin).
+        PhysicsDebug.Register(b, physics);   // вид суставов и трассы физики, режим physics.trace — мир, хеш и реплей не меняют
+        // Ручки «Бой» — поля правил боя (ресурс из секции combat), изменение на ходу — команда ручки (система tuning.combat в Begin).
         CombatKnobs.Register(b);
-        // 7з: ручки «Рэгдолл» — поля правил трупа (секция ragdoll), команда ручки — система tuning.ragdoll в Begin, замена настроек физики — Intent.
+        // Ручки «Рэгдолл» — поля правил трупа (секция ragdoll), команда ручки — система tuning.ragdoll в Begin, замена настроек физики — Intent.
         RagdollKnobs.Register(b, physics, corpseProfile);
 
         b.System(GameStages.Begin, new PrevTransformSystem())
@@ -198,7 +198,7 @@ public static class GameCore
             .System(GameStages.End, new SkinReleaseSystem(skins));
 
         b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies, weapons.Count));
-        // Тела и клинки бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира (5в, 6б): как PlaceBuilt
+        // Тела и клинки бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира: как PlaceBuilt
         // SWORD после AttachRig, до первого тика.
         b.OnWorldReady(w =>
         {

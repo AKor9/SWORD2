@@ -8,7 +8,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Системы Motion Matching игрока (8е; <c>locomotion.player = mm</c>): корень и курс ведёт контроллер ядра, MM выбирает и проигрывает позу.
+/// Системы Motion Matching игрока (<c>locomotion.player = mm</c>): корень и курс ведёт контроллер ядра, MM выбирает и проигрывает позу.
 /// <list type="table">
 /// <item><term>сборка мира</term><description>игроку — состояние MM, модель контроллера (<see cref="SteerModel"/>) и своя поза постройки
 /// (<see cref="FighterStartPose"/> — кадр стойки базы): ядро ставит его капсулы и клинок по ней (<see cref="MotionMatchSetupSystem.PlaceWorldBuilt"/>).</description></item>
@@ -122,7 +122,7 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         var pool = world.Resource<PosePool>();
         var rules = world.Resource<LocomotionRules>();
         rules.Weights(runtime.Weights);
-        runtime.Diagnostics.Attach(world.Profiler);   // 8з: зона locomotion.search
+        runtime.Diagnostics.Attach(world.Profiler);   // зона locomotion.search
         int period = rules.SearchTicks(time.Dt);
         foreach (var chunk in ctx.Iterate(_query))
         {
@@ -197,7 +197,7 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         float kv = runtime.DataScale(velocity, t.Facing, s.ControlSpeed);
         float kg = runtime.DataScale(steer.GoalVelocity, steer.GoalYaw, s.ControlSpeed);
         var query = runtime.Query;
-        var diagnostics = runtime.Diagnostics;   // 8з: повод, зона профайлера, последний поиск для вида и событий
+        var diagnostics = runtime.Diagnostics;   // повод, зона профайлера, последний поиск для вида и событий
         var reason = MotionMatchDiagnostics.Reason(s, steer.GoalVelocity);
         diagnostics.Begin();
         query.Fill(new TrajectoryState(root, velocity), model, runtime.History(s.Player), (long)time.Tick, current, kv, kg, query.DataYawRate);
@@ -229,7 +229,7 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
     }
 
     /// <summary>
-    /// Смена кадра (8е — один механизм, порог смены): нашёлся кадр, не текущий, и текущий не искомый (у него нет полного будущего — поиск
+    /// Смена кадра (один механизм — порог смены): нашёлся кадр, не текущий, и текущий не искомый (у него нет полного будущего — поиск
     /// уводит из него) или найденный дешевле продолжения больше чем на <paramref name="gain"/>. Ничья и выигрыш не больше порога — остаться.
     /// </summary>
     public static bool Switches(in MotionMatch match, int current, bool currentSearchable, float gain) =>
@@ -253,7 +253,7 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
 
 /// <summary>
 /// Movement, после <c>core.root-collision</c> (<c>locomotion.mm-history</c>): корень живого бойца на MM после столкновений — окончательный за
-/// тик (отдача 7к меняет только скорость следующего тика) — в историю корня под номером тика; прибавка рывка в нём есть (положение), отдачи —
+/// тик (отдача меняет только скорость следующего тика) — в историю корня под номером тика; прибавка рывка в нём есть (положение), отдачи —
 /// нет (она в <see cref="RootVelocity"/> следующего тика). Затем вид состояния после шага (кадр, клип, доля, переходы — пул исполнил задания
 /// в <c>core.animation-tick</c>).
 /// </summary>

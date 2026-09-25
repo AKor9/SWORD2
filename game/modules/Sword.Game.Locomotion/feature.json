@@ -1,19 +1,19 @@
-// Приёмка фичи «Motion Matching игрока» (этап 8, модуль Locomotion, часть 2) — манифест 8и. Игрок на MM — только при locomotion.player=mm
+// Приёмка фичи «Motion Matching игрока» (модуль Locomotion, часть 2). Игрок на MM — только при locomotion.player=mm
 // (мир без sword.json — на клипах: у каждого сценария set), враги — всегда на клипах. Сценарии — командами игрока: start-stop (стоя → шаг →
 // стоп → бег → стоп), run8 (бег 8 направлений), turn180 (разворот на бегу), strafe (стрейф вокруг точки взгляда), walk-run (шаг ↔ бег),
 // zigzag, column (бег в колонну), dash (рывок на бегу), run-strike (удар на бегу), death-reset (смерть игрока командой сцены и R), knob (ручки
 // locomotion.searchPeriod и locomotion.armWeight посреди прогона), crowd (игрок на MM и 32 бьющих врага на клипах). Проверки — клип базы (номера
 // клипов locomotion/ пака: 182…625; Run_* 182…394, Stand_Idle_Loop 395, Transition_* 404…407, Walk_* 408…625), враги на клипах, старты,
-// стопы и смена походки. Инварианты — все, с тяжёлыми MM (locomotion.mmDecay, locomotion.mmContinuity) на каждом тике. Метрики — свои замеры 8и
+// стопы и смена походки. Инварианты — все, с тяжёлыми MM (locomotion.mmDecay, locomotion.mmContinuity) на каждом тике. Метрики — свои замеры
 // (симуляция детерминирована: Debug и Release дают те же числа); виды — оверлей mm; бюджеты — бег и толпа (Release), с пиком зоны поиска
-// (zones, 8и). Решения и замеры — README модуля («Приёмка (8и)») и docs/history/locomotion.md («8и»). Формат — FeatureManifest
+// (zones). Решения и замеры — README модуля («Приёмка») и docs/history/locomotion.md. Формат — FeatureManifest
 // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature locomotion). Ослабить ожидания — только правкой с сообщением
 // пользователю. Эталон locomotion.swreplay — после подтверждения пользователем.
 {
   "format": "sword-feature",
   "version": 1,
   "id": "locomotion",
-  "title": "Motion Matching игрока (этап 8: 8а–8д — механизм MM в Engine.Animation и политика GASP; 8е — MM игрока в тике; 8ж — рука с мечом; 8з — агенту и на экран; 8и — приёмка)",
+  "title": "Motion Matching игрока (механизм MM в Engine.Animation и политика GASP; MM игрока в тике; рука с мечом; агенту и на экран)",
   "doc": "README.md",
   "sourceRoots": [
     "game/modules/Sword.Game.Locomotion",
@@ -82,7 +82,7 @@
     },
     {
       "id": "run8",
-      "title": "бег по кругу 8 направлений: по 0,5 с на направление (ход +Z, +X+Z, +X, +X−Z, −Z, …), взгляд вперёд — на (0; 60), 12 с (сценарий замеров 8е/8з; бюджет run)",
+      "title": "бег по кругу 8 направлений: по 0,5 с на направление (ход +Z, +X+Z, +X, +X−Z, −Z, …), взгляд вперёд — на (0; 60), 12 с (сценарий замеров; бюджет run)",
       "set": ["locomotion.player=mm"],
       "ticks": 1440,
       "commands": [
@@ -621,308 +621,308 @@
     }
   ],
   "invariants": ["locomotion.*", "animation.*", "physics.*", "combat.*", "ragdoll.*", "movement.*", "arena.*", "ecs.*"],
-  // 8и: метрики — свои замеры (пак, player=mm; окно — после 1 с): по каждому сценарию скольжение опорной стопы (среднее и p95 по тикам со
+  // Метрики — свои замеры (пак, player=mm; окно — после 1 с): по каждому сценарию скольжение опорной стопы (среднее и p95 по тикам со
   // стопой на земле — skipUndefined; база фиксации стоп этапа 9) и наибольший скачок сустава выхода MM за тик — потолки 2× (expected =
   // tolerance = замер); переходов и поисков за сценарий — двусторонние (±50 % и ±25 %): поведение сменилось в любую сторону — пересмотреть.
   "metrics": [
     {
       "id": "start-stop-slide-mean", "scenario": "start-stop",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 0,173 м/с; потолок 0,346 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 0,173 м/с; потолок 0,346 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1320, "skipUndefined": true, "expected": 0.1731, "tolerance": 0.1731
     },
     {
       "id": "start-stop-slide-p95", "scenario": "start-stop",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 0,700 м/с; потолок 1,400 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 0,700 м/с; потолок 1,400 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1320, "skipUndefined": true, "expected": 0.7001, "tolerance": 0.7001
     },
     {
       "id": "start-stop-jump-max", "scenario": "start-stop",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,1081 м; потолок 0,2162 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,1081 м; потолок 0,2162 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1320, "skipUndefined": true, "expected": 0.1081, "tolerance": 0.1081
     },
     {
       "id": "start-stop-transitions", "scenario": "start-stop",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,64/с): замер 8и 7; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,64/с): замер 7; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 7, "tolerance": 3.5
     },
     {
       "id": "start-stop-searches", "scenario": "start-stop",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 110; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 110; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 110, "tolerance": 27.5
     },
     {
       "id": "run8-slide-mean", "scenario": "run8",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 1,176 м/с; потолок 2,353 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 1,176 м/с; потолок 2,353 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 1.1765, "tolerance": 1.1765
     },
     {
       "id": "run8-slide-p95", "scenario": "run8",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 3,074 м/с; потолок 6,147 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 3,074 м/с; потолок 6,147 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 3.0736, "tolerance": 3.0736
     },
     {
       "id": "run8-jump-max", "scenario": "run8",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0687 м; потолок 0,1374 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0687 м; потолок 0,1374 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.0687, "tolerance": 0.0687
     },
     {
       "id": "run8-transitions", "scenario": "run8",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,17/с): замер 8и 38; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,17/с): замер 38; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 38, "tolerance": 19
     },
     {
       "id": "run8-searches", "scenario": "run8",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 120; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 120; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 120, "tolerance": 30
     },
     {
       "id": "turn180-slide-mean", "scenario": "turn180",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 1,487 м/с; потолок 2,974 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 1,487 м/с; потолок 2,974 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 1.487, "tolerance": 1.487
     },
     {
       "id": "turn180-slide-p95", "scenario": "turn180",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 7,348 м/с; потолок 14,697 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 7,348 м/с; потолок 14,697 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 7.3483, "tolerance": 7.3483
     },
     {
       "id": "turn180-jump-max", "scenario": "turn180",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0778 м; потолок 0,1556 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0778 м; потолок 0,1556 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.0778, "tolerance": 0.0778
     },
     {
       "id": "turn180-transitions", "scenario": "turn180",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (2,17/с): замер 8и 26; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (2,17/с): замер 26; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 26, "tolerance": 13
     },
     {
       "id": "turn180-searches", "scenario": "turn180",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 120; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 120; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 120, "tolerance": 30
     },
     {
       "id": "strafe-slide-mean", "scenario": "strafe",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 0,421 м/с; потолок 0,841 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 0,421 м/с; потолок 0,841 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.4206, "tolerance": 0.4206
     },
     {
       "id": "strafe-slide-p95", "scenario": "strafe",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 0,896 м/с; потолок 1,792 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 0,896 м/с; потолок 1,792 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.8958, "tolerance": 0.8958
     },
     {
       "id": "strafe-jump-max", "scenario": "strafe",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0471 м; потолок 0,0942 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0471 м; потолок 0,0942 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.0471, "tolerance": 0.0471
     },
     {
       "id": "strafe-transitions", "scenario": "strafe",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,17/с): замер 8и 2; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,17/с): замер 2; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 2, "tolerance": 1
     },
     {
       "id": "strafe-searches", "scenario": "strafe",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 120; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 120; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 120, "tolerance": 30
     },
     {
       "id": "walk-run-slide-mean", "scenario": "walk-run",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 0,422 м/с; потолок 0,845 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 0,422 м/с; потолок 0,845 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.4225, "tolerance": 0.4225
     },
     {
       "id": "walk-run-slide-p95", "scenario": "walk-run",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 1,056 м/с; потолок 2,111 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 1,056 м/с; потолок 2,111 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 1.0557, "tolerance": 1.0557
     },
     {
       "id": "walk-run-jump-max", "scenario": "walk-run",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,1168 м; потолок 0,2336 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,1168 м; потолок 0,2336 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.1168, "tolerance": 0.1168
     },
     {
       "id": "walk-run-transitions", "scenario": "walk-run",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (1,58/с): замер 8и 19; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (1,58/с): замер 19; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 19, "tolerance": 9.5
     },
     {
       "id": "walk-run-searches", "scenario": "walk-run",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 120; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 120; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 120, "tolerance": 30
     },
     {
       "id": "zigzag-slide-mean", "scenario": "zigzag",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 1,263 м/с; потолок 2,525 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 1,263 м/с; потолок 2,525 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 1.2626, "tolerance": 1.2626
     },
     {
       "id": "zigzag-slide-p95", "scenario": "zigzag",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 2,939 м/с; потолок 5,878 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 2,939 м/с; потолок 5,878 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 2.9388, "tolerance": 2.9388
     },
     {
       "id": "zigzag-jump-max", "scenario": "zigzag",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0884 м; потолок 0,1768 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0884 м; потолок 0,1768 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.0884, "tolerance": 0.0884
     },
     {
       "id": "zigzag-transitions", "scenario": "zigzag",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,17/с): замер 8и 38; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,17/с): замер 38; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 38, "tolerance": 19
     },
     {
       "id": "zigzag-searches", "scenario": "zigzag",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 120; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 120; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 120, "tolerance": 30
     },
     {
       "id": "column-slide-mean", "scenario": "column",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 0,794 м/с; потолок 1,587 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 0,794 м/с; потолок 1,587 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.7936, "tolerance": 0.7936
     },
     {
       "id": "column-slide-p95", "scenario": "column",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 2,776 м/с; потолок 5,552 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 2,776 м/с; потолок 5,552 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 2.7762, "tolerance": 2.7762
     },
     {
       "id": "column-jump-max", "scenario": "column",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0552 м; потолок 0,1104 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0552 м; потолок 0,1104 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.0552, "tolerance": 0.0552
     },
     {
       "id": "column-transitions", "scenario": "column",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,67/с): замер 8и 8; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,67/с): замер 8; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 8, "tolerance": 4
     },
     {
       "id": "column-searches", "scenario": "column",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 120; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 120; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 120, "tolerance": 30
     },
     {
       "id": "dash-slide-mean", "scenario": "dash",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 0,706 м/с; потолок 1,412 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 0,706 м/с; потолок 1,412 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 960, "skipUndefined": true, "expected": 0.7059, "tolerance": 0.7059
     },
     {
       "id": "dash-slide-p95", "scenario": "dash",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 4,253 м/с; потолок 8,507 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 4,253 м/с; потолок 8,507 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 960, "skipUndefined": true, "expected": 4.2533, "tolerance": 4.2533
     },
     {
       "id": "dash-jump-max", "scenario": "dash",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0559 м; потолок 0,1118 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0559 м; потолок 0,1118 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 960, "skipUndefined": true, "expected": 0.0559, "tolerance": 0.0559
     },
     {
       "id": "dash-transitions", "scenario": "dash",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,38/с): замер 8и 3; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,38/с): замер 3; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 3, "tolerance": 1.5
     },
     {
       "id": "dash-searches", "scenario": "dash",
-      "reference": "поисков за сценарий (7,4 % тиков): замер 8и 71; ±25 %",
+      "reference": "поисков за сценарий (7,4 % тиков): замер 71; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 71, "tolerance": 17.75
     },
     {
       "id": "run-strike-slide-mean", "scenario": "run-strike",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 0,237 м/с; потолок 0,474 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 0,237 м/с; потолок 0,474 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 960, "skipUndefined": true, "expected": 0.2368, "tolerance": 0.2368
     },
     {
       "id": "run-strike-slide-p95", "scenario": "run-strike",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 0,641 м/с; потолок 1,283 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 0,641 м/с; потолок 1,283 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 960, "skipUndefined": true, "expected": 0.6414, "tolerance": 0.6414
     },
     {
       "id": "run-strike-jump-max", "scenario": "run-strike",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0559 м; потолок 0,1118 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0559 м; потолок 0,1118 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 960, "skipUndefined": true, "expected": 0.0559, "tolerance": 0.0559
     },
     {
       "id": "run-strike-transitions", "scenario": "run-strike",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,38/с): замер 8и 3; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,38/с): замер 3; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 3, "tolerance": 1.5
     },
     {
       "id": "run-strike-searches", "scenario": "run-strike",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 80; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 80; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 80, "tolerance": 20
     },
     {
       "id": "death-reset-slide-mean", "scenario": "death-reset",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 0,382 м/с; потолок 0,764 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 0,382 м/с; потолок 0,764 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1080, "skipUndefined": true, "expected": 0.382, "tolerance": 0.382
     },
     {
       "id": "death-reset-slide-p95", "scenario": "death-reset",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 1,188 м/с; потолок 2,377 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 1,188 м/с; потолок 2,377 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1080, "skipUndefined": true, "expected": 1.1884, "tolerance": 1.1884
     },
     {
       "id": "death-reset-jump-max", "scenario": "death-reset",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,1062 м; потолок 0,2124 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,1062 м; потолок 0,2124 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1080, "skipUndefined": true, "expected": 0.1062, "tolerance": 0.1062
     },
     {
       "id": "death-reset-transitions", "scenario": "death-reset",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,33/с): замер 8и 3; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (0,33/с): замер 3; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 3, "tolerance": 1.5
     },
     {
       "id": "death-reset-searches", "scenario": "death-reset",
-      "reference": "поисков за сценарий (2,8 % тиков): замер 8и 30; ±25 %",
+      "reference": "поисков за сценарий (2,8 % тиков): замер 30; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 30, "tolerance": 7.5
     },
     {
       "id": "knob-slide-mean", "scenario": "knob",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 1,194 м/с; потолок 2,389 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 1,194 м/с; потолок 2,389 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 1.1943, "tolerance": 1.1943
     },
     {
       "id": "knob-slide-p95", "scenario": "knob",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 3,148 м/с; потолок 6,296 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 3,148 м/с; потолок 6,296 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 3.148, "tolerance": 3.148
     },
     {
       "id": "knob-jump-max", "scenario": "knob",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0769 м; потолок 0,1538 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0769 м; потолок 0,1538 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.0769, "tolerance": 0.0769
     },
     {
       "id": "knob-transitions", "scenario": "knob",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,00/с): замер 8и 36; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,00/с): замер 36; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 36, "tolerance": 18
     },
     {
       "id": "knob-searches", "scenario": "knob",
-      "reference": "поисков за сценарий (13,9 % тиков): замер 8и 200; ±25 %",
+      "reference": "поисков за сценарий (13,9 % тиков): замер 200; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 200, "tolerance": 50
     },
     {
       "id": "crowd-slide-mean", "scenario": "crowd",
-      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 8и 1,843 м/с; потолок 3,686 (2×) — база фиксации стоп этапа 9",
+      "reference": "скольжение опорной стопы (MotionMatch.FootSlide), среднее по тикам со стопой на земле после 1 с: замер 1,843 м/с; потолок 3,686 (2×) — база фиксации стоп этапа 9",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "mean", "from": 121, "to": 1440, "skipUndefined": true, "expected": 1.8428, "tolerance": 1.8428
     },
     {
       "id": "crowd-slide-p95", "scenario": "crowd",
-      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 8и 4,153 м/с; потолок 8,305 (2×)",
+      "reference": "скольжение опорной стопы, 95-й перцентиль после 1 с: замер 4,153 м/с; потолок 8,305 (2×)",
       "entity": "player", "field": "MotionMatch.FootSlide", "stat": "p95", "from": 121, "to": 1440, "skipUndefined": true, "expected": 4.1526, "tolerance": 4.1526
     },
     {
       "id": "crowd-jump-max", "scenario": "crowd",
-      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 8и 0,0840 м; потолок 0,1680 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
+      "reference": "наибольший скачок сустава выхода MM за тик (MotionMatch.JointJump) после 1 с: замер 0,0840 м; потолок 0,1680 (2×; предел инварианта locomotion.mmContinuity — 0,25)",
       "entity": "player", "field": "MotionMatch.JointJump", "stat": "max", "from": 121, "to": 1440, "skipUndefined": true, "expected": 0.084, "tolerance": 0.084
     },
     {
       "id": "crowd-transitions", "scenario": "crowd",
-      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,08/с): замер 8и 37; ±50 % (не меньше ±1)",
+      "reference": "переходов проигрывателя за сценарий — поиском и по рёбрам графа (3,08/с): замер 37; ±50 % (не меньше ±1)",
       "entity": "player", "field": "MotionMatchState.Transitions", "expected": 37, "tolerance": 18.5
     },
     {
       "id": "crowd-searches", "scenario": "crowd",
-      "reference": "поисков за сценарий (8,3 % тиков): замер 8и 120; ±25 %",
+      "reference": "поисков за сценарий (8,3 % тиков): замер 120; ±25 %",
       "entity": "player", "field": "MotionMatchState.Searches", "expected": 120, "tolerance": 30
     }
   ],
@@ -941,7 +941,7 @@
     }
   ],
   "budgets": [
-    // 8и: пределы — около 2× к замеру на этой машине (AMD Ryzen 7 7800X3D, NVIDIA RTX 5070, Release, один прогон, машина спокойна: другие
+    // Пределы — около 2× к замеру на этой машине (AMD Ryzen 7 7800X3D, NVIDIA RTX 5070, Release, один прогон, машина спокойна: другие
     // процессы 0…12 %). run — сценарий run8, игрок на MM один: тик 0,0184 мс (предел 0,04), Animation 0,0130 (0,03), пик поиска — зона
     // locomotion.search, наибольшее за тик 0,118 мс (0,25; в среднем 0,061 мс на поиск, поиск — в 8,3 % тиков); crowd — игрок на MM и 32 бьющих
     // врага на клипах: тик 0,182 (0,4), Animation 0,122 (0,25), пик поиска 0,152 (0,3); 0 Б/тик. Прогрев 240 тиков — смертей нет (игрок неуязвим

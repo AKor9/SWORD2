@@ -23,7 +23,7 @@ namespace Sword.Engine.Introspection.Tests
 
     public struct Empty;
 
-    /// <summary>Проверки по замечаниям самопроверки 1е: отмена, время, разбор, связи систем, имена, журнал.</summary>
+    /// <summary>Проверки: отмена, время, разбор, связи систем, имена, журнал.</summary>
     public class ReviewFixTests
     {
         [Fact]

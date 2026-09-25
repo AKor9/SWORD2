@@ -10,12 +10,12 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Инварианты физики (раздел 8 плана, этап 5), их регистрирует ядро рядом с участником хеша <c>physics</c>:
-/// <c>physics.finite</c> — после стадии Physics (тела ставятся при постройке в Gameplay и по позе в PrePhysics — 5б; с 7з в стадии
+/// Инварианты физики (раздел 8 плана), их регистрирует ядро рядом с участником хеша <c>physics</c>:
+/// <c>physics.finite</c> — после стадии Physics (тела ставятся при постройке в Gameplay и по позе в PrePhysics; в стадии
 /// Physics — шаг физики трупов: после неё видно и то, что поставил PrePhysics, и то, что насчитал шаг);
-/// <c>physics.kinematicPose</c> и <c>physics.kinematicSpeed</c> — после PrePhysics (5б: капсулы живого бойца стоят на суставах
+/// <c>physics.kinematicPose</c> и <c>physics.kinematicSpeed</c> — после PrePhysics (капсулы живого бойца стоят на суставах
 /// позы тика, их скорости правдоподобны); <c>physics.bodyRefs</c> — в конце End, когда хуки всех барьеров тика отработали.
-/// С 7ж у бойца 14 тел: тело клинка (11) — на мече в кисти позы, массы тел конечны. С 7з позу и скорость постановки сверяют только
+/// У бойца 14 тел: тело клинка (11) — на мече в кисти позы, массы тел конечны. Позу и скорость постановки сверяют только
 /// кинематические тела; инварианты тел на физике — <see cref="Ragdoll.CorpseInvariants"/>.
 /// </summary>
 public static class PhysicsInvariants
@@ -33,17 +33,17 @@ public static class PhysicsInvariants
     /// <summary>
     /// <c>physics.kinematicSpeed</c>: предел скорости капсулы живого бойца относительно самого бойца (за вычетом переноса и
     /// поворота мира бойца за тик — корень, курс, высота рельефа), м/с, и её угловой скорости поперёк оси, рад/с (вращение капсулы
-    /// вокруг своей оси её не сдвигает: с 6в не считается — в ударах пака плечо ложится вдоль оси «вправо» бойца, опорная ось
+    /// вокруг своей оси её не сдвигает: не считается — в ударах пака плечо ложится вдоль оси «вправо» бойца, опорная ось
     /// поворота капсулы (<c>FromBasis(dir, right)</c>, как <c>PlaceBodies</c> SWORD) вырождается, и её поворот вокруг оси доходит до
     /// 333 рад/с при собственной закрутке сустава до 20 рад/с; поперёк оси — до 41 рад/с).
-    /// Анимация даёт меньше (замер — docs/history/bodies.md, «Решено на 5б»); больше — капсула перескочила (постройка или сброс без
+    /// Анимация даёт меньше (замер — docs/history/bodies.md); больше — капсула перескочила (постройка или сброс без
     /// постановки, чужая поза, неверный шаг). Толчки корней и колонн, ступени рельефа и поворот курса — перенос мира бойца, в предел не входят.
     /// </summary>
     public const float MaxRelativeSpeed = 30f, MaxAngularSpeed = 150f;
 
     /// <summary>
-    /// <c>physics.kinematicSpeed</c> (7ж): предел скорости тела клинка относительно бойца, м/с — центр капсулы клинка в полуметре и дальше от
-    /// кисти, в ударе он быстрее руки. Замер 7ж (эталонный пак, 32 бьющих врага и игрок — удары, уколы, жесты, рывки, смена меча, 4000 тиков,
+    /// <c>physics.kinematicSpeed</c>: предел скорости тела клинка относительно бойца, м/с — центр капсулы клинка в полуметре и дальше от
+    /// кисти, в ударе он быстрее руки. Замер (эталонный пак, 32 бьющих врага и игрок — удары, уколы, жесты, рывки, смена меча, 4000 тиков,
     /// зёрна 1–3): до 49,4 м/с относительно бойца (плоть — до 20,2), поперёк оси — до 61,8 рад/с; предел — ~2× к худшему.
     /// </summary>
     public const float MaxBladeSpeed = 100f;
@@ -71,12 +71,12 @@ public static class PhysicsInvariants
 
     /// <summary>
     /// <c>physics.finite</c> — у живых тел конечны положение, поворот, прошлая постановка, поза начала тика, скорости и форма; повороты —
-    /// единичной длины; форма не отрицательна; с 7ж — масса, обратная масса и обратная инерция конечны и не отрицательны.
+    /// единичной длины; форма не отрицательна; масса, обратная масса и обратная инерция конечны и не отрицательны.
     /// </summary>
     private sealed class Finite(IPhysicsWorld physics) : IInvariant
     {
         public string Id => "physics.finite";
-        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика
         public InvariantScope Scope => InvariantScope.Subsystem;
         public string After => GameStages.Physics;
 
@@ -126,15 +126,15 @@ public static class PhysicsInvariants
     /// <summary>
     /// <c>physics.kinematicPose</c> — капсулы живого бойца стоят на суставах его позы этого тика (после PrePhysics): центр
     /// капсулы — середина её двух точек (<see cref="BodyPlacement.Ends"/>) в мире бойца (корень, курс, высота рельефа), ось —
-    /// вдоль направления между ними. С 7ж и тело клинка: его точки — хват (начало кисти) и кончик клинка меча в руке
+    /// вдоль направления между ними. И тело клинка: его точки — хват (начало кисти) и кончик клинка меча в руке
     /// (<see cref="BladePlacement.BodyOf"/>), полудлина — половина отрезка меча (смена меча меняет форму). Ловит постановку, которая не
     /// прошла (капсулы остались на прошлой позе или корне), перепутанные тела (<see cref="BodyRef"/> двух бойцов обменялись) и тело,
     /// сдвинутое после постановки. Бойцы без живой позы или с негодным телом пропускаются (их ловят <c>animation.*</c>,
-    /// <c>physics.bodyRefs</c>), мёртвые — тоже (7ж): их тела уже не по позе (сдвиг командой сцены, труп на физике — 7з), и с 7з — любое тело не
+    /// <c>physics.bodyRefs</c>), мёртвые — тоже: их тела уже не по позе (сдвиг командой сцены, труп на физике), и любое тело не
     /// в кинематике (режимы согласует <c>physics.modes</c>). До первого
     /// тика (проверка «сейчас» на свежем сеансе, после <c>time.seek 0</c>) капсулы сверяются с позой постройки бойца (своей —
-/// <see cref="FighterStartPose"/>, 8е — или общей <see cref="StartPose"/>):
-    /// по ней их поставила сборка мира (5в), а поза бойца до первого тика — поза привязки (её считает первый тик).
+/// <see cref="FighterStartPose"/> — или общей <see cref="StartPose"/>):
+    /// по ней их поставила сборка мира, а поза бойца до первого тика — поза привязки (её считает первый тик).
     /// </summary>
     private sealed class KinematicPose(IPhysicsWorld physics, PosePool poses, BodyJoints joints, StartPoseModel start, WeaponTable weapons,
         int hand) : IInvariant
@@ -142,7 +142,7 @@ public static class PhysicsInvariants
         private ReadQuery? _query;
 
         public string Id => "physics.kinematicPose";
-        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика
         public InvariantScope Scope => InvariantScope.Entity;
         public string After => GameStages.PrePhysics;
 
@@ -165,7 +165,7 @@ public static class PhysicsInvariants
                     var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                     var body = FighterBodies.Handle(bodies[i]);
                     if (!poses.IsAlive(pose) || !BodyPlacement.Placeable(physics, body)) continue;
-                    // 8е: поза постройки — своя у бойца (FighterStartPose) или общая
+                    // Поза постройки — своя у бойца (FighterStartPose) или общая
                     var model = built ? start.Of(StartPoseModel.For(world, entities[i])) : poses.Model(pose);
                     if (Problem(model, roots[i], body, slots[i].Index) is not { } problem) continue;
                     violations.Report(entities[i], problem);   // одна строка на бойца
@@ -182,7 +182,7 @@ public static class PhysicsInvariants
             {
                 int segment = BodySegs.Segment(k);
                 var s = physics.Get(physics.Body(body, k));
-                if (s.Mode != BodyMode.Kinematic) continue;   // 7з: тело на физике ставит шаг, не поза
+                if (s.Mode != BodyMode.Kinematic) continue;   // тело на физике ставит шаг, не поза
                 Vector3 a, b;
                 if (BodySegs.IsFlesh(segment)) (a, b) = BodyPlacement.Ends(model, joints, w, segment);
                 else
@@ -244,10 +244,10 @@ public static class PhysicsInvariants
     /// <summary>
     /// <c>physics.kinematicSpeed</c> — капсулы живого бойца не перескакивают (после PrePhysics): скорость каждой капсулы
     /// относительно бойца (<see cref="RelativeSpeed"/>: перенос и поворот мира бойца за тик — корень из <see cref="PrevTransform"/>
-    /// в <see cref="Transform"/> — вычтены) не больше <see cref="MaxRelativeSpeed"/> (тело клинка — <see cref="MaxBladeSpeed"/>, 7ж), угловая
-    /// поперёк оси (<see cref="Swing"/>; 6в) — не больше <see cref="MaxAngularSpeed"/>. Ловит скачок, который постановка приняла за движение: постройка или сброс без
+    /// в <see cref="Transform"/> — вычтены) не больше <see cref="MaxRelativeSpeed"/> (тело клинка — <see cref="MaxBladeSpeed"/>), угловая
+    /// поперёк оси (<see cref="Swing"/>) — не больше <see cref="MaxAngularSpeed"/>. Ловит скачок, который постановка приняла за движение: постройка или сброс без
     /// постановки при постройке (прошлая постановка — там, где тело стояло до постройки), чужая или испорченная поза, неверный
-    /// шаг. Толчки корней при спауне внахлёст, колонны, ступени и поворот курса — движение мира бойца, их предел не видит. С 7з — только
+    /// шаг. Толчки корней при спауне внахлёст, колонны, ступени и поворот курса — движение мира бойца, их предел не видит. Только
     /// кинематические тела (тела на физике держит <c>physics.simulatedSpeed</c>).
     /// </summary>
     private sealed class KinematicSpeed(IPhysicsWorld physics) : IInvariant
@@ -265,7 +265,7 @@ public static class PhysicsInvariants
         }
 
         public string Id => "physics.kinematicSpeed";
-        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика
         public InvariantScope Scope => InvariantScope.Entity;
         public string After => GameStages.PrePhysics;
 
@@ -273,7 +273,7 @@ public static class PhysicsInvariants
         {
             var world = ctx.World;
             float dt = world.Resource<SimTime>().Dt;
-            // мёртвый (6г) замер: его капсулы хранят скорости последнего тика жизни (для рэгдолла) — это не скачок постановки
+            // мёртвый замер: его капсулы хранят скорости последнего тика жизни (для рэгдолла) — это не скачок постановки
             _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PrevTransform>().Read<BodyRef>();
             foreach (var chunk in world.Iterate(_query))
             {
@@ -289,7 +289,7 @@ public static class PhysicsInvariants
                     for (int k = 0; k < BodySegs.Bodies; k++)
                     {
                         var s = physics.Get(physics.Body(body, k));
-                        if (s.Mode != BodyMode.Kinematic) continue;   // 7з: тело на физике — physics.simulatedSpeed
+                        if (s.Mode != BodyMode.Kinematic) continue;   // тело на физике — physics.simulatedSpeed
                         float v = Vector3.Distance(s.Position, Vector3.Transform(s.PrevPosition, carry)) / dt, w = Swing(s);
                         int segment = BodySegs.Segment(k);
                         float limit = BodySegs.IsFlesh(segment) ? MaxRelativeSpeed : MaxBladeSpeed;

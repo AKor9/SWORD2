@@ -41,7 +41,7 @@ public struct GpuSkinInstance
 }
 
 /// <summary>
-/// Скинированные меши — движковое подмножество <c>Render/SkinnedRenderer.cs</c> SWORD 2eab13b (точка 1б): вершины
+/// Скинированные меши — движковое подмножество <c>Render/SkinnedRenderer.cs</c> SWORD 2eab13b: вершины
 /// и индексы меша — один раз в память GPU; каждый кадр в кольца пишутся палитры (мировые матрицы скиннинга, уже
 /// интерполированные на CPU) и экземпляры; один <c>DrawIndexedInstanced</c> на меш. Разрезы, материалы секций,
 /// модули поверхности придут со своими фичами.
@@ -245,7 +245,7 @@ public sealed class SkinnedMeshes : IDisposable
 
     /// <summary>
     /// Экземпляр статического меша (без суставов: оружие, реквизит) — жёсткое вложение: палитра из одной матрицы — мир меша
-    /// (<c>SkinnedCharacters.Submit</c> SWORD 2eab13b: меч — <c>sword[0] = WeaponWorld</c>; этап 6б). Вершины статического меша
+    /// (<c>SkinnedCharacters.Submit</c> SWORD 2eab13b: меч — <c>sword[0] = WeaponWorld</c>). Вершины статического меша
     /// ведёт единственная матрица палитры при любых весах. false — места в кадре нет.
     /// </summary>
     /// <exception cref="ArgumentException">У меша есть суставы: его рисуют позой (<see cref="AddPosed"/>).</exception>

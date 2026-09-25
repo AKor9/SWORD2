@@ -115,12 +115,12 @@ public static class LegacyLocomotion
 /// она не сыграет (боец снят на том же барьере, тик прерван), позы некому было бы вернуть. Боец, построенный заново на
 /// той же сущности (<c>Added&lt;Fighter&gt;</c> у бойца, у которого состояние уже есть, — сброс арены), начинает локомоцию с
 /// нуля, как после <c>FighterAnimator.Reset</c> SWORD, кроме стороны ходьбы: <c>LegacyLocomotion.Reset</c> SWORD её не
-/// сбрасывает (точка 4д, трасса толпы); его позы слоя и снимка остаются его. Игрок на Motion Matching (<c>locomotion.player = mm</c>, 8е;
+/// сбрасывает (трасса толпы); его позы слоя и снимка остаются его. Игрок на Motion Matching (<c>locomotion.player = mm</c>;
 /// <paramref name="player"/> — false) состояния локомоции клипами не получает: его позу пишет Motion Matching.
 /// </summary>
 public sealed class LegacyLocomotionSetupSystem(bool player = true) : IReactiveSystem<Added<Fighter>>
 {
-    // Возрождение врага (ядро, 6г) строит место заново в Aftermath — такой боец начинает локомоцию в следующем тике.
+    // Возрождение врага (ядро) строит место заново в Aftermath — такой боец начинает локомоцию в следующем тике.
     public void Setup(SystemSetup s) => s.Label(new SystemLabel("locomotion.setup")).Adds<LegacyLocomotionState>().Sets<LegacyLocomotionState>()
         .NextTickOk<Added<Fighter>>();
 
@@ -133,12 +133,12 @@ public sealed class LegacyLocomotionSetupSystem(bool player = true) : IReactiveS
             // Боец построен дважды за срабатывание (создан при сборке мира и сразу построен заново сбросом в тике 0) —
             // одна команда, по последней записи: состояния ещё нет, второе Add было бы ошибкой.
             if (!ctx.World.IsAlive(a.Entity) || Later(added, i) || !player && ctx.World.Has<PlayerTag>(a.Entity)) continue;
-            ctx.Cause = a.Cause;   // причина постройки бойца — родитель состояния локомоции (state.why, 6д)
+            ctx.Cause = a.Cause;   // причина постройки бойца — родитель состояния локомоции (state.why)
             if (ctx.World.TryGet<LegacyLocomotionState>(a.Entity, out var old))
             {
                 var fresh = LegacyLocomotion.Start(actions);
                 // LegacyLocomotion.Reset SWORD не трогает _dir: сторона ходьбы переживает Fighter.Build того же бойца
-                // (сброс R) и решает, с какого клипа он пойдёт (гистерезис стороны). Трасса толпы 4д это ловит.
+                // (сброс R) и решает, с какого клипа он пойдёт (гистерезис стороны). Трасса толпы это ловит.
                 fresh.Dir = old.Dir;
                 fresh.Layer = old.Layer;
                 fresh.From = old.From;
@@ -158,7 +158,7 @@ public sealed class LegacyLocomotionSetupSystem(bool player = true) : IReactiveS
 
 /// <summary>
 /// Animation, до итоговой позы бойца: локомоция клипами всех бойцов (<see cref="LegacyLocomotion.Tick"/>) — задания
-/// пулу поз; пул исполнит их в <c>core.animation-tick</c>. Без игрока (<paramref name="player"/> — false), когда он на Motion Matching (8е):
+/// пулу поз; пул исполнит их в <c>core.animation-tick</c>. Без игрока (<paramref name="player"/> — false), когда он на Motion Matching:
 /// одну позу бойца пишет одна система.
 /// </summary>
 public sealed class LegacyLocomotionSystem(bool player = true) : IContinuousSystem
@@ -170,7 +170,7 @@ public sealed class LegacyLocomotionSystem(bool player = true) : IContinuousSyst
     public void Setup(SystemSetup s)
     {
         s.Label(Label).After(GameLabels.ActionSnapshot).Before(GameLabels.AnimatorPose).Reads<AnimatorMotion>().Reads<PoseRef>().Writes<LegacyLocomotionState>();
-        // мёртвый (Dead, 6г) замирает: локомоция его позу не трогает (поза смерти — по ней переход в труп, 7з)
+        // мёртвый (Dead) замирает: локомоция его позу не трогает (поза смерти — по ней переход в труп)
         var query = s.Query().With<Fighter>().Without<Dead>().Read<AnimatorMotion>().Read<PoseRef>().Write<LegacyLocomotionState>();
         _query = player ? query : query.Without<PlayerTag>();
     }

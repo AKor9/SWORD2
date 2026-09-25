@@ -11,7 +11,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Проход клинка по паре бойцов (<c>_contactSerial</c>, <c>_inContact</c>, <c>_cooldown</c> пары SWORD 2eab13b; этап 6г): удар атакующего,
+/// Проход клинка по паре бойцов (<c>_contactSerial</c>, <c>_inContact</c>, <c>_cooldown</c> пары SWORD 2eab13b): удар атакующего,
 /// к которому относится проход, клинок сейчас в теле, время последнего касания пары и касаний за жизнь пары.
 /// </summary>
 public struct StrikePass
@@ -32,8 +32,8 @@ public struct StrikePass
 }
 
 /// <summary>
-/// Пары удара врага (этап 6г): пары — только игрок ↔ враг (враги друг друга не рубят), поэтому обе пары врага — у него: клинок
-/// игрока против этого врага и клинок врага против игрока. С 7к пара клинка игрока ведётся и у трупа врага (труп — цель). Постройка
+/// Пары удара врага: пары — только игрок ↔ враг (враги друг друга не рубят), поэтому обе пары врага — у него: клинок
+/// игрока против этого врага и клинок врага против игрока. Пара клинка игрока ведётся и у трупа врага (труп — цель). Постройка
 /// врага — пары с нуля (в SWORD сброс арены чистил пары, а возрождение — нет). Хешируется, видно агенту (<c>entity.get "enemy N"</c>).
 /// </summary>
 public struct StrikePairs
@@ -47,13 +47,13 @@ public struct StrikePairs
 /// Combat (<see cref="GameLabels.StrikeDetection"/>): проходы клинка (<c>KinematicStrikes</c>, <c>SweepBlade</c> SWORD 2eab13b). Атакующие —
 /// по местам 0…32; живой боец в ударе (<see cref="ActionKind.Attack"/>) с поставленным клинком (клинок — кинематический, толкает проходом:
 /// попадание даёт только он, физический клинок трупа — нет); пары — игрок против каждого врага и враг против игрока, жертва — живая или
-/// труп (7к, как в SWORD: касание по телам трупа на физике после шага этого тика). Скорость кончика — |кончик − прошлый кончик|/dt;
+/// труп (как в SWORD: касание по телам трупа на физике после шага этого тика). Скорость кончика — |кончик − прошлый кончик|/dt;
 /// медленнее 3,5 м/с или кончик дальше радиуса жертвы + 1,5 м (центр и радиус — по капсулам этого тика) — клинок вне тела. Развёртка —
 /// 4 положения клинка от прошлого к нынешнему против 13 капсул жертвы (<see cref="Segments.SegSeg"/>, радиус + 0,02; тело клинка жертвы —
 /// не цель): первое положение с касанием, в нём ближайшая капсула; точка — на поверхности капсулы. Одно касание за проход клинка сквозь
 /// тело (вышел и вошёл — новое), не чаще 0,1 с на пару; урон меньше 4 — не касание и проход не тратит (исправление SWORD). Касание —
 /// событие <see cref="StrikeContact"/> (номер — порядок тика). Затем пробы удара командой (<see cref="StrikeProbe"/>) — тем же событием.
-/// Состояние пар — <see cref="StrikePairs"/> врагов (и мёртвых — 7к). Памяти в тике не выделяет.
+/// Состояние пар — <see cref="StrikePairs"/> врагов (и мёртвых). Памяти в тике не выделяет.
 /// </summary>
 public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable strikes) : IContinuousSystem
 {
@@ -81,7 +81,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
             .ReserveCommands(0, CombatReserve.Contacts, CombatReserve.Contacts * 128);
         _fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
         _dead = s.Query().With<Fighter>().With<Dead>().Read<FighterSlot>();
-        // 7к: пары и у мёртвых врагов — труп снова цель клинка игрока
+        // пары и у мёртвых врагов — труп снова цель клинка игрока
         _pairs = s.Query().With<Fighter>().With<EnemyTag>().Read<FighterSlot>().Write<StrikePairs>();
     }
 
@@ -97,7 +97,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
             if (_alive[i] && _kind[i] == ActionKind.Attack && _blade[i].Weapon >= 0) Attacker(ctx, i, time, rules);
         foreach (var p in probes)
         {
-            ctx.Cause = p.Cause;   // касание пробы — от её команды (state.why, 6д)
+            ctx.Cause = p.Cause;   // касание пробы — от её команды (state.why)
             Probe(ctx, p.Value, time.Tick);
         }
         foreach (var chunk in ctx.Iterate(_pairs))
@@ -110,7 +110,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         }
     }
 
-    /// <summary>Бойцы по местам: живые, мёртвые, клинок, удар, тело; пары врагов (и мёртвых — 7к).</summary>
+    /// <summary>Бойцы по местам: живые, мёртвые, клинок, удар, тело; пары врагов (и мёртвых).</summary>
     private void Gather(in SystemContext ctx)
     {
         Array.Clear(_present);
@@ -167,7 +167,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
 
     /// <summary>
     /// Атакующий места <paramref name="i"/> (тело цикла <c>KinematicStrikes</c> по атакующим — свой метод: пар до 32 за тик): игрок —
-    /// против каждого врага, враг — против игрока; жертва — живая или труп (7к).
+    /// против каждого врага, враг — против игрока; жертва — живая или труп.
     /// </summary>
     private void Attacker(in SystemContext ctx, int i, in SimTime time, in CombatRules rules)
     {
@@ -212,7 +212,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         var axis = Vector3.Normalize(blade.Tip - blade.Base);
         var move = blade.Tip - blade.PrevTip;
         var dir = move.LengthSquared() > 1e-8f ? Vector3.Normalize(move) : axis;
-        // Проход клинка — непрерывный производитель: родитель касания — начало удара этого номера (побочная таблица, 6д).
+        // Проход клинка — непрерывный производитель: родитель касания — начало удара этого номера (побочная таблица).
         if (ctx.Causality is { } log) ctx.Cause = log.Linked(_entity[att], CombatCauses.Attack, _serial[att]);
         ctx.Commands.Emit(new StrikeContact
         {
@@ -223,7 +223,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
     }
 
     /// <summary>
-    /// Капсулы плоти жертвы этого тика, их центр и радиус охвата (<c>Fighter.UpdateBounds</c> по 13 капсулам; раз за тик). С 7ж тела
+    /// Капсулы плоти жертвы этого тика, их центр и радиус охвата (<c>Fighter.UpdateBounds</c> по 13 капсулам; раз за тик). Тела
     /// сочленения идут по номерам сегментов и среди них тело клинка (11) — оно не цель: пропускается (порядок сложения тот же).
     /// </summary>
     private void Bound(int vic)
@@ -233,7 +233,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         var sum = Vector3.Zero;
         for (int k = 0; k < Bodies; k++)
         {
-            if (!BodySegs.IsFlesh(BodySegs.Segment(k))) continue;   // 7ж: тело клинка жертвы — не цель и не охват
+            if (!BodySegs.IsFlesh(BodySegs.Segment(k))) continue;   // тело клинка жертвы — не цель и не охват
             var s = physics.Get(physics.Body(_body[vic], k));
             int at = vic * Bodies + k;
             (_endA[at], _endB[at], _bodyCenter[at], _bodyRadius[at], _bodyHalf[at]) = (s.EndA, s.EndB, s.Position, s.Radius, s.HalfLength);

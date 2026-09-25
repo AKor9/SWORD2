@@ -6,7 +6,7 @@ namespace Sword.Game.Contracts;
 /// <summary>
 /// Оружие в руке бойца (<c>Fighter.WeaponKind</c> SWORD 2eab13b): номер в таблице оружия (<see cref="ICombatView.Weapons"/>,
 /// мечи пака по алфавиту). Враг получает случайный меч при каждой постройке (<c>DuelArena.Spawn</c>), игрок — меч инвентаря
-/// (<see cref="PlayerInventory.Equipped"/>: конфиг <c>combat.playerWeapon</c>, T — следующий, этап 6б). Клинок меча — в
+/// (<see cref="PlayerInventory.Equipped"/>: конфиг <c>combat.playerWeapon</c>, T — следующий). Клинок меча — в
 /// <see cref="Blade"/>.
 /// </summary>
 public struct WeaponSlot
@@ -16,9 +16,9 @@ public struct WeaponSlot
 
 /// <summary>
 /// Клинок бойца в мире после постановки тела тика (<c>KinBase</c>, <c>KinTip</c>, <c>KinPrevBase</c>, <c>KinPrevTip</c> SWORD
-/// 2eab13b; PrePhysics, этап 6б): основание (у гарды, 22 см от кисти) и кончик клинка меча <see cref="WeaponSlot"/>, как
+/// 2eab13b; PrePhysics): основание (у гарды, 22 см от кисти) и кончик клинка меча <see cref="WeaponSlot"/>, как
 /// показан боец — модельная матрица кисти (hand_r) позы тика в мире бойца (корень, курс, высота рельефа — тот же мир, что у
-/// капсул тела), — и их положение прошлого тика: отрезок, который клинок заметает за тик (проходы клинка — 6г). С 7ж у клинка
+/// капсул тела), — и их положение прошлого тика: отрезок, который клинок заметает за тик (проходы клинка). У клинка
 /// есть и тело — капсула 11 сочленения бойца от хвата до кончика (<see cref="BladeBody"/>), её ставят вместе с этим отрезком.
 /// Постройка бойца и смена меча — прошлое равно нынешнему (<see cref="Weapon"/> — меч, которым клинок посчитан): прохода между
 /// разными клинками нет (в SWORD смена меча давала один такой фантомный проход); тело клинка тогда — новой формы, без скорости.
@@ -39,7 +39,7 @@ public struct Blade
 /// Инвентарь игрока (<c>WeaponInventory</c> SWORD 2eab13b) — ресурс-значение (хешируется): доступное оружие — битами номеров
 /// таблицы оружия (пока всё оружие пака сразу, как <c>DuelArena.AttachRig</c>; до 64 мечей) и выбранное — меч в руке игрока
 /// (<see cref="WeaponSlot"/> игрока равен ему; постройка игрока заново — с ним). Меняют его команды арены
-/// (<see cref="ArenaAction.NextWeapon"/>, <see cref="ArenaAction.EquipWeapon"/>: T; с 6е — панель инвентаря клиента, I, 1–9 и щелчок).
+/// (<see cref="ArenaAction.NextWeapon"/>, <see cref="ArenaAction.EquipWeapon"/>: T; панель инвентаря клиента, I, 1–9 и щелчок).
 /// </summary>
 public struct PlayerInventory
 {
@@ -58,8 +58,8 @@ public struct PlayerInventory
     public readonly int Count => BitOperations.PopCount(Owned);
 
     /// <summary>
-    /// Оружие <paramref name="index"/>-е по порядку получения (<c>Owned[index]</c> SWORD: строка панели инвентаря и клавиша 1–9,
-    /// 6е) — номер в таблице; такого нет — −1.
+    /// Оружие <paramref name="index"/>-е по порядку получения (<c>Owned[index]</c> SWORD: строка панели инвентаря и клавиша 1–9)
+    /// — номер в таблице; такого нет — −1.
     /// </summary>
     public readonly int OwnedAt(int index)
     {
@@ -101,7 +101,7 @@ public struct PlayerInventory
 /// <summary>
 /// Оружие таблицы (<c>CharacterRig.Weapon</c> SWORD 2eab13b): имя (файл пака без расширения), путь меша в контенте
 /// (<c>weapons/имя.swmesh</c>: статический меш, вершины в системе кисти hand_r) и клинок в системе кисти — кончик — самая
-/// дальняя от кисти вершина меша, основание — 22 см от кисти по той же оси (<c>MakeWeapon</c>). Тело клинка меча (7ж) —
+/// дальняя от кисти вершина меша, основание — 22 см от кисти по той же оси (<c>MakeWeapon</c>). Тело клинка меча —
 /// <see cref="Body"/>.
 /// </summary>
 public readonly record struct WeaponInfo(string Name, string Mesh, Vector3 BladeBase, Vector3 BladeTip)
@@ -109,17 +109,17 @@ public readonly record struct WeaponInfo(string Name, string Mesh, Vector3 Blade
     /// <summary>Длина клинка от основания до кончика, м.</summary>
     public float Length => Vector3.Distance(BladeBase, BladeTip);
 
-    /// <summary>Тело клинка этого меча в системе кисти (7ж): капсула от хвата до кончика (<see cref="BladeBody.Of"/>).</summary>
+    /// <summary>Тело клинка этого меча в системе кисти: капсула от хвата до кончика (<see cref="BladeBody.Of"/>).</summary>
     public BladeBody Body => BladeBody.Of(BladeTip);
 }
 
 /// <summary>
-/// Тело клинка меча (7ж; решение 3 этапа 7: не как в SWORD — там капсула 0,575 м при любом мече) — тело 11 сочленения бойца
+/// Тело клинка меча (не как в SWORD — там капсула 0,575 м при любом мече) — тело 11 сочленения бойца
 /// (<see cref="BodySegs.Weapon"/>) в системе кисти hand_r: ось капсулы (локальная Y тела) — отрезок от **хвата** до кончика клинка
 /// (<see cref="WeaponInfo.BladeTip"/>). Хват — начало системы кисти (сустав hand_r: там же конец предплечья, <c>lowerarm_r → hand_r</c>),
-/// в системе тела — нижний конец оси (<see cref="GripLocal"/>, конец A капсулы): точка сустава запястья трупа (7з). Центр — середина
+/// в системе тела — нижний конец оси (<see cref="GripLocal"/>, конец A капсулы): точка сустава запястья трупа. Центр — середина
 /// отрезка; локальная X тела — <see cref="XHint"/> (ось кисти, самая поперечная к клинку, без продольной части): поворот тела клинка
-/// относительно кисти постоянен, по нему меч рисуется на теле клинка (7и). Масса и радиус — одни для всех мечей (<see cref="Mass"/>,
+/// относительно кисти постоянен, по нему меч рисуется на теле клинка. Масса и радиус — одни для всех мечей (<see cref="Mass"/>,
 /// <see cref="Radius"/>: массы в паке нет); смена меча меняет форму капсулы.
 /// </summary>
 public readonly record struct BladeBody(Vector3 Center, Vector3 Axis, Vector3 XHint, float HalfLength)
@@ -127,10 +127,10 @@ public readonly record struct BladeBody(Vector3 Center, Vector3 Axis, Vector3 XH
     /// <summary>Масса тела клинка, кг (решение 3: 1,4 кг для всех мечей, как <c>Fighter.Masses[Weapon]</c> SWORD).</summary>
     public const float Mass = 1.4f;
 
-    /// <summary>Радиус капсулы клинка, м (как <c>Fighter.Radii[Weapon]</c> SWORD; решение 7ж — отправная точка, ручка — 7з).</summary>
+    /// <summary>Радиус капсулы клинка, м (как <c>Fighter.Radii[Weapon]</c> SWORD — отправная точка, есть ручка).</summary>
     public const float Radius = 0.03f;
 
-    /// <summary>Хват в системе кисти — её начало: точка сустава запястья трупа (7з).</summary>
+    /// <summary>Хват в системе кисти — её начало: точка сустава запястья трупа.</summary>
     public static Vector3 Grip => Vector3.Zero;
 
     /// <summary>Хват в системе тела клинка — нижний конец оси (конец A капсулы).</summary>
@@ -182,7 +182,7 @@ public readonly struct AttackInfo(string slot, int clip, int blockedClip, float 
     public float ActiveStart => _windows[0].Start;
     public float ActiveEnd => _windows[^1].End;
 
-    /// <summary>Направление замаха первого удара — по нему жест выбирает клип (этап 6в).</summary>
+    /// <summary>Направление замаха первого удара — по нему жест выбирает клип.</summary>
     public Vector2 SwingDir => _windows[0].SwingDir;
 
     /// <summary>Самый быстрый кончик среди ударов, м/с.</summary>

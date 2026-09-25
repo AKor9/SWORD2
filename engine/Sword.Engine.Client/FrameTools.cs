@@ -12,9 +12,9 @@ namespace Sword.Engine.Client;
 /// <param name="WaitMs">Ожидание GPU в начале прошлого кадра (забор кадра в полёте), мс.</param>
 /// <param name="Ticks">Тиков симуляции в этом кадре.</param>
 /// <param name="Vsync">Вертикальная синхронизация.</param>
-/// <param name="Runtime">Среда за прошлую секунду (точка Пб, <see cref="RuntimeMeter"/>): JIT, GC, загрузка системы другими процессами.</param>
+/// <param name="Runtime">Среда за прошлую секунду (<see cref="RuntimeMeter"/>): JIT, GC, загрузка системы другими процессами.</param>
 /// <param name="GpuMs">
-/// GPU-время кадра, мс (точка Пг, <c>Renderer.Gpu</c>): последнего разобранного — на 3 кадра раньше прошлого (кадры в полёте); 0 —
+/// GPU-время кадра, мс (<c>Renderer.Gpu</c>): последнего разобранного — на 3 кадра раньше прошлого (кадры в полёте); 0 —
 /// ещё нет.
 /// </param>
 /// <param name="GpuPassesMs">Сумма проходов того же кадра на GPU, мс (без барьеров между проходами).</param>
@@ -33,7 +33,7 @@ public sealed class FrameStatsMeter
     private double _fps = InitialFps, _max, _window;
     private int _frame;
 
-    /// <summary>Итог кадра: его шаг, работа CPU и ожидание GPU, мс; GPU-время последнего разобранного кадра и его проходов (Пг).</summary>
+    /// <summary>Итог кадра: его шаг, работа CPU и ожидание GPU, мс; GPU-время последнего разобранного кадра и его проходов.</summary>
     public void Frame(double frameMs, double cpuMs, double waitMs, double gpuMs = 0, double gpuPassesMs = 0)
     {
         GpuMs = gpuMs;
@@ -63,14 +63,14 @@ public sealed class FrameStatsMeter
 
     public FrameStats Stats(int ticks, bool vsync) => new(_fps, FrameMs, _max, CpuMs, WaitMs, ticks, vsync, Runtime.Line, GpuMs, GpuPassesMs);
 
-    /// <summary>Строка среды для HUD (точка Пб): опрос раз в секунду, и без профайлера (<see cref="RuntimeMeter"/>).</summary>
+    /// <summary>Строка среды для HUD: опрос раз в секунду, и без профайлера (<see cref="RuntimeMeter"/>).</summary>
     public RuntimeMeter Runtime { get; } = new();
 }
 
 /// <summary>
 /// Простой бенч кадра (<c>--bench N</c>, <c>BenchRecorder</c> SWORD 2eab13b без метрик арены): идёт по ИГРОВОМУ времени — первые
 /// <see cref="Warmup"/> с прогрев, дальше копит шаги кадров до N с; итог — среднее, перцентили, худший кадр, CPU и ожидание GPU.
-/// Точка Пг: GPU-время кадра (среднее и p99 по разобранным кадрам замера) и проходы — мс на кадр (сумма за замер / кадров GPU,
+/// GPU-время кадра (среднее и p99 по разобранным кадрам замера) и проходы — мс на кадр (сумма за замер / кадров GPU,
 /// как «проход — мс/кадр» <c>BenchRecorder</c>): <see cref="GpuFrame"/> и <see cref="GpuPass"/> на каждый новый разобранный кадр.
 /// </summary>
 public sealed class FrameBench
@@ -99,7 +99,7 @@ public sealed class FrameBench
 
     public int Frames => _frames.Count;
 
-    /// <summary>Разобранных кадров GPU в замере (точка Пг).</summary>
+    /// <summary>Разобранных кадров GPU в замере.</summary>
     public int GpuFrames => _gpu.Count;
 
     public static bool Measuring(double simTime) => simTime >= Warmup;
@@ -120,7 +120,7 @@ public sealed class FrameBench
     }
 
     /// <summary>
-    /// Новый разобранный кадр GPU (точка Пг; раз на новые данные, не на каждый кадр CPU): кадр целиком, мс. Его проходы —
+    /// Новый разобранный кадр GPU (раз на новые данные, не на каждый кадр CPU): кадр целиком, мс. Его проходы —
     /// <see cref="GpuPass"/> следом. До конца прогрева — не в счёт.
     /// </summary>
     public void GpuFrame(double simTime, double frameMs)
@@ -164,7 +164,7 @@ public sealed class FrameBench
 public sealed record BenchPass(string Name, double Ms);
 
 /// <summary>
-/// Итог бенча кадра; времена — мс на кадр. Точка Пг: <paramref name="GpuMs"/> и <paramref name="GpuP99Ms"/> — GPU-время кадра
+/// Итог бенча кадра; времена — мс на кадр. <paramref name="GpuMs"/> и <paramref name="GpuP99Ms"/> — GPU-время кадра
 /// (среднее и p99 по <paramref name="GpuFrames"/> разобранным кадрам замера), <paramref name="Passes"/> — проходы в порядке первой
 /// встречи.
 /// </summary>
@@ -177,7 +177,7 @@ public sealed record FrameBenchReport(double Seconds, int Frames, double Average
 }
 
 /// <summary>
-/// Сторож кадров проверочного прогона (6ж): кадров нет дольше <c>seconds</c> (зависло ожидание GPU, цикл встал) — один раз зовёт
+/// Сторож кадров проверочного прогона: кадров нет дольше <c>seconds</c> (зависло ожидание GPU, цикл встал) — один раз зовёт
 /// <c>stalled</c> со словами «нет кадров N с» и тем, свёрнуто ли окно, из своего потока (таймер): владелец снимает прогон — бенч и
 /// снимки не висят часами. Главный поток отмечает кадр <see cref="Frame"/> (запись метки времени, без выделений). Без GPU и окна —
 /// тестируется сам по себе.

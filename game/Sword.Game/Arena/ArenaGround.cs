@@ -5,8 +5,8 @@ using Sword.Engine.Physics;
 namespace Sword.Game.Arena;
 
 /// <summary>
-/// Земля арены для контактов физики (7е; идеи — <c>Terrain.Contacts/Depth/SdBox</c> SWORD 2eab13b, решения свои —
-/// README арены, раздел «7е»). Грани с постоянными номерами, у каждой своя непрерывная глубина от центра сферы:
+/// Земля арены для контактов физики (идеи — <c>Terrain.Contacts/Depth/SdBox</c> SWORD 2eab13b, решения свои —
+/// README арены, раздел «Земля, стена и колонны арены для физики»). Грани с постоянными номерами, у каждой своя непрерывная глубина от центра сферы:
 /// <list type="bullet">
 /// <item>грань <see cref="SmoothFace"/> (0) — гладкий рельеф без ступеней (<see cref="ArenaTerrain.SmoothHeightAt(float, float, out Vector2)"/>):
 /// касательная плоскость под центром сферы, нормаль — по аналитическому градиенту высоты, глубина
@@ -16,7 +16,7 @@ namespace Sword.Game.Arena;
 /// ближайшей грани призмы, при равенстве — вверх.</item>
 /// </list>
 /// Без состояния, 0 Б на вызов. Стена и колонны арены для физики — <see cref="WallRadius"/>, <see cref="Pillars"/> (из
-/// <see cref="ArenaLayout"/>). В физику подключает 7з.
+/// <see cref="ArenaLayout"/>).
 /// </summary>
 public sealed class ArenaGround : IGround
 {
@@ -84,7 +84,7 @@ public sealed class ArenaGround : IGround
     private static float SmoothDepth(Vector3 center, float radius, out Vector3 normal)
     {
         float height = ArenaTerrain.SmoothHeightAt(center.X, center.Z, out var gradient);
-        // 7з-2: ровное место (градиент 0 — центр арены, между участками) — нормаль уже единичная, без корня (бит в бит та же)
+        // Ровное место (градиент 0 — центр арены, между участками) — нормаль уже единичная, без корня (бит в бит та же)
         normal = gradient.X == 0 && gradient.Y == 0 ? new Vector3(-gradient.X, 1, -gradient.Y) : Vector3.Normalize(new Vector3(-gradient.X, 1, -gradient.Y));
         return radius - (center.Y - height) * normal.Y;
     }

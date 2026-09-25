@@ -19,7 +19,7 @@ namespace Sword.Game.Tests;
 public sealed class GameGpuCollection;
 
 /// <summary>
-/// ID-проход и оверлей капсул снимка (5в) на настоящем устройстве (слой отладки D3D12 с GPU-валидацией) и настоящем
+/// ID-проход и оверлей капсул снимка на настоящем устройстве (слой отладки D3D12 с GPU-валидацией) и настоящем
 /// контенте (Manny из пака): кадр клиента арены с заказанным ID-буфером — пиксель в рамке бойца несёт его сущность и
 /// сегмент тела (центр головы — <see cref="BodySegs.Head"/>), земля — 0; легенда называет код словами; слой капсул снят.
 /// Любое предупреждение D3D12 — провал. Категории Gpu и Content: нужны видеокарта и пак.
@@ -93,7 +93,7 @@ public sealed class IdBufferGpuTests : IDisposable, ILogSink
             for (int i = 0; i < 60; i++)
             {
                 clock.RunFrame(0);
-                // Бойцы приходят очередью кадра — каждый кадр. Без F7 капсулы не читаются (исправления после Пд): только таз игрока.
+                // Бойцы приходят очередью кадра — каждый кадр. Без F7 капсулы не читаются: только таз игрока.
                 arena.Extract(new FrameView(1, 2, 0, default));
                 if (i == 58) Assert.Equal((0, 0, 4), (arena.View.BodyCount, arena.View.BladeCount, arena.View.WeaponCount));
             }
@@ -101,7 +101,7 @@ public sealed class IdBufferGpuTests : IDisposable, ILogSink
             // со слоем капсул читает тела всех бойцов.
             arena.Extract(new FrameView(1, 0, 0, default) { Capture = capture });
             Assert.Equal(4 * BodySegs.Bodies, arena.View.BodyCount);
-            Assert.Equal(4, arena.View.BladeCount);   // 6б: клинки — слоем снимка blades
+            Assert.Equal(4, arena.View.BladeCount);   // клинки — слоем снимка blades
             _window.PumpMessages();
             renderer.Render(arena.BuildFrame, vsync: false, capture);
             var result = renderer.LastCapture!;
@@ -110,7 +110,7 @@ public sealed class IdBufferGpuTests : IDisposable, ILogSink
             Assert.Equal([new CaptureLayer(ArenaClient.CapsulesOverlay, layer), new CaptureLayer(ArenaClient.BladesOverlay, bladesLayer)], result.Layers);
             Assert.True(File.Exists(layer) && File.Exists(bladesLayer) && File.Exists(ids));
             Assert.Equal(4 * BodySegs.Bodies, arena.DrawnCapsules);   // капсулы всех бойцов — в слое снимка
-            Assert.Equal((4, 4), (arena.DrawnBlades, arena.DrawnWeapons));   // 6б: меч в руке у каждого, клинки — в своём слое
+            Assert.Equal((4, 4), (arena.DrawnBlades, arena.DrawnWeapons));   // меч в руке у каждого, клинки — в своём слое
 
             var raw = File.ReadAllBytes(result.IdsRawPath!);
             Assert.Equal(W * H * 4, raw.Length);
@@ -138,7 +138,7 @@ public sealed class IdBufferGpuTests : IDisposable, ILogSink
                 Assert.True(m is not null && m.Value.Part is not null && (BodySegs.Find(m.Value.Part) >= 0 || m.Value.Part == "blade"), $"код {c.Id}: {m}");
                 Assert.True(c.Pixels > 0 && c.X1 > c.X0 && c.Y1 > c.Y0);
             }
-            // 6б: пиксели мечей — сегмент 11 «клинок» своего бойца.
+            // Пиксели мечей — сегмент 11 «клинок» своего бойца.
             var blade = result.Ids.First(c => SkinnedMeshes.SplitId(c.Id).Part == BodySegs.Weapon);
             var bladeMeaning = ((IClientObservable)arena).DescribeId(blade.Id)!.Value;
             Assert.Equal("blade", bladeMeaning.Part);
@@ -173,7 +173,7 @@ public sealed class IdBufferGpuTests : IDisposable, ILogSink
                 renderer.Render(Measured, vsync: false);
             }
             Assert.Equal(4 * BodySegs.Bodies, arena.DrawnCapsules);
-            Assert.Equal(4, arena.DrawnBlades);   // 6б: F7 — капсулы и клинки: вызов капсул и вызов отрезков
+            Assert.Equal(4, arena.DrawnBlades);   // F7 — капсулы и клинки: вызов капсул и вызов отрезков
             Assert.Contains(renderer.Graph.LastFrame, p => p.Name == "debug.bodies" && p.Draws == 2);
             Assert.Equal(0, bytes);
             Assert.True(_d3d12.Count == 0, "сообщения отладочного слоя D3D12:\n" + string.Join("\n", _d3d12));

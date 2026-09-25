@@ -6,7 +6,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent.Tests;
 
 /// <summary>
-/// Реплеи и сеанс агента (этап 3б): replay.save/status/check/diff, session.start, time.seek — над подопытной симуляцией
+/// Реплеи и сеанс агента: replay.save/status/check/diff, session.start, time.seek — над подопытной симуляцией
 /// с построителем, как у Headless.
 /// </summary>
 public sealed class ReplayToolsTests : IDisposable
@@ -112,7 +112,7 @@ public sealed class ReplayToolsTests : IDisposable
         Assert.Equal(0, seeded["divergence"]!["tick"]!.GetValue<int>());
         Assert.Null(seeded["divergence"]!["cause"]);   // сведения те же — причины нет
 
-        // 8з: другое сведение реплея (как другая база Motion Matching) — предупреждение и вероятная причина в расхождении.
+        // Другое сведение реплея (как другая база Motion Matching) — предупреждение и вероятная причина в расхождении.
         var other = await Tool("replay.check", new JsonObject { ["path"] = "script.swreplay", ["set"] = new JsonArray("sim.seed=9", "basefact.base=B") });
         Assert.Contains(other["warnings"]!.AsArray(), w => w!.GetValue<string>().Contains("basefact.base: в реплее A, в симуляции B"));
         Assert.Contains("basefact.base: в реплее A, в симуляции B", other["divergence"]!["cause"]!.GetValue<string>());
@@ -124,7 +124,7 @@ public sealed class ReplayToolsTests : IDisposable
         public string Base { get; set; } = "A";
     }
 
-    /// <summary>Подопытное сведение реплея (8з): строка настроек в заголовке реплея (<c>facts</c>), как отпечаток базы Motion Matching.</summary>
+    /// <summary>Подопытное сведение реплея: строка настроек в заголовке реплея (<c>facts</c>), как отпечаток базы Motion Matching.</summary>
     private sealed class BaseFactModule : IModule
     {
         public string Id => "basefact";
@@ -198,7 +198,7 @@ public sealed class ReplayToolsTests : IDisposable
         Assert.True(status["playback"]!["match"]!.GetValue<bool>());
         Assert.False((await Tool("session.status"))["causality"]!.GetValue<bool>());
 
-        // режим причинности (6д): та же запись — те же хеши; журнал пишется; режим переживает перемотку назад
+        // режим причинности: та же запись — те же хеши; журнал пишется; режим переживает перемотку назад
         var caused = await Tool("session.start", new JsonObject { ["replay"] = "base.swreplay", ["causality"] = true });
         Assert.True(caused["causality"]!.GetValue<bool>());
         await Step(40);
@@ -270,7 +270,7 @@ public sealed class ReplayToolsTests : IDisposable
     }
 
     /// <summary>
-    /// Нарушение инварианта в реплее (этап 3г): NaN-толчок тика 12 — replay.observe находит первое нарушение глубже истории;
+    /// Нарушение инварианта в реплее: NaN-толчок тика 12 — replay.observe находит первое нарушение глубже истории;
     /// инвариант агента переживает перемотку назад.
     /// </summary>
     [Fact]

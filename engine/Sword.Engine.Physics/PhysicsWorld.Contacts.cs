@@ -3,9 +3,9 @@ using Sword.Engine.Geometry;
 
 namespace Sword.Engine.Physics;
 
-// 7г: статический мир (земля, стена, колонны), контакты подшага — с миром, пары сочленений, скоростной проход — и границы
+// Статический мир (земля, стена, колонны), контакты подшага — с миром, пары сочленений, скоростной проход — и границы
 // сочленений. Земля по граням — Ground.cs; шаг — PhysicsWorld.Step.cs. Идеи — SolveContacts, PushOut, SolvedDepth, Collide,
-// PrevOverlap, SolveContactVelocities, UpdateBounds SWORD 2eab13b (research-arena-tick §1.3); свои решения — docs/history/engine-physics.md, «7г».
+// PrevOverlap, SolveContactVelocities, UpdateBounds SWORD 2eab13b (research-arena-tick §1.3); свои решения — docs/history/engine-physics.md.
 public sealed partial class PhysicsWorld
 {
     /// <summary>Запас буфера скоростного прохода — контактов на слот тела (растёт вместе со слотами тел; переполнение — удвоение, разово).</summary>
@@ -35,11 +35,11 @@ public sealed partial class PhysicsWorld
     private (int I, int J)[] _contactsArtPairs = [];
     private int _contactsArtPairCount;
 
-    /// <summary>Тела сочленения у сферы чужого (отсев тел пары, 7з-2) — буфер на пару (растёт со слотами тел).</summary>
+    /// <summary>Тела сочленения у сферы чужого (отсев тел пары) — буфер на пару (растёт со слотами тел).</summary>
     private int[] _contactsNear = [];
 
     /// <summary>
-    /// Щуп тела для пар подшага (7з-2): центр, полуось капсулы в мире (ось · полудлина), полуразмер коробки по осям мира (|полуось| +
+    /// Щуп тела для пар подшага: центр, полуось капсулы в мире (ось · полудлина), полуразмер коробки по осям мира (|полуось| +
     /// радиус), радиус, на физике ли — плотно и без поворота на каждую пару. У тел на физике — с отсева подшага и после каждой поправки пары
     /// (толчка), у кинематических — с начала шага.
     /// </summary>
@@ -48,14 +48,14 @@ public sealed partial class PhysicsWorld
         public Vector3 Center, Axis, Extent;
         public float Radius;
 
-        /// <summary>Тело на физике неспящего сочленения (7з-3: спящее тело для пар — не «на физике», а неподвижная опора — <see cref="Asleep"/>).</summary>
+        /// <summary>Тело на физике неспящего сочленения (спящее тело для пар — не «на физике», а неподвижная опора — <see cref="Asleep"/>).</summary>
         public bool Simulated;
 
-        /// <summary>Тело спящего сочленения (7з-3): неспящему телу на физике — неподвижная опора, кинематическому — ничего.</summary>
+        /// <summary>Тело спящего сочленения: неспящему телу на физике — неподвижная опора, кинематическому — ничего.</summary>
         public bool Asleep;
     }
 
-    /// <summary>Коробка сочленения по осям мира (центр, полуразмер) — отсев пар подшага (7з-2).</summary>
+    /// <summary>Коробка сочленения по осям мира (центр, полуразмер) — отсев пар подшага.</summary>
     private readonly record struct ContactsBox(Vector3 Center, Vector3 Half);
 
     /// <summary>Щупы по слотам тел (<see cref="ContactsProbe"/>).</summary>
@@ -77,30 +77,30 @@ public sealed partial class PhysicsWorld
     /// <summary>Пар сочленений, прошедших отсев по свежим границам, за последний шаг (все подшаги) — тестам и диагностике.</summary>
     internal int ContactsPairChecks { get; private set; }
 
-    /// <summary>Проверок коробки тела против коробки чужого сочленения (отсев тел пары, 7з-2) за последний шаг — тестам и диагностике.</summary>
+    /// <summary>Проверок коробки тела против коробки чужого сочленения (отсев тел пары) за последний шаг — тестам и диагностике.</summary>
     internal int ContactsBodyChecks { get; private set; }
 
-    /// <summary>Контактов пар с трением покоя и сколько из них держало (сдвиг погашен) за последний шаг (7з-2) — тестам и диагностике.</summary>
+    /// <summary>Контактов пар с трением покоя и сколько из них держало (сдвиг погашен) за последний шаг — тестам и диагностике.</summary>
     internal int ContactsPairFrictionChecks { get; private set; }
 
     internal int ContactsPairFrictionHeld { get; private set; }
 
     /// <summary>
-    /// Тела, которых в подшаге касались пары (другое тело на физике, толчок живого), — для земли после пар (7з-2): номер подшага пометки по
+    /// Тела, которых в подшаге касались пары (другое тело на физике, толчок живого), — для земли после пар: номер подшага пометки по
     /// слотам тел (без очистки массива) и список помеченных по порядку пометки.
     /// </summary>
     private int[] _contactsPressedStamp = [], _contactsPressed = [];
     private int _contactsPressedCount, _contactsSubstepStamp;
 
     /// <summary>
-    /// Поза тела до первой поправки пары в подшаге (после мира) — по слотам тел, с номером подшага пометки (7з-2): мир после пар решает
+    /// Поза тела до первой поправки пары в подшаге (после мира) — по слотам тел, с номером подшага пометки: мир после пар решает
     /// только то, что сделали пары, — глубину и сдвиг по земле от этой позы (<see cref="ContactsPressedWorld"/>).
     /// </summary>
     private int[] _contactsPoseStamp = [];
     private Vector3[] _contactsPosePosition = [];
     private Quaternion[] _contactsPoseRotation = [];
 
-    /// <summary>Тел, прижатых парами к земле, которых земля выталкивала второй раз (после пар), за последний шаг (7з-2) — тестам и диагностике.</summary>
+    /// <summary>Тел, прижатых парами к земле, которых земля выталкивала второй раз (после пар), за последний шаг — тестам и диагностике.</summary>
     internal int ContactsPressedChecks { get; private set; }
 
     /// <summary>Пар тел, дошедших до ближайших точек осей (<c>SegSeg</c>), за последний шаг — тестам и диагностике.</summary>
@@ -109,7 +109,7 @@ public sealed partial class PhysicsWorld
     /// <summary>
     /// Контакт подшага для скоростного прохода: точки — в системах тел (до выталкивания), нормаль — от второго к первому; второго
     /// нет (−1) — мир. <see cref="Sliding"/> — предел импульса трения скольжения, Н·с: <c>μ · λn / h</c> (0 — без трения);
-    /// <see cref="Lambda"/> — нормальная λ контакта, кг·м (бюджет трения покоя пар, 7з-2).
+    /// <see cref="Lambda"/> — нормальная λ контакта, кг·м (бюджет трения покоя пар).
     /// </summary>
     private struct ContactsVelocityEntry
     {
@@ -119,14 +119,14 @@ public sealed partial class PhysicsWorld
         public PhysicsSource Source;
     }
 
-    /// <summary>Бюджет трения покоя пар подшага по слотам тел, кг·м (7з-2): <c>μ · Σλn</c> пар тела; вне прохода трения — 0.</summary>
+    /// <summary>Бюджет трения покоя пар подшага по слотам тел, кг·м: <c>μ · Σλn</c> пар тела; вне прохода трения — 0.</summary>
     private float[] _contactsBudget = [];
 
     public void SetGround(IGround? ground)
     {
         if (ReferenceEquals(_ground, ground)) return;
         _ground = ground;
-        SleepWakeAll(WakeReason.Settings);   // 7з-3: опора спящих могла уйти
+        SleepWakeAll(WakeReason.Settings);   // опора спящих могла уйти
     }
 
     public void SetWall(float radius)
@@ -149,7 +149,7 @@ public sealed partial class PhysicsWorld
         if (_pillars.Length < pillars.Length) _pillars = new Pillar[pillars.Length];
         pillars.CopyTo(_pillars);
         _pillarCount = pillars.Length;
-        SleepWakeAll(WakeReason.Settings);   // 7з-3
+        SleepWakeAll(WakeReason.Settings);
     }
 
     public ArticulationBounds Bounds(ArticulationHandle articulation)
@@ -270,7 +270,7 @@ public sealed partial class PhysicsWorld
         ref var s = ref _bodies[body];
         float limit = _wallRadius - s.Radius;
         float half = s.HalfLength;
-        // 7з-2: отсев по центру — торцы не дальше полудлины от центра: центр ближе <c>limit − полудлина</c> к оси арены — торцам не до стены
+        // Отсев по центру — торцы не дальше полудлины от центра: центр ближе <c>limit − полудлина</c> к оси арены — торцам не до стены
         float inner = limit - half;
         if (inner > 0 && s.Position.X * s.Position.X + s.Position.Z * s.Position.Z < inner * inner) return;
         ContactsWallEnd(body, -half, limit, h);
@@ -330,7 +330,7 @@ public sealed partial class PhysicsWorld
     // ——— Пары сочленений ———
 
     /// <summary>
-    /// Отсев сочленений подшага (7з-2 — по коробкам): щупы тел (<see cref="ContactsProbe"/>) и коробки сочленений с телами на физике — по
+    /// Отсев сочленений подшага (по коробкам): щупы тел (<see cref="ContactsProbe"/>) и коробки сочленений с телами на физике — по
     /// позе этого подшага (у сочленений без тел на физике — на весь шаг, <see cref="ContactsKinematicBounds"/>); пары <c>i &lt; j</c> по
     /// слотам, чьи коробки пересеклись, — в список подшага; пары без тела на физике — мимо. Коробка (по осям мира) у лежащего трупа
     /// теснее сферы: в куче сфер пересекалась бо́льшая часть пар.
@@ -375,7 +375,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Щупы и коробки сочленений без тел на физике — раз на шаг, в его начале (их тела шаг не двигает). 7з-3: спящих — нет (сняты при засыпании,
+    /// Щупы и коробки сочленений без тел на физике — раз на шаг, в его начале (их тела шаг не двигает). Спящих — нет (сняты при засыпании,
     /// поза та же); остальных — нет, если их уже сняла проверка пробуждения этого шага.
     /// </summary>
     private void ContactsKinematicBounds()
@@ -408,8 +408,8 @@ public sealed partial class PhysicsWorld
 
     /// <summary>
     /// Пары сочленений из отсева подшага (<c>i &lt; j</c> по слотам): внутри пары — тела по порядку, пары тел без тела на физике — пропуск до
-    /// <c>SegSeg</c>. Затем самоколлизия (7з-4: пары своих тел сочленения из его таблицы, <see cref="SelfPairs"/>). После нормалей всех пар — трение
-    /// покоя пар (7з-2; и у самоколлизии — бюджет тела общий).
+    /// <c>SegSeg</c>. Затем самоколлизия (пары своих тел сочленения из его таблицы, <see cref="SelfPairs"/>). После нормалей всех пар — трение
+    /// покоя пар (и у самоколлизии — бюджет тела общий).
     /// </summary>
     private void ContactsPairs(float h)
     {
@@ -446,7 +446,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Мир после пар (7з-2) — для тел, которых поправили пары (другое тело на физике, толчок живого): пара (тяжёлое тело на лёгком, клинок
+    /// Мир после пар — для тел, которых поправили пары (другое тело на физике, толчок живого): пара (тяжёлое тело на лёгком, клинок
     /// живого, бьющий вниз) вдавливает тело в землю после её прохода, и к концу подшага оно оставалось бы в земле — в следующем подшаге эта
     /// глубина уже «застарелая» и выходит не быстрее <see cref="PhysicsSettings.PopSpeed"/>, а пара вдавливает снова (клинок под кучей тонул до
     /// 7,8 см). И тело, не касавшееся земли в первом проходе: толчок мог загнать его в землю.
@@ -457,8 +457,8 @@ public sealed partial class PhysicsWorld
     /// сдвиг, сделанный парами, бюджетом всей нагрузки тела (вместе с первым проходом, <see cref="GroundFriction"/>). Опора тела, лежащего на
     /// ней, поднимается только на то, на что его же нормаль её вдавила, — вдоль нормали пары, без касательного сдвига под лежащим. Решай второй
     /// проход всю глубину от начала подшага — он поднимал бы опору на недотянутое первым проходом уже после трения пар, и тело на наклонном
-    /// касании сползало бы на <c>подъём · sin</c> за подшаг (замер 7з-2: стержень на двух опорах, 18°, — 1 мм/с). Первый проход мира — до пар
-    /// (как с 7г): мир только после пар оставлял опору осевшей под тяжестью на время пар — сползание на <c>g·h²·sin</c> за подшаг (6 мм/с).
+    /// касании сползало бы на <c>подъём · sin</c> за подшаг (замер: стержень на двух опорах, 18°, — 1 мм/с). Первый проход мира — до пар:
+    /// мир только после пар оставлял опору осевшей под тяжестью на время пар — сползание на <c>g·h²·sin</c> за подшаг (6 мм/с).
     /// </para>
     /// </summary>
     private void ContactsPressedWorld(float h)
@@ -476,7 +476,7 @@ public sealed partial class PhysicsWorld
     /// Прижатое тело — мир от позы до пар: прошлая поза подменяется на время прохода и возвращается. Касались земли оба торца — ещё раз
     /// нормали земли без трения: поправка второго торца поворачивает тело и вдавливает первый (качели: живой давит на конец клинка, земля
     /// поднимает этот конец — другой уходит в землю), а к следующему подшагу это застарелая глубина, выходящая не быстрее
-    /// <see cref="PhysicsSettings.PopSpeed"/> (замер 7з-2, толпа сценария «Бой»: клинок под стопой живого тонул до 4 см).
+    /// <see cref="PhysicsSettings.PopSpeed"/> (замер, толпа сценария «Бой»: клинок под стопой живого тонул до 4 см).
     /// </summary>
     private void ContactsPressedBody(int b, float h)
     {
@@ -492,7 +492,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Трение покоя пар тел на физике (7з-2; по образцу земли) — после нормалей всех пар подшага: «всё или ничего»
+    /// Трение покоя пар тел на физике (по образцу земли) — после нормалей всех пар подшага: «всё или ничего»
     /// (<see cref="Xpbd.Friction(ref BodyState, Vector3, ref BodyState, Vector3, Vector3, float, float, float, float)"/>) по контактам
     /// подшага в материальных точках контакта, с <b>общим бюджетом тела</b> <c>μ · Σλn</c> его пар: контакт держит, если его λt не больше
     /// остатка бюджета обоих тел, и тратит его у обоих. Одно касание гасит сдвиг тела целиком, а его λn — лишь доля веса (тело на двух
@@ -525,10 +525,10 @@ public sealed partial class PhysicsWorld
         }
     }
 
-    /// <summary>Контакт подшага из прохода пар: пара тел на физике (и самоколлизия, 7з-4) или (7з-3) тело на спящем (мир с источником «пара»); земля и стена — нет.</summary>
+    /// <summary>Контакт подшага из прохода пар: пара тел на физике (и самоколлизия) или тело на спящем (мир с источником «пара»); земля и стена — нет.</summary>
     private static bool ContactsPairEntry(in ContactsVelocityEntry e) => e.Other >= 0 || e.Source == PhysicsSource.Pair;
 
-    /// <summary>Трение покоя тела о спящее (7з-3) — как о землю: точка спящего неподвижна; бюджет — общий с парами тела.</summary>
+    /// <summary>Трение покоя тела о спящее — как о землю: точка спящего неподвижна; бюджет — общий с парами тела.</summary>
     private void ContactsSleeperStatic(in ContactsVelocityEntry e, float h)
     {
         float budget = _contactsBudget[e.Body];
@@ -570,7 +570,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Пара сочленений (7з-2 — отсев тел по коробкам): тело, чья коробка не задевает коробки чужого сочленения, не касается ни одного его
+    /// Пара сочленений (отсев тел по коробкам): тело, чья коробка не задевает коробки чужого сочленения, не касается ни одного его
     /// тела (все его капсулы — внутри неё), — поэтому сначала тела <paramref name="j"/> у коробки <paramref name="i"/> (список по порядку),
     /// затем тела <paramref name="i"/> у коробки <paramref name="j"/> против этого списка. Порядок пар тел — прежний.
     /// </summary>
@@ -619,11 +619,11 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Пара тел разных сочленений, хотя бы одно — на физике, чьи коробки пересеклись (7з-2: отсев по коробкам капсул — щупам подшага
+    /// Пара тел разных сочленений, хотя бы одно — на физике, чьи коробки пересеклись (отсев по коробкам капсул — щупам подшага
     /// <see cref="_contactsProbe"/>, они же дают отрезки осей без поворота на пару): ближайшие точки осей; пересеклись — тело на физике ↔
     /// тело на физике: <see cref="Xpbd.Contact(ref BodyState, Vector3, ref BodyState, Vector3, Vector3, float, float, float, float)"/> с
     /// <see cref="PhysicsSettings.ContactCompliance"/> и старой глубиной пары в прошлых позах, в скоростной проход; кинематическое
-    /// ↔ на физике — толчок 7д (<see cref="PushKinematic"/>, полная глубина, нормаль — от кинематического).
+    /// ↔ на физике — толчок (<see cref="PushKinematic"/>, полная глубина, нормаль — от кинематического).
     /// </summary>
     private void ContactsBodyPair(int ia, int ib, float h)
     {
@@ -646,7 +646,7 @@ public sealed partial class PhysicsWorld
             ContactsSimulatedPair(ia, ib, pa, pb, n, pen, h, PhysicsSource.Pair, 1);
             return;
         }
-        // 7з-3: спящее тело — неподвижная опора неспящему телу на физике (кинематическое ↔ спящее сюда не доходит: отсев)
+        // Спящее тело — неподвижная опора неспящему телу на физике (кинематическое ↔ спящее сюда не доходит: отсев)
         if (qa.Asleep)
         {
             ContactsSleepingPair(ib, ia, pb, -n, pen, h);
@@ -657,14 +657,14 @@ public sealed partial class PhysicsWorld
             ContactsSleepingPair(ia, ib, pa, n, pen, h);
             return;
         }
-        // Толчок живого (7д) пишет трассу сам — вокруг вызова её нет.
+        // Толчок живого пишет трассу сам — вокруг вызова её нет.
         if (sa) PushKinematic(ib, ia, pb, pa, n, pen, h);
         else PushKinematic(ia, ib, pa, pb, -n, pen, h);
     }
 
     /// <summary>
     /// Два тела на физике, легшие друг в друга, расходятся не быстрее скорости выталкивания (сверх встречного движения). Источник — пара
-    /// сочленений (<see cref="PhysicsSource.Pair"/>, радиусы как есть) или самоколлизия (7з-4: <see cref="PhysicsSource.Self"/>, радиусы ×
+    /// сочленений (<see cref="PhysicsSource.Pair"/>, радиусы как есть) или самоколлизия (<see cref="PhysicsSource.Self"/>, радиусы ×
     /// <paramref name="scale"/> — и в старой глубине).
     /// </summary>
     private void ContactsSimulatedPair(int ia, int ib, Vector3 pa, Vector3 pb, Vector3 n, float pen, float h, PhysicsSource source, float scale)
@@ -697,7 +697,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Тело на физике <paramref name="body"/> касается тела спящего сочленения <paramref name="sleeper"/> (7з-3): спящее — неподвижная опора, как
+    /// Тело на физике <paramref name="body"/> касается тела спящего сочленения <paramref name="sleeper"/>: спящее — неподвижная опора, как
     /// земля (<see cref="Xpbd.Contact(ref BodyState, Vector3, Vector3, float, float, float, float)"/> с миром и
     /// <see cref="PhysicsSettings.ContactCompliance"/>; старая глубина — пары в прошлых позах, у спящего прошлая поза — та же; застарелая выходит
     /// не быстрее <see cref="PhysicsSettings.PopSpeed"/>), в скоростной проход — с трением скольжения пар, трение покоя — с бюджетом тела вместе с
@@ -743,7 +743,7 @@ public sealed partial class PhysicsWorld
         return Segments.SegSeg(pa - ea, pa + ea, pb - eb, pb + eb, out ca, out cb);
     }
 
-    /// <summary>Глубина пары капсул в прошлых позах (начало подшага), м (радиусы × <paramref name="scale"/> — самоколлизия, 7з-4); нет пересечения — 0.</summary>
+    /// <summary>Глубина пары капсул в прошлых позах (начало подшага), м (радиусы × <paramref name="scale"/> — самоколлизия); нет пересечения — 0.</summary>
     private static float ContactsPrevOverlap(in BodyState a, in BodyState b, float scale = 1)
     {
         float d2 = ContactsClosest(a.PrevPosition, a.PrevRotation, a.HalfLength, b.PrevPosition, b.PrevRotation, b.HalfLength, out _, out _);
@@ -797,7 +797,7 @@ public sealed partial class PhysicsWorld
 
     /// <summary>
     /// Контакт скоростного прохода: обратные инерции тел — матрицы подшага (<see cref="_stepInertia"/>: поза после обновления скоростей
-    /// не меняется). Пара тел на физике (7з-2) — после нормали трение скольжения по Кулону, как у земли: относительная касательная скорость
+    /// не меняется). Пара тел на физике — после нормали трение скольжения по Кулону, как у земли: относительная касательная скорость
     /// точек гасится импульсом не больше <c>μ · λn / h</c>.
     /// </summary>
     private void ContactsSolveVelocity(in ContactsVelocityEntry c)
@@ -855,7 +855,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Трение скольжения пары тел на физике (7з-2): относительная касательная скорость точек контакта гасится импульсом против неё (тело
+    /// Трение скольжения пары тел на физике: относительная касательная скорость точек контакта гасится импульсом против неё (тело
     /// a — минус, b — плюс), не больше <paramref name="limit"/>, Н·с, и не больше, чем нужно до нуля; импульс пары сохраняется.
     /// </summary>
     private static void ContactsPairSliding(ref BodyState a, in InvInertiaMatrix wa, Vector3 pa, Vector3 ra, ref BodyState b, in InvInertiaMatrix wb,

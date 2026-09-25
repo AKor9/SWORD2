@@ -19,7 +19,7 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 6б «Подготовка и оружие»: таблица оружия (мечи пака по алфавиту, клинок по мешу), меч в руке (враг — случайный новой
+/// Подготовка и оружие: таблица оружия (мечи пака по алфавиту, клинок по мешу), меч в руке (враг — случайный новой
 /// выборкой потока спауна, игрок — <c>combat.playerWeapon</c>), инвентарь и T, клинок каждого тика (на кисти, прошлое — прошлый
 /// тик, смена меча — без прохода), инварианты <c>combat.*</c> на неисправностях, команды арены в Begin, таблица ударов
 /// (<see cref="StrikeWindows"/>), инструмент <c>combat.weapons</c>, поиск Sword.exe сервером агента.
@@ -96,7 +96,7 @@ public sealed class CombatTests
             {
                 var a = ArenaRules.Enemy(rng, 5, batch, slot, center, 2);
                 var b = ArenaRules.Enemy(rng, 5, batch, slot, center, 64);
-                // Меч — своя выборка: корень, курс и зерно от числа мечей не зависят (расстановка до 6б не сдвинулась).
+                // Меч — своя выборка: корень, курс и зерно от числа мечей не зависят.
                 Assert.Equal((a.Position, a.Facing, a.Seed), (b.Position, b.Facing, b.Seed));
                 Assert.InRange(a.Weapon, 0, 1);
                 seen.Add(a.Weapon);
@@ -206,7 +206,7 @@ public sealed class CombatTests
         var arena = sim.World.Systems.Single(s => s.Label == GameLabels.ArenaCommand.Name);
         Assert.Equal(GameStages.Begin, arena.Stage);
         Step(sim, 30, new PlayerCommand { Move = new Vector2(1, 0) });
-        // Тик сброса с командой игрока: игрок построен заново в центре и уже в этом тике идёт по команде (подпорки 4а нет).
+        // Тик сброса с командой игрока: игрок построен заново в центре и уже в этом тике идёт по команде.
         sim.Enqueue(new ArenaCommand { Action = ArenaAction.Reset });
         Step(sim, 1, new PlayerCommand { Move = new Vector2(0, 1) });
         var player = GameCore.Player(sim.World);
@@ -355,7 +355,7 @@ public sealed class CombatTests
             string headlessBin = Path.Combine(root, "game", "Sword.Game.Headless", "bin", "Debug", "net10.0-windows10.0.22000.0") + Path.DirectorySeparatorChar;
             string agentBin = Path.Combine(root, "artifacts", "agent-bin", "headless", "123456") + Path.DirectorySeparatorChar;
             Assert.Equal(exe, AppLocator.Find(root, headlessBin, optimized: true));    // по папке за bin — Debug
-            Assert.Equal(exe, AppLocator.Find(root, agentBin, optimized: false));      // вне bin (6а: agent-bin) — Debug сборки
+            Assert.Equal(exe, AppLocator.Find(root, agentBin, optimized: false));      // вне bin (agent-bin) — Debug сборки
             Assert.Null(AppLocator.Find(root, agentBin, optimized: true));             // Release App не собран
         }
         finally
@@ -367,7 +367,7 @@ public sealed class CombatTests
 
 public enum CombatFault { BladeShifted, BladeWrongWeapon, WeaponOutOfTable, PlayerWeaponNotEquipped }
 
-/// <summary>Модуль-неисправность боя (6б): на тике <see cref="Tick"/> портит клинок или меч.</summary>
+/// <summary>Модуль-неисправность боя: на тике <see cref="Tick"/> портит клинок или меч.</summary>
 public sealed class CombatFaultModule(CombatFault fault) : IModule
 {
     public const ulong Tick = 25;

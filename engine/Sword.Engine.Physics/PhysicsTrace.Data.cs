@@ -2,17 +2,17 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// 7д: члены трассы физики (класс объявлен в Contract.cs): включается владельцем (IPhysicsWorld.EnableTrace), пишут её крючки
+// Члены трассы физики (класс объявлен в Contract.cs): включается владельцем (IPhysicsWorld.EnableTrace), пишут её крючки
 // мира (PhysicsTrace.cs) и толчки (KinematicContacts.cs). Накопители — PhysicsTrace.Stats.cs.
 public sealed partial class PhysicsTrace
 {
-    /// <summary>Источников поправок (<see cref="PhysicsSource"/>; 7з-4 — и самоколлизия).</summary>
+    /// <summary>Источников поправок (<see cref="PhysicsSource"/>, в том числе самоколлизия).</summary>
     public const int SourceCount = 8;
 
-    /// <summary>Фаз подшага (<see cref="PhysicsPhase"/>, 7з-2).</summary>
+    /// <summary>Фаз подшага (<see cref="PhysicsPhase"/>).</summary>
     public const int PhaseCount = 8;
 
-    /// <summary>Причин пробуждения (<see cref="WakeReason"/>, 7з-3).</summary>
+    /// <summary>Причин пробуждения (<see cref="WakeReason"/>).</summary>
     public const int WakeReasonCount = 6;
 
     /// <summary>Порог события по умолчанию: тело за тик быстрее, м/с.</summary>
@@ -50,14 +50,14 @@ public sealed partial class PhysicsTrace
     private int _touchedCount, _bodyCapacity;
 
     // по слотам сочленений: энергия на физике (кинетическая + m·g·y) в конце прошлого подшага и сейчас; толкали ли живые; касалось ли
-    // другого тела на физике (7з-2)
+    // другого тела на физике
     private double[] _energyPrev = [], _energyNow = [];
     private bool[] _energyHas = [], _energyValid = [], _pushed = [], _paired = [];
     private int _artCapacity;
     private double _energyTotal, _energyPairedTotal;
     private bool _energyTotalAny, _energyPairedAny;
 
-    // 7з-2: энергия по фазам подшага — после прошлой фазы и сейчас (по слотам сочленений), рост фаз этого подшага (сочленение × фаза)
+    // Энергия по фазам подшага — после прошлой фазы и сейчас (по слотам сочленений), рост фаз этого подшага (сочленение × фаза)
     private double[] _phaseNow = [], _phaseLast = [];
     private bool[] _phaseHas = [], _phaseLastValid = [], _phaseValid = [];
     private float[] _phaseGrowth = [];
@@ -90,7 +90,7 @@ public sealed partial class PhysicsTrace
 
     /// <summary>
     /// Последний тик: шаг (закрыт <c>TraceStep</c>) и то, что было после него до следующего шага, — удары, списание прохода,
-    /// отдача. Инварианты игры (7з, 7к) читают его после тика. Объект подменяется каждым шагом (накопитель шага и последний
+    /// отдача. Инварианты игры читают его после тика. Объект подменяется каждым шагом (накопитель шага и последний
     /// тик меняются местами) — читать через свойство после шага, ссылку между шагами не держать.
     /// </summary>
     public Stats Last => _last;
@@ -102,7 +102,7 @@ public sealed partial class PhysicsTrace
     public Stats Run => _run;
 
     /// <summary>
-    /// Контакты последнего подшага последнего шага (оверлей <c>contacts</c>, 7и): источник, тело, второе тело (нет — мир),
+    /// Контакты последнего подшага последнего шага (оверлей <c>contacts</c>): источник, тело, второе тело (нет — мир),
     /// точка, нормаль к телу, глубина и решённая за подшаг, м. Последний подшаг, а не все: у 4 подшагов контакт повторился бы 4
     /// раза чуть сдвинутым.
     /// </summary>
@@ -284,7 +284,7 @@ public sealed partial class PhysicsTrace
     }
 
     /// <summary>
-    /// Спящее сочленение проснулось (7з-3) по причине <paramref name="reason"/>: внутри шага (проверка до подшагов) — в накопитель шага, между
+    /// Спящее сочленение проснулось по причине <paramref name="reason"/>: внутри шага (проверка до подшагов) — в накопитель шага, между
     /// шагами (удар, запись, настройки) — в последний тик; всегда — в окно и прогон.
     /// </summary>
     internal void Wake(WakeReason reason, bool inStep)
@@ -294,7 +294,7 @@ public sealed partial class PhysicsTrace
         _run.Wake(reason);
     }
 
-    /// <summary>Сочленение уснуло (7з-3; конец шага).</summary>
+    /// <summary>Сочленение уснуло (конец шага).</summary>
     internal void Slept()
     {
         _step.Slept();
@@ -302,7 +302,7 @@ public sealed partial class PhysicsTrace
         _run.Slept();
     }
 
-    /// <summary>Неспящее тело на физике коснулось спящего (7з-3: спящее — неподвижная опора) в подшаге.</summary>
+    /// <summary>Неспящее тело на физике коснулось спящего (спящее — неподвижная опора) в подшаге.</summary>
     internal void SleepContact()
     {
         _step.SleepContact();
@@ -310,7 +310,7 @@ public sealed partial class PhysicsTrace
         _run.SleepContact();
     }
 
-    /// <summary>Спящих сочленений в конце шага (7з-3).</summary>
+    /// <summary>Спящих сочленений в конце шага.</summary>
     internal void AsleepAt(int count)
     {
         _step.AsleepAt(count);
@@ -357,7 +357,7 @@ public sealed partial class PhysicsTrace
         _pushed[articulation] = _paired[articulation] = false;
     }
 
-    /// <summary>Сочленения <paramref name="a"/> и <paramref name="b"/> в этом подшаге касались друг друга телами на физике (7з-2).</summary>
+    /// <summary>Сочленения <paramref name="a"/> и <paramref name="b"/> в этом подшаге касались друг друга телами на физике.</summary>
     internal void Paired(int a, int b)
     {
         _paired[a] = true;
@@ -365,7 +365,7 @@ public sealed partial class PhysicsTrace
     }
 
     /// <summary>
-    /// Конец подшага: рост энергии сочленения против конца прошлого подшага (или начала шага) — по классам (7з-2): толкаемое живыми, в
+    /// Конец подшага: рост энергии сочленения против конца прошлого подшага (или начала шага) — по классам: толкаемое живыми, в
     /// контакте с другим телом на физике (энергия передаётся между трупами — рост одного не накачка; их сумма — отдельно), без того и
     /// другого; рост по фазам подшага — у не толкаемых.
     /// </summary>

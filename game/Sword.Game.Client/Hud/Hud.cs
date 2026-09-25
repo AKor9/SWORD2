@@ -7,14 +7,14 @@ namespace Sword.Game.Client;
 
 /// <summary>
 /// Снимок кадра для HUD: числа кадра клиента и рендера (<c>HudData</c> SWORD 2eab13b); <paramref name="Profile"/> — сводка
-/// профайлера для F2 (точка Пв: главные зоны кадра, последняя аномалия), null — профайлера нет; <paramref name="Combat"/> — бой
-/// (6е: здоровье, враги, статистика, меч), null — боя нет (HUD без полосы здоровья и секции «ФИЗИКА И БОЙ»).
+/// профайлера для F2 (главные зоны кадра, последняя аномалия), null — профайлера нет; <paramref name="Combat"/> — бой
+/// (здоровье, враги, статистика, меч), null — боя нет (HUD без полосы здоровья и секции «ФИЗИКА И БОЙ»).
 /// </summary>
 public readonly record struct HudData(FrameStats Frame, int DrawCalls, int UiQuads, string Adapter, ProfileDigest? Profile = null,
     CombatHud? Combat = null);
 
 /// <summary>
-/// Бой для HUD (6е; <c>DuelArena</c> SWORD — <c>Player.Hp</c>, <c>AliveEnemies</c>, <c>EnemyCount</c>, <c>Kills</c>, <c>Hits</c>,
+/// Бой для HUD (<c>DuelArena</c> SWORD — <c>Player.Hp</c>, <c>AliveEnemies</c>, <c>EnemyCount</c>, <c>Kills</c>, <c>Hits</c>,
 /// <c>LastHit</c>): снимок мира последнего тика кадра — очки жизни игрока и мёртв ли он, живых врагов из заданных, убито, попаданий,
 /// последний удар игрока (часть — сегмент, −1 — не было; урон; сбрасывается по R), меч в руке (имя таблицы; null — нет) и открыт ли
 /// инвентарь (открытый рисует панель, подпись в углу — только у закрытого).
@@ -64,13 +64,13 @@ public ref struct Line
 /// клавишам. Размеры — логические пиксели SWORD, масштаб — по высоте окна (<see cref="Scale"/>). Рисует списком квадов,
 /// без выделений в кадре.
 ///
-/// Точка Пг: полоса бюджета — CPU + GPU (как SWORD), секция «GPU» — время кадра на GPU и сумма его проходов (одна очередь — вместо
+/// Полоса бюджета — CPU + GPU (как SWORD), секция «GPU» — время кадра на GPU и сумма его проходов (одна очередь — вместо
 /// «compute» и «графика» SWORD), вызовы рисования и квады UI; GPU-время — последнего разобранного кадра (на 3 кадра раньше —
-/// кадры в полёте). F2 (точка Пв) — как «ПРОФАЙЛЕР, мс» SWORD внизу панели: зоны CPU (своё время, мс на кадр) и под ними (Пг)
-/// проходы GPU (мс на кадр, как в SWORD); ниже — строка среды (Пб) и последняя аномалия. В бенче F2 по умолчанию скрыт (в SWORD —
+/// кадры в полёте). F2 — как «ПРОФАЙЛЕР, мс» SWORD внизу панели: зоны CPU (своё время, мс на кадр) и под ними
+/// проходы GPU (мс на кадр, как в SWORD); ниже — строка среды и последняя аномалия. В бенче F2 по умолчанию скрыт (в SWORD —
 /// показан): F2 включает профайлер, а бенч без <c>--profile</c> меряется без него.
 ///
-/// Бой (6е; <c>Hud.DrawDuel</c> SWORD): секция «ФИЗИКА И БОЙ» панели — враги (живых / всего), убито, попаданий; полоса здоровья
+/// Бой (<c>Hud.DrawDuel</c> SWORD): секция «ФИЗИКА И БОЙ» панели — враги (живых / всего), убито, попаданий; полоса здоровья
 /// внизу по центру («HP n»), над ней — последний удар игрока («голова 61»); справа внизу — «оружие: … · I — инвентарь» (закрытый
 /// инвентарь, <c>InventoryUi</c> SWORD); мёртвый игрок — экран «ПАЛ» («убито N · R — снова в бой»). Отличия от SWORD: в секции нет
 /// времени физики, тел × шагов, отрубов, парирований и обломков (отруба и обломков нет — Cutting отложен, решение 17; блока нет — Guard
@@ -99,7 +99,7 @@ public sealed class Hud
     /// <summary>Справка (F1).</summary>
     public bool ShowHelp { get; set; } = true;
 
-    /// <summary>Профайлер (F2, точка Пв): главные зоны кадра, строка среды, последняя аномалия — секция внизу панели.</summary>
+    /// <summary>Профайлер (F2): главные зоны кадра, строка среды, последняя аномалия — секция внизу панели.</summary>
     public bool ShowProfiler { get; set; }
 
     /// <summary>Масштаб интерфейса по высоте окна: <c>clamp(h / 1080, 0,75, 2) · UserScale</c>.</summary>
@@ -223,8 +223,8 @@ public sealed class Hud
         var digest = data.Profile;
         int zoneRows = showProfiler ? digest is { Ready: true } ? digest.Count + GpuRows(digest) : 1 : 0;
         // SWORD: PerfPad + 30 + 16 + 3·TitleH + (4 + строк секции арены)·RowH + 20 + (F2: TitleH + n·RowH·0,9) + PerfPad — у нас две
-        // секции и четыре строки («КАДР» и «GPU» — по две, как в SWORD), с боем (6е) — третья секция «ФИЗИКА И БОЙ» (две строки); F2 —
-        // зоны CPU, проходы GPU (Пг), строка среды и последняя аномалия.
+        // секции и четыре строки («КАДР» и «GPU» — по две, как в SWORD), с боем — третья секция «ФИЗИКА И БОЙ» (две строки); F2 —
+        // зоны CPU, проходы GPU, строка среды и последняя аномалия.
         bool combat = data.Combat is not null;
         float height = PerfPad + 30 + 16 + (combat ? 3 : 2) * TitleH + (4 + (combat ? CombatRows : 0)) * RowH + 20 + PerfPad
             + (showProfiler ? TitleH + (zoneRows + ProfilerExtraRows) * RowH * ProfilerRowScale : 0);
@@ -239,7 +239,7 @@ public sealed class Hud
         d.TextRight(UiFace.Body, 12 * s, new(right, y + 17 * s), Dim, new Line(buf).S("макс ").F(f.FrameMsMax, "F1").S(" мс").Text);
         y += 30 * s;
 
-        // полоса бюджета 60 Гц: CPU + GPU (SWORD; GPU — последний разобранный кадр, точка Пг)
+        // полоса бюджета 60 Гц: CPU + GPU (SWORD; GPU — последний разобранный кадр)
         const double budget = 1000.0 / 60.0;
         float bx0 = x, bx1 = right, bw = bx1 - bx0, bh = 6 * s;
         d.Rect(bx0, y, bx1, y + bh, T.Track, 3 * s);
@@ -268,7 +268,7 @@ public sealed class Hud
 
         if (data.Combat is { } c)
         {
-            // 6е: секция арены DrawDuel SWORD — враги (живых / всего), убито, попаданий.
+            // Секция арены DrawDuel SWORD — враги (живых / всего), убито, попаданий.
             y = Section(d, s, x, y, "ФИЗИКА И БОЙ");
             Cell(d, s, x, y, 0, "враги", new Line(buf).I(c.AliveEnemies).S(" / ").I(c.Enemies).Text, TextC);
             Cell(d, s, x, y, 1, "убито", new Line(buf).I(c.Kills).Text, TextC);
@@ -284,9 +284,9 @@ public sealed class Hud
     }
 
     /// <summary>
-    /// Секция F2 (точка Пв; «ПРОФАЙЛЕР, мс» SWORD — там проходы GPU): главные зоны кадра по своему времени за прошлые 0,25 с
-    /// (мс на кадр, полоса — доля кадра), строка среды (Пб: перенесена сюда — в основной панели её нет, как в SWORD), последняя
-    /// аномалия — период, длительность, класс; главная зона и её лишнее время. Точка Пг: под зонами CPU — «GPU кадр» и главные
+    /// Секция F2 («ПРОФАЙЛЕР, мс» SWORD — там проходы GPU): главные зоны кадра по своему времени за прошлые 0,25 с
+    /// (мс на кадр, полоса — доля кадра), строка среды (в основной панели её нет, как в SWORD), последняя
+    /// аномалия — период, длительность, класс; главная зона и её лишнее время. Под зонами CPU — «GPU кадр» и главные
     /// проходы GPU (мс на кадр за то же окно).
     /// </summary>
     private static float DrawProfiler(UiDrawList d, float s, float x, float y, float right, Span<char> buf, in FrameStats f, ProfileDigest? digest)
@@ -315,7 +315,7 @@ public sealed class Hud
             }
             if (GpuRows(digest) > 0)
             {
-                // Точка Пг: проходы GPU (мс на кадр за то же окно; кадры — на 3 раньше: кадры в полёте), полоса — доля GPU-кадра.
+                // Проходы GPU (мс на кадр за то же окно; кадры — на 3 раньше: кадры в полёте), полоса — доля GPU-кадра.
                 double gpuFrame = Math.Max(digest.GpuFrameMs, 1e-6);
                 d.TextRight(UiFace.Num, 12 * s, new(right, y), GpuC, new Line(buf).F(digest.GpuFrameMs, "F3").Text);
                 d.Text(UiFace.Body, 12 * s, new(x, y), GpuC, "GPU кадр");
@@ -332,16 +332,16 @@ public sealed class Hud
                 }
             }
         }
-        // Среда за прошлую секунду (точка Пб): методов JIT, сборок GC и их пауза, загрузка CPU другими процессами.
+        // Среда за прошлую секунду: методов JIT, сборок GC и их пауза, загрузка CPU другими процессами.
         d.Text(UiFace.Body, 12 * s, new(x, y), RuntimeColour(f.Runtime), RuntimeText(new Line(buf), f.Runtime));
         y += rh;
         if (digest?.Profiler.Anomalies is { } anomalies && anomalies.TryGetLast(out var last))
         {
             d.Text(UiFace.Body, 12 * s, new(x, y), AnomalyColour(last.Class), AnomalyText(new Line(buf), last));
             y += rh;
-            // После Пв: справа — заметных за прогон из всех (заметная — кадр не короче интервала показа монитора).
+            // Справа — заметных за прогон из всех (заметная — кадр не короче интервала показа монитора).
             float cw = d.TextRight(UiFace.Body, 12 * s, new(right, y), Dim, NoticeableText(new Line(buf), anomalies.NoticeableCount, anomalies.Detected));
-            // Исправления после Пд: главной зоны нет (абсолютный порог на обычном кадре) — так и написано, без случайной зоны «+0».
+            // Главной зоны нет (абсолютный порог на обычном кадре) — так и написано, без случайной зоны «+0».
             var zone = last.HasZone
                 ? new Line(buf).S(last.ZoneName.AsSpan(0, Math.Min(last.ZoneName.Length, 64))).S(" +").F(last.ZoneExcessMs, "F2").S(" мс").Text
                 : new Line(buf).S(ProfileAnomaly.NoZoneText).Text;
@@ -356,15 +356,15 @@ public sealed class Hud
         return y;
     }
 
-    /// <summary>Строк проходов GPU в F2 (точка Пг): строка «GPU кадр» и проходы; времён GPU нет — ни одной.</summary>
+    /// <summary>Строк проходов GPU в F2: строка «GPU кадр» и проходы; времён GPU нет — ни одной.</summary>
     private static int GpuRows(ProfileDigest digest) => digest.GpuFrameMs > 0 ? 1 + digest.GpuCount : 0;
 
     /// <summary>Своё время корня кадра — вне всех зон (строка F2).</summary>
     public const string FrameSelfName = "frame (вне зон)";
 
     /// <summary>
-    /// Первая строка аномалии F2: «аномалия: кадр 1234 · 8.61 мс · JIT» (тик в кадре — «тик 383 в кадре 1234»); заметная (после Пв:
-    /// кадр не короче интервала показа монитора) — ещё «· заметная».
+    /// Первая строка аномалии F2: «аномалия: кадр 1234 · 8.61 мс · JIT» (тик в кадре — «тик 383 в кадре 1234»); заметная
+    /// (кадр не короче интервала показа монитора) — ещё «· заметная».
     /// </summary>
     public static ReadOnlySpan<char> AnomalyText(Line line, in ProfileAnomaly a)
     {
@@ -375,7 +375,7 @@ public sealed class Hud
         return a.Noticeable ? line.S(RuntimeSeparator).S(ProfileAnomaly.NoticeableWord).Text : line.Text;
     }
 
-    /// <summary>Счёт заметных F2 (после Пв): «заметных 3 из 12» — за прогон.</summary>
+    /// <summary>Счёт заметных F2: «заметных 3 из 12» — за прогон.</summary>
     public static ReadOnlySpan<char> NoticeableText(Line line, long noticeable, long detected) =>
         line.S("заметных ").I(noticeable).S(" из ").I(detected).Text;
 
@@ -386,7 +386,7 @@ public sealed class Hud
     public const string RuntimeSeparator = " · ";
 
     /// <summary>
-    /// Строка среды HUD (точка Пб): <c>JIT n · GC n/Y мс · фон CPU X %</c> — за прошлую секунду: методов JIT процесса,
+    /// Строка среды HUD: <c>JIT n · GC n/Y мс · фон CPU X %</c> — за прошлую секунду: методов JIT процесса,
     /// сборок GC и их пауза, загрузка CPU другими процессами (доля всех логических процессоров). До первой секунды — прочерки.
     /// </summary>
     public static ReadOnlySpan<char> RuntimeText(Line line, in RuntimeLine r)
@@ -423,18 +423,18 @@ public sealed class Hud
     public static IReadOnlyList<string> HelpLines(IReadOnlyDictionary<string, string> keys)
     {
         string K(InputAction a) => keys.TryGetValue(a.Name, out var k) ? Show(k) : Show(a.DefaultKey);
-        // Панель ручек (DevTools, 6е) — в справке, только когда её действие привязано (сборки без DevTools его нет); вкладки — «Бой»
-        // и (7и, часть 2) «Рэгдолл».
+        // Панель ручек (DevTools) — в справке, только когда её действие привязано (сборки без DevTools его нет); вкладки — «Бой»
+        // и «Рэгдолл».
         string tuning = keys.TryGetValue(TuningAction, out var t) ? $"    {Show(t)} — ручки (бой, рэгдолл)" : "";
         return
         [
             $"курсор — поворот    {K(ArenaInput.MoveForward)} {K(ArenaInput.MoveLeft)} {K(ArenaInput.MoveBack)} {K(ArenaInput.MoveRight)} — движение ({K(ArenaInput.Walk)} — шагом)",
             $"колесо, {K(ArenaInput.CameraZoomIn)} {K(ArenaInput.CameraZoomOut)} — зум    {K(ArenaInput.CameraRotateLeft)} {K(ArenaInput.CameraRotateRight)} / {K(ArenaInput.CameraOrbit)} — камера    {K(ArenaInput.CameraFollow)} — свободная",
-            // 7и: суставы и контакты физики (отладочные оверлеи, как F7) — в строку клавиш представления: число строк справки прежнее.
+            // Суставы и контакты физики (отладочные оверлеи, как F7) — в строку клавиш представления: число строк справки прежнее.
             $"{K(ArenaInput.HudHelp)} — справка    {K(ArenaInput.HudProfiler)} — профайлер    {K(ClientHost.Screenshot)} — снимок    Esc — выход    " +
             $"{K(ArenaInput.DebugJoints)} — суставы    {K(ArenaInput.DebugContacts)} — контакты физики",
             $"{K(ArenaInput.EnemiesMore)} / {K(ArenaInput.EnemiesFewer)} — врагов ±1    {K(ArenaInput.ArenaReset)} — сброс арены    {K(ArenaInput.NextWeapon)} — следующий меч    {K(ArenaInput.DebugBodies)} — капсулы и клинки",
-            // 8з: траектории Motion Matching (оверлей) — в строку ударов: число строк справки прежнее.
+            // Траектории Motion Matching (оверлей) — в строку ударов: число строк справки прежнее.
             $"{K(ArenaInput.Attack)} — удар (жест мышью перед кликом — направление)    {K(ArenaInput.Stab)} — укол    {K(ArenaInput.Dash)} — рывок    " +
             $"{K(ArenaInput.DebugMotion)} — траектории MM",
             $"{K(ArenaInput.Inventory)} — инвентарь ({K(ArenaInput.Weapons[0])}–{K(ArenaInput.Weapons[^1])}, щелчок — взять меч){tuning}",

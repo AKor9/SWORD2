@@ -1,10 +1,10 @@
-# Анимация и локомоция клипами (этап 2)
+# Анимация и локомоция клипами
 
 Персонаж ходит и бегает клипами: стойка, ходьба и бег в 8 сторон с кроссфейдом и темпом по скорости — как игрок SWORD
 без Motion Matching. Так ходят враги всегда и игрок при `locomotion.player = clips` (значение в коде: тесты, сценарии фич, эталоны); в игре
-(`sword.json`) игрок — на Motion Matching (этап 8, модуль Locomotion). Позы считает подсистема `Sword.Engine.Animation` (пул поз, задания пачкой), выбор клипа — модуль
+(`sword.json`) игрок — на Motion Matching (модуль Locomotion). Позы считает подсистема `Sword.Engine.Animation` (пул поз, задания пачкой), выбор клипа — модуль
 Locomotion, аниматор бойца (вход слоя движения, слой действий, итоговая поза) — ядро игры, отрисовка — клиент по позе тика.
-Этап сделан (точки 2а–2в); история (точки, сверки со SWORD до 7а) — [docs/history/animation.md](../../../../docs/history/animation.md).
+История (сверки со SWORD) — [docs/history/animation.md](../../../../docs/history/animation.md).
 
 ## Откуда логика
 
@@ -30,17 +30,17 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 порядок тот же, аниматор видит скорость этого тика. Порядок держат эталон SWORD2 `animation.swreplay` (хеши каждого тика)
 и тесты.
 
-**Слой действий** (намеренных изменений семантики локомоции нет): поворот врага на месте клипом — точка 4г (фича
+**Слой действий** (намеренных изменений семантики локомоции нет): поворот врага на месте клипом (фича
 [«Враги»](../Enemies/README.md)): компонент `AnimatorAction` (действие `Turn`), поза слоя — `ActionPoses`, логика —
 `ActionLayer` (`game/Sword.Game/Animation/AnimatorAction.cs`), шаг действия — в `AnimatorInputSystem`, смешивание всем
-телом — в `AnimatorPoseSystem`. С 6б слой действий есть и у игрока, меч — жёсткое вложение в кисть hand_r позы; удары, вид
-рывка, маски верха, снимок позы и прерывание действия — 6в, вздрагивание — 6г (фича [«Бой»](../Combat/README.md)): снимок —
+телом — в `AnimatorPoseSystem`. Слой действий есть и у игрока, меч — жёсткое вложение в кисть hand_r позы; удары, вид
+рывка, маски верха, снимок позы и прерывание действия, вздрагивание — фича [«Бой»](../Combat/README.md): снимок —
 запрос в `AnimatorAction.Snapshots`, копия итоговой позы прошлого тика — `ActionSnapshotSystem` первой в Animation (поза
 `ActionPoses.Snap`), слой верха — задание пула `BlendMasked` по маске `ActionRules.UpperMask`.
 
-Не перенесено: фиксация и постановка стоп, `FootDown` (этап 9); визуальное смещение — не переносится (решение этапа 8); рука и IK
-кисти — с блоком (Guard отложен — решение 16). Motion Matching игрока — модуль Locomotion (этап 8,
-[README модуля](../../../modules/Sword.Game.Locomotion/README.md), «Motion Matching игрока в тике (8е)»).
+Не перенесено: фиксация и постановка стоп, `FootDown` (этап 9); визуальное смещение — не переносится; рука и IK
+кисти — с блоком (Guard отложен — решение 16). Motion Matching игрока — модуль Locomotion
+([README модуля](../../../modules/Sword.Game.Locomotion/README.md), «Motion Matching игрока в тике»).
 
 ## Устройство
 
@@ -63,7 +63,7 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 ## Настройки
 
 `modules.locomotion.enabled` — модуль Locomotion (без него поза — поза привязки, корень движется). Выбор клипов слотов
-— `combat/actions.json` в паке. Своих ручек у этапа нет: константы — `AnimatorRules`, `LegacyLocomotion` (литералы SWORD).
+— `combat/actions.json` в паке. Своих ручек у фичи нет: константы — `AnimatorRules`, `LegacyLocomotion` (литералы SWORD).
 
 ## Зависимости
 
@@ -80,9 +80,9 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 ## Что проверить в игре
 
 Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет). В игре (`sword.json`) игрок — на Motion
-Matching (этап 8): пункты про игрока — с `--set locomotion.player=clips`; враги — клипами всегда.
+Matching: пункты про игрока — с `--set locomotion.player=clips`; враги — клипами всегда.
 
-1. `Sword.exe` — Manny стоит в боевой стойке одноручного хвата (клип `1HM_Idle_Standing`; с 6б — с мечом в руке), слегка
+1. `Sword.exe` — Manny стоит в боевой стойке одноручного хвата (клип `1HM_Idle_Standing`, с мечом в руке), слегка
    покачивается, а не стоит в T-позе.
 2. W (курсор перед Manny) — разгоняется: пара шагов ходьбой, затем бег вперёд; ноги не скользят по полу.
 3. С зажатым Shift — шагом, заметно медленнее, шаги соответствуют скорости.
@@ -100,12 +100,12 @@ Matching (этап 8): пункты про игрока — с `--set locomotion
 
 | что | чем агент это видит и проверяет |
 |---|---|
-| компоненты `PoseRef`, `AnimatorMotion`, `LegacyLocomotionState` (враги; игрок — при `locomotion.player = clips`), `MotionMatchState` (игрок на Motion Matching, 8е) | `entity.get` / `world.query` по имени (поля, хэндлы поз — номер и поколение) |
+| компоненты `PoseRef`, `AnimatorMotion`, `LegacyLocomotionState` (враги; игрок — при `locomotion.player = clips`), `MotionMatchState` (игрок на Motion Matching) | `entity.get` / `world.query` по имени (поля, хэндлы поз — номер и поколение) |
 | клип — номер в библиотеке | `anim.clips` (номер ↔ ID, длительность, цикл, скорость корня) |
 | слой действий | `anim.pose` — поле `action` (действие, клип с именем, время, вес, `yawDelta`, `rootDelta`); `entity.get` → `AnimatorAction`; инвариант `animation.actions` |
 | поза — данные подсистемы, не ECS | `anim.pose` (суставы в пространстве персонажа и в мире, счётчики пула) |
-| поза Manny на экране | `capture.bundle` (картинка кадра; оверлея скелета нет; игрок на MM — оверлей траекторий `mm`, 8з) |
-| Motion Matching игрока (8з) | `anim.pose` → `motionMatching` (клип, последний поиск, замер, траектории), `events.history {"types":["MotionTransition"]}`, поля `MotionMatch.FootSlide`/`JointJump`, инварианты `locomotion.mmDecay`/`mmContinuity`, зона `locomotion.search` — [README модуля](../../../modules/Sword.Game.Locomotion/README.md), «Агенту и на экран (8з)» |
+| поза Manny на экране | `capture.bundle` (картинка кадра; оверлея скелета нет; игрок на MM — оверлей траекторий `mm`) |
+| Motion Matching игрока | `anim.pose` → `motionMatching` (клип, последний поиск, замер, траектории), `events.history {"types":["MotionTransition"]}`, поля `MotionMatch.FootSlide`/`JointJump`, инварианты `locomotion.mmDecay`/`mmContinuity`, зона `locomotion.search` — [README модуля](../../../modules/Sword.Game.Locomotion/README.md), «Агенту и на экран» |
 | порядок систем | `ecs.plan`, `ecs.explainSystem` (`core.root-steer` → `core.animator-input` → `locomotion.legacy` (и `locomotion.mm` игрока на MM) → `core.animator-pose` → `core.animation-tick`) |
 | регрессия | `feature.verify animation` (эталон SWORD2 `animation.swreplay`, сценарий `locomotion`), `replay.check` |
 | подсистема-участник | участник хеша `animation` (`AnimationState`, [Детерминизм](../Determinism/README.md)): пул поз в `state.hash`, позы по суставам — `state.describe`; инварианты — `animation.finite`, `animation.settled`, `animation.pool`, `animation.owners` (`AnimationInvariants`), у локомоции — `locomotion.poses`; API пула допускает второй экземпляр (дифференциальный прогон) |
@@ -137,8 +137,8 @@ Matching (этап 8): пункты про игрока — с `--set locomotion
 - Позы — в пуле подсистемы (вместо массивов в `FighterAnimator` SWORD): слои ставят задания, пул исполняет их пачкой в
   `core.animation-tick` (раздел 6 плана); ассеты общие и неизменяемые, пул — у каждой симуляции свой.
 - Поза между тиками не интерполируется, как в SWORD; плавно идёт корень.
-- Сравнения со SWORD сняты на 7а (решение 14): трассы SWORD и метрика трассы локомоции удалены, поведение не менялось
-  (хеши эталонов SWORD2 те же) — [история](../../../../docs/history/animation.md).
+- Сравнений со SWORD нет (решение 14): ни трасс SWORD, ни метрики трассы локомоции —
+  [история](../../../../docs/history/animation.md).
 
 ## Известные ошибки
 

@@ -13,7 +13,7 @@ using static Sword.Game.Tests.RagdollCorpseTests;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точка 7з-4 — самоколлизия трупа в игре (свои тесты свойств): таблица пар трупа (<see cref="CorpseJoints.SelfPairs"/> — все пары 14 тел, кроме
+/// Самоколлизия трупа в игре (свои тесты свойств): таблица пар трупа (<see cref="CorpseJoints.SelfPairs"/> — все пары 14 тел, кроме
 /// связанных суставом и торса с бёдрами) ставится переходом в труп, входит в хеш <c>physics</c> и его описание; агенту — поле
 /// <c>Body.SelfDepth</c> и <c>physics.bodies</c> → <c>self</c>; инвариант <c>physics.selfContacts</c> ловит часть, удержанную в своём торсе, и
 /// не ловит выходящую; лежащий труп не сложен сам в себя, а без самоколлизии (ручка 0) — сложен. Контент — синтетический
@@ -60,7 +60,7 @@ public sealed class CorpseSelfContactsTests(ITestOutputHelper output)
 
     /// <summary>
     /// Лежащий труп (синтетический риг, 4 с после смерти) не сложен сам в себя: самая глубокая пара — миллиметры; поле агента <c>Body.SelfDepth</c> и
-    /// вид <c>physics.bodies</c> → <c>self</c> показывают то же; без самоколлизии (ручка «самоколлизия» 0 — как до 7з-4) тот же труп сложен —
+    /// вид <c>physics.bodies</c> → <c>self</c> показывают то же; без самоколлизии (ручка «самоколлизия» 0) тот же труп сложен —
     /// часть в своём теле на сантиметры (замер — в выводе). Инварианты чисты.
     /// </summary>
     [Fact]
@@ -87,7 +87,7 @@ public sealed class CorpseSelfContactsTests(ITestOutputHelper output)
                 Assert.Equal(1, self["scale"]!.GetValue<double>());
                 Assert.Equal(r.Touching, self["touching"]!.GetValue<int>());
                 Assert.Equal(0, new Agent.BodyFields().Compile("Body.SelfDepth", "t")!(new ServiceContext(sim), Fighter(sim, 0)));   // у живого пар нет
-                // проверка 7з-4: построенный заново (живой, тела кинематические) — таблица осталась, но не действует: «части в теле» нет, хотя
+                // Построенный заново (живой, тела кинематические) — таблица осталась, но не действует: «части в теле» нет, хотя
                 // капсулы стойки могут стоять внахлёст (замер — в выводе)
                 Step(sim, Place(1, 0, 4));
                 var revived = Body(sim, Fighter(sim, 1));

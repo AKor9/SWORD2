@@ -26,7 +26,7 @@ public sealed class TuningPanel : IClientPanel
 
     /// <summary>
     /// Ширина поля числа строки ручки, логические пиксели (SWORD): текст — в <c>ValueWidth − 2·UiContext.FieldPadding</c> (44 px). Формат ручки
-    /// должен вмещать в него значение по умолчанию и пределы (7з-4: «0.000002» обрезалось до «0.0000» — у малых значений формат с порядком,
+    /// должен вмещать в него значение по умолчанию и пределы («0.000002» обрезалось до «0.0000» — у малых значений формат с порядком,
     /// <c>0.#e-0</c>).
     /// </summary>
     public const float ValueWidth = 58;
@@ -41,7 +41,7 @@ public sealed class TuningPanel : IClientPanel
     private string _status = "";
     private string[] _titles = [];
 
-    /// <param name="toggle">Действие «открыть/закрыть» (композиция: F3 — точка 6е); null — только <see cref="Open"/>.</param>
+    /// <param name="toggle">Действие «открыть/закрыть» (композиция: F3); null — только <see cref="Open"/>.</param>
     public TuningPanel(InputAction? toggle = null)
     {
         Toggle = toggle;

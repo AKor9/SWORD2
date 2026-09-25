@@ -96,3 +96,30 @@ Animation. `Sword.Headless --feature animation` или `feature.verify {"id":"an
   `without-modules` (сборка без модуля: без DLL, 10 с, корень идёт, поза привязки), `app-smoke` (Manny по позе под
   GPU-валидацией), `agent-smoke`. Итог Headless `--json` несёт `pose`: суставов, наибольшее отклонение от позы привязки,
   `bindPose` (пустая поза — освобождённая или не выделенная — не поза привязки: проверки «без модуля» впустую не проходят).
+
+## Перенесено из README (2026-09-25)
+
+### Motion Matching → Файлы (`engine/Sword.Engine.Animation/README.md`)
+
+Контракт зафиксирован точкой 8а; тела написаны точками 8б, 8в, 8г, каждая в своих файлах.
+
+| файл | что | точка | состояние |
+|---|---|---|---|
+| `Pose2.cs` | плоская система (x, z, курс) | 8а | готово |
+| `MotionSchema.cs` | схема признаков — вход постройки (`FeatureKind`, `FeatureGroupSpec`, `FeatureGroup`) | 8а | готово |
+| `MotionContract.cs` | политика графа `IMotionGraphPolicy` (+ `MotionClipInfo`, `MotionPast`), `ContactParams`, `MotionBuildParams`, `MotionClip`, сводка `MotionDatabaseSummary`, итог поиска `MotionMatch` (+ `MotionGroupCosts`), `MotionPlayerHandle`, `MotionPlayerState`, шаг `MotionStep` | 8а | готово |
+| `MotionDatabase.cs` | данные базы и доступ к ним; конструктор из готовых массивов — проверка, строки поиска, блоки, отпечаток, сводка | 8а | готово (`Build` — 8б) |
+| `MotionDatabase.Graph.cs`, `MotionDatabase.Normalize.cs`, `ClipKinematics.cs`, `ContactDetector.cs` | постройка базы из клипов | 8б | готово |
+| `MotionMatcher.cs`, `MotionQuery.cs`, `TrajectoryModel.cs`, `RootHistory.cs` | поиск, запрос, модель предсказания, история корня | 8в | готово |
+| `MotionPlayers.cs`, `PosePool.Motion.cs` | хранилище проигрывателей, исполнение задания пула | 8г | готово |
+| `PosePool.cs` | вид задания `Motion`, постановка в очередь, передача в partial-метод `RunMotion` | 8а | готово |
+
+### Motion Matching → 8в: поиск, запрос, модель, история (вступление и бенчмарк) (`engine/Sword.Engine.Animation/README.md`)
+
+Тела `MotionMatcher.cs`, `MotionQuery.cs`, `TrajectoryModel.cs`, `RootHistory.cs` готовы.
+
+- **Бенчмарк** `MotionSearch` — `dotnet run -c Release --project tests/Sword.Benchmarks -- --motion`, итог
+  `artifacts/bench/motion.json`; в полный прогон (`-Bench`) не входит — замер себе, не цель. База — синтетическая размера пака
+  (440 клипов, ~51 000 искомых кадров × 45 признаков, из массивов: постройки 8б ещё нет), запросы — `MotionQuery.Fill`; время
+  поиска p50, p95 и максимум, доля осмотренных блоков, полный перебор для сравнения; код выхода — 0 Б и «поиск = перебор». На базе
+  пака — после 8б.

@@ -8,7 +8,7 @@ public struct Modes
     public Parts Parts;
 }
 
-/// <summary>Проверки по второй самопроверке 1е: значения перечислений.</summary>
+/// <summary>Проверки: значения перечислений.</summary>
 public class SecondReviewTests
 {
     [Theory]
@@ -30,7 +30,7 @@ public class SecondReviewTests
     }
 }
 
-/// <summary>Проверки по третьей самопроверке 1е: производители Changed, пути полей.</summary>
+/// <summary>Проверки: производители Changed, пути полей.</summary>
 public class ThirdReviewTests
 {
     [Fact]
@@ -60,7 +60,7 @@ public class ThirdReviewTests
     }
 }
 
-/// <summary>Проверки по четвёртой самопроверке 1е: когда связь видна — по стадии и виду связи.</summary>
+/// <summary>Проверки: когда связь видна — по стадии и виду связи.</summary>
 public class StageTimingTests
 {
     private static Sword.Engine.Ecs.SystemInfo Sys(string name, string stage, int order) =>

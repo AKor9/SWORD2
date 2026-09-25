@@ -5,7 +5,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Agent;
 
 /// <summary>
-/// Вычисляемые поля Motion Matching бойца (8з; часть <see cref="BodyFields"/> — поля игры для <c>watch.add</c>, <c>entity.history</c>,
+/// Вычисляемые поля Motion Matching бойца (часть <see cref="BodyFields"/> — поля игры для <c>watch.add</c>, <c>entity.history</c>,
 /// <c>replay.observe</c>, условий и метрик манифестов) по виду <see cref="IMotionMatchView"/>: <c>MotionMatch.FootSlide</c> — скольжение
 /// опорной стопы, м/с (наибольшая горизонтальная скорость в мире суставов контакта на земле по разметке кадра базы; ни одной стопы на
 /// земле — NaN: метрика окна — с <c>skipUndefined</c>), <c>MotionMatch.JointJump</c> — наибольший скачок сустава выхода проигрывателя за тик,

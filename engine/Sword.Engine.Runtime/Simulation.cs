@@ -202,7 +202,7 @@ public sealed class Simulation
         b.Sealed = true;
         foreach (var init in b.WorldInits) init(built);
         // Мир наполнен ядром и модулями: то, что зависит от их начального наполнения (тело бойца по позе постройки,
-        // которую задаёт модуль, — 5в), — после всех OnWorldBuilt.
+        // которую задаёт модуль), — после всех OnWorldBuilt.
         foreach (var init in b.WorldReady) init(built);
         // Участники хеша — по Id (раздел 7 плана): порядок не зависит от порядка регистрации.
         IStateContributor[] state = [.. b.Contributors.Append(new EcsStateContributor(built.Reader)).OrderBy(c => c.Id, StringComparer.Ordinal)];
@@ -214,7 +214,7 @@ public sealed class Simulation
         var sim = new Simulation(built, settings, commands, export, active, inactive, config, state, invariants)
         {
             Tuning = [.. b.Knobs],
-            // Сведения реплея (8з) — после начального наполнения мира: модуль строит то, от чего они (база MM), в OnWorldBuilt.
+            // Сведения реплея — после начального наполнения мира: модуль строит то, от чего они (база MM), в OnWorldBuilt.
             Facts = b.Facts.Select(f => (f.Name, f.Value())).OrderBy(f => f.Name, StringComparer.Ordinal).ToDictionary(f => f.Name, f => f.Item2),
         };
         sim.Diagnostics = new SimulationDiagnostics(b.Diagnostics, () => sim.Stage);
@@ -228,13 +228,13 @@ public sealed class Simulation
     public IReadOnlyList<TuningKnob> Tuning { get; private init; } = [];
 
     /// <summary>
-    /// Сведения ядра и модулей для реплея (8з; <see cref="SimulationBuilder.ReplayFact"/>) по имени: запись кладёт их в заголовок
+    /// Сведения ядра и модулей для реплея (<see cref="SimulationBuilder.ReplayFact"/>) по имени: запись кладёт их в заголовок
     /// (<see cref="Replay.Facts"/>), воспроизведение сверяет. Пусто — сведений нет (заголовок реплея прежний).
     /// </summary>
     public IReadOnlyDictionary<string, string> Facts { get; private init; } = new Dictionary<string, string>();
 
     /// <summary>
-    /// Диагностические режимы (7и; <see cref="SimulationBuilder.Diagnostic"/>): включает владелец или агент между тиками — мир,
+    /// Диагностические режимы (<see cref="SimulationBuilder.Diagnostic"/>): включает владелец или агент между тиками — мир,
     /// хеш и реплей от них не зависят (трасса физики игры, позже другие).
     /// </summary>
     public SimulationDiagnostics Diagnostics { get; private set; } = null!;
@@ -416,7 +416,7 @@ public sealed class Simulation
     /// <summary>Профайлер CPU тиков (<see cref="AttachProfiler"/>); <see cref="CpuProfiler.Off"/> — не подключён.</summary>
     public CpuProfiler Profiler => _profiler;
 
-    /// <summary>Журнал причинности — диагностический режим <c>state.why</c> (6д); null — выключен (по умолчанию).</summary>
+    /// <summary>Журнал причинности — диагностический режим <c>state.why</c>; null — выключен (по умолчанию).</summary>
     public CausalityLog? Causality => _world.Causality;
 
     /// <summary>
@@ -441,7 +441,7 @@ public sealed class Simulation
     }
 
     /// <summary>
-    /// Подключить профайлер CPU (точка Па; только владелец, между тиками): тик — период профайлера (зона <c>tick</c>), в нём
+    /// Подключить профайлер CPU (только владелец, между тиками): тик — период профайлера (зона <c>tick</c>), в нём
     /// зоны стадий, систем и барьеров мира (<see cref="Ecs.World.AttachProfiler"/>), проверок инвариантов
     /// (<c>invariant.&lt;id&gt;</c>), наблюдателей (<c>sim.observers</c>) и записи или сверки реплея с хешем
     /// (<c>sim.record</c>). Номера зон заводятся здесь. Профайлер только читает часы: состояние, хеш и реплей от него не
@@ -593,7 +593,7 @@ public sealed class SimulationBuilder
     internal readonly List<(IDiagnosticMode Mode, string Owner)> Diagnostics = [];
 
     /// <summary>
-    /// Диагностический режим ядра или модуля (7и; <see cref="IDiagnosticMode"/>): выключен до включения владельцем или агентом
+    /// Диагностический режим ядра или модуля (<see cref="IDiagnosticMode"/>): выключен до включения владельцем или агентом
     /// (<see cref="Simulation.Diagnostics"/>); мир, хеш и реплей от него не зависят. Id — <see cref="IInvariant.IdRule"/>, без повторов.
     /// </summary>
     public SimulationBuilder Diagnostic(IDiagnosticMode mode)
@@ -609,7 +609,7 @@ public sealed class SimulationBuilder
     internal readonly List<(string Name, Func<string> Value)> Facts = [];
 
     /// <summary>
-    /// Сведение ядра или модуля для реплея (8з; <see cref="Replay.Facts"/>): производное контента, кода и конфига, от которого зависит
+    /// Сведение ядра или модуля для реплея (<see cref="Replay.Facts"/>): производное контента, кода и конфига, от которого зависит
     /// воспроизведение, но которого нет в хеше (отпечаток базы Motion Matching). Значение считается один раз — после сборки и начального
     /// наполнения мира; запись реплея кладёт его в заголовок, воспроизведение сверяет: другое — предупреждение и причина в тексте
     /// расхождения, а не только «первое расхождение на тике N». Имя — <see cref="IInvariant.IdRule"/>, без повторов.
@@ -696,8 +696,8 @@ public sealed class SimulationBuilder
     private readonly HashSet<string> _tuningSections = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Ручки секции конфига <paramref name="section"/> над ресурсом мира <typeparamref name="T"/> (раздел 7 плана, «Конфигурация»;
-    /// точка 6е): ручка — поле ресурса (значение в мире — ресурс, собранный из секции конфига при композиции), изменение на ходу —
+    /// Ручки секции конфига <paramref name="section"/> над ресурсом мира <typeparamref name="T"/> (раздел 7 плана, «Конфигурация»):
+    /// ручка — поле ресурса (значение в мире — ресурс, собранный из секции конфига при композиции), изменение на ходу —
     /// команда <see cref="TuningCommand"/> (заводится с первой секцией ручек), её применяет система секции
     /// <c>tuning.&lt;секция&gt;</c> в первой стадии игры (владелец — настраиваемый модуль или ядро). Секция — один раз.
     /// </summary>
@@ -736,7 +736,7 @@ public sealed class SimulationBuilder
     /// <summary>
     /// Начальное наполнение, которому нужен мир после всех <see cref="OnWorldBuilt"/> ядра и модулей (по порядку
     /// регистрации): ядро ставит по ресурсу, который задаёт модуль при сборке мира, — например, тело бойца по позе
-    /// постройки (5в). Тоже немедленные изменения до первого тика.
+    /// постройки. Тоже немедленные изменения до первого тика.
     /// </summary>
     public SimulationBuilder OnWorldReady(Action<World> init)
     {

@@ -11,7 +11,7 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Политика GASP на паке игры (категория Content, 8д): все 444 имени клипов <c>locomotion</c> разбираются, отбор по умолчанию —
+/// Политика GASP на паке игры (категория Content): все 444 имени клипов <c>locomotion</c> разбираются, отбор по умолчанию —
 /// 440 клипов, база с политикой GASP строится (сводка, отпечаток, счёт политики, модель скоростей — в вывод теста), у каждого
 /// нециклического клипа есть продолжение, отпечаток стабилен при повторе и обратном порядке клипов; две симуляции берут одну базу.
 /// Время постройки — не бюджет (печатается).
@@ -158,7 +158,7 @@ public sealed class GaspMotionPackTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Две симуляции игры (композиция <see cref="SwordSimulation"/> и модуль-зонд) берут базу так, как её возьмёт модуль в 8е, — из
+    /// Две симуляции игры (композиция <see cref="SwordSimulation"/> и модуль-зонд) берут базу так, как её берёт модуль, — из
     /// библиотеки ресурса <see cref="PosePool"/> мира при сборке: один экземпляр на процесс.
     /// </summary>
     [Fact]
@@ -174,7 +174,7 @@ public sealed class GaspMotionPackTests(ITestOutputHelper output)
         output.WriteLine(first.StartLine());
     }
 
-    /// <summary>Модуль-зонд: при сборке мира берёт базу из библиотеки пула поз (как модуль Locomotion с 8е).</summary>
+    /// <summary>Модуль-зонд: при сборке мира берёт базу из библиотеки пула поз (как модуль Locomotion).</summary>
     private sealed class Probe(Action<GaspMotionBase> take) : IModule
     {
         public string Id => "mm_probe";

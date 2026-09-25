@@ -10,8 +10,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Инварианты боя (раздел 8 плана; этап 6б), их регистрирует ядро: <c>combat.blade</c> — после PrePhysics (клинок на кисти),
-/// <c>combat.weapons</c> — в конце End (меч и клинок у каждого бойца, инвентарь игрока согласован), <c>combat.control</c> (6в) —
+/// Инварианты боя (раздел 8 плана), их регистрирует ядро: <c>combat.blade</c> — после PrePhysics (клинок на кисти),
+/// <c>combat.weapons</c> — в конце End (меч и клинок у каждого бойца, инвентарь игрока согласован), <c>combat.control</c> —
 /// в конце End (управление игрока, рывок и таймер удара врага конечны и в своих пределах).
 /// </summary>
 public static class CombatInvariants
@@ -28,7 +28,7 @@ public static class CombatInvariants
     /// меча в системе кисти hand_r позы тика в мире бойца (<see cref="BladePlacement.Of"/>). Ловит постановку, которая не прошла
     /// (клинок остался на прошлой позе, корне или мече), клинок чужого бойца, сдвинутый после постановки, нечисловой. Посреди
     /// тика до PrePhysics (проверка «сейчас») — не проверяется: клинок ещё прошлого тика; до первого тика — сверка с позой постройки
-    /// (клинки бойцов сборки мира поставила сборка мира, как тела). Мёртвые (7з) — нет: их клинок-отрезок стоит, где был в тик смерти (это
+    /// (клинки бойцов сборки мира поставила сборка мира, как тела). Мёртвые — нет: их клинок-отрезок стоит, где был в тик смерти (это
     /// держит <c>combat.dead</c>), а корень мёртвого идёт за тазом трупа.
     /// </summary>
     private sealed class BladeOnHand(PosePool poses, WeaponTable weapons, int hand, StartPoseModel start) : IInvariant
@@ -59,7 +59,7 @@ public static class CombatInvariants
                     var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                     int weapon = slots[i].Index;
                     if (!poses.IsAlive(pose) || (uint)weapon >= (uint)table.Length) continue;   // их ловят animation.owners, combat.weapons
-                    var model = built ? start.Of(StartPoseModel.For(world, entities[i])) : poses.Model(pose);   // 8е: своя поза постройки или общая
+                    var model = built ? start.Of(StartPoseModel.For(world, entities[i])) : poses.Model(pose);   // своя поза постройки или общая
                     if (Problem(model, table[weapon], weapon, roots[i], blades[i]) is not { } problem) continue;
                     violations.Report(entities[i], problem);
                     if (violations.Full) return;
@@ -140,7 +140,7 @@ public static class CombatInvariants
     }
 
     /// <summary>
-    /// <c>combat.control</c> (6в) — управление боем согласовано (в конце End): у игрока есть управление (<see cref="PlayerControl"/>)
+    /// <c>combat.control</c> — управление боем согласовано (в конце End): у игрока есть управление (<see cref="PlayerControl"/>)
     /// и связка (<see cref="AttackCombo"/>), у врага — таймер удара (<see cref="EnemyAttack"/>); буферы — 0…0,3 и 0…0,2 с,
     /// перезарядка — 0…<c>combat.dashCooldown</c>, неуязвимость — 0…<c>combat.dashInvulnerable</c>, рывок конечен: идёт — время
     /// 0…<c>combat.dashTime</c>, направление единичное по земле, прибавка не больше <c>combat.dashSpeed</c>, не идёт — прибавки нет

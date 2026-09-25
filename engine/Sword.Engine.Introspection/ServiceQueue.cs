@@ -39,7 +39,7 @@ public readonly struct ServiceContext
     public SimulationInvariants Invariants => _simulation.Invariants;
 
     /// <summary>
-    /// Диагностические режимы симуляции (7и: трасса физики; <see cref="Simulation.Diagnostics"/>): мир, хеш и реплей от них не зависят —
+    /// Диагностические режимы симуляции (трасса физики; <see cref="Simulation.Diagnostics"/>): мир, хеш и реплей от них не зависят —
     /// поэтому включать их можно из точки обслуживания (между тиками; посреди тика — <see cref="InvalidOperationException"/>).
     /// </summary>
     public SimulationDiagnostics Diagnostics => _simulation.Diagnostics;

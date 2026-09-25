@@ -63,7 +63,7 @@ public sealed class RenderFrame
     public bool WantsLayer(string name) => Capture?.WantsLayer(name) == true;
 
     /// <summary>
-    /// Заметка игры к снимку этого кадра (7и): почему заказанное снято не полностью — например, слой контактов пуст, потому что
+    /// Заметка игры к снимку этого кадра: почему заказанное снято не полностью — например, слой контактов пуст, потому что
     /// трасса физики выключена. Идёт в <see cref="CaptureResult.Notes"/> вслед за заметками рендера. Кадр без снимка — ничего.
     /// </summary>
     public void CaptureNote(string note)
@@ -236,7 +236,7 @@ public sealed class Renderer : IDisposable
     /// <summary>
     /// Контент, из которого рендер загружает ассеты по пути (<see cref="SkinnedMeshes.LoadMesh"/>): пак из
     /// <see cref="ContentLocator"/>, открывается при первой загрузке. Двоичные форматы ассетов знает только рендер.
-    /// Когда контент начнёт открывать Runtime (точка 1в), рендер получит тот же источник от композиции.
+    /// Когда контент начнёт открывать Runtime, рендер получит тот же источник от композиции.
     /// </summary>
     internal IContentSource Content => _content ??= ContentLocator.Open();
 
@@ -262,7 +262,7 @@ public sealed class Renderer : IDisposable
     public double LastRecordMs { get; private set; }
 
     /// <summary>
-    /// GPU-время кадра и проходов (этап П, точка Пг): таймстемпы вокруг каждого прохода графа и кадра целиком, разбор кадра
+    /// GPU-время кадра и проходов : таймстемпы вокруг каждого прохода графа и кадра целиком, разбор кадра
     /// N − 3 после ожидания его слота (без стойла), после <see cref="WaitForIdle"/> — последнего отправленного. Всегда включено.
     /// </summary>
     public GpuFrameTimes Gpu { get; }
@@ -273,12 +273,12 @@ public sealed class Renderer : IDisposable
     private CpuProfiler _profiler = CpuProfiler.Off;
     private (int FenceWait, int Build, int Record, int Present, int Capture) _zones;
 
-    /// <summary>Зона GPU-времени кадра в профайлере (точка Пг); зоны проходов — у графа (<c>gpu.&lt;проход&gt;</c>).</summary>
+    /// <summary>Зона GPU-времени кадра в профайлере; зоны проходов — у графа (<c>gpu.&lt;проход&gt;</c>).</summary>
     private int _gpuFrameZone;
     private long _gpuRecorded;
 
     /// <summary>
-    /// Профайлер CPU кадра (точка Па): зоны рендера — ожидание забора кадра в полёте <c>frame.fenceWait</c>, построение
+    /// Профайлер CPU кадра: зоны рендера — ожидание забора кадра в полёте <c>frame.fenceWait</c>, построение
     /// кадра игрой <c>frame.build</c>, запись графа в список команд <c>frame.record</c> (в ней — проход за проходом
     /// <c>render.&lt;проход&gt;</c>), показ <c>frame.present</c>, снимок <c>frame.capture</c>. Задаёт клиент движка до
     /// <c>IClientGame.Initialize</c> — игра заводит свои зоны в нём же; по умолчанию <see cref="CpuProfiler.Off"/>.
@@ -289,7 +289,7 @@ public sealed class Renderer : IDisposable
         set
         {
             ArgumentNullException.ThrowIfNull(value);
-            // Ожидание забора кадра и показ — ожидание GPU (точка Пв: класс аномалии «ожидание GPU» — по этим зонам).
+            // Ожидание забора кадра и показ — ожидание GPU (класс аномалии «ожидание GPU» — по этим зонам).
             _zones = (value.Zone("frame.fenceWait", ProfileZoneKind.GpuWait), value.Zone("frame.build"), value.Zone("frame.record"),
                 value.Zone("frame.present", ProfileZoneKind.GpuWait), value.Zone("frame.capture"));
             Graph.Profiler = value;
@@ -299,7 +299,7 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Новые GPU-времена — в кадр профайлера (точка Пг): зоны вида <see cref="ProfileZoneKind.Gpu"/> и отставание (кадр клиента
+    /// Новые GPU-времена — в кадр профайлера: зоны вида <see cref="ProfileZoneKind.Gpu"/> и отставание (кадр клиента
     /// данных — этот минус отставание). Раз на новые данные; выключенный профайлер — ничего.
     /// </summary>
     private void RecordGpu(CpuProfiler profiler)
@@ -437,7 +437,7 @@ public sealed class Renderer : IDisposable
         profiler.Begin(_zones.FenceWait);
         Device.BeginFrame();
         profiler.End(_zones.FenceWait);
-        RecordGpu(profiler);   // точка Пг: времена кадра, забора которого ждали (или разобранного ожиданием простоя)
+        RecordGpu(profiler);   // времена кадра, забора которого ждали (или разобранного ожиданием простоя)
         long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var list = Device.GraphicsList;
         try
@@ -497,7 +497,7 @@ public sealed class Renderer : IDisposable
                     layerReadbacks.Add((layer, Screenshot.RecordTextureCapture(Device, list, Graph.Get(CapturedLayers[k].Texture.Index, buffer: false),
                         out _, out _, out lpitch)));
                 }
-            if (notes is not null) notes.AddRange(CaptureNotes);   // заметки игры (7и) — после заметок рендера
+            if (notes is not null) notes.AddRange(CaptureNotes);   // заметки игры — после заметок рендера
 
             profiler.Begin(_zones.Present);
             Device.EndFrame(vsync);

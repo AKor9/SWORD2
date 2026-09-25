@@ -9,9 +9,9 @@ using Sword.Game.Locomotion.Motion;
 namespace Sword.Game.Locomotion;
 
 /// <summary>
-/// Секция конфига <c>locomotion</c> (8е): уровень детализации походки игрока (<see cref="Player"/>: <c>clips</c> — клипами, как враги;
+/// Секция конфига <c>locomotion</c>: уровень детализации походки игрока (<see cref="Player"/>: <c>clips</c> — клипами, как враги;
 /// <c>mm</c> — Motion Matching), отбор клипов базы MM (<see cref="Clips"/>) и ручки «Локомоция» (начальные значения; на ходу — команда
-/// ручки). В коде — <c>clips</c>: мир без <c>sword.json</c> (тесты, сценарии фич, эталоны SWORD2) — как до 8е; игра (<c>sword.json</c>) — на
+/// ручки). В коде — <c>clips</c>: мир без <c>sword.json</c> (тесты, сценарии фич, эталоны SWORD2) — клипами; игра (<c>sword.json</c>) — на
 /// <c>mm</c>. Значения по умолчанию ручек — <see cref="GaspMotion"/> (одно место умолчаний; копий констант нет). Секция читается в обоих
 /// режимах (ключи строгие); базу MM строит только <c>mm</c>.
 /// </summary>
@@ -30,7 +30,7 @@ public sealed record LocomotionSettings
     public float InertialHalflife { get; init; } = GaspMotion.InertialHalflife;
     public float RateRange { get; init; } = GaspMotion.RateRange;
 
-    /// <summary>Вес руки с мечом (8ж, <c>locomotion.armWeight</c>): стойка оружия по маске правой руки поверх позы MM.</summary>
+    /// <summary>Вес руки с мечом (<c>locomotion.armWeight</c>): стойка оружия по маске правой руки поверх позы MM.</summary>
     public float ArmWeight { get; init; } = SwordArm.DefaultWeight;
 
     // Веса 12 групп признаков — ключи GaspMotion.WeightKeys, значения по умолчанию — веса GaspMotion.Groups.
@@ -58,7 +58,7 @@ public sealed record LocomotionSettings
 }
 
 /// <summary>
-/// Ручки «Локомоция» (8е; механизм 6е): ресурс мира из секции <c>locomotion</c>, поле — ручка <c>locomotion.&lt;ключ&gt;</c>; изменение на ходу
+/// Ручки «Локомоция»: ресурс мира из секции <c>locomotion</c>, поле — ручка <c>locomotion.&lt;ключ&gt;</c>; изменение на ходу
 /// — команда ручки (<c>TuningCommand</c>, система <c>tuning.locomotion</c> в Begin), в реплее. Есть только при <c>locomotion.player = mm</c>.
 /// </summary>
 public struct LocomotionRules
@@ -75,7 +75,7 @@ public struct LocomotionRules
     /// <summary>Размах темпа (<c>rateRange</c>): темп в 1 ± размах.</summary>
     public float RateRange;
 
-    /// <summary>Вес руки с мечом (<c>armWeight</c>, 8ж), 0…1.</summary>
+    /// <summary>Вес руки с мечом (<c>armWeight</c>), 0…1.</summary>
     public float ArmWeight;
 
     public float WeightTrajectory, WeightTrajectoryFacing, WeightPast, WeightRootVelocity, WeightRootYawRate, WeightFeet, WeightFeetVelocity,
@@ -127,7 +127,7 @@ public struct LocomotionRules
     public readonly int SearchTicks(float dt) => Math.Max(1, (int)MathF.Round(SearchPeriod / dt));
 }
 
-/// <summary>Ручки «Локомоция» (8е): поля <see cref="LocomotionRules"/> — секция <c>locomotion</c>.</summary>
+/// <summary>Ручки «Локомоция»: поля <see cref="LocomotionRules"/> — секция <c>locomotion</c>.</summary>
 public static class LocomotionKnobs
 {
     public const string Section = "locomotion";
@@ -152,7 +152,7 @@ public static class LocomotionKnobs
                 (ref LocomotionRules r, float v) => SetWeight(ref r, group, v), 0, 10, GaspMotion.Groups[g].Weight, format: "0.00",
                 hint: $"вес группы признаков «{GaspMotion.Groups[g].Name}» в цене кадра");
         }
-        SwordArm.Knob(t, d.ArmWeight);   // 8ж: вес руки с мечом
+        SwordArm.Knob(t, d.ArmWeight);   // вес руки с мечом
     }
 
     private static float Weight(in LocomotionRules r, int group)
@@ -184,8 +184,8 @@ public static class LocomotionKnobs
 
 /// <summary>
 /// Модуль Locomotion (раздел 10 плана): локомоция клипами (<see cref="LegacyLocomotion"/>) у врагов всегда и у игрока при
-/// <c>locomotion.player = clips</c>; Motion Matching игрока (этап 8) — при <c>mm</c> (<see cref="MotionMatchSystems"/>). Без модуля ходьбы нет
-/// ни у кого: корень движется, поза бойца — поза привязки. <c>clips</c> регистрирует ровно то же, что до 8е (мир побитово тот же); системы,
+/// <c>locomotion.player = clips</c>; Motion Matching игрока — при <c>mm</c> (<see cref="MotionMatchSystems"/>). Без модуля ходьбы нет
+/// ни у кого: корень движется, поза бойца — поза привязки. <c>clips</c> регистрирует только локомоцию клипами (мир побитово тот же); системы,
 /// компоненты, ручки и участник хеша MM — только при <c>mm</c>.
 /// </summary>
 public sealed class LocomotionModule : IModule
@@ -202,7 +202,7 @@ public sealed class LocomotionModule : IModule
             .System(GameStages.End, new LegacyLocomotionReleaseSystem())
             .Invariant(new LocomotionPosesInvariant())
             // Поза постройки бойца (FighterAnimator.Reset → Tick(0) SWORD) — начало слоя локомоции: стойка с нулевого момента
-            // (Start). По ней ядро ставит тело при постройке (5б); без модуля — поза привязки. Игрок на MM строится по своей (8е).
+            // (Start). По ней ядро ставит тело при постройке; без модуля — поза привязки. Игрок на MM строится по своей.
             .OnWorldBuilt(w =>
             {
                 var start = LegacyLocomotion.Start(w.Resource<ActionTable>());
@@ -212,14 +212,14 @@ public sealed class LocomotionModule : IModule
     }
 
     /// <summary>
-    /// Motion Matching игрока (8е): база на процесс и хранилище проигрывателей при сборке мира (ошибка данных — ошибка старта, без отката на
+    /// Motion Matching игрока: база на процесс и хранилище проигрывателей при сборке мира (ошибка данных — ошибка старта, без отката на
     /// клипы — решение 9), компонент состояния, системы, ручки, участник хеша <c>locomotion</c>, инвариант <c>locomotion.mm</c>.
     /// </summary>
     private static void ConfigureMotionMatching(SimulationBuilder b, LocomotionSettings settings)
     {
         var rules = LocomotionRules.From(settings);
         var runtime = new MotionMatchRuntime();
-        var arm = new SwordArm();   // 8ж: рука с мечом поверх позы MM
+        var arm = new SwordArm();   // рука с мечом поверх позы MM
         b.Component<MotionMatchState>()
             .Resource(rules)
             .System(GameStages.Gameplay, new MotionMatchSetupSystem(runtime))
@@ -231,12 +231,12 @@ public sealed class LocomotionModule : IModule
             .OnWorldBuilt(w =>
             {
                 runtime.Init(w.Resource<PosePool>(), settings.Clips, w.Resource<SimTime>().Dt);
-                arm.Init(w, runtime);   // 8ж: маска руки, поза постройки со стойкой руки, состояние руки игроку
+                arm.Init(w, runtime);   // маска руки, поза постройки со стойкой руки, состояние руки игроку
                 Log.Info("locomotion", runtime.Base.StartLine());
                 MotionMatchSetupSystem.PlaceWorldBuilt(w, runtime);
             });
         arm.Configure(b);
-        MotionMatchObservers.Register(b, runtime);   // 8з: вид, события переходов, тяжёлые инварианты, сведение реплея
+        MotionMatchObservers.Register(b, runtime);   // вид, события переходов, тяжёлые инварианты, сведение реплея
         LocomotionKnobs.Register(b);
     }
 }

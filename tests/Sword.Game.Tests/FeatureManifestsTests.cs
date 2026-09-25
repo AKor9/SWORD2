@@ -9,7 +9,7 @@ using Sword.Game.Bootstrap;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Манифесты фич игры (этап 3д, раздел 12 плана): у каждой фичи в <c>Features</c> есть <c>feature.json</c>, он разбирается,
+/// Манифесты фич игры (раздел 12 плана): у каждой фичи в <c>Features</c> есть <c>feature.json</c>, он разбирается,
 /// его чек-лист — те же пункты, что «Что проверить в игре» в md фичи; на паке игры <c>feature.verify</c> каждой фичи
 /// зелёный (без видов — их снимает App в verify.ps1; класс на фичу — <see cref="FeatureVerifyTests"/>), а развилка эталона прототипа
 /// расходится на ожидаемом тике.
@@ -48,8 +48,7 @@ public sealed class FeatureManifestsTests
     }
 
     /// <summary>
-    /// Фичи в работе — README есть, манифест ещё не написан (этап идёт точками). Сейчас таких нет: «Рэгдолл» (README — 7ж) получил манифест
-    /// <c>ragdoll</c> на 7з (сценарии, инварианты, проверки; метрики, виды и бюджеты — 7л). Приёмки у фичи нет, пока нет манифеста.
+    /// Фичи в работе — README есть, манифест ещё не написан (этап идёт точками). Сейчас таких нет. Приёмки у фичи нет, пока нет манифеста.
     /// </summary>
     private static readonly string[] InProgress = [];
 
@@ -69,7 +68,7 @@ public sealed class FeatureManifestsTests
             }
             Assert.True(manifest, $"у фичи {feature} нет {FeatureManifest.FileName} (раздел 12 плана: без манифеста фича не принимается)");
         }
-        // 8и: манифест locomotion — в папке модуля (game/modules/Sword.Game.Locomotion), md — README модуля.
+        // Манифест locomotion — в папке модуля (game/modules/Sword.Game.Locomotion), md — README модуля.
         Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "locomotion", "movement", "profiler", "ragdoll", "tools"],
             manifests.Select(m => m.Id));
         foreach (var m in manifests)
@@ -77,7 +76,7 @@ public sealed class FeatureManifestsTests
             Assert.True(File.Exists(m.Doc), $"{m.Id}: нет {m.Doc}");
             Assert.Equal(ReadmeChecklist(m.Doc), m.Checklist);
         }
-        // Доводка 6ж: приёмка каждой фичи — свой класс-наследник FeatureVerifyTests (классы xUnit идут параллельно): новая фича без
+        // Приёмка каждой фичи — свой класс-наследник FeatureVerifyTests (классы xUnit идут параллельно): новая фича без
         // него осталась бы без проверки feature.verify.
         var verified = typeof(FeatureVerifyTests).Assembly.GetTypes()
             .Where(t => t.IsSubclassOf(typeof(FeatureVerifyTests)) && !t.IsAbstract)
@@ -101,7 +100,7 @@ public sealed class FeatureManifestsTests
     }
 
     /// <summary>
-    /// Приёмка 3д: развилка эталона прототипа на тике 300. Другая команда игрока в тике 300 меняет состояние ровно после
+    /// Развилка эталона прототипа на тике 300. Другая команда игрока в тике 300 меняет состояние ровно после
     /// 301 тика (до того — база бит в бит); ручка конфига, которую симуляция читает (модуль выключен), — с тика 0; ручка,
     /// которую симуляция не читает (потолок тиков за кадр — клиентский), не меняет ничего.
     /// </summary>
@@ -134,7 +133,7 @@ public sealed class FeatureManifestsTests
 }
 
 /// <summary>
-/// Приёмка фичи на паке игры: <c>feature.verify</c> зелёный (без видов — их снимает App в verify.ps1). Класс на фичу (доводка 6ж):
+/// Приёмка фичи на паке игры: <c>feature.verify</c> зелёный (без видов — их снимает App в verify.ps1). Класс на фичу:
 /// xUnit гонит тесты одного класса подряд, а классы — параллельно; одной теорией на все фичи приёмка шла цепочкой (~140 с: combat 47,
 /// enemies 43, bodies 21). Параллельные прогоны не мешают друг другу: у каждой фичи свой каталог отчёта, пак и ассеты — общие и только
 /// читаются (<see cref="FeatureManifestsTests.Reference"/>), профайлер бюджета — свой у замера. Что каждая фича манифеста здесь есть —

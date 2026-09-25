@@ -98,7 +98,7 @@ public sealed class Skeleton
     public int Find(string name) => Array.IndexOf(_jointNames, name);
 
     /// <summary>
-    /// Маска поддерева для <see cref="PosePool.AddMask"/> (8ж) — в <paramref name="mask"/> (по суставу на место): 1 — сустав
+    /// Маска поддерева для <see cref="PosePool.AddMask"/> — в <paramref name="mask"/> (по суставу на место): 1 — сустав
     /// <paramref name="root"/> и все его потомки (родитель может идти после ребёнка), 0 — остальные. Для настройки, не для тика.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Сустава <paramref name="root"/> нет в скелете.</exception>

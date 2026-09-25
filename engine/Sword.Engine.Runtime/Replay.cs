@@ -80,7 +80,7 @@ public sealed class Replay
     public IReadOnlyList<string> Parts { get; init; } = [];
 
     /// <summary>
-    /// Сведения ядра и модулей при записи (8з; <see cref="Simulation.Facts"/>: отпечаток базы Motion Matching — <c>locomotion.base</c>) по
+    /// Сведения ядра и модулей при записи (<see cref="Simulation.Facts"/>: отпечаток базы Motion Matching — <c>locomotion.base</c>) по
     /// имени; null — сведений не было (ключа <c>facts</c> в файле нет). Воспроизведение сверяет их с симуляцией.
     /// </summary>
     public IReadOnlyDictionary<string, string>? Facts { get; init; }
@@ -460,7 +460,7 @@ public sealed record ReplayPartDiff(string Part, ulong Expected, ulong Actual);
 public sealed record ReplayDivergence(ulong Tick, ulong? LastMatch, IReadOnlyList<ReplayPartDiff> Parts)
 {
     /// <summary>
-    /// Вероятная причина (8з): сведения реплея не те, что у симуляции (<see cref="Replay.Facts"/> — другая база Motion Matching: контент,
+    /// Вероятная причина: сведения реплея не те, что у симуляции (<see cref="Replay.Facts"/> — другая база Motion Matching: контент,
     /// код, отбор или класс процессора); null — сведения совпали или их нет.
     /// </summary>
     public string? Cause { get; init; }
@@ -660,7 +660,7 @@ public sealed class ReplayPlayer : IReplaySource
             _warnings.Add($"зерно ГСЧ: в реплее {seed}, в симуляции {sim.Settings.Seed}");
         if (replay.Modules is { } modules && !modules.SequenceEqual(sim.ActiveModules))
             _warnings.Add($"модули: в реплее {string.Join(", ", modules)}, в симуляции {string.Join(", ", sim.ActiveModules)}");
-        // Сведения реплея (8з): другое значение — воспроизведение, скорее всего, разойдётся; причина — и в тексте расхождения.
+        // Сведения реплея: другое значение — воспроизведение, скорее всего, разойдётся; причина — и в тексте расхождения.
         var causes = new List<string>();
         foreach (var (name, recorded) in replay.Facts ?? new Dictionary<string, string>())
         {

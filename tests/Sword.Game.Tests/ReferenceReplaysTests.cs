@@ -7,7 +7,7 @@ using Sword.Game.Bootstrap;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Эталоны SWORD2 (этап 3б; врагов — этап 4; тел — этап 5): реплеи прототипа, анимации, врагов и тел на рельефе в <c>tests/reference/replays</c> на
+/// Эталоны SWORD2: реплеи прототипа, анимации, врагов и тел на рельефе в <c>tests/reference/replays</c> на
 /// паке игры Content.swpak (все файлы папки). Та же сборка логики обязана повторить их хеши по участникам тик в тик — регрессия
 /// называет тик и участника. Намеренное изменение
 /// поведения — перезапись эталона: <c>Sword.Headless --replay файл --record файл</c> (те же команды, новые хеши) и запись
@@ -45,12 +45,12 @@ public sealed class ReferenceReplaysTests
             $"{file}: {player.Divergence} — поведение изменилось. Намеренно — перезапишите эталон " +
             $"(Sword.Headless --replay tests/reference/replays/{file} --record tests/reference/replays/{file}) и запишите причину в md фичи");
         Assert.Equal(replay.Hashes.Count, player.HashesChecked);
-        // Инварианты (этап 3г) на эталоне не нарушаются: реплей записан с тем же конфигом, где они включены.
+        // Инварианты на эталоне не нарушаются: реплей записан с тем же конфигом, где они включены.
         Assert.True(sim.Invariants.Total == 0, $"{file}: нарушения инвариантов:\n{string.Join("\n", sim.Invariants.Recent())}");
     }
 
     /// <summary>
-    /// Условия на эталонном реплее (этап 3в): условие на события совпадает с командами реплея, условие на поле игрока —
+    /// Условия на эталонном реплее: условие на события совпадает с командами реплея, условие на поле игрока —
     /// с прямым чтением мира тик за тиком; наблюдение даёт те же значения.
     /// </summary>
     [Fact]
@@ -101,7 +101,7 @@ public sealed class ReferenceReplaysTests
     }
 
     /// <summary>
-    /// Точка 5г: <c>replay.observe</c> пишет вычисляемые поля тела (<c>Body.*</c>, <see cref="Sword.Game.Agent.BodyFields"/>) —
+    /// <c>replay.observe</c> пишет вычисляемые поля тела (<c>Body.*</c>, <see cref="Sword.Game.Agent.BodyFields"/>) —
     /// те же числа, что вид тел <see cref="Contracts.IBodyView"/> тик за тиком; опечатка в поле тела — ошибка.
     /// </summary>
     [Fact]

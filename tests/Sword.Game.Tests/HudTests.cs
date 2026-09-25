@@ -37,9 +37,9 @@ public class HudTests
         var lines = Hud.HelpLines(bindings.Keys);
         Assert.Contains("Up A S D — движение (Shift — шагом)", lines[0]);
         Assert.Contains("СКМ — камера", lines[1]);
-        Assert.StartsWith("F2 — справка    F9 — профайлер    F4 — снимок", lines[2]);   // F2 по умолчанию — профайлер (Пв)
+        Assert.StartsWith("F2 — справка    F9 — профайлер    F4 — снимок", lines[2]);   // F2 по умолчанию — профайлер
         Assert.StartsWith("F1 — справка    F2 — профайлер    F4 — снимок", Hud.HelpLines(new Dictionary<string, string>())[2]);
-        // Клавиши арены (этап 4а), меч (6б: T) и капсулы тел с клинками (5в, 6б: F7 по умолчанию, привязка — секция input).
+        // Клавиши арены, меч (T) и капсулы тел с клинками (F7 по умолчанию, привязка — секция input).
         Assert.Equal("PgUp / PgDn — врагов ±1    Home — сброс арены    T — следующий меч    F8 — капсулы и клинки", lines[3]);
         Assert.EndsWith("T — следующий меч    F7 — капсулы и клинки", Hud.HelpLines(new Dictionary<string, string>())[3]);
     }
@@ -114,7 +114,7 @@ public sealed class HudDrawTests : IDisposable
     }
 
     /// <summary>
-    /// Строка среды (точка Пб): «JIT n · GC n/Y мс · фон CPU X %» — все буквы в шрифте (и «·», и «—» до первой секунды);
+    /// Строка среды: «JIT n · GC n/Y мс · фон CPU X %» — все буквы в шрифте (и «·», и «—» до первой секунды);
     /// цвет — по загрузке и JIT/GC; кадр HUD со строкой не выделяет.
     /// </summary>
     [Fact]
@@ -132,7 +132,7 @@ public sealed class HudDrawTests : IDisposable
         Assert.Equal(t.Accent, Hud.RuntimeColour(busy with { OthersBusy = 0.05 }));    // JIT и GC были
         Assert.Equal(t.TextDim, Hud.RuntimeColour(new(0, 0, 0, 0.05, true)));
 
-        var hud = new Hud { ShowProfiler = true };   // строка среды — в секции F2 (точка Пв)
+        var hud = new Hud { ShowProfiler = true };   // строка среды — в секции F2
         var d = new UiDrawList(_fonts);
         var data = Data with { Frame = Data.Frame with { Runtime = busy } };
         for (int i = 0; i < 5; i++)
@@ -150,9 +150,9 @@ public sealed class HudDrawTests : IDisposable
     }
 
     /// <summary>
-    /// F2 (точка Пв): секция профайлера — главные зоны кадра, строка среды, последняя аномалия; буквы имён зон (шрифт Num) и
+    /// F2: секция профайлера — главные зоны кадра, строка среды, последняя аномалия; буквы имён зон (шрифт Num) и
     /// строк секции (Body, Label) — в шрифте; секция внутри панели и окна; кадр HUD с ней не выделяет; без F2 панель — как в SWORD
-    /// (строки среды в ней нет). Точка Пг: под зонами CPU — «GPU кадр» и проходы GPU (их имена — в шрифте Num), всё внутри панели.
+    /// (строки среды в ней нет). Под зонами CPU — «GPU кадр» и проходы GPU (их имена — в шрифте Num), всё внутри панели.
     /// </summary>
     [Fact]
     public void ProfilerSection_F2_ZonesAnomaly_Glyphs_InsidePanel_NoAllocations()
@@ -166,7 +166,7 @@ public sealed class HudDrawTests : IDisposable
             string[] names = ["core.animation-tick@Animation", "invariant.animation.finite", "frame.fenceWait", "arena.build.skin",
                 "invariant.movement.rootOverlap", "core.kinematic-placement@PrePhysics", "render.scene.opaque", "frame.record", "stage.Animation"];
             int[] zones = [.. names.Select(p.Zone)];
-            // Точка Пг: GPU-время кадра и проходов (зоны вида Gpu) — строки «GPU кадр» и проходов под зонами CPU.
+            // GPU-время кадра и проходов (зоны вида Gpu) — строки «GPU кадр» и проходов под зонами CPU.
             string[] gpuNames = ["scene.opaque", "hud", "debug.bodies"];
             int gpuFrame = p.Zone(Sword.Engine.Diagnostics.CpuProfiler.GpuFrameName, Sword.Engine.Diagnostics.ProfileZoneKind.Gpu);
             int[] gpuZones = [.. gpuNames.Select(n => p.Zone("gpu." + n, Sword.Engine.Diagnostics.ProfileZoneKind.Gpu))];
@@ -211,7 +211,7 @@ public sealed class HudDrawTests : IDisposable
                     Assert.True(g.GlyphId != 0, $"нет glyph'а для «{text[(int)g.Cluster]}» в «{text}» (Body)");
             foreach (var g in _fonts.Shape(UiFace.Label, "ПРОФАЙЛЕР, мс").ToArray()) Assert.True(g.GlyphId != 0);
             Assert.StartsWith("аномалия: кадр ", Hud.AnomalyText(new Line(buf), last).ToString());
-            // После Пв: заметная (кадр не короче интервала показа) — «· заметная» в строке F2 и счёт заметных справа.
+            // Заметная (кадр не короче интервала показа) — «· заметная» в строке F2 и счёт заметных справа.
             Assert.EndsWith(" · заметная", Hud.AnomalyText(new Line(buf), last with { Noticeable = true }).ToString());
             Assert.DoesNotContain("заметная", Hud.AnomalyText(new Line(buf), last with { Noticeable = false }).ToString());
             Assert.Equal("заметных 3 из 12", Hud.NoticeableText(new Line(buf), 3, 12).ToString());

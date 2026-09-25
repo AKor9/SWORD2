@@ -8,7 +8,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Эксперименты (этап 3д, раздел 8 плана): <c>experiment.fork</c> — реплей до тика и дальше ветками, <c>experiment.compare</c>
+/// Эксперименты (раздел 8 плана): <c>experiment.fork</c> — реплей до тика и дальше ветками, <c>experiment.compare</c>
 /// — два прогона (хеши, команды, разница описаний участников), <c>experiment.sweep</c> — перебор конфига с замерами
 /// (<see cref="Experiments"/>). Отдельные симуляции той же композиции — сеанс не трогается; только Headless.
 /// </summary>
@@ -158,7 +158,7 @@ internal static class ExperimentTools
                 int systems = (int)call.Integer("systems", 10, 0, 1000);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(call.Cancel);
                 timeout.CancelAfter(TimeSpan.FromSeconds(Math.Min(call.Number("timeoutSeconds", 300, 1, 3600), host.MaxWaitSeconds)));
-                // Доводка 6ж: прогрев до затишья JIT — только в оптимизированной сборке (Release), где время судится.
+                // Прогрев до затишья JIT — только в оптимизированной сборке (Release), где время судится.
                 bool optimized = host.Features?.Optimized ?? false;
                 var (rows, scaling) = await Task.Run(() => Experiments.Sweep(replay, ticks, parameters, repeats, warmup, session.Build, timeout.Token,
                     systems > 0, warmJit: optimized), timeout.Token).ConfigureAwait(false);

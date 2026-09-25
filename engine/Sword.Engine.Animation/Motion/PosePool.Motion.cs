@@ -3,8 +3,8 @@ using Sword.Engine.Animation.Motion;
 
 namespace Sword.Engine.Animation;
 
-// Исполнение задания проигрывателя Motion Matching (точка 8г). Вид задания, постановка в очередь (PosePool.Motion) и передача
-// сюда — в PosePool.cs (контракт 8а). Состояние проигрывателя — MotionPlayers (меняется только здесь).
+// Исполнение задания проигрывателя Motion Matching. Вид задания, постановка в очередь (PosePool.Motion) и передача
+// сюда — в PosePool.cs. Состояние проигрывателя — MotionPlayers (меняется только здесь).
 public sealed partial class PosePool
 {
     /// <summary>

@@ -6,7 +6,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent;
 
 /// <summary>
-/// Инварианты (этап 3г, раздел 8 плана): <c>invariant.list</c>, <c>invariant.enable</c>, <c>invariant.run</c>,
+/// Инварианты (раздел 8 плана): <c>invariant.list</c>, <c>invariant.enable</c>, <c>invariant.run</c>,
 /// <c>invariant.define</c> и <c>time.breakOnInvariant</c>. Реестр и проверка — в Runtime (<see cref="SimulationInvariants"/>),
 /// инварианты агента и остановка — в узле наблюдения (<see cref="AgentHost.Observation"/>); нарушения тиков — в истории
 /// (<c>events.history</c>, тип <see cref="InvariantRecord.Type"/>).
@@ -172,7 +172,7 @@ internal static class InvariantTools
             Run = async call =>
             {
                 var ids = call.Strings("ids");
-                // Живая игра (исправления после Пд): периоды тяжёлых кодовых инвариантов сняты на время ожидания — агенту нужна
+                // Живая игра: периоды тяжёлых кодовых инвариантов сняты на время ожидания — агенту нужна
                 // точная остановка на тике нарушения; после ответа (и при ошибке, таймауте) — снова как было.
                 bool everyTick = false;
                 try

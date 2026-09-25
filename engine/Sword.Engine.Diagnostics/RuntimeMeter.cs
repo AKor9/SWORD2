@@ -4,13 +4,13 @@ using System.Runtime;
 namespace Sword.Engine.Diagnostics;
 
 /// <summary>
-/// Строка среды для HUD (точка Пб) за прошлое окно <see cref="RuntimeMeter.WindowSeconds"/>: методов JIT процесса, сборок GC
+/// Строка среды для HUD за прошлое окно <see cref="RuntimeMeter.WindowSeconds"/>: методов JIT процесса, сборок GC
 /// и их пауза, загрузка системы другими процессами (доля всех логических процессоров). <see cref="Ready"/> — окно уже было.
 /// </summary>
 public readonly record struct RuntimeLine(int Jit, int Gc, double PauseMs, double OthersBusy, bool Ready);
 
 /// <summary>
-/// Дешёвые счётчики для HUD (точка Пб): раз в окно (<see cref="WindowSeconds"/>) — сборки GC, пауза, методы JIT процесса,
+/// Дешёвые счётчики для HUD: раз в окно (<see cref="WindowSeconds"/>) — сборки GC, пауза, методы JIT процесса,
 /// время системы и процесса (<c>GetSystemTimes</c>/<c>GetProcessTimes</c>); в остальных кадрах — сравнение времени. Работает
 /// и без профайлера: один опрос в секунду (~3 мкс) — ниже шума кадра, а человеку «JIT, GC, фоновая нагрузка» нужны без
 /// включения чего-либо. Без выделений; однопоточный (поток кадра).

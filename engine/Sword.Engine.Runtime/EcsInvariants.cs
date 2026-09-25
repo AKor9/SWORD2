@@ -38,7 +38,7 @@ internal static class EcsInvariants
         private (Data[] Components, Data[] Resources)? _data;
 
         public string Id => "ecs.finite";
-        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (исправления после Пд)
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика
         public InvariantScope Scope => InvariantScope.World;
         public string After => Simulation.ExportStage;
 
@@ -46,8 +46,7 @@ internal static class EcsInvariants
         {
             var (components, resources) = _data ??= Prepare(world, k => k is FieldLayout.Kind.F32 or FieldLayout.Kind.F64);
             // Тело обхода по сущности — свой метод: иначе долгий цикл (сущности × компоненты × листья) в методе, который зовётся
-            // раз в тик, многоуровневый JIT заменял на ходу (OSR 2,2…3,5 мс на главном потоке — docs/history/profiler.md,
-            // «Разбор Пд», вопрос 3).
+            // раз в тик, многоуровневый JIT заменял на ходу (OSR 2,2…3,5 мс на главном потоке — docs/history/profiler.md).
             for (int i = 0, n = world.EntitySlots; i < n; i++)
             {
                 var e = world.EntityAt(i);

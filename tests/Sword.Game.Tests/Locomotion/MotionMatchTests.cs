@@ -14,7 +14,7 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Motion Matching игрока в тике (8е; категория Content — клипы GASP есть только в паке; <c>locomotion.player = mm</c>): игрок на MM, враги на
+/// Motion Matching игрока в тике (категория Content — клипы GASP есть только в паке; <c>locomotion.player = mm</c>): игрок на MM, враги на
 /// клипах; поиск по расписанию (целое число тиков) и по событиям (скачок цели, конец действия всем телом); предсказание траектории = N тиков
 /// настоящего контроллера ядра (одна правда — <see cref="SteerModel"/>); R, смерть и постройка заново — состояние с нуля, мёртвый не
 /// трогается; ошибка данных — ошибка старта; <c>clips</c> — ничего нового (побитово — <see cref="ReferenceReplaysTests"/>); повтор реплея — те
@@ -74,7 +74,7 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
                 Assert.False(sim.World.Has<FighterStartPose>(e));   // враги строятся по общей позе постройки
             }
         Assert.Contains("locomotion", sim.StateParts);
-        Assert.Equal(5 + GaspMotion.WeightKeys.Count, sim.Tuning.Count(k => k.Section == LocomotionKnobs.Section));   // 8ж: + вес руки
+        Assert.Equal(5 + GaspMotion.WeightKeys.Count, sim.Tuning.Count(k => k.Section == LocomotionKnobs.Section));   // + вес руки
         var s = State(sim);
         var view = sim.World.View<IAnimationView>();
         string clip = view.ClipName(s.Clip);
@@ -129,7 +129,7 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Наибольшее расстояние суставов итоговой позы игрока от позы постройки <paramref name="start"/> (модельное пространство; 8ж — со слоем
+    /// Наибольшее расстояние суставов итоговой позы игрока от позы постройки <paramref name="start"/> (модельное пространство; со слоем
     /// руки с мечом: матрицы — те же, что у постройки тела в ядре).
     /// </summary>
     private static float MaxJointOffset(Simulation sim, Entity player, FighterStartPose start)
@@ -437,7 +437,7 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
 
     /// <summary>
     /// Сценарий «бег по кругу 8 направлений» (0,5 с на направление, взгляд вперёд, 3 круга): переходов и смен в секунду, доля тиков с
-    /// поиском — в вывод (замер 8е, пороги — 8и). Грубые рамки: поиск — в 8–12 % тиков (период 12 тиков и события), переходов — меньше 10 в
+    /// поиском — в вывод. Грубые рамки: поиск — в 8–12 % тиков (период 12 тиков и события), переходов — меньше 10 в
     /// секунду.
     /// </summary>
     [Fact]

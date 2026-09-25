@@ -14,8 +14,8 @@ using Sword.Game.Movement;
 namespace Sword.Game.Headless;
 
 /// <summary>
-/// Симуляция SWORD без окна и D3D12 — та же композиция, что у игры (<see cref="SwordSimulation"/>). Точка 1в: прогон
-/// заданного числа тиков с постоянной командой игрока и итог — где игрок, куда смотрит, с какой скоростью. Точка 1е:
+/// Симуляция SWORD без окна и D3D12 — та же композиция, что у игры (<see cref="SwordSimulation"/>). Прогон
+/// заданного числа тиков с постоянной командой игрока и итог — где игрок, куда смотрит, с какой скоростью.
 /// <c>--agent</c> — сервер MCP на stdio для агента (AgentMode.cs; в сборке без агента его нет).
 /// </summary>
 public static partial class Program
@@ -74,7 +74,7 @@ public static partial class Program
     static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, double profileThreshold,
         double idleMinutes, ref int? exit);
 
-    /// <summary>Простой сервера агента без вызовов, после которого он выходит (<c>--idle-exit</c>, точка 6а), мин.</summary>
+    /// <summary>Простой сервера агента без вызовов, после которого он выходит (<c>--idle-exit</c>), мин.</summary>
     private const double DefaultIdleExitMinutes = 15;
 
     /// <summary>Приёмка фич (<c>--feature</c>, AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
@@ -85,7 +85,7 @@ public static partial class Program
     private const int WarmupTicks = 120;
 
     /// <summary>
-    /// С какого числа тиков прогон греет JIT до замера (<see cref="JitWarmup"/>, доводка 6ж): прогрев тиками и окно замера — не меньше
+    /// С какого числа тиков прогон греет JIT до замера (<see cref="JitWarmup"/>): прогрев тиками и окно замера — не меньше
     /// 120 тиков каждое; короче (<c>--ticks 1</c> проверок конфига) — без прогрева.
     /// </summary>
     private const int JitWarmupMinTicks = 2 * WarmupTicks;
@@ -210,7 +210,7 @@ public static partial class Program
                 return 2;
             }
             var sim = Build(config);
-            if (causality) sim.EnableCausality();   // 6д: диагностика — хеш и реплей те же
+            if (causality) sim.EnableCausality();   // диагностика — хеш и реплей те же
             var playback = replay is null ? null : sim.Play(replay);
             if (playback is not null) warnings.AddRange(playback.Warnings);
             foreach (var w in warnings) Log.Warning("replay", w);
@@ -227,19 +227,19 @@ public static partial class Program
             var trajectory = new List<object>();
             // Выделения — только тиков (без записи траектории) и после прогрева: раздел 12 плана — 0 байт на тик.
             int warmup = Math.Min(WarmupTicks, ticks / 2);
-            // 6ж: сначала JIT утихает на отдельной симуляции той же композиции (тот же конфиг и та же команда): прогрев 120 тиков — ~15 мс,
+            // Сначала JIT утихает на отдельной симуляции той же композиции (тот же конфиг и та же команда): прогрев 120 тиков — ~15 мс,
             // а фоновая перекомпиляция идёт ~100 мс спустя, и её разовое выделение среды попадало в замер. Замеряемая симуляция, её тики и
-            // хеши — те же. Доводка 6ж: только там, где 0 Б/тик установившегося режима что-то значит, — без --replay (сверка хешей реплея
+            // хеши — те же. Только там, где 0 Б/тик установившегося режима что-то значит, — без --replay (сверка хешей реплея
             // выделения не судит) и от JitWarmupMinTicks тиков (иначе окна замера после прогрева почти нет).
             JitWarmupResult? jitWarmup = replay is null && ticks >= JitWarmupMinTicks
                 ? WarmJit(ConfigSet.Load(AppContext.BaseDirectory, sets), Build, command) : null;
-            // Профайлер CPU (точка Па): итоги — тики после прогрева, как байты на тик; байты тика с ним — те же 0.
+            // Профайлер CPU: итоги — тики после прогрева, как байты на тик; байты тика с ним — те же 0.
             var profiler = profile ? new CpuProfiler() : null;
             string profileDir = ProfileDir("headless");
             if (profiler is not null)
             {
                 sim.AttachProfiler(profiler);
-                // Захват аномалий тика (точка Пв): файлы — в каталог прогона профайлера, рядом с profile.json.
+                // Захват аномалий тика: файлы — в каталог прогона профайлера, рядом с profile.json.
                 profiler.CaptureAnomalies(new AnomalyOptions
                 {
                     Directory = profileDir, AbsoluteMs = profileThreshold,
@@ -253,7 +253,7 @@ public static partial class Program
             }
             long allocated = 0;
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
-            // Машина за тики после прогрева (точка Пб): снимки — на границах, вне байтов тиков.
+            // Машина за тики после прогрева: снимки — на границах, вне байтов тиков.
             MachineSample? machineStart = null;
             for (int t = 0; t < ticks; t++)
             {
@@ -276,7 +276,7 @@ public static partial class Program
             recorded?.Save(record!);
             string? profileFile = profiler?.Write(Path.Combine(profileDir, "profile.json"), ProfileHeader("headless", args));
             if (profileFile is not null && !json) Log.Info("profile", $"профайлер: {profileFile}");
-            // Точка Пв: кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
+            // Кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
             string? traceFile = profileTrace
                 ? profiler!.WriteTrace(Path.Combine(profileDir, "trace.json"), new Dictionary<string, string> { ["process"] = "headless" })
                 : null;
@@ -291,7 +291,7 @@ public static partial class Program
                 seconds = Math.Round(sim.Tick * (double)sim.Dt, 6),
                 msPerTick = ticks > 0 ? Math.Round(ms / ticks, 4) : 0,
                 allocatedBytesPerTick = ticks > warmup ? Math.Round(allocated / (double)(ticks - warmup), 3) : 0,
-                // Прогрев JIT до прогона (6ж): тиков отдельной симуляции, секунд, утих ли JIT; null — не грелся (--replay, меньше 240 тиков).
+                // Прогрев JIT до прогона: тиков отдельной симуляции, секунд, утих ли JIT; null — не грелся (--replay, меньше 240 тиков).
                 jitWarmup = jitWarmup is { } jw ? new { ticks = jw.Steps, seconds = Math.Round(jw.Seconds, 3), settled = jw.Settled } : null,
                 command = new { move = new[] { command.Move.X, command.Move.Y }, command.Walk, gaze = command.HasGaze ? new[] { command.Gaze.X, command.Gaze.Z } : null },
                 player = State(sim),
@@ -299,7 +299,7 @@ public static partial class Program
                 arena = ArenaJson(sim),
                 stateHash = StateHashJson(sim),
                 replay = playback is null ? null : ReplayJson(replayPath!, playback),
-                // Инварианты (этап 3г): сколько проверялось и нарушений за прогон; первые — строками.
+                // Инварианты: сколько проверялось и нарушений за прогон; первые — строками.
                 invariants = new
                 {
                     enabled = sim.Invariants.List().Count(i => i.Enabled),
@@ -315,11 +315,11 @@ public static partial class Program
                     commands = recorded.CommandCount,
                 },
                 warnings,
-                // Профайлер (--profile, точка Па): файл отчёта и главные зоны тика; без ключа — null.
+                // Профайлер (--profile): файл отчёта и главные зоны тика; без ключа — null.
                 profile = profiler is null ? null : ProfileJson(profiler, profileFile!, traceFile),
-                // Причинность (--causality, 6д): записей журнала и ёмкость кольца; без ключа — null.
+                // Причинность (--causality): записей журнала и ёмкость кольца; без ключа — null.
                 causality = sim.Causality is { } log ? new { written = log.Written, capacity = log.Capacity } : null,
-                // Машина за тики после прогрева (точка Пб): поток на CPU, загрузка системы, частота, GC, JIT и вердикт.
+                // Машина за тики после прогрева: поток на CPU, загрузка системы, частота, GC, JIT и вердикт.
                 machine,
                 trajectory,
                 modules = sim.ActiveModules,
@@ -410,7 +410,7 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Каталог прогона профайлера (<c>--profile</c>, точки Па и Пв): <c>artifacts/profile/&lt;дата-время старта&gt;-&lt;процесс&gt;-&lt;pid&gt;</c>
+    /// Каталог прогона профайлера (<c>--profile</c>): <c>artifacts/profile/&lt;дата-время старта&gt;-&lt;процесс&gt;-&lt;pid&gt;</c>
     /// в корне репозитория, вне репозитория — рядом с exe: файлы аномалий (по ходу), <c>profile.json</c> и <c>trace.json</c> (в конце).
     /// Создаётся при первой записи.
     /// </summary>
@@ -471,9 +471,9 @@ public static partial class Program
             ? n : throw new ArgumentException($"{key}: ожидается целое число не меньше {min}");
 
     /// <summary>
-    /// Прогрев JIT до прогона (6ж, <see cref="JitWarmup"/>): отдельная симуляция той же композиции — тот же конфиг и команда игрока
+    /// Прогрев JIT до прогона (<see cref="JitWarmup"/>): отдельная симуляция той же композиции — тот же конфиг и команда игрока
     /// каждый тик — играет до затишья JIT (не дольше <see cref="JitWarmup.MaxSeconds"/>); одна и та же, дальше конца прогона, без
-    /// постройки заново (доводка 6ж). Замеряемая симуляция её не видит.
+    /// постройки заново. Замеряемая симуляция её не видит.
     /// </summary>
     private static JitWarmupResult WarmJit(ConfigSet config, Func<ConfigSet, Simulation> build, PlayerCommand command)
     {
@@ -502,12 +502,12 @@ public static partial class Program
     private sealed record PlayerState(ulong tick, float x, float z, float facing, float speed);
 
     /// <summary>
-    /// Арена после прогона (этап 4а): заданное число врагов, бойцов в мире и враги по местам — корень, курс, расстояние
-    /// до игрока (кольцо спауна 5–9 м); с 4б — скорость корня и ИИ последнего тика: подход и покачивание, м/с, соседей
-    /// ближе 1,4 м (<see cref="EnemyAiTerms"/>); с 4в — толчки столкновений последнего тика (<see cref="RootContacts"/>:
+    /// Арена после прогона: заданное число врагов, бойцов в мире и враги по местам — корень, курс, расстояние
+    /// до игрока (кольцо спауна 5–9 м); скорость корня и ИИ последнего тика: подход и покачивание, м/с, соседей
+    /// ближе 1,4 м (<see cref="EnemyAiTerms"/>); толчки столкновений последнего тика (<see cref="RootContacts"/>:
     /// пар, сдвиг корня парами и от игрока, м, наибольшее перекрытие и с кем) и ближайшая пара бойцов на арене
     /// (<c>closestPair</c>: расстояние корней, м, и места; ближе 0,7 м — перекрытие, инвариант <c>movement.rootOverlap</c>);
-    /// с 4г — слой действий последнего тика (<see cref="AnimatorAction"/>: действие, вес, поворот курса клипом за тик).
+    /// слой действий последнего тика (<see cref="AnimatorAction"/>: действие, вес, поворот курса клипом за тик).
     /// </summary>
     private static object ArenaJson(Simulation sim)
     {
@@ -576,7 +576,7 @@ public static partial class Program
 
     private sealed record PoseState(int joints, float maxBindDeviation, bool bindPose);
 
-    /// <summary>Хеш состояния после прогона (этап 3): итог и участники — шестнадцатеричными строками.</summary>
+    /// <summary>Хеш состояния после прогона: итог и участники — шестнадцатеричными строками.</summary>
     private static object StateHashJson(Simulation sim)
     {
         var hash = sim.HashState();

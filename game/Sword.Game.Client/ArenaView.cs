@@ -11,10 +11,10 @@ namespace Sword.Game.Client;
 /// высота тела на рельефе — уже интерполированные по доле тика; поза последнего тика —
 /// <see cref="PoseCount"/> модельных матриц с <see cref="PoseStart"/> в снимке кадра (<see cref="ArenaView.Pose"/>),
 /// 0 — позы нет (рисуется поза привязки); капсулы тела, как показан боец, — <see cref="BodyCount"/> с
-/// <see cref="BodyStart"/> (<see cref="ArenaView.Body"/>, 5в); меч в руке (6б) — номер <see cref="Weapon"/> в таблице оружия
+/// <see cref="BodyStart"/> (<see cref="ArenaView.Body"/>); меч в руке — номер <see cref="Weapon"/> в таблице оружия
 /// (−1 — меча нет) и мир его меша <see cref="WeaponWorld"/> (кисть позы, как показан боец); клинок, как показан боец, —
 /// <see cref="Blade"/> (только когда его рисуют).
-/// 7и: <see cref="Dead"/> — мёртв (метка <see cref="Contracts.Dead"/>); <see cref="Corpse"/> — труп рисуется по телам: поза — уже
+/// <see cref="Dead"/> — мёртв (метка <see cref="Contracts.Dead"/>); <see cref="Corpse"/> — труп рисуется по телам: поза — уже
 /// мировые матрицы суставов (привязка скина × тело, <see cref="ArenaView.Pose"/>), меч — на теле клинка, рамка — по телам
 /// (<see cref="BoundsMin"/>, <see cref="BoundsMax"/>); суставы тела (физики) для оверлея — <see cref="BodyJointCount"/> с
 /// <see cref="BodyJointStart"/> (<see cref="ArenaView.Joints"/>, только когда их рисуют).
@@ -29,9 +29,9 @@ public readonly record struct FighterView(Entity Entity, bool IsPlayer, Vector3 
 }
 
 /// <summary>
-/// Капсула тела бойца в кадре (5в): сегмент (<see cref="BodySegs"/>), центр и поворот (ось — локальная Y) — как показан
-/// боец (<see cref="ArenaView.Carry"/>; у трупа — тело, <see cref="ArenaView.Shown"/>), радиус и полудлина оси, м; 7и — на физике ли
-/// тело (труп) и касается ли земли; 7з-3 — спит ли труп (физика его не считает).
+/// Капсула тела бойца в кадре: сегмент (<see cref="BodySegs"/>), центр и поворот (ось — локальная Y) — как показан
+/// боец (<see cref="ArenaView.Carry"/>; у трупа — тело, <see cref="ArenaView.Shown"/>), радиус и полудлина оси, м; на физике ли
+/// тело (труп) и касается ли земли; спит ли труп (физика его не считает).
 /// </summary>
 public readonly record struct ShownCapsule(int Segment, Vector3 Center, Quaternion Rotation, float Radius, float HalfLength,
     bool Simulated = false, bool Grounded = false, bool Asleep = false)
@@ -42,7 +42,7 @@ public readonly record struct ShownCapsule(int Segment, Vector3 Center, Quaterni
 }
 
 /// <summary>
-/// Клинок бойца в кадре (6б, оверлей <c>blades</c>): основание и кончик тика и прошлого тика (<see cref="Contracts.Blade"/>),
+/// Клинок бойца в кадре (оверлей <c>blades</c>): основание и кончик тика и прошлого тика (<see cref="Contracts.Blade"/>),
 /// перенесённые из мира бойца на тике в показанный (<see cref="ArenaView.Carry"/>, как капсулы) — при доле тика 1 ровно клинок
 /// симуляции. Прошлый переносится тем же переносом (мир бойца прошлого тика не хранится): это отрезок, который клинок заметает
 /// за тик, относительно показанного бойца.
@@ -50,7 +50,7 @@ public readonly record struct ShownCapsule(int Segment, Vector3 Center, Quaterni
 public readonly record struct ShownBlade(Vector3 Base, Vector3 Tip, Vector3 PrevBase, Vector3 PrevTip);
 
 /// <summary>
-/// Сустав тела бойца в кадре (7и, оверлей <c>joints</c>): тела родителя и ребёнка (номера тел = сегменты), точка сустава на ребёнке
+/// Сустав тела бойца в кадре (оверлей <c>joints</c>): тела родителя и ребёнка (номера тел = сегменты), точка сустава на ребёнке
 /// и на родителе — в мире, как показаны их капсулы (расстояние между ними — ошибка точки), включён ли (выключен — запястье трупа: меч
 /// выпал), шарнир ли; замер в позе тика — ошибка точки, м, и выход за предел, рад (0 — в пределах; <see cref="IPhysicsDebugView"/>).
 /// </summary>
@@ -58,9 +58,9 @@ public readonly record struct ShownJoint(int Parent, int Child, Vector3 Point, V
     float Excess);
 
 /// <summary>
-/// Трупы кадра (7и, часть 2 — строки группы F3 «Рэгдолл»): трупов, нарисованных по телам, из них в покое (скорость центра масс тел ≤
+/// Трупы кадра (строки группы F3 «Рэгдолл»): трупов, нарисованных по телам, из них в покое (скорость центра масс тел ≤
 /// <see cref="ArenaView.RestSpeed"/>), тел трупов на физике и из них касающихся земли, наибольшие скорость, м/с, и вращение, рад/с, тела
-/// трупа на физике — по телам тика (поза тика, не показанная); 7з-3 — из трупов кадра спящих (физика их не считает).
+/// трупа на физике — по телам тика (поза тика, не показанная); из трупов кадра спящих (физика их не считает).
 /// </summary>
 public readonly record struct CorpseFrameStats(int Corpses, int AtRest, int SimulatedBodies, int GroundedBodies, float MaxSpeed,
     float MaxAngularSpeed, int Asleep = 0);
@@ -70,17 +70,17 @@ public readonly record struct CorpseFrameStats(int Corpses, int AtRest, int Simu
 /// (<c>Added&lt;Fighter&gt;</c>/<c>Removed&lt;Fighter&gt;</c> из очереди кадра), их корни — из мира симуляции между
 /// прошлым и последним тиком по доле тика (<c>SkinCutPose.DrawnJoints</c> SWORD: корень — линейно, курс — по короткой
 /// дуге; высоты тела от постановки стоп ещё нет — высота рельефа под интерполированным корнем по функции рельефа, как
-/// <c>DuelArena.KinWorld(root, facing)</c> с <c>Terrain.Height</c>). Капсулы тел (вид <see cref="IBodyView"/>, 5в) — как
+/// <c>DuelArena.KinWorld(root, facing)</c> с <c>Terrain.Height</c>). Капсулы тел (вид <see cref="IBodyView"/>) — как
 /// показан боец: постановка последнего тика, перенесённая из мира бойца на тике в показанный (<see cref="Carry"/>), — та
 /// же поза тика в том же мире, что и меш, поэтому капсулы идут с персонажем без отставания. Точка тени и кольца игрока —
 /// таз, как его показывает кадр; фокус камеры — таз между прошлой и нынешней постановкой по доле тика (<c>Program.cs</c>
-/// SWORD). Рендер читает только этот мир; кадр без выделений памяти (буферы растут удвоением и остаются). Исправления после Пд:
-/// капсулы всех бойцов снимаются, только когда нужны (<c>allBodies</c>: F7, <c>--overlay capsules</c>, слой снимка), иначе —
-/// только таз игрока (камера, тень, кольцо): 429 капсул скрытых тел — 0,016 мс CPU кадра впустую. 6б: меч в руке — мир меша
+/// SWORD). Рендер читает только этот мир; кадр без выделений памяти (буферы растут удвоением и остаются).
+/// Капсулы всех бойцов снимаются, только когда нужны (<c>allBodies</c>: F7, <c>--overlay capsules</c>, слой снимка), иначе —
+/// только таз игрока (камера, тень, кольцо): 429 капсул скрытых тел — 0,016 мс CPU кадра впустую. Меч в руке — мир меша
 /// оружия — модельная матрица кисти позы тика в показанном мире бойца (<c>SkinCutPose.WeaponWorld</c> SWORD: кисть из
 /// <c>DrawnJoints</c>): меч идёт с кистью Manny без отставания; клинки (оверлей <c>blades</c>) — только когда их рисуют.
 ///
-/// 7и — труп на экране (<c>SkinCutPose.LiveJoints</c>, <c>WeaponOnBody</c>, <c>WeaponWorld</c> SWORD — идеи): мёртвый с привязкой скина
+/// Труп на экране (<c>SkinCutPose.LiveJoints</c>, <c>WeaponOnBody</c>, <c>WeaponWorld</c> SWORD — идеи): мёртвый с привязкой скина
 /// (<see cref="ISkinView"/>) рисуется по телам — сустав <c>j</c> = привязка[j] × тело его сегмента, как показано тело
 /// (<see cref="Shown"/>: тело на физике — интерполяция позы начала тика → поза тика по доле тика; застывшее кинематическое — поза тика);
 /// меч — на теле клинка (тело 11: кисть = (тело клинка в кисти)⁻¹ × тело — выпавший лежит там, где лежит тело); капсулы трупа — те же
@@ -124,7 +124,7 @@ public sealed class ArenaView
     private int _posesZone, _bodiesZone;
 
     /// <summary>
-    /// Профайлер CPU кадра (точка Па): копия поз бойцов — зона <c>arena.extract.poses</c> (7и — и скин трупа по телам), чтение и перенос
+    /// Профайлер CPU кадра: копия поз бойцов — зона <c>arena.extract.poses</c> (и скин трупа по телам), чтение и перенос
     /// капсул тел — <c>arena.extract.bodies</c> (по вызову на бойца). Задаёт клиент арены из профайлера рендера.
     /// </summary>
     public CpuProfiler Profiler
@@ -157,43 +157,43 @@ public sealed class ArenaView
     /// <summary>
     /// Фокус камеры (<c>Program.cs</c> SWORD: <c>Lerp(pel.RenderPos, pel.Pos, renderAlpha) with { Y = 0 }</c>) — центр таза
     /// между прошлой и нынешней постановкой по доле тика этого кадра; камера следующего кадра идёт за ним (как в SWORD —
-    /// по доле прошлого кадра). У трупа игрока (7и) — таз, как его показывает кадр. Нет игрока или его тела — null.
+    /// по доле прошлого кадра). У трупа игрока — таз, как его показывает кадр. Нет игрока или его тела — null.
     /// </summary>
     public Vector3? PlayerFocus { get; private set; }
 
     /// <summary>Капсул тел в кадре.</summary>
     public int BodyCount { get; private set; }
 
-    /// <summary>Бойцов кадра с мечом в руке и клинков, снятых кадром (6б).</summary>
+    /// <summary>Бойцов кадра с мечом в руке и клинков, снятых кадром.</summary>
     public int WeaponCount { get; private set; }
     public int BladeCount { get; private set; }
 
-    /// <summary>Трупов кадра, нарисованных по телам (7и: мёртвые с привязкой скина).</summary>
+    /// <summary>Трупов кадра, нарисованных по телам (мёртвые с привязкой скина).</summary>
     public int CorpseCount { get; private set; }
 
     /// <summary>Скорость центра масс тел трупа, м/с, до которой труп — в покое (playbook, «Труп на физике», п. 2: ≤ 0,05 м/с).</summary>
     public const float RestSpeed = 0.05f;
 
-    /// <summary>Трупы кадра (7и, часть 2): в покое, тела на физике и на земле, наибольшие скорости — строки группы F3 «Рэгдолл».</summary>
+    /// <summary>Трупы кадра: в покое, тела на физике и на земле, наибольшие скорости — строки группы F3 «Рэгдолл».</summary>
     public CorpseFrameStats CorpseStats { get; private set; }
 
     // Накопители трупов кадра (Extract → CorpseStats).
     private int _restCorpses, _simulatedBodies, _groundedBodies, _asleepCorpses;
     private float _maxSpeed, _maxAngularSpeed;
 
-    /// <summary>Суставов тел, снятых кадром для оверлея <c>joints</c> (7и; 0 — не снимались).</summary>
+    /// <summary>Суставов тел, снятых кадром для оверлея <c>joints</c> (0 — не снимались).</summary>
     public int JointTotal { get; private set; }
 
-    /// <summary>Трасса физики включена (7и: оверлей <c>contacts</c> без неё пуст).</summary>
+    /// <summary>Трасса физики включена (оверлей <c>contacts</c> без неё пуст).</summary>
     public bool TraceOn { get; private set; }
 
-    /// <summary>Контакты последнего подшага, снятые кадром (7и; только когда их рисуют и трасса включена), и не поместившиеся в трассу.</summary>
+    /// <summary>Контакты последнего подшага, снятые кадром (только когда их рисуют и трасса включена), и не поместившиеся в трассу.</summary>
     public ReadOnlySpan<PhysicsContactView> Contacts => _contacts.AsSpan(0, ContactCount);
     public int ContactCount { get; private set; }
     public int LostContacts { get; private set; }
 
     /// <summary>
-    /// Бой последнего тика (6е, HUD): очки жизни игрока (нет игрока или здоровья — полные), мёртв ли он, живых врагов кадра (бойцы не на
+    /// Бой последнего тика (HUD): очки жизни игрока (нет игрока или здоровья — полные), мёртв ли он, живых врагов кадра (бойцы не на
     /// месте 0 без метки <see cref="Dead"/>).
     /// </summary>
     public float PlayerHp { get; private set; } = Health.Full;
@@ -223,8 +223,8 @@ public sealed class ArenaView
     /// (<see cref="PlayerMarker"/>, <see cref="PlayerFocus"/> — те же числа), у бойцов кадра капсул нет (<see cref="BodyCount"/> 0).
     /// </param>
     /// <param name="blades">Клинки бойцов (F7, <c>--overlay blades</c>, слой снимка); false — у бойцов кадра клинка нет.</param>
-    /// <param name="joints">Суставы тел (7и: J, <c>--overlay joints</c>, слой снимка) — и капсулы тел, на которых они стоят.</param>
-    /// <param name="contacts">Контакты последнего подшага из трассы физики (7и: K, <c>--overlay contacts</c>, слой снимка).</param>
+    /// <param name="joints">Суставы тел (J, <c>--overlay joints</c>, слой снимка) — и капсулы тел, на которых они стоят.</param>
+    /// <param name="contacts">Контакты последнего подшага из трассы физики (K, <c>--overlay contacts</c>, слой снимка).</param>
     public void Extract(SimulationLink simulation, float alpha, bool allBodies = true, bool blades = false, bool joints = false,
         bool contacts = false)
     {
@@ -266,7 +266,7 @@ public sealed class ArenaView
                 continue;
             }
             var view = ExtractFighter(world, e, prev, cur, alpha, allBodies, blades, joints);
-            // Бой (6е, HUD): здоровье и смерть игрока, живые враги — снимок последнего тика.
+            // Бой (HUD): здоровье и смерть игрока, живые враги — снимок последнего тика.
             if (view.IsPlayer)
             {
                 PlayerHp = world.TryGet<Health>(e, out var health) ? health.Hp : Health.Full;
@@ -310,7 +310,7 @@ public sealed class ArenaView
     }
 
     /// <summary>
-    /// Обратная система тела клинка в системе кисти (7ж: центр — середина хват — кончик, ось Y — к кончику, X — опорная ось кисти,
+    /// Обратная система тела клинка в системе кисти (центр — середина хват — кончик, ось Y — к кончику, X — опорная ось кисти,
     /// <c>AnimMath.FromBasis</c>): мир кисти = это × система тела клинка — меч рисуется на теле клинка без снимка.
     /// </summary>
     public static Matrix4x4 BladeInHandInverse(in BladeBody body)
@@ -335,7 +335,7 @@ public sealed class ArenaView
         bool hasBody = world.TryGet<BodyRef>(e, out var bodyRef) && _bodyView is not null;
         int weapon = world.TryGet<WeaponSlot>(e, out var w) && _combatView is not null && (uint)w.Index < (uint)_combatView.Weapons.Length ? w.Index : -1;
 
-        // Труп (7и): мёртвый с привязкой скина и годным телом — по телам.
+        // Труп: мёртвый с привязкой скина и годным телом — по телам.
         if (dead && hasBody && _skinView is not null && _skinView.TryGet(bodyRef, out var binding, out _) && binding.Length == _jointBodies.Length
             && ReadBody(_bodyView!, bodyRef) == BodySegs.Bodies)
         {
@@ -399,7 +399,7 @@ public sealed class ArenaView
     }
 
     /// <summary>
-    /// Труп по телам (7и): показанные тела (<see cref="Shown"/>), суставы скелета — привязка × тело сегмента (мировые матрицы в снимке
+    /// Труп по телам: показанные тела (<see cref="Shown"/>), суставы скелета — привязка × тело сегмента (мировые матрицы в снимке
     /// поз), меч — на теле клинка, рамка — по капсулам тел, таз игрока — камере, тени и кольцу.
     /// </summary>
     private FighterView Corpse(FighterView view, ReadOnlySpan<Matrix4x4> binding, float alpha, int weapon)
@@ -428,7 +428,7 @@ public sealed class ArenaView
             _maxAngularSpeed = MathF.Max(_maxAngularSpeed, b.AngularVelocity.Length());
         }
         if (mass > 0 && (momentum / mass).Length() <= RestSpeed) _restCorpses++;
-        if (_snapshots[0].Asleep) _asleepCorpses++;   // 7з-3: сон — у сочленения, у всех его тел один
+        if (_snapshots[0].Asleep) _asleepCorpses++;   // сон — у сочленения, у всех его тел один
         if (_poses.Length < _posed + binding.Length) Array.Resize(ref _poses, Math.Max(_poses.Length * 2, _posed + binding.Length));
         SkinJoints(binding, _poses.AsSpan(_posed, binding.Length));
         view = view with { PoseStart = _posed, PoseCount = binding.Length, Corpse = true, BoundsMin = min, BoundsMax = max };
@@ -466,7 +466,7 @@ public sealed class ArenaView
         return view;
     }
 
-    /// <summary>Суставы тела бойца (7и, оверлей <c>joints</c>): точки на ребёнке и родителе — по показанным телам (<see cref="_shown"/>).</summary>
+    /// <summary>Суставы тела бойца (оверлей <c>joints</c>): точки на ребёнке и родителе — по показанным телам (<see cref="_shown"/>).</summary>
     private FighterView Joints(FighterView view, BodyRef body)
     {
         if (_debugView is not { } debug || view.BodyCount == 0) return view;
@@ -484,7 +484,7 @@ public sealed class ArenaView
         return view with { BodyJointStart = start, BodyJointCount = _jointed - start };
     }
 
-    /// <summary>Контакты последнего подшага (7и): копия из вида (рендер читает только мир представления).</summary>
+    /// <summary>Контакты последнего подшага: копия из вида (рендер читает только мир представления).</summary>
     private void ExtractContacts(bool contacts)
     {
         TraceOn = _debugView?.TraceOn == true;
@@ -533,14 +533,14 @@ public sealed class ArenaView
 
     /// <summary>
     /// Поза бойца кадра — модельные матрицы суставов последнего тика; у трупа (<see cref="FighterView.Corpse"/>) — мировые матрицы
-    /// суставов (привязка × тело, 7и); пусто — позы нет.
+    /// суставов (привязка × тело); пусто — позы нет.
     /// </summary>
     public ReadOnlySpan<Matrix4x4> Pose(in FighterView fighter) => _poses.AsSpan(fighter.PoseStart, fighter.PoseCount);
 
     /// <summary>Капсулы тела бойца кадра — как показан боец; пусто — тела нет.</summary>
     public ReadOnlySpan<ShownCapsule> Body(in FighterView fighter) => _bodies.AsSpan(fighter.BodyStart, fighter.BodyCount);
 
-    /// <summary>Суставы тела бойца кадра (7и, оверлей <c>joints</c>); пусто — не снимались или суставов нет.</summary>
+    /// <summary>Суставы тела бойца кадра (оверлей <c>joints</c>); пусто — не снимались или суставов нет.</summary>
     public ReadOnlySpan<ShownJoint> Joints(in FighterView fighter) => _joints.AsSpan(fighter.BodyJointStart, fighter.BodyJointCount);
 
     /// <summary>
@@ -607,11 +607,11 @@ public sealed class ArenaView
         (Vector3.Lerp(body.PrevPosition, body.Position, alpha), Quaternion.Slerp(body.PrevRotation, body.Rotation, alpha));
 
     /// <summary>
-    /// Тело трупа, как его показывает кадр (7и; <c>Fighter.SkinMatrix(body, alpha)</c> SWORD — идея): тело на физике — между позой
+    /// Тело трупа, как его показывает кадр (<c>Fighter.SkinMatrix(body, alpha)</c> SWORD — идея): тело на физике — между позой
     /// начала тика и позой тика по доле тика (центр — линейно, поворот — <c>Slerp</c>; прошлую постановку тела на физике перезаписывает
-    /// каждый подшаг — от неё нельзя); кинематическое (мёртвый до перехода в труп, 7з, замирает) — поза тика: его поза начала тика —
+    /// каждый подшаг — от неё нельзя); кинематическое (мёртвый до перехода в труп замирает) — поза тика: его поза начала тика —
     /// прошлой постановки живого, и интерполяция качала бы застывший труп на расстояние последнего тика жизни. При доле 1 — поза тика. Спящий
-    /// труп (7з-3) — поза тика: она же поза начала тика, и <c>Slerp</c> одинаковых поворотов не качал бы его даже на последний бит.
+    /// труп — поза тика: она же поза начала тика, и <c>Slerp</c> одинаковых поворотов не качал бы его даже на последний бит.
     /// </summary>
     public static (Vector3 Center, Quaternion Rotation) Shown(in BodySnapshot body, float alpha) => body.Simulated && !body.Asleep
         ? (Vector3.Lerp(body.StartPosition, body.Position, alpha), Quaternion.Normalize(Quaternion.Slerp(body.StartRotation, body.Rotation, alpha)))

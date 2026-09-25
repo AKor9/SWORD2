@@ -54,7 +54,7 @@ public sealed record ViewResult(bool Ok, string Detail);
 
 /// <summary>
 /// Замер кадра для App (бюджет кадра): реплей сценария (записанный Headless), секунды бенча (первые 4 — прогрев), оверлеи игры
-/// поверх каждого кадра (5г).
+/// поверх каждого кадра.
 /// </summary>
 public sealed record FrameRequest(string Feature, string Budget, string Replay, double Seconds)
 {
@@ -67,7 +67,7 @@ public sealed record FrameRequest(string Feature, string Budget, string Replay, 
 /// </summary>
 public sealed record FrameResult(bool Ok, string Detail, long Frames = 0, double AverageMs = double.NaN, double P99Ms = double.NaN, double MaxMs = double.NaN)
 {
-    /// <summary>Машина за замер App (точка Пб: <c>report.machine</c> итога Sword.exe) — JSON как есть; null — нет.</summary>
+    /// <summary>Машина за замер App (<c>report.machine</c> итога Sword.exe) — JSON как есть; null — нет.</summary>
     public JsonObject? Machine { get; init; }
 }
 
@@ -239,7 +239,7 @@ public static class FeatureVerifier
         }
         foreach (string m in manifest.RequiredModules.Where(m => !sim.ActiveModules.Contains(m)))
             failures.Add($"модуль {m} не активен (активны: {string.Join(", ", sim.ActiveModules)})");
-        // 7з: диагностические режимы сценария — с тика 0 (мир, хеш и реплей от них не зависят)
+        // Диагностические режимы сценария — с тика 0 (мир, хеш и реплей от них не зависят)
         foreach (string d in scenario.Diagnostics)
         {
             if (sim.Diagnostics.Has(d)) sim.Diagnostics.Set(d, true);
@@ -305,7 +305,7 @@ public static class FeatureVerifier
             hub.Attach(sim, catalog, env.Names);
             var ctx = new ServiceContext(sim);
 
-            // 7з: проверки читают и вычисляемые поля игры (env.Fields — тело бойца вне ECS: Body.Com, Body.Energy…), как метрики
+            // Проверки читают и вычисляемые поля игры (env.Fields — тело бойца вне ECS: Body.Com, Body.Energy…), как метрики
             var checks = scenario.Checks.Select(c => (Check: c, Predicate: ObservationPredicate.Compile(c.Condition, ctx, catalog, env.Names,
                 fields: env.Fields))).ToList();
             foreach (var (c, _) in checks)
@@ -441,7 +441,7 @@ public static class FeatureVerifier
                 ReadOnlySpan<double> window = values.AsSpan((int)from, (int)(to - from + 1));
                 if (m.SkipUndefined)
                 {
-                    // 8з: тики без значения (NaN) — не в окне; сколько тиков вошло — в отчёт.
+                    // Тики без значения (NaN) — не в окне; сколько тиков вошло — в отчёт.
                     window = Defined(window);
                     json["skipUndefined"] = true;
                     json["defined"] = window.Length;
@@ -461,7 +461,7 @@ public static class FeatureVerifier
                 : (false, $"{Fmt(value)}, ждали {Fmt(m.Expected.Value)} ±{Fmt(m.Tolerance)} (разница {Fmt(delta)})");
         }
 
-        /// <summary>Значения окна без NaN (8з, <see cref="FeatureMetric.SkipUndefined"/>) — копия; ни одного — пусто (статистика — NaN).</summary>
+        /// <summary>Значения окна без NaN (<see cref="FeatureMetric.SkipUndefined"/>) — копия; ни одного — пусто (статистика — NaN).</summary>
         internal static double[] Defined(ReadOnlySpan<double> v)
         {
             int n = 0;
@@ -498,7 +498,7 @@ public static class FeatureVerifier
         }
 
         /// <summary>
-        /// Перцентиль окна (7л, <c>stat: p99</c>) — ближайший ранг: значение, не меньше которого доля <paramref name="p"/> окна
+        /// Перцентиль окна (<c>stat: p99</c>) — ближайший ранг: значение, не меньше которого доля <paramref name="p"/> окна
         /// (<c>ceil(p·n)</c>-е по возрастанию). Нечисловое значение в окне (сущности не было) — NaN, как у min и max.
         /// </summary>
         internal static double Percentile(ReadOnlySpan<double> v, double p)
@@ -522,8 +522,8 @@ public static class FeatureVerifier
     {
         var failures = new List<string>();
         var json = new JsonObject { ["id"] = budget.Id, ["scenario"] = budget.Scenario, ["repeats"] = budget.Repeats, ["warmup"] = budget.Warmup };
-        // 6ж: до повторов — прогрев до затишья JIT (сценарий бюджета без замера): фиксированный прогрев в тиках — доли секунды, а фоновая
-        // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты первого повтора (JitWarmup). Доводка 6ж: только в
+        // До повторов — прогрев до затишья JIT (сценарий бюджета без замера): фиксированный прогрев в тиках — доли секунды, а фоновая
+        // перекомпиляция идёт ~0,1 с спустя, и её разовое выделение среды попадало в байты первого повтора (JitWarmup). Только в
         // Release (в Debug время не судится), одна симуляция — дальше конца сценария, без постройки заново.
         if (env.Optimized)
         {
@@ -570,7 +570,7 @@ public static class FeatureVerifier
         double bytes = runs.Max(x => x.AllocatedBytesPerTick);
         json["allocatedBytesPerTick"] = Math.Round(bytes, 3);
 
-        // Машина за замеры повторов (точка Пб): поток на CPU, загрузка системы, частота, GC и JIT — и вердикт «код или машина».
+        // Машина за замеры повторов: поток на CPU, загрузка системы, частота, GC и JIT — и вердикт «код или машина».
         // Пределы не меняются: вердикт только объясняет провал времени (машина занята — так и сказано в провале).
         var machine = MachineReport.Combine(runs.Select(x => x.Machine));
         if (machine is not null)
@@ -592,10 +592,10 @@ public static class FeatureVerifier
         if (budget.AllocatedBytesPerTick is { } maxBytes && bytes > maxBytes)
             failures.Add($"выделено {Fmt(bytes)} Б/тик, предел {Fmt(maxBytes)}");
 
-        // Время систем (точка Па): ещё один прогон — с профайлером CPU; медиана и пределы выше — без него. Байты этого прогона
+        // Время систем: ещё один прогон — с профайлером CPU; медиана и пределы выше — без него. Байты этого прогона
         // держат тот же предел: включённый профайлер не выделяет памяти.
         var (profiledSim, profiledReplay) = Prepare(manifest, scenario, env, ["sim.invariants=false"], failures, hashes: false);
-        // 8и: пик зон бюджета (zones) — из этого прогона: зона, её пик (наибольшее за тик), предел; зоны нет — провал в любой сборке.
+        // Пик зон бюджета (zones) — из этого прогона: зона, её пик (наибольшее за тик), предел; зоны нет — провал в любой сборке.
         var zonePeaks = new List<(string Zone, double PeakMs, double Limit, string Why)>();
         if (profiledSim is not null)
         {
@@ -701,7 +701,7 @@ public static class FeatureVerifier
             fj["time"] = "не проверяется: сборка Debug (время — только в Release, verify.ps1 -Configuration Release)";
             return;
         }
-        // Вердикт машины App (точка Пб) — в текст провала времени: «машина занята» видно сразу.
+        // Вердикт машины App — в текст провала времени: «машина занята» видно сразу.
         string why = r.Machine?["kind"]?.GetValue<string>() is { } kind && kind != "code" ? $" — {r.Machine["text"]}" : "";
         if (frame.AverageMs is { } avg && !(r.AverageMs <= avg)) failures.Add($"кадр {Fmt(r.AverageMs)} мс в среднем, предел {Fmt(avg)}{why}");
         if (frame.P99Ms is { } p99 && !(r.P99Ms <= p99)) failures.Add($"кадр {Fmt(r.P99Ms)} мс (99-й перцентиль), предел {Fmt(p99)}{why}");
@@ -713,7 +713,7 @@ public static class FeatureVerifier
 
 /// <summary>
 /// Замер прогона (бюджеты фич, <c>experiment.sweep</c>): мс на тик после прогрева, мс стадий (<see cref="StageTimer"/>),
-/// выделенные байты на тик потока симуляции после прогрева; с профайлером (<c>profile: true</c>, точка Па) — ещё мс систем
+/// выделенные байты на тик потока симуляции после прогрева; с профайлером (<c>profile: true</c>) — ещё мс систем
 /// (<see cref="Systems"/>: зоны <c>метка@стадия</c> профайлера CPU, среднее на тик после прогрева). Прогон с профайлером —
 /// отдельный: медианы бюджета меряются без него (пара зон включённого — ~0,04 мкс; тик толпы 32 врагов без инвариантов
 /// с ним дольше на ~5 %: 0,110 против 0,105 мс, Release).
@@ -724,13 +724,13 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
     public IReadOnlyList<KeyValuePair<string, double>>? Systems { get; init; }
 
     /// <summary>
-    /// Все зоны профайлера за тик после прогрева (8и: пик зоны — <see cref="ProfileZoneStats.MaxMs"/>, бюджет <c>zones</c>) — только у прогона с
+    /// Все зоны профайлера за тик после прогрева (пик зоны — <see cref="ProfileZoneStats.MaxMs"/>, бюджет <c>zones</c>) — только у прогона с
     /// профайлером, иначе null. Кольца у профайлера замера нет: медиана и p99 — NaN, есть среднее, максимум, вызовы и доля тиков.
     /// </summary>
     public IReadOnlyList<ProfileZoneStats>? Zones { get; init; }
 
     /// <summary>
-    /// Машина за замер (точка Пб): от первого тика после прогрева до конца — поток на CPU, загрузка системы, частота, GC и JIT
+    /// Машина за замер: от первого тика после прогрева до конца — поток на CPU, загрузка системы, частота, GC и JIT
     /// во время замера, вердикт «код или машина». Снимки — на границах замера, вне тиков (в мс на тик не входят).
     /// </summary>
     public MachineReport? Machine { get; init; }
@@ -763,7 +763,7 @@ public sealed record SimulationMeasure(double MsPerTick, IReadOnlyDictionary<str
                 if (sim.Tick == (ulong)warmup) profiler?.Reset();
                 continue;
             }
-            machineStart ??= MachineSample.Take();   // граница замера (точка Пб): вне времени и байтов тиков
+            machineStart ??= MachineSample.Take();   // граница замера: вне времени и байтов тиков
             long bytes = GC.GetAllocatedBytesForCurrentThread();
             long start = Stopwatch.GetTimestamp();
             timer.Begin();
@@ -850,7 +850,7 @@ public sealed class FieldProbe
     }
 
     /// <summary>
-    /// Поле ресурса мира (метрики фич, 6ж): путь — имя ресурса и поле (<c>ArenaStats.LastDamage</c>, как у условия <c>{resource:…}</c>);
+    /// Поле ресурса мира (метрики фич): путь — имя ресурса и поле (<c>ArenaStats.LastDamage</c>, как у условия <c>{resource:…}</c>);
     /// несколько листьев — длина вектора. Ресурса нет — NaN.
     /// </summary>
     public static FieldProbe OfResource(Catalog catalog, string path, string at)

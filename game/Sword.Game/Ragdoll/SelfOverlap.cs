@@ -4,7 +4,7 @@ using Sword.Engine.Physics;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Замер самоколлизии трупа (7з-4): насколько части одного тела вошли друг в друга — по парам самоколлизии сочленения
+/// Замер самоколлизии трупа: насколько части одного тела вошли друг в друга — по парам самоколлизии сочленения
 /// (<see cref="IPhysicsWorld.SelfContacts"/>, у трупа — <see cref="CorpseJoints.SelfPairs"/>), капсулы с радиусами × толщина. Читают инвариант
 /// <c>physics.selfContacts</c>, вид диагностики физики (агент — <c>physics.bodies</c> → <c>self</c>) и тесты. Памяти не выделяет.
 /// </summary>

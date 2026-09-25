@@ -170,7 +170,7 @@ public sealed class GameFaultModule(GameFault fault) : IModule
         }
     }
 
-    /// <summary>Physics: таз игрока в NaN мимо постановки (этап 5а — постановки ещё нет, 5б).</summary>
+    /// <summary>Physics: таз игрока в NaN мимо постановки.</summary>
     private sealed class NaNBody : IContinuousSystem
     {
         private Query _query = null!;
@@ -336,7 +336,7 @@ public sealed class GameFaultModule(GameFault fault) : IModule
 }
 
 /// <summary>
-/// Инварианты игры (этап 3г): базовые инварианты движка и анимации и инвариант модуля Locomotion ловят
+/// Инварианты игры: базовые инварианты движка и анимации и инвариант модуля Locomotion ловят
 /// модуль-неисправность на её тике, после нужной стадии; честная игра их не нарушает.
 /// </summary>
 public sealed class GameInvariantTests
@@ -375,17 +375,17 @@ public sealed class GameInvariantTests
         sim.Enqueue(new PlayerCommand { Move = new Vector2(0, 1) });
         sim.Step();
         // Нарушение этого инварианта — на тике неисправности после своей стадии (раньше него в том же тике может сработать
-        // другой: NaN корня с 5б доходит до капсул и physics.finite видит его после Physics, до ecs.finite в конце тика).
+        // другой: NaN корня доходит до капсул и physics.finite видит его после Physics, до ecs.finite в конце тика).
         var first = sim.Invariants.Recent().First(v => v.Id == id);
         Assert.Equal((id, GameFaultModule.Tick, stage), (first.Id, first.Tick, first.Stage));
-        // Подробность — у одного из нарушений этой проверки (NaN корня с 6б уходит и в клинок: ecs.finite называет и Blade).
+        // Подробность — у одного из нарушений этой проверки (NaN корня уходит и в клинок: ecs.finite называет и Blade).
         Assert.Contains(sim.Invariants.Recent(), v => v.Id == id && v.Tick == first.Tick && v.Details.Contains(details));
     }
 
     /// <summary>
-    /// Живая игра (исправления после Пд, решение пользователя): тяжёлые по цене в тике толпы — <c>animation.finite</c>,
-    /// <c>ecs.finite</c>, <c>physics.finite</c>, <c>physics.kinematicPose</c>, <c>physics.kinematicSpeed</c> и инварианты трупа 7з
-    /// (<c>physics.modes</c>, <c>simulatedSpeed</c>, <c>joints</c>, <c>ground</c>, <c>inArena</c>; 7з-3 — <c>sleep</c>, <c>sleepContacts</c>; 7з-4 —
+    /// Живая игра (решение пользователя): тяжёлые по цене в тике толпы — <c>animation.finite</c>,
+    /// <c>ecs.finite</c>, <c>physics.finite</c>, <c>physics.kinematicPose</c>, <c>physics.kinematicSpeed</c> и инварианты трупа
+    /// (<c>physics.modes</c>, <c>simulatedSpeed</c>, <c>joints</c>, <c>ground</c>, <c>inArena</c>, <c>sleep</c>, <c>sleepContacts</c>,
     /// <c>selfContacts</c>) — раз в 4 тика, остальные
     /// (и <c>movement.rootOverlap</c> со счётом тиков подряд) — каждый тик. Неисправность, которая держится (NaN корня с тика 25),
     /// поймана не позже чем через 3 тика — на тике 28; в тестах (не живая игра) — на тике 25 (<see cref="Fault_CaughtOnItsTick_AfterItsStage"/>).
@@ -394,10 +394,10 @@ public sealed class GameInvariantTests
     public void LiveGame_HeavyEveryFourTicks_PersistentFaultCaughtWithinPeriod()
     {
         string[] heavy = ["ecs.finite", "animation.finite", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed",
-            "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena",   // 7з: инварианты трупа — по всем телам
-            "physics.sleep", "physics.sleepContacts",   // 7з-3: сон трупа
-            "physics.selfContacts",   // 7з-4: самоколлизия — все пары всех трупов
-            "locomotion.mmDecay", "locomotion.mmContinuity"];   // 8з: MM игрока (только при locomotion.player = mm) — MotionMatchAgentTests
+            "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena",   // инварианты трупа — по всем телам
+            "physics.sleep", "physics.sleepContacts",   // сон трупа
+            "physics.selfContacts",   // самоколлизия — все пары всех трупов
+            "locomotion.mmDecay", "locomotion.mmContinuity"];   // MM игрока (только при locomotion.player = mm) — MotionMatchAgentTests
         var sim = Build(GameFault.NaNRoot);
         Assert.All(sim.Invariants.List().Where(i => i.Enabled), i => Assert.Equal(1, i.Every));   // не живая игра — каждый тик
         sim.Invariants.LivePeriods = true;
@@ -410,7 +410,7 @@ public sealed class GameInvariantTests
         }
         var first = sim.Invariants.Recent().First(v => v.Id == "ecs.finite");
         Assert.Equal(GameFaultModule.Tick + 3, first.Tick);   // 28 — ближайшая проверка раз в 4 после тика 25
-        // К тику 28 NaN корня разошёлся по клинку (6б) и прошлому корню — подробностей больше 8, корня среди них может не быть.
+        // К тику 28 NaN корня разошёлся по клинку и прошлому корню — подробностей больше 8, корня среди них может не быть.
         Assert.Contains("= NaN", first.Details);
         Assert.Equal(8, sim.Invariants.Find("ecs.finite")!.Evaluations);              // тики 0, 4, …, 28
         Assert.Equal(29, sim.Invariants.Find("movement.rootOverlap")!.Evaluations);   // каждый тик: счёт тиков подряд
@@ -466,7 +466,7 @@ public sealed class GameInvariantTests
     }
 
     /// <summary>
-    /// 5в: до первого тика тела бойцов сборки мира уже стоят (по позе постройки), и проверка «сейчас» их сверяет, а не
+    /// До первого тика тела бойцов сборки мира уже стоят (по позе постройки), и проверка «сейчас» их сверяет, а не
     /// пропускает: тело, сдвинутое после постановки сборки мира, — нарушение <c>physics.kinematicPose</c> на тике 0.
     /// </summary>
     [Fact]
@@ -482,7 +482,7 @@ public sealed class GameInvariantTests
 
     /// <summary>
     /// Проверка «сейчас» (<c>invariant.run</c> агента) до первого тика (свежий сеанс, <c>time.seek 0</c>) и посреди тика после
-    /// каждой стадии (<c>time.break</c>) — все инварианты чисты: тела бойцов сборки мира стоят по позе постройки (5в) и
+    /// каждой стадии (<c>time.break</c>) — все инварианты чисты: тела бойцов сборки мира стоят по позе постройки и
     /// сверяются с ней, а посреди тика до PrePhysics (корень, курс и поза уже новые, капсулы — ещё прошлого тика)
     /// <c>physics.kinematicPose</c> капсулы с позой не сверяет.
     /// </summary>

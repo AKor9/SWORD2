@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Игровые данные и форматы (раздел 9): таблица действий бойца (combat/actions.json), клинок меча по мешу (6б), дальше — риг, анатомия. -->
+  <!-- Игровые данные и форматы (раздел 9): таблица действий бойца (combat/actions.json), клинок меча по мешу, дальше — риг, анатомия. -->
   <PropertyGroup>
     <SwordSide>Neutral</SwordSide>
   </PropertyGroup>

@@ -8,7 +8,7 @@ namespace Sword.Bake.Engine;
 /// sword-bake inspect — диагностика исходников конвейера анимаций (команда плагина, см. <see cref="InspectCommand"/>).
 ///   meshinfo GLB                              сводка по glTF: вершины, суставы, границы, bind-точки ключевых костей
 ///   rawpose DIR --clip NAME [--frame N]       точки костей кадра сырого экспорта в пространстве персонажа
-/// Сравнение паков — <c>sword-bake diff</c> ядра (Б3), не inspect.
+/// Сравнение паков — <c>sword-bake diff</c> ядра, не inspect.
 /// </summary>
 internal static class Inspect
 {

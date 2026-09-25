@@ -2,9 +2,9 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// 7д: трасса физики — сторона мира: включение, крючки Trace* (объявлены в PhysicsWorld.cs, поле _trace — там же) и начало
+// Трасса физики — сторона мира: включение, крючки Trace* (объявлены в PhysicsWorld.cs, поле _trace — там же) и начало
 // шага для трассы. Данные и сводки — класс PhysicsTrace (PhysicsTrace.Data.cs, PhysicsTrace.Stats.cs). Идеи — RagTrace SWORD
-// 2eab13b (свой путь — docs/history/engine-physics.md, «7д»).
+// 2eab13b (свой путь — docs/history/engine-physics.md).
 public sealed partial class PhysicsWorld
 {
     public PhysicsTrace EnableTrace(PhysicsTrace? trace = null)
@@ -49,7 +49,7 @@ public sealed partial class PhysicsWorld
     {
         if (_trace is not { } t) return;
         t.RecordContact(source, TraceBody(body), TraceBody(other), point, normal, depth, solved);
-        // 7з-2: пара тел на физике — оба сочленения в этом подшаге «в контакте с трупом» (энергия передаётся — рост сочленения не накачка)
+        // Пара тел на физике — оба сочленения в этом подшаге «в контакте с трупом» (энергия передаётся — рост сочленения не накачка)
         if (source == PhysicsSource.Pair) t.Paired(_bodyOwner[body], _bodyOwner[other]);
     }
 
@@ -67,7 +67,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Тело на физике в конце подшага: скорости, упор в потолки профиля, энергия — в сумму его сочленения. Тело спящего (7з-3) — не считается:
+    /// Тело на физике в конце подшага: скорости, упор в потолки профиля, энергия — в сумму его сочленения. Тело спящего — не считается:
     /// шаг его не двигает (скорости 0, энергия постоянна), и в сумме роста энергии и перцентилях скоростей его нет.
     /// </summary>
     private void TraceSubstepBody(PhysicsTrace t, int b)
@@ -92,7 +92,7 @@ public sealed partial class PhysicsWorld
     {
         if (_bodyGeneration[b] <= 0) return;
         ref readonly var s = ref _bodies[b];
-        if (s.Mode != BodyMode.Simulated || _sleepAsleep[_bodyOwner[b]]) return;   // 7з-3: спящие не считаются
+        if (s.Mode != BodyMode.Simulated || _sleepAsleep[_bodyOwner[b]]) return;   // спящие не считаются
         t.EnergyAdd(_bodyOwner[b], s.KineticEnergy + (double)s.Mass * _dynamics[s.Profile].Gravity * s.Position.Y);
     }
 
@@ -114,7 +114,7 @@ public sealed partial class PhysicsWorld
     {
         if (_bodyGeneration[b] <= 0) return;
         ref readonly var s = ref _bodies[b];
-        if (s.Mode != BodyMode.Simulated || _sleepAsleep[_bodyOwner[b]]) return;   // 7з-3: спящие не считаются
+        if (s.Mode != BodyMode.Simulated || _sleepAsleep[_bodyOwner[b]]) return;   // спящие не считаются
         float kinetic = s.KineticEnergy;
         if (moved)
         {

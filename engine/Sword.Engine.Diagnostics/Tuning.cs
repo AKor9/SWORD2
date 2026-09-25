@@ -82,7 +82,7 @@ public sealed class TuningInfo : TuningItem
 /// привязываются к объектам настроек, изменение на ходу — команда симуляции (раздел 7 плана, «Конфигурация»).
 ///
 /// Значения по умолчанию и сброс — здесь (<see cref="ResetAll"/>, <see cref="Changed"/>); сохранение — словарём
-/// ключ → число (<see cref="Values"/>, <see cref="Apply"/>): файл пишет и читает хост (точка 6е — <c>sword.user.json</c>).
+/// ключ → число (<see cref="Values"/>, <see cref="Apply"/>): файл пишет и читает хост (<c>sword.user.json</c>).
 ///
 /// Перенос <c>Diagnostics/Tuning.cs</c> SWORD 2eab13b. Отличия: <see cref="Save"/>/<see cref="Load"/> файла
 /// <c>Tuning/&lt;Id&gt;.json</c> нет (решение пользователя: ручки сохраняются в <c>sword.user.json</c>) — вместо них словарь;

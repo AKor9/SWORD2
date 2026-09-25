@@ -39,11 +39,11 @@ public static class AnimatorRules
 /// <summary>
 /// Gameplay, после курса и разгона: аниматор бойца на тик без поз (<c>FighterAnimator.Tick(dt, f.DirToLocal(f.RootVel))</c>
 /// SWORD) — вход слоя локомоции: скорость корня в системе бойца (по новому курсу), сглаженная, и «идёт»
-/// (<see cref="AnimatorMotion"/>); у бойца со слоем действий (<see cref="AnimatorAction"/>: с 6б — все бойцы) затем шаг действия
+/// (<see cref="AnimatorMotion"/>); у бойца со слоем действий (<see cref="AnimatorAction"/>: все бойцы) затем шаг действия
 /// (<see cref="ActionLayer.Tick"/>): время, доля клипа в ногах (слой верха), вес, поворот курса и сдвиг корня клипом, обрезка
-/// хвоста удара на бегу (игрок — <c>Agile</c>), переход от снимка; вздрагивание игрока (6г, <see cref="Flinch"/>) — время слотов.
+/// хвоста удара на бегу (игрок — <c>Agile</c>), переход от снимка; вздрагивание игрока (<see cref="Flinch"/>) — время слотов.
 /// Позу по ним ставят <see cref="ActionSnapshotSystem"/> и <see cref="AnimatorPoseSystem"/>, курс и корень двигает
-/// <c>RootControlSystem</c>. Мёртвый (<see cref="Dead"/>, 6г) замирает — его аниматор стоит.
+/// <c>RootControlSystem</c>. Мёртвый (<see cref="Dead"/>) замирает — его аниматор стоит.
 /// </summary>
 public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
 {
@@ -99,9 +99,9 @@ public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
 /// поверх локомоции (<see cref="ActionLayer.Pose"/>: сэмпл клипа действия и смешивание всем телом или по маске верха
 /// <paramref name="upper"/>, затем переход от снимка позы), затем у всех — прямая кинематика (<c>clips.ToComponent</c>). Слой
 /// локомоции (модуль Locomotion) ставит свои задания раньше (<see cref="GameLabels.AnimatorPose"/>), снимок — ещё раньше
-/// (<see cref="ActionSnapshotSystem"/>); без слоёв поза остаётся позой привязки. У игрока после слоя действий — вздрагивание (6г,
+/// (<see cref="ActionSnapshotSystem"/>); без слоёв поза остаётся позой привязки. У игрока после слоя действий — вздрагивание (
 /// <see cref="FlinchLayer.Pose"/>: добавка поворотов по той же маске верха). Мёртвому (<see cref="Dead"/>) заданий нет — его поза стоит.
-/// <paramref name="full"/> — маска всего тела (6ж): переход от снимка — смешивание по ней с памятью (перескок дуги — догон по 8° за тик).
+/// <paramref name="full"/> — маска всего тела: переход от снимка — смешивание по ней с памятью (перескок дуги — догон по 8° за тик).
 /// </summary>
 public sealed class AnimatorPoseSystem(PoseMask upper, PoseMask full) : IContinuousSystem
 {

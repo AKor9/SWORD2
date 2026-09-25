@@ -1,4 +1,4 @@
-# Агентский доступ (точка 1е)
+# Агентский доступ
 
 ИИ-агент (Claude Code, Codex, любой MCP-клиент) подключается к SWORD как к серверу MCP: двигает время, читает мир,
 отправляет команды, снимает кадр, разбирает устройство тика, принимает фичи. Две точки входа:
@@ -14,10 +14,10 @@
 Код: `engine/Sword.Engine.Introspection/` (точка обслуживания, время, разбор полей, каталог имён, запросы, карта
 архитектуры), `engine/Sword.Engine.Agent/` (хост: сеанс, инструменты, квитанции, MCP, транспорты, цикл Headless),
 `engine/Sword.Engine.Agent.Client/` (агент в кадре клиента, `capture.bundle`, `render.graph`),
-`game/Sword.Game.Agent/` (имена сущностей игры, инструменты игры; 7и — `physics.bodies {trace, events}`: трасса физики —
+`game/Sword.Game.Agent/` (имена сущностей игры, инструменты игры; `physics.bodies {trace, events}`: трасса физики —
 диагностический режим `physics.trace` через `ServiceContext`), композиция — `AgentMode.cs` в `Game.Headless` и `Game.App` (в
 сборке `-p:WithoutAgent=true` их нет). Рецепты для агентов — [docs/agent-playbook.md](../../docs/agent-playbook.md). История
-(подробные протокол и транспорты, ограничения точки 1е, полный список проверок) — [docs/history/engine-agent.md](../../docs/history/engine-agent.md).
+(подробные протокол и транспорты, полный список проверок) — [docs/history/engine-agent.md](../../docs/history/engine-agent.md).
 
 ## Устройство (раздел 8 плана)
 
@@ -62,7 +62,7 @@
   номер → 404, запрос без номера — разовый, сеансов не больше 64; испорченный запрос → 400; простой соединения 2 мин, чтение
   запроса ≤ 30 с, исполнение вызова ≤ 35 с (`timeoutSeconds` у `time.*` и `capture.bundle` в живой игре — не больше 30 с,
   `HttpTransport.MaxWait`; Headless — 600 с). Закрытие окна отменяет ожидающие запросы и ожидания тиков.
-- **Время жизни сервера stdio (точка 6а).** Клиент держит сервер, пока открыт его сеанс (Claude Code — до выхода из
+- **Время жизни сервера stdio.** Клиент держит сервер, пока открыт его сеанс (Claude Code — до выхода из
   приложения), а сервер загружает ~850 МБ. Поэтому `Sword.Headless --agent` выходит сам: конец stdin; конец родителя
   (`ProcessLifetime.WhenParentExited`); простой без вызовов инструментов (`McpServer.IdleFor`, `--idle-exit МИН`, по умолчанию
   15, 0 — не выходить); `session.stop`. Выход — с реплеем сеанса в артефакты; не вышел за 20 с — сторож. Следующий вызов
@@ -74,20 +74,20 @@
 
 | группа | инструменты |
 |---|---|
-| сеанс | `session.status` (6д: `causality` — режим причинности, записей и ёмкость), `session.stop`; `session.start(replay, set, causality)` — новая симуляция на тике 0 из конфига запуска или реплея (только Headless; запись прежней — в артефакты); `causality` — диагностический режим причинности для этой и следующих симуляций сеанса (6д) |
+| сеанс | `session.status` (`causality` — режим причинности, записей и ёмкость), `session.stop`; `session.start(replay, set, causality)` — новая симуляция на тике 0 из конфига запуска или реплея (только Headless; запись прежней — в артефакты); `causality` — диагностический режим причинности для этой и следующих симуляций сеанса |
 | время | `time.pause`, `time.resume`, `time.step(ticks)`, `time.runUntil(tick | condition, maxTicks)` — с условием встаёт на паузу ровно на тике выполнения (и в живой игре); `time.break(stage, condition)` — останов посреди тика после барьера стадии (квитанция со `stage`, команды — на следующий тик; только Headless); `time.seek(tick)` — вперёд тиками, назад пересборкой и повтором таймлайна (прежнее будущее повторяется, команды агента на несыгранные тики сбрасываются; таймаут — ошибка с достигнутым тиком; только Headless) |
-| реплеи | `replay.status` — запись сеанса (с тика 0) и воспроизведение (сверено, первое расхождение с участниками); `replay.save(name)` — запись в артефакты; `replay.check(path, set)` — реплей целиком в отдельной симуляции (Headless); сведения реплея другие (`facts` заголовка, 8з: отпечаток базы Motion Matching) — `warnings` и `divergence.cause` (вероятная причина); `replay.diff(a, b)` — заголовки (и `facts.<имя>`), первый тик с разными командами, первый разный хеш; вместо пути — `session` |
-| мир | `world.types` (компоненты, события, ресурсы, команды и их поля; с 6е у ресурса — его ручки `knobs`: имя, поле, диапазон, значение по умолчанию), `world.query(with, without, where, fields, aggregate, skip, take)` — `where` — условие на сущность, `aggregate` — count/min/max/mean/sum числовых полей, `entity.get(entity, components)`; `world.snapshot(id)` — наблюдательный снимок (и файл), `world.diff(a, b, filter, tolerance)` — разница по полям (`now` — снять сейчас) |
-| история | `watch.add(entities, where, fields, every, capacity)`, `watch.list`, `watch.remove(id | all)` — наблюдения после каждого тика (5г: поля — и вычисляемые поля игры `IEntityFields`, `AgentHost.Fields`, например капсулы тела `Body.MaxSpeed`; лист `F64`, нет значения — null); `entity.history(entity, fields, from, to, changes)` — значения по `tickId`; `events.history(types, entity, where, from, to)` — события, команды и срабатывания последних 1200 тиков (тик, стадия, поля; в режиме причинности — `cause`: номер, родитель, вид, система, источник); `replay.observe(path, from, to, events, watch, condition)` — то же на прогоне реплея в отдельной симуляции, в `.jsonl` (Headless) |
+| реплеи | `replay.status` — запись сеанса (с тика 0) и воспроизведение (сверено, первое расхождение с участниками); `replay.save(name)` — запись в артефакты; `replay.check(path, set)` — реплей целиком в отдельной симуляции (Headless); сведения реплея другие (`facts` заголовка: отпечаток базы Motion Matching) — `warnings` и `divergence.cause` (вероятная причина); `replay.diff(a, b)` — заголовки (и `facts.<имя>`), первый тик с разными командами, первый разный хеш; вместо пути — `session` |
+| мир | `world.types` (компоненты, события, ресурсы, команды и их поля; у ресурса — его ручки `knobs`: имя, поле, диапазон, значение по умолчанию), `world.query(with, without, where, fields, aggregate, skip, take)` — `where` — условие на сущность, `aggregate` — count/min/max/mean/sum числовых полей, `entity.get(entity, components)`; `world.snapshot(id)` — наблюдательный снимок (и файл), `world.diff(a, b, filter, tolerance)` — разница по полям (`now` — снять сейчас) |
+| история | `watch.add(entities, where, fields, every, capacity)`, `watch.list`, `watch.remove(id | all)` — наблюдения после каждого тика (поля — и вычисляемые поля игры `IEntityFields`, `AgentHost.Fields`, например капсулы тела `Body.MaxSpeed`; лист `F64`, нет значения — null); `entity.history(entity, fields, from, to, changes)` — значения по `tickId`; `events.history(types, entity, where, from, to)` — события, команды и срабатывания последних 1200 тиков (тик, стадия, поля; в режиме причинности — `cause`: номер, родитель, вид, система, источник); `replay.observe(path, from, to, events, watch, condition)` — то же на прогоне реплея в отдельной симуляции, в `.jsonl` (Headless) |
 | инварианты | `invariant.list(filter, recent)` — id, чей, когда проверяется, включён, проверок, нарушений, средняя стоимость (мкс), последнее нарушение; `invariant.enable(ids, enabled)` — id, «префикс.*», all (переживает `session.start` и перемотку); `invariant.run(ids)` — проверить сейчас, в том числе посреди тика, выключенные и «по запросу»; `invariant.define(id, condition | must + where, after, every, remove)` — свой инвариант условием; `time.breakOnInvariant(ids, maxTicks)` — встать на нарушении (Headless — посреди тика после нарушившего барьера, живая игра — после тика); нарушения — в `events.history` (тип `InvariantViolation`) |
-| приёмка | `feature.list(id)` — манифесты фич (`feature.json`), с `id` — манифест целиком; `feature.verify(id, views, budgets)` — вердикт фичи по манифесту: сценарии, проверки, хеши, инварианты, метрики (свои числа SWORD2 с допуском), бюджеты (8и: и пик зон профайлера — `zones`), виды App; артефакты — `report.json`, записи сценариев, PNG (Headless) |
-| эксперименты | `experiment.fork(replay, at, variants, ticks, measure)` — реплей до тика и ветками дальше (параллельно): `set` — конфиг с тика 0, `commands` — с развилки, `cut`; по ветке — первое расхождение с базой, измерения (8и: и вычисляемые поля игры — `Body.*`, `MotionMatch.*`), запись; `experiment.compare(a, b, describe)` — чем разошлись: заголовки, команды, хеши и листья описаний участников на первом разошедшемся хеше; `experiment.sweep(params, replay, ticks, repeats, warmup, systems)` — перебор конфига: мс на тик и стадий, байты, хеш и детерминизм повторов, масштабирование, машина и вердикт (`rows[].machine`); мс систем — отдельный прогон с профайлером CPU (этап П) (Headless) |
-| диагностика | `profile.stages(enable, reset, per, prefix, top, history, write, events, anomalies, threshold, trace)` — профайлер CPU (этап П, точки Па, Пб и Пв; `ProfileTools`): зоны кадра (App) и тика — фазы кадра, тик, стадии, системы `метка@стадия`, барьеры, инварианты, проходы графа, зоны игры: мс (среднее, медиана, p99, максимум, своё), байты, вызовы; включение — с границы кадра или тика, симуляцию не меняет; `write` — `profile.json` в артефакты; `runtime` — среда за период (CPU потока против настенного, GC, JIT), `machine` — машина с включения и вердикт «код или машина», `events` — диагностический режим (события среды с кадром, тиком, зоной); `anomalies` — захваченные аномалии (кадр или тик дольше порога: класс причины, главная зона, файл аномалии), `threshold` — абсолютный порог, мс (0 — по медиане), `trace` — кольцо в Chrome Trace JSON (Perfetto). Профайлер — `AgentHost.Profiler`: у Headless — свой, `SimulationLoop` подключает его к каждой симуляции сеанса; у App — профайлер клиента (задаёт exe) |
-| почему (6д) | `state.why(entity, field, changes, depth)` — почему поле такое: последние изменения поля (тик, `Set`/`Add`/`Remove`, регистрация системы, источник файл:строка, до и после) и цепочка причин до корня (команда игрока, арены, врага, пробы, агента или решение системы → начало удара → `StrikeContact` → `Hit` → `Health`/`Dead`), строка `summary`; непрерывные поля — грубо: `writers` (какая регистрация писала столбец в каком тике), `exact`; без режима — `enabled: false` и объявленные производители; `state.why(cause, depth)` (8з) — цепочка записи журнала по номеру из `events.history` (`cause.id`, `cause.parent`) до корня: почему случилось событие (переход Motion Matching ← решение «MM: …»). Режим: `--causality` (Headless, App) или `session.start {causality:true}` — хеш и реплей не меняет |
+| приёмка | `feature.list(id)` — манифесты фич (`feature.json`), с `id` — манифест целиком; `feature.verify(id, views, budgets)` — вердикт фичи по манифесту: сценарии, проверки, хеши, инварианты, метрики (свои числа SWORD2 с допуском), бюджеты (и пик зон профайлера — `zones`), виды App; артефакты — `report.json`, записи сценариев, PNG (Headless) |
+| эксперименты | `experiment.fork(replay, at, variants, ticks, measure)` — реплей до тика и ветками дальше (параллельно): `set` — конфиг с тика 0, `commands` — с развилки, `cut`; по ветке — первое расхождение с базой, измерения (и вычисляемые поля игры — `Body.*`, `MotionMatch.*`), запись; `experiment.compare(a, b, describe)` — чем разошлись: заголовки, команды, хеши и листья описаний участников на первом разошедшемся хеше; `experiment.sweep(params, replay, ticks, repeats, warmup, systems)` — перебор конфига: мс на тик и стадий, байты, хеш и детерминизм повторов, масштабирование, машина и вердикт (`rows[].machine`); мс систем — отдельный прогон с профайлером CPU (Headless) |
+| диагностика | `profile.stages(enable, reset, per, prefix, top, history, write, events, anomalies, threshold, trace)` — профайлер CPU (`ProfileTools`): зоны кадра (App) и тика — фазы кадра, тик, стадии, системы `метка@стадия`, барьеры, инварианты, проходы графа, зоны игры: мс (среднее, медиана, p99, максимум, своё), байты, вызовы; включение — с границы кадра или тика, симуляцию не меняет; `write` — `profile.json` в артефакты; `runtime` — среда за период (CPU потока против настенного, GC, JIT), `machine` — машина с включения и вердикт «код или машина», `events` — диагностический режим (события среды с кадром, тиком, зоной); `anomalies` — захваченные аномалии (кадр или тик дольше порога: класс причины, главная зона, файл аномалии), `threshold` — абсолютный порог, мс (0 — по медиане), `trace` — кольцо в Chrome Trace JSON (Perfetto). Профайлер — `AgentHost.Profiler`: у Headless — свой, `SimulationLoop` подключает его к каждой симуляции сеанса; у App — профайлер клиента (задаёт exe) |
+| почему | `state.why(entity, field, changes, depth)` — почему поле такое: последние изменения поля (тик, `Set`/`Add`/`Remove`, регистрация системы, источник файл:строка, до и после) и цепочка причин до корня (команда игрока, арены, врага, пробы, агента или решение системы → начало удара → `StrikeContact` → `Hit` → `Health`/`Dead`), строка `summary`; непрерывные поля — грубо: `writers` (какая регистрация писала столбец в каком тике), `exact`; без режима — `enabled: false` и объявленные производители; `state.why(cause, depth)` — цепочка записи журнала по номеру из `events.history` (`cause.id`, `cause.parent`) до корня: почему случилось событие (переход Motion Matching ← решение «MM: …»). Режим: `--causality` (Headless, App) или `session.start {causality:true}` — хеш и реплей не меняет |
 | состояние | `state.hash` — хеш состояния, итог и по участникам (`ecs`, `animation`…); `state.describe(part, filter, skip, take)` — ровно то, что участник хеширует (у `ecs` — сущности, ресурсы, `slots`, `journal:…`, `system:…`); ответ больше 60 тыс. знаков — в файл артефакта (`artifactId`) |
-| команды | `command.send(command, fields, tick | delay, repeat)` — не дальше 1 000 000 тиков вперёд, в очереди агента — не больше 1 000 000 команд одного типа; ручка (6е) — `TuningCommand` с `Knob` именем ручки (`combat.playerDamage`) |
+| команды | `command.send(command, fields, tick | delay, repeat)` — не дальше 1 000 000 тиков вперёд, в очереди агента — не больше 1 000 000 команд одного типа; ручка — `TuningCommand` с `Knob` именем ручки (`combat.playerDamage`) |
 | журнал | `log.tail(after, limit, level, category)` — без `after` последние `limit` записей, прошедших фильтр (среди всего кольца, 2048 записей), `last` — номер последней записи кольца; с `after` — вперёд страницами |
-| устройство | `architecture.projects`, `ecs.plan`, `ecs.explainSystem(name)`, `ecs.componentUsage(name)` (с 5а — и хуки времени жизни компонента: `hooks`), `module.graph` |
+| устройство | `architecture.projects`, `ecs.plan`, `ecs.explainSystem(name)`, `ecs.componentUsage(name)` (и хуки времени жизни компонента: `hooks`), `module.graph` |
 | клиент (App) | `capture.bundle(name, ids, overlays)`, `render.graph` |
 
 Сущность — номером `12v3` или именем игры (`player`, `enemy N` — враг на месте N, `fighter N` — `Game.Agent`). Компоненты и команды — коротким
@@ -102,7 +102,7 @@
 ## Настройки
 
 - `Sword.Headless --agent`; `Sword.exe --agent`, `--agent-port N` (по умолчанию 47813); `--idle-exit МИН` (Headless, 15).
-- `--causality` (Headless, App; 6д) — диагностический режим причинности с запуска: `state.why`, причины в `events.history`. Хеш,
+- `--causality` (Headless, App) — диагностический режим причинности с запуска: `state.why`, причины в `events.history`. Хеш,
   реплей и выделения тика не меняет; цена выключенного — проверка на null в записи команды (в шуме замера), включённого — запись
   кольца на команду и событие (Release, 32 бьющих врага: разницы с выключенным в шуме).
 - `.mcp.json` в корне — подключение для Claude Code; строки для Codex — в `docs/agent-playbook.md`.
@@ -116,7 +116,7 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
 
 ## Ограничения
 
-- Минимизатора (`replay.minimize`) и дифференциального прогона нет (раздел 8, «По этапам»). Причинность (6д) — только в
+- Минимизатора (`replay.minimize`) и дифференциального прогона нет (раздел 8, «По этапам»). Причинность — только в
   кольце журнала (65 536 записей): старше — вытеснено (`complete: false` со словами); `replay.observe` с причинностью не
   сделан. Ветки `experiment.fork` — потоки одного процесса (симуляции независимы, общие только неизменяемые ассеты); время
   веток мерится параллельно — для замеров `experiment.sweep` (по очереди).
@@ -125,7 +125,7 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
   агента. Условие `time.runUntil` в живой игре встаёт на своём тике (кадр прерывает тики), но между тиками.
 - `capture.bundle`: цвет, глубина (8 бит, ближе — светлее, растянуто на диапазон кадра), бойцы с рамками и именами,
   камера, `paused` и `alpha` (доля тика кадра); по заказу — ID-буфер (`ids`: сущность и сегмент тела на пиксель, легенда
-  словами) и оверлеи игры слоем поверх цвета (`overlays`: у арены — `capsules`, `blades`, `joints`, `contacts`, 8з — `mm`; пустой слой —
+  словами) и оверлеи игры слоем поверх цвета (`overlays`: у арены — `capsules`, `blades`, `joints`, `contacts`, `mm`; пустой слой —
   заметка игры в `notes`). Нет нормалей и векторов движения. Кадр на ходу — интерполяция между тиками (`alpha` < 1):
   точное состояние — на паузе (`alpha` 1).
 - Виды `feature.verify` снимает Sword.exe той же конфигурации сборки, что Headless (`game/Sword.Game.App/bin/<Debug|Release>`);
@@ -164,12 +164,12 @@ Introspection, Client, Render, Runtime, Ecs; Game.Agent — Sword.Game, Contract
 
 ## Решения и почему
 
-- Свой минимальный JSON-RPC вместо официального SDK MCP: SDK тянет хостинг и внедрение зависимостей в exe игры (точка 1е).
+- Свой минимальный JSON-RPC вместо официального SDK MCP: SDK тянет хостинг и внедрение зависимостей в exe игры.
 - Свой HTTP/1.1 на `TcpListener`: http.sys без прав администратора резервирует не всякий адрес.
 - Мир — только в точке обслуживания, изменения — только командами на будущий тик: агент не ломает детерминизм и реплей.
-- Headless под агентом выходит сам (6а): клиенты держат stdio-сервер часами, а он загружает ~850 МБ.
+- Headless под агентом выходит сам: клиенты держат stdio-сервер часами, а он загружает ~850 МБ.
 - Новый инструмент — только если существующие не покрывают задачу (раздел 8): отдельных `profile.anomalies` и `gpu.passes`
-  нет — расширены `profile.stages`, `render.graph`, `capture.bundle` (этап П).
+  нет — расширены `profile.stages`, `render.graph`, `capture.bundle`.
 
 ## Известные ошибки
 

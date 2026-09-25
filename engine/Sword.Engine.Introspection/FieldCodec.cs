@@ -12,7 +12,7 @@ namespace Sword.Engine.Introspection;
 /// (раздел 8 плана: «компоненты по стабильным именам и полям»). Поля — экземплярные поля структуры в порядке
 /// объявления (у автосвойства — имя свойства); вложенные структуры — объекты, <c>[InlineArray]</c> и <c>fixed</c>-буферы —
 /// массивы, перечисления — именем (необъявленное значение разбор показывает числом, а сборка его не принимает: записать
-/// можно только объявленное), <see cref="Entity"/> — строкой <c>12v3</c>, ключ ручки (<see cref="Runtime.TuningKey"/>, 6е) — именем
+/// можно только объявленное), <see cref="Entity"/> — строкой <c>12v3</c>, ключ ручки (<see cref="Runtime.TuningKey"/>) — именем
 /// ручки <c>combat.playerDamage</c> (незаведённая — ошибка с перечнем; число — как есть), нечисловые float — строками <c>NaN</c>,
 /// <c>Infinity</c>, <c>-Infinity</c> (в JSON их нет). Байты разбираются через упакованную копию значения — раскладку
 /// считает сама среда, смещения полей не вычисляются.
@@ -111,7 +111,7 @@ public static class FieldCodec
             case float f: return float.IsFinite(f) ? JsonValue.Create(f) : Number(f);
             case double d: return Number(d);
             case Entity e: return JsonValue.Create(e.ToString());
-            // Ручка (6е) — именем «секция.ключ»; ключ, которого в процессе не заводили, — числом.
+            // Ручка — именем «секция.ключ»; ключ, которого в процессе не заводили, — числом.
             case Runtime.TuningKey k: return k.Name is { } knob ? JsonValue.Create(knob) : JsonValue.Create((decimal)k.Hash);
             case char c: return JsonValue.Create(c.ToString());
             // Необъявленное значение (у [Flags] — с необъявленными битами) ToString печатает числом: оно и уходит числом, а

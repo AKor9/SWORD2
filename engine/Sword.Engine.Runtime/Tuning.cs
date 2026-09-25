@@ -6,7 +6,7 @@ using Sword.Engine.Ecs;
 namespace Sword.Engine.Runtime;
 
 /// <summary>
-/// Ключ ручки (раздел 7 плана, «Конфигурация»; точка 6е): стабильный хеш полного имени ручки «секция.ключ» — того же ключа
+/// Ключ ручки (раздел 7 плана, «Конфигурация»): стабильный хеш полного имени ручки «секция.ключ» — того же ключа
 /// конфига (<c>combat.playerDamage</c>), без учёта регистра. В команде и реплее — число (от порядка регистрации ручек и от
 /// набора модулей не зависит); имя по числу знают ручки, заведённые в процессе (<see cref="Name"/>) — агент пишет и читает ручку
 /// именем (<c>command.send</c>, <c>events.history</c>).
@@ -264,7 +264,7 @@ internal sealed class TuningSystem<T>(string section) : IReactiveSystem<Event<Tu
             if (float.IsNaN(v)) continue;
             knob.Set(ref value, v);
             changed = true;
-            // Причина замены ресурса (state.why, 6д) — последняя применённая команда ручки (одна команда тика — и так она).
+            // Причина замены ресурса (state.why) — последняя применённая команда ручки (одна команда тика — и так она).
             ctx.Cause = commands[i].Cause;
         }
         if (changed) ctx.Commands.SetResource(value);

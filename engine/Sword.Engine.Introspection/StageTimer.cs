@@ -7,7 +7,7 @@ namespace Sword.Engine.Introspection;
 /// Время стадий тика (бюджеты фич, <c>experiment.sweep</c>): наблюдатель тиков отмечает время после барьера каждой стадии;
 /// время стадии — от предыдущей отметки (начало тика — <see cref="Begin"/> перед <see cref="Simulation.Step"/>) до её
 /// барьера, то есть системы стадии, её барьер и проверки инвариантов после него. Время систем — профайлер CPU
-/// (<see cref="Sword.Engine.Diagnostics.CpuProfiler"/>, точка Па) отдельным прогоном (<see cref="SimulationMeasure.Run"/> с <c>profile</c>):
+/// (<see cref="Sword.Engine.Diagnostics.CpuProfiler"/>) отдельным прогоном (<see cref="SimulationMeasure.Run"/> с <c>profile</c>):
 /// таймер стадий остаётся — медианы бюджетов меряются без профайлера.
 /// Память не выделяет; мир не меняет.
 /// </summary>

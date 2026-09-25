@@ -8,10 +8,10 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// <c>locomotion.mm</c> (8е; лёгкий — каждый тик, после End): у живого бойца на Motion Matching проигрыватель живой и свой (не у двух бойцов),
+/// <c>locomotion.mm</c> (лёгкий — каждый тик, после End): у живого бойца на Motion Matching проигрыватель живой и свой (не у двух бойцов),
 /// его кадр — кадр базы, доля — в [0, 1), переходов не меньше 0, перенос корня и смещения суставов конечны; темп — в 1 ± размах ручки. Своих поз
 /// у MM нет (шаг пишет позу бойца <c>PoseRef</c> — её держит <c>animation.owners</c>). Бойцы на постройке заново (<see cref="MotionMatchState.Restart"/>)
-/// и мёртвые (их MM не трогает) — не проверяются. Подробные инварианты (затухание смещений, скачок сустава) — 8з.
+/// и мёртвые (их MM не трогает) — не проверяются. Подробные инварианты (затухание смещений, скачок сустава) — отдельно.
 /// </summary>
 public sealed class MotionMatchInvariant(MotionMatchRuntime runtime) : IInvariant
 {

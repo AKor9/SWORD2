@@ -7,7 +7,7 @@ using System.Text.Json.Nodes;
 namespace Sword.Engine.Diagnostics;
 
 /// <summary>
-/// Лента потока-владельца профайлера для привязки событий среды (диагностический режим, точка Пб): начало и конец каждой
+/// Лента потока-владельца профайлера для привязки событий среды (диагностический режим): начало и конец каждой
 /// зоны, открытие и закрытие кадра и тика — время <see cref="Stopwatch"/>, номер зоны, глубина стека после записи. Пишет
 /// только владелец (запись — 24 байта в заранее выделенный массив и публикация счётчика), читает поток слушателя событий
 /// (<see cref="Find"/>): событие приходит с задержкой (~15 мс), его место — по времени в ленте. Кольцо: старое затирается;
@@ -134,8 +134,8 @@ public sealed class ProfileTimeline
     private ref readonly Entry At(long i) => ref _entries[i & _mask];
 
     /// <summary>
-    /// Записи ленты со временем в [<paramref name="from"/>, <paramref name="to"/>] по порядку — в <paramref name="into"/> (точка Пв:
-    /// точный Chrome Trace окна аномалии). С другого потока: окно, начало которого уже затёрто, и затёртое за время чтения —
+    /// Записи ленты со временем в [<paramref name="from"/>, <paramref name="to"/>] по порядку — в <paramref name="into"/>
+    /// (точный Chrome Trace окна аномалии). С другого потока: окно, начало которого уже затёрто, и затёртое за время чтения —
     /// false (прочитанное из этого вызова убирается). Не горячий путь.
     /// </summary>
     public bool Read(long from, long to, List<TimelineEntry> into)
@@ -217,7 +217,7 @@ public sealed record RuntimeEvent
 }
 
 /// <summary>
-/// События среды .NET в диагностическом режиме (точка Пб): <see cref="EventListener"/> на <c>Microsoft-Windows-DotNETRuntime</c>
+/// События среды .NET в диагностическом режиме: <see cref="EventListener"/> на <c>Microsoft-Windows-DotNETRuntime</c>
 /// — выделения по типам (<c>GCAllocationTick</c>), сборки (<c>GCStart/GCEnd</c>: поколение, причина), паузы
 /// (<c>GCSuspendEEBegin</c> — <c>GCRestartEEEnd</c>), JIT (<c>MethodJittingStarted</c> — <c>MethodLoadVerbose</c>: метод,
 /// уровень — tier0, tier1, OSR, фоновый ли поток). Место события — по времени и потоку ОС в ленте владельца

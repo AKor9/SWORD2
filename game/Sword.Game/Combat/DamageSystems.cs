@@ -12,7 +12,7 @@ using Sword.Game.Data;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Запас буферов команд систем боя (6ж, <see cref="SystemSetup.ReserveCommands"/>): пик полной арены — касания, попадания, смерти и
+/// Запас буферов команд систем боя (<see cref="SystemSetup.ReserveCommands"/>): пик полной арены — касания, попадания, смерти и
 /// возрождения в одном тике — без роста буферов посреди боя (было: рост буферов hit-apply, bleed, respawn, strike-detection в бою после
 /// прогрева — байты бюджета crowd). Сверх запаса буфер растёт, как раньше.
 /// </summary>
@@ -34,7 +34,7 @@ public static class CombatReserve
 /// (<c>combat.playerInvulnerable</c> или неуязвимость рывка) — тоже. Иначе — очки жизни, рана части, кровотечение
 /// (<see cref="DamageRules.Apply"/>; <see cref="Health"/> — командой <c>Set</c> после каждого попадания, итог тика накапливается), порог
 /// отруба (урон больше — заявка <see cref="SeverRequested"/>, без ответа — Cutting отложен, решение 17), смерть (очки кончились, рана
-/// торса 1,4, смертельный укол остриём вперёд) — <see cref="Dead"/> с временем; событие <see cref="Hit"/>. С 7к жертва, мёртвая до тика,
+/// торса 1,4, смертельный укол остриём вперёд) — <see cref="Dead"/> с временем; событие <see cref="Hit"/>. Жертва, мёртвая до тика,
 /// — труп: попадание по трупу (<see cref="Hit.Corpse"/>: урон и раны идут, смерти второй раз нет, кровотечение трупа не течёт) и импульс
 /// удара в часть через физику (<see cref="HitImpulses.Apply"/>: труп — из прохода с отдачей атакующему; убитый этим ударом — в ещё
 /// кинематическую часть до перехода в труп) — компонент <see cref="HitImpulse"/> жертвы с причиной «попадание». Оглушение и падение —
@@ -48,7 +48,7 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
     private readonly bool[] _dead = new bool[Max], _corpse = new bool[Max];
     private int _count, _requests;
 
-    // 6ж: буфер — на пик полной арены (по два касания на бойца за тик: Set<Health>, Add<Dead>, Hit, SeverRequested; 7к — Set<HitImpulse>)
+    // Буфер — на пик полной арены (по два касания на бойца за тик: Set<Health>, Add<Dead>, Hit, SeverRequested, Set<HitImpulse>)
     // — без роста посреди боя.
     public void Setup(SystemSetup s) =>
         s.Label(GameLabels.HitApply).Reads<Health>().Reads<PlayerControl>().Reads<BodyRef>().Sets<Health>().Adds<Dead>().Sets<HitImpulse>()
@@ -63,7 +63,7 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
         _count = _requests = 0;
         foreach (var c in contacts)
         {
-            ctx.Cause = c.Cause;   // всё, что даёт касание, — от него (state.why, 6д)
+            ctx.Cause = c.Cause;   // всё, что даёт касание, — от него (state.why)
             Apply(ctx, c.Value, time, rules);
         }
     }
@@ -71,12 +71,12 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
     private void Apply(in SystemContext ctx, in StrikeContact c, in SimTime time, in CombatRules rules)
     {
         var world = ctx.World;
-        if (!BodySegs.IsFlesh(c.Part) || !float.IsFinite(c.Damage)) return;   // 7ж: клинок — тело, но не часть тела
+        if (!BodySegs.IsFlesh(c.Part) || !float.IsFinite(c.Damage)) return;   // клинок — тело, но не часть тела
         int k = Victim(world, c.Victim);
         if (k < 0 || _dead[k]) return;   // не боец или убит прошлым касанием этого тика (тело ещё не труп — переход в Settle)
         if (world.Has<PlayerTag>(c.Victim) && (rules.PlayerInvulnerable || world.TryGet<PlayerControl>(c.Victim, out var control) && control.Invulnerable > 0))
             return;
-        bool corpse = _corpse[k];   // 7к: мёртв до тика — труп, снова цель
+        bool corpse = _corpse[k];   // мёртв до тика — труп, снова цель
         ref var h = ref _health[k];
         bool lethal = !corpse && DamageRules.LethalThrust(c.Kind, c.Part, c.Damage, c.Dir, c.Blade);
         DamageRules.Apply(ref h, c.Part, c.Damage);
@@ -84,7 +84,7 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
         var cmd = ctx.Commands;
         bool killed = !corpse && DamageRules.Killed(h, lethal);
         // Попадание — первым (журналы разные: порядок событий Hit и SeverRequested между собой ничего не меняет): в диагностическом
-        // режиме оно родитель всего, что следует, — StrikeContact → Hit → Health, Dead, SeverRequested, HitImpulse (state.why, 6д, 7к).
+        // режиме оно родитель всего, что следует, — StrikeContact → Hit → Health, Dead, SeverRequested, HitImpulse (state.why).
         cmd.Emit(new Hit
         {
             Contact = c.Id, Attacker = c.Attacker, Victim = c.Victim, Part = c.Part, Damage = c.Damage, Point = c.Point, Dir = c.Dir, Kind = c.Kind,
@@ -109,14 +109,14 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
             cmd.Add(c.Victim, new Dead { Time = time.Time, Cause = c.Probe ? DeathCause.Probe : DeathCause.Hit });
             log?.Link(c.Victim, CombatCauses.Death, cmd.LastCause);
         }
-        // 7к: импульс удара в часть — труп (из прохода, отдача атакующему) или убитый этим ударом (ещё кинематическая часть)
+        // Импульс удара в часть — труп (из прохода, отдача атакующему) или убитый этим ударом (ещё кинематическая часть)
         if ((corpse || killed) && world.TryGet<BodyRef>(c.Victim, out var victimBody) && world.TryGet<BodyRef>(c.Attacker, out var attackerBody)
             && HitImpulses.Apply(physics, FighterBodies.Handle(attackerBody), FighterBodies.Handle(victimBody), c, corpse, killed, out var impulse))
             cmd.Set(c.Victim, impulse);
     }
 
     /// <summary>
-    /// Жертва в накоплении тика: здоровье — итог прошлых попаданий тика, мёртв ли до тика (труп — 7к); не боец (снят, без
+    /// Жертва в накоплении тика: здоровье — итог прошлых попаданий тика, мёртв ли до тика (труп); не боец (снят, без
     /// <see cref="Health"/>) — −1.
     /// </summary>
     private int Victim(World world, Entity e)
@@ -161,7 +161,7 @@ public sealed class HitReactionSystem : IReactiveSystem<Event<Hit>>
             if (Later(hits, i)) continue;   // реакция — по последнему попаданию тика
             var e = hit.Victim;
             if (!world.IsAlive(e) || world.Has<Dead>(e) || !world.TryGet<Transform>(e, out var t)) continue;
-            ctx.Cause = hits[i].Cause;   // реакция — от этого попадания (state.why, 6д)
+            ctx.Cause = hits[i].Cause;   // реакция — от этого попадания (state.why)
             var forward = new Vector3(MathF.Sin(t.Facing), 0, MathF.Cos(t.Facing));
             var toHit = hit.Point - t.Position;
             toHit.Y = 0;
@@ -192,7 +192,7 @@ public sealed class HitReactionSystem : IReactiveSystem<Event<Hit>>
 /// <summary>
 /// Aftermath (<see cref="GameLabels.Bleed"/>): кровопотеря живых (<c>Fighter.AfterTick</c> SWORD 2eab13b) — у кровоточащего очки жизни
 /// минус кровотечение·dt, кровотечение гаснет на 0,2·dt; очки кончились — смерть (<see cref="Dead"/>). <see cref="Health"/> — командой
-/// <c>Set</c> только у кровоточащих (кровотечение 0 — ничего не меняется, команды нет): у каждого изменения — причина (6д). Цена —
+/// <c>Set</c> только у кровоточащих (кровотечение 0 — ничего не меняется, команды нет): у каждого изменения — причина. Цена —
 /// команда на кровоточащего за тик (кровотечение 1 гаснет за 5 с; 32 кровоточащих — 32 команды, 0 байт).
 /// </summary>
 public sealed class BleedSystem : IContinuousSystem
@@ -219,7 +219,7 @@ public sealed class BleedSystem : IContinuousSystem
                 if (!(health[i].Bleed > 0)) continue;
                 var h = health[i];
                 DamageRules.Bleed(ref h, time.Dt);
-                // Кровопотеря — непрерывный производитель: родитель — попадание, от которого кровотечение (побочная таблица, 6д).
+                // Кровопотеря — непрерывный производитель: родитель — попадание, от которого кровотечение (побочная таблица).
                 if (log is not null) ctx.Cause = log.Linked(entities[i], CombatCauses.Bleed);
                 ctx.Commands.Set(entities[i], h);
                 if (h.Hp <= 0)
@@ -275,7 +275,7 @@ public sealed class RespawnSystem(int weapons) : IContinuousSystem
         var world = ctx.World;
         var spawn = ArenaRules.Enemy(world.Resource<SimRandom>(), time.Tick, ArenaRules.RespawnBatch, slot, center, weapons);
         var action = world.TryGet<AnimatorAction>(e, out var a) ? a : AnimatorAction.None;
-        // Возрождение по времени — шаг с родителем «смерть» (побочная таблица, 6д): постройка места — от него.
+        // Возрождение по времени — шаг с родителем «смерть» (побочная таблица): постройка места — от него.
         if (ctx.Causality is { } log) ctx.Cause = ctx.Commands.Note(CombatCauses.RespawnDue, e, log.Linked(e, CombatCauses.Death));
         Fighters.Rebuild(ctx.Commands, e, spawn, Fighters.Standing(spawn), default, action, dead: true);
     }
@@ -284,7 +284,7 @@ public sealed class RespawnSystem(int weapons) : IContinuousSystem
 /// <summary>
 /// Settle (<see cref="GameLabels.ArenaStats"/>): статистика арены (<see cref="ArenaStats"/>; <c>Kills</c>, <c>Hits</c>, <c>LastHit</c> SWORD) —
 /// попадания тика (все бойцы; удар игрока — последний удар: часть, урон, порог отруба) и смерти врагов тика (удары и кровопотеря; в
-/// SWORD «убито» считало только удары игрока). 7к: попадание по трупу — в <see cref="ArenaStats.CorpseHits"/>, не в <c>Hits</c> (попадания
+/// SWORD «убито» считало только удары игрока). Попадание по трупу — в <see cref="ArenaStats.CorpseHits"/>, не в <c>Hits</c> (попадания
 /// по живым — бой, по трупу — нет); последний удар игрока — и по трупу; «убито» от трупа не растёт (второй смерти нет). Непрерывная:
 /// читает журналы попаданий и смертей своим курсором — каждая запись один раз.
 /// </summary>
@@ -300,7 +300,7 @@ public sealed class ArenaStatsSystem : IContinuousSystem
         if (hits.IsEmpty && deaths.IsEmpty) return;
         var world = ctx.World;
         var stats = world.Resource<ArenaStats>();
-        // Причина замены статистики — последняя запись тика (смерть или попадание; state.why, 6д).
+        // Причина замены статистики — последняя запись тика (смерть или попадание; state.why).
         if (ctx.Causality is not null) ctx.Cause = !deaths.IsEmpty ? deaths[^1].Cause : hits[^1].Cause;
         foreach (var h in hits)
         {

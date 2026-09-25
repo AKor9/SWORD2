@@ -44,13 +44,13 @@ public sealed class SimulationLink
     public void Enqueue<T>(in T command) where T : unmanaged => _simulation.Enqueue(command);
 
     /// <summary>
-    /// Ручки симуляции (точка 6е): описание, значение в мире (<see cref="TuningKnob.Read"/>); изменение — команда
+    /// Ручки симуляции: описание, значение в мире (<see cref="TuningKnob.Read"/>); изменение — команда
     /// <see cref="TuningCommand"/> на ближайший тик (<see cref="Enqueue{T}"/>). Панель F3 привязывает их через <see cref="TuningBinding"/>.
     /// </summary>
     public IReadOnlyList<TuningKnob> Tuning => _simulation.Tuning;
 
     /// <summary>
-    /// Есть ли у симуляции диагностический режим <paramref name="id"/> (7и: <c>physics.trace</c> — трасса физики под оверлей контактов;
+    /// Есть ли у симуляции диагностический режим <paramref name="id"/> (<c>physics.trace</c> — трасса физики под оверлей контактов;
     /// <c>Simulation.Diagnostics</c>). Режим регистрирует игра или модуль — без них его нет.
     /// </summary>
     public bool HasDiagnostic(string id) => _simulation.Diagnostics.Has(id);

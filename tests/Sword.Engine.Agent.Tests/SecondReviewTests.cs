@@ -7,7 +7,7 @@ using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Agent.Tests;
 
-/// <summary>Проверки по второй самопроверке 1е: форма аргументов, страницы, горизонт команд, JSON-RPC, предел HTTP.</summary>
+/// <summary>Проверки: форма аргументов, страницы, горизонт команд, JSON-RPC, предел HTTP.</summary>
 public class SecondReviewTests
 {
     [Fact]
@@ -19,7 +19,7 @@ public class SecondReviewTests
         Assert.Contains("ticks = null", step["error"]!.GetValue<string>());
         var (until, untilErr) = await f.Tool("time.runUntil", []);
         Assert.True(untilErr);
-        Assert.Contains("нужен tick или condition", until["error"]!.GetValue<string>());   // tick или условие (этап 3в)
+        Assert.Contains("нужен tick или condition", until["error"]!.GetValue<string>());   // tick или условие
         await Task.Delay(50);
         Assert.Equal(0ul, f.Sim.Tick);                          // ни один ошибочный вызов не сыграл тиков
     }
@@ -113,7 +113,7 @@ public class SecondReviewTests
     }
 }
 
-/// <summary>Проверки по третьей самопроверке 1е: сеансы HTTP, пути проекции, производители Changed.</summary>
+/// <summary>Проверки: сеансы HTTP, пути проекции, производители Changed.</summary>
 public class ThirdReviewTests
 {
     private static StringContent Json(string s) => new(s, Encoding.UTF8, "application/json");
@@ -168,7 +168,7 @@ public class ThirdReviewTests
     }
 }
 
-/// <summary>Проверки по четвёртой самопроверке 1е: квитанция одного состояния, завершение сеанса без гонок.</summary>
+/// <summary>Проверки: квитанция одного состояния, завершение сеанса без гонок.</summary>
 public class FourthReviewTests
 {
     private static (Simulation Sim, ServiceQueue Service, AgentHost Host) Manual()

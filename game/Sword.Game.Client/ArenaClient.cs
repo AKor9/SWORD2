@@ -14,7 +14,7 @@ namespace Sword.Game.Client;
 
 /// <summary>
 /// Клиент игры: арена — пол, рельеф из <see cref="HeightField"/>, колонны — и бойцы: Manny в позе последнего тика
-/// (аниматор, этап 2) в корне бойца с его курсом на высоте рельефа (<c>DuelArena.KinWorld</c> SWORD). Один непрозрачный
+/// (аниматор) в корне бойца с его курсом на высоте рельефа (<c>DuelArena.KinWorld</c> SWORD). Один непрозрачный
 /// проход «scene.opaque» пишет цвет,
 /// нормали и глубину (порядок отрисовки — <c>SceneRenderer.Record</c> SWORD 2eab13b: пол, рельеф, колонны, скин).
 ///
@@ -24,22 +24,22 @@ namespace Sword.Game.Client;
 /// (<see cref="ArenaView"/>, интерполяция по доле тика); <see cref="BuildFrame"/> рисует только его, поверх — HUD
 /// (<see cref="Hud"/>: FPS и числа кадра, справка) UI-проходом рендера.
 ///
-/// 5в: камера — за тазом игрока (<see cref="ArenaView.PlayerFocus"/>), тень и кольцо — таз (<see cref="ArenaView.PlayerMarker"/>);
+/// Камера — за тазом игрока (<see cref="ArenaView.PlayerFocus"/>), тень и кольцо — таз (<see cref="ArenaView.PlayerMarker"/>);
 /// капсулы тел поверх персонажей — F7 (<see cref="ShowBodies"/>, отладочное рисование рендера в фазе Debug); в кадре снимка —
 /// по заказу ID-проход «scene.ids» (код бойца и сегмента на пиксель) и слой капсул <see cref="CapsulesOverlay"/>.
 ///
-/// 6б: меч в руке каждого бойца — меш оружия таблицы (<see cref="ICombatView"/>) жёстким вложением в кисть позы, как показан
+/// Меч в руке каждого бойца — меш оружия таблицы (<see cref="ICombatView"/>) жёстким вложением в кисть позы, как показан
 /// боец (<see cref="FighterView.WeaponWorld"/>; <c>SkinnedCharacters.Submit</c> SWORD); в ID-буфере пиксели меча — сегмент 11
 /// «клинок»; клинки (отрезок тика и прошлого тика) — F7 вместе с капсулами, <c>--overlay blades</c> и слой снимка
 /// <see cref="BladesOverlay"/>.
 ///
-/// 6е: HUD боя (<see cref="CombatHud"/> — снимок мира последнего тика: здоровье и смерть игрока, живые враги, статистика арены
+/// HUD боя (<see cref="CombatHud"/> — снимок мира последнего тика: здоровье и смерть игрока, живые враги, статистика арены
 /// <see cref="ArenaStats"/>, меч; кольцо игрока — цветом по здоровью), инвентарь (<see cref="Inventory"/> — панель клиента: I
 /// открывает, 1–9 и щелчок — команда арены «взять меч» после команд PageUp, PageDown, R, T тика), ручки «Бой» (<see cref="TuningGroups"/>
-/// над привязкой <see cref="Tuning"/> — панель F3 подключает exe; 7и, часть 2 — и «Рэгдолл», <see cref="RagdollTuning"/>). Симуляцию
+/// над привязкой <see cref="Tuning"/> — панель F3 подключает exe; и «Рэгдолл», <see cref="RagdollTuning"/>). Симуляцию
 /// клиент не пишет: только читает мир и ставит команды.
 ///
-/// 7и: труп — по телам (<see cref="ArenaView"/>: скин = привязка × тело, меч — на теле клинка, рамка — по телам), темнее живого
+/// Труп — по телам (<see cref="ArenaView"/>: скин = привязка × тело, меч — на теле клинка, рамка — по телам), темнее живого
 /// (<see cref="DeadShade"/>), в ID-буфере — «голова трупа врага 3»; оверлеи <see cref="JointsOverlay"/> (J) и <see cref="ContactsOverlay"/>
 /// (K; трасса физики — диагностический режим <c>physics.trace</c>, клиент включает его между тиками, пока контакты показаны).
 /// </summary>
@@ -64,7 +64,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         return new Vector3(0.45f + 0.25f * MathF.Cos(MathF.Tau * h), 0.3f + 0.1f * MathF.Cos(MathF.Tau * (h + 0.33f)), 0.25f);
     }
 
-    /// <summary>Мёртвый темнее живого (<c>SkinnedCharacters.Colour</c> SWORD: × 0,75; 7и — труп на экране).</summary>
+    /// <summary>Мёртвый темнее живого (<c>SkinnedCharacters.Colour</c> SWORD: × 0,75).</summary>
     public const float DeadShade = 0.75f;
 
     /// <summary>Цвет бойца кадра: игрок — свой, враг — по месту; мёртвый — темнее (<see cref="DeadShade"/>).</summary>
@@ -94,26 +94,26 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public const string CapsulesOverlay = "capsules";
 
     /// <summary>
-    /// Оверлей клинков (6б): отрезок клинка тика (игрок — жёлтый, враги — белый), прошлого тика (серый) и стороны пройденного за
+    /// Оверлей клинков: отрезок клинка тика (игрок — жёлтый, враги — белый), прошлого тика (серый) и стороны пройденного за
     /// тик (оранжевые); в слое снимка — ещё имя меча у кончика.
     /// </summary>
     public const string BladesOverlay = "blades";
 
     /// <summary>
-    /// Оверлей контактов (7и): контакты последнего подшага последнего шага из трассы физики — точка (шарик), нормаль к телу длиной
+    /// Оверлей контактов: контакты последнего подшага последнего шага из трассы физики — точка (шарик), нормаль к телу длиной
     /// <see cref="ContactNormal"/> + <see cref="ContactDepthScale"/> × глубина, цвет — источник (<see cref="ContactColour"/>). Без трассы
     /// (диагностический режим <c>physics.trace</c>) пуст — снимок несёт заметку.
     /// </summary>
     public const string ContactsOverlay = "contacts";
 
     /// <summary>
-    /// Оверлей суставов (7и): точка сустава на ребёнке (шарик), отрезок до точки на родителе (ошибка точки), цвет — в пределах (зелёный),
+    /// Оверлей суставов: точка сустава на ребёнке (шарик), отрезок до точки на родителе (ошибка точки), цвет — в пределах (зелёный),
     /// выход за предел (от оранжевого к красному к <see cref="JointExcessRed"/>), выключен (серый — запястье трупа: меч выпал).
     /// </summary>
     public const string JointsOverlay = "joints";
 
     /// <summary>
-    /// Оверлей Motion Matching игрока (8з; M, <see cref="MotionMatchOverlay"/>): желаемая траектория (запрос последнего поиска), траектория
+    /// Оверлей Motion Matching игрока (M, <see cref="MotionMatchOverlay"/>): желаемая траектория (запрос последнего поиска), траектория
     /// найденного кадра, история корня, суставы контакта стоп на земле. Игрок не на MM — пуст, снимок несёт заметку.
     /// </summary>
     public const string MotionOverlay = "mm";
@@ -127,7 +127,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Выход за предел, рад, при котором сустав на оверлее — красный (меньше — от оранжевого); до 0,01 рад — в пределах.</summary>
     public const float JointExcessRed = 0.2f, JointExcessShown = 0.01f;
 
-    /// <summary>Цвет контакта по источнику (<c>0xAABBGGRR</c>): земля — зелёный, стена и колонны — синий, пара трупов — пурпурный, части одного трупа (самоколлизия, 7з-4) — жёлтый, толчок живого телом — оранжевый, клинком — красный, без отдачи — серый.</summary>
+    /// <summary>Цвет контакта по источнику (<c>0xAABBGGRR</c>): земля — зелёный, стена и колонны — синий, пара трупов — пурпурный, части одного трупа (самоколлизия) — жёлтый, толчок живого телом — оранжевый, клинком — красный, без отдачи — серый.</summary>
     public static uint ContactColour(PhysicsContactSource source) => source switch
     {
         PhysicsContactSource.Ground => 0xFF40FF40,
@@ -141,7 +141,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     };
 
     /// <summary>
-    /// Отметка тела на физике на оверлее капсул (7и): крест в центре — белый, касается земли — зелёный; 7з-3 — труп спит (физика его не
+    /// Отметка тела на физике на оверлее капсул: крест в центре — белый, касается земли — зелёный; труп спит (физика его не
     /// считает) — синий.
     /// </summary>
     public const uint SimulatedMark = 0xFFFFFFFF, GroundedMark = 0xFF40FF40, AsleepMark = 0xFFFF7030;
@@ -201,13 +201,13 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private readonly bool _playerCommands;
     private readonly bool _fixedCamera;
     private PlayerCommand _frameCommand;
-    /// <summary>Жест удара (6в): сдвиг мыши с затуханием, жест последнего клика (система бойца) и замахи рубящих ударов.</summary>
+    /// <summary>Жест удара: сдвиг мыши с затуханием, жест последнего клика (система бойца) и замахи рубящих ударов.</summary>
     private Vector2 _gesture, _pressGesture;
     private Vector2[] _swings = [];
     private readonly Hud _hud = new();
     private readonly bool _showHud;
 
-    /// <summary>Сводка профайлера для F2 (точка Пв); null — профайлера нет (<see cref="CpuProfiler.Off"/>).</summary>
+    /// <summary>Сводка профайлера для F2; null — профайлера нет (<see cref="CpuProfiler.Off"/>).</summary>
     private ProfileDigest? _digest;
 
     /// <summary>Профайлер включён F2 (выключает его F2 только тогда: включённый ключом или агентом остаётся).</summary>
@@ -216,7 +216,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private FrameStats _stats;
     private IReadOnlyList<string> _help = Hud.HelpLines(new Dictionary<string, string>());
 
-    /// <summary>Бой для HUD последнего кадра (6е); null — до первого Extract.</summary>
+    /// <summary>Бой для HUD последнего кадра; null — до первого Extract.</summary>
     private CombatHud? _combat;
     private readonly InventoryPanel _inventory = new();
     private TuningBinding? _tuning;
@@ -232,9 +232,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// </param>
     /// <param name="showBodies">Капсулы тел поверх персонажей с первого кадра (<c>--overlay capsules</c>; F7 — переключить).</param>
     /// <param name="showBlades">Клинки поверх персонажей с первого кадра (<c>--overlay blades</c>; F7 показывает их с капсулами).</param>
-    /// <param name="showJoints">Суставы тел с первого кадра (7и: <c>--overlay joints</c>; J — переключить).</param>
-    /// <param name="showContacts">Контакты физики с первого кадра и трасса физики (7и: <c>--overlay contacts</c>; K — переключить).</param>
-    /// <param name="showMotion">Траектории Motion Matching игрока с первого кадра (8з: <c>--overlay mm</c>; M — переключить).</param>
+    /// <param name="showJoints">Суставы тел с первого кадра (<c>--overlay joints</c>; J — переключить).</param>
+    /// <param name="showContacts">Контакты физики с первого кадра и трасса физики (<c>--overlay contacts</c>; K — переключить).</param>
+    /// <param name="showMotion">Траектории Motion Matching игрока с первого кадра (<c>--overlay mm</c>; M — переключить).</param>
     public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true,
         bool showBodies = false, bool showBlades = false, bool showJoints = false, bool showContacts = false, bool showMotion = false)
     {
@@ -291,8 +291,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public int DrawnCapsules { get; private set; }
 
     /// <summary>
-    /// Из них с крестом тела на физике (7и: тела трупа — <see cref="SimulatedMark"/>) и из них касающихся земли (<see cref="GroundedMark"/>)
-    /// и спящих (7з-3, <see cref="AsleepMark"/>) — в последнем кадре (0 — капсулы не рисовались).
+    /// Из них с крестом тела на физике (тела трупа — <see cref="SimulatedMark"/>) и из них касающихся земли (<see cref="GroundedMark"/>)
+    /// и спящих (<see cref="AsleepMark"/>) — в последнем кадре (0 — капсулы не рисовались).
     /// </summary>
     public int DrawnMarks { get; private set; }
     public int DrawnGroundedMarks { get; private set; }
@@ -305,26 +305,26 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public int DrawnWeapons { get; private set; }
     public int DrawnBlades { get; private set; }
 
-    /// <summary>Суставы тел поверх кадра (7и: J, <c>--overlay joints</c>).</summary>
+    /// <summary>Суставы тел поверх кадра (J, <c>--overlay joints</c>).</summary>
     public bool ShowJoints { get; set; }
 
     /// <summary>
-    /// Контакты физики поверх кадра (7и: K, <c>--overlay contacts</c>): пока показаны, трасса физики включена (клиент включает её в шаге
+    /// Контакты физики поверх кадра (K, <c>--overlay contacts</c>): пока показаны, трасса физики включена (клиент включает её в шаге
     /// ввода кадра, между тиками; выключает — только если включил сам).
     /// </summary>
     public bool ShowContacts { get; set; }
 
-    /// <summary>Суставов и контактов, отданных отладочному рисованию в последнем кадре (7и; 0 — не рисовались).</summary>
+    /// <summary>Суставов и контактов, отданных отладочному рисованию в последнем кадре (0 — не рисовались).</summary>
     public int DrawnJoints { get; private set; }
     public int DrawnContacts { get; private set; }
 
-    /// <summary>Траектории Motion Matching игрока поверх кадра (8з: M, <c>--overlay mm</c>).</summary>
+    /// <summary>Траектории Motion Matching игрока поверх кадра (M, <c>--overlay mm</c>).</summary>
     public bool ShowMotion { get; set; }
 
     /// <summary>Примитивов оверлея <c>mm</c>, отданных отладочному рисованию в последнем кадре (0 — не рисовался или игрок не на MM).</summary>
     public int DrawnMotion { get; private set; }
 
-    /// <summary>Оверлей Motion Matching игрока, снятый последним кадром (8з; итог Sword.exe, тесты).</summary>
+    /// <summary>Оверлей Motion Matching игрока, снятый последним кадром (итог Sword.exe, тесты).</summary>
     public MotionMatchOverlay Motion => _motion;
 
     private readonly MotionMatchOverlay _motion;
@@ -338,16 +338,16 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Строки справки HUD.</summary>
     public IReadOnlyList<string> HelpLines => _help;
 
-    /// <summary>Бой в HUD последнего кадра (6е; итог Sword.exe, тесты); null — кадра ещё не было.</summary>
+    /// <summary>Бой в HUD последнего кадра (итог Sword.exe, тесты); null — кадра ещё не было.</summary>
     public CombatHud? Combat => _combat;
 
     /// <summary>
-    /// Панель инвентаря (6е) — панель клиента: exe подключает её к клиенту движка (<c>ClientHost.AddPanel</c>); открывает её I, выбор
+    /// Панель инвентаря — панель клиента: exe подключает её к клиенту движка (<c>ClientHost.AddPanel</c>); открывает её I, выбор
     /// меча уходит командой арены из <see cref="BeforeTick"/>.
     /// </summary>
     public InventoryPanel Inventory => _inventory;
 
-    /// <summary>Привязка ручек симуляции для панели F3 (6е); null — до <see cref="Initialize"/>.</summary>
+    /// <summary>Привязка ручек симуляции для панели F3; null — до <see cref="Initialize"/>.</summary>
     public TuningBinding? Tuning => _tuning;
 
     /// <summary>Группы ручек игры (вкладки панели F3: «Бой», «Рэгдолл») — заводятся в <see cref="Initialize"/>.</summary>
@@ -361,7 +361,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         new(_camera.ViewProj, _camera.Eye, _camera.Target, _camera.Yaw, _camera.Pitch, _camera.Distance, _camera.Follow);
 
     /// <summary>
-    /// Бойцы кадра в показанном (интерполированном) положении — рамкой вокруг тела; у трупа (7и) — рамка его показанных тел (с мечом на
+    /// Бойцы кадра в показанном (интерполированном) положении — рамкой вокруг тела; у трупа — рамка его показанных тел (с мечом на
     /// теле клинка): лежащий труп не влезает в рамку стоящего.
     /// </summary>
     void IClientObservable.Visible(List<VisibleEntity> into)
@@ -384,8 +384,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>
     /// Код ID-буфера последнего кадра словами: владелец — боец кадра (<see cref="OwnerOf"/>), часть — сегмент тела; название
-    /// — «левое предплечье врага 3», «голова игрока»; пиксели меча — сегмент 11: «клинок врага 3», «клинок игрока» (6б); у мёртвого
-    /// (7и) — «таз трупа врага 3», «клинок трупа игрока» (меч трупа лежит на теле клинка — пиксели его, сегмент 11).
+    /// — «левое предплечье врага 3», «голова игрока»; пиксели меча — сегмент 11: «клинок врага 3», «клинок игрока»; у мёртвого
+    /// — «таз трупа врага 3», «клинок трупа игрока» (меч трупа лежит на теле клинка — пиксели его, сегмент 11).
     /// </summary>
     IdMeaning? IClientObservable.DescribeId(uint id)
     {
@@ -440,7 +440,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void Initialize(Renderer renderer, SimulationLink? simulation)
     {
         _renderer = renderer;
-        // Профайлер CPU кадра (точка Па) — тот же, что у рендера: зоны арены заводятся здесь, не в кадре.
+        // Профайлер CPU кадра — тот же, что у рендера: зоны арены заводятся здесь, не в кадре.
         var profiler = renderer.Profiler;
         _view.Profiler = profiler;
         _zones = (profiler.Zone("arena.build.skin"), profiler.Zone("arena.build.hud"), profiler.Zone("arena.build.bodies"));
@@ -464,7 +464,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         var parts = new uint[joints];
         for (int j = 0; j < joints; j++) parts[j] = (uint)bodies.JointSegment(j);
         renderer.Skinned.SetJointParts(_manny, parts);
-        // Мечи (6б): меш оружия таблицы — статический, в ID-буфере весь — клинок (сегмент 11).
+        // Мечи: меш оружия таблицы — статический, в ID-буфере весь — клинок (сегмент 11).
         var weapons = _simulation.World.View<ICombatView>().Weapons;
         _weapons = new int[weapons.Length];
         _weaponNames = new string[weapons.Length];
@@ -475,19 +475,19 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             renderer.Skinned.SetJointParts(_weapons[w], blade);
             _weaponNames[w] = weapons[w].Name;
         }
-        // Жест удара (6в): направления замаха рубящих ударов таблицы — в системе бойца.
+        // Жест удара: направления замаха рубящих ударов таблицы — в системе бойца.
         var swings = new List<Vector2>();
         foreach (var a in _simulation.World.View<ICombatView>().Attacks)
             if (!a.Thrust) swings.Add(a.SwingDir);
         _swings = [.. swings];
-        // 6е: инвентарь — имена мечей таблицы; ручки «Бой» — привязка к ручкам симуляции (панель F3 подключает exe). 7и, часть 2 — ручки
+        // Инвентарь — имена мечей таблицы; ручки «Бой» — привязка к ручкам симуляции (панель F3 подключает exe). Ручки
         // «Рэгдолл» (секция ragdoll) и трупы кадра.
         _inventory.Attach(_simulation, _weaponNames);
         _tuning = new TuningBinding(_simulation);
         _groups.Clear();
         _groups.Add(CombatTuning.Build(_tuning, _simulation));
         _groups.Add(RagdollTuning.Build(_tuning, _view));
-        if (LocomotionTuning.Build(_tuning, _simulation, _view) is { } locomotion) _groups.Add(locomotion);   // 8з: игрок на MM
+        if (LocomotionTuning.Build(_tuning, _simulation, _view) is { } locomotion) _groups.Add(locomotion);   // игрок на MM
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -507,14 +507,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         if (input.WasPressed(ArenaInput.DebugContacts)) ShowContacts = !ShowContacts;
         if (input.WasPressed(ArenaInput.DebugMotion)) ShowMotion = !ShowMotion;
         SyncTrace();
-        // Инвентарь (6е; SWORD: I, если не набирается текст) — панель видна со следующего кадра панелей.
+        // Инвентарь (SWORD: I, если не набирается текст) — панель видна со следующего кадра панелей.
         if (input.WasPressed(ArenaInput.Inventory)) _inventory.Open = !_inventory.Open;
         // Камера — до тиков, за тазом игрока, каким его показал прошлый кадр (Program.cs SWORD: focus — таз по renderAlpha
         // прошлого кадра).
         if (_fixedCamera) _camera.Rebuild(input.Width, input.Height);
         else _camera.Update(ArenaInput.Camera(input), input.Seconds, _view.PlayerFocus ?? _camera.Target, input.Width, input.Height);
 
-        // Жест удара (6в): сдвиг мыши за последние кадры; на клике — удар, чья траектория на экране ближе к жесту (камера кадра,
+        // Жест удара: сдвиг мыши за последние кадры; на клике — удар, чья траектория на экране ближе к жесту (камера кадра,
         // игрок, каким его показал прошлый кадр), в систему бойца.
         _gesture = StrikeGesture.Accumulate(_gesture, input.MouseDeltaX, input.MouseDeltaY, input.Seconds);
         if (input.WasPressed(ArenaInput.Attack))
@@ -533,7 +533,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     /// <summary>
-    /// Трасса физики под оверлей контактов (7и): шаг ввода кадра — до тиков, между тиками — там диагностический режим и меняется. Контакты
+    /// Трасса физики под оверлей контактов: шаг ввода кадра — до тиков, между тиками — там диагностический режим и меняется. Контакты
     /// показаны, а трасса выключена — включить (и запомнить, что включил клиент); скрыты — выключить, только если включил клиент
     /// (включённую агентом оставить; как F2 с профайлером). И при воспроизведении реплея: режим не меняет ни мир, ни хеш, ни реплей.
     /// </summary>
@@ -554,7 +554,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     /// <summary>
-    /// F2 (точка Пв): секция профайлера в HUD; профайлер выключен — F2 его включает (со следующего кадра), и выключает, только если
+    /// F2: секция профайлера в HUD; профайлер выключен — F2 его включает (со следующего кадра), и выключает, только если
     /// включил сам. Представление: симуляцию не трогает, в реплей не идёт.
     /// </summary>
     private void ToggleProfiler()
@@ -574,7 +574,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     /// <summary>
-    /// Команды тика: команда игрока кадра (удерживаемое — в каждом тике кадра; удар, укол, рывок — фронты, 6в) и команды арены из
+    /// Команды тика: команда игрока кадра (удерживаемое — в каждом тике кадра; удар, укол, рывок — фронты) и команды арены из
     /// фронтов PageUp/PageDown/R/T (ровно одним тиком — <see cref="TickInput"/>). При воспроизведении реплея (<c>playerCommands: false</c>) — ни тех ни
     /// других: команды — реплея, своя команда того же тика увела бы его в сторону.
     /// </summary>
@@ -585,7 +585,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             _inventory.TakeClicked();   // реплей: выбор меча не ставится (увёл бы реплей в сторону)
             return;
         }
-        // Удар, укол, рывок (6в) — фронты: ровно в одном тике, первом после кадра нажатия; жест — клика.
+        // Удар, укол, рывок — фронты: ровно в одном тике, первом после кадра нажатия; жест — клика.
         var command = _frameCommand;
         if (input.WasPressed(ArenaInput.Attack))
         {
@@ -598,7 +598,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         Span<ArenaCommand> arena = stackalloc ArenaCommand[ArenaIntent.Max];
         int n = ArenaIntent.Commands(input, arena);
         for (int i = 0; i < n; i++) simulation.Enqueue(arena[i]);
-        // Инвентарь (6е; Program.cs SWORD — после PageUp, PageDown, R, T): щелчок по строке и 1–9 при открытой панели — «взять меч»
+        // Инвентарь (Program.cs SWORD — после PageUp, PageDown, R, T): щелчок по строке и 1–9 при открытой панели — «взять меч»
         // (k-й по порядку получения, Owned[k] SWORD); меча с таким номером нет — ничего.
         int clicked = _inventory.TakeClicked();
         if (clicked >= 0) simulation.Enqueue(new ArenaCommand { Action = ArenaAction.EquipWeapon, Weapon = clicked });
@@ -612,19 +612,19 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void Extract(in FrameView view)
     {
         // Капсулы всех бойцов — только когда их рисуют (F7, --overlay capsules) или их слой заказан снимком инструмента (заказ
-        // известен до Extract — FrameView.Capture); иначе — только таз игрока: камера, тень, кольцо (исправления после Пд). Клинки —
+        // известен до Extract — FrameView.Capture); иначе — только таз игрока: камера, тень, кольцо. Клинки —
         // так же (F7, --overlay blades, слой blades).
-        // 7и: суставы (J, --overlay joints, слой joints) — с капсулами, на которых стоят; контакты (K, --overlay contacts, слой contacts) —
+        // Суставы (J, --overlay joints, слой joints) — с капсулами, на которых стоят; контакты (K, --overlay contacts, слой contacts) —
         // копия контактов трассы.
         _view.Extract(_simulation!, view.Alpha, allBodies: ShowBodies || view.Capture?.WantsLayer(CapsulesOverlay) == true,
             blades: ShowBodies || ShowBlades || view.Capture?.WantsLayer(BladesOverlay) == true,
             joints: ShowJoints || view.Capture?.WantsLayer(JointsOverlay) == true,
             contacts: ShowContacts || view.Capture?.WantsLayer(ContactsOverlay) == true);
-        // 8з: траектории Motion Matching игрока (M, --overlay mm, слой mm) — после позы игрока кадра (стопы — в показанной позе).
+        // Траектории Motion Matching игрока (M, --overlay mm, слой mm) — после позы игрока кадра (стопы — в показанной позе).
         if (ShowMotion || view.Capture?.WantsLayer(MotionOverlay) == true) _motion.Extract(_simulation!.World, _view);
         else _motion.Clear();
         _stats = view.Stats;
-        // Бой для HUD (6е): мир последнего тика кадра — только чтение.
+        // Бой для HUD: мир последнего тика кадра — только чтение.
         var world = _simulation!.World;
         var stats = world.Resource<ArenaStats>();
         _combat = new CombatHud(_view.PlayerHp, _view.PlayerDead, _view.AliveEnemies, world.Resource<ArenaState>().Enemies, stats.Kills,
@@ -654,7 +654,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
                 palette.Fill(GpuMat34.From(fighter.World));
                 if (!palette.IsEmpty) skinned++;
             }
-            // 7и: у трупа поза — уже мировые матрицы суставов (привязка × тело), мир экземпляра — единичный.
+            // У трупа поза — уже мировые матрицы суставов (привязка × тело), мир экземпляра — единичный.
             else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.Corpse ? Matrix4x4.Identity : fighter.World, colour, owner)) skinned++;
         }
         SkinnedFighters = skinned;
@@ -700,7 +700,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>
     /// Фаза Debug (после сцены и интерфейса, раздел 6 плана): оверлеи — капсулы тел (F7; у трупа — его тела, на физике — с отметкой
-    /// <see cref="SimulatedMark"/>, 7и), клинки (F7, <c>--overlay blades</c>), суставы (J, <c>--overlay joints</c>) и контакты (K,
+    /// <see cref="SimulatedMark"/>), клинки (F7, <c>--overlay blades</c>), суставы (J, <c>--overlay joints</c>) и контакты (K,
     /// <c>--overlay contacts</c>) — поверх кадра одним проходом и (или) каждый своим слоем снимка (капсулы — с подписями бойцов, клинки —
     /// с именами мечей). У каждого слоя — только своё: он рисует накопленное со своей отметки (<see cref="DebugDraw.Mark"/>); экран — со
     /// своей, после слоёв, без подписей (оверлей, заказанный и слоем, и на экран, копится дважды — это кадр снимка). Слой контактов без
@@ -787,7 +787,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     /// <summary>
-    /// Капсулы тел всех бойцов кадра (цвет — сегмент); тела на физике (труп, 7и) — с крестом в центре (<see cref="DrawnMarks"/>). Вернёт,
+    /// Капсулы тел всех бойцов кадра (цвет — сегмент); тела на физике (труп) — с крестом в центре (<see cref="DrawnMarks"/>). Вернёт,
     /// сколько капсул.
     /// </summary>
     private int DrawCapsules(DebugDraw debug)
@@ -832,7 +832,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         }
     }
 
-    /// <summary>Клинки (6б): отрезок тика, прошлого тика и стороны пройденного за тик. Вернёт, сколько клинков.</summary>
+    /// <summary>Клинки: отрезок тика, прошлого тика и стороны пройденного за тик. Вернёт, сколько клинков.</summary>
     private int DrawBlades(DebugDraw debug)
     {
         int drawn = 0;
@@ -859,7 +859,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     /// <summary>
-    /// Суставы тел (7и): шарик в точке сустава на ребёнке (в пределах — зелёный, выход за предел — от оранжевого к красному и крупнее,
+    /// Суставы тел: шарик в точке сустава на ребёнке (в пределах — зелёный, выход за предел — от оранжевого к красному и крупнее,
     /// выключен — серый), отрезок до точки на родителе (ошибка точки) — красный. Вернёт, сколько суставов.
     /// </summary>
     private int DrawJoints(DebugDraw debug)
@@ -894,7 +894,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     }
 
     /// <summary>
-    /// Контакты последнего подшага (7и): шарик в точке, нормаль к телу длиной <see cref="ContactNormal"/> + <see cref="ContactDepthScale"/>
+    /// Контакты последнего подшага: шарик в точке, нормаль к телу длиной <see cref="ContactNormal"/> + <see cref="ContactDepthScale"/>
     /// × глубина, цвет — источник (<see cref="ContactColour"/>). Точки — конца последнего подшага (не интерполированы по доле тика).
     /// Вернёт, сколько контактов.
     /// </summary>
@@ -918,7 +918,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private void DrawHud(RenderFrame frame)
     {
         var renderer = _renderer!;
-        int draws = renderer.Graph.LastFrameDraws;   // без отчёта прохода: он строится только по запросу (0 Б/кадр — исправления после Пд)
+        int draws = renderer.Graph.LastFrameDraws;   // без отчёта прохода: он строится только по запросу (0 Б/кадр)
         _ui!.Clear();
         // Сводка F2 — раз в 0,25 с из итогов профайлера (в остальных кадрах — сравнение времени), только когда секция видна.
         if (_hud.ShowProfiler) _digest?.Update(System.Diagnostics.Stopwatch.GetTimestamp());
@@ -945,7 +945,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>
     /// Константы кадра (<c>Program.Fill</c> SWORD): шаг и время тика, номер последнего тика, доля тика. Тень и кольцо
-    /// игрока — таз тела, как в SWORD (5в), в показанной точке, как и Manny (<see cref="ArenaView.PlayerMarker"/>).
+    /// игрока — таз тела, как в SWORD, в показанной точке, как и Manny (<see cref="ArenaView.PlayerMarker"/>).
     /// Намеренное отличие: в SWORD — таз на последнем тике без интерполяции, и кольцо дрожит относительно плавно идущего
     /// бойца.
     /// </summary>
@@ -966,7 +966,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         };
     }
 
-    /// <summary>Цвет кольца игрока (6е; <c>Program.Fill</c> SWORD): доля здоровья <c>clamp(Hp / 100, 0, 1)</c> — от красного к зелёному.</summary>
+    /// <summary>Цвет кольца игрока (<c>Program.Fill</c> SWORD): доля здоровья <c>clamp(Hp / 100, 0, 1)</c> — от красного к зелёному.</summary>
     public static float PlayerHpFrac(float hp) => Math.Clamp(hp / Health.Full, 0, 1);
 
     public void Dispose()

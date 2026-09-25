@@ -6,7 +6,7 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Agent.Tests;
 
 /// <summary>
-/// Инструменты наблюдения (этап 3в) через MCP над подопытной симуляцией (<see cref="PushModule"/>: тела X = 0, 1, 2; Push
+/// Инструменты наблюдения через MCP над подопытной симуляцией (<see cref="PushModule"/>: тела X = 0, 1, 2; Push
 /// сдвигает все по X): условие в time.runUntil, останов посреди тика, наблюдения и история, события, снимки, where и
 /// агрегаты в world.query.
 /// </summary>

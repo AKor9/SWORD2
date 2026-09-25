@@ -2,11 +2,11 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// 7в: внутренние типы и математика суставов. Открытые типы (JointDesc, JointBinding, JointLimitHit, JointMeasure) — Contract.cs,
-// члены мира и крючки — PhysicsWorld.Joints.cs. Идеи — Fighter.Joints SWORD 2eab13b (источник, не образец; docs/history/engine-physics.md, «7в»).
+// Внутренние типы и математика суставов. Открытые типы (JointDesc, JointBinding, JointLimitHit, JointMeasure) — Contract.cs,
+// члены мира и крючки — PhysicsWorld.Joints.cs. Идеи — Fighter.Joints SWORD 2eab13b (источник, не образец; docs/history/engine-physics.md).
 
 /// <summary>
-/// Сустав сочленения в мире (7в): описание, привязка (точка на родителе в системе родителя, поза покоя
+/// Сустав сочленения в мире: описание, привязка (точка на родителе в системе родителя, поза покоя
 /// <c>conj(parent) · child</c>) и включён ли. Массив записей — за слотом сочленения, переиспользуется.
 /// </summary>
 internal struct JointRecord
@@ -17,7 +17,7 @@ internal struct JointRecord
     public bool Enabled;
 
     /// <summary>
-    /// Пороги быстрого «в пределах» (7з-2), считаются по описанию при записи (<see cref="Of"/>): квадрат тангенса люфта оси шарнира;
+    /// Пороги быстрого «в пределах», считаются по описанию при записи (<see cref="Of"/>): квадрат тангенса люфта оси шарнира;
     /// тангенс половины предела скручивания; квадрат тангенса половины наименьшей полуоси эллипса наклона. ∞ — предел не достижим.
     /// </summary>
     public float SlackTan2, TwistTanHalf, SwingTanHalf2;
@@ -40,7 +40,7 @@ internal struct JointRecord
 }
 
 /// <summary>
-/// Математика суставов (7в) — чистые функции над позами тел: ось и сгиб шарнира, отклонение от позы покоя, наклон и
+/// Математика суставов — чистые функции над позами тел: ось и сгиб шарнира, отклонение от позы покоя, наклон и
 /// скручивание, поправки пределов вдоль градиентов их мер, замер, эффективная масса точки для расслабления. Памяти не выделяют;
 /// аргументы не проверяют (горячий путь — проверяет мир в <see cref="PhysicsWorld.SetJoints"/>).
 /// </summary>
@@ -158,7 +158,7 @@ internal static class Joints
     public static bool SwingCorrection(in JointDesc d, Quaternion q, out Vector3 delta, float tanHalf2 = 0)
     {
         delta = default;
-        // 7з-2: быстрое «внутри» — наклон не больше наименьшей полуоси m (круг внутри эллипса): 2·atan2(ρ, l) ≤ m ⇔ ρ² ≤ l²·tg²(m/2)
+        // Быстрое «внутри» — наклон не больше наименьшей полуоси m (круг внутри эллипса): 2·atan2(ρ, l) ≤ m ⇔ ρ² ≤ l²·tg²(m/2)
         if (q.X * q.X + q.Z * q.Z <= (q.Y * q.Y + q.W * q.W) * tanHalf2) return false;
         var sv = SwingVector(q);
         float phi = sv.Length();
@@ -190,7 +190,7 @@ internal static class Joints
         delta = default;
         float yw = q.Y * q.Y + q.W * q.W;
         if (!(yw > TwistEpsilon * TwistEpsilon)) return false;
-        // 7з-2: быстрое «в пределе» (W ≥ 0 у отклонения): |2·atan2(y, w)| ≤ T ⇔ |y| ≤ w·tg(T/2)
+        // Быстрое «в пределе» (W ≥ 0 у отклонения): |2·atan2(y, w)| ≤ T ⇔ |y| ≤ w·tg(T/2)
         if (MathF.Abs(q.Y) <= q.W * tanHalf) return false;
         float twist = 2 * MathF.Atan2(q.Y, q.W);
         float tc = Math.Clamp(twist, -d.Twist, d.Twist);
@@ -250,7 +250,7 @@ internal static class Joints
     }
 
     /// <summary>
-    /// То же по матрице обратной инерции тела в мире (7з-2: расслабление — поза подшага уже не меняется): <c>r × eₖ</c> — столбцы
+    /// То же по матрице обратной инерции тела в мире (расслабление — поза подшага уже не меняется): <c>r × eₖ</c> — столбцы
     /// кососимметричной <c>[r]×</c>, без поворотов на каждый столбец.
     /// </summary>
     public static void AddPointMass(in InvInertiaMatrix w, Vector3 r, ref Vector3 kx, ref Vector3 ky, ref Vector3 kz)

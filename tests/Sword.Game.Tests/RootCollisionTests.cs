@@ -15,7 +15,7 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Столкновения корней бойцов, точка 4в: <see cref="RootCollision.Resolve"/> на случайных толпах — пары, колонны и край арены
+/// Столкновения корней бойцов: <see cref="RootCollision.Resolve"/> на случайных толпах — пары, колонны и край арены
 /// объясняют сдвиг корня, после разрешения корни вне колонн и внутри арены, скорость внутрь препятствия погашена; в мире — порядок
 /// мест и вид толчков <see cref="RootContacts"/>; толпа из 32 врагов (замер перекрытия для инварианта <c>movement.rootOverlap</c>);
 /// игрок упирается в толпу и расталкивает её; 0 байт на тик; агентский вид.
@@ -76,7 +76,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
 
     /// <summary>
     /// Случайные толпы (кучки, колонны, край, совпавшие корни, дыры в местах): пары и препятствия вместе объясняют весь сдвиг корня
-    /// (вид 4д), пустые места не трогаются; после разрешения каждый корень вне колонн (не ближе радиуса колонны плюс радиус корня) и
+    /// (вид толчков), пустые места не трогаются; после разрешения каждый корень вне колонн (не ближе радиуса колонны плюс радиус корня) и
     /// внутри арены (не дальше <c>ArenaRadius − EdgeMargin</c>): последним корень бойца двигает его собственный проход препятствий.
     /// Скорость только гасится (снимается составляющая по нормали контакта): не растёт, у бойца без пар и препятствий — та же, на
     /// поверхности колонны — не внутрь колонны, на краю арены — не наружу.
@@ -110,7 +110,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
                     continue;
                 }
                 fighters++;
-                // Вид (4д): пары и препятствия вместе объясняют весь сдвиг корня (с точностью до округления float).
+                // Вид: пары и препятствия вместе объясняют весь сдвиг корня (с точностью до округления float).
                 var moved = roots[s] - before[s];
                 Assert.True(Vector3.Distance(moved, contacts[s].Push + contacts[s].Obstacle) < 1e-4f,
                     $"прогон {run}, место {s}: сдвиг {moved}, Push {contacts[s].Push} + Obstacle {contacts[s].Obstacle}");
@@ -161,7 +161,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
     [Fact]
     public void SingleFighter_IsPillarsThenEdge_AsBefore4v()
     {
-        // До 4в RootCollisionSystem разрешал бойца в одиночку: два прохода {колонны, край}. Один боец — те же биты
+        // Один боец — те же биты, что два прохода {колонны, край} в одиночку
         // (эталоны прототипа и анимации — один игрок).
         var rng = new Random(11);
         var contacts = new RootContacts[ArenaRules.MaxFighters];
@@ -182,7 +182,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
             }
             AssertBits(root, roots[0], $"прогон {run}: корень");
             AssertBits(velocity, velocities[0], $"прогон {run}: скорость");
-            // Пар нет; сдвиг колоннами и краем — в Obstacle (4д).
+            // Пар нет; сдвиг колоннами и краем — в Obstacle.
             Assert.Equal(RootContacts.None with { Obstacle = contacts[0].Obstacle }, contacts[0]);
             Assert.True(Vector3.Distance(root - crowd.Roots[slot], contacts[0].Obstacle) < 1e-4f, $"прогон {run}: Obstacle {contacts[0].Obstacle}");
         }
@@ -262,7 +262,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
                         int s = w.Get<FighterSlot>(e).Index;
                         var t = w.Get<Transform>(e);
                         var v = w.Get<RootVelocity>(e).Value;
-                        if (w.TryGet<AnimatorAction>(e, out var action)) RootControlSystem.Move(ref t, v, action, sim.Dt);   // враг: поворот и сдвиг клипом (4г)
+                        if (w.TryGet<AnimatorAction>(e, out var action)) RootControlSystem.Move(ref t, v, action, sim.Dt);   // враг: поворот и сдвиг клипом
                         else RootControlSystem.Move(ref t, v, sim.Dt);
                         (_roots[s], _velocities[s], _present[s], _owner[s]) = (t.Position, v, true, e);
                         // Постройка — новая сущность места или прыжок корня (сброс строит на той же сущности).
@@ -379,7 +379,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Толпа из 32 врагов по четырём зёрнам (~25 с в Debug) — свой класс (доводка 6ж): строки теории одного класса xUnit гонит подряд, а
+    /// Толпа из 32 врагов по четырём зёрнам (~25 с в Debug) — свой класс: строки теории одного класса xUnit гонит подряд, а
     /// классы — параллельно; вместе с краем арены теории столкновений шли одной цепочкой ~77 с — дольше всех тестов игры.
     /// </summary>
     public sealed class CrowdTheory(ITestOutputHelper output)
@@ -410,7 +410,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>Край арены с частыми командами арены (~47 с в Debug) — свой класс (доводка 6ж), как <see cref="CrowdTheory"/>.</summary>
+    /// <summary>Край арены с частыми командами арены (~47 с в Debug) — свой класс, как <see cref="CrowdTheory"/>.</summary>
     public sealed class EdgeTheory(ITestOutputHelper output)
     {
         /// <summary>
@@ -508,7 +508,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
     {
         var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32"));
         for (int t = 0; t < 600; t++) CrowdStep(sim, t);
-        for (int t = 2400; t < 2410; t++) CrowdStep(sim, t);   // первая команда игрока заводит журнал команд (не 4в)
+        for (int t = 2400; t < 2410; t++) CrowdStep(sim, t);   // первая команда игрока заводит журнал команд
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int t = 2410; t < 3000; t++) CrowdStep(sim, t);   // бег сквозь толпу
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
@@ -572,7 +572,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
             var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "RootContacts" });
             Assert.Contains("DeepestWith", describe.ToJsonString());
 
-            // 4д: препятствия — «врага 1 сдвинул край арены» (командой врагу гоним его к краю).
+            // Препятствия — «врага 1 сдвинул край арены» (командой врагу гоним его к краю).
             await Call("command.send", new JsonObject
             {
                 ["command"] = "EnemyCommand", ["fields"] = JsonNode.Parse("""{"Slot":1,"Velocity":{"X":0,"Y":-30},"FacingGoal":3.14}"""), ["repeat"] = 900,

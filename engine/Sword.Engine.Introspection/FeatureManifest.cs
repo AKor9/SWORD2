@@ -239,7 +239,7 @@ public sealed record FeatureScenario
     public IReadOnlyList<FeatureCheck> Checks { get; init; } = [];
 
     /// <summary>
-    /// Диагностические режимы симуляции (7з; <c>Simulation.Diagnostics</c>, например <c>physics.trace</c>), включённые с тика 0: мир, хеш и
+    /// Диагностические режимы симуляции (<c>Simulation.Diagnostics</c>, например <c>physics.trace</c>), включённые с тика 0: мир, хеш и
     /// реплей от них не зависят — их читают инварианты манифеста (<c>physics.energy</c>, <c>physics.pushes</c> — по трассе физики).
     /// </summary>
     public IReadOnlyList<string> Diagnostics { get; init; } = [];
@@ -307,11 +307,11 @@ public sealed record FeatureCheck(string Id, string Expect, JsonNode Condition, 
 
 /// <summary>
 /// Метрика фичи с ожиданием и допуском — своё число SWORD2 (свой замер, своя константа или формула; со SWORD не сравниваем — решение
-/// 14, точка 7а сняла источник <c>sword</c> и ряды против трассы SWORD): значение поля сущности (<see cref="Field"/>; несколько
-/// листьев — длина вектора) или поля ресурса мира (<see cref="Resource"/>, 6ж: <c>ArenaStats.LastDamage</c> — вместо сущности) после
+/// 14): значение поля сущности (<see cref="Field"/>; несколько
+/// листьев — длина вектора) или поля ресурса мира (<see cref="Resource"/>: <c>ArenaStats.LastDamage</c> — вместо сущности) после
 /// тика <see cref="At"/> (по умолчанию — последнего) или <see cref="Stat"/> по тикам окна: <c>min</c>, <c>max</c>, <c>mean</c>, <c>p95</c>,
-/// <c>p99</c> (7л: 99-й перцентиль окна, ближайший ранг — распределение величины по тикам без одиночных выбросов <c>max</c>; 8з — и 95-й). Тик
-/// окна без значения (NaN) — провал метрики «значения нет», а с <see cref="SkipUndefined"/> (8з) — пропуск: так считаются величины, которые
+/// <c>p99</c> (99-й перцентиль окна, ближайший ранг — распределение величины по тикам без одиночных выбросов <c>max</c>; 95-й — так же). Тик
+/// окна без значения (NaN) — провал метрики «значения нет», а с <see cref="SkipUndefined"/> — пропуск: так считаются величины, которые
 /// определены не в каждом тике (скольжение опорной стопы — только когда стопа на земле).
 /// </summary>
 public sealed record FeatureMetric
@@ -341,7 +341,7 @@ public sealed record FeatureMetric
     public double Tolerance { get; init; }
 
     /// <summary>
-    /// Статистика окна — только по тикам со значением (8з, ключ <c>skipUndefined</c>): NaN (вычисляемое поле в тике не определено) не
+    /// Статистика окна — только по тикам со значением (ключ <c>skipUndefined</c>): NaN (вычисляемое поле в тике не определено) не
     /// входит в окно; окно без единого значения — провал «значения нет». Только со статистикой окна (не <c>value</c>).
     /// </summary>
     public bool SkipUndefined { get; init; }
@@ -376,7 +376,7 @@ public sealed record FeatureMetric
 /// <summary>
 /// Вид фичи — кадр App (<c>Sword.exe --replay</c>) после <see cref="Tick"/> тиков сценария: ракурс <see cref="Camera"/>
 /// (<c>поворот,наклон,дистанция[,x,z]</c>; без него — камера SWORD за игроком), HUD — по <see cref="Hud"/>, отладочные
-/// оверлеи игры поверх кадра — <see cref="Overlays"/> (<c>Sword.exe --overlay</c>: у арены — <c>capsules</c>, капсулы тел, 5в;
+/// оверлеи игры поверх кадра — <see cref="Overlays"/> (<c>Sword.exe --overlay</c>: у арены — <c>capsules</c>, капсулы тел;
 /// имя, которого игра не знает, — провал вида).
 /// </summary>
 public sealed record FeatureView(string Id, string Scenario, ulong Tick, string? Camera, bool Hud, string? Title)
@@ -407,8 +407,8 @@ public sealed record FeatureView(string Id, string Scenario, ulong Tick, string?
 
 /// <summary>
 /// Бюджет производительности сценария: мс на тик (медиана <see cref="Repeats"/> прогонов без инвариантов, как бенч), мс
-/// стадий, выделенные байты на тик после <see cref="Warmup"/> тиков прогрева; кадр App (<see cref="Frame"/>, точка 4д); пик зон
-/// профайлера (<see cref="Zones"/>, 8и). Время проверяется только в оптимизированной сборке (Release); байты — всегда.
+/// стадий, выделенные байты на тик после <see cref="Warmup"/> тиков прогрева; кадр App (<see cref="Frame"/>); пик зон
+/// профайлера (<see cref="Zones"/>). Время проверяется только в оптимизированной сборке (Release); байты — всегда.
 /// </summary>
 public sealed record FeatureBudget
 {
@@ -421,7 +421,7 @@ public sealed record FeatureBudget
     public int Warmup { get; init; } = 120;
 
     /// <summary>
-    /// Пик зон профайлера CPU, мс (8и; ключ <c>zones</c>: <c>{"locomotion.search": 0.6}</c>): наибольшее время зоны за тик после прогрева в
+    /// Пик зон профайлера CPU, мс (ключ <c>zones</c>: <c>{"locomotion.search": 0.6}</c>): наибольшее время зоны за тик после прогрева в
     /// прогоне бюджета с профайлером (<see cref="SimulationMeasure.Zones"/>) — редкая дорогая работа (поиск Motion Matching раз в 12 тиков),
     /// которую медиана тика прячет. Как время — проверяется только в Release; зоны нет в прогоне — провал в любой сборке.
     /// </summary>
@@ -463,9 +463,9 @@ public sealed record FeatureBudget
 }
 
 /// <summary>
-/// Бюджет кадра (точка 4д): App играет запись сценария бенчем (<c>Sword.exe --replay … --bench <see cref="Seconds"/></c>:
+/// Бюджет кадра: App играет запись сценария бенчем (<c>Sword.exe --replay … --bench <see cref="Seconds"/></c>:
 /// первые 4 с игрового времени — прогрев, vsync выключен, хеши сверяются с записью Headless) — средний кадр и 99-й
-/// перцентиль, мс. Как время бюджета — проверяется только в Release; нужен App (виды включены). С точки 5г — оверлеи игры
+/// перцентиль, мс. Как время бюджета — проверяется только в Release; нужен App (виды включены). Оверлеи игры —
 /// поверх кадра на всё время замера (<see cref="Overlays"/>, <c>Sword.exe --overlay</c>, как у вида): кадр с капсулами тел.
 /// </summary>
 public sealed record FeatureFrameBudget

@@ -11,7 +11,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Intent, первой (<see cref="GameLabels.SceneCommand"/>, до <c>core.player-command</c>; 7ж): команды сцены тика по порядку
+/// Intent, первой (<see cref="GameLabels.SceneCommand"/>, до <c>core.player-command</c>): команды сцены тика по порядку
 /// (<see cref="SceneCommand"/>; постановки сцен s1–s8 <c>RagdollScene</c> SWORD 2eab13b — идеи, не образец). Стадия Intent — после
 /// барьера Begin: арена уже после своих команд (снятое место не найдётся, прибавленное — найдётся), и мир меняется один раз, на
 /// барьере Intent. Команды одного места в тике складываются по порядку: «убить, затем поставить» — боец жив и стоит в точке,
@@ -32,7 +32,7 @@ namespace Sword.Game.Ragdoll;
 /// скорости).</item>
 /// </list>
 /// Намерение игрока (<see cref="SceneAction.PlayerIntent"/>) — не здесь, а в Gameplay (<see cref="ScenePlayerIntentSystem"/>).
-/// Причина (<c>state.why</c>, 6д) — каждая команда своих изменений.
+/// Причина (<c>state.why</c>) — каждая команда своих изменений.
 /// </summary>
 public sealed class SceneCommandSystem(IPhysicsWorld physics, int weapons) : IContinuousSystem
 {
@@ -121,7 +121,7 @@ public sealed class SceneCommandSystem(IPhysicsWorld physics, int weapons) : ICo
         if (_dead[slot]) return;
         _dead[slot] = true;
         ctx.Commands.Add(e, new Dead { Time = ctx.World.Resource<SimTime>().Time, Cause = DeathCause.Command });
-        ctx.Causality?.Link(e, CombatCauses.Death, ctx.Commands.LastCause);   // родитель возрождения (6д)
+        ctx.Causality?.Link(e, CombatCauses.Death, ctx.Commands.LastCause);   // родитель возрождения
     }
 
     /// <summary>Сдвиг тел трупа без скорости (<see cref="SceneAction.ShiftBodies"/>) — сразу, в подсистеме.</summary>
@@ -150,7 +150,7 @@ public sealed class SceneCommandSystem(IPhysicsWorld physics, int weapons) : ICo
 }
 
 /// <summary>
-/// Gameplay, после команды врагу и до курса и разгона (<see cref="GameLabels.SceneIntent"/>; 7ж): намерение игрока командой сцены
+/// Gameplay, после команды врагу и до курса и разгона (<see cref="GameLabels.SceneIntent"/>): намерение игрока командой сцены
 /// (<see cref="SceneAction.PlayerIntent"/>) — желаемая скорость и курс-цель поверх того, что записала команда игрока (Intent), как
 /// <c>core.enemy-command</c> врагу; несколько в тике — последняя; нечисловая скорость — стоять, нечисловой курс — курс-цель команды
 /// игрока. Мёртвому — ничего. Сцена s3 SWORD — идти сквозь труп с заданной скоростью (<c>DesiredVel = (0; 0; 4,2)</c>).

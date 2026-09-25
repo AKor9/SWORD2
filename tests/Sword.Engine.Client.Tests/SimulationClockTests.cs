@@ -199,7 +199,7 @@ public class SimulationClockTests
     [Fact]
     public void Gate_StopAfterTick_EndsFrameOnThatTick()
     {
-        // Условие наблюдения или пауза агента встают на своём тике, а не в конце кадра (этап 3в).
+        // Условие наблюдения или пауза агента встают на своём тике, а не в конце кадра.
         var (clock, _) = Create();
         double dt = clock.Link.Dt;
         clock.Gate = new StoppingGate(5, stopAt: 2);

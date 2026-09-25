@@ -3,11 +3,11 @@ using System.Diagnostics;
 namespace Sword.Engine.Diagnostics;
 
 /// <summary>
-/// Сводка профайлера для HUD (F2, точка Пв): главные зоны кадра по своему времени (мс на кадр, без дочерних — строки не
+/// Сводка профайлера для HUD (F2): главные зоны кадра по своему времени (мс на кадр, без дочерних — строки не
 /// перекрываются и в сумме дают кадр) за прошлое окно <see cref="WindowSeconds"/>, средний кадр. Пересчёт — раз в окно из
 /// итогов профайлера (разность сумм с прошлого пересчёта, O(зон)); в остальных кадрах — сравнение времени. Без выделений
 /// (массивы растут только вместе с числом зон); однопоточная — поток кадра. Профайлер выключен — строк нет.
-/// Точка Пг: отдельно — GPU-время кадра и главные проходы GPU (зоны вида <see cref="ProfileZoneKind.Gpu"/>, мс на кадр за то же
+/// Отдельно — GPU-время кадра и главные проходы GPU (зоны вида <see cref="ProfileZoneKind.Gpu"/>, мс на кадр за то же
 /// окно; времена кадров на 3 раньше — кадры в полёте); в строки зон CPU они не входят.
 /// </summary>
 public sealed class ProfileDigest(CpuProfiler profiler)
@@ -15,7 +15,7 @@ public sealed class ProfileDigest(CpuProfiler profiler)
     public const double WindowSeconds = 0.25;
     public const int MaxLines = 8;
 
-    /// <summary>Строк проходов GPU (точка Пг).</summary>
+    /// <summary>Строк проходов GPU.</summary>
     public const int MaxGpuLines = 6;
 
     private readonly int[] _zone = new int[MaxLines];
@@ -48,7 +48,7 @@ public sealed class ProfileDigest(CpuProfiler profiler)
     /// <summary>Своё время зоны строки, мс на кадр.</summary>
     public double Ms(int line) => _ms[line];
 
-    /// <summary>GPU-время кадра целиком за окно, мс на кадр (точка Пг); 0 — времён нет.</summary>
+    /// <summary>GPU-время кадра целиком за окно, мс на кадр; 0 — времён нет.</summary>
     public double GpuFrameMs { get; private set; }
 
     /// <summary>Строк проходов GPU.</summary>
@@ -116,7 +116,7 @@ public sealed class ProfileDigest(CpuProfiler profiler)
             int p = profiler.ParentOf(z);
             if (p >= 0 && _delta[z] > 0) _self[p] -= _delta[z];
         }
-        // Главные — по своему времени, вставкой в заранее выделенные строки; зоны GPU (точка Пг) — отдельно.
+        // Главные — по своему времени, вставкой в заранее выделенные строки; зоны GPU — отдельно.
         int n = 0, g = 0;
         int gpuFrame = profiler.Find(CpuProfiler.GpuFrameName);
         for (int z = 0; z < zones; z++)

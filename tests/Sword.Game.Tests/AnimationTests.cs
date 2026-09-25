@@ -15,7 +15,7 @@ namespace Sword.Game.Tests;
 /// <summary>
 /// Аниматор бойца и модуль Locomotion на тестовом контенте (<see cref="TestAssets"/>): выбор клипа по движению, поза —
 /// итог клипа, модуль выключен, позы возвращаются в пул, инструменты агента. На настоящем контенте — сценарии манифеста
-/// <c>animation</c> и эталон SWORD2 <c>animation.swreplay</c> (сравнение со SWORD снято на 7а).
+/// <c>animation</c> и эталон SWORD2 <c>animation.swreplay</c>.
 /// </summary>
 public sealed class AnimationTests
 {
@@ -237,7 +237,7 @@ public sealed class AnimationTests
             Assert.True(run["loop"]!.GetValue<bool>());
             Assert.Equal(34, clips["total"]!.GetValue<int>());
 
-            // Страницы: 34 клипа (локомоция, поворот на месте; с 6в — удары, уколы, уклонения; с 6г — реакции) по 10 — продолжение у всех, кроме последней.
+            // Страницы: 34 клипа (локомоция, поворот на месте, удары, уколы, уклонения, реакции) по 10 — продолжение у всех, кроме последней.
             var first = await Call("anim.clips", new JsonObject { ["take"] = 10 });
             Assert.Equal(10, first["clips"]!.AsArray().Count);
             Assert.True(first["receipt"]!["truncated"]!.GetValue<bool>());

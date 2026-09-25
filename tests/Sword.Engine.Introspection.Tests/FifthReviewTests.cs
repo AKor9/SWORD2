@@ -13,7 +13,7 @@ public struct UndeclaredGait
     public Gait Gait;
 }
 
-/// <summary>Проверки по пятой самопроверке 1е: float вне диапазона, fixed-буферы, необъявленные значения, остановка времени.</summary>
+/// <summary>Проверки: float вне диапазона, fixed-буферы, необъявленные значения, остановка времени.</summary>
 public class FifthReviewTests
 {
     [Theory]

@@ -7,7 +7,7 @@ using Sword.Game.Data;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Таблица ударов (этап 6б) — <c>CharacterRig.ApplySlots</c>/<c>Analyse</c>/<c>Tips</c> SWORD 2eab13b: удары слотов slash1–4
+/// Таблица ударов — <c>CharacterRig.ApplySlots</c>/<c>Analyse</c>/<c>Tips</c> SWORD 2eab13b: удары слотов slash1–4
 /// (рубящие, связка) и stab1–3 (уколы) по клипам таблицы действий (<see cref="ActionTable"/>: клип и слой верха слота), их окна
 /// урона — по траектории кончика клинка меча по умолчанию (<see cref="WeaponTable.Default"/>) для всех мечей
 /// (<see cref="StrikeWindows.Find"/>; у укола — только самый быстрый удар), клип отбитого удара «имя_Blocked», длительность.

@@ -48,7 +48,7 @@ public readonly record struct EntityDraft(int Index, int Buffer, uint Turn)
 /// <summary>
 /// Причина записи команды или события — для <c>state.why</c> (раздел 8 плана). Слот есть в каждой записи с v0; вне
 /// диагностического режима пуст (<see cref="None"/>) и ничего не стоит; в режиме — номер записи журнала причинности
-/// (<see cref="CausalityLog"/>). В хеш состояния не входит (6д).
+/// (<see cref="CausalityLog"/>). В хеш состояния не входит.
 /// </summary>
 public readonly record struct CauseId(int Value)
 {

@@ -11,7 +11,7 @@
 ## Откуда
 
 SWORD 2eab13b, `tools/Sword.Bake.Sword` — игровая часть; логика выпечки не менялась. Журнал переноса —
-[docs/history/baker.md](../../docs/history/baker.md), «Б5».
+[docs/history/baker.md](../../docs/history/baker.md).
 
 | SWORD | SWORD2 | что изменилось |
 |---|---|---|
