@@ -48,6 +48,8 @@ public static class Program
         // Профайлер CPU (точка Па) — свой итог artifacts/bench/profiler.json; --profiler — только он. В полном прогоне — последним:
         // бенчмарки идут в одном процессе, и его прогон не должен стоять перед замерами ECS и поз.
         if (args.Contains("--profiler")) return Profiler(config, outDir, quick) ? 0 : 1;
+        // Поиск Motion Matching (этап 8, точка 8в) — замер себе, не цель: свой итог artifacts/bench/motion.json, только по --motion.
+        if (args.Contains("--motion")) return MotionSearchReport.Run(config, outDir, quick) ? 0 : 1;
 
         var iteration = BenchmarkRunner.Run<EcsIteration>(config);
         var commands = BenchmarkRunner.Run<EcsCommandsAndJournals>(config);
