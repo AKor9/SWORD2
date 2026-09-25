@@ -7,7 +7,8 @@
       build                 сборка SWORD.slnx (предупреждения — ошибки);
       test                  тесты решения, в том числе архитектурные и GPU-тесты рендера (категория Gpu:
                             устройство D3D12 с GPU-валидацией; -SkipGpu — без них) и тесты на шрифтах пака
-                            (категория Content; -SkipReference — без них);
+                            (категория Content; -SkipReference — без них) и выпечка исходников пекарни со сверкой
+                            с эталонным паком (категория Source: без исходников — пропуск; -SkipReference — без неё);
       forbidden-references  заготовки tests/fixtures/forbidden-references/SWORD00N-*: каждая обязана упасть со своим
                             кодом — иначе проверка ссылок в сборке сломана;
       without-agent         App и Headless с -p:WithoutAgent=true собираются и не содержат сборок агента;
@@ -96,7 +97,7 @@
     Итог одним JSON-объектом в stdout, UTF-8 (для агентов). Код выхода: 0 — всё прошло, 1 — нет.
 
 .PARAMETER SkipReference
-    Не проверять эталонный пак и не запускать тесты, которым он нужен (категория Content) — например, на машине без него.
+    Не проверять эталонный пак и не запускать тесты, которым он нужен (категории Content и Source) — например, на машине без него.
 
 .PARAMETER Bench
     Прогнать микробенчмарки ECS (BenchmarkDotNet, Release, около двух минут) и проверить цели производительности.
@@ -283,7 +284,7 @@ Add-Step 'test' {
     if (-not $script:buildOk) { return @{ ok = $false; detail = 'не запускались: сборка не прошла' } }
     $skip = @()
     if ($SkipGpu) { $skip += 'Category!=Gpu' }
-    if ($SkipReference) { $skip += 'Category!=Content' }
+    if ($SkipReference) { $skip += 'Category!=Content'; $skip += 'Category!=Source' }
     $filter = if ($skip.Count -gt 0) { @('--filter', ($skip -join '&')) } else { @() }
     $out = & dotnet test $solution -c $Configuration --no-build -nologo @filter | Out-String
     @{ ok = ($LASTEXITCODE -eq 0); detail = (Get-Lines $out 'Passed!|Failed!|\[FAIL\]' 6) }

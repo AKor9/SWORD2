@@ -106,3 +106,77 @@ Content.reference.swpak` — 1082 `same`, сведения равны (29 асс
 плагины проекта); инструмент MCP не нужен. Сравнитель формата от плагина агент видит в `comparers[]` и у каждого файла
 (`comparer`, `detail`), в `list`; проверяет — тестом на синтетических паках (`DiffTests`, тестовый плагин). Строка рецепта —
 `docs/agent-playbook.md`, «Пекарня», п. 6.
+
+## Б4. `Bake.Engine`: анимация (2026-09-25)
+
+**Что перенесено.** Новый плагин `tools/Sword.Bake.Engine` (сторона `Neutral`, `EnableDynamicLoading`, выход
+`bin/<конф>/` без TFM; ссылки — ядро `Private=false`/`ExcludeAssets=runtime`, Content, Formats, Animation) — анимационная
+часть `tools/Sword.Bake.Sword` SWORD 2eab13b: `Anim/RawAnim.cs`, `UeSpace.cs`, `UeRig.cs`, `ClipSource.cs`,
+`FingerTransfer.cs`, `GltfMesh.cs`, `SkinBake.cs`, `AnimImport.cs`, `PoseReport.cs`, `Processors/SkeletonProcessor.cs`
+(+ `SkinMeshProcessor`), `Processors/AnimPackProcessor.cs`, `Inspect.cs`. Тесты — `tests/Sword.Bake.Engine.Tests`.
+Не перенесены (Б5, Б7): текстуры, шрифты, предпросмотры, `MeshDecimate`, `SpineChain`, оружие, кровь, анатомия.
+
+**Что поменялось против SWORD и почему.**
+- Пространства имён — `Sword.Bake.Engine.Anim`, `Sword.Bake.Engine.Processors`, `Sword.Bake.Engine` (в SWORD —
+  `Sword.Bake.Anim`, `Sword.Bake.Processors`: плагин игры жил бы в тех же пространствах, что и движковый).
+- Контейнер клипов импорта — `ClipLibrary` движка (вместо `SkeletalClips`): `SkinBake.BuildClips` собирает те же таблицы
+  списками и отдаёт их конструктору `ClipLibrary` (копия — один раз, из `CollectionsMarshal.AsSpan`); `Sample`, `MotionMatrix`
+  — те же операции; прямая кинематика проверки — `Skeleton.ToModel` (скелет экспорта без ID). Своего контейнера не нужно.
+- Форматы — писатели `Engine.Formats` (`ClipFile`, `SkeletonFile`, `SkinnedMeshData`, байт в байт эталон — Б1) через
+  `ContentFiles.Write`: файл `*.tmp` и подмена, как `ClipAsset.Save` SWORD. Прежний клип при инкрементальной сборке читается
+  целиком (`ClipFile.Read`): чтения одного заголовка в Formats нет; заодно клип с испорченным телом перепекается, а не
+  принимается за актуальный.
+- `SkinBake.Run` → `SkinBake.Mesh`: только меш. Ветки `.swskel` (`outClips` — формат снят) и статического меша с креплением
+  (`--static`, `--attach`) звала лишь старая команда `skin`; обработчик `skin.mesh` передавал в них `null`. С ними ушли
+  `GripAlongBlade` и сообщение про `--attach`; оружие (Б5) крепит `WeaponBake` через `SkinBake.GripAttachment`.
+- `PoseReport` — только `Raw`: `SkelCheck`, `Fingers` читали `.swskel`. `Inspect`: `meshinfo`, `rawpose` пишут в поток команды
+  (в SWORD — в `Console`); **`compare` не перенесён** — сравнение паков — `bake diff` ядра (Б3), клипы по содержимому без
+  `SourceHash` — `Anim/ClipContent.cs` (заголовок и массивы побайтно, у отличия — поле, число значений, наибольшая разница,
+  кадр), на нём сравнитель `.swclip` для `bake diff` (Б5); режим `--by-name` (сверка после переименования наборов) не нужен.
+- `CodeAssemblies` обработчиков: `anim.skeleton`, `skin.mesh` — плагин и Formats; `anim.pack` — плагин, Animation (система
+  корневого движения), Formats (запись клипа) — в SWORD Sword.Anim и Sword.Content.
+- **`SourceHash` без MVID** (решение 2026-09-25): из хеша убран отпечаток сборок конвертера (MVID `Sword.Bake.Sword` и
+  `Sword.Anim`), `ToolVersion` «sword-animbake import 3» → «4». Остальное в хеше — как в SWORD.
+- Открытый API для `Bake.Game` вместо `InternalsVisibleTo`: явная граница основы и надстройки (надстройка не достаёт до
+  `AnimImport` и внутренностей переноса пальцев). Открыты `RawManifest`, `RawClipInfo`, `RawClip`, `RawAnimIO`, `UeSpace`,
+  `UeRig`, `ClipSource`, `FingerSource`, `FingerStats`, `GltfMesh`, `SkinBake.GripAttachment`, `ContentFiles`, `SkeletonParams`,
+  `SkinMeshParams`, `SkeletonProcessor`, `SkinMeshProcessor`; `MeshDecimate` и `SpineChain` откроются с анатомией (Б5).
+- `TreatWarningsAsErrors` и `Nullable` SWORD2 правок сверх перечисленного не потребовали.
+- Архитектурный тест `CompiledAssemblies_FollowArchitecture` искал сборку только в `bin/<конф>/<TFM>/` — плагин без TFM
+  (`bin/<конф>/`) теперь тоже находится (`SolutionModel.BuiltAssembly`). `verify.ps1 -SkipReference` исключает и категорию
+  Source (ей нужен эталонный пак).
+
+**Тесты.** `tests/Sword.Bake.Engine.Tests` — 33 синтетических и 3 категории Source. Перенесены из `tests/Sword.Anim.Tests`
+SWORD (синтетика — спецификация пекарни): `GltfTests` (2), `RouteTests` (4), `RootMotionTests` (вынос поворота из root, дрейф
+цикла, смещение начала ×2; «формат с yaw» — теперь импорт пишет клип с поворотом корня), `MathTests` (оси UE, `rootForward`
+×3, окно пальцев), `LibraryTests.ImportId` (7), `SynthSkeleton` (помощник: синтетический raw-экспорт полного скелета). Свои:
+`SourceHash` меняется от исходника, параметров клипа и пространства и **не зависит от сборки** (копия сборки плагина с
+подменённым MVID в своём контексте загрузки считает тот же хеш); инкрементальный импорт (тот же экспорт — «записано 0»,
+изменённый клип — перепечён один, испорченный прежний — перепечён, ушедший в другой набор и пропавший — удалены); меш на
+синтетическом риге (оси `ue=(x,z,y)` с отклонением 0, вершины и bind-поза в пространстве персонажа, поза привязки движка);
+плагин в настоящем хосте (`sword-bake` процессом: скелет, меш, клипы читаются `Skeleton`/`ClipLibrary`, FK · корень =
+экспорт, повторная сборка — всё актуально и пак не переписан, `--force` — «записано 0», изменённый клип — один; `inspect`).
+
+**Сверка с эталоном на исходниках** (`SourceBakeTests`, категория Source; манифесты анимации `Bake/` SWORD —
+`skeletons/ue5_manny`, `characters/manny/mesh`, `anim/1hm_sword`, `anim/combat_master`, `anim/combat_master_ext`, `anim/gasp`;
+`sword-bake build` обычным прогоном, `-j` = ядра/2 = 4, Debug):
+- клипы: в эталоне 1048, выпечено 1048, **совпали по содержимому все 1048** (заголовок, позы, корневое движение и его поворот —
+  побайтно; `SourceHash` другой у всех 1048 — ожидаемо), размеры те же; по наборам: katana 182, locomotion 444, sword_1h 188,
+  sword_shield 184, twin_swords 25, unarmed 25 — всё из всего. Циклы с поворотом кости root (`katana/Anim_DK2_Run_F_IP`,
+  `sword_shield/Anim_SAS_Walk_BL`, `sword_shield/Anim_DSS3_Run_BL_RM`) и четыре `Circle_Strafe` локомоции — в их числе: эталон собран логикой
+  a5c9e55 (разбор, п. 3.1), перенос её воспроизводит;
+- `skeletons/ue5_manny.swskeleton` (2945 Б, 161 сустав) и `characters/manny/mesh.swmesh` (3 460 779 Б, 48 779 вершин) — байт в байт;
+- время: выпечка 6,4 с (sword-bake 6,3 с: gasp 5,7, combat_master_ext 2,6, 1hm_sword 0,8, combat_master 0,8, меш 0,1), сверка
+  клипов 0,4 с. Лог: проверка FK — 0,000 см у всех четырёх экспортов; пальцы — отклонение фаланг 47–49° → 0,0°, сгиб пясти
+  107–137° → 18°; оси меша `ue=(x,z,y)`, 3,1 см по 61 суставу.
+
+**Смена конфигурации (руками, один прогон).** Тот же временный проект: выпечка Debug (5,7 с, записано 1048), затем Release
+`status` — все шесть ассетов «изменился код обработчика», `build` Release — 2,0 с, у всех `anim.pack` «записано 0, без
+изменений …» (1048 клипов не перепечены); пак переписан только ради `.bake/build.json` (другие отпечатки кода).
+
+**Агентские инструменты (итог анализа).** Изменение выпечки анимации агент видит и проверяет без новых инструментов MCP:
+тест Source с итогом в `artifacts/bake/source-check.json` (числа по наборам, у отличий — поле и величина), лог `sword-bake
+build` (сводка корня, пальцев, FK, «записано / без изменений / удалено»), `inspect rawpose`/`meshinfo` для исходников,
+загрузчики движка для клипов пака. Добавлено в этой точке: тест Source с файлом итога, `ClipContent` (сравнение клипов без
+`SourceHash`), вывод `inspect` в поток команды. Не хватает сравнения двух паков по форматам — `bake diff` (Б3) и сравнитель
+`.swclip` (Б5).

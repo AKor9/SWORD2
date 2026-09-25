@@ -488,6 +488,10 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    `expected[]` с правилом, `expectations.unused` (устаревшие ожидания), `comparers[]`; код 0 — неожиданных нет, 2 — есть, 1 — ошибка.
    Сравнители форматов — из плагинов проекта: запускать в проекте или с `--project`, иначе только оглавление и байты (`project: null`).
    Файл ожиданий — `{"expected":[{"path"|"asset": маска, "expect": "absent"|"different", "reason": …}]}` (README пекарни).
+7. Анимация — плагин [tools/Sword.Bake.Engine](../tools/Sword.Bake.Engine/README.md): перепечь исходники и сверить с эталоном —
+   `dotnet test tests/Sword.Bake.Engine.Tests --filter Category=Source` (корень `BAKE_ROOT_SRC` или `D:/Temp/GamedevAssets`), итог —
+   `artifacts/bake/source-check.json` (по наборам; у отличий — поле и величина); исходники — `sword-bake inspect rawpose DIR --clip ИМЯ`,
+   `inspect meshinfo GLB`; ход выпечки (корень, пальцы, FK, «записано / без изменений») — лог `sword-bake build` текстом.
 
 ## Если что-то не так
 

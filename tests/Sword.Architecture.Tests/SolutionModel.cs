@@ -103,15 +103,15 @@ public static class SolutionModel
     }
 
     /// <summary>
-    /// Собранная сборка проекта в конфигурации <paramref name="configuration"/>: bin/&lt;конфигурация&gt;/&lt;TFM&gt;/имя.dll,
-    /// самая свежая; null — не собрана.
+    /// Собранная сборка проекта в конфигурации <paramref name="configuration"/>: bin/&lt;конфигурация&gt;/&lt;TFM&gt;/имя.dll
+    /// или, у плагина пекарни (выход без TFM), bin/&lt;конфигурация&gt;/имя.dll; самая свежая; null — не собрана.
     /// </summary>
     public static string? BuiltAssembly(string root, ProjectNode project, string configuration)
     {
         string bin = Path.Combine(root, Path.GetDirectoryName(project.RelativePath)!, "bin", configuration);
         return Directory.Exists(bin)
             ? Directory.EnumerateFiles(bin, project.Assembly + ".dll", SearchOption.AllDirectories)
-                .Where(f => Path.GetDirectoryName(Path.GetDirectoryName(f)) == bin)
+                .Where(f => Path.GetDirectoryName(f) is var dir && (dir == bin || Path.GetDirectoryName(dir) == bin))
                 .OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault()
             : null;
     }
