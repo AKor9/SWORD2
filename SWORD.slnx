@@ -44,7 +44,10 @@
   <Folder Name="/game/modules/">
     <Project Path="game/modules/Sword.Game.Locomotion/Sword.Game.Locomotion.csproj" />
   </Folder>
-  <Folder Name="/tools/" />
+  <Folder Name="/tools/">
+    <Project Path="tools/Sword.Bake/Sword.Bake.csproj" />
+    <Project Path="tools/Sword.Bake.Cli/Sword.Bake.Cli.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sword.Architecture.Tests/Sword.Architecture.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Geometry.Tests/Sword.Engine.Geometry.Tests.csproj" />
@@ -63,5 +66,8 @@
     <Project Path="tests/Sword.Engine.Render.Tests/Sword.Engine.Render.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Platform.Tests/Sword.Engine.Platform.Tests.csproj" />
     <Project Path="tests/Sword.Game.Tests/Sword.Game.Tests.csproj" />
+    <Project Path="tests/Sword.Bake.Tests/Sword.Bake.Tests.csproj" />
+    <Project Path="tests/Sword.Bake.Tests.PluginA/Sword.Bake.Tests.PluginA.csproj" />
+    <Project Path="tests/Sword.Bake.Tests.PluginB/Sword.Bake.Tests.PluginB.csproj" />
   </Folder>
 </Solution>

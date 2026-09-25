@@ -1,8 +1,8 @@
 # Sword.Engine.Content — правила
 
 Запечённый контент: пак `.swpak` (`PakFormat`, `PakSource`, `PakWriter`), каталог (`DirectorySource`), пути контента
-(`ContentPath`), поиск пака (`ContentLocator`). Логика — из SWORD 2eab13b (`Sword.Content`): формат пака байт в байт
-тот же — его читает эталонный пак `Content.reference.swpak`.
+(`ContentPath`), поиск пака (`ContentLocator`), сведения пекарни о сборке пака (`PakBuildInfo`). Логика — из SWORD 2eab13b
+(`Sword.Content`): формат пака байт в байт тот же — его читает эталонный пак `Content.reference.swpak`.
 
 - Путь контента — относительный, через «/», без «.», «..», пустых сегментов, «:» (диск, поток NTFS), управляющих
   и запрещённых в Windows символов (`ContentPath.Normalize`). `DirectorySource` дополнительно проверяет, что итоговый
@@ -15,10 +15,12 @@
 Перенесено при точке 1б и проверено на соответствие новой архитектуре: `PakFormat`, `PakSource`, `PakEntryStream`,
 `PakWriter`, `DirectorySource` — без изменений логики; `ContentPath` — закрыт выход за корень; `ContentLocator` —
 переписан (эталонный пак, `SWORD_CONTENT`). Контент в памяти (`MemorySource`) — этап 2: тесты игры собирают в нём
-скелет, меш и клипы. Не перенесены до своих потребителей: сведения пекарни о сборке (`PakBuildInfo`) — вместе с
-пекарней.
+скелет, меш и клипы. `PakBuildInfo`, `PakAssetRecord`, `PakFileRecord` (`.bake/build.json` — из чего собран пак: по
+ассету обработчик, отпечаток кода, хеш параметров, входы, выходы) — точка Б1, вместе с пекарней (`tools/Sword.Bake`),
+без изменений: сведения эталонного пака читаются и пишутся обратно теми же байтами.
 
 `PakSource.ContentHash` (точка 1е) — отпечаток содержимого по оглавлению (пути и хеши файлов), без чтения файлов: его
 несут квитанции агента, позже — реплеи.
 
-Проверка: `tests/Sword.Engine.Content.Tests` (пак, пути, выход за корень).
+Проверка: `tests/Sword.Engine.Content.Tests` (пак, пути, выход за корень, сведения о сборке; категория Content —
+`ReferenceBuildInfoTests`: сведения эталонного пака).

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Общее ядро пекарни: проект (bake.project.json), манифесты ассетов, плагины с обработчиками, проверка
+       актуальности и сборка пака .swpak. Ничего не знает об ассетах конкретной игры: обработчики — плагины проекта
+       (Sword.Bake.Engine, Sword.Bake.Game). Интерфейсы — tools/Sword.Bake.Cli (позже Sword.Bake.Studio).
+       Перенесено из SWORD 2eab13b как есть — README.md. -->
+  <PropertyGroup>
+    <RootNamespace>Sword.Bake</RootNamespace>
+    <SwordSide>Neutral</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- формат пака и сведения о его сборке (PakBuildInfo) -->
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Bake.Tests" />
+    <InternalsVisibleTo Include="sword-bake" />
+    <InternalsVisibleTo Include="Sword.Bake.Studio" />
+  </ItemGroup>
+
+</Project>

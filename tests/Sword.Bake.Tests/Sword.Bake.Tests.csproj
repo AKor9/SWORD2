@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Пекарня без обработчиков игры: проект, добавление ассетов, актуальность, сборка и целостность пака, запись
+       манифестов (перенесено из SWORD — спецификация инструмента), загрузка двух плагинов по порядку и итог CLI в JSON. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\Sword.Bake\Sword.Bake.csproj" />
+    <ProjectReference Include="..\..\tools\Sword.Bake.Cli\Sword.Bake.Cli.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+    <!-- Тестовые плагины грузятся по пути (bin/<конфигурация>/), как плагины проекта: ссылка только ради порядка сборки,
+         их сборок в выходе тестов нет — иначе они попали бы в контекст по умолчанию мимо загрузчика плагинов. -->
+    <ProjectReference Include="..\Sword.Bake.Tests.PluginA\Sword.Bake.Tests.PluginA.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Sword.Bake.Tests.PluginB\Sword.Bake.Tests.PluginB.csproj" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+
+</Project>

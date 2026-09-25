@@ -467,6 +467,23 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
     сценариев — `artifacts/features/locomotion/scenario-*.swreplay`. В рабочем дереве сервер MCP сеанса — из основного дерева: свою сборку
     Headless — командной строкой или клиентом MCP по stdio (`Sword.Headless.exe --agent --idle-exit 0`, строка JSON-RPC на сообщение).
 
+## Пекарня
+
+Ядро и консоль — [tools/Sword.Bake/README.md](../tools/Sword.Bake/README.md). Пекарня — процесс командной строки: агентский вид — `--json`.
+Консоль — `tools/Sword.Bake.Cli/bin/Debug/net10.0-windows10.0.22000.0/sword-bake.exe` (собирает `dotnet build SWORD.slnx`); проект ищется от
+текущего каталога вверх, в том числе в `Bake/`, иначе — `--project КАТАЛОГ`.
+
+**Проверить и отладить проект пекарни.**
+1. Актуальность: `sword-bake status --json` — `assets[]` (`status`: `upToDate`, `dirty`, `noSource`, `error`; `reason` —
+   почему), `project.problems` (плагины, корни, импорты), `project.plugins[].loaded`, `project.broken` (неразобранные манифесты),
+   `provenance`, `layout`, `pak` (`status`, `details`); код 0 — пак актуален, 2 — нет, 1 — ошибка (`error`).
+2. Сборка: `sword-bake build [шаблоны] --json` — `assets[].result` (`built`, `upToDate`, `failed`, `skipped`), `reason`, `error`
+   и `log` упавших, `pakWritten`, `pak.status` после сборки, `messages`; ошибка любого ассета — пак не записан, прежний цел.
+3. Пак: `sword-bake pak --verify` (целостность, код 2), `which ПУТЬ` (кто пишет файл пака), `list --content`.
+4. Пак пекарни SWORD2 — `artifacts/bake/Content.swpak`, временный проект — во временном каталоге: `Content.swpak` в корне подменит игре
+   эталонный пак. Плагины — в `plugins` основа раньше надстройки («Could not load file or assembly» в `project.problems` — порядок).
+5. Писатели форматов против эталона — `dotnet test tests/Sword.Engine.Formats.Tests --filter ReferencePakWriters`.
+
 ## Если что-то не так
 
 - «симуляция не дошла до точки обслуживания» — кадр живой игры завис (или Headless остановлен); запрос не исполнен — повторить. В свёрнутом

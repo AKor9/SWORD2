@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- sword-bake: консольная пекарня — init, build, status, add, remove, root, list, which, licenses, pak и команды
+       плагинов; status и build с ключом json — итог одним JSON-объектом (ядро — tools/Sword.Bake). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Sword.Bake.Cli</RootNamespace>
+    <AssemblyName>sword-bake</AssemblyName>
+    <SwordSide>Neutral</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Bake\Sword.Bake.csproj" />
+    <!-- pak extract читает пак напрямую (PakSource) -->
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Bake.Tests" />
+  </ItemGroup>
+
+</Project>

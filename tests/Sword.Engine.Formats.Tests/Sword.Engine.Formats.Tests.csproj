@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+    <!-- эталонный пак — источник файлов для проверки писателей (ReferencePakWritersTests, категория Content) -->
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
   </ItemGroup>
 
 </Project>
