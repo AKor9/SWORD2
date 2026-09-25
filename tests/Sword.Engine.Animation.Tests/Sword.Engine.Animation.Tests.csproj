@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Тесты анимации: библиотека клипов, сэмплинг, прямая кинематика, пул поз и задания, математика. -->
+  <!-- Тесты анимации: библиотека клипов, сэмплинг, прямая кинематика, пул поз и задания, математика; Motion Matching (база на
+       клипах пака — категория Content, пак через Content). -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -18,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\engine\Sword.Engine.Animation\Sword.Engine.Animation.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
   </ItemGroup>
 
 </Project>

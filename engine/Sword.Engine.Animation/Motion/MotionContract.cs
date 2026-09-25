@@ -22,7 +22,7 @@ public enum MotionPast : byte
 /// начало и выход — средние за окно <see cref="MotionBuildParams.VelocityWindow"/>, средняя — за весь клип (у цикла — за оборот).
 /// </summary>
 /// <param name="LibraryClip">Номер клипа в <see cref="ClipLibrary"/> (имя — <c>library.Clips[LibraryClip].Name</c>).</param>
-/// <param name="Turn">Поворот корня за клип, рад (курс последнего кадра относительно первого).</param>
+/// <param name="Turn">Поворот корня за клип, рад (курс последнего кадра относительно первого): непрерывный, может превышать π.</param>
 public readonly record struct MotionClipInfo(int LibraryClip, bool Loop, int Frames, Vector3 StartVelocity, Vector3 ExitVelocity,
     Vector3 MeanVelocity, float Turn)
 {
@@ -46,8 +46,9 @@ public interface IMotionGraphPolicy
     /// <summary>
     /// Кандидаты продолжения нециклического клипа <paramref name="clip"/>: клипы базы, в кадры которых может перейти его
     /// конец (по измеренному выходу <c>clips[clip]</c> — скорость, направление, поворот). Лучший кадр входа среди кадров
-    /// кандидатов база выбирает сама — ценой шва (разница признаков позы). Ни одного кандидата — у клипа нет продолжения:
-    /// кадры без полного горизонта будущего не ищутся. Запасные ветви (та же походка — любая — стойка) — забота политики.
+    /// кандидатов (у цикла — кроме последнего, у нециклического — до его окна выхода) база выбирает сама — ценой шва (разница
+    /// признаков позы). Ни одного кандидата — у клипа нет продолжения: кадры без полного горизонта будущего не ищутся. Запасные
+    /// ветви (та же походка — любая — стойка) — забота политики.
     /// </summary>
     /// <param name="candidates">Пустой список, куда писать номера клипов базы (порядок и повторы не важны).</param>
     void Continuations(int clip, ReadOnlySpan<MotionClipInfo> clips, List<int> candidates);
@@ -72,15 +73,19 @@ public readonly record struct ContactParams(float HeightEnter, float HeightExit,
 /// Параметры постройки базы (<see cref="MotionDatabase.Build"/>) — все от вызывающего (модуля), у движка своих умолчаний нет.
 /// </summary>
 /// <param name="Contacts">Детектор контактов суставов <see cref="MotionSchema.ContactJoints"/>.</param>
-/// <param name="ExitWindow">Окно раннего выхода, с: кадр выхода нециклического клипа ищется в его последних секундах (у SWORD — 0,5).</param>
+/// <param name="ExitWindow">
+/// Окно раннего выхода, с: кадр выхода нециклического клипа ищется в его последних секундах (у SWORD — 0,5); ребро у клипа одно,
+/// кадры окна входом не бывают.
+/// </param>
 /// <param name="VelocityWindow">Окно средних скоростей начала и выхода клипа, с (<see cref="MotionClipInfo"/>; у SWORD — 0,1).</param>
 /// <param name="MovingThreshold">
 /// Сустав, чьё локальное смещение где-либо в клипах базы отходит от первого кадра своего клипа дальше, м, — с движущимся
 /// смещением (<see cref="MotionDatabase.MovingJoints"/>; у SWORD — 0,001).
 /// </param>
 /// <param name="SeamTie">
-/// Явный разрыв ничьих графа: цены шва, различающиеся меньше этой доли, равны — берётся меньший номер кадра (устойчивость к
-/// классу процессора, research-mm-data §4.1).
+/// Явный разрыв ничьих графа, доля в [0, 1): цены шва, различающиеся меньше доли <c>SeamTie</c> от большей из (цена, 1), равны —
+/// берётся меньший номер кадра; ранний выход — только если его шов заметно дешевле последнего кадра (устойчивость к классу
+/// процессора, research-mm-data §4.1).
 /// </param>
 public readonly record struct MotionBuildParams(ContactParams Contacts, float ExitWindow, float VelocityWindow, float MovingThreshold,
     float SeamTie);

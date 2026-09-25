@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace Sword.Engine.Animation.Motion;
 
@@ -138,12 +139,189 @@ public sealed partial class MotionDatabase
     /// траектории (будущее — по графу, прошлое — по политике), нормализация, суставы с движущимся смещением. Клипы базы — по
     /// возрастанию номера в библиотеке (порядок <paramref name="clips"/> не важен). Вход не меняется; зовётся при загрузке, не в тике.
     /// </summary>
+    /// <remarks>
+    /// Порядок: кинематика кадров базы (<see cref="ClipKinematics"/>, по клипам параллельно) → признаки позы (корень и суставы) →
+    /// нормализация позы по всем кадрам (для цены шва) → измеренное движение клипов (<see cref="MotionClipInfo"/>) → связи внутри
+    /// клипов → рёбра нециклических клипов (после всех связей внутри клипов) → траектории и искомые кадры → нормализация всего по
+    /// искомым кадрам (на месте, без копии) → суставы с движущимся смещением → общий конструктор (строки, блоки, отпечаток, сводка).
+    /// Все массивы — только на кадры базы. Политику зовут по порядку клипов в одном потоке; тела циклов по кадрам — в своих методах с
+    /// <c>AggressiveOptimization</c> (постройка раз на процесс: PGO не нужен, на tier-0 — в разы медленнее; замер на паке — Release
+    /// ~0,1–0,16 с первая постройка). Итог не зависит от потоков, сборки (Debug/Release) и уровня JIT; другой класс процессора (без
+    /// AVX2) даёт другие признаки в последних битах, но тот же граф при доле ничьей 10⁻⁴ (замер на паке).
+    /// </remarks>
     /// <param name="clips">Номера клипов библиотеки, без повторов.</param>
-    /// <exception cref="ArgumentException">Повторы или номера вне библиотеки, суставы схемы вне скелета.</exception>
+    /// <exception cref="ArgumentException">
+    /// Повторы или номера вне библиотеки, суставы схемы вне скелета, параметры вне допустимого, политика вернула клип вне базы.
+    /// </exception>
     /// <exception cref="InvalidDataException">Данные клипов не дают базы (нет ни одного искомого кадра и т. п.) — с понятной причиной.</exception>
     public static MotionDatabase Build(ClipLibrary library, ReadOnlySpan<int> clips, MotionSchema schema, IMotionGraphPolicy policy,
-        in MotionBuildParams parameters) =>
-        throw new NotImplementedException("8б: постройка базы — MotionDatabase.Build");
+        in MotionBuildParams parameters)
+    {
+        long started = Stopwatch.GetTimestamp();
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(policy);
+        CheckParameters(parameters);
+        int[] sorted = clips.ToArray();
+        Array.Sort(sorted);
+        if (sorted.Length == 0) throw new ArgumentException("нет клипов для базы", nameof(clips));
+        for (int i = 0; i < sorted.Length; i++)
+        {
+            if ((uint)sorted[i] >= (uint)library.ClipCount)
+                throw new ArgumentException($"клип {sorted[i]} вне библиотеки ({library.ClipCount} клипов)", nameof(clips));
+            if (i > 0 && sorted[i] == sorted[i - 1])
+                throw new ArgumentException($"клип {sorted[i]} ({library.Clips[sorted[i]].Name}) повторяется", nameof(clips));
+        }
+
+        var kin = ClipKinematics.Compute(library, sorted, schema, parameters.Contacts);
+        var b = new Builder(library, schema, policy, parameters, kin);
+        b.FillPose();
+        b.NormalizePose();
+        b.MeasureClips();
+        b.LinkClips();
+        b.LinkEdges();
+        b.FillTrajectories();
+        var (mean, std) = b.Normalize();
+        return new MotionDatabase(library, schema, kin.ClipArray, b.Next, b.Interval, b.Entry, b.Searchable, b.Raw, mean, std,
+            kin.RootVelocityArray, kin.ContactArray, b.MovingJoints(), started);
+    }
+
+    private static void CheckParameters(in MotionBuildParams p)
+    {
+        if (!float.IsFinite(p.ExitWindow) || p.ExitWindow < 0)
+            throw new ArgumentException($"окно раннего выхода {p.ExitWindow} с, а нужно конечное и не меньше 0", "parameters");
+        if (!float.IsFinite(p.VelocityWindow) || p.VelocityWindow < 0)
+            throw new ArgumentException($"окно скоростей {p.VelocityWindow} с, а нужно конечное и не меньше 0", "parameters");
+        if (!float.IsFinite(p.MovingThreshold) || p.MovingThreshold < 0)
+            throw new ArgumentException($"порог движущегося смещения {p.MovingThreshold} м, а нужен конечный и не меньше 0", "parameters");
+        if (!float.IsFinite(p.SeamTie) || p.SeamTie is < 0 or >= 1)
+            throw new ArgumentException($"доля ничьей шва {p.SeamTie}, а нужна в [0, 1)", "parameters");
+        ContactDetector.Validate(p.Contacts);
+    }
+
+    /// <summary>
+    /// Состояние постройки (<see cref="Build"/>): вход, кинематика и массивы базы по мере заполнения. Сырые признаки <see cref="Raw"/>
+    /// после <see cref="Normalize"/> — нормализованные (на месте). Части — признаки позы (здесь), граф и траектории
+    /// (<c>MotionDatabase.Graph.cs</c>), нормализация (<c>MotionDatabase.Normalize.cs</c>).
+    /// </summary>
+    private sealed partial class Builder
+    {
+        public readonly ClipLibrary Library;
+        public readonly MotionSchema Schema;
+        public readonly IMotionGraphPolicy Policy;
+        public readonly MotionBuildParams Params;
+        public readonly ClipKinematics Kin;
+        public readonly MotionClip[] Clips;
+        public readonly int Frames, Fc;
+        public readonly float Rate;
+        public readonly float[] Raw;
+        public readonly int[] Next, Entry;
+        public readonly Pose2[] Interval;
+        public readonly bool[] Searchable;
+
+        /// <summary>[группа] места суставов группы в <see cref="MotionSchema.Joints"/> (кинематика).</summary>
+        private readonly int[][] _groupSlots;
+
+        public Builder(ClipLibrary library, MotionSchema schema, IMotionGraphPolicy policy, in MotionBuildParams parameters, ClipKinematics kin)
+        {
+            Library = library;
+            Schema = schema;
+            Policy = policy;
+            Params = parameters;
+            Kin = kin;
+            Clips = kin.ClipArray;
+            Frames = kin.FrameCount;
+            Fc = schema.FeatureCount;
+            Rate = library.SampleRate;
+            Raw = new float[Frames * Fc];
+            Next = new int[Frames];
+            Entry = new int[Frames];
+            Interval = new Pose2[Frames];
+            Searchable = new bool[Frames];
+            _groupSlots = new int[schema.GroupCount][];
+            for (int g = 0; g < schema.GroupCount; g++)
+            {
+                var joints = schema.GroupJoints(g);
+                _groupSlots[g] = new int[joints.Length];
+                for (int k = 0; k < joints.Length; k++) _groupSlots[g][k] = schema.JointSlot(joints[k]);
+            }
+        }
+
+        public string ClipName(int clip) => Library.Clips[Clips[clip].LibraryClip].Name;
+
+        /// <summary>Признаки корня и суставов всех кадров — из кинематики.</summary>
+        public void FillPose()
+        {
+            for (int f = 0; f < Frames; f++) FillPoseFrame(f);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private void FillPoseFrame(int f)
+        {
+            var row = Raw.AsSpan(f * Fc, Fc);
+            int jc = Kin.JointCount;
+            var positions = Kin.Positions.Slice(f * jc, jc);
+            var velocities = Kin.Velocities.Slice(f * jc, jc);
+            var groups = Schema.Groups;
+            for (int g = 0; g < groups.Length; g++)
+            {
+                var group = groups[g];
+                var into = row.Slice(group.Offset, group.Size);
+                var slots = _groupSlots[g];
+                switch (group.Kind)
+                {
+                    case FeatureKind.RootVelocity:
+                        into[0] = Kin.RootVelocity[f].X;
+                        into[1] = Kin.RootVelocity[f].Z;
+                        break;
+                    case FeatureKind.RootYawRate:
+                        into[0] = Kin.YawRate[f];
+                        break;
+                    case FeatureKind.JointPosition:
+                        for (int k = 0; k < slots.Length; k++) Put(into, k, positions[slots[k]]);
+                        break;
+                    case FeatureKind.JointVelocity:
+                        for (int k = 0; k < slots.Length; k++) Put(into, k, velocities[slots[k]]);
+                        break;
+                    case FeatureKind.JointPairFacing:
+                        for (int k = 0; k < slots.Length; k += 2)
+                        {
+                            var d = positions[slots[k]] - positions[slots[k + 1]];
+                            // «вперёд» — (левый − правый), повёрнутое так, что +X переходит в +Z: (x, z) → (−z, x)
+                            float x = -d.Z, z = d.X, length = MathF.Sqrt(x * x + z * z);
+                            if (length > 1e-6f)
+                            {
+                                into[k] = x / length;
+                                into[k + 1] = z / length;
+                            }
+                            else
+                            {
+                                into[k] = 0;
+                                into[k + 1] = 1;
+                            }
+                        }
+                        break;
+                }
+            }
+        }
+
+        private static void Put(Span<float> into, int joint, Vector3 v)
+        {
+            into[3 * joint] = v.X;
+            into[3 * joint + 1] = v.Y;
+            into[3 * joint + 2] = v.Z;
+        }
+
+        /// <summary>Суставы скелета, чьё локальное смещение уходит от первого кадра своего клипа дальше порога, — по возрастанию.</summary>
+        public int[] MovingJoints()
+        {
+            var drift = Kin.OffsetDrift;
+            var moving = new List<int>();
+            for (int j = 0; j < drift.Length; j++)
+                if (drift[j] > Params.MovingThreshold) moving.Add(j);
+            return [.. moving];
+        }
+    }
 
     public ClipLibrary Library { get; }
     public MotionSchema Schema { get; }
