@@ -110,6 +110,14 @@ sword-bake diff ..\Content.reference.swpak ..\artifacts\bake\Content.swpak --exp
   клипов библиотеки — в порядке путей пака (`anim/<набор>/<имя>.swclip`): добавленный или убранный клип сдвигает номера
   следующих.
 
+## Studio
+
+Окно пекарни — `tools/Sword.Bake.Studio` ([README](../tools/Sword.Bake.Studio/README.md)): из корня репозитория
+`tools\Sword.Bake.Studio\bin\Debug\net10.0-windows10.0.22000.0\Sword.Bake.Studio.exe --project Bake` (или без ключа, запустив
+в `Bake/`). Показывает ассеты со статусами, форму параметров (Ctrl+S пишет манифест), исходники и выходы, зависимости,
+предпросмотр выходов из пака (`artifacts/bake/Content.swpak`: до первой сборки — «соберите»), собирает пак в фоне (F7) и
+следит за исходниками. Снимки без фокуса — `--shot ФАЙЛ`, `--gallery КАТАЛОГ`.
+
 ## Агентский доступ
 
 Пекарня — процесс командной строки: агент видит проект через `status --json`, выпечку — `build --json` (что собрано и
@@ -119,4 +127,4 @@ sword-bake diff ..\Content.reference.swpak ..\artifacts\bake\Content.swpak --exp
 ## Ограничения
 
 - Корни — пути машины: на другой машине — свой `bake.user.json`, и `paramsHash` в `diff` с эталоном будет отличаться.
-- Редактора проекта (Studio, предпросмотры) пока нет — Б7; манифесты правятся руками или `sword-bake add`/`remove`.
+- Манифесты правятся в Studio, руками или `sword-bake add`/`remove`; Studio пишет их тем же `ManifestWriter`, что и CLI.

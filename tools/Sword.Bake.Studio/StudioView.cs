@@ -15,11 +15,12 @@ namespace Sword.Bake.Studio;
 /// Клавиши: F7 — собрать пак, F5 — проверить статусы, Ctrl+S — сохранить параметры, ↑↓ — выбор в дереве,
 /// двойной щелчок по ассету — собрать пак с ним.
 /// </summary>
-internal sealed partial class StudioView(StudioApp app, string? select, int tab, bool confirmDelete = false, bool addAsset = false) : IDisposable
+internal sealed partial class StudioView(StudioApp app, Func<PreviewImage, PreviewTexture> upload, string? select, int tab, bool confirmDelete = false,
+    bool addAsset = false, int previewMode = 0, bool still = false) : IDisposable
 {
     private readonly ParamsEditor _editor = new(app.Project.Processors);
     private static readonly string[] TabNames = ["Свойства", "Исходники и выходы", "Зависимости", "Просмотр"];
-    private readonly PreviewPanel _preview = new();
+    private readonly PreviewPanel _preview = new(upload, previewMode, still);
 
     private float _left = 340, _log = 250;
     private string _filter = "", _pakFilter = "";

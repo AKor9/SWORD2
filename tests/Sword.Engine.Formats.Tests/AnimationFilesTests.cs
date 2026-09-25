@@ -78,6 +78,21 @@ public class AnimationFilesTests
     }
 
     [Fact]
+    public void Clip_ReadHeader_HeaderOnly_NoPoses()
+    {
+        var a = Clip();
+        var bytes = Save(a.Write);
+        var h = ClipFile.ReadHeader(new MemoryStream(bytes), "mem");
+        Assert.Equal((a.Skeleton, a.SkeletonHash, a.SampleRate, a.Frames, a.Joints, a.Loop, a.SourcePath, a.SourceHash),
+            (h.Skeleton, h.SkeletonHash, h.SampleRate, h.Frames, h.Joints, h.Loop, h.SourcePath, h.SourceHash));
+        Assert.Empty(h.LocalRot);
+        Assert.Empty(h.RootMotion);
+        Assert.Throws<InvalidDataException>(() => ClipFile.ReadHeader(new MemoryStream(bytes[..10]), "mem"));
+        bytes[0] = (byte)'X';
+        Assert.Throws<InvalidDataException>(() => ClipFile.ReadHeader(new MemoryStream(bytes), "mem"));
+    }
+
+    [Fact]
     public void Clip_Version1_ReadsWithZeroYaw()
     {
         var c = Clip(2);

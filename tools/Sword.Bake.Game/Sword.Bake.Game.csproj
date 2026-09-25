@@ -16,6 +16,8 @@
          IAssetProcessor и SkeletonParams у ctx.Ref -->
     <ProjectReference Include="..\Sword.Bake\Sword.Bake.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="..\Sword.Bake.Engine\Sword.Bake.Engine.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- источник контента предпросмотра (IAssetPreview ядра: IContentSource) -->
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
     <!-- писатель .swmesh -->
     <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
     <!-- формат зон крови оружия .swblood -->

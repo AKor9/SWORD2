@@ -339,6 +339,11 @@ public sealed class Renderer : IDisposable
     public GpuImage CreateImage(string name, int width, int height, ReadOnlySpan<byte> rgba, bool mips = true, bool srgb = false) =>
         GpuImage.Create(Device, name, width, height, rgba, mips, srgb);
 
+    /// <summary>Картинка с готовой цепочкой мипов (мип i — max(1, w≫i) × max(1, h≫i) RGBA8, строки подряд).</summary>
+    /// <exception cref="ArgumentException">Мипов нет, больше полной цепочки или размер мипа не тот.</exception>
+    public GpuImage CreateImage(string name, int width, int height, IReadOnlyList<byte[]> mips, bool srgb = false) =>
+        GpuImage.Create(Device, name, width, height, mips, srgb);
+
     /// <summary>Буфер-хранилище из <paramref name="count"/> элементов <typeparamref name="T"/>, заполненный нулями.</summary>
     public GpuStorage CreateStorage<T>(string name, uint count) where T : unmanaged
     {

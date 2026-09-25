@@ -67,7 +67,7 @@ public static class ArchitectureRules
 
         [Bake] = [Content],
         [BakeEngine] = [Bake, Content, Formats, Animation],
-        [BakeGame] = [Bake, BakeEngine, Formats, Data],
+        [BakeGame] = [Bake, BakeEngine, Content, Formats, Data],
         ["Sword.Bake.Cli"] = [Bake, Content],
         ["Sword.Bake.Studio"] = [Bake, Content, Formats, Diag, Platform, Client, Render, Ui, Win32],
     };

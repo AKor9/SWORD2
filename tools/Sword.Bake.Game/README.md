@@ -40,7 +40,8 @@ SWORD 2eab13b, `tools/Sword.Bake.Sword` — игровая часть; логи�
 ## Зависимости
 
 `Sword.Bake` и `Sword.Bake.Engine` (`Private=false`, `ExcludeAssets=runtime`: одна копия сборки, один тип `SkeletonParams`
-у `ctx.Ref`), `Engine.Formats` (писатель `.swmesh`), `Game.Data` (формат `.swblood`). Сторона `Neutral`. NuGet — нет.
+у `ctx.Ref`), `Engine.Content` (источник предпросмотра `IContentSource`), `Engine.Formats` (писатель `.swmesh`), `Game.Data`
+(формат `.swblood`). Сторона `Neutral`. NuGet — нет.
 Выход — `bin/<конфигурация>/Sword.Bake.Game.dll` (без TFM), `EnableDynamicLoading`. В `plugins` раньше плагина движка —
 ошибка проекта «ссылается на плагин Sword.Bake.Engine, а стоит в plugins раньше него».
 
@@ -64,7 +65,8 @@ SWORD 2eab13b, `tools/Sword.Bake.Sword` — игровая часть; логи�
 ## Ограничения
 
 - Форма оружия для зон крови — только `blade` (меч, катана); топор, молот, посох, щит — не сделаны.
-- Предпросмотров Studio нет — Б7.
+- Предпросмотры Studio: оружие — `Preview/WeaponPreview.cs` (меш по зонам крови, контуры зон и главная ось; «клетки» — сетка
+  зон; «меш» — без зон), анатомия — `MeshPreview` плагина движка (секции, сплошной, «под кожей» персонажа из пака).
 
 ## Известные ошибки
 

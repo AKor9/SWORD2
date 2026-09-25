@@ -495,6 +495,10 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 6. Пак пекарни — только `artifacts/bake/Content.swpak`: `Content.swpak` в корне подменит игре, тестам и реплеям эталонный пак.
    Игра читает эталонный пак; посмотреть пак пекарни — `SWORD_CONTENT=<путь пака>` у процесса игры (реплеи на эталонном контенте
    с ним не сверяются). Переключение — решение пользователя.
+7. Studio глазами (выходы, форма, предпросмотры) — `tools/Sword.Bake.Studio/bin/Debug/net10.0-windows10.0.22000.0/Sword.Bake.Studio.exe
+   --project ПРОЕКТ --gallery КАТАЛОГ` (без фокуса; `NN-preview-<обработчик>.png` — предпросмотр каждого обработчика) или
+   `--shot ФАЙЛ --select ID --tab 3 --preview-mode N`; в консоль — лог модели. Эталонный пак — только копией (слежение
+   собирает устаревшее). Без окна — `dotnet test tests/Sword.Bake.Studio.Tests` ([README](../tools/Sword.Bake.Studio/README.md)).
 
 ## Если что-то не так
 

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Sword.Bake.Engine.Anim;
+using Sword.Bake.Engine.Preview;
 using Sword.Bake.Engine.Texture;
 using Sword.Engine.Formats;
 
@@ -27,8 +28,12 @@ internal sealed class TextureArrayParams
 }
 
 /// <summary>Набор картинок одного назначения (маски брызг, лужи) → массив текстур <c>.swtex</c> (<see cref="TextureBake"/>).</summary>
-internal sealed class TextureArrayProcessor : AssetProcessor<TextureArrayParams>
+internal sealed class TextureArrayProcessor : AssetProcessor<TextureArrayParams>, IAssetPreview
 {
+    /// <summary>Слои массива с мипами (<see cref="TexturePreview"/>).</summary>
+    public PreviewScene? Preview(Sword.Engine.Content.IContentSource content, IReadOnlyList<string> paths, int mode) =>
+        TexturePreview.Build(content, paths, mode);
+
     public override string Id => "texture.array";
     public override string Title => "Массив текстур (маски, нормали)";
     public override IEnumerable<System.Reflection.Assembly> CodeAssemblies => [GetType().Assembly, typeof(TextureData).Assembly];

@@ -105,7 +105,7 @@ public static unsafe class UiFontBaker
                 if (v.type == StbTrueType.STBTT_vmove)
                 {
                     Close(curves, ref current, start, open);
-                    if (open) ValidateContour(curves, contourStart, current, start, path, glyphIndex);
+                    if (open) FinishContour(curves, contourStart, current, start, path, glyphIndex);
                     contourStart = curves.Count;
                     start = current = end;
                     open = true;
@@ -129,12 +129,26 @@ public static unsafe class UiFontBaker
             }
 
             Close(curves, ref current, start, open);
-            if (open) ValidateContour(curves, contourStart, current, start, path, glyphIndex);
+            if (open) FinishContour(curves, contourStart, current, start, path, glyphIndex);
         }
         finally
         {
             StbTrueType.stbtt_FreeShape(info, vertices);
         }
+    }
+
+    /// <summary>
+    /// Проверить законченный контур и выбросить контур из одной точки TrueType — один сегмент, который возвращается в своё
+    /// начало (P1 = P3). Из внеконтурной (off-curve) точки stb делает «переход в S, кривая через эту точку обратно в S»,
+    /// а S у последнего контура глифа читает за концом массива точек — из неинициализированной памяти (в Consolas — 4 глифа):
+    /// разная от вызова к вызову, она раздувала рамку глифа и меняла полосы, выпечка была недетерминированной; иногда мусор
+    /// совпадает с самой точкой, поэтому выбрасывается любой такой контур, и из точки на контуре (отрезок нулевой длины)
+    /// тоже. Площади у них нет — на рисунок они не влияют; у шрифтов пака таких контуров нет, их байты прежние.
+    /// </summary>
+    private static void FinishContour(List<Curve> curves, int first, Vector2 current, Vector2 start, string path, int glyphId)
+    {
+        ValidateContour(curves, first, current, start, path, glyphId);
+        if (curves.Count - first == 1 && curves[first].P1 == curves[first].P3) curves.RemoveAt(first);
     }
 
     private static Vector2 Point(short x, short y, float toEm) => new(x * toEm, -y * toEm);

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Sword.Bake.Engine.Anim;
 using Sword.Bake.Engine.Processors;
 using Sword.Bake.Game.Anim;
+using Sword.Bake.Game.Preview;
 using Sword.Engine.Formats;
 using Sword.Game.Data;
 
@@ -26,8 +27,12 @@ internal sealed class WeaponStaticParams
 }
 
 /// <summary>Клинковое оружие: статический меш, приведённый к системе меча и закреплённый в кулаке (<see cref="WeaponBake"/>).</summary>
-internal sealed class WeaponStaticProcessor : AssetProcessor<WeaponStaticParams>
+internal sealed class WeaponStaticProcessor : AssetProcessor<WeaponStaticParams>, IAssetPreview
 {
+    /// <summary>Меш оружия, окрашенный по зонам крови (.swblood), контуры зон и главная ось (<see cref="WeaponPreview"/>).</summary>
+    public PreviewScene? Preview(Sword.Engine.Content.IContentSource content, IReadOnlyList<string> paths, int mode) =>
+        WeaponPreview.Build(content, paths, mode);
+
     public override string Id => "weapon.static";
     public override string Title => "Оружие (статический меш в кисти)";
     public override IEnumerable<System.Reflection.Assembly> CodeAssemblies =>

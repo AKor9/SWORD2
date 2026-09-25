@@ -7,9 +7,11 @@ README.md.
 
 - В `plugins` проекта — после `Sword.Bake.Engine`: ссылки на ядро и плагин движка — `Private=false`, `ExcludeAssets=runtime`
   (одна копия сборки, один тип `SkeletonParams` у `ctx.Ref`); обратный порядок — ошибка проекта «ссылается на плагин …».
-- От плагина движка — только его открытый API (glTF, raw-экспорт, риг, хват, прореживание, `ContentFiles`); своё — `internal`.
+- От плагина движка — только его открытый API (glTF, raw-экспорт, риг, хват, прореживание, `ContentFiles`, `MeshPreview`);
+  своё — `internal`.
 - Форматы пишут писатели: меш — `SkinnedMeshData` (Formats), зоны крови — `WeaponBloodData` (Game.Data), через
-  `ContentFiles.Write`; раскладку формата здесь не повторять. Сторона `Neutral`; матрица — Bake, Bake.Engine, Formats, Game.Data.
+  `ContentFiles.Write`; раскладку формата здесь не повторять. Сторона `Neutral`; матрица — Bake, Bake.Engine, Content
+  (источник предпросмотра `IAssetPreview`), Formats, Game.Data.
 
 Проверка: `dotnet test tests/Sword.Bake.Game.Tests` (синтетика, оба плагина в `sword-bake`), с исходниками — категория
 Source (сверка с эталоном — `artifacts/bake/source-check.json`, ключи `game*`).

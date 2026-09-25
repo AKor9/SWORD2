@@ -120,4 +120,39 @@ public sealed class GpuImageGpuTests : IDisposable, ILogSink
         Assert.True(Math.Abs(mixed.R - 128) <= 2 && mixed.G == 0 && Math.Abs(mixed.B - 128) <= 2, $"мип 2: {mixed}");
         Assert.Equal((0, 0, 0), Pixel(10, 150));
     }
+
+    [Fact]
+    public void Image_GivenMips_ShownAsIs()
+    {
+        // мип 0 2×2 — красный, мип 1 (1×1) — зелёный, а не среднее красного: предпросмотр пекарни показывает мипы текстуры как есть
+        byte[] red = [.. Enumerable.Range(0, 4).SelectMany(_ => new byte[] { 255, 0, 0, 255 })];
+        byte[] green = [0, 255, 0, 255];
+        Assert.Throws<ArgumentException>(() => _renderer.CreateImage("test.bad", 2, 2, [red, new byte[8]]));
+        Assert.Throws<ArgumentException>(() => _renderer.CreateImage("test.many", 2, 2, [red, green, green]));
+        using var image = _renderer.CreateImage("test.given", 2, 2, [red, green]);
+        Assert.Equal(2, image.Mips);
+
+        var list = new UiDrawList();
+        list.Image(new UiRect(20, 20, 100, 100), image.Srv, Vector2.Zero, Vector2.One, 0xFFFFFFFF, mip: 0);
+        list.Image(new UiRect(140, 20, 220, 100), image.Srv, Vector2.Zero, Vector2.One, 0xFFFFFFFF, mip: 1);
+        string shot = Path.Combine(_dir, "given.bmp");
+        Directory.CreateDirectory(_dir);
+        _window.PumpMessages();
+        _renderer.Render(f =>
+        {
+            f.Graph.AddPass("test.clear").Color(f.Graph.BackBuffer, new Vector4(0, 0, 0, 1));
+            _renderer.Ui.Add(f, list);
+        }, vsync: false, shot);
+        AssertNoDebugMessages();
+
+        var bmp = File.ReadAllBytes(shot);
+        int width = BitConverter.ToInt32(bmp, 18), height = BitConverter.ToInt32(bmp, 22), stride = (width * 3 + 3) & ~3;
+        (int R, int G, int B) Pixel(int x, int y)
+        {
+            int o = 54 + (height - 1 - y) * stride + x * 3;
+            return (bmp[o + 2], bmp[o + 1], bmp[o]);
+        }
+        Assert.Equal((255, 0, 0), Pixel(60, 60));
+        Assert.Equal((0, 255, 0), Pixel(180, 60));
+    }
 }

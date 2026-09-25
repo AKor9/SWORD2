@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Reflection;
 using Sword.Bake.Engine.Anim;
 using Sword.Bake.Engine.Font;
+using Sword.Bake.Engine.Preview;
 using Sword.Engine.Formats;
 
 namespace Sword.Bake.Engine.Processors;
@@ -24,8 +25,12 @@ internal sealed class FontVectorParams
 /// Один шрифт интерфейса → <c>ui/fonts/&lt;роль&gt;.swfont</c>: TrueType-контуры для GPU-векторного текста, роли и сам ttf
 /// для HarfBuzz (<see cref="UiFontBaker"/>). Игра склеивает все шрифты при загрузке.
 /// </summary>
-internal sealed class FontVectorProcessor : AssetProcessor<FontVectorParams>
+internal sealed class FontVectorProcessor : AssetProcessor<FontVectorParams>, IAssetPreview
 {
+    /// <summary>Образец текста и набор знаков интерфейса (<see cref="FontPreview"/>).</summary>
+    public PreviewScene? Preview(Sword.Engine.Content.IContentSource content, IReadOnlyList<string> paths, int mode) =>
+        FontPreview.Build(content, paths, mode);
+
     public override string Id => "font.vector";
     public override string Title => "Шрифт интерфейса";
     /// <summary>2 — файл на шрифт с ролями и ttf внутри (прежде — все гарнитуры одним файлом).</summary>

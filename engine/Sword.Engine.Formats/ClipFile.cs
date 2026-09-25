@@ -87,9 +87,26 @@ public sealed class ClipFile
         }
     }
 
-    private static ClipFile ReadChecked(Stream stream, string name)
+    /// <summary>
+    /// Только заголовок клипа — скелет, частота, кадры, суставы, цикл, исходник; позы не читаются (списки клипов в
+    /// предпросмотре пекарни). Массивы остаются пустыми.
+    /// </summary>
+    /// <exception cref="InvalidDataException">Не .swclip, другая версия, обрезан или противоречив.</exception>
+    public static ClipFile ReadHeader(Stream stream, string name)
     {
-        using var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        try
+        {
+            using var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+            return ReadHeaderFields(stream, r, name);
+        }
+        catch (EndOfStreamException)
+        {
+            throw new InvalidDataException($"{name}: файл обрезан");
+        }
+    }
+
+    private static ClipFile ReadHeaderFields(Stream stream, BinaryReader r, string name)
+    {
         Span<byte> magic = stackalloc byte[4];
         stream.ReadExactly(magic);
         if (!magic.SequenceEqual(Magic)) throw new InvalidDataException($"{name}: не .swclip");
@@ -105,6 +122,15 @@ public sealed class ClipFile
         if (!(c.SampleRate is > 1 and < 1000)) throw new InvalidDataException($"{name}: частота {c.SampleRate}");
         if (c.Frames is < 1 or > MaxFrames || c.Joints is < 1 or > MaxJoints)
             throw new InvalidDataException($"{name}: кадров {c.Frames}, суставов {c.Joints}");
+        return c;
+    }
+
+    private static ClipFile ReadChecked(Stream stream, string name)
+    {
+        using var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        var c = ReadHeaderFields(stream, r, name);
+        ushort version = c.FileVersion;
+        Span<byte> magic = stackalloc byte[4];
         int n = c.Frames * c.Joints;
         // Испорченный счётчик не должен выделять гигабайты: данных в потоке должно хватать.
         long need = (long)n * Marshal.SizeOf<JointKey>() + (long)c.Frames * (12 + (version >= 2 ? 4 : 0)) + 4;

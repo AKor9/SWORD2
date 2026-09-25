@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Sword.Bake.Engine.Anim;
+using Sword.Bake.Engine.Preview;
 using Sword.Engine.Animation;
 using Sword.Engine.Formats;
 
@@ -25,8 +26,12 @@ public sealed class SkeletonParams
 /// поза покоя, эталонные клипы и источник пальцев. Меш персонажа, наборы клипов, оружие и анатомия берут их отсюда,
 /// а не повторяют в каждом манифесте.
 /// </summary>
-public sealed class SkeletonProcessor : AssetProcessor<SkeletonParams>
+public sealed class SkeletonProcessor : AssetProcessor<SkeletonParams>, IAssetPreview
 {
+    /// <summary>Меш персонажа на этом скелете в позе покоя и кости; клипов нет (<see cref="AnimPreview"/>).</summary>
+    public PreviewScene? Preview(Sword.Engine.Content.IContentSource content, IReadOnlyList<string> paths, int mode) =>
+        AnimPreview.Build(content, paths, mode);
+
     public const string ProcessorId = "anim.skeleton";
 
     public override string Id => ProcessorId;
@@ -74,8 +79,12 @@ public sealed class SkinMeshParams
 }
 
 /// <summary>Скелетный меш персонажа (<see cref="SkinBake.Mesh"/>): bind-поза — поза покоя рига, суставы — кости его эталонного экспорта.</summary>
-public sealed class SkinMeshProcessor : AssetProcessor<SkinMeshParams>
+public sealed class SkinMeshProcessor : AssetProcessor<SkinMeshParams>, IAssetPreview
 {
+    /// <summary>Меш по секциям и сплошной (<see cref="MeshPreview"/>).</summary>
+    public PreviewScene? Preview(Sword.Engine.Content.IContentSource content, IReadOnlyList<string> paths, int mode) =>
+        MeshPreview.Build(content, paths, mode, withSkin: false);
+
     public const string ProcessorId = "skin.mesh";
 
     public override string Id => ProcessorId;

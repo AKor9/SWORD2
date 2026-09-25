@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Sword.Bake.Engine.Anim;
+using Sword.Bake.Engine.Preview;
 using Sword.Engine.Animation;
 using Sword.Engine.Formats;
 
@@ -27,8 +28,12 @@ internal sealed class AnimPackParams
 /// в один набор могут класть клипы несколько единиц. Скелет библиотеки пишет единица anim.skeleton — здесь только сверка
 /// костей экспорта с её эталоном, поэтому экспорты собираются параллельно.
 /// </summary>
-internal sealed class AnimPackProcessor : AssetProcessor<AnimPackParams>
+internal sealed class AnimPackProcessor : AssetProcessor<AnimPackParams>, IAssetPreview
 {
+    /// <summary>Клипы наборов на меше персонажа (<see cref="AnimPreview"/>).</summary>
+    public PreviewScene? Preview(Sword.Engine.Content.IContentSource content, IReadOnlyList<string> paths, int mode) =>
+        AnimPreview.Build(content, paths, mode);
+
     public override string Id => "anim.pack";
     public override string Title => "Клипы экспорта → наборы библиотеки";
     /// <summary>Импорт не пересобирает клипы с тем же хешем исходника: прежние клипы берутся из пака.</summary>

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Sword.Bake.Engine.Anim;
+using Sword.Bake.Engine.Preview;
 using Sword.Bake.Engine.Processors;
 using Sword.Bake.Game.Anim;
 using Sword.Engine.Formats;
@@ -42,8 +43,12 @@ internal sealed class AnatomyMeshParams
 /// (<see cref="AnatomyBake"/>) и кладётся в пак как обычный .swmesh — игра рисует его той же палитрой
 /// и теми же плоскостями разрезов, что и кожу.
 /// </summary>
-internal sealed class AnatomyMeshProcessor : AssetProcessor<AnatomyMeshParams>
+internal sealed class AnatomyMeshProcessor : AssetProcessor<AnatomyMeshParams>, IAssetPreview
 {
+    /// <summary>Меш по секциям, сплошной и «под кожей» — внутри полупрозрачного персонажа (<see cref="MeshPreview"/>).</summary>
+    public PreviewScene? Preview(Sword.Engine.Content.IContentSource content, IReadOnlyList<string> paths, int mode) =>
+        MeshPreview.Build(content, paths, mode, withSkin: true);
+
     public override string Id => "anatomy.mesh";
     public override string Title => "Анатомия (меш на риге персонажа)";
     public override IEnumerable<System.Reflection.Assembly> CodeAssemblies =>

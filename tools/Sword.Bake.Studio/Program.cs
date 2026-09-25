@@ -23,6 +23,7 @@ namespace Sword.Bake.Studio;
 ///   --scale K          множитель масштаба интерфейса поверх масштаба монитора
 ///   --select ID        выбрать единицу сборки; content:ID, import:ID, processor:ID — ассет контента, импорт, обработчик
 ///   --tab N            вкладка (0 свойства, 1 исходники и выходы, 2 зависимости, 3 просмотр), 4 — проект и пак
+///   --preview-mode N   вариант показа на вкладке «Просмотр» (для снимков; 0 — первый)
 ///   --build-all        сразу собрать пак
 ///   --confirm-delete   открыть вопрос об удалении выбранного ассета (для снимков; ничего не удаляет само)
 ///   --add-asset        открыть окно добавления ассета (для снимков)
@@ -48,7 +49,7 @@ internal static class Program
         public int Width = 1600, Height = 900;
         public float Scale = 1;
         public string? Shot, Select, Project, Gallery;
-        public int Tab;
+        public int Tab, PreviewMode;
         public bool Debug, Widgets, BuildAll, ConfirmDelete, AddAsset;
         public bool Activate = true;
         /// <summary>Курсор для снимка: подсказки и наведение без живой мыши.</summary>
@@ -79,6 +80,7 @@ internal static class Program
                     case "--select": o.Select = Next(); break;
                     case "--project": o.Project = Next(); break;
                     case "--tab": o.Tab = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--preview-mode": o.PreviewMode = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--build-all": o.BuildAll = true; break;
                     case "--confirm-delete": o.ConfirmDelete = true; break;
                     case "--add-asset": o.AddAsset = true; break;
@@ -178,7 +180,8 @@ internal static class Program
         project is null ? $"{Title} — витрина" : $"{Title} — {project.Name} ({project.Root})";
 
     /// <summary>Что снять: вид (выбор, вкладка, открытые окна) или витрина виджетов — в файл.</summary>
-    internal sealed record Shot(string File, string? Select, int Tab, bool ConfirmDelete = false, bool AddAsset = false, bool Widgets = false);
+    internal sealed record Shot(string File, string? Select, int Tab, bool ConfirmDelete = false, bool AddAsset = false, bool Widgets = false,
+        int PreviewMode = 0);
 
     /// <summary>
     /// Снимки всех видов проекта для <c>--gallery</c>: узел проекта и пака, ассет контента (свойства и просмотр), единица сборки
@@ -194,25 +197,51 @@ internal static class Program
         string? import = project.Imports.Keys.Order(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
         string? processor = project.Processors.Processors.Where(p => p.Id != "file.copy").Select(p => p.Id).FirstOrDefault()
                             ?? project.Processors.Processors.FirstOrDefault()?.Id;
-        var shots = new List<(string Name, string? Select, int Tab, bool Delete, bool Add, bool Widgets)> { ("project", null, 4, false, false, false) };
+        var shots = new List<(string Name, string? Select, int Tab, bool Delete, bool Add, bool Widgets, int Mode)> { ("project", null, 4, false, false, false, 0) };
         if (content is not null)
         {
-            shots.Add(("content", "content:" + content, 0, false, false, false));
-            shots.Add(("content-preview", "content:" + content, 3, false, false, false));
+            shots.Add(("content", "content:" + content, 0, false, false, false, 0));
+            shots.Add(("content-preview", "content:" + content, 3, false, false, false, 0));
         }
         if (unit.Length > 0)
         {
-            shots.Add(("unit-params", unit, 0, false, false, false));
-            shots.Add(("unit-io", unit, 1, false, false, false));
-            shots.Add(("unit-deps", unit, 2, false, false, false));
-            shots.Add(("unit-preview", unit, 3, false, false, false));
+            shots.Add(("unit-params", unit, 0, false, false, false, 0));
+            shots.Add(("unit-io", unit, 1, false, false, false, 0));
+            shots.Add(("unit-deps", unit, 2, false, false, false, 0));
+            shots.Add(("unit-preview", unit, 3, false, false, false, 0));
         }
-        if (import is not null) shots.Add(("import", "import:" + import, 0, false, false, false));
-        if (processor is not null) shots.Add(("processor", "processor:" + processor, 0, false, false, false));
-        shots.Add(("add-asset", unit.Length > 0 ? unit : null, 0, false, true, false));
-        if (unit.Length > 0) shots.Add(("confirm-delete", unit, 0, true, false, false));
-        shots.Add(("widgets", null, 0, false, false, true));
-        return shots.Select((s, i) => new Shot(Path.Combine(dir, $"{i + 1:00}-{s.Name}.png"), s.Select, s.Tab, s.Delete, s.Add, s.Widgets)).ToList();
+        foreach (var (name, id, mode) in PreviewShots(project))
+            shots.Add((name, id, 3, false, false, false, mode));
+        if (import is not null) shots.Add(("import", "import:" + import, 0, false, false, false, 0));
+        if (processor is not null) shots.Add(("processor", "processor:" + processor, 0, false, false, false, 0));
+        shots.Add(("add-asset", unit.Length > 0 ? unit : null, 0, false, true, false, 0));
+        if (unit.Length > 0) shots.Add(("confirm-delete", unit, 0, true, false, false, 0));
+        shots.Add(("widgets", null, 0, false, false, true, 0));
+        return shots.Select((s, i) => new Shot(Path.Combine(dir, $"{i + 1:00}-{s.Name}.png"), s.Select, s.Tab, s.Delete, s.Add, s.Widgets, s.Mode)).ToList();
+    }
+
+    /// <summary>Второй вариант показа, который стоит снять (у последней единицы обработчика): под кожей, набор знаков, кости, клетки.</summary>
+    private static readonly Dictionary<string, int> ExtraPreviewMode = new(StringComparer.Ordinal)
+    {
+        ["anatomy.mesh"] = 2, ["font.vector"] = 1, ["anim.pack"] = 1, ["anim.skeleton"] = 1, ["weapon.static"] = 1,
+    };
+
+    /// <summary>
+    /// Предпросмотры для <c>--gallery</c>: у каждого обработчика с <see cref="IAssetPreview"/> — первая по ID единица в первом
+    /// варианте показа и, если есть второй интересный вариант (<see cref="ExtraPreviewMode"/>), последняя — в нём.
+    /// </summary>
+    internal static List<(string Name, string Id, int Mode)> PreviewShots(BakeProject project)
+    {
+        var list = new List<(string, string, int)>();
+        foreach (var p in project.Processors.Processors.Where(p => p is IAssetPreview).OrderBy(p => p.Id, StringComparer.Ordinal))
+        {
+            var units = project.Assets.Where(a => a.Processor == p.Id).Select(a => a.Id).Order(StringComparer.OrdinalIgnoreCase).ToList();
+            if (units.Count == 0) continue;
+            string name = "preview-" + p.Id.Replace('.', '-');
+            list.Add((name, units[0], 0));
+            if (ExtraPreviewMode.TryGetValue(p.Id, out int mode)) list.Add(($"{name}-{mode}", units[^1], mode));
+        }
+        return list;
     }
 
     private static int ParamCount(AssetManifest a) =>
@@ -245,11 +274,11 @@ internal static class Program
                 foreach (var s in _app is null ? [new Shot(Path.Combine(o.Gallery, "01-widgets.png"), null, 0, Widgets: true)] : GalleryShots(_app, o.Gallery, o.Select))
                     _shots.Enqueue(s);
             }
-            else if (o.Shot is not null) _shots.Enqueue(new Shot(o.Shot, o.Select, o.Tab, o.ConfirmDelete, o.AddAsset, o.Widgets || _app is null));
+            else if (o.Shot is not null) _shots.Enqueue(new Shot(o.Shot, o.Select, o.Tab, o.ConfirmDelete, o.AddAsset, o.Widgets || _app is null, o.PreviewMode));
             bool unattended = _shots.Count > 0;
             if (_app is not null && o.BuildAll) _app.BuildAll();
             if (unattended) Next();
-            else Show(new Shot("", o.Select, o.Tab, o.ConfirmDelete, o.AddAsset, o.Widgets || _app is null));
+            else Show(new Shot("", o.Select, o.Tab, o.ConfirmDelete, o.AddAsset, o.Widgets || _app is null, o.PreviewMode));
 
             bool redraw = true;
             int frame = 0;
@@ -270,7 +299,7 @@ internal static class Program
                     _app.Dispose();
                     _view?.Dispose();
                     _app = new StudioApp(next, window.Wake, window.Handle);
-                    _view = new StudioView(_app, null, 0);
+                    _view = new StudioView(_app, Upload, null, 0);
                     window.SetTitle(WindowTitle(next));
                     appChanged = true;
                 }
@@ -312,6 +341,13 @@ internal static class Program
             }
         }
 
+        /// <summary>Картинка предпросмотра — в видеопамять (<see cref="Renderer.CreateImage(string, int, int, IReadOnlyList{byte[]}, bool)"/>) со своими мипами.</summary>
+        private PreviewTexture Upload(PreviewImage image)
+        {
+            var gpu = renderer.CreateImage("Preview." + image.Name, image.Width, image.Height, image.Mips);
+            return new PreviewTexture(gpu.Srv, gpu);
+        }
+
         /// <summary>Следующий снимок очереди: свой вид с его выбором и вкладкой.</summary>
         private void Next()
         {
@@ -325,7 +361,7 @@ internal static class Program
             _view = null;
             _gallery = null;
             if (s.Widgets || _app is null) _gallery = new Gallery(showcase: s.File.Length > 0);
-            else _view = new StudioView(_app, s.Select, s.Tab, s.ConfirmDelete, s.AddAsset);
+            else _view = new StudioView(_app, Upload, s.Select, s.Tab, s.ConfirmDelete, s.AddAsset, s.PreviewMode, still: s.File.Length > 0);
         }
 
         private void DrawUi()

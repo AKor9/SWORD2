@@ -93,9 +93,28 @@ public sealed class GpuImage : IDisposable
     }
 
     /// <summary>Создать с заливкой и ожиданием GPU (<see cref="Renderer.CreateImage"/>).</summary>
-    internal static unsafe GpuImage Create(GraphicsDevice gd, string name, int width, int height, ReadOnlySpan<byte> rgba, bool mips, bool srgb)
+    internal static GpuImage Create(GraphicsDevice gd, string name, int width, int height, ReadOnlySpan<byte> rgba, bool mips, bool srgb) =>
+        Create(gd, name, width, height, BuildMips(width, height, rgba, mips ? MipCount(width, height) : 1), srgb);
+
+    /// <summary>
+    /// Создать из готовой цепочки мипов (мип i — max(1, w≫i) × max(1, h≫i) RGBA8): распакованные мипы текстуры в предпросмотре
+    /// пекарни показываются как есть, а не пересчитываются из нулевого.
+    /// </summary>
+    /// <exception cref="ArgumentException">Мипов нет, больше полной цепочки или размер мипа не тот.</exception>
+    internal static GpuImage Create(GraphicsDevice gd, string name, int width, int height, IReadOnlyList<byte[]> mips, bool srgb)
     {
-        var levels = BuildMips(width, height, rgba, mips ? MipCount(width, height) : 1);
+        int full = MipCount(width, height);
+        if (mips.Count < 1 || mips.Count > full) throw new ArgumentException($"мипов {mips.Count}, для {width}×{height} — 1…{full}", nameof(mips));
+        for (int m = 0; m < mips.Count; m++)
+        {
+            int need = Math.Max(1, width >> m) * Math.Max(1, height >> m) * 4;
+            if (mips[m].Length != need) throw new ArgumentException($"мип {m}: {mips[m].Length} байт, нужно {need}", nameof(mips));
+        }
+        return Create(gd, name, width, height, [.. mips], srgb);
+    }
+
+    private static unsafe GpuImage Create(GraphicsDevice gd, string name, int width, int height, byte[][] levels, bool srgb)
+    {
         var format = srgb ? Format.R8G8B8A8_UNorm_SRgb : Format.R8G8B8A8_UNorm;
         var desc = ResourceDescription.Texture2D(format, (uint)width, (uint)height, 1, (ushort)levels.Length);
         var resource = gd.Device.CreateCommittedResource(HeapType.Default, HeapFlags.None, desc, ResourceStates.CopyDest);

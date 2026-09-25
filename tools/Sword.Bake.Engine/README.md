@@ -20,14 +20,14 @@ SWORD 2eab13b, `tools/Sword.Bake.Sword` — движковая часть; ло�
 |---|---|---|
 | `Anim/RawAnim.cs`, `UeSpace.cs`, `UeRig.cs`, `ClipSource.cs`, `FingerTransfer.cs`, `GltfMesh.cs` | `Anim/` | пространство имён `Sword.Bake.Engine.Anim`; типы, которые зовёт `Bake.Game`, — открытые |
 | `Anim/SkinBake.cs` | `Anim/SkinBake.cs` | клипы — в `ClipLibrary` движка вместо `SkeletalClips`, прямая кинематика — `Skeleton.ToModel`; `Run` → `Mesh` (только меш: ветки `.swskel` и статического меша с креплением — мёртвые, их звала старая команда `skin`) |
-| `Anim/AnimImport.cs` | `Anim/AnimImport.cs` | `SourceHash` без MVID сборок, `ToolVersion` 3 → 4; запись — `ClipFile` Formats; прежний клип читается целиком (чтения только заголовка в Formats нет) |
+| `Anim/AnimImport.cs` | `Anim/AnimImport.cs` | `SourceHash` без MVID сборок, `ToolVersion` 3 → 4; запись — `ClipFile` Formats; прежний клип читается целиком — `ClipContent` сравнивает и позы (`ClipFile.ReadHeader` без поз — для списка клипов предпросмотра) |
 | `Anim/PoseReport.cs` | `Anim/PoseReport.cs` | только `Raw`; `SkelCheck`, `Fingers` читали снятый формат `.swskel` — не перенесены |
-| `Processors/SkeletonProcessor.cs` (+ `SkinMeshProcessor`), `AnimPackProcessor.cs` | `Processors/` | форматы и константы путей — `Engine.Formats`, `ClipLibrary`; без предпросмотров Studio (Б7) |
+| `Processors/SkeletonProcessor.cs` (+ `SkinMeshProcessor`), `AnimPackProcessor.cs` | `Processors/` | форматы и константы путей — `Engine.Formats`, `ClipLibrary`; предпросмотры — `Preview/AnimPreview.cs` (у скелета без клипов — поза покоя меша и кости по bind-матрицам, в SWORD её не было), `Preview/MeshPreview.cs` |
 | `Inspect.cs` | `Inspect.cs` | живые `meshinfo`, `rawpose` (вывод — в поток команды); `compare` не перенесён — сравнение паков `bake diff` (Б3), сравнение клипов — `Anim/ClipContent.cs`; `skelcheck`, `fingers` — мёртвые |
 | — | `Anim/ContentFiles.cs`, `Anim/ClipContent.cs` | запись файла контента через `*.tmp` (как `ClipAsset.Save`); клипы по содержимому без `SourceHash` |
 | `Anim/MeshDecimate.cs`, `Anim/SpineChain.cs` | `Anim/` | открыты: их зовёт анатомия `Bake.Game` |
-| `Texture/*`, `Processors/TextureArrayProcessor.cs` | `Texture/`, `Processors/` | формат `.swtex` (`TextureData`) — в `Engine.Formats`, файл пишет его писатель; без предпросмотра (Б7) |
-| `Processors/FontVectorProcessor.cs`, `UiFontBaker` (в SWORD — сборка интерфейса) | `Processors/`, `Font/UiFontBaker.cs` | пекарь — в плагине (сторона `Neutral`, без `Engine.Ui`); список ролей шрифта — `UiVectorFontFormat.RoleNames`/`TryParseRole` в Formats; файл пишет `UiFontFile`; без `FontPreview` (Б7) |
+| `Texture/*`, `Processors/TextureArrayProcessor.cs` | `Texture/`, `Processors/` | формат `.swtex` (`TextureData`) — в `Engine.Formats`, файл пишет его писатель; предпросмотр — `Preview/TexturePreview.cs` (BC1/BC4/BC5 распаковываются на CPU, BC7 — нет) |
+| `Processors/FontVectorProcessor.cs`, `UiFontBaker` (в SWORD — сборка интерфейса) | `Processors/`, `Font/UiFontBaker.cs` | пекарь — в плагине (сторона `Neutral`, без `Engine.Ui`); список ролей шрифта — `UiVectorFontFormat.RoleNames`/`TryParseRole` в Formats; файл пишет `UiFontFile`; контуры из одной точки TrueType пекарь выбрасывает (stb читает такую точку за концом массива — без этого выпечка Consolas недетерминирована; у шрифтов пака таких контуров нет); предпросмотр — `Preview/FontPreview.cs` и растр `Font/UiFontRaster.cs` (SWORD `UiFontRaster` из Ui) — без шейпинга: знак по cmap, шаг по hmtx, кернинг только из таблицы kern (stb) |
 | — (прототип — `inspect compare`) | `Anim/ClipComparer.cs` | сравнитель `.swclip` для `sword-bake diff` |
 
 ## Обработчики
@@ -89,7 +89,8 @@ MVID сборок — клипы с эталоном сверяются по с�
 Открыто то, что зовут оружие и анатомия: `RawManifest`, `RawClipInfo`, `RawClip`, `RawAnimIO`, `UeSpace`, `UeRig`,
 `ClipSource`, `FingerSource`, `FingerStats`, `GltfMesh`, `SkinBake.GripAttachment`, `MeshDecimate`, `SpineChain`,
 `ContentFiles` (запись выхода), `SkeletonParams`, `SkinMeshParams`, `SkeletonProcessor` (`ProcessorId`, `SkeletonId`,
-`ManifestOf`), `SkinMeshProcessor` (`ProcessorId`); `UiFontBaker` — ещё и окнам инструментов (системные шрифты на лету).
+`ManifestOf`), `SkinMeshProcessor` (`ProcessorId`), `MeshPreview` (предпросмотр анатомии); `UiFontBaker` — ещё и окнам
+инструментов (системные шрифты на лету).
 Остальное — `internal` (`AnimImport`, `FingerTransfer`, `SkinBake.Mesh`/`BuildClips`, `PoseReport`, `ClipContent`,
 `ClipComparer`, `TextureBake`, обработчики, `Inspect`; тестам — `InternalsVisibleTo Sword.Bake.Engine.Tests`).
 
@@ -141,11 +142,14 @@ SourceHash»; отличаются — первое отличие (поле, ч
   поворот и сдвиг), перенос пальцев (отклонение фаланг до/после, сгиб пясти), проверка FK, «записано / без изменений / удалено»;
 - исходники — `inspect rawpose`, `inspect meshinfo`;
 - клип пака — загрузчики движка (`ClipLibrary`, `Skeleton`), в живой игре — `anim.clips`, `anim.pose` агента;
-- текстуры и шрифты — лог выпечки (слои, размер, формат, мипы; отчёт пекаря шрифта) и побайтная сверка.
+- текстуры и шрифты — лог выпечки (слои, размер, формат, мипы; отчёт пекаря шрифта) и побайтная сверка; детерминизм пекаря
+  шрифтов — `FontBakerTests` (две выпечки Consolas и шрифтов пака — одни байты);
+- выходы глазами — предпросмотры (`IAssetPreview`) во вкладке «Просмотр» Studio и её снимки `--gallery` (README Studio).
 
 ## Ограничения
 
-- Предпросмотры Studio (`AnimPreview`, `MeshPreview`, текстур, `FontPreview`) не перенесены — Б7.
+- Растр шрифта предпросмотра — без шейпинга (HarfBuzz — в `Engine.Ui`, плагин — сторона `Neutral`): лигатуры и кернинг GPOS
+  не видны, текст расставлен по знакам. Игра рисует шрифт с шейпингом.
 - Правка кода выпечки клипа без подъёма `ToolVersion` не перепекает клипы (см. `SourceHash`).
 - Инкрементальная проверка читает каждый прежний клип целиком (≈ 340 МБ на все наборы); выпечка набора держит в памяти все
   его raw-клипы (кэш `ClipSource`) и таблицу `ClipLibrary` — у GASP сотни мегабайт.

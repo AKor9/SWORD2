@@ -71,4 +71,33 @@ public sealed class StudioWindowTests : IDisposable
         Assert.True(samples > 0);
         Assert.Equal(0, foreground);
     }
+
+    [Fact]
+    public void Gallery_WritesEveryView_WithoutTakingFocus()
+    {
+        var project = BakeProject.Create(Path.Combine(_root, "project"), "Gallery");
+        File.WriteAllText(Path.Combine(project.Root, "note.txt"), "x");
+        project.AddAsset("data/note", "file.copy", new Dictionary<string, string> { ["from"] = Path.Combine(project.Root, "note.txt") });
+        string dir = Path.Combine(_root, "gallery");
+        int foreground = 0, samples = 0;
+        void Watch(Process p)
+        {
+            while (!p.HasExited)
+            {
+                GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
+                if (pid == (uint)p.Id) foreground++;
+                samples++;
+                Thread.Sleep(20);
+            }
+        }
+        var (exit, output) = StudioTestEnv.Run(StudioTestEnv.Exe("Sword.Bake.Studio", "Sword.Bake.Studio.exe"), _root, TimeSpan.FromMinutes(2), Watch,
+            "--project", project.Root, "--windowed", "1024x640", "--gallery", dir);
+        Assert.True(exit == 0, output);
+        var shots = Directory.GetFiles(dir, "*.png").Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        Assert.Contains("01-project.png", shots);
+        Assert.Contains(shots, s => s!.EndsWith("-unit-preview.png", StringComparison.Ordinal));
+        Assert.Contains(shots, s => s!.EndsWith("-widgets.png", StringComparison.Ordinal));
+        Assert.True(samples > 0);
+        Assert.Equal(0, foreground);
+    }
 }
