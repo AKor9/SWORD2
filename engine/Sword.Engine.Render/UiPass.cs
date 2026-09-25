@@ -13,7 +13,8 @@ namespace Sword.Engine.Render;
 /// Фигуры и текст — разные конвейеры над одним буфером; вызов рисования рвётся ещё на смене обрезки
 /// (<see cref="UiDrawList.ClipRuns"/>) — она ставится scissor'ом.
 ///
-/// Шрифты — <c>ui/fonts/*.swfont</c> из пака рендера: читаются при создании прохода (<see cref="Renderer.Ui"/> — при
+/// Шрифты — <c>ui/fonts/*.swfont</c> из пака рендера или готовые от вызывающего (<see cref="RendererOptions.UiFonts"/>: окно
+/// инструмента печёт системные): берутся при создании прохода (<see cref="Renderer.Ui"/> — при
 /// первом обращении), склеиваются (<see cref="UiFonts"/>, Ui без GPU) и лежат в видеопамяти до конца работы.
 /// Перенос <c>Ui/UiRenderer.cs</c> и <c>Text/UiVectorFontGpu.cs</c> SWORD 2eab13b: порядок вызовов и разбиение на
 /// вызовы те же; проход — узел рендер-графа (цель — задний буфер без очистки, конвейеры — кеш рендера).
@@ -49,23 +50,14 @@ public sealed class UiPass : IDisposable
         public readonly List<UiBatch> Batches = [];
     }
 
-    internal UiPass(Renderer renderer)
+    /// <param name="fonts">Шрифты от вызывающего (<see cref="RendererOptions.UiFonts"/>, проход берёт их во владение); null — из пака.</param>
+    internal UiPass(Renderer renderer, UiFonts? fonts)
     {
         if (Unsafe.SizeOf<UiQuad>() != UiQuad.Stride)
             throw new InvalidOperationException($"шаг записи квада {Unsafe.SizeOf<UiQuad>()}, ожидается {UiQuad.Stride}");
         _renderer = renderer;
-        var content = renderer.Content;
-        var files = content.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension);
-        if (files.Count == 0)
-            throw new FileNotFoundException(
-                $"нет шрифтов интерфейса {content.Describe(UiVectorFontFormat.Dir)}/*{UiVectorFontFormat.Extension}", content.Describe(UiVectorFontFormat.Dir));
-        var fonts = new List<UiFontFile>(files.Count);
-        foreach (var file in files)
-            using (var stream = content.OpenRead(file))
-                fonts.Add(UiFontFile.Read(stream, content.Describe(file)));
-
         var gd = renderer.Device;
-        Fonts = new UiFonts(fonts);
+        Fonts = fonts ?? ReadFonts(renderer.Content);
         FontBuffer? glyphs = null, curves = null, bands = null, indices = null;
         try
         {
@@ -91,6 +83,20 @@ public sealed class UiPass : IDisposable
             var work = _work[i] = new Work();
             _record[i] = ctx => Record(ctx, work);
         }
+    }
+
+    /// <summary>Шрифты интерфейса из пака: все <c>ui/fonts/*.swfont</c>.</summary>
+    private static UiFonts ReadFonts(Sword.Engine.Content.IContentSource content)
+    {
+        var files = content.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension);
+        if (files.Count == 0)
+            throw new FileNotFoundException(
+                $"нет шрифтов интерфейса {content.Describe(UiVectorFontFormat.Dir)}/*{UiVectorFontFormat.Extension}", content.Describe(UiVectorFontFormat.Dir));
+        var fonts = new List<UiFontFile>(files.Count);
+        foreach (var file in files)
+            using (var stream = content.OpenRead(file))
+                fonts.Add(UiFontFile.Read(stream, content.Describe(file)));
+        return new UiFonts(fonts);
     }
 
     /// <summary>Числа прохода для всех шейдеров: режимы квадов, полосы glyph'а, слоты, размеры записей.</summary>

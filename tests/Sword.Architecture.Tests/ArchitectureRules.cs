@@ -69,7 +69,7 @@ public static class ArchitectureRules
         [BakeEngine] = [Bake, Content, Formats, Animation],
         [BakeGame] = [Bake, BakeEngine, Formats, Data],
         ["Sword.Bake.Cli"] = [Bake, Content],
-        ["Sword.Bake.Studio"] = [Bake, BakeEngine, Content, Formats, Client, Render, Ui, Win32],
+        ["Sword.Bake.Studio"] = [Bake, Content, Formats, Diag, Platform, Client, Render, Ui, Win32],
     };
 
     /// <summary>Модуль симуляции: то же, что ядру игры, кроме самого Sword.Game.</summary>

@@ -49,6 +49,7 @@
     <Project Path="tools/Sword.Bake.Cli/Sword.Bake.Cli.csproj" />
     <Project Path="tools/Sword.Bake.Engine/Sword.Bake.Engine.csproj" />
     <Project Path="tools/Sword.Bake.Game/Sword.Bake.Game.csproj" />
+    <Project Path="tools/Sword.Bake.Studio/Sword.Bake.Studio.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sword.Architecture.Tests/Sword.Architecture.Tests.csproj" />
@@ -73,5 +74,6 @@
     <Project Path="tests/Sword.Bake.Tests.PluginB/Sword.Bake.Tests.PluginB.csproj" />
     <Project Path="tests/Sword.Bake.Engine.Tests/Sword.Bake.Engine.Tests.csproj" />
     <Project Path="tests/Sword.Bake.Game.Tests/Sword.Bake.Game.Tests.csproj" />
+    <Project Path="tests/Sword.Bake.Studio.Tests/Sword.Bake.Studio.Tests.csproj" />
   </Folder>
 </Solution>

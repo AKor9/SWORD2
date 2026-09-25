@@ -204,7 +204,7 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 | Bake.Engine | Bake, Content, Formats, Animation (без Ui — пекарь шрифтов внутри) |
 | Bake.Game | Bake, Bake.Engine, Formats, Game.Data |
 | Bake.Cli | Bake, Content |
-| Bake.Studio | Bake, Bake.Engine (шрифты окна), Content, Formats, Client, Render, Ui, Platform.Win32 — уточняется в Б7 |
+| Bake.Studio | Bake, Content (сведения о сборке пака), Formats, Diagnostics, Platform, Client, Render, Ui, Platform.Win32 (пекарь шрифтов окна — исходником `UiFontBaker.cs`: сборка Bake.Engine — плагин проекта) |
 
 **Запрещено:**
 - `engine/*` → `game/*`, `tools/*`; `game/*` → `tools/*`;

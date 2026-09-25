@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Rhi;
+using Sword.Engine.Ui;
 
 namespace Sword.Engine.Render;
 
@@ -134,7 +135,14 @@ public sealed class CaptureException(string message, Exception inner) : IOExcept
 /// Как создать рендер: окно (HWND), начальный размер, отладочный слой D3D12, каталог шейдеров; GPU-валидация — проверка
 /// состояний ресурсов, взятых шейдерами из bindless-кучи (медленно, только со слоем отладки).
 /// </summary>
-public sealed record RendererOptions(nint WindowHandle, int Width, int Height, bool DebugLayer, string ShaderRoot, bool GpuValidation = false);
+public sealed record RendererOptions(nint WindowHandle, int Width, int Height, bool DebugLayer, string ShaderRoot, bool GpuValidation = false)
+{
+    /// <summary>
+    /// Шрифты UI-прохода от вызывающего (окно инструмента печёт себе системные шрифты); рендер берёт их во владение.
+    /// Null — <c>ui/fonts/*.swfont</c> из пака контента (игра).
+    /// </summary>
+    public UiFonts? UiFonts { get; init; }
+}
 
 /// <summary>
 /// Рендер движка: устройство D3D12, шейдеры, конвейеры, рендер-граф, цели сцены, скинированные меши. Кадр строит сцена
@@ -154,6 +162,9 @@ public sealed class Renderer : IDisposable
     private PakSource? _content;
     private UiPass? _ui;
 
+    /// <summary>Шрифты интерфейса от вызывающего, пока их не взял UI-проход (<see cref="RendererOptions.UiFonts"/>).</summary>
+    private UiFonts? _uiFonts;
+
     /// <summary>ID-буфер и слои, которые игра отдала снимку этого кадра (<see cref="RenderFrame.CaptureIds"/>, <see cref="RenderFrame.CaptureLayer"/>).</summary>
     internal RenderTexture? CapturedIds;
     internal readonly List<(string Name, RenderTexture Texture)> CapturedLayers = [];
@@ -162,6 +173,7 @@ public sealed class Renderer : IDisposable
     /// <param name="contract">Преамбула контракта: движок (<see cref="Contribute"/>) и игра.</param>
     public Renderer(RendererOptions options, ShaderContract contract)
     {
+        _uiFonts = options.UiFonts;
         Device = new GraphicsDevice(options.WindowHandle, options.Width, options.Height, options.DebugLayer, options.GpuValidation);
         try
         {
@@ -229,10 +241,19 @@ public sealed class Renderer : IDisposable
     internal IContentSource Content => _content ??= ContentLocator.Open();
 
     /// <summary>
-    /// UI-проход и шрифты интерфейса: создаётся при первом обращении (шрифты — из пака контента, <see cref="Content"/>).
+    /// UI-проход и шрифты интерфейса: создаётся при первом обращении (шрифты — <see cref="RendererOptions.UiFonts"/>, без них —
+    /// из пака контента, <see cref="Content"/>).
     /// Рендер без интерфейса шрифтов не читает.
     /// </summary>
-    public UiPass Ui => _ui ??= new UiPass(this);
+    public UiPass Ui => _ui ??= new UiPass(this, TakeUiFonts());
+
+    /// <summary>Шрифты вызывающего переходят проходу; дальше ими владеет он.</summary>
+    private UiFonts? TakeUiFonts()
+    {
+        var fonts = _uiFonts;
+        _uiFonts = null;
+        return fonts;
+    }
 
     /// <summary>Ожидание GPU в начале последнего кадра (забор кадра в полёте), мс.</summary>
     public double LastFenceWaitMs => Device.LastFenceWaitMs;
@@ -309,6 +330,14 @@ public sealed class Renderer : IDisposable
     }
 
     public FrameData<T> CreateFrameData<T>(string name, uint capacity) where T : unmanaged => new(Device, name, capacity);
+
+    /// <summary>
+    /// Постоянная картинка из пикселей RGBA8 (<paramref name="rgba"/> — строки подряд, ширина × высота × 4 байт) с полной
+    /// цепочкой мипов или без неё — для <see cref="UiDrawList.Image"/>. Заливает и ждёт GPU: только на загрузке.
+    /// Освобождается раньше рендера.
+    /// </summary>
+    public GpuImage CreateImage(string name, int width, int height, ReadOnlySpan<byte> rgba, bool mips = true, bool srgb = false) =>
+        GpuImage.Create(Device, name, width, height, rgba, mips, srgb);
 
     /// <summary>Буфер-хранилище из <paramref name="count"/> элементов <typeparamref name="T"/>, заполненный нулями.</summary>
     public GpuStorage CreateStorage<T>(string name, uint count) where T : unmanaged
@@ -547,6 +576,7 @@ public sealed class Renderer : IDisposable
     {
         Device.WaitForIdle();
         _ui?.Dispose();
+        _uiFonts?.Dispose();   // проход не создавался — шрифты вызывающего остались у рендера
         Debug.Dispose();
         Skinned.Dispose();
         Graph.Dispose();
