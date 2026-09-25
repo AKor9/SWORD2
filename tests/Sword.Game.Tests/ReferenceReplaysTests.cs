@@ -8,10 +8,10 @@ namespace Sword.Game.Tests;
 
 /// <summary>
 /// Эталоны SWORD2 (этап 3б; врагов — этап 4; тел — этап 5): реплеи прототипа, анимации, врагов и тел на рельефе в <c>tests/reference/replays</c> на
-/// эталонном паке (все файлы папки). Та же сборка логики обязана повторить их хеши по участникам тик в тик — регрессия
+/// паке игры Content.swpak (все файлы папки). Та же сборка логики обязана повторить их хеши по участникам тик в тик — регрессия
 /// называет тик и участника. Намеренное изменение
 /// поведения — перезапись эталона: <c>Sword.Headless --replay файл --record файл</c> (те же команды, новые хеши) и запись
-/// причины в md фичи. Эталонный пак вне git — категория Content (<c>verify.ps1 -SkipReference</c> её не запускает).
+/// причины в md фичи. Пак игры вне git — категория Content (<c>verify.ps1 -SkipReference</c> её не запускает).
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class ReferenceReplaysTests
@@ -23,7 +23,7 @@ public sealed class ReferenceReplaysTests
 
     private static readonly Lazy<(CharacterAssets Assets, string Content)> Reference = new(() =>
     {
-        using var pak = PakSource.Open(TestContent.ReferencePak());
+        using var pak = PakSource.Open(TestContent.GamePak());
         return (CharacterAssets.Load(pak), pak.ContentHash);
     });
 

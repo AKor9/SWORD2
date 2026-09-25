@@ -10,7 +10,7 @@ namespace Sword.Game.Tests;
 
 /// <summary>
 /// Манифесты фич игры (этап 3д, раздел 12 плана): у каждой фичи в <c>Features</c> есть <c>feature.json</c>, он разбирается,
-/// его чек-лист — те же пункты, что «Что проверить в игре» в md фичи; на эталонном паке <c>feature.verify</c> каждой фичи
+/// его чек-лист — те же пункты, что «Что проверить в игре» в md фичи; на паке игры <c>feature.verify</c> каждой фичи
 /// зелёный (без видов — их снимает App в verify.ps1; класс на фичу — <see cref="FeatureVerifyTests"/>), а развилка эталона прототипа
 /// расходится на ожидаемом тике.
 /// </summary>
@@ -85,10 +85,10 @@ public sealed class FeatureManifestsTests
         Assert.Equal(manifests.Select(m => m.Id).Order(), verified);
     }
 
-    /// <summary>Ассеты и отпечаток эталонного пака — один раз на процесс (классы приёмки фич идут параллельно и делят их: только чтение).</summary>
+    /// <summary>Ассеты и отпечаток пака игры — один раз на процесс (классы приёмки фич идут параллельно и делят их: только чтение).</summary>
     internal static readonly Lazy<(CharacterAssets Assets, string Content)> Reference = new(() =>
     {
-        using var pak = PakSource.Open(TestContent.ReferencePak());
+        using var pak = PakSource.Open(TestContent.GamePak());
         return (CharacterAssets.Load(pak), pak.ContentHash);
     });
 
@@ -134,7 +134,7 @@ public sealed class FeatureManifestsTests
 }
 
 /// <summary>
-/// Приёмка фичи на эталонном паке: <c>feature.verify</c> зелёный (без видов — их снимает App в verify.ps1). Класс на фичу (доводка 6ж):
+/// Приёмка фичи на паке игры: <c>feature.verify</c> зелёный (без видов — их снимает App в verify.ps1). Класс на фичу (доводка 6ж):
 /// xUnit гонит тесты одного класса подряд, а классы — параллельно; одной теорией на все фичи приёмка шла цепочкой (~140 с: combat 47,
 /// enemies 43, bodies 21). Параллельные прогоны не мешают друг другу: у каждой фичи свой каталог отчёта, пак и ассеты — общие и только
 /// читаются (<see cref="FeatureManifestsTests.Reference"/>), профайлер бюджета — свой у замера. Что каждая фича манифеста здесь есть —
@@ -146,7 +146,7 @@ public abstract class FeatureVerifyTests(string id)
 
     [Fact]
     [Trait("Category", "Content")]
-    public void FeatureVerify_Green_OnReferencePak()
+    public void FeatureVerify_Green_OnGamePak()
     {
         var manifest = FeatureManifestsTests.All().Single(m => m.Id == Id);
         string dir = Path.Combine(Path.GetTempPath(), "sword-feature-verify", Id);

@@ -288,7 +288,7 @@ public sealed class CausalityTests
 }
 
 /// <summary>
-/// Точка 6д на эталонном паке (настоящие удары клинком; категория Content — <c>verify.ps1 -SkipReference</c> её не запускает): хеш с
+/// Точка 6д на паке игры (настоящие удары клинком; категория Content — <c>verify.ps1 -SkipReference</c> её не запускает): хеш с
 /// режимом причинности и без — тот же на каждом тике боя (касания, попадания, реакции, вздрагивание, смерть); удар врага по игроку —
 /// <c>state.why(player, Health.Hp)</c> называет попадание, врага, начало его удара и решение ИИ; смерть врага в дуэли — цепочка от
 /// команды игрока (сценарий <c>duel</c> манифеста <c>combat</c>).
@@ -298,7 +298,7 @@ public sealed class CausalityContentTests
 {
     private static readonly Lazy<CharacterAssets> Reference = new(() =>
     {
-        using var pak = PakSource.Open(TestContent.ReferencePak());
+        using var pak = PakSource.Open(TestContent.GamePak());
         return CharacterAssets.Load(pak);
     });
 

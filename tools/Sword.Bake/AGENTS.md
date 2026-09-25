@@ -4,9 +4,9 @@
 
 - **Любая ошибка оставляет прежний пак.** Ошибка ассета, отмена, сбой записи — пак не пишется; пак пишется во временный
   файл и подменяет прежний только после успешной записи; ничего не пересобрано — пак не переписывается.
-- **Пак — не в корне репозитория.** Пак пекарни SWORD2 — `artifacts/bake/Content.swpak`, временные проекты — во
-  временном каталоге: `Content.swpak` в корне или выше exe `ContentLocator` предпочтёт эталонному — игра, тесты Content,
-  сценарии фич и реплеи молча получат другой контент.
+- **Пак проекта `Bake/` — пак игры** `Content.swpak` в корне репозитория: его читают игра, тесты Content, сценарии фич
+  и реплеи. Временные проекты тестов — только во временном каталоге: `Content.swpak` в корне или выше exe
+  `ContentLocator` берёт первым — чужой пак подменил бы контент игры.
 - Всё, что обработчик читает и пишет, — через `BakeContext` (`InputFile`, `InputDir`, `ContentFile`, `Output`, `OutputDir`):
   иначе актуальность о нём не узнает. Необъявленный выход — ошибка сборки ассета.
 - Типы ядра даёт хост: плагин ссылается на `Sword.Bake` с `Private=false` и `ExcludeAssets=runtime`; плагин на другом
@@ -22,7 +22,7 @@
 Проверка: `dotnet test tests/Sword.Bake.Tests`; писатели форматов — `dotnet test tests/Sword.Engine.Formats.Tests --filter
 ReferencePakWriters` (нужен эталонный пак); проект — `sword-bake status --json`, `sword-bake pak --verify`; два пака —
 `sword-bake diff A B --json` (код 2 — есть неожиданные расхождения); пак проекта `Bake/` с эталоном — `diff
-..\Content.reference.swpak ..\artifacts\bake\Content.swpak --expect reference.expect.json` в `Bake/`.
+..\Content.reference.swpak ..\Content.swpak --expect reference.expect.json` в `Bake/`.
 
 Типичные ошибки:
 - «нет сборки …dll — соберите проект плагина (конфигурация X)» — `${config}` в `plugins` — конфигурация exe пекарни;

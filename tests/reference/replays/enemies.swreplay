@@ -1,10 +1,10 @@
 {
   "format": "sword-replay",
   "version": 1,
-  "build": "1.0.0+9aa3de1acfdf0bac4117783a92813c4c11d6c76e",
+  "build": "1.0.0+2e74f32375c2440cda804e80587ad674f15e9aa9",
   "recordedBy": "Sword.Headless",
-  "content": "04A5DDD3D5D88407",
-  "recordedUtc": "2026-09-25T00:11:16.3562303Z",
+  "content": "FED978DA45EDA52E",
+  "recordedUtc": "2026-09-25T14:53:33.4627195Z",
   "tickRate": 120,
   "seed": 1,
   "ticks": 3000,
@@ -83,6 +83,27 @@
       "dashInvulnerable": 0.3,
       "playerDamage": 2,
       "playerSharpness": 1
+    },
+    "locomotion": {
+      "player": "clips",
+      "clips": "^(?!.*Circle_Strafe)",
+      "searchPeriod": 0.1,
+      "switchGain": 2,
+      "inertialHalflife": 0.1,
+      "rateRange": 0.4,
+      "armWeight": 1,
+      "weightTrajectory": 3.5,
+      "weightTrajectoryFacing": 1.5,
+      "weightPast": 0.5,
+      "weightRootVelocity": 4,
+      "weightRootYawRate": 0.5,
+      "weightFeet": 0.4,
+      "weightFeetVelocity": 0.5,
+      "weightKnees": 0.25,
+      "weightPelvis": 0.25,
+      "weightPelvisVelocity": 0.5,
+      "weightPelvisFacing": 0.5,
+      "weightChestFacing": 0.25
     }
   },
   "commands": [

@@ -1,5 +1,5 @@
 // Ожидаемые расхождения пака пекарни с эталонным паком SWORD (Content.reference.swpak):
-//   sword-bake diff ..\Content.reference.swpak ..\artifacts\bake\Content.swpak --expect reference.expect.json --json
+//   sword-bake diff ..\Content.reference.swpak ..\Content.swpak --expect reference.expect.json --json
 // Правил нет: сверка сходится без исключений. Что отличается по устройству и расхождением не считается:
 // - SourceHash клипов .swclip: в эталоне в него входит MVID сборок конвертера SWORD, в SWORD2 — нет; клипы сравнивает
 //   сравнитель плагина Sword.Bake.Engine по всем полям, кроме SourceHash («равны по содержимому»);

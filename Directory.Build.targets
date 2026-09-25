@@ -6,6 +6,17 @@
     <AssemblyMetadata Include="SwordSide" Value="$(SwordSide)" Condition="'$(SwordSide)' != ''" />
   </ItemGroup>
 
+  <!-- Номер коммита — только в exe (BuildId квитанций агента, сборка в заголовке реплея). У библиотек его нет ни в версии,
+       ни в PDB: сборка детерминирована, MVID — хеш образа вместе с отпечатком PDB, и номер коммита в
+       AssemblyInformationalVersion или в карте Source Link (адрес исходников с номером коммита) менял бы MVID каждой
+       библиотеки с каждым коммитом — пекарня (отпечаток кода обработчика — MVID его сборок) считала бы устаревшими все
+       ассеты. Исходники библиотек отладчик берёт с диска. OutputType известен только после тела проекта — поэтому здесь,
+       а не в Directory.Build.props. -->
+  <PropertyGroup Condition="'$(OutputType)' == 'Library'">
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+
   <!-- Слой и сторона этого проекта — для проверки ссылающихся на него. -->
   <Target Name="SwordGetLayer" Returns="@(_SwordLayerInfo)">
     <ItemGroup>

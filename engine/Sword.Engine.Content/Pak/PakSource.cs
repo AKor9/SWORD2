@@ -24,9 +24,14 @@ public sealed class PakSource : IContentSource, IDisposable
 
     /// <summary>
     /// Отпечаток содержимого: SHA-256 оглавления (пути и хеши файлов по порядку), первые 8 байт — 16 шестнадцатеричных
-    /// цифр. Дёшево (файлы не читаются) и меняется с любым файлом пака: квитанции агента и реплеи называют им контент.
+    /// цифр. Дёшево (файлы не читаются) и меняется с любым файлом контента: квитанции агента и реплеи называют им контент.
+    /// Сведения пекарни (<see cref="BakeDir"/>: <see cref="PakBuildInfo.EntryPath"/> со временем сборки и отпечатками
+    /// кода) не входят: перевыпечка тех же файлов — тот же хеш.
     /// </summary>
     public string ContentHash => _contentHash ??= ComputeContentHash();
+
+    /// <summary>Каталог сведений пекарни в паке: не контент игры и не часть <see cref="ContentHash"/>.</summary>
+    public const string BakeDir = ".bake/";
 
     private string? _contentHash;
 
@@ -36,6 +41,7 @@ public sealed class PakSource : IContentSource, IDisposable
         Span<byte> hash = stackalloc byte[8];
         foreach (var e in _sorted)
         {
+            if (e.Path.StartsWith(BakeDir, StringComparison.OrdinalIgnoreCase)) continue;
             sha.AppendData(Encoding.UTF8.GetBytes(e.Path.ToLowerInvariant()));
             BinaryPrimitives.WriteUInt64LittleEndian(hash, e.Hash);
             sha.AppendData(hash);

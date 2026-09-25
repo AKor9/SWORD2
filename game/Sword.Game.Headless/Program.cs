@@ -37,7 +37,8 @@ public static partial class Program
           --replay FILE       воспроизвести реплей (свой конфиг, свои команды; --move, --walk, --gaze нельзя): тиков —
                               сколько в реплее (или --ticks), хеши сверяются по участникам; первое расхождение —
                               тик и участник, код выхода 3. С --record — перезапись (новые хеши тех же команд: эталон
-                              после намеренного изменения, хеши сценария без хешей); --set поверх — эксперимент
+                              после намеренного изменения, хеши сценария без хешей; на другом паке — с предупреждением,
+                              хеши сверяются; на эталонном паке вместо пака игры — отказ); --set поверх — эксперимент
           --json              итог — одной строкой JSON в stdout (для агента)
           --profile           профайлер CPU: время и выделения тика, стадий, систем, барьеров, инвариантов (после
                               прогрева — 120 тиков); на тик — CPU потока, GC, JIT; отчёт — artifacts/profile/<прогон>/
@@ -188,7 +189,7 @@ public static partial class Program
             string content = ContentHash();
             Replay? replay = replayPath is null ? null : Replay.Load(replayPath);
             var warnings = new List<string>();
-            if (replay is not null) CheckReplay(replay, content, warnings);
+            if (replay is not null) CheckReplay(replay, content, record is not null, warnings);
             var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
             if (replay is not null && sets.Count > 0) warnings.Add($"конфиг реплея изменён: {string.Join(", ", sets)} — эксперимент, хеши могут разойтись");
             var assets = Animation.CharacterAssets.LoadFromPak();
@@ -354,16 +355,29 @@ public static partial class Program
 
     /// <summary>
     /// Реплей подходит этой сборке: модули реплея в ней есть (иначе команды и конфиг не привяжутся), контент тот же
-    /// (иначе хеши не значат ничего); другая сборка — предупреждение (хеши скажут, изменилась ли логика).
+    /// (иначе хеши не значат ничего); другая сборка — предупреждение (хеши скажут, изменилась ли логика). Перезапись
+    /// (<paramref name="rerecord"/>: --replay с --record) на другом контенте — предупреждение: хеши по-прежнему сверяются,
+    /// совпадение тик в тик доказывает, что на новом паке симуляция та же. Кроме эталонного пака, взятого вместо пака игры
+    /// (пака пекарни нет): перезапись на нём переписала бы эталоны на чужом контенте — отказ с командой выпечки.
     /// </summary>
-    private static void CheckReplay(Replay replay, string content, List<string> warnings)
+    private static void CheckReplay(Replay replay, string content, bool rerecord, List<string> warnings)
     {
         var known = SwordSimulation.Modules().Select(m => m.Id).ToList();
         var missing = (replay.Modules ?? []).Concat(replay.InactiveModules ?? []).Where(m => !known.Contains(m)).ToList();
         if (missing.Count > 0)
             throw new InvalidDataException($"реплей записан с модулями {string.Join(", ", missing)}, а в этой сборке их нет (есть: {string.Join(", ", known)})");
         if (replay.Content != "none" && content != "none" && replay.Content != content)
-            throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а пак здесь — {content}: хеши сравнивать бессмысленно");
+        {
+            string text = $"реплей записан на контенте {replay.Content}, а пак здесь — {content}";
+            string? pak = Sword.Engine.Content.ContentLocator.Find();
+            string? fallback = pak is null ? null : Sword.Engine.Content.ContentLocator.ReferenceWarning(pak);
+            if (!rerecord || fallback is not null)
+            {
+                string why = rerecord ? "перезаписывать на эталонном паке вместо пака игры нельзя" : "хеши сравнивать бессмысленно";
+                throw new InvalidDataException($"{text}: {why}{(fallback is null ? "" : $" ({fallback})")}");
+            }
+            warnings.Add($"{text}: перезапись на этом паке — хеши сверяются, совпадение тик в тик значит, что симуляция та же");
+        }
         var current = ReplayInfo.Current(content).Build;
         string commit = Replay.CommitOf(replay.Build);
         if (commit.Length > 0 && commit != Replay.CommitOf(current)) warnings.Add($"реплей записан сборкой {replay.Build}, это — {current}");

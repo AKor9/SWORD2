@@ -646,7 +646,7 @@ public sealed class DamageTests
 }
 
 /// <summary>
-/// 6ж на эталонном паке (категория Content): бой толпы без выделений — 32 бьющих врага против неуязвимого игрока, он рубит связкой без
+/// 6ж на паке игры (категория Content): бой толпы без выделений — 32 бьющих врага против неуязвимого игрока, он рубит связкой без
 /// перерыва и поворачивается (сценарий <c>crowd</c> манифеста <c>combat</c>): касания, попадания, реакции, смерти и возрождения идут после
 /// прогрева, а тик — 0 байт. Нашло 6г: 539 Б/тик — рост пула поз посреди боя (~3,8 МБ: слои действий, снимки, память смешивания);
 /// исправлено запасом пула на полную арену (<see cref="PosePool.Reserve"/>, <see cref="GameCore.PosesPerFighter"/>).
@@ -656,7 +656,7 @@ public sealed class DamageContentTests
 {
     private static readonly Lazy<CharacterAssets> Reference = new(() =>
     {
-        using var pak = Sword.Engine.Content.PakSource.Open(TestContent.ReferencePak());
+        using var pak = Sword.Engine.Content.PakSource.Open(TestContent.GamePak());
         return CharacterAssets.Load(pak);
     });
 

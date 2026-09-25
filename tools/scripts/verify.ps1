@@ -5,6 +5,10 @@
 .DESCRIPTION
     Шаги:
       build                 сборка SWORD.slnx (предупреждения — ошибки);
+      content               пак игры Content.swpak (печёт пекарня Bake/) есть в корне и актуален: sword-bake status
+                            той же конфигурации — все ассеты upToDate; иначе — ошибка с командой выпечки (без него
+                            игра и тесты взяли бы эталонный пак, а эталоны отвергались бы по хешу контента);
+                            -SkipReference — пропустить;
       test                  тесты решения, в том числе архитектурные и GPU-тесты рендера (категория Gpu:
                             устройство D3D12 с GPU-валидацией; -SkipGpu — без них) и тесты на шрифтах пака
                             (категория Content; -SkipReference — без них) и выпечка исходников пекарни со сверкой
@@ -62,7 +66,7 @@
                             бюджеты (время и кадр App на записи сценария — только с -Configuration Release,
                             байты — всегда), виды — кадры
                             Sword.exe --replay по записи сценария с теми же хешами; итоги — artifacts/features/<id>
-                            (-SkipGpu — без видов; -SkipReference — пропустить: эталоны на эталонном паке);
+                            (-SkipGpu — без видов; -SkipReference — пропустить: эталоны на паке игры);
       agent-smoke           агентский доступ (раздел 8, точка 1е) — настоящие сеансы MCP: Sword.Headless --agent
                             (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
                             time.step, игрок ушёл по +X, ecs.explainSystem, играет клип бега (anim.clips по номеру
@@ -98,7 +102,8 @@
     Итог одним JSON-объектом в stdout, UTF-8 (для агентов). Код выхода: 0 — всё прошло, 1 — нет.
 
 .PARAMETER SkipReference
-    Не проверять эталонный пак и не запускать тесты, которым он нужен (категории Content и Source) — например, на машине без него.
+    Не проверять паки контента (пак игры Content.swpak и эталонный) и не запускать то, чему они нужны (тесты категорий
+    Content и Source, эталоны, сценарии фич) — например, на машине без них.
 
 .PARAMETER Bench
     Прогнать микробенчмарки ECS (BenchmarkDotNet, Release, около двух минут) и проверить цели производительности.
@@ -134,7 +139,7 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
 
-$knownSteps = @('build', 'test', 'forbidden-references', 'without-agent', 'without-devtools', 'without-modules', 'headless-smoke', 'app-smoke',
+$knownSteps = @('build', 'content', 'test','forbidden-references', 'without-agent', 'without-devtools', 'without-modules', 'headless-smoke', 'app-smoke',
     'replay-smoke', 'features', 'agent-smoke', 'ecs-bench', 'line-endings', 'reference', 'processes')
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($name in $Only) {
@@ -278,6 +283,37 @@ Add-Step 'build' {
     $script:buildOk = $ok
     $detail = if ($ok) { Get-Lines $out 'Warning\(s\)|Error\(s\)' 2 } else { Get-Lines $out ': error ' 5 }
     @{ ok = $ok; detail = $detail }
+}
+
+if ($SkipReference) {
+    $steps.Add([ordered]@{ name = 'content'; ok = $true; seconds = 0; detail = 'пропущено (-SkipReference)' })
+    if (-not $Json) { Write-Host 'SKIP content                      пропущено (-SkipReference)' }
+}
+else {
+    Add-Step 'content' {
+        # Пак игры — Content.swpak пекарни в корне. Без него ContentLocator взял бы эталонный пак: игра работает, а эталоны
+        # и сценарии фич отвергаются по хешу контента — здесь это ошибка с командой выпечки, а не загадка в других шагах.
+        if (-not $script:buildOk) { return @{ ok = $false; detail = 'не запускался: сборка не прошла' } }
+        $bake = Get-ChildItem (Join-Path $root "tools\Sword.Bake.Cli\bin\$Configuration") -Recurse -Filter 'sword-bake.exe' | Select-Object -First 1
+        if (-not $bake) { return @{ ok = $false; detail = 'не найден sword-bake.exe' } }
+        $relBake = $bake.FullName.Substring($root.Length + 1)
+        $hint = "выпечь: cd Bake; ..\$relBake build (корни исходников — Bake/bake.user.json)"
+        $pak = Join-Path $root 'Content.swpak'
+        if (-not (Test-Path $pak)) { return @{ ok = $false; detail = "нет пака игры Content.swpak в корне — $hint" } }
+        $ErrorActionPreference = 'Continue'
+        $out = (& $bake.FullName status --json --project (Join-Path $root 'Bake') 2>$null | Out-String).Trim()
+        $code = $LASTEXITCODE
+        $st = $null
+        try { $st = $out | ConvertFrom-Json } catch { }
+        if (-not $st) { return @{ ok = $false; detail = "sword-bake status: код $code, ответ не JSON: $($out.Substring(0, [Math]::Min(300, $out.Length)))" } }
+        $assets = @($st.assets)
+        $stale = @($assets | Where-Object { $_.status -ne 'upToDate' })
+        if ($code -ne 0 -or $stale.Count -gt 0) {
+            $why = @($stale | Select-Object -First 5 | ForEach-Object { "$($_.id): $($_.status) $($_.reason)" }) + @($st.project.problems | Select-Object -First 3)
+            return @{ ok = $false; detail = "пак игры устарел ($Configuration; код $code; не актуальны $($stale.Count) из $($assets.Count)): $($why -join '; ') — $hint" }
+        }
+        @{ ok = $true; detail = "Content.swpak актуален ($Configuration): ассетов $($assets.Count), $([Math]::Round((Get-Item $pak).Length / 1MB)) МБ" }
+    }
 }
 
 Add-Step 'test' {
@@ -835,7 +871,7 @@ Add-Step 'replay-smoke' {
 }
 
 if ($SkipReference) {
-    $steps.Add([ordered]@{ name = 'features'; ok = $true; seconds = 0; detail = 'пропущено (-SkipReference): сценарии фич — на эталонном паке' })
+    $steps.Add([ordered]@{ name = 'features'; ok = $true; seconds = 0; detail = 'пропущено (-SkipReference): сценарии фич — на паке игры' })
     if (-not $Json) { Write-Host 'SKIP features                     пропущено (-SkipReference)' }
 }
 else {

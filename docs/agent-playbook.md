@@ -483,7 +483,7 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    ~9 с. Ход выпечки (корень, пальцы, FK, «записано / без изменений», слои текстур) — лог `build` текстом. Правка кода выпечки
    клипа — поднять `AnimImport.ToolVersion`, иначе клипы не перепекутся.
 3. `sword-bake pak --verify` (код 2 — нарушена целостность), `which ПУТЬ` (кто пишет файл), `list --content`.
-4. Сверка: `sword-bake diff ..\Content.reference.swpak ..\artifacts\bake\Content.swpak --expect reference.expect.json --json` —
+4. Сверка: `sword-bake diff ..\Content.reference.swpak ..\Content.swpak --expect reference.expect.json --json` —
    `summary` (`same`, `sameContent`, `unexpected`), `unexpected[]` (`source` `file`: `path`, `kind` `onlyA`/`onlyB`/`size`/`hash`,
    `detail` сравнителя или «отличаются байтами»; `buildInfo`: ассет и поле `.bake/build.json`), `expectations.unused`; код 0 —
    неожиданных нет, 2 — есть. Сейчас: 34 равны байтами, 1048 клипов — по содержимому (без `SourceHash`), 0 неожиданных.
@@ -492,9 +492,13 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    `tests/Sword.Bake.Game.Tests`), итог — `artifacts/bake/source-check.json`; писатели форматов —
    `dotnet test tests/Sword.Engine.Formats.Tests --filter ReferencePakWriters`; исходники — `sword-bake inspect rawpose DIR --clip ИМЯ`,
    `inspect meshinfo GLB`.
-6. Пак пекарни — только `artifacts/bake/Content.swpak`: `Content.swpak` в корне подменит игре, тестам и реплеям эталонный пак.
-   Игра читает эталонный пак; посмотреть пак пекарни — `SWORD_CONTENT=<путь пака>` у процесса игры (реплеи на эталонном контенте
-   с ним не сверяются). Переключение — решение пользователя.
+6. Пак пекарни — пак игры `Content.swpak` в корне: его читают игра, Headless, тесты Content, сценарии фич и эталоны; хеш
+   контента — без `.bake/`, перевыпечка тех же файлов его не меняет. Нет пака — игра берёт эталонный с предупреждением
+   `content` в журнале (`log.tail`), эталоны отвергаются по хешу; шаг `content` в `verify.ps1` — ошибка с командой выпечки.
+   Рабочее дерево агента — свой пак (`sword-bake build` здесь; ссылка на пак основного дерева для `status` устарела: MVID
+   зависит от пути дерева). Эталонный пак в игре — `SWORD_CONTENT=<путь пака>` (эталоны с ним не сверяются). Перепечённый
+   контент изменил хеш — эталоны перезаписать: `Sword.Headless --replay F --record F` (на другом паке — с предупреждением,
+   хеши сверяются тик в тик; на эталонном паке вместо пака игры — отказ).
 7. Studio глазами (выходы, форма, предпросмотры) — `tools/Sword.Bake.Studio/bin/Debug/net10.0-windows10.0.22000.0/Sword.Bake.Studio.exe
    --project ПРОЕКТ --gallery КАТАЛОГ` (без фокуса; `NN-preview-<обработчик>.png` — предпросмотр каждого обработчика) или
    `--shot ФАЙЛ --select ID --tab 3 --preview-mode N`; в консоль — лог модели. Эталонный пак — только копией (слежение

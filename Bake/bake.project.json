@@ -1,8 +1,8 @@
 {
   "name": "SWORD",
-  "notes": "Проект пекарни SWORD2 (README.md рядом). Манифесты ассетов (какой обработчик из каких исходников что кладёт в пак; папки манифестов повторяют папки пака — characters/, anim/, weapons/, combat/, effects/, ui/, skeletons/), реестр импортов bake.imports.json (происхождение и лицензии), локальные корни bake.user.json и кэш .bake/ (оба вне git). Результат — пак ../artifacts/bake/Content.swpak (вне git); игра читает эталонный ../Content.reference.swpak, переключение на пак пекарни — отдельное решение. Исходники вне репозитория; корни ${src} и ${assets} задаются на каждой машине: sword-bake root ИМЯ ПУТЬ (пишет bake.user.json) или переменная BAKE_ROOT_ИМЯ. Обработчики — плагины tools/Sword.Bake.Engine, затем tools/Sword.Bake.Game (собираются вместе с SWORD.slnx; Game надстроен над Engine и стоит после него).",
+  "notes": "Проект пекарни SWORD2 (README.md рядом). Манифесты ассетов (какой обработчик из каких исходников что кладёт в пак; папки манифестов повторяют папки пака — characters/, anim/, weapons/, combat/, effects/, ui/, skeletons/), реестр импортов bake.imports.json (происхождение и лицензии), локальные корни bake.user.json и кэш .bake/ (оба вне git). Результат — пак игры ../Content.swpak в корне репозитория (вне git): его читают игра, Headless, тесты и реплеи; эталонный ../Content.reference.swpak — основа сверки (bake diff). Исходники вне репозитория; корни ${src} и ${assets} задаются на каждой машине: sword-bake root ИМЯ ПУТЬ (пишет bake.user.json) или переменная BAKE_ROOT_ИМЯ. Обработчики — плагины tools/Sword.Bake.Engine, затем tools/Sword.Bake.Game (собираются вместе с SWORD.slnx; Game надстроен над Engine и стоит после него).",
   "assets": ".",
-  "pak": "../artifacts/bake/Content.swpak",
+  "pak": "../Content.swpak",
   "plugins": [
     "../tools/Sword.Bake.Engine/bin/${config}/Sword.Bake.Engine.dll",
     "../tools/Sword.Bake.Game/bin/${config}/Sword.Bake.Game.dll"

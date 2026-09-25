@@ -42,7 +42,7 @@ dotnet test SWORD.slnx
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 [-Json] [-SkipReference] [-Configuration Release] [-Only шаги]
 ```
 
-`verify.ps1` — сборка, тесты, заготовки запрещённых ссылок, переводы строк, эталонный пак. `-Json` — итог одним
+`verify.ps1` — сборка, пак игры, тесты, заготовки запрещённых ссылок, переводы строк, эталонный пак. `-Json` — итог одним
 JSON-объектом для агентов. Полный прогон — в Debug (проверки мира ECS есть только в Debug); время бюджетов
 проверяется только в Release — там достаточно замеров: `-Configuration Release -Only headless-smoke,app-smoke,features`.
 Замер времени — один прогон; сомнительный результат (провал предела, число у самого предела, противоречие) не
@@ -65,8 +65,15 @@ JSON-объектом для агентов. Полный прогон — в De
 
 ## Пак контента
 
-Контент игры — закреплённый пак `Content.reference.swpak` (вне git, только для чтения). Его целостность —
-`tools/scripts/reference.ps1 -Check` (шаг `reference` в `verify.ps1`); описание — `tests/reference/reference.json`.
+Пак игры — `Content.swpak` в корне (вне git): его печёт пекарня `Bake/` (`sword-bake build` в `Bake/`), читают игра,
+Headless, тесты Content, сценарии фич и эталонные реплеи; есть ли он и актуален ли — шаг `content` в `verify.ps1`.
+Эталонный пак `Content.reference.swpak` (вне git, только для чтения) — основа сверки пекарни (`sword-bake diff`); его
+целостность — `tools/scripts/reference.ps1 -Check` (шаг `reference`), описание — `tests/reference/reference.json`.
+Без `Content.swpak` игра берёт эталонный пак с предупреждением в журнале, а эталоны отвергаются по хешу контента.
+
+Рабочее дерево агента: жёсткая ссылка на эталонный пак, `Bake/bake.user.json` — копия из основного дерева, свой
+`Content.swpak` — `sword-bake build` в `Bake/` (Debug ~31 с). Жёсткая ссылка на `Content.swpak` основного дерева годится
+игре и тестам, но не шагу `content`: MVID сборок зависит от пути дерева, и `status` считает такой пак устаревшим.
 
 ## Точки этапа и приёмка
 
