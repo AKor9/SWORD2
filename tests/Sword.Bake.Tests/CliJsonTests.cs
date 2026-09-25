@@ -141,6 +141,6 @@ public sealed class CliJsonTests : IDisposable
         Assert.Contains("нет проекта пекарни", (string)error["error"]!);
         (exit, stdout, _) = TestPaths.RunCli("--project", _project, "list", "--json");
         Assert.Equal(1, exit);
-        Assert.Contains("только у status и build", (string)Single(stdout)["error"]!);
+        Assert.Contains("только у status, build и diff", (string)Single(stdout)["error"]!);
     }
 }

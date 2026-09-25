@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- sword-bake: консольная пекарня — init, build, status, add, remove, root, list, which, licenses, pak и команды
-       плагинов; status и build с ключом json — итог одним JSON-объектом (ядро — tools/Sword.Bake). -->
+  <!-- sword-bake: консольная пекарня — init, build, status, add, remove, root, list, which, licenses, pak, diff и команды
+       плагинов; status, build и diff с ключом json — итог одним JSON-объектом (ядро — tools/Sword.Bake). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Sword.Bake.Cli</RootNamespace>

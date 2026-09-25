@@ -9,7 +9,7 @@ namespace Sword.Bake.Cli;
 /// <summary>
 /// sword-bake — консольная пекарня: проект Bake (bake.project.json) → пак .swpak.
 ///   [--project ПУТЬ] — каталог проекта или каталог внутри него (по умолчанию — текущий)
-///   [--json] — у status и build: итог одним JSON-объектом одной строкой в stdout (агентский вид, <see cref="CliJson"/>)
+///   [--json] — у status, build и diff: итог одним JSON-объектом одной строкой в stdout (агентский вид, <see cref="CliJson"/>)
 ///   init [КАТАЛОГ] [--name ИМЯ]                    создать проект
 ///   build [шаблоны…] [--force] [-j N]              собрать устаревшие ассеты (с зависимостями) и записать пак
 ///   status [шаблоны…]                              актуальность ассетов и пака
@@ -20,6 +20,7 @@ namespace Sword.Bake.Cli;
 ///   which ПУТЬ…                                    ассет контента по пути в паке или ID: файлы, кто делает, актуален ли
 ///   licenses                                       импорты по лицензиям: коллекции, единицы, файлы лицензий
 ///   pak [--verify] [--extract КАТАЛОГ]             содержимое пака по ассетам; --verify — целостность
+///   diff A B [--expect ФАЙЛ]                       сравнить паки: оглавление, сравнители форматов плагинов, сведения о сборке
 ///   КОМАНДА …                                      команды плагинов проекта (inspect у SWORD)
 /// Шаблон — ID («anim/1hm_sword»), папка («anim»), маска («anim/*_locomotion»), import:ИМЯ, processor:ID
 /// или путь ассета контента («anim/katana» — единицы, которые его пишут).
@@ -28,7 +29,7 @@ internal static class Program
 {
     private static readonly object ConsoleLock = new();
     private static string? _projectArg;
-    /// <summary>Итог — JSON в stdout (<see cref="CliJson"/>): только у status и build.</summary>
+    /// <summary>Итог — JSON в stdout (<see cref="CliJson"/>): только у status, build и diff.</summary>
     private static bool _json;
 
     private static int Main(string[] args)
@@ -48,8 +49,8 @@ internal static class Program
             _json = list.Remove("--json");
             if (list.Count == 0) return Usage(1);
             command = list[0];
-            if (_json && command is not ("status" or "build"))
-                throw new ArgumentException($"--json — только у status и build, не у {command}");
+            if (_json && command is not ("status" or "build" or "diff"))
+                throw new ArgumentException($"--json — только у status, build и diff, не у {command}");
             string[] rest = [.. list.Skip(1)];
             return list[0] switch
             {
@@ -63,6 +64,7 @@ internal static class Program
                 "which" => Which(rest),
                 "licenses" => Licenses(),
                 "pak" => Pak(rest),
+                "diff" => Diff(rest),
                 "help" or "-h" or "--help" => Usage(0),
                 _ => PluginCommand(list[0], rest),
             };
@@ -86,7 +88,7 @@ internal static class Program
         Console.WriteLine("""
             sword-bake — пекарня: исходники ассетов → пак .swpak (проект — bake.project.json)
               --project ПУТЬ                       проект (по умолчанию — ищется от текущего каталога вверх)
-              --json                               у status и build: итог одним JSON-объектом одной строкой (для агентов)
+              --json                               у status, build и diff: итог одним JSON-объектом одной строкой (для агентов)
               init [КАТАЛОГ] [--name ИМЯ]          создать проект
               build [шаблоны…] [--force] [-j N]    собрать устаревшие ассеты с зависимостями и записать пак
               status [шаблоны…]                    актуальность ассетов и пака
@@ -97,6 +99,9 @@ internal static class Program
               which ПУТЬ…                          ассет контента по пути в паке или ID: файлы, кто делает, актуален ли
               licenses                             импорты по лицензиям: коллекции, единицы, файлы лицензий
               pak [--verify] [--extract КАТАЛОГ]   содержимое пака; --verify — целостность; --extract — распаковать
+              diff A B [--expect ФАЙЛ]             сравнить паки: оглавление, сравнители форматов плагинов (в проекте),
+                                                   сведения о сборке семантически; --expect — ожидаемые расхождения;
+                                                   код 0 — неожиданных расхождений нет, 2 — есть
               КОМАНДА …                            команды плагинов проекта (см. list)
             шаблон — ID (anim/1hm_sword), папка (anim), маска (anim/*_locomotion), import:ИМЯ, processor:ID
             или путь ассета контента (anim/katana — единицы, которые его пишут)
@@ -341,6 +346,12 @@ internal static class Program
             foreach (var c in project.Processors.Commands)
                 Console.WriteLine($"  {c.Name,-12} {c.Summary}");
         }
+        if (project.Processors.Comparers.Count > 0)
+        {
+            Console.WriteLine("сравнители форматов (diff):");
+            foreach (var c in project.Processors.Comparers)
+                Console.WriteLine($"  {string.Join(" ", c.Extensions),-12} {c.Title}");
+        }
         Console.WriteLine("ассеты:");
         foreach (var a in project.Assets)
             Console.WriteLine($"  {a.Id,-28} {a.Processor}");
@@ -480,6 +491,95 @@ internal static class Program
         return code;
     }
 
+    /// <summary>
+    /// diff A B [--expect ФАЙЛ]: сравнение паков (<see cref="PakDiff"/>). В проекте (--project или найден от текущего
+    /// каталога) — сравнители форматов его плагинов; вне проекта — только оглавление и байты. Код 0 — неожиданных
+    /// расхождений нет, 2 — есть, 1 — ошибка.
+    /// </summary>
+    private static int Diff(string[] args)
+    {
+        string? expect = null;
+        var paks = new List<string>();
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--expect" && i + 1 < args.Length) expect = args[++i];
+            else if (args[i].StartsWith('-')) throw new ArgumentException($"diff: неизвестный ключ {args[i]}");
+            else paks.Add(args[i]);
+        }
+        if (paks.Count != 2) throw new ArgumentException("diff: нужны два пака — diff A.swpak B.swpak [--expect ФАЙЛ]");
+        foreach (var p in paks)
+            if (!File.Exists(p)) throw new FileNotFoundException($"нет пака {Path.GetFullPath(p)}", p);
+        var project = _projectArg is not null || BakeProject.FindRoot(Directory.GetCurrentDirectory()) is not null ? OpenProject() : null;
+        var expectations = expect is null ? null : DiffExpectations.Load(expect);
+        var report = PakDiff.Compare(paks[0], paks[1], project?.Processors.Comparers ?? [], expectations);
+        int exit = report.Ok ? 0 : 2;
+        if (_json)
+        {
+            WriteJson(CliJson.Diff(report, project, exit));
+            return exit;
+        }
+        PrintDiff(report, project);
+        return exit;
+    }
+
+    private static void PrintDiff(PakDiffReport r, BakeProject? project)
+    {
+        static string Describe(PakSide s) =>
+            $"{s.Path}: файлов {s.Files}, {s.Bytes / 1048576.0:F1} МБ" +
+            (s.BuiltUtc is { } t ? $", собран {t.ToLocalTime():dd.MM.yyyy HH:mm:ss}" : ", сведений о сборке нет") +
+            (s.Project is { Length: > 0 } name ? $", проект {name}" : "");
+        static string Mark(ExpectationRule? rule) => rule is null ? "" : $"  [ожидаемо: {rule.Reason}]";
+
+        Console.WriteLine($"A  {Describe(r.A)}");
+        Console.WriteLine($"B  {Describe(r.B)}");
+        if (project is null) Console.WriteLine("сравнители: нет — вне проекта сравниваются только оглавление и байты");
+        else if (r.Comparers.Count == 0) Console.WriteLine($"сравнители: в плагинах проекта {project.Name} нет — оглавление и байты");
+        else
+            foreach (var c in r.Comparers)
+                Console.WriteLine($"сравнитель {string.Join(" ", c.Extensions)} — {c.Title} ({c.Assembly})");
+        if (r.Expectations is { } e) Console.WriteLine($"ожидаемые расхождения: {e.Source} (правил {e.Rules.Count})");
+
+        foreach (var f in r.Files.Where(f => f.IsDiscrepancy))
+        {
+            string head = f.Kind switch
+            {
+                FileDiffKind.OnlyA => "≠ только в A ",
+                FileDiffKind.OnlyB => "≠ только в B ",
+                FileDiffKind.Size => "≠ размер     ",
+                _ => "≠ хеш        ",
+            };
+            string how = f.Kind is FileDiffKind.OnlyA or FileDiffKind.OnlyB ? "" : ": " + (f.Comparer is null ? f.Detail : $"{f.Comparer}: {f.Detail}");
+            Line(f.Expected is null ? ConsoleColor.Red : ConsoleColor.DarkGray, head, $" {f.Path}{how}{Mark(f.Expected)}");
+        }
+
+        var bi = r.BuildInfo;
+        if (!bi.Compared)
+            Line(ConsoleColor.DarkYellow, "сведения о сборке:", !bi.InA && !bi.InB ? " нет в обоих паках" : bi.InA ? " нет в B" : " нет в A");
+        else if (bi.Differences.Count == 0)
+            Line(ConsoleColor.Green, "сведения о сборке:", $" равны семантически (ассетов {bi.AssetsA} и {bi.AssetsB})");
+        else
+        {
+            Line(ConsoleColor.Yellow, "сведения о сборке:", $" различий {bi.Differences.Count} (ассетов {bi.AssetsA} и {bi.AssetsB})");
+            foreach (var group in bi.Differences.GroupBy(d => (d.Asset, d.Field)))
+            {
+                foreach (var d in group.Take(5))
+                    Line(d.Expected is null ? ConsoleColor.Red : ConsoleColor.DarkGray, $"  ≠ {d.Asset} {d.Field}",
+                        $"{(d.Path is null ? "" : " " + d.Path)}: {d.A ?? "—"} → {d.B ?? "—"}; {d.Detail}{(d.Note is null ? "" : $" ({d.Note})")}{Mark(d.Expected)}");
+                if (group.Count() > 5) Console.WriteLine($"    … ещё {group.Count() - 5}");
+            }
+        }
+
+        Console.WriteLine($"итог: одинаковых {r.Count(FileDiffKind.Same)}, равны по содержимому {r.Count(FileDiffKind.SameContent)}, " +
+                          $"только в A {r.Count(FileDiffKind.OnlyA)}, только в B {r.Count(FileDiffKind.OnlyB)}, другой размер {r.Count(FileDiffKind.Size)}, " +
+                          $"другой хеш {r.Count(FileDiffKind.Hash)}, в сведениях о сборке {bi.Differences.Count}");
+        foreach (var g in r.Files.Where(f => f.Kind == FileDiffKind.SameContent).GroupBy(f => f.Comparer))
+            Console.WriteLine($"  равны по содержимому ({g.Key}): {g.Count()}");
+        Line(r.Ok ? ConsoleColor.Green : ConsoleColor.Red, r.Ok ? "неожиданных расхождений нет" : $"неожиданных расхождений {r.Unexpected}",
+            $", ожидаемых {r.Expected}");
+        foreach (var rule in r.UnusedRules)
+            Line(ConsoleColor.DarkYellow, "ожидание не пригодилось:", $" правило {rule.Index} — {rule}");
+    }
+
     private static int PluginCommand(string name, string[] args)
     {
         BakeProject project;
@@ -489,10 +589,10 @@ internal static class Program
         }
         catch (DirectoryNotFoundException)
         {
-            throw new ArgumentException($"неизвестная команда {name}: init | build | status | add | remove | root | list | which | licenses | pak (команды плагинов — только в проекте)");
+            throw new ArgumentException($"неизвестная команда {name}: init | build | status | add | remove | root | list | which | licenses | pak | diff (команды плагинов — только в проекте)");
         }
         var command = project.Processors.Commands.FirstOrDefault(c => c.Name == name)
-                      ?? throw new ArgumentException($"неизвестная команда {name}: init | build | status | add | remove | root | list | which | licenses | pak" +
+                      ?? throw new ArgumentException($"неизвестная команда {name}: init | build | status | add | remove | root | list | which | licenses | pak | diff" +
                                                      (project.Processors.Commands.Count > 0 ? " | " + string.Join(" | ", project.Processors.Commands.Select(c => c.Name)) : ""));
         return command.Run(args, Console.Out);
     }

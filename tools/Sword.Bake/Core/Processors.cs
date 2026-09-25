@@ -109,11 +109,12 @@ public interface IBakeCommand
     int Run(IReadOnlyList<string> args, TextWriter output);
 }
 
-/// <summary>Обработчики и команды проекта: встроенные и из плагинов.</summary>
+/// <summary>Обработчики, команды и сравнители форматов (<see cref="IContentComparer"/>) проекта: встроенные и из плагинов.</summary>
 public sealed class ProcessorCatalog
 {
     private readonly List<IAssetProcessor> _processors = [];
     private readonly List<IBakeCommand> _commands = [];
+    private readonly List<IContentComparer> _comparers = [];
     private readonly List<string> _errors = [];
 
     /// <summary>Обработчики общего ядра — годятся любому проекту.</summary>
@@ -121,7 +122,9 @@ public sealed class ProcessorCatalog
 
     public IReadOnlyList<IAssetProcessor> Processors => _processors;
     public IReadOnlyList<IBakeCommand> Commands => _commands;
-    /// <summary>Плагины, которые не загрузились, и конфликты ID.</summary>
+    /// <summary>Сравнители форматов для <c>diff</c>: у расширения — один (второй — ошибка в <see cref="Errors"/>).</summary>
+    public IReadOnlyList<IContentComparer> Comparers => _comparers;
+    /// <summary>Плагины, которые не загрузились, и конфликты ID (обработчиков, команд, расширений сравнителей).</summary>
     public IReadOnlyList<string> Errors => _errors;
     /// <summary>Загруженные плагины: путь из проекта → сборка.</summary>
     public IReadOnlyList<(string Path, Assembly Assembly)> Plugins { get; private set; } = [];
@@ -167,8 +170,9 @@ public sealed class ProcessorCatalog
             foreach (var type in types.Where(t => t is { IsClass: true, IsAbstract: false, ContainsGenericParameters: false })
                          .OrderBy(t => t.FullName, StringComparer.Ordinal))
             {
-                bool processor = typeof(IAssetProcessor).IsAssignableFrom(type), command = typeof(IBakeCommand).IsAssignableFrom(type);
-                if (!processor && !command) continue;
+                bool processor = typeof(IAssetProcessor).IsAssignableFrom(type), command = typeof(IBakeCommand).IsAssignableFrom(type),
+                    comparer = typeof(IContentComparer).IsAssignableFrom(type);
+                if (!processor && !command && !comparer) continue;
                 object instance;
                 try
                 {
@@ -189,6 +193,13 @@ public sealed class ProcessorCatalog
                 {
                     if (c._commands.Any(x => x.Name == cmd.Name)) c._errors.Add($"плагин {path}: команда «{cmd.Name}» уже есть");
                     else c._commands.Add(cmd);
+                }
+                if (instance is IContentComparer cmp)
+                {
+                    var taken = c._comparers.SelectMany(x => x.Extensions.Intersect(cmp.Extensions, StringComparer.OrdinalIgnoreCase)).ToList();
+                    if (taken.Count > 0)
+                        c._errors.Add($"плагин {path}: сравнитель для {string.Join(", ", taken)} уже есть — {type.FullName} пропущен");
+                    else c._comparers.Add(cmp);
                 }
             }
         }

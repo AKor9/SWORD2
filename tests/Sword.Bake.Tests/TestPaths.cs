@@ -39,10 +39,17 @@ internal static class TestPaths
     }
 
     /// <summary>Запустить sword-bake: код выхода, stdout и stderr (UTF-8). Не дольше минуты.</summary>
-    public static (int Exit, string Out, string Err) RunCli(params string[] args)
+    public static (int Exit, string Out, string Err) RunCli(params string[] args) => RunCliIn(null, args);
+
+    /// <summary>
+    /// Запустить sword-bake в каталоге <paramref name="workingDirectory"/> (null — текущий каталог тестов): проект без
+    /// --project ищется от него вверх, поэтому «вне проекта» — только во временном каталоге.
+    /// </summary>
+    public static (int Exit, string Out, string Err) RunCliIn(string? workingDirectory, params string[] args)
     {
         var info = new ProcessStartInfo(Cli())
         {
+            WorkingDirectory = workingDirectory ?? "",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,

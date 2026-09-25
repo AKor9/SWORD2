@@ -483,6 +483,11 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 4. Пак пекарни SWORD2 — `artifacts/bake/Content.swpak`, временный проект — во временном каталоге: `Content.swpak` в корне подменит игре
    эталонный пак. Плагины — в `plugins` основа раньше надстройки («Could not load file or assembly» в `project.problems` — порядок).
 5. Писатели форматов против эталона — `dotnet test tests/Sword.Engine.Formats.Tests --filter ReferencePakWriters`.
+6. Два пака: `sword-bake diff A B --json [--expect ФАЙЛ]` — `summary`, `unexpected[]` (что чинить: `source` `file` — путь, `kind`
+   `onlyA`/`onlyB`/`size`/`hash`, `detail` сравнителя или «отличаются байтами»; `buildInfo` — ассет и поле `.bake/build.json`),
+   `expected[]` с правилом, `expectations.unused` (устаревшие ожидания), `comparers[]`; код 0 — неожиданных нет, 2 — есть, 1 — ошибка.
+   Сравнители форматов — из плагинов проекта: запускать в проекте или с `--project`, иначе только оглавление и байты (`project: null`).
+   Файл ожиданий — `{"expected":[{"path"|"asset": маска, "expect": "absent"|"different", "reason": …}]}` (README пекарни).
 
 ## Если что-то не так
 

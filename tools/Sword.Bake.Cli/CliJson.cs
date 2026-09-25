@@ -1,11 +1,12 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Sword.Engine.Content;
 
 namespace Sword.Bake.Cli;
 
 /// <summary>
-/// Итоги <c>status --json</c> и <c>build --json</c> — агентский вид пекарни: один JSON-объект одной строкой в stdout
+/// Итоги <c>status --json</c>, <c>build --json</c> и <c>diff --json</c> — агентский вид пекарни: один JSON-объект одной строкой в stdout
 /// (как <c>Sword.Headless --json</c>), без цветного текста и событий по ходу. Поля — camelCase, кириллица не экранируется.
 /// Ошибка до итога (нет проекта, неверный ключ) — объект <see cref="Error"/> с тем же кодом выхода, что у текста.
 /// </summary>
@@ -143,6 +144,145 @@ internal static class CliJson
             ["pak"] = Pak(project, builder, after),
             ["messages"] = new JsonArray([.. events.Messages.Select(m => (JsonNode)new JsonObject { ["kind"] = m.Kind, ["text"] = m.Text })]),
         };
+    }
+
+    /// <summary>
+    /// Итог <c>diff</c>: паки, проект (null — вне проекта, сравнителей нет), сравнители, файл ожидаемых расхождений с
+    /// непригодившимися правилами; сводка; файлы по видам (одинаковые — только числом); сведения о сборке с расхождениями;
+    /// неожиданные и ожидаемые расхождения — каждое одним списком (<c>expect</c> — вид для правила файла ожиданий).
+    /// </summary>
+    public static JsonObject Diff(PakDiffReport r, BakeProject? project, int exitCode)
+    {
+        var bi = r.BuildInfo;
+        return new JsonObject
+        {
+            ["command"] = "diff",
+            ["ok"] = r.Ok,
+            ["exitCode"] = exitCode,
+            ["a"] = Side(r.A),
+            ["b"] = Side(r.B),
+            ["project"] = project is null ? null : Project(project),
+            ["comparers"] = new JsonArray([.. r.Comparers.Select(c => (JsonNode)new JsonObject
+            {
+                ["title"] = c.Title,
+                ["extensions"] = Strings(c.Extensions),
+                ["assembly"] = c.Assembly,
+            })]),
+            ["expectations"] = r.Expectations is not { } e ? null : new JsonObject
+            {
+                ["file"] = e.Source,
+                ["rules"] = e.Rules.Count,
+                ["unused"] = new JsonArray([.. r.UnusedRules.Select(u => (JsonNode)Rule(u))]),
+            },
+            ["summary"] = new JsonObject
+            {
+                ["same"] = r.Count(FileDiffKind.Same),
+                ["sameContent"] = r.Count(FileDiffKind.SameContent),
+                ["onlyA"] = r.Count(FileDiffKind.OnlyA),
+                ["onlyB"] = r.Count(FileDiffKind.OnlyB),
+                ["size"] = r.Count(FileDiffKind.Size),
+                ["hash"] = r.Count(FileDiffKind.Hash),
+                ["buildInfo"] = bi.Differences.Count,
+                ["expected"] = r.Expected,
+                ["unexpected"] = r.Unexpected,
+            },
+            ["onlyA"] = Files(r, FileDiffKind.OnlyA),
+            ["onlyB"] = Files(r, FileDiffKind.OnlyB),
+            ["size"] = Files(r, FileDiffKind.Size),
+            ["hash"] = Files(r, FileDiffKind.Hash),
+            ["sameContent"] = Files(r, FileDiffKind.SameContent),
+            ["buildInfo"] = new JsonObject
+            {
+                ["inA"] = bi.InA,
+                ["inB"] = bi.InB,
+                ["compared"] = bi.Compared,
+                ["equal"] = bi.Equal,
+                ["assetsA"] = bi.AssetsA,
+                ["assetsB"] = bi.AssetsB,
+                ["how"] = PakDiff.BuildInfoTitle,
+                ["differences"] = new JsonArray([.. bi.Differences.Select(d => (JsonNode)new JsonObject
+                {
+                    ["asset"] = d.Asset,
+                    ["field"] = d.Field,
+                    ["path"] = d.Path,
+                    ["a"] = d.A,
+                    ["b"] = d.B,
+                    ["detail"] = d.Detail,
+                    ["note"] = d.Note,
+                    ["expected"] = d.Expected?.Reason,
+                })]),
+            },
+            ["unexpected"] = Discrepancies(r, expected: false),
+            ["expected"] = Discrepancies(r, expected: true),
+        };
+    }
+
+    private static JsonObject Side(PakSide s) => new()
+    {
+        ["path"] = s.Path,
+        ["files"] = s.Files,
+        ["bytes"] = s.Bytes,
+        ["contentHash"] = s.ContentHash,
+        ["project"] = s.Project,
+        ["builtUtc"] = s.BuiltUtc,
+    };
+
+    private static JsonObject Rule(ExpectationRule rule) => new()
+    {
+        ["rule"] = rule.Index,
+        ["path"] = rule.Path,
+        ["asset"] = rule.Asset,
+        ["expect"] = DiffExpectations.Name(rule.Expect),
+        ["reason"] = rule.Reason,
+    };
+
+    /// <summary>Файлы вида <paramref name="kind"/>: путь, ассет-владелец, размеры и хеши A и B, сравнитель, пояснение, ожидаемо ли.</summary>
+    private static JsonArray Files(PakDiffReport r, FileDiffKind kind) => new([.. r.Files.Where(f => f.Kind == kind).Select(f => (JsonNode)new JsonObject
+    {
+        ["path"] = f.Path,
+        ["owner"] = f.Owner,
+        ["sizeA"] = f.A?.Size,
+        ["sizeB"] = f.B?.Size,
+        ["hashA"] = f.A is { } x ? PakFormat.HashText(x.Hash) : null,
+        ["hashB"] = f.B is { } y ? PakFormat.HashText(y.Hash) : null,
+        ["comparer"] = f.Comparer,
+        ["detail"] = f.Detail,
+        ["expected"] = f.Expected?.Reason,
+    })]);
+
+    /// <summary>Расхождения одним списком: файлы (<c>source: file</c>) и сведения о сборке (<c>source: buildInfo</c>).</summary>
+    private static JsonArray Discrepancies(PakDiffReport r, bool expected)
+    {
+        var list = new JsonArray();
+        foreach (var f in r.Files.Where(f => f.IsDiscrepancy && (f.Expected is not null) == expected))
+        {
+            var o = new JsonObject
+            {
+                ["source"] = "file",
+                ["path"] = f.Path,
+                ["owner"] = f.Owner,
+                ["kind"] = Name(f.Kind),
+                ["expect"] = DiffExpectations.Name(f.ExpectKind),
+                ["detail"] = f.Detail,
+            };
+            if (f.Expected is { } rule) o["rule"] = Rule(rule);
+            list.Add(o);
+        }
+        foreach (var d in r.BuildInfo.Differences.Where(d => (d.Expected is not null) == expected))
+        {
+            var o = new JsonObject
+            {
+                ["source"] = "buildInfo",
+                ["asset"] = d.Asset,
+                ["field"] = d.Field,
+                ["path"] = d.Path,
+                ["expect"] = DiffExpectations.Name(d.ExpectKind),
+                ["detail"] = d.Detail,
+            };
+            if (d.Expected is { } rule) o["rule"] = Rule(rule);
+            list.Add(o);
+        }
+        return list;
     }
 
     private static JsonArray Strings(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode)i)]);
