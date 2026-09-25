@@ -6,8 +6,8 @@ namespace Sword.Engine.Physics;
 // мира (PhysicsTrace.cs) и толчки (KinematicContacts.cs). Накопители — PhysicsTrace.Stats.cs.
 public sealed partial class PhysicsTrace
 {
-    /// <summary>Источников поправок (<see cref="PhysicsSource"/>).</summary>
-    public const int SourceCount = 7;
+    /// <summary>Источников поправок (<see cref="PhysicsSource"/>; 7з-4 — и самоколлизия).</summary>
+    public const int SourceCount = 8;
 
     /// <summary>Фаз подшага (<see cref="PhysicsPhase"/>, 7з-2).</summary>
     public const int PhaseCount = 8;

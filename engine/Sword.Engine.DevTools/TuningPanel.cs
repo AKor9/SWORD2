@@ -24,6 +24,13 @@ public sealed class TuningPanel : IClientPanel
     /// <summary>Ширина панели, логические пиксели (SWORD).</summary>
     public const float Width = 340;
 
+    /// <summary>
+    /// Ширина поля числа строки ручки, логические пиксели (SWORD): текст — в <c>ValueWidth − 2·UiContext.FieldPadding</c> (44 px). Формат ручки
+    /// должен вмещать в него значение по умолчанию и пределы (7з-4: «0.000002» обрезалось до «0.0000» — у малых значений формат с порядком,
+    /// <c>0.#e-0</c>).
+    /// </summary>
+    public const float ValueWidth = 58;
+
     private const float Margin = 8, RowHeight = 24, HeaderHeight = 22, TabsHeight = 24, FooterHeight = 26, StatusHeight = 18;
 
     /// <summary>Длина текста строки состояния (<see cref="TuningText"/>), символов.</summary>
@@ -186,7 +193,7 @@ public sealed class TuningPanel : IClientPanel
             case TuningFloat f:
             {
                 var label = row.SplitLeft(row.Width * 0.42f, out var rest);
-                var value = rest.SplitRight(58 * s, out var slider);
+                var value = rest.SplitRight(ValueWidth * s, out var slider);
                 float current = f.Get();
                 ui.Label(label, f.Label, current != f.Default ? t.Text : t.TextDim, UiAlign.Left, UiFace.Body, t.SmallFontSize);
                 ui.PushId(f.Key.Length > 0 ? f.Key : f.Label);

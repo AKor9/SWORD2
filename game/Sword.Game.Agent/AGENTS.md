@@ -28,6 +28,10 @@
 7з-3 (сон трупа): поля `Body.Asleep` (1/0) и `Body.RestTime` (с) — в `CorpseFields`; `physics.bodies` — `asleep`, `restTime`; трасса — `sleep`
 (`sleeps`, `asleepMax`, `contacts`, `wakes`, `wakesBy` по причинам). Тесты — `RagdollSleepTests`, `CorpseAgentTests`.
 
+7з-4 (самоколлизия): поле `Body.SelfDepth` (самая глубокая пара частей в своём теле, м) — в `CorpseFields` по виду `IPhysicsDebugView.Self`;
+`physics.bodies` — `self` (`PhysicsDebugJson.Self`: пар, действуют ли, толщина, пересекшихся, самая глубокая); источник трассы `self`. Тест —
+`CorpseSelfContactsTests`.
+
 - Имя — подсказка, не идентичность: в ответах сущность всегда и номером.
 - Исполняется в точке обслуживания: только чтение мира. Данные вне ECS — только через виды только для чтения
   (`IAnimationView`, `IBodyView`, `ICombatView`), не через ресурсы-классы симуляции (ресурсы-значения ECS, например

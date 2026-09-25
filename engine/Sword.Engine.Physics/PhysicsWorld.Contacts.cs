@@ -184,6 +184,7 @@ public sealed partial class PhysicsWorld
         if (_contactsVelocity.Length < velocity) Array.Resize(ref _contactsVelocity, velocity);
         StepGrow(articulations, bodies);
         SleepGrow(articulations);
+        SelfGrow(articulations);
     }
 
     partial void ContactsReset(int articulation)
@@ -192,6 +193,7 @@ public sealed partial class PhysicsWorld
         _contactsSimulated[articulation] = 0;
         StepReset(articulation);
         SleepReset(articulation);
+        SelfReset(articulation);
     }
 
     /// <summary>
@@ -406,7 +408,8 @@ public sealed partial class PhysicsWorld
 
     /// <summary>
     /// Пары сочленений из отсева подшага (<c>i &lt; j</c> по слотам): внутри пары — тела по порядку, пары тел без тела на физике — пропуск до
-    /// <c>SegSeg</c>; своих тел сочленения не сталкивает. После нормалей всех пар — трение покоя пар (7з-2).
+    /// <c>SegSeg</c>. Затем самоколлизия (7з-4: пары своих тел сочленения из его таблицы, <see cref="SelfPairs"/>). После нормалей всех пар — трение
+    /// покоя пар (7з-2; и у самоколлизии — бюджет тела общий).
     /// </summary>
     private void ContactsPairs(float h)
     {
@@ -418,6 +421,9 @@ public sealed partial class PhysicsWorld
             var (i, j) = _contactsArtPairs[k];
             ContactsArticulationPair(i, j, h);
         }
+        _profiler.Begin(_zoneSelf);
+        SelfPairs(h);
+        _profiler.End(_zoneSelf);
         if (_contactsPairFriction > 0 && _contactsVelocityCount > first) ContactsPairFriction(first, h);
     }
 
@@ -519,7 +525,7 @@ public sealed partial class PhysicsWorld
         }
     }
 
-    /// <summary>Контакт подшага из прохода пар: пара тел на физике или (7з-3) тело на спящем (мир с источником «пара»); земля и стена — нет.</summary>
+    /// <summary>Контакт подшага из прохода пар: пара тел на физике (и самоколлизия, 7з-4) или (7з-3) тело на спящем (мир с источником «пара»); земля и стена — нет.</summary>
     private static bool ContactsPairEntry(in ContactsVelocityEntry e) => e.Other >= 0 || e.Source == PhysicsSource.Pair;
 
     /// <summary>Трение покоя тела о спящее (7з-3) — как о землю: точка спящего неподвижна; бюджет — общий с парами тела.</summary>
@@ -637,7 +643,7 @@ public sealed partial class PhysicsWorld
         bool sa = qa.Simulated, sb = qb.Simulated;
         if (sa && sb)
         {
-            ContactsSimulatedPair(ia, ib, pa, pb, n, pen, h);
+            ContactsSimulatedPair(ia, ib, pa, pb, n, pen, h, PhysicsSource.Pair, 1);
             return;
         }
         // 7з-3: спящее тело — неподвижная опора неспящему телу на физике (кинематическое ↔ спящее сюда не доходит: отсев)
@@ -656,12 +662,16 @@ public sealed partial class PhysicsWorld
         else PushKinematic(ia, ib, pa, pb, -n, pen, h);
     }
 
-    /// <summary>Два тела на физике, легшие друг в друга, расходятся не быстрее скорости выталкивания (сверх встречного движения).</summary>
-    private void ContactsSimulatedPair(int ia, int ib, Vector3 pa, Vector3 pb, Vector3 n, float pen, float h)
+    /// <summary>
+    /// Два тела на физике, легшие друг в друга, расходятся не быстрее скорости выталкивания (сверх встречного движения). Источник — пара
+    /// сочленений (<see cref="PhysicsSource.Pair"/>, радиусы как есть) или самоколлизия (7з-4: <see cref="PhysicsSource.Self"/>, радиусы ×
+    /// <paramref name="scale"/> — и в старой глубине).
+    /// </summary>
+    private void ContactsSimulatedPair(int ia, int ib, Vector3 pa, Vector3 pb, Vector3 n, float pen, float h, PhysicsSource source, float scale)
     {
         ref var a = ref _bodies[ia];
         ref var b = ref _bodies[ib];
-        float pen0 = ContactsPrevOverlap(in a, in b);
+        float pen0 = ContactsPrevOverlap(in a, in b, scale);
         float solved = ContactsSolvedDepth(pen, pen0, _contactsPopSpeed, h);
         Vector3 la = a.ToLocal(pa), lb = b.ToLocal(pb);   // материальные точки — до выталкивания
         ContactsPoseBeforePair(ia);
@@ -674,16 +684,16 @@ public sealed partial class PhysicsWorld
         float lambda = Xpbd.Contact(ref a, pa, ref b, pb, n, -solved, _contactsCompliance, h);
         if (lambda > 0)
         {
-            ContactsAddVelocity(ia, la, ib, lb, n, _contactsPairFriction * lambda / h, lambda, PhysicsSource.Pair);
+            ContactsAddVelocity(ia, la, ib, lb, n, _contactsPairFriction * lambda / h, lambda, source);
             ContactsProbeOf(ia);   // поправка сдвинула и повернула тела — щупы пар дальше по подшагу — нынешние
             ContactsProbeOf(ib);
             ContactsPress(ia);
             ContactsPress(ib);
         }
         if (_trace is null) return;
-        TraceContact(PhysicsSource.Pair, ia, ib, pa, n, pen, solved);
-        TraceEnd(ia, PhysicsSource.Pair, h);
-        TraceEnd(ib, PhysicsSource.Pair, h);
+        TraceContact(source, ia, ib, pa, n, pen, solved);
+        TraceEnd(ia, source, h);
+        TraceEnd(ib, source, h);
     }
 
     /// <summary>
@@ -733,11 +743,11 @@ public sealed partial class PhysicsWorld
         return Segments.SegSeg(pa - ea, pa + ea, pb - eb, pb + eb, out ca, out cb);
     }
 
-    /// <summary>Глубина пары капсул в прошлых позах (начало подшага), м; нет пересечения — 0.</summary>
-    private static float ContactsPrevOverlap(in BodyState a, in BodyState b)
+    /// <summary>Глубина пары капсул в прошлых позах (начало подшага), м (радиусы × <paramref name="scale"/> — самоколлизия, 7з-4); нет пересечения — 0.</summary>
+    private static float ContactsPrevOverlap(in BodyState a, in BodyState b, float scale = 1)
     {
         float d2 = ContactsClosest(a.PrevPosition, a.PrevRotation, a.HalfLength, b.PrevPosition, b.PrevRotation, b.HalfLength, out _, out _);
-        return MathF.Max(0, a.Radius + b.Radius - MathF.Sqrt(d2));
+        return MathF.Max(0, (a.Radius + b.Radius) * scale - MathF.Sqrt(d2));
     }
 
     /// <summary>

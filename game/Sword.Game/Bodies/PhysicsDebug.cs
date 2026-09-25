@@ -76,6 +76,16 @@ public sealed class PhysicsDebugView(IPhysicsWorld physics) : IPhysicsDebugView
             physics.Binding(a, joint).ParentAnchor, m.PointError, m.Bend, m.Swing, m.Twist, m.Excess);
     }
 
+    public PhysicsSelfView Self(BodyRef body)
+    {
+        var a = FighterBodies.Handle(body);
+        if (!physics.IsAlive(a)) return new PhysicsSelfView(0, false, 0, 0, -1, -1, 0);
+        // только действующие пары (оба тела на физике): у живого, бывшего трупом, таблица есть, но капсулы стойки внахлёст — не «часть в теле»
+        var r = Ragdoll.SelfOverlap.Deepest(physics, a, 1, simulatedOnly: true);
+        bool active = r.Pairs > 0 && physics.Get(physics.Body(a, 0)).Mode == BodyMode.Simulated;
+        return new PhysicsSelfView(r.Pairs, active, physics.Settings.SelfContactScale, r.Touching, r.A, r.B, r.Depth);
+    }
+
     public bool TraceOn => physics.Trace is not null;
 
     public float TraceEventSpeed => physics.Trace?.EventSpeed ?? 0;

@@ -25,8 +25,23 @@ public sealed record RagdollSettings
     /// </summary>
     public float PopSpeed { get; init; } = 1f;
 
-    /// <summary>Податливость пределов наклона-скручивания суставов трупа, рад/(Н·м) (<see cref="PhysicsSettings.JointLimitCompliance"/>).</summary>
-    public float JointCompliance { get; init; } = 2e-4f;
+    /// <summary>
+    /// Податливость пределов наклона-скручивания суставов трупа, рад/(Н·м) (<see cref="PhysicsSettings.JointLimitCompliance"/>). 7з-4: 2e-6 —
+    /// значение пользователя (проверка в игре 2026-09-25: при 2e-4 «тела очень мягкие, руки быстро обмякают»); у физики по умолчанию — 2e-4.
+    /// </summary>
+    public float JointCompliance { get; init; } = 2e-6f;
+
+    /// <summary>
+    /// Трение суставов трупа, 1/с (7з-4; <see cref="PhysicsSettings.JointFriction"/>): вязкость — относительная угловая скорость частей в
+    /// суставе гаснет примерно в <c>e</c> раз за <c>1/k</c> с. 0 — трения нет.
+    /// </summary>
+    public float JointFriction { get; init; } = 0f;
+
+    /// <summary>
+    /// Самоколлизия трупа (7з-4; <see cref="PhysicsSettings.SelfContactScale"/>): толщина частей трупа в столкновениях между собой — доля радиуса
+    /// капсулы; 1 — капсулы, 0 — части проходят друг сквозь друга (как до 7з-4).
+    /// </summary>
+    public float SelfCollision { get; init; } = 1f;
 
     /// <summary>Потолки скоростей тел трупа (профиль трупа): м/с и рад/с.</summary>
     public float CorpseMaxSpeed { get; init; } = 15f;
@@ -94,6 +109,9 @@ public struct RagdollRules
     /// <summary>Податливость пределов наклона-скручивания, рад/(Н·м).</summary>
     public float JointCompliance;
 
+    /// <summary>Трение суставов, 1/с, и толщина частей в самоколлизии — доля радиуса капсулы (7з-4).</summary>
+    public float JointFriction, SelfCollision;
+
     /// <summary>Потолки скоростей тел трупа, м/с и рад/с.</summary>
     public float CorpseMaxSpeed, CorpseMaxAngularSpeed;
 
@@ -127,6 +145,8 @@ public struct RagdollRules
             PushForce = Check(s.PushForce, "pushForce", false),
             PopSpeed = Check(s.PopSpeed, "popSpeed", false),
             JointCompliance = Check(s.JointCompliance, "jointCompliance", false),
+            JointFriction = Check(s.JointFriction, "jointFriction", false),
+            SelfCollision = Check(s.SelfCollision, "selfCollision", false),
             CorpseMaxSpeed = Check(s.CorpseMaxSpeed, "corpseMaxSpeed", true),
             CorpseMaxAngularSpeed = Check(s.CorpseMaxAngularSpeed, "corpseMaxAngularSpeed", true),
             DeathMaxSpeed = Check(s.DeathMaxSpeed, "deathMaxSpeed", false),
@@ -144,12 +164,13 @@ public struct RagdollRules
 
     /// <summary>
     /// Настройки физики по правилам: трение о землю и между трупами, бюджет толчка, выталкивание, податливость пределов, сведение разрыва
-    /// сустава, сон (7з-3); прочее — из <paramref name="baseline"/>.
+    /// сустава, сон (7з-3), трение суставов и самоколлизия (7з-4); прочее — из <paramref name="baseline"/>.
     /// </summary>
     public readonly PhysicsSettings Physics(PhysicsSettings baseline) => baseline with
     {
         StaticFriction = Friction, PushForce = PushForce, PopSpeed = PopSpeed, JointLimitCompliance = JointCompliance,
         JointPopSpeed = JointPopSpeed, PairFriction = PairFriction, SleepSpeed = SleepSpeed, SleepBodySpeed = SleepBodySpeed, SleepTime = SleepTime,
+        JointFriction = JointFriction, SelfContactScale = SelfCollision,
     };
 
     /// <summary>Профиль динамики трупа: потолки скоростей трупа, остальное — профиль по умолчанию (гравитация, демпфирование, трение).</summary>
@@ -158,7 +179,8 @@ public struct RagdollRules
 
 /// <summary>
 /// Ручки «Рэгдолл» (7з; механизм 6е — как «Бой»; 7к — отдача: доли врагу и игроку, предел; 7з-3 — сведение разрыва сустава и трение между
-/// трупами 7з-2, сон трупа: пороги трупа и части, время): поля <see cref="RagdollRules"/> — ресурса мира из секции конфига <c>ragdoll</c>.
+/// трупами 7з-2, сон трупа: пороги трупа и части, время; 7з-4 — трение суставов и самоколлизия): поля <see cref="RagdollRules"/> — ресурса
+/// мира из секции конфига <c>ragdoll</c>.
 /// Изменение на ходу — команда ручки (система <c>tuning.ragdoll</c> в Begin), в реплее; замену настроек физики и профиля трупа делает
 /// <see cref="RagdollRulesChangeSystem"/> (Intent) — до шага физики того же тика. Группа F3 «Рэгдолл» — клиент (7и).
 /// </summary>
@@ -172,7 +194,7 @@ public static class RagdollKnobs
         DeathMaxSpeed = "ragdoll.deathMaxSpeed", DeathMaxAngularSpeed = "ragdoll.deathMaxAngularSpeed", EnemyRecoil = "ragdoll.enemyRecoil",
         PlayerRecoil = "ragdoll.playerRecoil", RecoilMaxSpeed = "ragdoll.recoilMaxSpeed", JointPopSpeed = "ragdoll.jointPopSpeed",
         PairFriction = "ragdoll.pairFriction", SleepSpeed = "ragdoll.sleepSpeed", SleepBodySpeed = "ragdoll.sleepBodySpeed",
-        SleepTime = "ragdoll.sleepTime";
+        SleepTime = "ragdoll.sleepTime", JointFriction = "ragdoll.jointFriction", SelfCollision = "ragdoll.selfCollision";
 
     public static void Register(SimulationBuilder b, IPhysicsWorld physics, int corpseProfile)
     {
@@ -186,8 +208,14 @@ public static class RagdollKnobs
                 0.1f, 10, d.PopSpeed, log: true, format: "0.00",
                 hint: "м/с: так быстро уходит застарелая глубина — конечность в земле в позе смерти, трупы внахлёст")
             .Float("jointCompliance", "мягкость суставов", (in RagdollRules r) => r.JointCompliance, (ref RagdollRules r, float v) => r.JointCompliance = v,
-                1e-6f, 1e-2f, d.JointCompliance, log: true, format: "0.000000",
-                hint: "податливость пределов наклона и скручивания, рад/(Н·м): больше — суставы трупа мягче заходят за предел")
+                1e-8f, 1e-2f, d.JointCompliance, log: true, format: "0.#e-0",
+                hint: "податливость пределов наклона и скручивания, рад/(Н·м) (2e-6 = 0.000002): больше — суставы трупа мягче заходят за предел (руки обмякают); меньше — жёстче")
+            .Float("jointFriction", "трение суставов", (in RagdollRules r) => r.JointFriction, (ref RagdollRules r, float v) => r.JointFriction = v,
+                0, 30, d.JointFriction, format: "0.0",
+                hint: "1/с: вязкость суставов трупа — больше: части вращаются относительно друг друга медленнее, труп оседает, а не падает плетью; 0 — без трения")
+            .Float("selfCollision", "самоколлизия", (in RagdollRules r) => r.SelfCollision, (ref RagdollRules r, float v) => r.SelfCollision = v,
+                0, 1.5f, d.SelfCollision, format: "0.00",
+                hint: "толщина частей трупа в столкновениях между собой (доля радиуса капсулы): 1 — капсулы F7; 0 — руки и ноги проходят сквозь тело; больше 1 — толще, но у стоящего бёдра уже касаются — труп при смерти распирает")
             .Float("corpseMaxSpeed", "потолок скорости трупа", (in RagdollRules r) => r.CorpseMaxSpeed, (ref RagdollRules r, float v) => r.CorpseMaxSpeed = v,
                 1, 40, d.CorpseMaxSpeed, format: "0.0", hint: "м/с: быстрее тело трупа не движется (страховка от взрыва решателя)")
             .Float("corpseMaxAngularSpeed", "потолок вращения трупа", (in RagdollRules r) => r.CorpseMaxAngularSpeed,

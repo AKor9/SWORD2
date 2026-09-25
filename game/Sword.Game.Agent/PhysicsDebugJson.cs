@@ -22,7 +22,7 @@ public static class PhysicsDebugJson
     public const int MaxEvents = 64;
 
     /// <summary>Имена источников в ответе (<see cref="PhysicsContactSource"/> по номеру).</summary>
-    public static readonly string[] SourceNames = ["joints", "ground", "wall", "pair", "pushBody", "pushPass", "pushNoReaction"];
+    public static readonly string[] SourceNames = ["joints", "ground", "wall", "pair", "pushBody", "pushPass", "pushNoReaction", "self"];
 
     /// <summary>
     /// Суставы тела бойца (7и): у живого суставов обычно нет (тела ставит поза), у трупа на физике — таблица суставов игры. Пусто — null.
@@ -54,6 +54,25 @@ public static class PhysicsDebugJson
             ["note"] = "замер в позе тика: pointError — расстояние точек сустава на ребёнке и родителе, м; bend (шарнир), swing, twist — рад; " +
                 "excess — наибольший выход за предел, рад (0 — в пределах); выключенный сустав — запястье трупа (меч выпал)",
             ["list"] = list,
+        };
+    }
+
+    /// <summary>
+    /// Самоколлизия тела (7з-4): пар в таблице, действуют ли (труп), толщина частей, в позе тика — пересекшихся пар и самая глубокая (капсулы как
+    /// F7). Вида нет или пар нет — null.
+    /// </summary>
+    public static JsonObject? Self(WorldReader world, BodyRef body)
+    {
+        if (!world.TryView<IPhysicsDebugView>(out var debug)) return null;
+        var s = debug.Self(body);
+        if (s.Pairs == 0) return null;
+        return new JsonObject
+        {
+            ["pairs"] = s.Pairs, ["active"] = s.Active, ["scale"] = Round(s.Scale), ["touching"] = s.Touching,
+            ["deepest"] = s.DeepestA < 0 ? null : new JsonObject { ["a"] = Segment(s.DeepestA), ["b"] = Segment(s.DeepestB), ["depth"] = Round(s.Depth) },
+            ["note"] = "самоколлизия трупа: пары частей одного тела, которые сталкиваются (все, кроме связанных суставом и торса с бёдрами); active — " +
+                "действуют (труп на физике); scale — толщина частей (ручка ragdoll.selfCollision, 0 — выключена); touching и deepest — в позе тика по " +
+                "капсулам F7 среди действующих пар: сколько пересеклось и самая глубокая, м (у лежащего трупа — миллиметры: части касаются друг друга; у живого — 0)",
         };
     }
 

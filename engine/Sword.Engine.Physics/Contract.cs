@@ -164,7 +164,8 @@ public readonly record struct PassState(int Strike, int Number, bool Inside, flo
 
 /// <summary>
 /// Источник поправки для трассы физики (7д): суставы, земля, стена и колонны, тело ↔ тело на физике, толчки кинематических
-/// тел по <see cref="KinematicSource"/> (<c>PushBody + (int)source</c>).
+/// тел по <see cref="KinematicSource"/> (<c>PushBody + (int)source</c>), 7з-4 — тело ↔ тело своего сочленения (самоколлизия,
+/// <see cref="IPhysicsWorld.SetSelfContacts"/>).
 /// </summary>
 public enum PhysicsSource : byte
 {
@@ -175,7 +176,14 @@ public enum PhysicsSource : byte
     PushBody = 4,
     PushPass = 5,
     PushNoReaction = 6,
+    Self = 7,
 }
+
+/// <summary>
+/// Пара тел одного сочленения для самоколлизии (7з-4, <see cref="IPhysicsWorld.SetSelfContacts"/>): номера тел в сочленении
+/// (0 … тел − 1), разные.
+/// </summary>
+public readonly record struct BodyPair(int A, int B);
 
 /// <summary>
 /// Фаза подшага (7з-2) — для трассы физики: рост энергии сочленения по фазам показывает, где энергия появляется (суставы сводят разрыв,

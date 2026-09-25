@@ -61,6 +61,36 @@ public sealed class CorpseJoints
     public static readonly HingeLimits Elbow = new(0, 2.6f, 0.05f);
     public static readonly HingeLimits Knee = new(0, 2.5f, 0.2f);
 
+    /// <summary>
+    /// Пары самоколлизии трупа (7з-4; <see cref="IPhysicsWorld.SetSelfContacts"/>) — таблица игры: все пары 14 тел, кроме (1) связанных суставом
+    /// (родитель ↔ ребёнок — 13 пар; и запястье: клинок начинается у кисти, в предплечье — всегда внахлёст) и (2) торса с бёдрами: капсулы
+    /// стоят внахлёст в любой позе живого (замер 7з-4 на паке — толпа «Боя», 14,6 тыс. поз: 100 % поз, до 20 см), их складку держит предел
+    /// бедра. Прочие соседи через сустав — плечи между собой, голова и плечи, таз и плечи, бёдра между собой, таз и голени — в позах живого
+    /// почти не касаются (≤ 0,2 % поз), поэтому сталкиваются: руки, ноги, голова и клинок не проходят сквозь торс, таз и друг друга. Порядок —
+    /// по номерам тел (<c>(a, b)</c>, a &lt; b). 76 пар.
+    /// </summary>
+    public static ReadOnlySpan<BodyPair> SelfPairs => SelfPairTable;
+
+    private static readonly BodyPair[] SelfPairTable = BuildSelfPairs();
+
+    /// <summary>Пара тел трупа сталкивается (7з-4): не связаны суставом и не торс с бедром.</summary>
+    public static bool Collides(int a, int b)
+    {
+        if (a == b) return false;
+        if (a > b) (a, b) = (b, a);
+        if (a != BodySegs.Pelvis && Parent(a) == b || b != BodySegs.Pelvis && Parent(b) == a) return false;
+        return !(a == BodySegs.Torso && b is BodySegs.ThighL or BodySegs.ThighR);
+    }
+
+    private static BodyPair[] BuildSelfPairs()
+    {
+        var pairs = new List<BodyPair>();
+        for (int a = 0; a < BodySegs.Bodies; a++)
+            for (int b = a + 1; b < BodySegs.Bodies; b++)
+                if (Collides(a, b)) pairs.Add(new BodyPair(BodySegs.Body(a), BodySegs.Body(b)));
+        return [.. pairs];
+    }
+
     private readonly Anatomy _anatomy;
 
     public CorpseJoints(Anatomy anatomy) => _anatomy = anatomy;

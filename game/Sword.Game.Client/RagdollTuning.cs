@@ -7,7 +7,7 @@ namespace Sword.Game.Client;
 /// <summary>
 /// Вкладка «Рэгдолл» панели ручек F3 (7и, часть 2; механизм 6е — как <see cref="CombatTuning"/>): все ручки симуляции секции
 /// <c>ragdoll</c> (<see cref="RagdollKnobs"/>: восемь 7з, три отдачи живому 7к, сведение разрыва сустава и трение между трупами 7з-2, три сна
-/// 7з-3; подписи, подсказки, пределы и значения по умолчанию — из их регистрации) через привязку
+/// 7з-3, трение суставов и самоколлизия 7з-4; подписи, подсказки, пределы и значения по умолчанию — из их регистрации) через привязку
 /// клиента (<see cref="TuningBinding"/>: значение — ожидающее или мира, изменение — команда ручки на ближайший тик, в реплее; замену настроек
 /// физики и профиля трупа делает симуляция в том же тике) и строки трупов кадра (<see cref="ArenaView.CorpseStats"/>): сколько трупов и в
 /// покое, тел на физике и на земле, быстрейшее тело — видно, как ручка меняет падение и покой. Ключи группы — ключи секции
@@ -34,6 +34,8 @@ public static class RagdollTuning
         tuning.Add(g, RagdollKnobs.PairFriction);
         tuning.Add(g, RagdollKnobs.PopSpeed);
         tuning.Add(g, RagdollKnobs.JointCompliance);
+        tuning.Add(g, RagdollKnobs.JointFriction);
+        tuning.Add(g, RagdollKnobs.SelfCollision);
         tuning.Add(g, RagdollKnobs.JointPopSpeed);
         g.Header("СОН ТРУПА");
         tuning.Add(g, RagdollKnobs.SleepSpeed);

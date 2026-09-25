@@ -101,6 +101,21 @@ public sealed record PhysicsSettings
     /// </summary>
     public float SleepTime { get; init; } = float.PositiveInfinity;
 
+    /// <summary>
+    /// Трение суставов, 1/с (7з-4): вязкость — в расслаблении подшага относительная угловая скорость ребёнка и родителя каждого включённого
+    /// сустава гасится на долю <c>k·h / (1 + k·h)</c> (неявный Эйлер: за секунду — примерно в <c>e^k</c> раз) парой противоположных угловых
+    /// импульсов в метрике масс — энергии не добавляет, момент импульса пары сохраняет. Часть вращается относительно родителя медленнее и
+    /// не «падает плетью». 0 — трения нет (по умолчанию: поведение до 7з-4). Читает 7в (расслабление). Своя, не SWORD.
+    /// </summary>
+    public float JointFriction { get; init; } = 0;
+
+    /// <summary>
+    /// Толщина частей в самоколлизии (7з-4): радиусы капсул пар <see cref="IPhysicsWorld.SetSelfContacts"/> × это; 1 — капсулы как есть, 0 —
+    /// самоколлизии нет (пары пропускаются), больше 1 — толще (ближе к мешу). Контакты с миром, трупами и живыми — по настоящим радиусам.
+    /// Читает 7г (проход пар). Своя, не SWORD.
+    /// </summary>
+    public float SelfContactScale { get; init; } = 1;
+
     /// <summary>Сон включён: время конечно, пороги больше 0.</summary>
     public bool SleepEnabled => SleepTime < float.PositiveInfinity && SleepSpeed > 0 && SleepBodySpeed > 0;
 
@@ -119,6 +134,8 @@ public sealed record PhysicsSettings
         if (!NonNegative(PushForce)) return "бюджет толчка — конечный, не меньше 0";
         if (!NonNegative(PassShare) || !NonNegative(HitDvShare)) return "доли прохода и Δv удара — конечные, не меньше 0";
         if (!NonNegative(KinematicPointSpeedMax)) return "потолок скорости кинематической точки — конечный, не меньше 0";
+        if (!NonNegative(JointFriction)) return "трение суставов — конечное, не меньше 0";
+        if (!NonNegative(SelfContactScale)) return "толщина частей в самоколлизии — конечная, не меньше 0 (0 — самоколлизии нет)";
         return null;
     }
 

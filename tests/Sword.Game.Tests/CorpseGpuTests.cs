@@ -71,7 +71,8 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
     [Fact]
     public void CorpseSkin_IdBufferAndOverlays_TraceByKey()
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=3", "combat.enemiesAttack=false"), CharacterAssets.LoadFromPak());
+        // 7з-4: сон — позже (10 с): контакты последнего подшага рисует только неспящий труп, а жёсткий труп с самоколлизией засыпает до тика 300
+        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=3", "combat.enemiesAttack=false", "ragdoll.sleepTime=10"), CharacterAssets.LoadFromPak());
         var pending = new List<SceneCommand>();
         var clock = new SimulationClock(sim, (link, _) =>
         {

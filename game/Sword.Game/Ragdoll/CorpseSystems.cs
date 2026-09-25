@@ -16,7 +16,8 @@ namespace Sword.Game.Ragdoll;
 /// Труп на физике (7з): переход тела бойца в труп и обратно — функции над телом в подсистеме Physics (идеи — <c>CaptureAndSettle</c>,
 /// <c>TameDetached</c>, <c>ToRagdoll</c>, <c>Build</c> SWORD 2eab13b; research-arena-tick §3). Живой — все 14 тел кинематические, профиль
 /// по умолчанию, суставы (если были) включены; труп — все 14 тел на физике, профиль трупа, суставы привязаны по позе смерти, запястье
-/// выключено (меч выпал).
+/// выключено (меч выпал), самоколлизия — пары <see cref="CorpseJoints.SelfPairs"/> (7з-4; у живого они есть, если он уже был трупом, но
+/// не действуют: тела кинематические).
 /// </summary>
 public static class Corpse
 {
@@ -29,8 +30,9 @@ public static class Corpse
     /// постановки живого) урезаны до <see cref="RagdollRules.DeathMaxSpeed"/> и <see cref="RagdollRules.DeathMaxAngularSpeed"/> — гасит и
     /// ложную закрутку кинематических капсул вокруг оси, и скачок постановки; (2) суставы — описания по позе смерти (оси шарниров — анатомические)
     /// и привязка по ней: ошибка точки 0, пределы наклона — от этой позы; (3) сустав запястья выключен — меч выпадает при каждой смерти;
-    /// (4) все 14 тел — на физике с профилем трупа. Привязку скина снимает <c>core.skin-capture</c> раньше в той же стадии — ей нужна только
-    /// поза тел, не скорости. Нечисловое тело не урезается (его пересоберёт <see cref="BodyRebuildSystem"/>). Памяти не выделяет.
+    /// (4) самоколлизия — пары <see cref="CorpseJoints.SelfPairs"/> (7з-4); (5) все 14 тел — на физике с профилем трупа. Привязку скина снимает
+    /// <c>core.skin-capture</c> раньше в той же стадии — ей нужна только поза тел, не скорости. Нечисловое тело не урезается (его пересоберёт
+    /// <see cref="BodyRebuildSystem"/>). Памяти не выделяет.
     /// </summary>
     public static void Convert(IPhysicsWorld physics, ArticulationHandle body, CorpseJoints joints, Span<JointDesc> descs,
         ReadOnlySpan<Matrix4x4> model, in Matrix4x4 fighterWorld, int corpseProfile, in RagdollRules rules)
@@ -39,6 +41,7 @@ public static class Corpse
         joints.Describe(physics, body, model, fighterWorld, descs);
         physics.SetJoints(body, descs[..CorpseJoints.Count]);
         physics.SetJointEnabled(body, CorpseJoints.Wrist, false);
+        physics.SetSelfContacts(body, CorpseJoints.SelfPairs);
         for (int k = 0; k < BodySegs.Bodies; k++)
         {
             var b = physics.Body(body, k);

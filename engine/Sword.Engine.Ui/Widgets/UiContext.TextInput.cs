@@ -7,6 +7,9 @@ public sealed partial class UiContext
 {
     // ── поля ввода ─────────────────────────────────────────────────────
 
+    /// <summary>Отступ текста поля ввода от левого и правого края, логические пиксели: место под текст — ширина поля минус два отступа.</summary>
+    public const float FieldPadding = 7;
+
     /// <summary>
     /// Однострочное поле ввода. Щелчок — фокус и каретка, протяжка и Shift — выделение, двойной щелчок — слово;
     /// Ctrl+A/C/X/V, Ctrl+←/→/Backspace/Delete — по словам; Enter и Escape снимают фокус (чем закончилась правка —
@@ -24,7 +27,7 @@ public sealed partial class UiContext
         if (hovered) Cursor = UiCursor.IBeam;
 
         float fs = S(Theme.FontSize);
-        var inner = r.Shrink(S(7), 0);
+        var inner = r.Shrink(S(FieldPadding), 0);
         int IndexAtMouse(string t) => Draw.IndexAtX(UiFace.Body, fs, t, Input.Mouse.X - inner.X0 + st.ScrollX);
 
         if (hovered && Input.Pressed(0) && (ActiveId == 0 || ActiveId == id))
@@ -97,7 +100,7 @@ public sealed partial class UiContext
     private void DrawField(UiRect r, ReadOnlySpan<char> text, ReadOnlySpan<char> placeholder, bool focused, bool hovered, UiTextEdit st)
     {
         float fs = S(Theme.FontSize);
-        var inner = r.Shrink(S(7), 0);
+        var inner = r.Shrink(S(FieldPadding), 0);
         Draw.Rect(r, Theme.Field, S(Theme.Radius));
         Draw.RectStroke(r, focused ? Theme.Accent : hovered ? Theme.BorderStrong : Theme.Border, S(1), S(Theme.Radius));
         float lh = Draw.LineHeight(UiFace.Body, fs);

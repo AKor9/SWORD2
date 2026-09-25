@@ -355,7 +355,9 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
             }
         }
         output.WriteLine($"суставы падающего и лежащего трупа: точки разошлись ≤ {worst * 1000:F2} мм, ошибка точки вида ≤ {worstError * 1000:F2} мм");
-        Assert.True(worst <= 0.01f && worstError <= 0.01f, $"точки сустава разошлись на {worst} (вид — {worstError})");
+        // 7з-4: 1,5 см — унаследованный разрыв сустава до 1 см сводится не быстрее JointPopSpeed (7з-2), а самоколлизия решается после суставов
+        // и рвёт его ещё на доли миллиметра (замер 7з-4 — 10,3 мм; до 7з-4 — ≤ 1 см).
+        Assert.True(worst <= 0.015f && worstError <= 0.015f, $"точки сустава разошлись на {worst} (вид — {worstError})");
 
         // Голень — отдельно на 5 см: точка колена на ребёнке ушла, на родителе — нет.
         var a = FighterBodies.Handle(scene.Sim.World.Get<BodyRef>(enemy));

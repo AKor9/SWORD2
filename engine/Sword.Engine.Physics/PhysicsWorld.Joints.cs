@@ -125,8 +125,11 @@ public sealed partial class PhysicsWorld
 
     partial void RelaxJoints(float h, int substep)
     {
+        // 7з-4: трение суставов — доля относительной угловой скорости, гасимая за подшаг (неявный Эйлер k·h / (1 + k·h)); 0 — трения нет
+        float k = _settings.JointFriction;
+        float friction = k > 0 ? k * h / (1 + k * h) : 0;
         for (int a = 0; a < _artCapacity; a++)
-            if (_jointCount[a] > 0) JointsRelaxArticulation(a, substep);
+            if (_jointCount[a] > 0) JointsRelaxArticulation(a, substep, friction);
     }
 
     // ——— Проход решателя ———
@@ -257,19 +260,23 @@ public sealed partial class PhysicsWorld
     // ——— Расслабление скоростей ———
 
     /// <summary>
-    /// Расслабление скоростей сочленения в подшаге (после скоростного прохода контактов): (1) у каждого включённого сустава
-    /// относительная скорость точек сустава гасится целиком импульсом в точку (<c>K j = −Δv</c>, K — полная 3×3: вращение
-    /// перекладывает скорость в поперечные оси); (2) по срабатываниям пределов этого подшага, по порядку, гасится угловая
-    /// скорость ребёнка относительно родителя «от предела» (вдоль оси поправки, если положительна) — вместе с точкой сустава
-    /// (<see cref="JointsRelaxLimit"/>): предел, как и контакт, не отскакивает. Каждый импульс — неупругий по своим
-    /// скоростям: энергии не добавляет.
+    /// Расслабление скоростей сочленения в подшаге (после скоростного прохода контактов): (0) 7з-4 — трение суставов
+    /// (<paramref name="friction"/> &gt; 0, <see cref="JointsFriction"/>): у каждого включённого сустава гасится доля относительной угловой
+    /// скорости; (1) у каждого включённого сустава относительная скорость точек сустава гасится целиком импульсом в точку (<c>K j = −Δv</c>, K —
+    /// полная 3×3: вращение перекладывает скорость в поперечные оси; трение — до точки: его угловой импульс сдвигает точки сустава, и (1) это
+    /// гасит); (2) по срабатываниям пределов этого подшага, по порядку, гасится угловая скорость ребёнка относительно родителя «от предела»
+    /// (вдоль оси поправки, если положительна) — вместе с точкой сустава (<see cref="JointsRelaxLimit"/>): предел, как и контакт, не
+    /// отскакивает. Каждый импульс — неупругий по своим скоростям: энергии не добавляет.
     /// </summary>
-    private void JointsRelaxArticulation(int a, int substep)
+    private void JointsRelaxArticulation(int a, int substep, float friction)
     {
         if (_contactsSimulated[a] == 0) return;
         var records = _joints[a]!;
         var members = _artBodies[a]!;
         int n = _jointCount[a];
+        if (friction > 0)
+            for (int j = 0; j < n; j++)
+                if (records[j].Enabled) JointsFriction(ref records[j], members, friction);
         for (int j = 0; j < n; j++)
             if (records[j].Enabled) JointsRelaxPoint(ref records[j], members);
         // Срабатывания этого подшага — хвост журнала (журнал упорядочен по подшагам).
@@ -299,6 +306,40 @@ public sealed partial class PhysicsWorld
         if (!Joints.Solve(kx, ky, kz, -dv, out var impulse)) return;
         if (cs) wc.Impulse(ref c, impulse, rc);
         if (ps) wp.Impulse(ref p, -impulse, rp);
+    }
+
+    /// <summary>
+    /// Трение сустава (7з-4): относительная угловая скорость <c>ω = ω_c − ω_p</c> уменьшается на долю <paramref name="share"/> парой угловых
+    /// импульсов <c>±L</c>, <c>L = K⁻¹·ω·share</c>, <c>K = I_c⁻¹ + I_p⁻¹</c> (обратные инерции в мире, матрицы подшага; кинематическая сторона —
+    /// неподвижна, её слагаемого нет): проекция в метрике масс — энергия меняется на <c>−share·(1 − share/2)·ωᵀK⁻¹ω ≤ 0</c>, момент импульса пары
+    /// сохраняется. Вырожденная K (не положительный определитель) — пропуск.
+    /// </summary>
+    private void JointsFriction(ref JointRecord r, int[] members, float share)
+    {
+        ref var c = ref _bodies[members[r.Desc.Child]];
+        ref var p = ref _bodies[members[r.Desc.Parent]];
+        bool cs = c.Mode == BodyMode.Simulated, ps = p.Mode == BodyMode.Simulated;
+        if (!cs && !ps) return;
+        var w = c.AngularVelocity - p.AngularVelocity;
+        if (w.LengthSquared() < Joints.RelaxEpsilonSquared) return;
+        ref readonly var wc = ref _stepInertia[members[r.Desc.Child]];
+        ref readonly var wp = ref _stepInertia[members[r.Desc.Parent]];
+        Vector3 kx = default, ky = default, kz = default;
+        if (cs)
+        {
+            kx += wc.X;
+            ky += wc.Y;
+            kz += wc.Z;
+        }
+        if (ps)
+        {
+            kx += wp.X;
+            ky += wp.Y;
+            kz += wp.Z;
+        }
+        if (!Joints.Solve(kx, ky, kz, w * share, out var l)) return;
+        if (cs) c.AngularVelocity -= wc.Apply(l);
+        if (ps) p.AngularVelocity += wp.Apply(l);
     }
 
     /// <summary>

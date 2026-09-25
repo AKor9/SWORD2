@@ -9,7 +9,7 @@ namespace Sword.Engine.Physics;
 // выделяет памяти; строки — только в Summary и ToString (по запросу).
 public sealed partial class PhysicsTrace
 {
-    private static readonly string[] SourceNames = ["суставы", "земля", "стена", "пара", "толчок тела", "толчок прохода", "без отдачи"];
+    private static readonly string[] SourceNames = ["суставы", "земля", "стена", "пара", "толчок тела", "толчок прохода", "без отдачи", "самоколлизия"];
 
     private static readonly string[] PhaseNames = ["интеграция", "суставы", "мир", "пары", "мир после пар", "скорости", "скоростной проход", "расслабление"];
 

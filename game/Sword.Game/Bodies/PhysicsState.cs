@@ -12,7 +12,8 @@ namespace Sword.Game.Bodies;
 /// начала тика, масса, обратная масса, обратная инерция, касание земли, профиль динамики, вид толчка (все поля тела 7б); порядок
 /// свободных слотов тел (от него зависят хэндлы будущих тел); с 7ж — профили динамики мира (таблица по номерам); с 7з — у живых
 /// сочленений суставы (описание, привязка — точка на родителе и поза покоя, включён ли; 7в) и накопленная отдача (7д), с 7з-3 — сон и счётчик
-/// покоя (<see cref="IPhysicsWorld.IsAsleep"/>, <see cref="IPhysicsWorld.RestTime"/>), проходы пар живых сочленений «толкающий → цель»
+/// покоя (<see cref="IPhysicsWorld.IsAsleep"/>, <see cref="IPhysicsWorld.RestTime"/>), с 7з-4 — пары самоколлизии
+/// (<see cref="IPhysicsWorld.SelfContacts"/>), проходы пар живых сочленений «толкающий → цель»
 /// (<see cref="IPhysicsWorld.Pass"/>, по слотам, толкающий ≠ цель; 7д) — всё, от чего зависит следующий шаг.
 /// Журнал пределов и контакты подшага сбрасываются в начале шага, границы и настройки физики выводятся (настройки — из правил трупа, ресурса
 /// мира) — не хешируются. Кто держит сочленение (<c>BodyRef</c>), хеширует участник <c>ecs</c>. <see cref="Describe"/> — эти поля (проходы —
@@ -35,6 +36,7 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             h.Add(n);
             for (int k = 0; k < n; k++) h.Add(physics.Body(a, k).Index);
             Joints(ref h, a);
+            SelfContacts(ref h, a);
             Add(ref h, physics.Reaction(a));
             h.Add(physics.IsAsleep(a));   // 7з-3: сон и счётчик покоя — от них зависит следующий шаг
             h.Add(physics.RestTime(a));
@@ -93,6 +95,18 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
             Add(ref h, binding.ParentAnchor);
             Add(ref h, binding.Rest);
             h.Add(physics.IsJointEnabled(a, j));
+        }
+    }
+
+    /// <summary>Пары самоколлизии сочленения (7з-4) — по порядку решения.</summary>
+    private void SelfContacts(ref StateHasher h, ArticulationHandle a)
+    {
+        var pairs = physics.SelfContacts(a);
+        h.Add(pairs.Length);
+        foreach (var p in pairs)
+        {
+            h.Add(p.A);
+            h.Add(p.B);
         }
     }
 
@@ -286,6 +300,15 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         int joints = physics.JointCount(a);
         w.Value("jointCount", joints);
         for (int j = 0; j < joints; j++) WriteJoint(w, a, j);
+        // 7з-4: пары самоколлизии — «a-b» через запятую, по порядку решения
+        var self = physics.SelfContacts(a);
+        w.Value("selfContactCount", self.Length);
+        if (self.Length > 0)
+        {
+            var text = new System.Text.StringBuilder();
+            foreach (var p in self) text.Append(text.Length > 0 ? "," : "").Append(p.A).Append('-').Append(p.B);
+            w.Value("selfContacts", text.ToString());
+        }
         w.EndItem();
     }
 

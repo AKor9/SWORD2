@@ -14,7 +14,8 @@ namespace Sword.Game.Ragdoll;
 /// запястье выключено; живой ⇔ кинематика), <c>physics.simulatedSpeed</c> (скорости тел трупа — не выше потолков профиля), <c>physics.joints</c>
 /// (ошибка точки и выход за предел суставов после шага), <c>physics.ground</c> (глубина тел трупа в земле), <c>physics.inArena</c> (тела
 /// трупа — внутри стены и вне колонн), 7з-3 — <c>physics.sleep</c> (спящий стоит: скорости 0, поза не меняется) и <c>physics.sleepContacts</c>
-/// (в спящий никто не вошёл глубже допуска — пробуждение не пропущено) — после стадии Physics; диагностические (по запросу — <c>invariant.enable</c>, манифест фичи; читают
+/// (в спящий никто не вошёл глубже допуска — пробуждение не пропущено), 7з-4 — <c>physics.selfContacts</c> (части трупа не входят друг в друга
+/// глубже допуска) — после стадии Physics; диагностические (по запросу — <c>invariant.enable</c>, манифест фичи; читают
 /// трассу физики — при включённом режиме <c>physics.trace</c>) — <c>physics.energy</c> (рост энергии трупа за подшаг) после Physics и <c>physics.pushes</c>
 /// (свойства толчков: доли бюджетов пары и прохода, выталкивание, Δv удара) в конце End. Допуски — по замерам (docs/history/ragdoll.md,
 /// «7з»; текущие — README фичи, «Инварианты»), ~2× к худшему.
@@ -92,11 +93,24 @@ public static class CorpseInvariants
     /// </summary>
     public const float SleepContactTolerance = PhysicsWorld.SleepSlop + 0.005f;
 
+    /// <summary>
+    /// <c>physics.selfContacts</c> (7з-4): глубина пары самоколлизии трупа после шага, м (капсулы с толщиной самоколлизии), без проверки выхода.
+    /// Лежащий труп — доли миллиметра; держится глубже только лёгкая часть, зажатая тяжёлой: один проход решателя делит поправку по массам, а
+    /// земля (мир после пар) возвращает вдавленную часть обратно — клинок под своим торсом (1,4 кг против 20) стоит на 3…5 см, как клинок под
+    /// чужим трупом у земли (<see cref="GroundTolerance"/>); рука под ногой живого — выходя. Замер 7з-4 (пак, толпа «Боя» 20 с, 2e-6): клинок
+    /// в торсе — до 5,4 см, прочие пары через 1 с после смерти — до 3,4 см (рука в торсе под ногами живых — 7,1 см, выходя), лежащий на ровной
+    /// земле (синтетический риг) — 3,0 см (docs/history/ragdoll.md, «7з-4»).
+    /// </summary>
+    public const float SelfTolerance = 0.06f;
+
+    /// <summary><c>physics.selfContacts</c>: запас времени на выход пары из внахлёста, с, сверх <c>(глубина начала − допуск) / (¼ PopSpeed)</c>.</summary>
+    public const float SelfExitGrace = 0.25f;
+
     public static IEnumerable<IInvariant> For(IPhysicsWorld physics, int corpseProfile) =>
     [
         new Modes(physics, corpseProfile), new SimulatedSpeed(physics), new Joints(physics), new Ground(physics, ArenaGround.Instance),
         new InArena(physics, ArenaGround.WallRadius, ArenaGround.Pillars.ToArray()), new Energy(physics), new Pushes(physics),
-        new Sleep(physics), new SleepContacts(physics),
+        new Sleep(physics), new SleepContacts(physics), new SelfContacts(physics),
     ];
 
     private static string Text(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
@@ -167,6 +181,9 @@ public static class CorpseInvariants
             for (int j = 0; j < n; j++)
                 if (physics.IsJointEnabled(body, j) != (j != CorpseJoints.Wrist))
                     return Text($"мёртвый, а сустав {j} {(j == CorpseJoints.Wrist ? "запястья включён — меч не выпал" : "выключен")}");
+            // 7з-4: самоколлизия — таблица игры
+            if (!physics.SelfContacts(body).SequenceEqual(CorpseJoints.SelfPairs))
+                return Text($"мёртвый, а пар самоколлизии {physics.SelfContacts(body).Length} не по таблице трупа ({CorpseJoints.SelfPairs.Length})");
             return null;
         }
 
@@ -332,6 +349,74 @@ public static class CorpseInvariants
             float allowed = exit > 0 ? (last.StartDepth - GroundTolerance) / exit + GroundExitGrace : float.PositiveInfinity;
             if (depth <= FreshGroundTolerance && elapsed <= allowed) return null;
             return Text($"тело {b} (сочленение {physics.ArticulationOf(b)}) в земле на {depth:G4} м {elapsed:G3} с (с {last.StartDepth:G4} м; допуск {GroundTolerance}, выход — не дольше {allowed:G3} с, глубже {FreshGroundTolerance} — сразу); центр {s.Position}");
+        }
+    }
+
+    /// <summary>
+    /// <c>physics.selfContacts</c> (после Physics; 7з-4) — части неспящего трупа не входят друг в друга: у каждой пары самоколлизии, где оба
+    /// тела на физике, глубина капсул (радиусы × <see cref="PhysicsSettings.SelfContactScale"/>) не больше <see cref="SelfTolerance"/>; глубже —
+    /// только выходя (как <c>physics.ground</c>): эпизод «глубже допуска» длится не дольше <c>(глубина начала − допуск) / (¼ PopSpeed) + </c>
+    /// <see cref="SelfExitGrace"/> (поза смерти бывает внахлёст — в позах живого клинок у головы, рука у торса до 15 см, 0,1…2 % поз; пара
+    /// расходится не быстрее скорости выталкивания). Порога «глубже — сразу», как у земли, нет: сумма радиусов пары трупа — не больше 0,28 м.
+    /// Самоколлизия выключена (толщина 0) — не проверяется. Память — по слотам сочленений × пары. Ловит руку или ногу, прошедшую сквозь своё
+    /// тело (пара пропущена, таблица пуста, самоколлизия не решается).
+    /// </summary>
+    private sealed class SelfContacts(IPhysicsWorld physics) : IInvariant
+    {
+        /// <summary>По слотам сочленений × номер пары: поколение, тик проверки, тик начала эпизода и глубина начала (0 — в допуске).</summary>
+        private (int Generation, ulong Tick, ulong Start, float StartDepth)[] _last = [];
+
+        private static int Stride => CorpseJoints.SelfPairs.Length;
+
+        public string Id => "physics.selfContacts";
+        public InvariantCost Cost => InvariantCost.Heavy;   // в живой игре — раз в 4 тика (все пары всех трупов)
+        public InvariantScope Scope => InvariantScope.Subsystem;
+        public string After => GameStages.Physics;
+
+        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
+        {
+            float scale = physics.Settings.SelfContactScale;
+            if (!(scale > 0)) return;
+            int need = physics.ArticulationCapacity * Stride;
+            if (_last.Length < need) Array.Resize(ref _last, need);
+            float exit = 0.25f * physics.Settings.PopSpeed;
+            for (int i = 0, n = physics.ArticulationCapacity; i < n; i++)
+            {
+                if (Problem(i, ctx.Tick, ctx.Dt, exit, scale) is not { } problem) continue;
+                violations.Report(problem);
+                if (violations.Full) return;
+            }
+        }
+
+        private string? Problem(int slot, ulong tick, float dt, float exit, float scale)
+        {
+            var a = physics.ArticulationAt(slot);
+            if (a.IsNone || physics.IsAsleep(a)) return null;
+            var pairs = physics.SelfContacts(a);
+            for (int k = 0; k < pairs.Length && k < Stride; k++)
+                if (Pair(a, slot * Stride + k, pairs[k], tick, dt, exit, scale) is { } problem) return problem;
+            return null;
+        }
+
+        private string? Pair(ArticulationHandle a, int at, BodyPair p, ulong tick, float dt, float exit, float scale)
+        {
+            var sa = physics.Get(physics.Body(a, p.A));
+            var sb = physics.Get(physics.Body(a, p.B));
+            if (sa.Mode != BodyMode.Simulated || sb.Mode != BodyMode.Simulated || !sa.IsFinite || !sb.IsFinite) return null;
+            float depth = SelfOverlap.Depth(sa, sb, scale);
+            var last = _last[at];
+            if (depth <= SelfTolerance)
+            {
+                _last[at] = (a.Generation, tick, 0, 0);
+                return null;
+            }
+            // эпизод «глубже допуска» начинается здесь, если прошлая проверка той же пары — в допуске, её нет или она не раньше (перемотка)
+            if (last.Generation != a.Generation || last.Tick >= tick || !(last.StartDepth > 0)) last = (a.Generation, tick, tick, depth);
+            _last[at] = (a.Generation, tick, last.Start, last.StartDepth);
+            float elapsed = (tick - last.Start) * dt;
+            float allowed = exit > 0 ? (last.StartDepth - SelfTolerance) / exit + SelfExitGrace : float.PositiveInfinity;
+            if (elapsed <= allowed) return null;
+            return Text($"сочленение {a}: {BodySegs.Name(p.A)} в {BodySegs.Name(p.B)} на {depth:G4} м {elapsed:G3} с (с {last.StartDepth:G4} м; допуск {SelfTolerance}, выход — не дольше {allowed:G3} с)");
         }
     }
 

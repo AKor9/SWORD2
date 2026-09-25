@@ -121,12 +121,13 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Выход за предел, рад, при котором сустав на оверлее — красный (меньше — от оранжевого); до 0,01 рад — в пределах.</summary>
     public const float JointExcessRed = 0.2f, JointExcessShown = 0.01f;
 
-    /// <summary>Цвет контакта по источнику (<c>0xAABBGGRR</c>): земля — зелёный, стена и колонны — синий, пара трупов — пурпурный, толчок живого телом — оранжевый, клинком — красный, без отдачи — серый.</summary>
+    /// <summary>Цвет контакта по источнику (<c>0xAABBGGRR</c>): земля — зелёный, стена и колонны — синий, пара трупов — пурпурный, части одного трупа (самоколлизия, 7з-4) — жёлтый, толчок живого телом — оранжевый, клинком — красный, без отдачи — серый.</summary>
     public static uint ContactColour(PhysicsContactSource source) => source switch
     {
         PhysicsContactSource.Ground => 0xFF40FF40,
         PhysicsContactSource.Wall => 0xFFFF8040,
         PhysicsContactSource.Pair => 0xFFFF40FF,
+        PhysicsContactSource.Self => 0xFF40FFFF,
         PhysicsContactSource.PushBody => 0xFF0090FF,
         PhysicsContactSource.PushPass => 0xFF4040FF,
         PhysicsContactSource.PushNoReaction => 0xFFA0A0A0,

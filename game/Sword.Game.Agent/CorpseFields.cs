@@ -10,12 +10,13 @@ namespace Sword.Game.Agent;
 /// <c>Body.ComVelocity[.X|.Y|.Z]</c> — его скорость, м/с (без компоненты — длина); <c>Body.KineticEnergy</c> — кинетическая энергия тел, Дж
 /// (поступательная и вращательная); <c>Body.Energy</c> — полная (плюс <c>m·g·y</c>), Дж. Для трупа — «успокоился ли» и «не растёт ли энергия в
 /// покое» (<c>watch.add</c>, <c>entity.history</c>, метрики и проверки манифеста фичи «Рэгдолл»); у живого — те же величины кинематических тел.
-/// 7з-3 — сон: <c>Body.Asleep</c> — 1, если труп спит (физика его не считает), иначе 0; <c>Body.RestTime</c> — счётчик покоя, с. Считает
-/// <see cref="CorpseMetrics"/> по виду тел. Нет тела — NaN.
+/// 7з-3 — сон: <c>Body.Asleep</c> — 1, если труп спит (физика его не считает), иначе 0; <c>Body.RestTime</c> — счётчик покоя, с. 7з-4 —
+/// самоколлизия: <c>Body.SelfDepth</c> — насколько глубже всего часть тела вошла в свою другую часть (действующие пары самоколлизии — оба тела на
+/// физике, капсулы как F7), м; пар нет или живой (тела кинематические, в том числе возрождённый) — 0. Считает <see cref="CorpseMetrics"/> по виду тел (самоколлизию — вид диагностики физики). Нет тела — NaN.
 /// </summary>
 public static class CorpseFields
 {
-    public static readonly string[] Known = ["Body.Com|ComVelocity[.X|.Y|.Z]", "Body.KineticEnergy|Energy", "Body.Asleep|RestTime"];
+    public static readonly string[] Known = ["Body.Com|ComVelocity[.X|.Y|.Z]", "Body.KineticEnergy|Energy", "Body.Asleep|RestTime", "Body.SelfDepth"];
 
     /// <summary>Читатель поля <paramref name="rest"/> (путь после <c>Body.</c>); не поле тела целиком — null; ошибка в пути — исключение.</summary>
     public static EntityFieldReader? Compile(string rest, string path, string at)
@@ -26,6 +27,9 @@ public static class CorpseFields
             case "Energy": return (in ServiceContext ctx, Entity e) => Totals(ctx, e) is { } t ? t.Energy : double.NaN;
             case "Asleep": return (in ServiceContext ctx, Entity e) => Body(ctx, e, out var view, out var r) ? view.IsAsleep(r) ? 1 : 0 : double.NaN;
             case "RestTime": return (in ServiceContext ctx, Entity e) => Body(ctx, e, out var view, out var r) ? view.RestTime(r) : double.NaN;
+            case "SelfDepth":
+                return (in ServiceContext ctx, Entity e) => Body(ctx, e, out _, out var r) && ctx.World.TryView<IPhysicsDebugView>(out var debug)
+                    ? debug.Self(r).Depth : double.NaN;
         }
         string[] parts = rest.Split('.');
         if (parts[0] is not ("Com" or "ComVelocity")) return null;

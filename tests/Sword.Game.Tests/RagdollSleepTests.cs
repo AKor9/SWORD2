@@ -93,8 +93,10 @@ public sealed class RagdollSleepTests(ITestOutputHelper output)
         var top = Body(sim, Fighter(sim, 2));
         bool Both() => physics.IsAsleep(bottom) && physics.IsAsleep(top);
         for (int t = 0; t < 900 && !Both(); t++) sim.Step();
-        // верхний — поверх нижнего: сдвиг тел командой сцены, падает и засыпает на нём
-        var shift = physics.Get(physics.Body(bottom, 0)).Position - physics.Get(physics.Body(top, 0)).Position + new Vector3(0.1f, 0.35f, 0.05f);
+        // верхний — поверх нижнего: сдвиг тел командой сцены, падает и засыпает на нём. 7з-4: таз верхнего — на 10 см по −X от таза нижнего (до
+        // 7з-4 — по +X): с самоколлизией при прежнем сдвиге голова верхнего свисала с нижнего и качалась маятником до возрождения (8 с), оба
+        // не засыпали; так — засыпают на тике ~800.
+        var shift = physics.Get(physics.Body(bottom, 0)).Position - physics.Get(physics.Body(top, 0)).Position + new Vector3(-0.1f, 0.35f, 0.05f);
         Step(sim, Shift(2, shift));
         for (int t = 0; t < 900 && !Both(); t++) sim.Step();
         Assert.True(Both(), "трупы не уснули друг на друге");

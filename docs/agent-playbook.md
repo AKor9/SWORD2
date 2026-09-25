@@ -326,7 +326,7 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    псевдоимпульс, глубины), `energy`, `sleep`, `top` и `recent` (события быстрее 12 м/с). Окно: `{"trace":"reset"}` → тики → `show`;
    выключить — `{"trace":"off"}`. В Headless включённая трасса переживает `session.start` и перемотку.
 4. Контакты последнего подшага: трасса включена (п. 3 или K) → `capture.bundle {"overlays":["contacts"]}` (зелёный — земля, синий — стена
-   и колонны, пурпурный — пара трупов, оранжевый/красный — толчок телом/клинком); выключена — слой пуст, в `notes` — почему. Числа —
+   и колонны, пурпурный — пара трупов, жёлтый — части одного трупа, оранжевый/красный — толчок телом/клинком); выключена — слой пуст, в `notes` — почему. Числа —
    `trace.contacts`. `Sword.exe --overlay contacts` включает трассу с первого кадра (и при `--replay`).
 5. F3 «Рэгдолл» человеку — агенту те же ручки командой и те же числа: мёртвые — `world.query {"with":["Dead"],"take":0}`, быстрейшее —
    `trace` (`speed.max`, `capped`), покой — `Body.ComVelocity`; вкладки — итог `Sword.exe --json` (`panels.tuning`).
@@ -383,6 +383,18 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 3. Инварианты `physics.sleep`, `physics.sleepContacts`; цена — зона `physics.sleep`. Ручки: `command.send {"command":"TuningCommand",
    "fields":{"Knob":"ragdoll.sleepSpeed","Value":0}}` — сна нет (`ragdoll.sleepBodySpeed`, `ragdoll.sleepTime`; F3 — «СОН ТРУПА», F7 —
    синий крест). Приёмка — сценарии `sleep-*`, `s3-asleep`, `s1-asleep` манифеста `ragdoll`.
+
+**Самоколлизия трупа (7з-4).**
+1. Часть в своём теле: `physics.bodies {"entity":"enemy 1"}` → `self` — `pairs` (76 у трупа), `active`, `scale` (ручка `ragdoll.selfCollision`),
+   `touching`, `deepest` (`a`, `b`, `depth`, м); по тикам — `watch.add {"entities":["enemy 1"],"fields":["Body.SelfDepth"]}` → `entity.history`;
+   ждать — `time.runUntil {"condition":{"all":[{"entity":"enemy 1"},{"field":"Body.SelfDepth","greaterThan":0.06}]}}`. Таблица пар —
+   `state.describe {"part":"physics","filter":"<сочленение>"}` → `selfContactCount`, `selfContacts` («a-b» по номерам тел = сегментам).
+2. Инвариант `physics.selfContacts` (часть глубже 6 см — только выходя); встать — `time.breakOnInvariant {"ids":["physics.selfContacts"]}`.
+   Трасса: `trace` → `sources` `self` (поправки), `trace.contacts` (`self`: глубина и решённая); картинкой — `contacts` (жёлтый); цена — зона
+   `physics.self` (в `physics.pairs`).
+3. «До/после»: `command.send {"command":"TuningCommand","fields":{"Knob":"ragdoll.selfCollision","Value":0}}` — самоколлизии нет (труп
+   складывается сам в себя); сценарии `self-fold`, `self-fold-off` и виды `fold-before`, `fold-after`, `fold-after-mesh` манифеста `ragdoll`.
+   Трение суставов — ручка `ragdoll.jointFriction` (1/с; рост энергии по фазам трассы — `relax`), жёсткость — `ragdoll.jointCompliance`.
 
 ## Если что-то не так
 

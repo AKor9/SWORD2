@@ -5,7 +5,8 @@ namespace Sword.Game.Contracts;
 
 /// <summary>
 /// Источник контакта и поправки трассы физики (7и) — как <c>PhysicsSource</c> подсистемы Physics, для наблюдателей без неё: суставы,
-/// земля, стена и колонны, пара тел на физике, толчок живого телом, клинком в ударе (проход), без отдачи (за отрубом).
+/// земля, стена и колонны, пара тел на физике, толчок живого телом, клинком в ударе (проход), без отдачи (за отрубом), 7з-4 — самоколлизия
+/// (части одного трупа между собой).
 /// </summary>
 public enum PhysicsContactSource : byte
 {
@@ -16,6 +17,7 @@ public enum PhysicsContactSource : byte
     PushBody = 4,
     PushPass = 5,
     PushNoReaction = 6,
+    Self = 7,
 }
 
 /// <summary>Накопитель трассы физики (7и): последний тик, окно (с начала окна — сброс владельцем или агентом), прогон (с включения).</summary>
@@ -70,6 +72,14 @@ public readonly record struct PhysicsTraceEnergy(float Paired, BodyRef PairedBod
     float Pairs, float Pressed, float Velocity, float ContactVelocity, float Relax);
 
 /// <summary>
+/// Самоколлизия тела (7з-4; агент — <c>physics.bodies</c> → <c>self</c>): пар самоколлизии в таблице сочленения (у трупа — все пары тел, кроме
+/// связанных суставом и торса с бёдрами), действуют ли (тела на физике — труп), толщина частей (ручка «самоколлизия»; 0 — выключена); в позе тика
+/// по капсулам (радиусы как есть, как F7) среди действующих пар (оба тела на физике; у живого — ни одной) — пересекшихся пар и самая глубокая:
+/// номера тел (у бойца — сегменты <see cref="BodySegs"/>; нет — −1) и глубина, м (нет — 0).
+/// </summary>
+public readonly record struct PhysicsSelfView(int Pairs, bool Active, float Scale, int Touching, int DeepestA, int DeepestB, float Depth);
+
+/// <summary>
 /// Сон трупов в накопителе трассы (7з-3; агент — <c>physics.bodies {trace}</c> → <c>sleep</c>): засыпаний; наибольшее число спящих на конец
 /// шага; касаний спящего тела неспящим телом на физике в подшагах (спящее — неподвижная опора); пробуждений по причинам — толчок живого,
 /// удар, касание движущегося трупа, цепочка по куче, команда (запись тела, режим, профиль, суставы), настройки (ручки, земля).
@@ -114,6 +124,9 @@ public interface IPhysicsDebugView : IReadView
 
     /// <summary>Сустав <paramref name="joint"/> (0 … <see cref="JointCount"/> − 1) сочленения тела <paramref name="body"/>.</summary>
     PhysicsJointView Joint(BodyRef body, int joint);
+
+    /// <summary>Самоколлизия тела (7з-4): пары и самая глубокая в позе тика; тела нет — пусто.</summary>
+    PhysicsSelfView Self(BodyRef body);
 
     /// <summary>Трасса физики включена.</summary>
     bool TraceOn { get; }

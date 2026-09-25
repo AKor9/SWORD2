@@ -10,6 +10,7 @@ using Sword.Engine.Runtime;
 using Sword.Engine.Ui;
 using Sword.Game.Arena;
 using Sword.Game.Client;
+using Sword.Game.Combat;
 using Sword.Game.Contracts;
 using Sword.Game.Ragdoll;
 using Xunit.Abstractions;
@@ -50,11 +51,13 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
     /// «потолки трупа», «переход в труп», «толчок живого» (сила толчка и отдача живому — 7к).
     /// </summary>
     private static readonly string[] Keys =
-        ["friction", "pairFriction", "popSpeed", "jointCompliance", "jointPopSpeed", "sleepSpeed", "sleepBodySpeed", "sleepTime", "corpseMaxSpeed",
-            "corpseMaxAngularSpeed", "deathMaxSpeed", "deathMaxAngularSpeed", "pushForce", "enemyRecoil", "playerRecoil", "recoilMaxSpeed"];
+        ["friction", "pairFriction", "popSpeed", "jointCompliance", "jointFriction", "selfCollision", "jointPopSpeed", "sleepSpeed", "sleepBodySpeed",
+            "sleepTime", "corpseMaxSpeed", "corpseMaxAngularSpeed", "deathMaxSpeed", "deathMaxAngularSpeed", "pushForce", "enemyRecoil", "playerRecoil",
+            "recoilMaxSpeed"];
 
     /// <summary>
-    /// Группа «Рэгдолл»: Id — секция конфига (<c>ragdoll</c>), все ручки секции (восемь 7з, три отдачи 7к, две 7з-2 и три сна 7з-3), каждая
+    /// Группа «Рэгдолл»: Id — секция конфига (<c>ragdoll</c>), все ручки секции (восемь 7з, три отдачи 7к, две 7з-2, три сна 7з-3, трение суставов и
+    /// самоколлизия 7з-4 — «труп на земле»), каждая
     /// строка — подпись, подсказка, пределы, логарифмическая шкала, формат и значение по умолчанию ручки симуляции (<see cref="RagdollKnobs"/>);
     /// разделы — заголовками, строки трупов кадра — первыми (без прокрутки).
     /// </summary>
@@ -67,7 +70,7 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
         Assert.Equal(("ragdoll", "Рэгдолл", RagdollKnobs.Section), (group.Id, group.Title, RagdollTuning.Id));
         Assert.Equal(Keys, group.Values().Keys);
         var knobs = sim.Tuning.Where(k => k.Section == RagdollKnobs.Section).ToList();
-        Assert.Equal(16, knobs.Count);
+        Assert.Equal(18, knobs.Count);
         Assert.Equal(knobs.Select(k => k.Key).Order(), Keys.Order());
         foreach (var k in knobs)
         {
@@ -286,6 +289,40 @@ public sealed class CorpseTuningDrawTests : IDisposable
             float w = draw.Measure(UiFace.Body, UiTheme.Default.SmallFontSize, item.Label);
             _output.WriteLine($"{item.Label}: {w:F0} из {room:F0} px{(w > room ? " — режется" : "")}");
         }
+    }
+
+    /// <summary>
+    /// 7з-4 (проверка пользователя в игре: «0.000002 не влезает в текстбокс» — поле числа показывало «0.0000»): у всех числовых ручек
+    /// «Рэгдолл» и «Бой» значение по умолчанию, оба предела и (у логарифмических) 25 значений по шкале в формате ручки влезают в поле числа
+    /// панели F3 — ширина поля минус отступы текста, шрифт и размер поля (замер — в выводе). Малые значения — с порядком: «2e-6», «1e-8».
+    /// </summary>
+    [Fact]
+    public void KnobValues_FitNumberField_SmallValuesWithExponent()
+    {
+        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=0"));
+        var draw = new UiDrawList(_fonts);
+        float room = TuningPanel.ValueWidth - 2 * UiContext.FieldPadding;
+        var knobs = sim.Tuning.Where(k => k.Section is RagdollKnobs.Section or CombatKnobs.Section && k.Kind == TuningKind.Float).ToList();
+        Assert.Equal(18, knobs.Count(k => k.Section == RagdollKnobs.Section));
+        Assert.Contains(knobs, k => k.Section == CombatKnobs.Section);
+        float widest = 0;
+        foreach (var k in knobs)
+        {
+            var values = new List<float> { k.Default, k.Min, k.Max };
+            if (k.Log && k.Min > 0)
+                for (int i = 0; i <= 24; i++) values.Add(k.Min * MathF.Pow(k.Max / k.Min, i / 24f));
+            foreach (float v in values)
+            {
+                string text = k.Text(v);
+                float w = draw.Measure(UiFace.Body, UiTheme.Default.FontSize, text);
+                widest = MathF.Max(widest, w);
+                Assert.True(w <= room, $"{k.Name}: «{text}» ({v}) — {w:F1} px, в поле {room} px");
+            }
+            _output.WriteLine($"{k.Name}: по умолчанию «{k.Text(k.Default)}», пределы «{k.Text(k.Min)}» … «{k.Text(k.Max)}»");
+        }
+        _output.WriteLine($"самое широкое значение — {widest:F1} из {room} px");
+        var compliance = sim.Knob(RagdollKnobs.JointCompliance)!;
+        Assert.Equal(("2e-6", "1e-8", "1e-2", "2e-4"), (compliance.Text(2e-6f), compliance.Text(compliance.Min), compliance.Text(compliance.Max), compliance.Text(2e-4f)));
     }
 
     [Fact]

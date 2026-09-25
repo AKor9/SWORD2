@@ -8,7 +8,7 @@ namespace Sword.Engine.Physics;
 public sealed partial class PhysicsWorld
 {
     private CpuProfiler _profiler = CpuProfiler.Off;
-    private int _zoneIntegrate, _zoneJoints, _zoneBounds, _zonePairs, _zoneGround, _zoneVelocity, _zoneContactVelocity, _zoneRelax, _zoneSleep;
+    private int _zoneIntegrate, _zoneJoints, _zoneBounds, _zonePairs, _zoneGround, _zoneVelocity, _zoneContactVelocity, _zoneRelax, _zoneSleep, _zoneSelf;
 
     // 7з-2: нечисловые тела на физике — флаг по слотам сочленений (пересчёт — в конце шага и по записям тел, лениво), их число.
     private bool[] _stepNonFinite = [], _stepNonFiniteDirty = [];
@@ -33,6 +33,7 @@ public sealed partial class PhysicsWorld
         _zoneContactVelocity = profiler.Zone("physics.contactVelocity");
         _zoneRelax = profiler.Zone("physics.relax");
         _zoneSleep = profiler.Zone("physics.sleep");
+        _zoneSelf = profiler.Zone("physics.self");   // 7з-4: самоколлизия — внутри physics.pairs
         _profiler = profiler;
     }
 
@@ -62,6 +63,7 @@ public sealed partial class PhysicsWorld
         _contactsFriction = settings.StaticFriction;
         _contactsPairFriction = settings.PairFriction;
         _contactsCompliance = settings.ContactCompliance;
+        _selfScale = settings.SelfContactScale;
         _contactsVelocityCount = 0;
         ContactsPairChecks = 0;
         ContactsBodyChecks = 0;
@@ -70,6 +72,8 @@ public sealed partial class PhysicsWorld
         ContactsPairFrictionHeld = 0;
         ContactsPressedChecks = 0;
         SleepContacts = 0;
+        SelfNarrowChecks = 0;
+        SelfTouches = 0;
 
         _stepRunning = true;
         // 7з-3: спящих, которых может сдвинуть неспящее (толчок, касание), и касающихся проснувшихся (цепочка) — будить до подшагов.
@@ -92,9 +96,9 @@ public sealed partial class PhysicsWorld
 
     /// <summary>
     /// Подшаг: интеграция тел на физике → суставы (7в) → бюджеты толчков (7д) → мир (земля, стена, колонны) → отсев сочленений → пары
-    /// сочленений (тела на физике между собой и толчки живых; трение покоя пар) → мир после пар для прижатых (7з-2: тела, касавшиеся земли и
-    /// поправленные парами) → итоги толчков (7д) → обновление скоростей по профилю тела → скоростной проход контактов → расслабление суставов
-    /// (7в) → трасса. Мир после пар: пара (тяжёлое тело на лёгком, толчок живого) не оставляет тело в земле к концу подшага — иначе вдавленное
+    /// сочленений (тела на физике между собой и толчки живых; самоколлизия — 7з-4; трение покоя пар) → мир после пар для прижатых (7з-2: тела,
+    /// касавшиеся земли и поправленные парами) → итоги толчков (7д) → обновление скоростей по профилю тела → скоростной проход контактов →
+    /// расслабление суставов (7в; трение суставов — 7з-4) → трасса. Мир после пар: пара (тяжёлое тело на лёгком, толчок живого) не оставляет тело в земле к концу подшага — иначе вдавленное
     /// стало бы «застарелой» глубиной, выходило не быстрее <see cref="PhysicsSettings.PopSpeed"/>, а пара вдавливала бы его снова (клинок под
     /// кучей тонул). Первый проход мира — до пар: опора на время пар уже поднята землёй (<see cref="ContactsPressedWorld"/>).
     /// </summary>

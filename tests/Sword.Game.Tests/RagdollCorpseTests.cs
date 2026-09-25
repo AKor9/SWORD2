@@ -307,9 +307,10 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
 
     /// <summary>
     /// Кинетическая энергия трупа, когда из земли выходит вывернутое предплечье, Дж (замер — docs/history/ragdoll.md, «7з»; лежащий
-    /// труп — ~0 до порчи).
+    /// труп — ~0 до порчи). 7з-4: с самоколлизией вывернутые в землю конечности, выходя, толкают свой торс — выходит весь труп (замер
+    /// 28,6 Дж); весь труп со скоростью выталкивания 1 м/с — ½·74,8·1² ≈ 37 Дж: больше — разгон, не выход.
     /// </summary>
-    private const float LimbKinetic = 20;
+    private const float LimbKinetic = 40;
 
     private static Entity FighterIn(World world, int slot)
     {
@@ -400,9 +401,10 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     // ── меч, возрождение, корень ────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Меч выпадает при каждой смерти: сустав запястья выключен, тело клинка — свободное тело трупа; через 3 с лежит на земле (оба конца оси —
-    /// у земли, не выше радиуса + 2 см; скорость ≤ 2 см/с), хват ушёл от кисти (от конца предплечья) — меч не держится в руке. Клинок-отрезок
-    /// мёртвого стоит, где был в тик смерти.
+    /// Меч выпадает при каждой смерти: сустав запястья выключен, тело клинка — свободное тело трупа; через 3 с лежит (скорость ≤ 2 см/с) — на
+    /// земле или (7з-4, самоколлизия) одним концом на земле, другим на своём трупе: нижний конец оси — у земли (не выше радиуса + 2 см), в тела
+    /// трупа клинок не вошёл глубже допуска <c>physics.selfContacts</c>; хват ушёл от кисти (от конца предплечья) — меч не держится в руке.
+    /// Клинок-отрезок мёртвого стоит, где был в тик смерти.
     /// </summary>
     [Fact]
     public void Sword_DropsFromHand_LiesOnGround()
@@ -420,7 +422,11 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         float groundA = ArenaTerrain.Height(sword.EndA.X, sword.EndA.Z), groundB = ArenaTerrain.Height(sword.EndB.X, sword.EndB.Z);
         output.WriteLine(FormattableString.Invariant($"меч: концы на {sword.EndA.Y - groundA:F3} и {sword.EndB.Y - groundB:F3} м над землёй, скорость {sword.Velocity.Length():F4}, хват от кисти {Vector3.Distance(sword.EndA, forearm.EndB):F3} м"));
         Assert.False(physics.IsJointEnabled(a, CorpseJoints.Wrist));
-        Assert.True(sword.EndA.Y - groundA <= sword.Radius + 0.02f && sword.EndB.Y - groundB <= sword.Radius + 0.02f, "меч не лежит на земле");
+        Assert.True(MathF.Min(sword.EndA.Y - groundA, sword.EndB.Y - groundB) <= sword.Radius + 0.02f, "меч не лежит на земле");
+        Assert.True(Vector3.Distance(sword.EndA, forearm.EndB) > 0.2f, "меч в руке");
+        for (int k = 0; k < BodySegs.Bodies; k++)
+            if (CorpseJoints.Collides(k, BodySegs.Weapon))
+                Assert.True(SelfOverlap.Depth(sword, physics.Get(physics.Body(a, k)), 1) <= CorpseInvariants.SelfTolerance, $"меч в теле {BodySegs.Name(k)}");
         Assert.True(sword.Velocity.Length() <= 0.02f);
         Assert.Equal(blade, sim.World.Get<Blade>(e));
         Clean(sim);
@@ -508,13 +514,16 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     {
         var (sim, physics) = Create("arena.enemies=2;combat.enemiesAttack=false");
         var knobs = sim.Tuning.Where(k => k.Section == RagdollKnobs.Section).ToList();
-        Assert.Equal(["ragdoll.friction", "ragdoll.pushForce", "ragdoll.popSpeed", "ragdoll.jointCompliance", "ragdoll.corpseMaxSpeed",
-            "ragdoll.corpseMaxAngularSpeed", "ragdoll.deathMaxSpeed", "ragdoll.deathMaxAngularSpeed", "ragdoll.enemyRecoil", "ragdoll.playerRecoil",
-            "ragdoll.recoilMaxSpeed", "ragdoll.jointPopSpeed", "ragdoll.pairFriction", "ragdoll.sleepSpeed", "ragdoll.sleepBodySpeed", "ragdoll.sleepTime"],
-            knobs.Select(k => k.Name));   // 7к: отдача — доли врагу и игроку, предел; 7з-3: две настройки 7з-2 и сон
+        Assert.Equal(["ragdoll.friction", "ragdoll.pushForce", "ragdoll.popSpeed", "ragdoll.jointCompliance", "ragdoll.jointFriction",
+            "ragdoll.selfCollision", "ragdoll.corpseMaxSpeed", "ragdoll.corpseMaxAngularSpeed", "ragdoll.deathMaxSpeed", "ragdoll.deathMaxAngularSpeed",
+            "ragdoll.enemyRecoil", "ragdoll.playerRecoil", "ragdoll.recoilMaxSpeed", "ragdoll.jointPopSpeed", "ragdoll.pairFriction", "ragdoll.sleepSpeed",
+            "ragdoll.sleepBodySpeed", "ragdoll.sleepTime"],
+            knobs.Select(k => k.Name));   // 7к: отдача — доли врагу и игроку, предел; 7з-3: две настройки 7з-2 и сон; 7з-4: трение суставов, самоколлизия
         var d = new RagdollSettings();
         Assert.Equal((d.JointPopSpeed, d.PairFriction, d.SleepSpeed, d.SleepBodySpeed, d.SleepTime),
             (physics.Settings.JointPopSpeed, physics.Settings.PairFriction, physics.Settings.SleepSpeed, physics.Settings.SleepBodySpeed, physics.Settings.SleepTime));
+        Assert.Equal((2e-6f, 0f, 1f), (d.JointCompliance, d.JointFriction, d.SelfCollision));   // 7з-4: жёсткость пользователя, трения нет, капсулы
+        Assert.Equal((d.JointFriction, d.SelfCollision), (physics.Settings.JointFriction, physics.Settings.SelfContactScale));
         Assert.Equal(d.PopSpeed, sim.Knob(RagdollKnobs.PopSpeed)!.Read(sim.World));
         Assert.Equal((d.PopSpeed, d.Friction, d.JointCompliance), (physics.Settings.PopSpeed, physics.Settings.StaticFriction, physics.Settings.JointLimitCompliance));
         Assert.Contains(sim.World.Systems, s => s.Label == "tuning.ragdoll" && s.Stage == GameStages.Begin);
@@ -575,7 +584,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
 
     // ── инварианты-неисправности ────────────────────────────────────────────────────────────────────────────────────
 
-    public enum CorpseFault { Modes, Speed, Joints, Ground, InArena, Energy, Pushes, DeadRoot }
+    public enum CorpseFault { Modes, Speed, Joints, Ground, InArena, Energy, Pushes, DeadRoot, SelfTable }
 
     /// <summary>Порча трупа в тике <paramref name="tick"/>: после шага (Physics), энергия — до шага, настройки толчков — в Settle.</summary>
     private sealed class Fault(CorpseFault fault, ulong tick, IPhysicsWorld[] physics) : IContinuousSystem
@@ -608,6 +617,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
                 case CorpseFault.InArena: p.Place(head, new Vector3(0, 1, 70), s.Rotation); break;
                 case CorpseFault.Energy: p.Place(head, s.Position - new Vector3(0, 1.5f, 0), s.Rotation); break;
                 case CorpseFault.Pushes: p.Settings = p.Settings with { HitDvShare = 1e-4f }; break;
+                case CorpseFault.SelfTable: p.SetSelfContacts(a, []); break;   // 7з-4: труп без самоколлизии
                 case CorpseFault.DeadRoot:
                     foreach (var chunk in ctx.Iterate(_dead))
                     {
@@ -638,8 +648,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     /// оторванная голова (<c>physics.joints</c>), тело в земле на метр (<c>physics.ground</c>), тело за стеной (<c>physics.inArena</c>), голова
     /// на 1,5 м ниже шеи до шага — сустав рывком стягивает её в шаге (<c>physics.energy</c>, диагностический: включается явно вместе с режимом
     /// <c>physics.trace</c>), доля Δv удара
-    /// выше настройки (удар по трупу в Resolve, настройки подменены в Settle — <c>physics.pushes</c>), корень мёртвого не за тазом (<c>combat.dead</c>).
-    /// До порчи — чисто.
+    /// выше настройки (удар по трупу в Resolve, настройки подменены в Settle — <c>physics.pushes</c>), корень мёртвого не за тазом (<c>combat.dead</c>),
+    /// 7з-4: у трупа нет пар самоколлизии (<c>physics.modes</c>). До порчи — чисто.
     /// </summary>
     [Theory]
     [InlineData(CorpseFault.Modes, "physics.modes", GameStages.Physics)]
@@ -650,6 +660,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     [InlineData(CorpseFault.Energy, "physics.energy", GameStages.Physics)]
     [InlineData(CorpseFault.Pushes, "physics.pushes", GameStages.End)]
     [InlineData(CorpseFault.DeadRoot, "combat.dead", GameStages.End)]
+    [InlineData(CorpseFault.SelfTable, "physics.modes", GameStages.Physics)]
     public void CorpseInvariants_CatchFault_OnItsTick(CorpseFault fault, string id, string stage)
     {
         var holder = new IPhysicsWorld[1];
@@ -712,7 +723,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
             if (now < from || now >= from + (ulong)ticks) return;
             var p = physics[0];
             var head = p.Body(FighterBodies.Handle(ctx.World.Get<BodyRef>(FighterIn(ctx.World, 1))), BodySegs.Head);
-            for (int k = 0; k < 8; k++)   // касание видно только в земле: голова над землёй — опускать по 1 см, в земле — до 4 см
+            for (int k = 0; k < 50; k++)   // касание видно только в земле: голова над землёй — опускать по 1 см (7з-4: может лежать на руке), в земле — до 4 см
             {
                 var s = p.Get(head);
                 float depth = MathF.Max(Depth(s.EndA, s.Radius), Depth(s.EndB, s.Radius));
@@ -733,12 +744,13 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
 
     /// <summary>
     /// Прогрев шага физики (7з-2, <see cref="PhysicsWarmup"/>): в игре он идёт в фоне, и его ошибка только пишется в журнал, — здесь на этом
-    /// потоке: синтетические трупы, «живой» с проходом, удар — шаги без исключений.
+    /// потоке: синтетические трупы, «живой» с проходом, удар — шаги без исключений. 7з-4: 0,1 с (было 0,05) — у трупов прогрева самоколлизия, а их
+    /// тела сложены плотно и в первые шаги почти все пары внахлёст (Debug, холодный JIT: 22 шага за 0,05 с).
     /// </summary>
     [Fact]
     public void PhysicsWarmup_Runs_WithoutErrors()
     {
-        var result = PhysicsWarmup.Run(PhysicsSettings.Default with { PopSpeed = 1 }, 0.05);
+        var result = PhysicsWarmup.Run(PhysicsSettings.Default with { PopSpeed = 1 }, 0.1);
         output.WriteLine(result.ToString());
         Assert.True(result.Steps > 30, result.ToString());
     }
@@ -897,7 +909,9 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         foreach (var v in sim.Invariants.Recent().Take(3)) output.WriteLine($"  {v}");
         output.WriteLine(FormattableString.Invariant($"толпа 32 трупов: ЦМ до {far:F2} м от игрока, кинетическая ≤ {ke:F3} Дж через 5 с; тик {ms:F2} мс, стадия Physics {physicsMs:F2} мс (Debug, с инвариантами после барьера); {bytes} Б за 240 тиков"));
         Assert.True(far <= 8, $"разлетелись: {far} м");
-        Assert.True(ke <= 1, $"не успокоились: {ke} Дж");
+        // 7з-4: 2,5 Дж — с самоколлизией трупы кучи лежат друг на друге, а не сложившись в себя: оседание дольше (замер через 5 с — 1,16 Дж у
+        // самого беспокойного; до 7з-4 — ≤ 1 Дж)
+        Assert.True(ke <= 2.5f, $"не успокоились: {ke} Дж");
         Assert.True(bytes == 0, $"240 тиков толпы трупов выделили {bytes} Б");
         Clean(sim);
     }
