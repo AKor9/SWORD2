@@ -152,7 +152,8 @@ public sealed partial class PosePool
     /// 363 позы — 512 слотов) и <paramref name="jobs"/> заданий тика, чтобы рост пула посреди игры (действия, снимки, вздрагивания толпы)
     /// не выделял памяти. Логика пула не меняется: <see cref="Capacity"/>, номера будущих поз, порядок свободных слотов и поколения — те же,
     /// что без запаса (растут удвоением, как раньше), поэтому и хеш состояния тот же; удвоение в пределах запаса только открывает слоты.
-    /// Меньше уже заведённого — ничего.
+    /// Таблица заданий проигрывателей (<see cref="Motion"/>, 8г) — на столько же заданий: заданий MM в тике не больше всех заданий, и
+    /// первое задание MM после запаса памяти не выделяет (32 Б на место: 11 бойцов × 16 заданий — 5,5 КБ). Меньше уже заведённого — ничего.
     /// </summary>
     public void Reserve(int poses, int jobs = 0)
     {
@@ -160,6 +161,7 @@ public sealed partial class PosePool
         while (slots < poses) slots *= 2;
         if (slots > _generation.Length) Resize(slots);
         if (jobs > _jobs.Length) Array.Resize(ref _jobs, jobs);
+        if (jobs > _motionJobs.Length) Array.Resize(ref _motionJobs, jobs);
     }
 
     private void Resize(int slots)
