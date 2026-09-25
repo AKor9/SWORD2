@@ -199,10 +199,10 @@ exe                 Game.App · Game.Headless · Bake.Cli · Bake.Studio        
 | Game.App | Bootstrap, Sword.Game.Client, клиентские модули, DevTools, Client, Platform.Win32; агент — Engine.Agent, Engine.Agent.Client, Game.Agent — модули симуляции сам не регистрирует |
 | Game.Headless | Bootstrap, Runtime; агент — Engine.Agent, Game.Agent — **ни одной клиентской сборки, даже транзитивно** |
 | Bake | Core, Content |
-| Bake.Engine | Bake, Formats, Animation, Ui-шрифты — уточняется при переносе |
-| Bake.Game | Bake, Bake.Engine, Game.Data |
-| Bake.Cli | Bake |
-| Bake.Studio | Bake, Client, Render, Ui, Platform.Win32 |
+| Bake.Engine | Bake, Content, Formats, Animation (без Ui — пекарь шрифтов внутри) |
+| Bake.Game | Bake, Bake.Engine, Formats, Game.Data |
+| Bake.Cli | Bake, Content |
+| Bake.Studio | Bake, Bake.Engine (шрифты окна), Content, Formats, Client, Render, Ui, Platform.Win32 — уточняется в Б7 |
 
 **Запрещено:**
 - `engine/*` → `game/*`, `tools/*`; `game/*` → `tools/*`;
@@ -1272,14 +1272,26 @@ Blood и Innards — представление: на игру не влияют
 - `Sword.Bake.Sword` делится на два плагина:
   - `Sword.Bake.Engine` — текстуры (`Texture/*`, `TextureArrayProcessor`), шрифты (`FontVectorProcessor`, `FontPreview`
     + `UiFontBaker` из `Engine.Ui`), импорт мешей, скелетов и клипов (`GltfMesh`, `RawAnim`, `AnimImport`, `SkinBake`,
-    `MeshDecimate`, `SkeletonProcessor`, `AnimPackProcessor`, `ClipSource`, `SpineChain`, `UeRig`, `UeSpace`, `PoseReport`);
-  - `Sword.Bake.Game` — оружие (`WeaponBake`, `WeaponStaticProcessor`), кровь оружия (`WeaponBloodBake`), анатомия
-    (`AnatomyBake`, `AnatomyMeshProcessor`), `FingerTransfer`, `Inspect` — каждый файл проверяется по зависимостям.
-- `Sword.Bake.Studio` — на новом движке (Client, Render, Ui); предпросмотр по-прежнему через `IAssetPreview`.
+    `MeshDecimate`, `SkeletonProcessor`, `AnimPackProcessor`, `ClipSource`, `SpineChain`, `UeRig`, `UeSpace`, `PoseReport`),
+    `FingerTransfer` и `Inspect` (по зависимостям — движковые: их зовут импорт клипов и `SkinBake`);
+  - `Sword.Bake.Game` — оружие (`WeaponBake`, `WeaponStaticProcessor`), кровь оружия (`WeaponBloodBake`, формат `.swblood` —
+    в `Game.Data`), анатомия (`AnatomyBake`, `AnatomyMeshProcessor`). Кровь и анатомия пекутся, хотя фичи отложены (решения 15,
+    17): пак полон и сверяем с эталонным (пользователь, 2026-09-25).
+- Уточнено при переносе (2026-09-25): `Bake.Engine` — сторона `Neutral`, без `Engine.Ui` (пекарь шрифтов — в `Bake.Engine`,
+  список ролей шрифта — в `Formats`); `.swtex` — в `Formats`; `PakBuildInfo` — в `Content`; плагины грузятся по порядку
+  (`Bake.Engine`, затем `Bake.Game`), `Bake.Game` видит `Bake.Engine` как хост видит ядро (одна копия сборки); `SourceHash` клипа —
+  без MVID сборок (иначе смена Debug ↔ Release перепекает все клипы); пак пекарни SWORD2 — `artifacts/bake/Content.swpak`, не в
+  корне (`ContentLocator` предпочитает `Content.swpak` эталонному): игра остаётся на эталонном паке, переключение на новый —
+  отдельным решением (эталоны SWORD2 и числа фич перезаписываются).
+- `Sword.Bake.Studio` — на новом движке (Client, Render, Ui); предпросмотр по-прежнему через `IAssetPreview`. Переносится
+  последним (пользователь, 2026-09-25).
+- Скрипты Unreal `tools/ue` (ретаргет и экспорт клипов, мешей, текстур; без разовых `probe_*`) — переносятся в SWORD2
+  (пользователь, 2026-09-25): нужны, если менять то, что решается в Unreal (частота, отбор, цикл, ретаргет).
 
 **Приёмка — сверка пересобранного пака с эталонным паком SWORD (этап 0):**
 - тот же список контентных файлов;
-- те же размеры и хеши содержимого — они уже есть в оглавлении пака (`PakContentEntry`: путь, размер, хеш);
+- те же размеры и хеши содержимого — они уже есть в оглавлении пака (`PakContentEntry`: путь, размер, хеш); `.swclip` — по
+  содержимому без поля `SourceHash` (в эталоне в него входит MVID сборок конвертера — хеши клипов не совпадут по устройству);
 - `.bake/build.json` — семантически: те же ассеты, обработчики, их версии и хеши параметров. Время (`BuiltUtc`,
   `BakedUtc`) и отпечатки кода (`Builder.Fingerprint` включает имя сборки и MVID — после деления `Bake.Sword` на две
   сборки они другие по определению) не сравниваются.
@@ -1419,7 +1431,21 @@ README `Engine.Animation` («Motion Matching») и модуля Locomotion; пр
 
 ### Пекарня — M, параллельно после этапа 1
 
-Раздел 10. **Готово, когда:** пак сверен с эталонным по разделу 10; Studio работает на новом движке.
+Раздел 11. **Готово, когда:** пак сверен с эталонным по разделу 11; Studio работает на новом движке.
+
+**Пекарня — идёт** (начата 2026-09-25, после этапа 8: пользователь хочет иметь возможность перепечь анимацию, если с Motion
+Matching будут проблемы). Исходники выпечки на месте (`D:/Temp/GamedevAssets`, `D:/Temp/AssetsDatabase`); разбор пекарни SWORD —
+`artifacts/plans/baker/research-baker.md` (вне git). Точки — волнами с оркестратором (раздел 12, «Ход точки»):
+
+| точка | что | после |
+|---|---|---|
+| Б1 | `PakBuildInfo` в `Content`; тест «писатели SWORD2 = байты эталона» (каждый `.swclip`, `.swskeleton`, `.swmesh`, `.swfont` пака); ядро `Sword.Bake` и `Sword.Bake.Cli` как есть, их тесты (инфраструктура пекарни — спецификация инструмента), `--json` у `status`/`build`; матрица и стороны; README/AGENTS пекарни, строка playbook | — |
+| Б2 | `tools/ue` — конвейер скриптов Unreal без `probe_*`, пути на SWORD2 | — (вместе с Б1) |
+| Б3 | `bake diff`: сравнение паков по оглавлению, сравнители форматов от плагинов (`.swclip` без `SourceHash`), семантика `build.json`, список ожидаемых расхождений, `--json`, тесты на синтетических паках | Б1 |
+| Б4 | `Bake.Engine`, анимация: raw-экспорт, оси UE, риг, пальцы, glTF, `SkinBake`, импорт клипов (`SourceHash` без MVID), скелет и меш, `anim.pack`, `inspect`; загрузка двух плагинов; тесты маршрутов, корня, glTF, осей | Б1 |
+| Б5 | `Bake.Engine`: текстуры (`.swtex` → `Formats`) и шрифты (пекарь в `Bake.Engine`, роли → `Formats`); `Bake.Game`: оружие, кровь оружия (`.swblood` → `Game.Data`), анатомия | Б4 |
+| Б6 | проект `Bake/` в SWORD2 (CRLF, плагины, пак — `artifacts/bake/`), одна полная выпечка, `bake diff` с эталонным паком, отчёт приёмки | Б3, Б5 |
+| Б7 | Studio на новом движке (текстуры UI из пикселей, шрифты UI-прохода не из пака, диалоги Win32, граф рендера) + предпросмотры | последней |
 
 ### Дальше — уже новая работа
 
