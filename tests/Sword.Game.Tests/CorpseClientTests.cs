@@ -569,7 +569,7 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     [Fact]
     public void Overlays_KnownToClient_ParseInManifestViews()
     {
-        Assert.Equal(["capsules", "blades", "contacts", "joints"], ArenaClient.KnownOverlays);
+        Assert.Equal(["capsules", "blades", "contacts", "joints", "mm"], ArenaClient.KnownOverlays);   // 8з: mm — траектории Motion Matching
         Assert.All(ArenaClient.KnownOverlays, o => Assert.Matches("^[a-z0-9-]+$", o));
         foreach (var m in FeatureManifestsTests.All())
         {

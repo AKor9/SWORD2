@@ -122,6 +122,7 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         var pool = world.Resource<PosePool>();
         var rules = world.Resource<LocomotionRules>();
         rules.Weights(runtime.Weights);
+        runtime.Diagnostics.Attach(world.Profiler);   // 8з: зона locomotion.search
         int period = rules.SearchTicks(time.Dt);
         foreach (var chunk in ctx.Iterate(_query))
         {
@@ -196,13 +197,19 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         float kv = runtime.DataScale(velocity, t.Facing, s.ControlSpeed);
         float kg = runtime.DataScale(steer.GoalVelocity, steer.GoalYaw, s.ControlSpeed);
         var query = runtime.Query;
+        var diagnostics = runtime.Diagnostics;   // 8з: повод, зона профайлера, последний поиск для вида и событий
+        var reason = MotionMatchDiagnostics.Reason(s, steer.GoalVelocity);
+        diagnostics.Begin();
         query.Fill(new TrajectoryState(root, velocity), model, runtime.History(s.Player), (long)time.Tick, current, kv, kg, query.DataYawRate);
         var match = runtime.Matcher.Search(query.Values, runtime.Weights, current, 0, runtime.SkipFrames);
+        double microseconds = diagnostics.End();
         s.Searches++;
         s.SinceSearch = 0;
         s.SearchGoal = steer.GoalVelocity;
         s.Match = Finite(match);
-        if (!Switches(match, current, current >= 0 && runtime.Database.Searchable[current], rules.SwitchGain)) return -1;
+        bool switches = Switches(match, current, current >= 0 && runtime.Database.Searchable[current], rules.SwitchGain);
+        diagnostics.Searched(s.Player, (long)time.Tick, reason, root, current, s.Match, switches, microseconds, query.Raw);
+        if (!switches) return -1;
         s.Switches++;
         return match.Frame;
     }

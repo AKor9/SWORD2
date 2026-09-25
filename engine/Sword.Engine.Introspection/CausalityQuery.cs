@@ -74,6 +74,16 @@ public static class CausalityQuery
             log.Written, log.Capacity, log.FirstSequence, scanned);
     }
 
+    /// <summary>
+    /// Цепочка записи журнала причинности по её номеру (8з; <c>state.why {cause}</c>: номер — <c>cause.id</c> или <c>cause.parent</c> записи
+    /// <c>events.history</c>) до корня, не глубже <paramref name="depth"/>; режим выключен или запись вытеснена — null.
+    /// </summary>
+    public static WhyChange? WhyCause(in ServiceContext ctx, CauseId id, int depth, IEntityNames? names)
+    {
+        if (ctx.World.Causality is not { } log || !log.TryGet(id, out var r)) return null;
+        return Chain(ctx, log, r, Math.Clamp(depth, 1, MaxDepth), SystemNames(ctx.World), names);
+    }
+
     /// <summary>Имена регистраций систем по номеру — один раз на запрос (описание мира строится при каждом обращении).</summary>
     public static Dictionary<int, string> SystemNames(WorldReader world) => world.Systems.ToDictionary(s => s.RegistrationId, s => s.Name);
 

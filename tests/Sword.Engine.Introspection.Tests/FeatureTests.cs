@@ -324,7 +324,57 @@ public sealed class FeatureTests : IDisposable
         Assert.True(report.Ok, string.Join('|', report.Failures));
         Assert.Equal(238 / 120.0, report.Json["metrics"]![0]!["value"]!.GetValue<double>(), 5);
         Assert.Equal(2.0, report.Json["metrics"]![1]!["value"]!.GetValue<double>(), 5);
-        Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"stat\": \"p99\", \"from\": 12", "\"stat\": \"p95\", \"from\": 12"))));
+        Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"stat\": \"p99\", \"from\": 12", "\"stat\": \"p50\", \"from\": 12"))));
+    }
+
+    /// <summary>Вычисляемое поле (8з): <c>Even.T</c> — время симуляции после тика, определено только после тиков с чётным номером (иначе NaN).</summary>
+    private sealed class EvenFields : IEntityFields
+    {
+        public IReadOnlyList<string> Known { get; } = ["Even.T"];
+
+        public EntityFieldReader? Compile(string path, string at) => path == "Even.T"
+            ? (in ServiceContext ctx, Ecs.Entity e) => ctx.World.Resource<SimTime>() is var t && t.Tick % 2 == 0 ? t.Time : double.NaN
+            : null;
+    }
+
+    /// <summary>
+    /// 8з: <c>stat: p95</c> — 95-й перцентиль окна ближайшим рангом; <c>skipUndefined</c> — тики без значения (NaN: поле определено не в
+    /// каждом тике — скольжение опорной стопы) не входят в окно: у <c>Even.T</c> после тиков 1…240 определены нечётные t (t/120 с) — среднее
+    /// 120 значений 1,0, p95 — 114-е (227/120), наибольшее — 239/120; без ключа то же окно — провал «значения нет»; ключ со <c>stat: value</c> —
+    /// ошибка разбора.
+    /// </summary>
+    [Fact]
+    public void Verify_Metric_P95_SkipUndefined()
+    {
+        string json = $$"""
+            {
+              "format": "sword-feature", "version": 1, "id": "even", "title": "по тикам", "doc": "README.md", "sourceRoots": ["feat"],
+              "scenarios": [{ "id": "run", "ticks": 240 }],
+              "metrics": [
+                { "id": "mean", "scenario": "run", "reference": "тест", "entity": "{{First}}", "field": "Even.T", "stat": "mean", "skipUndefined": true, "expected": 1, "tolerance": 1e-5 },
+                { "id": "p95", "scenario": "run", "reference": "тест", "entity": "{{First}}", "field": "Even.T", "stat": "p95", "skipUndefined": true, "expected": 1.891667, "tolerance": 1e-5 },
+                { "id": "max", "scenario": "run", "reference": "тест", "entity": "{{First}}", "field": "Even.T", "stat": "max", "skipUndefined": true, "expected": 1.991667, "tolerance": 1e-5 },
+                { "id": "time", "scenario": "run", "reference": "тест", "resource": "SimTime.Time", "stat": "p95", "expected": 1.9, "tolerance": 1e-5 }
+              ],
+              "checklist": ["посмотреть"]
+            }
+            """;
+        var m = FeatureManifest.Load(Manifest(json));
+        Assert.True(m.Metrics[0].SkipUndefined);
+        Assert.False(m.Metrics[3].SkipUndefined);
+        var env = new FeatureEnvironment { RepoRoot = _root, Build = Build, Info = Info, Optimized = false, Fields = new EvenFields() };
+        var report = FeatureVerifier.Verify(m, env, new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Views = false, Budgets = false });
+        Assert.True(report.Ok, string.Join('|', report.Failures));
+        var metrics = report.Json["metrics"]!.AsArray();
+        Assert.Equal(120, metrics[0]!["defined"]!.GetValue<int>());
+        Assert.Equal(227 / 120.0, metrics[1]!["value"]!.GetValue<double>(), 5);
+        Assert.Equal(228 / 120.0, metrics[3]!["value"]!.GetValue<double>(), 5);   // p95 окна 1…240 без пропусков — 228-е
+
+        var strict = FeatureManifest.Load(Manifest(json.Replace("\"skipUndefined\": true, ", "")));
+        var failed = FeatureVerifier.Verify(strict, env, new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out2"), Views = false, Budgets = false });
+        Assert.Equal(3, failed.Failures.Count(f => f.Contains("значения нет")));
+        var e = Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"stat\": \"mean\", \"skipUndefined\"", "\"skipUndefined\""))));
+        Assert.Contains("skipUndefined — только со stat", e.Message);
     }
 
     [Fact]

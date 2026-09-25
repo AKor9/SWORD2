@@ -29,7 +29,12 @@ public static class AnimationTools
                 "Turn — поворот на месте), клип с именем, время и длительность, вес слоя и его доля в позе, растяжение yaw клипа, " +
                 "поворот курса и сдвиг корня клипом за тик; удар — слот (slash1–4, stab1–3), номер удара бойца, слой верха и доля клипа " +
                 "в ногах, обрезан ли хвост; снимок позы — переход и сколько снимков; что прервано последним действием. joints — имена " +
-                "суставов (по умолчанию таз, позвоночник, голова, кисти, стопы).",
+                "суставов (по умолчанию таз, позвоночник, голова, кисти, стопы). У бойца на Motion Matching (игрок при " +
+                "locomotion.player=mm) — motionMatching: кадр базы, клип с именем, кадр в клипе, доля, темп, идёт ли, ищет ли, тиков с поиска, " +
+                "поисков, смен, переходов; стопы на земле по разметке кадра; последний поиск (тик, повод, текущий и найденный кадр, клип, цена, " +
+                "цена продолжения, 12 групп по именам, осмотрено блоков и кадров, сменил ли, время мкс и наибольшее); замер тика (скольжение " +
+                "опорной стопы м/с и чей сустав, скачок сустава за тик м и чей); траектории в мире — желаемая (запрос поиска), найденного кадра, " +
+                "история корня ([t, x, z, курс]); отпечаток базы.",
             Arguments = new JsonObject
             {
                 ["entity"] = new JsonObject { ["type"] = "string", ["description"] = "номер «12v3» или имя (по умолчанию player)" },
@@ -108,7 +113,63 @@ public static class AnimationTools
         };
         if (world.Knows<AnimatorAction>() && world.TryGet<AnimatorAction>(e, out var action))
             data["action"] = Action(view, world.TryView<ICombatView>(out var combat) ? combat : null, action);
+        if (world.TryView<IMotionMatchView>(out var mm) && mm.TryStatus(e, out var status)) data["motionMatching"] = MotionMatching(view, mm, e, status);
         return (data, ctx.Point);
+    }
+
+    /// <summary>
+    /// Motion Matching бойца (8з; вид <see cref="IMotionMatchView"/>): состояние, стопы на земле, последний поиск с группами, замер тика,
+    /// траектории в мире (<c>[t, x, z, курс]</c>), отпечаток базы.
+    /// </summary>
+    private static JsonObject MotionMatching(IAnimationView anim, IMotionMatchView mm, Entity e, in MotionMatchStatus s)
+    {
+        string? Joint(int j) => j >= 0 && j < anim.JointCount ? anim.JointName(j) : null;
+        string? Clip(int c) => (uint)c < (uint)anim.ClipCount ? anim.ClipName(c) : null;
+        var feet = new JsonArray();
+        for (int k = 0; k < mm.ContactJointCount; k++)
+            if ((s.Contacts >> k & 1) != 0) feet.Add(Joint(mm.ContactJoint(k)));
+        var o = new JsonObject
+        {
+            ["frame"] = s.Frame, ["clip"] = s.Clip, ["clipName"] = Clip(s.Clip), ["clipFrame"] = s.ClipFrame, ["alpha"] = Round(s.Alpha),
+            ["rate"] = Round(s.Rate), ["stepping"] = s.Stepping, ["searching"] = s.Searching, ["sinceSearch"] = s.SinceSearch,
+            ["searches"] = s.Searches, ["switches"] = s.Switches, ["transitions"] = s.Transitions, ["feetOnGround"] = feet,
+        };
+        if (mm.TrySearch(e, out var q))
+        {
+            var groups = new JsonObject();
+            for (int g = 0; g < mm.GroupCount; g++) groups[mm.GroupName(g)] = Round(mm.GroupCost(e, g));
+            o["lastSearch"] = new JsonObject
+            {
+                ["tick"] = q.Tick, ["reason"] = q.Reason.ToString(), ["current"] = q.Current, ["frame"] = q.Frame, ["clip"] = q.Clip,
+                ["clipName"] = Clip(q.Clip), ["clipFrame"] = q.ClipFrame, ["cost"] = Round(q.Cost), ["continuationCost"] = Round(q.ContinuationCost),
+                ["switched"] = q.Switched, ["blocks"] = q.Blocks, ["frames"] = q.Frames, ["microseconds"] = Math.Round(q.Microseconds, 1),
+                ["maxMicroseconds"] = Math.Round(q.MaxMicroseconds, 1), ["groups"] = groups,
+            };
+        }
+        var m = mm.Measure(e);
+        o["measure"] = new JsonObject
+        {
+            ["footSlide"] = float.IsFinite(m.FootSlide) ? Round(m.FootSlide) : null, ["slideJoint"] = Joint(m.SlideJoint),
+            ["feetOnGround"] = m.FeetOnGround, ["jointJump"] = float.IsFinite(m.JointJump) ? Math.Round(m.JointJump, 5) : null,
+            ["jumpJoint"] = Joint(m.JumpJoint),
+        };
+        o["desired"] = Points(mm.Desired(e));
+        o["matched"] = Points(mm.Matched(e));
+        o["history"] = Points(mm.History(e));
+        var b = mm.Base;
+        o["base"] = new JsonObject
+        {
+            ["fingerprint"] = b.Fingerprint.ToString("X16", System.Globalization.CultureInfo.InvariantCulture), ["clips"] = b.Clips,
+            ["frames"] = b.Frames, ["pattern"] = mm.Pattern,
+        };
+        return o;
+    }
+
+    private static JsonArray Points(ReadOnlySpan<MotionTrajectoryPoint> points)
+    {
+        var list = new JsonArray();
+        foreach (var p in points) list.Add(new JsonArray(Round(p.Time), Round(p.Position.X), Round(p.Position.Z), Round(p.Yaw)));
+        return list;
     }
 
     /// <summary>

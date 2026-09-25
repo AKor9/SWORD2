@@ -186,6 +186,7 @@ public sealed class MotionMatchHash(MotionMatchRuntime runtime) : IStateContribu
             w.EndObject();
         }
         w.EndArray();
+        DescribeSearch(w, player);   // 8з: последний поиск
         var names = db.Library.Skeleton.JointNames;
         var rotOffset = players.RotationOffsets(player);
         var rotOffsetVelocity = players.RotationOffsetVelocities(player);
@@ -210,6 +211,42 @@ public sealed class MotionMatchHash(MotionMatchRuntime runtime) : IStateContribu
             w.EndObject();
         }
         w.EndItem();
+    }
+
+    /// <summary>
+    /// Последний поиск проигрывателя (8з; диагностика — в хеш не входит, время поиска — нет: от машины): тик, повод, текущий кадр, найденный
+    /// кадр с клипом и кадром в клипе, цены и цены групп по именам схемы, осмотрено, сменил ли кадр, корень запроса. Поиска не было — нет.
+    /// </summary>
+    private void DescribeSearch(StateWriter w, MotionPlayerHandle player)
+    {
+        if (runtime.Diagnostics.Last(player) is not { } r) return;
+        var db = runtime.Database;
+        w.BeginObject("lastSearch");
+        w.Value("tick", r.Tick);
+        w.Value("reason", r.Reason.ToString());
+        w.Value("current", r.Current);
+        w.Value("frame", r.Match.Frame);
+        if (r.Match.Frame >= 0)
+        {
+            w.Value("clip", db.Library.Clips[db.Clips[db.ClipOf[r.Match.Frame]].LibraryClip].Name);
+            w.Value("clipFrame", db.FrameInClip(r.Match.Frame));
+        }
+        w.Value("cost", r.Match.Cost);
+        w.Value("continuationCost", r.Match.ContinuationCost);
+        w.Value("switched", r.Switched);
+        w.Value("blocks", r.Match.Blocks);
+        w.Value("frames", r.Match.Frames);
+        w.BeginObject("groups");
+        var costs = r.Match.Groups;
+        var groups = db.Schema.Groups;
+        for (int g = 0; g < groups.Length; g++) w.Value(groups[g].Name, ((ReadOnlySpan<float>)costs)[g]);
+        w.EndObject();
+        w.BeginObject("root");
+        w.Value("x", r.Root.X);
+        w.Value("z", r.Root.Z);
+        w.Value("yaw", r.Root.Yaw);
+        w.EndObject();
+        w.EndObject();
     }
 
     private static void Write(StateWriter w, string name, Quaternion q)

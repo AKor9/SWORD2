@@ -24,6 +24,9 @@ public sealed class MotionMatchRuntime
     public MotionMatcher Matcher { get; private set; } = null!;
     public MotionQuery Query { get; private set; } = null!;
 
+    /// <summary>Диагностика (8з): последний поиск слота, запрошенный переход тика, время поиска, зона профайлера — вне хеша.</summary>
+    public MotionMatchDiagnostics Diagnostics { get; private set; } = null!;
+
     /// <summary>Веса групп поиска — буфер на тик (из ручек <see cref="LocomotionRules"/>).</summary>
     public float[] Weights { get; private set; } = [];
 
@@ -69,6 +72,7 @@ public sealed class MotionMatchRuntime
         Players.Reserve(1);
         Matcher = new MotionMatcher(Database);
         Query = new MotionQuery(Database);
+        Diagnostics = new MotionMatchDiagnostics(Database);
         Weights = new float[Database.Schema.GroupCount];
         if (Weights.Length != GaspMotion.WeightKeys.Count)
             throw new InvalidDataException($"схема MM — {Weights.Length} групп, а ручек весов {GaspMotion.WeightKeys.Count}");

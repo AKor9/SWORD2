@@ -27,15 +27,20 @@ internal static class CauseTools
                 "компоненты, метки); непрерывные поля (запись колонки на месте, Transform) — грубо: writers — какая регистрация писала " +
                 "столбец в каком тике (глубже — entity.history, time.break, experiment.fork). Нужен диагностический режим причинности: " +
                 "session.start {causality:true} или ключ --causality (хеш и реплей он не меняет); без него — enabled:false и объявленные " +
-                "производители. Кольцо журнала ограничено (65 536 записей): старое вытесняется — complete:false со словами почему.",
+                "производители. Кольцо журнала ограничено (65 536 записей): старое вытесняется — complete:false со словами почему. " +
+                "cause — вместо entity и field: цепочка записи журнала по номеру (cause.id или cause.parent строки events.history: " +
+                "почему случилось событие — переход Motion Matching, попадание) до корня.",
             Arguments = CoreTools.Props(
-                ("entity", CoreTools.Str("номер «12v3» или имя (player, enemy N; session.status → namedEntities)")),
-                ("field", CoreTools.Str("компонент или поле компонента: Health.Hp, Health, Dead, Transform.Position.X")),
+                ("entity", CoreTools.Str("номер «12v3» или имя (player, enemy N; session.status → namedEntities); с field")),
+                ("field", CoreTools.Str("компонент или поле компонента: Health.Hp, Health, Dead, Transform.Position.X; с entity")),
+                ("cause", CoreTools.Int("номер записи журнала причинности (events.history → cause.id, cause.parent) — вместо entity и field", 1, int.MaxValue)),
                 ("changes", CoreTools.Int($"сколько последних изменений поля (по умолчанию 1, не больше {CausalityQuery.MaxChanges})", 1, CausalityQuery.MaxChanges)),
                 ("depth", CoreTools.Int($"глубина цепочки (по умолчанию 16, не больше {CausalityQuery.MaxDepth})", 1, CausalityQuery.MaxDepth))),
-            Required = ["entity", "field"],
             Run = async call =>
             {
+                if (call.Node("cause") is not null) return await Cause(host, call);
+                if (call.String("entity") is null || call.String("field") is null)
+                    throw new ArgumentException("нужно entity и field (почему поле такое) или cause (почему случилась запись журнала)");
                 string which = call.RequiredString("entity");
                 string text = call.RequiredString("field");
                 int changes = (int)call.Integer("changes", 1, 1, CausalityQuery.MaxChanges);
@@ -52,6 +57,69 @@ internal static class CauseTools
                 return new ToolOutput(Json(r.Answer, r.Names, host.Catalog)) { Point = r.Point };
             },
         });
+    }
+
+    /// <summary>
+    /// <c>state.why {cause}</c> (8з): цепочка записи журнала причинности по номеру до корня — событие (переход Motion Matching, попадание) ←
+    /// решение или команда. Режим выключен — <c>enabled: false</c>; запись вытеснена — ошибка вызова со словами.
+    /// </summary>
+    private static async Task<ToolOutput> Cause(AgentHost host, ToolCall call)
+    {
+        int id = (int)call.Integer("cause", 0, 1, int.MaxValue);
+        int depth = (int)call.Integer("depth", 16, 1, CausalityQuery.MaxDepth);
+        var r = await host.Serve(ctx =>
+        {
+            bool enabled = ctx.World.Causality is not null;
+            var chain = CausalityQuery.WhyCause(ctx, new CauseId(id), depth, host.Names);
+            var names = new Dictionary<Entity, string>();
+            if (chain is not null && host.Names is { } known)
+                foreach (var s in chain.Chain.Prepend(chain.Change))
+                    foreach (var e in Entities(s))
+                        if (!names.ContainsKey(e) && known.NameOf(ctx, e) is { } name) names[e] = name;
+            return (Enabled: enabled, Chain: chain, Names: names, ctx.Point);
+        }, call.Cancel);
+        if (!r.Enabled)
+            return new ToolOutput(new JsonObject
+            {
+                ["enabled"] = false,
+                ["note"] = "диагностический режим причинности выключен: session.start {causality:true} (Headless) или ключ --causality",
+            }) { Point = r.Point };
+        if (r.Chain is not { } c)
+            throw new ArgumentException($"записи {id} в журнале причинности нет: вытеснена (кольцо 65 536 записей) или номер не тот — cause.id из events.history");
+        var o = Step(c.Change, r.Names, values: true);
+        var steps = new JsonArray();
+        foreach (var step in c.Chain) steps.Add(Step(step, r.Names, values: true));
+        o["chain"] = steps;
+        o["complete"] = c.Complete;
+        if (c.Stop is not null) o["stop"] = c.Stop;
+        o["root"] = c.Complete ? (c.Chain.Count > 0 ? c.Chain[^1] : c.Change).Record.Kind.ToString() : null;
+        var summary = new StringBuilder(Label(c.Change, r.Names)).Append(" · тик ").Append(c.Change.Record.Tick.ToString(CultureInfo.InvariantCulture));
+        foreach (var step in c.Chain) summary.Append(" ← ").Append(Label(step, r.Names));
+        if (!c.Complete) summary.Append(" ← … (").Append(c.Stop).Append(')');
+        o["summary"] = summary.ToString();
+        var result = new JsonObject { ["enabled"] = true, ["cause"] = o };
+        if (r.Names.Count > 0)
+        {
+            var map = new JsonObject();
+            foreach (var (e, name) in r.Names) map[e.ToString()] = name;
+            result["names"] = map;
+        }
+        return new ToolOutput(result) { Point = r.Point };
+    }
+
+    /// <summary>Сущности шага: запись и поля-сущности значений до и после.</summary>
+    private static IEnumerable<Entity> Entities(CauseStep s)
+    {
+        if (!s.Record.Entity.IsNull && !s.Record.Entity.IsDeferred) yield return s.Record.Entity;
+        if (s.ValueType is null) yield break;
+        var layout = FieldLayout.Of(s.ValueType);
+        foreach (var bytes in (byte[]?[])[s.Before, s.After])
+        {
+            if (bytes is null || bytes.Length < layout.Size) continue;
+            foreach (var leaf in layout.Leaves)
+                if (leaf.Kind == FieldLayout.Kind.Entity && MemoryMarshal.Read<Entity>(bytes.AsSpan(leaf.Offset)) is { IsNull: false, IsDeferred: false } e)
+                    yield return e;
+        }
     }
 
     /// <summary>Имена игры сущностей из значений шагов (атакующий и жертва попадания…) — в точке обслуживания.</summary>

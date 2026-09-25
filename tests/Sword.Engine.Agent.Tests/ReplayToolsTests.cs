@@ -18,7 +18,7 @@ public sealed class ReplayToolsTests : IDisposable
 
     private static Simulation Build(ConfigSet config)
     {
-        var sim = Simulation.Build(config, ["S"], [new PushModule()]);
+        var sim = Simulation.Build(config, ["S"], [new PushModule(), new BaseFactModule()]);
         config.Complete();
         return sim;
     }
@@ -110,6 +110,30 @@ public sealed class ReplayToolsTests : IDisposable
         var seeded = await Tool("replay.check", new JsonObject { ["path"] = "script.swreplay", ["set"] = new JsonArray("sim.seed=9") });
         Assert.False(seeded["match"]!.GetValue<bool>());
         Assert.Equal(0, seeded["divergence"]!["tick"]!.GetValue<int>());
+        Assert.Null(seeded["divergence"]!["cause"]);   // сведения те же — причины нет
+
+        // 8з: другое сведение реплея (как другая база Motion Matching) — предупреждение и вероятная причина в расхождении.
+        var other = await Tool("replay.check", new JsonObject { ["path"] = "script.swreplay", ["set"] = new JsonArray("sim.seed=9", "basefact.base=B") });
+        Assert.Contains(other["warnings"]!.AsArray(), w => w!.GetValue<string>().Contains("basefact.base: в реплее A, в симуляции B"));
+        Assert.Contains("basefact.base: в реплее A, в симуляции B", other["divergence"]!["cause"]!.GetValue<string>());
+    }
+
+    /// <summary>Настройки подопытного сведения реплея.</summary>
+    public sealed class BaseFactSettings
+    {
+        public string Base { get; set; } = "A";
+    }
+
+    /// <summary>Подопытное сведение реплея (8з): строка настроек в заголовке реплея (<c>facts</c>), как отпечаток базы Motion Matching.</summary>
+    private sealed class BaseFactModule : IModule
+    {
+        public string Id => "basefact";
+
+        public void Configure(SimulationBuilder b)
+        {
+            string value = b.Settings<BaseFactSettings>().Base;
+            b.ReplayFact("basefact.base", () => value);
+        }
     }
 
     [Fact]

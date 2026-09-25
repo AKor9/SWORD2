@@ -112,8 +112,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// </summary>
     public const string JointsOverlay = "joints";
 
+    /// <summary>
+    /// Оверлей Motion Matching игрока (8з; M, <see cref="MotionMatchOverlay"/>): желаемая траектория (запрос последнего поиска), траектория
+    /// найденного кадра, история корня, суставы контакта стоп на земле. Игрок не на MM — пуст, снимок несёт заметку.
+    /// </summary>
+    public const string MotionOverlay = "mm";
+
     /// <summary>Оверлеи, которые клиент арены снимает слоем.</summary>
-    public static readonly IReadOnlyList<string> KnownOverlays = [CapsulesOverlay, BladesOverlay, ContactsOverlay, JointsOverlay];
+    public static readonly IReadOnlyList<string> KnownOverlays = [CapsulesOverlay, BladesOverlay, ContactsOverlay, JointsOverlay, MotionOverlay];
 
     /// <summary>Нормаль контакта на оверлее: длина, м, и прибавка на метр глубины (1 см глубины — +10 см).</summary>
     public const float ContactNormal = 0.1f, ContactDepthScale = 10f;
@@ -228,8 +234,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <param name="showBlades">Клинки поверх персонажей с первого кадра (<c>--overlay blades</c>; F7 показывает их с капсулами).</param>
     /// <param name="showJoints">Суставы тел с первого кадра (7и: <c>--overlay joints</c>; J — переключить).</param>
     /// <param name="showContacts">Контакты физики с первого кадра и трасса физики (7и: <c>--overlay contacts</c>; K — переключить).</param>
+    /// <param name="showMotion">Траектории Motion Matching игрока с первого кадра (8з: <c>--overlay mm</c>; M — переключить).</param>
     public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true,
-        bool showBodies = false, bool showBlades = false, bool showJoints = false, bool showContacts = false)
+        bool showBodies = false, bool showBlades = false, bool showJoints = false, bool showContacts = false, bool showMotion = false)
     {
         if (!playerCommands && scripted is not null) throw new ArgumentException("заданная команда игрока без команд игрока", nameof(scripted));
         _showHud = hud;
@@ -238,9 +245,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         ShowBlades = showBlades;
         ShowJoints = showJoints;
         ShowContacts = showContacts;
+        ShowMotion = showMotion;
         _drawOpaque = DrawOpaque;
         _drawIds = DrawIds;
         _view = new ArenaView(ArenaTerrain.Height);
+        _motion = new MotionMatchOverlay(ArenaTerrain.Height);
         _scripted = scripted;
         if (camera is { } c)
         {
@@ -308,6 +317,17 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Суставов и контактов, отданных отладочному рисованию в последнем кадре (7и; 0 — не рисовались).</summary>
     public int DrawnJoints { get; private set; }
     public int DrawnContacts { get; private set; }
+
+    /// <summary>Траектории Motion Matching игрока поверх кадра (8з: M, <c>--overlay mm</c>).</summary>
+    public bool ShowMotion { get; set; }
+
+    /// <summary>Примитивов оверлея <c>mm</c>, отданных отладочному рисованию в последнем кадре (0 — не рисовался или игрок не на MM).</summary>
+    public int DrawnMotion { get; private set; }
+
+    /// <summary>Оверлей Motion Matching игрока, снятый последним кадром (8з; итог Sword.exe, тесты).</summary>
+    public MotionMatchOverlay Motion => _motion;
+
+    private readonly MotionMatchOverlay _motion;
 
     /// <summary>Трассу физики включил клиент (K, <c>--overlay contacts</c>) — выключает её тоже он; включённую агентом не трогает.</summary>
     private bool _traceByClient;
@@ -467,6 +487,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _groups.Clear();
         _groups.Add(CombatTuning.Build(_tuning, _simulation));
         _groups.Add(RagdollTuning.Build(_tuning, _view));
+        if (LocomotionTuning.Build(_tuning, _simulation, _view) is { } locomotion) _groups.Add(locomotion);   // 8з: игрок на MM
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -484,6 +505,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         if (input.WasPressed(ArenaInput.DebugBodies)) ShowBodies = !ShowBodies;
         if (input.WasPressed(ArenaInput.DebugJoints)) ShowJoints = !ShowJoints;
         if (input.WasPressed(ArenaInput.DebugContacts)) ShowContacts = !ShowContacts;
+        if (input.WasPressed(ArenaInput.DebugMotion)) ShowMotion = !ShowMotion;
         SyncTrace();
         // Инвентарь (6е; SWORD: I, если не набирается текст) — панель видна со следующего кадра панелей.
         if (input.WasPressed(ArenaInput.Inventory)) _inventory.Open = !_inventory.Open;
@@ -598,6 +620,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             blades: ShowBodies || ShowBlades || view.Capture?.WantsLayer(BladesOverlay) == true,
             joints: ShowJoints || view.Capture?.WantsLayer(JointsOverlay) == true,
             contacts: ShowContacts || view.Capture?.WantsLayer(ContactsOverlay) == true);
+        // 8з: траектории Motion Matching игрока (M, --overlay mm, слой mm) — после позы игрока кадра (стопы — в показанной позе).
+        if (ShowMotion || view.Capture?.WantsLayer(MotionOverlay) == true) _motion.Extract(_simulation!.World, _view);
+        else _motion.Clear();
         _stats = view.Stats;
         // Бой для HUD (6е): мир последнего тика кадра — только чтение.
         var world = _simulation!.World;
@@ -685,9 +710,10 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     {
         bool capsulesLayer = frame.WantsLayer(CapsulesOverlay), bladesLayer = frame.WantsLayer(BladesOverlay);
         bool contactsLayer = frame.WantsLayer(ContactsOverlay), jointsLayer = frame.WantsLayer(JointsOverlay);
-        bool screenBlades = ShowBodies || ShowBlades, screen = screenBlades || ShowJoints || ShowContacts;
-        DrawnCapsules = DrawnBlades = DrawnJoints = DrawnContacts = DrawnMarks = DrawnGroundedMarks = 0;
-        if (!screen && !capsulesLayer && !bladesLayer && !contactsLayer && !jointsLayer) return;
+        bool motionLayer = frame.WantsLayer(MotionOverlay);
+        bool screenBlades = ShowBodies || ShowBlades, screen = screenBlades || ShowJoints || ShowContacts || ShowMotion;
+        DrawnCapsules = DrawnBlades = DrawnJoints = DrawnContacts = DrawnMarks = DrawnGroundedMarks = DrawnMotion = 0;
+        if (!screen && !capsulesLayer && !bladesLayer && !contactsLayer && !jointsLayer && !motionLayer) return;
         var debug = _renderer!.Debug;
         if (capsulesLayer)
         {
@@ -718,13 +744,31 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             if (_view.JointTotal == 0) frame.CaptureNote($"{JointsOverlay}: суставов нет ни у одного бойца кадра (суставы — у трупа на физике)");
             Layer(frame, debug, JointsOverlay, "overlay.joints", from);
         }
+        if (motionLayer)
+        {
+            var from = debug.Mark();
+            DrawnMotion = _motion.Draw(debug);
+            MotionLabels(debug);
+            if (!_motion.Available) frame.CaptureNote(MotionMatchOverlay.NoMotionNote);
+            Layer(frame, debug, MotionOverlay, "overlay.mm", from);
+        }
         if (!screen) return;
         var screenFrom = debug.Mark();
         if (ShowBodies) DrawnCapsules = DrawCapsules(debug);
         if (screenBlades) DrawnBlades = DrawBlades(debug);
         if (ShowJoints) DrawnJoints = DrawJoints(debug);
         if (ShowContacts) DrawnContacts = DrawContacts(debug);
+        if (ShowMotion) DrawnMotion = _motion.Draw(debug);
         debug.AddPass(frame, frame.Graph.BackBuffer, _camera.ViewProj, _camera.Eye, "debug.bodies", since: screenFrom);
+    }
+
+    /// <summary>Подписи слоя <c>mm</c>: «запрос», «кадр» и имя клипа игрока над головой (строка библиотеки клипов — без выделений).</summary>
+    private void MotionLabels(DebugDraw debug)
+    {
+        string? clip = _motion.Clip >= 0 && _simulation!.World.TryView<IAnimationView>(out var anim) && _motion.Clip < anim.ClipCount
+            ? anim.ClipName(_motion.Clip) : null;
+        Vector3? head = _view.Player is { } p ? new Vector3(p.Root.X, p.Height + FighterHeight, p.Root.Z) : null;
+        _motion.Labels(debug, clip, head);
     }
 
     /// <summary>Заметка снимка: слой контактов заказан, а трасса выключена (строка — заранее: клавиша из привязок).</summary>

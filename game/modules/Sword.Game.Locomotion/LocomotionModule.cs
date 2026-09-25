@@ -236,6 +236,7 @@ public sealed class LocomotionModule : IModule
                 MotionMatchSetupSystem.PlaceWorldBuilt(w, runtime);
             });
         arm.Configure(b);
+        MotionMatchObservers.Register(b, runtime);   // 8з: вид, события переходов, тяжёлые инварианты, сведение реплея
         LocomotionKnobs.Register(b);
     }
 }

@@ -211,7 +211,12 @@ public sealed class Simulation
             [.. EcsInvariants.For(built.Reader).Select(i => (i, "engine")), .. b.Registered]);
         Log.Info("runtime", $"симуляция: {settings.TickRate} тиков/с, модули: {string.Join(", ", active)}" +
             (inactive.Count > 0 ? $"; выключены: {string.Join(", ", inactive)}" : ""));
-        var sim = new Simulation(built, settings, commands, export, active, inactive, config, state, invariants) { Tuning = [.. b.Knobs] };
+        var sim = new Simulation(built, settings, commands, export, active, inactive, config, state, invariants)
+        {
+            Tuning = [.. b.Knobs],
+            // Сведения реплея (8з) — после начального наполнения мира: модуль строит то, от чего они (база MM), в OnWorldBuilt.
+            Facts = b.Facts.Select(f => (f.Name, f.Value())).OrderBy(f => f.Name, StringComparer.Ordinal).ToDictionary(f => f.Name, f => f.Item2),
+        };
         sim.Diagnostics = new SimulationDiagnostics(b.Diagnostics, () => sim.Stage);
         return sim;
     }
@@ -221,6 +226,12 @@ public sealed class Simulation
     /// в ресурсе мира (<see cref="TuningKnob.Read"/>), изменение — команда <see cref="TuningCommand"/>.
     /// </summary>
     public IReadOnlyList<TuningKnob> Tuning { get; private init; } = [];
+
+    /// <summary>
+    /// Сведения ядра и модулей для реплея (8з; <see cref="SimulationBuilder.ReplayFact"/>) по имени: запись кладёт их в заголовок
+    /// (<see cref="Replay.Facts"/>), воспроизведение сверяет. Пусто — сведений нет (заголовок реплея прежний).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Facts { get; private init; } = new Dictionary<string, string>();
 
     /// <summary>
     /// Диагностические режимы (7и; <see cref="SimulationBuilder.Diagnostic"/>): включает владелец или агент между тиками — мир,
@@ -592,6 +603,24 @@ public sealed class SimulationBuilder
         if (!IInvariant.IsValidId(mode.Id)) throw new InvalidOperationException($"диагностический режим «{mode.Id}»: нужно {IInvariant.IdRule}");
         if (Diagnostics.Any(d => d.Mode.Id == mode.Id)) throw new InvalidOperationException($"диагностический режим «{mode.Id}» дважды");
         Diagnostics.Add((mode, Module ?? "core"));
+        return this;
+    }
+
+    internal readonly List<(string Name, Func<string> Value)> Facts = [];
+
+    /// <summary>
+    /// Сведение ядра или модуля для реплея (8з; <see cref="Replay.Facts"/>): производное контента, кода и конфига, от которого зависит
+    /// воспроизведение, но которого нет в хеше (отпечаток базы Motion Matching). Значение считается один раз — после сборки и начального
+    /// наполнения мира; запись реплея кладёт его в заголовок, воспроизведение сверяет: другое — предупреждение и причина в тексте
+    /// расхождения, а не только «первое расхождение на тике N». Имя — <see cref="IInvariant.IdRule"/>, без повторов.
+    /// </summary>
+    public SimulationBuilder ReplayFact(string name, Func<string> value)
+    {
+        Open();
+        ArgumentNullException.ThrowIfNull(value);
+        if (!IInvariant.IsValidId(name)) throw new InvalidOperationException($"сведение реплея «{name}»: нужно {IInvariant.IdRule}");
+        if (Facts.Any(f => f.Name == name)) throw new InvalidOperationException($"сведение реплея «{name}» дважды");
+        Facts.Add((name, value));
         return this;
     }
 

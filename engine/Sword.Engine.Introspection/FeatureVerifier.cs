@@ -438,10 +438,18 @@ public static class FeatureVerifier
                 if (to > Ticks || from > to) return (false, $"окно {from}…{to} вне сценария (1…{Ticks})");
                 json["from"] = from;
                 json["to"] = to;
-                var window = values.AsSpan((int)from, (int)(to - from + 1));
+                ReadOnlySpan<double> window = values.AsSpan((int)from, (int)(to - from + 1));
+                if (m.SkipUndefined)
+                {
+                    // 8з: тики без значения (NaN) — не в окне; сколько тиков вошло — в отчёт.
+                    window = Defined(window);
+                    json["skipUndefined"] = true;
+                    json["defined"] = window.Length;
+                }
                 value = m.Stat switch
                 {
-                    "min" => Min(window), "max" => Max(window), "p99" => Percentile(window, 0.99), _ => Mean(window),
+                    "min" => Min(window), "max" => Max(window), "p95" => Percentile(window, 0.95), "p99" => Percentile(window, 0.99),
+                    _ => Mean(window),
                 };
             }
             json["value"] = double.IsFinite(value) ? value : value.ToString(CultureInfo.InvariantCulture);
@@ -453,8 +461,22 @@ public static class FeatureVerifier
                 : (false, $"{Fmt(value)}, ждали {Fmt(m.Expected.Value)} ±{Fmt(m.Tolerance)} (разница {Fmt(delta)})");
         }
 
+        /// <summary>Значения окна без NaN (8з, <see cref="FeatureMetric.SkipUndefined"/>) — копия; ни одного — пусто (статистика — NaN).</summary>
+        internal static double[] Defined(ReadOnlySpan<double> v)
+        {
+            int n = 0;
+            foreach (double x in v)
+                if (!double.IsNaN(x)) n++;
+            var defined = new double[n];
+            n = 0;
+            foreach (double x in v)
+                if (!double.IsNaN(x)) defined[n++] = x;
+            return defined;
+        }
+
         private static double Min(ReadOnlySpan<double> v)
         {
+            if (v.Length == 0) return double.NaN;
             double r = double.PositiveInfinity;
             foreach (double x in v) r = Math.Min(r, x);
             return r;
@@ -462,6 +484,7 @@ public static class FeatureVerifier
 
         private static double Max(ReadOnlySpan<double> v)
         {
+            if (v.Length == 0) return double.NaN;
             double r = double.NegativeInfinity;
             foreach (double x in v) r = Math.Max(r, x);
             return r;

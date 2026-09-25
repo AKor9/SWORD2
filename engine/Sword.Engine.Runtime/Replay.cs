@@ -79,6 +79,12 @@ public sealed class Replay
     /// <summary>Участники хеша по Id — порядок значений в <see cref="ReplayHash.Parts"/>.</summary>
     public IReadOnlyList<string> Parts { get; init; } = [];
 
+    /// <summary>
+    /// Сведения ядра и модулей при записи (8з; <see cref="Simulation.Facts"/>: отпечаток базы Motion Matching — <c>locomotion.base</c>) по
+    /// имени; null — сведений не было (ключа <c>facts</c> в файле нет). Воспроизведение сверяет их с симуляцией.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Facts { get; init; }
+
     public IReadOnlyList<ReplayCommandType> CommandTypes { get; init; } = [];
 
     /// <summary>Итоговый конфиг запуска после всех слоёв (<see cref="ConfigSet.Effective"/>).</summary>
@@ -161,7 +167,7 @@ public sealed class Replay
         {
             Build = head.Build, RecordedBy = head.RecordedBy, Content = head.Content, RecordedUtc = head.RecordedUtc,
             TickRate = head.TickRate, Seed = head.Seed, Ticks = Math.Max(at, tail.Ticks), HashEvery = head.HashEvery,
-            Modules = head.Modules, InactiveModules = head.InactiveModules, Parts = head.Parts, CommandTypes = types,
+            Modules = head.Modules, InactiveModules = head.InactiveModules, Parts = head.Parts, Facts = head.Facts, CommandTypes = types,
             Config = head.Config, Runs = runs, Hashes = hashes,
         };
     }
@@ -182,7 +188,7 @@ public sealed class Replay
         return new Replay
         {
             Build = Build, RecordedBy = RecordedBy, Content = Content, RecordedUtc = RecordedUtc, TickRate = TickRate, Seed = Seed,
-            Ticks = Math.Min(Ticks, at), Modules = Modules, InactiveModules = InactiveModules, Parts = Parts,
+            Ticks = Math.Min(Ticks, at), Modules = Modules, InactiveModules = InactiveModules, Parts = Parts, Facts = Facts,
             CommandTypes = CommandTypes, Config = (JsonObject)Config.DeepClone(), Runs = runs,
             Hashes = hashes ? [.. Hashes.Where(h => h.Tick <= at)] : [], HashEvery = hashes ? HashEvery : 0,
         };
@@ -231,6 +237,12 @@ public sealed class Replay
             if (Modules is not null) WriteStrings(w, "modules", Modules);
             if (InactiveModules is not null) WriteStrings(w, "inactiveModules", InactiveModules);
             WriteStrings(w, "parts", Parts);
+            if (Facts is { Count: > 0 })
+            {
+                w.WriteStartObject("facts");
+                foreach (var (name, value) in Facts.OrderBy(f => f.Key, StringComparer.Ordinal)) w.WriteString(name, value);
+                w.WriteEndObject();
+            }
             w.WriteStartArray("commandTypes");
             foreach (var t in CommandTypes)
             {
@@ -352,6 +364,9 @@ public sealed class Replay
             Modules = Strings("modules"),
             InactiveModules = Strings("inactiveModules"),
             Parts = parts,
+            Facts = root.TryGetProperty("facts", out var facts)
+                ? facts.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? throw new InvalidDataException($"facts.{p.Name} — строка"), StringComparer.Ordinal)
+                : null,
             CommandTypes = types,
             Config = root.TryGetProperty("config", out var config) ? JsonNode.Parse(config.GetRawText()) as JsonObject
                 ?? throw new InvalidDataException("config — объект секций") : [],
@@ -444,9 +459,15 @@ public sealed record ReplayPartDiff(string Part, ulong Expected, ulong Actual);
 /// </summary>
 public sealed record ReplayDivergence(ulong Tick, ulong? LastMatch, IReadOnlyList<ReplayPartDiff> Parts)
 {
+    /// <summary>
+    /// Вероятная причина (8з): сведения реплея не те, что у симуляции (<see cref="Replay.Facts"/> — другая база Motion Matching: контент,
+    /// код, отбор или класс процессора); null — сведения совпали или их нет.
+    /// </summary>
+    public string? Cause { get; init; }
+
     public override string ToString() =>
         $"расхождение после {Tick} тиков (последнее совпадение — {(LastMatch is { } m ? $"после {m}" : "нет")}): " +
-        string.Join(", ", Parts.Select(p => $"{p.Part} {p.Expected:X16} → {p.Actual:X16}"));
+        string.Join(", ", Parts.Select(p => $"{p.Part} {p.Expected:X16} → {p.Actual:X16}")) + (Cause is null ? "" : $" — вероятная причина: {Cause}");
 }
 
 /// <summary>
@@ -567,6 +588,7 @@ public sealed class ReplayRecorder : ICommandSink
             Modules = _sim.ActiveModules,
             InactiveModules = _sim.InactiveModules,
             Parts = _sim.StateParts,
+            Facts = _sim.Facts.Count > 0 ? new Dictionary<string, string>(_sim.Facts, StringComparer.Ordinal) : null,
             CommandTypes = [.. _types.Select((t, i) => new ReplayCommandType(t.FullName ?? t.Name,
                 [.. _layouts[i].Leaves.Select(l => $"{l.Path}:{FieldLayout.KindName(l.Kind)}")]))],
             Config = _sim.Config.Effective,
@@ -638,7 +660,21 @@ public sealed class ReplayPlayer : IReplaySource
             _warnings.Add($"зерно ГСЧ: в реплее {seed}, в симуляции {sim.Settings.Seed}");
         if (replay.Modules is { } modules && !modules.SequenceEqual(sim.ActiveModules))
             _warnings.Add($"модули: в реплее {string.Join(", ", modules)}, в симуляции {string.Join(", ", sim.ActiveModules)}");
+        // Сведения реплея (8з): другое значение — воспроизведение, скорее всего, разойдётся; причина — и в тексте расхождения.
+        var causes = new List<string>();
+        foreach (var (name, recorded) in replay.Facts ?? new Dictionary<string, string>())
+        {
+            if (!sim.Facts.TryGetValue(name, out var actual)) causes.Add($"сведения {name} в симуляции нет (в реплее {recorded})");
+            else if (actual != recorded) causes.Add($"{name}: в реплее {recorded}, в симуляции {actual}");
+        }
+        foreach (var name in sim.Facts.Keys.Where(k => replay.Facts?.ContainsKey(k) != true))
+            if (replay.Hashes.Count > 0) causes.Add($"сведения {name} в реплее нет (в симуляции {sim.Facts[name]})");
+        foreach (var c in causes) _warnings.Add($"сведения реплея: {c}");
+        _factCause = causes.Count > 0 ? $"сведения реплея другие — {string.Join("; ", causes)}" : null;
     }
+
+    /// <summary>Расхождение сведений реплея и симуляции — причина в тексте расхождения; совпали — null.</summary>
+    private readonly string? _factCause;
 
     public Replay Replay { get; }
 
@@ -693,7 +729,7 @@ public sealed class ReplayPlayer : IReplaySource
             if (_parts[i] >= 0 && parts[_parts[i]] != expected[i])
                 (diffs ??= []).Add(new ReplayPartDiff(Replay.Parts[i], expected[i], parts[_parts[i]]));
         if (diffs is null) LastMatch = played;
-        else Divergence = new ReplayDivergence(played, LastMatch, diffs);
+        else Divergence = new ReplayDivergence(played, LastMatch, diffs) { Cause = _factCause };
     }
 }
 
@@ -719,6 +755,8 @@ public static class ReplayDiff
         Field("hashEvery", a.HashEvery, b.HashEvery);
         Field("modules", Join(a.Modules), Join(b.Modules));
         Field("parts", Join(a.Parts), Join(b.Parts));
+        foreach (var name in (a.Facts?.Keys ?? []).Union(b.Facts?.Keys ?? []).Order(StringComparer.Ordinal))
+            Field("facts." + name, a.Facts?.GetValueOrDefault(name), b.Facts?.GetValueOrDefault(name));
         foreach (var d in ConfigDiff(a.Config, b.Config, "")) header.Add("config " + d);
 
         // Команды — по тикам, типом и полем по именам: у реплеев разных сборок номера типов могут не совпадать.

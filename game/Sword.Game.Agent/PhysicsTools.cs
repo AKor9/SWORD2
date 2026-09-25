@@ -196,10 +196,11 @@ public sealed class BodyFields : IEntityFields
 
     public IReadOnlyList<string> Known { get; } =
         ["Body.<сегмент>.Position|Rotation|PrevPosition|PrevRotation|Velocity|AngularVelocity|EndA|EndB|StartPosition[.X|.Y|.Z|.W]", "Body.<сегмент>.Radius|HalfLength|Mass", "Body.MaxSpeed", "Body.MaxAngularSpeed",
-            .. CorpseFields.Known];
+            .. CorpseFields.Known, .. MotionFields.Known];
 
     public EntityFieldReader? Compile(string path, string at)
     {
+        if (MotionFields.Compile(path, at) is { } motion) return motion;   // 8з: поля Motion Matching
         if (!path.StartsWith(Prefix, StringComparison.Ordinal)) return null;
         string rest = path[Prefix.Length..];
         if (rest == "MaxSpeed") return (in ServiceContext ctx, Entity e) => Max(ctx, e, angular: false);

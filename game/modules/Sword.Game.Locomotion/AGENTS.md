@@ -35,7 +35,12 @@ Matching игрока при `mm` (`sword.json` игры). Описание — 
   инвариант `locomotion.mmArm`. Поза постройки игрока несёт руку слоем (`FighterStartPose.Layer*`; ядро считает его в `StartPoseModel`
   тем же сэмплом и смешиванием по маске `Skeleton.SubtreeMask`): задания руки и слой позы постройки меняются вместе, иначе первый тик
   после постройки прыгнет (`SwordArmTests.BuildReset_KnobOnTheRun_NoJumps`).
+- Агенту и на экран (8з; `Motion/MotionMatchObservers.cs` — только при `mm`): наблюдателям — только вид `IMotionMatchView` из
+  `Game.Contracts` (клиент и агентская сборка модуль не видят; вид только читает); события переходов `MotionTransition` шлёт
+  `locomotion.mm-events` (Movement, до `locomotion.mm-history`); диагностика поиска (`MotionMatchDiagnostics`: последний поиск, время) — вне
+  хеша и не влияет на поведение; тяжёлые инварианты `locomotion.mmDecay`, `locomotion.mmContinuity` (в `$heavyIds` `verify.ps1` и в списке
+  `InvariantTests`); отпечаток базы — сведение реплея `locomotion.base`. Новое видимое MM — в вид, оверлей `mm` клиента и `anim.pose`.
 
 Проверка: `tests/Sword.Game.Tests/AnimationTests`, `tests/Sword.Game.Tests/Locomotion/` (MM — `MotionMatchTests`, рука с мечом —
-`SwordArmTests`, на паке), эталоны SWORD2 (`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke` (со `sword.json` — MM),
-`without-modules`, `agent-smoke`.
+`SwordArmTests`, агенту и на экран — `MotionMatchAgentTests`, `MotionMatchGpuTests`, на паке), эталоны SWORD2
+(`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke` (со `sword.json` — MM), `without-modules`, `agent-smoke`.

@@ -48,7 +48,7 @@
    итог последнего поиска (цена, цена продолжения, 12 групп), модель контроллера тика; база и проигрыватель —
    `state.describe {"part":"locomotion","filter":"base"}` (сводка, отпечаток) и `{"filter":"0v1:foot"}`; ручки —
    `command.send {"command":"TuningCommand","fields":{"Knob":"locomotion.switchGain","Value":1}}`; MM против клипов —
-   `experiment.fork` с веткой `{"set":["locomotion.player=clips"]}`.
+   `experiment.fork` с веткой `{"set":["locomotion.player=clips"]}`; подробно — раздел «Motion Matching игрока».
 2. `anim.clips {"index":N}` — имя клипа по номеру (или `{"filter":"Run"}`): длительность, цикл, скорость корневого движения; страницы по 50
    (`skip` из `continuationToken`).
 3. `anim.pose {"entity":"player"}` — суставы (таз, голова, кисти, стопы) в пространстве персонажа и в мире; `pool` — живые позы и задания
@@ -183,8 +183,9 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 
 **Воспроизвести реплей и найти расхождение.**
 1. Сеанс пишется с тика 0: `replay.save {"name":"my"}` — `.swreplay` в артефактах; `replay.status`. Живая игра: `Sword.exe --record FILE`.
-2. `replay.check {"path":"my.swreplay"}` — `match`, `divergence.tick`, `lastMatch`, `parts`; без агента — `Sword.Headless --replay FILE
-   --json` (код 3 при расхождении).
+2. `replay.check {"path":"my.swreplay"}` — `match`, `divergence.tick`, `lastMatch`, `parts`; сведения реплея (`facts` заголовка — отпечаток
+   базы MM) не те, что у симуляции, — `warnings` и `divergence.cause`; без агента — `Sword.Headless --replay FILE --json` (код 3 при
+   расхождении).
 3. Встать перед расхождением: `session.start {"replay":"my.swreplay"}` → `time.runUntil {"tick":lastMatch}` → `state.describe` участника;
    `time.step {"ticks":1}` → снова `state.describe`. `time.seek {"tick":N}` — назад и вперёд (после перемотки назад прежнее будущее
    повторяется, команды на несыгранные тики сброшены). Таймаут — ошибка с достигнутым тиком: повторить или дать больше `timeoutSeconds`.
@@ -230,8 +231,10 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    правкой файла с сообщением пользователю.
 4. Новая фича — `feature.json` рядом с md (тест `FeatureManifestsTests`: манифест есть, чек-лист = пункты «Что проверить в игре»).
 Метрика по ресурсу мира: `{"id": …, "resource": "ArenaStats.LastDamage", "expected": 60.8, "tolerance": 0.001}` вместо `entity`/`field`.
-Статистика окна метрики (`stat` с `from`/`to`) — `min`, `max`, `mean`, `p99` (99-й перцентиль ближайшим рангом — распределение без одиночных
-выбросов `max`); потолок «не больше L» — `expected` = `tolerance` = L/2.
+Статистика окна метрики (`stat` с `from`/`to`) — `min`, `max`, `mean`, `p95`, `p99` (95-й и 99-й перцентили ближайшим рангом — распределение
+без одиночных выбросов `max`); потолок «не больше L» — `expected` = `tolerance` = L/2. Величина, определённая не в каждом тике (NaN:
+скольжение опорной стопы без стопы на земле), — `"skipUndefined": true`: такие тики не входят в окно (в отчёте — `defined`), окно без
+значений — провал; без ключа NaN в окне — провал «значения нет».
 
 **Эксперимент «что если».**
 1. `experiment.fork {"replay":"my.swreplay","at":300,"variants":[{"name":"back","commands":[{"command":"PlayerCommand","fields":{"Move":{"X":-1,"Y":0}},"from":300,"to":301}]},{"name":"nolo","set":["modules.locomotion.enabled=false"]}],"measure":[{"entity":"player","field":"Transform.Position"}]}`
@@ -294,6 +297,8 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 `before`/`after`) и `chain` до корня (попадание ← касание ← начало удара ← решение ИИ или команда); `summary` — строкой; смерть —
 `{"field":"Dead"}`; `changes: N`; `events.history` в режиме даёт `cause`. Непрерывное поле (`Transform`) — `writers`, дальше
 `ecs.componentUsage`, `ecs.explainSystem`, `watch.add`, `time.break`. `complete: false` — родитель вытеснен из кольца: смотреть ближе.
+Почему случилось событие (переход Motion Matching, попадание) — `state.why {"cause":N}`: `N` — `cause.id` (или `cause.parent`) строки
+`events.history` в режиме; цепочка записи до корня, `summary`.
 
 **Посмотреть на кадр живой игры.** `time.pause` (кадр показывает ровно последний тик) → `capture.bundle {"name":"look"}` → `color` и
 `depth`; `entities[].rect` — где кто. `render.graph` — проходы кадра и их GPU-время.
@@ -413,6 +418,43 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 3. «До/после»: `command.send {"command":"TuningCommand","fields":{"Knob":"ragdoll.selfCollision","Value":0}}` — самоколлизии нет (труп
    складывается сам в себя); сценарии `self-fold`, `self-fold-off` и виды `fold-before`, `fold-after`, `fold-after-mesh` манифеста `ragdoll`.
    Трение суставов — ручка `ragdoll.jointFriction` (1/с; рост энергии по фазам трассы — `relax`), жёсткость — `ragdoll.jointCompliance`.
+
+## Motion Matching игрока
+
+Модуль Locomotion — [README](../game/modules/Sword.Game.Locomotion/README.md) («Motion Matching игрока в тике (8е)», «Агенту и на экран (8з)»).
+Игрок на MM — при `locomotion.player=mm` (`sword.json` игры и Headless со `sword.json`; тесты, сценарии фич и эталоны — `clips`).
+
+**Проверить MM игрока.**
+1. Что играет: `anim.pose {"entity":"player"}` → `motionMatching` — клип с именем и кадр в клипе, доля, темп, `searching` (под рывком —
+   false), поисков, смен, переходов, `feetOnGround` (стопы на земле по разметке кадра); `lastSearch` — тик, повод (`Start`, `Schedule`,
+   `GoalJump`, `AfterAction`), текущий и найденный кадр, цена и цена продолжения, 12 групп по именам (какая группа дорогая — туда смотреть),
+   `microseconds`; `desired`/`matched` — траектории запроса и найденного кадра (`[t, x, z, курс]`, в мире по корню поиска, в единицах
+   данных); `history`; отпечаток базы. По тикам — `watch.add {"entities":["player"],"fields":["MotionMatchState.Clip","MotionMatchState.Rate"]}`.
+2. Переходы: `events.history {"types":["MotionTransition"]}` — `Kind` (`Search` — сменой кадра поиском, `Edge` — ребро графа), `Reason`,
+   `From`/`To` (кадры базы) и клипы, `Cost`, `ContinuationCost`. Почему: режим причинности (`session.start {"causality":true}`) → у строки
+   `cause.id` → `state.why {"cause":<id>}` — `MotionTransition ← решение «MM: поиск — скачок цели скорости»` (корень).
+3. Картинкой: `time.pause` → `capture.bundle {"overlays":["mm"]}` (живая игра): голубая — запрос последнего поиска, оранжевая — траектория
+   найденного кадра, серая — история корня, зелёные шарики — стопы на земле; игрок не на MM — слой пуст, в `notes` — почему. В игре — M;
+   в видах фичи — `views[].overlays: ["mm"]` (`Sword.exe --overlay mm`). Числа F3 «Локомоция» — те же, что `anim.pose`.
+4. Скольжение и скачок: поля `MotionMatch.FootSlide` (м/с, NaN — стопы не на земле), `MotionMatch.JointJump` (м за тик),
+   `MotionMatch.FeetOnGround` — в `watch.add` → `entity.history`, `replay.observe`, условиях; метрика манифеста — `{"entity":"player",
+   "field":"MotionMatch.FootSlide","stat":"p95","skipUndefined":true,…}` (`mean`, `p95`, `p99`, `max`).
+5. Инварианты: `invariant.list {"filter":"locomotion"}` — `locomotion.mm` (каждый тик), тяжёлые `locomotion.mmDecay` (смещения
+   инерциализации не растут без перехода) и `locomotion.mmContinuity` (скачок сустава за тик ≤ 0,25 м); встать на нарушении —
+   `time.breakOnInvariant {"ids":["locomotion.mmContinuity"]}` → `anim.pose` и `state.describe {"part":"locomotion","filter":"0v1:—"}`
+   (проигрыватель, история, `lastSearch`; `"0v1:hand"` — смещения суставов).
+6. Цена поиска: `profile.stages {"enable":true,"reset":true}` → тики → `profile.stages {"prefix":"locomotion"}` — зона `locomotion.search`
+   (под `locomotion.mm@Animation`).
+7. MM против клипов: `experiment.fork {"replay":"session","at":0,"variants":[{"name":"clips","set":["locomotion.player=clips"]}],
+   "measure":[{"entity":"player","field":"Transform.Position"}]}` (у клипов — другие участники хеша, это ожидаемо); ручки — `command.send {"command":"TuningCommand","fields":{"Knob":"locomotion.switchGain","Value":1}}`
+   (`searchPeriod`, `inertialHalflife`, `rateRange`, `weight…`), перебор — `experiment.sweep`.
+8. Реплей с другой базой (контент, `locomotion.clips`, процессор без AVX2): `replay.check` — в `warnings` `сведения реплея:
+   locomotion.base: в реплее …, в симуляции …`, в `divergence.cause` — «вероятная причина»; отпечаток — `state.describe {"part":"locomotion",
+   "filter":"base"}`, строка старта — `log.tail {"category":"locomotion"}`.
+9. Рука с мечом (8ж): `entity.get {"entity":"player","components":["MotionMatchArm","FighterStartPose"]}` — поза стойки, её клип,
+   действующий вес (к ручке не быстрее 4/с), слой позы постройки (`Layer*`); кисть относительно груди — `anim.pose {"entity":"player",
+   "joints":["hand_r","spine_05"]}`; вес — ручка `locomotion.armWeight` (`command.send {"command":"TuningCommand","fields":{"Knob":
+   "locomotion.armWeight","Value":0}}` — рука клипа); инвариант `locomotion.mmArm`. Замеры `MotionMatch.*` руку не видят (выход MM).
 
 ## Если что-то не так
 

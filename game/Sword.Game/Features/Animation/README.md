@@ -104,7 +104,8 @@ Matching (этап 8): пункты про игрока — с `--set locomotion
 | клип — номер в библиотеке | `anim.clips` (номер ↔ ID, длительность, цикл, скорость корня) |
 | слой действий | `anim.pose` — поле `action` (действие, клип с именем, время, вес, `yawDelta`, `rootDelta`); `entity.get` → `AnimatorAction`; инвариант `animation.actions` |
 | поза — данные подсистемы, не ECS | `anim.pose` (суставы в пространстве персонажа и в мире, счётчики пула) |
-| поза Manny на экране | `capture.bundle` (картинка кадра; оверлея скелета нет) |
+| поза Manny на экране | `capture.bundle` (картинка кадра; оверлея скелета нет; игрок на MM — оверлей траекторий `mm`, 8з) |
+| Motion Matching игрока (8з) | `anim.pose` → `motionMatching` (клип, последний поиск, замер, траектории), `events.history {"types":["MotionTransition"]}`, поля `MotionMatch.FootSlide`/`JointJump`, инварианты `locomotion.mmDecay`/`mmContinuity`, зона `locomotion.search` — [README модуля](../../../modules/Sword.Game.Locomotion/README.md), «Агенту и на экран (8з)» |
 | порядок систем | `ecs.plan`, `ecs.explainSystem` (`core.root-steer` → `core.animator-input` → `locomotion.legacy` (и `locomotion.mm` игрока на MM) → `core.animator-pose` → `core.animation-tick`) |
 | регрессия | `feature.verify animation` (эталон SWORD2 `animation.swreplay`, сценарий `locomotion`), `replay.check` |
 | подсистема-участник | участник хеша `animation` (`AnimationState`, [Детерминизм](../Determinism/README.md)): пул поз в `state.hash`, позы по суставам — `state.describe`; инварианты — `animation.finite`, `animation.settled`, `animation.pool`, `animation.owners` (`AnimationInvariants`), у локомоции — `locomotion.poses`; API пула допускает второй экземпляр (дифференциальный прогон) |

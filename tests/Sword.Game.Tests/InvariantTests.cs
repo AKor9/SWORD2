@@ -396,7 +396,8 @@ public sealed class GameInvariantTests
         string[] heavy = ["ecs.finite", "animation.finite", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed",
             "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena",   // 7з: инварианты трупа — по всем телам
             "physics.sleep", "physics.sleepContacts",   // 7з-3: сон трупа
-            "physics.selfContacts"];   // 7з-4: самоколлизия — все пары всех трупов
+            "physics.selfContacts",   // 7з-4: самоколлизия — все пары всех трупов
+            "locomotion.mmDecay", "locomotion.mmContinuity"];   // 8з: MM игрока (только при locomotion.player = mm) — MotionMatchAgentTests
         var sim = Build(GameFault.NaNRoot);
         Assert.All(sim.Invariants.List().Where(i => i.Enabled), i => Assert.Equal(1, i.Every));   // не живая игра — каждый тик
         sim.Invariants.LivePeriods = true;

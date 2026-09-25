@@ -60,7 +60,9 @@
   (`--causality`, `session.start {causality}`: новая симуляция сеанса и перемотка назад включают журнал до первого тика),
   `session.status` — `causality`; `events.history` — `cause` записи (номер, родитель, вид, система, источник), только в режиме.
   Лимиты: цепочка — до 64 шагов (по умолчанию 16), изменений — до 20 (по умолчанию 1). Тест — `Sword.Game.Tests/CausalityTests`
-  (`Agent_StateWhy_AndEventsHistoryCauses`: нужен бой игры).
+  (`Agent_StateWhy_AndEventsHistoryCauses`: нужен бой игры). 8з: `state.why {"cause":N}` (вместо `entity` и `field`) — цепочка записи
+  журнала по номеру из `events.history` (`cause.id`, `cause.parent`) до корня — `CausalityQuery.WhyCause`; тест —
+  `MotionMatchAgentTests.Agent_AnimPose_EventsWithCauses_Fields_Describe` (переход MM ← решение «MM: …»).
 - Диагностические режимы симуляции (7и, `Simulation.Diagnostics`: трасса физики игры) включают инструменты из точки обслуживания
   (`ServiceContext.SetDiagnostic`; у игры — `physics.bodies {trace}`); `AgentSimulation` переносит включённые режимы в новую симуляцию
   сеанса (`session.start`, перемотка назад) до её первого тика — как причинность (`DiagnosticsCarryTests`). Отдельного инструмента

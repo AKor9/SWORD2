@@ -434,7 +434,9 @@ public sealed class Hud
             $"{K(ArenaInput.HudHelp)} — справка    {K(ArenaInput.HudProfiler)} — профайлер    {K(ClientHost.Screenshot)} — снимок    Esc — выход    " +
             $"{K(ArenaInput.DebugJoints)} — суставы    {K(ArenaInput.DebugContacts)} — контакты физики",
             $"{K(ArenaInput.EnemiesMore)} / {K(ArenaInput.EnemiesFewer)} — врагов ±1    {K(ArenaInput.ArenaReset)} — сброс арены    {K(ArenaInput.NextWeapon)} — следующий меч    {K(ArenaInput.DebugBodies)} — капсулы и клинки",
-            $"{K(ArenaInput.Attack)} — удар (жест мышью перед кликом — направление)    {K(ArenaInput.Stab)} — укол    {K(ArenaInput.Dash)} — рывок",
+            // 8з: траектории Motion Matching (оверлей) — в строку ударов: число строк справки прежнее.
+            $"{K(ArenaInput.Attack)} — удар (жест мышью перед кликом — направление)    {K(ArenaInput.Stab)} — укол    {K(ArenaInput.Dash)} — рывок    " +
+            $"{K(ArenaInput.DebugMotion)} — траектории MM",
             $"{K(ArenaInput.Inventory)} — инвентарь ({K(ArenaInput.Weapons[0])}–{K(ArenaInput.Weapons[^1])}, щелчок — взять меч){tuning}",
         ];
     }

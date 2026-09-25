@@ -309,12 +309,14 @@ public sealed record FeatureCheck(string Id, string Expect, JsonNode Condition, 
 /// Метрика фичи с ожиданием и допуском — своё число SWORD2 (свой замер, своя константа или формула; со SWORD не сравниваем — решение
 /// 14, точка 7а сняла источник <c>sword</c> и ряды против трассы SWORD): значение поля сущности (<see cref="Field"/>; несколько
 /// листьев — длина вектора) или поля ресурса мира (<see cref="Resource"/>, 6ж: <c>ArenaStats.LastDamage</c> — вместо сущности) после
-/// тика <see cref="At"/> (по умолчанию — последнего) или <see cref="Stat"/> по тикам окна: <c>min</c>, <c>max</c>, <c>mean</c>, <c>p99</c>
-/// (7л: 99-й перцентиль окна, ближайший ранг — распределение величины по тикам без одиночных выбросов <c>max</c>).
+/// тика <see cref="At"/> (по умолчанию — последнего) или <see cref="Stat"/> по тикам окна: <c>min</c>, <c>max</c>, <c>mean</c>, <c>p95</c>,
+/// <c>p99</c> (7л: 99-й перцентиль окна, ближайший ранг — распределение величины по тикам без одиночных выбросов <c>max</c>; 8з — и 95-й). Тик
+/// окна без значения (NaN) — провал метрики «значения нет», а с <see cref="SkipUndefined"/> (8з) — пропуск: так считаются величины, которые
+/// определены не в каждом тике (скольжение опорной стопы — только когда стопа на земле).
 /// </summary>
 public sealed record FeatureMetric
 {
-    public static readonly string[] Stats = ["value", "min", "max", "mean", "p99"];
+    public static readonly string[] Stats = ["value", "min", "max", "mean", "p95", "p99"];
 
     public required string Id { get; init; }
     public required string Scenario { get; init; }
@@ -338,9 +340,15 @@ public sealed record FeatureMetric
     public double? Expected { get; init; }
     public double Tolerance { get; init; }
 
+    /// <summary>
+    /// Статистика окна — только по тикам со значением (8з, ключ <c>skipUndefined</c>): NaN (вычисляемое поле в тике не определено) не
+    /// входит в окно; окно без единого значения — провал «значения нет». Только со статистикой окна (не <c>value</c>).
+    /// </summary>
+    public bool SkipUndefined { get; init; }
+
     internal static FeatureMetric Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "scenario", "reference", "entity", "resource", "field", "stat", "at", "from", "to", "expected", "tolerance");
+        r.Only("id", "scenario", "reference", "entity", "resource", "field", "stat", "at", "from", "to", "expected", "tolerance", "skipUndefined");
         double tolerance = r.OptionalNumber("tolerance") ?? 0;
         if (tolerance < 0) throw new ArgumentException($"{r.At}.tolerance: не меньше 0");
         string? resource = r.OptionalString("resource");
@@ -353,12 +361,13 @@ public sealed record FeatureMetric
             Field = r.OptionalString("field"), Stat = r.OptionalString("stat") ?? "value",
             At = r.OptionalInteger("at", 0) is { } at ? (ulong)at : null,
             From = r.OptionalInteger("from", 0) is { } f ? (ulong)f : null, To = r.OptionalInteger("to", 0) is { } t ? (ulong)t : null,
-            Expected = r.OptionalNumber("expected"), Tolerance = tolerance,
+            Expected = r.OptionalNumber("expected"), Tolerance = tolerance, SkipUndefined = r.Bool("skipUndefined", false),
         };
         if (!Stats.Contains(m.Stat)) throw new ArgumentException($"{r.At}.stat «{m.Stat}»: {string.Join(", ", Stats)}");
+        if (m.SkipUndefined && m.Stat == "value") throw new ArgumentException($"{r.At}: skipUndefined — только со stat min, max, mean, p95, p99");
         if (m.Field is null && m.Resource is null || m.Expected is null)
             throw new ArgumentException($"{r.At}: нужно field (или resource) и expected");
-        if (m.Stat == "value" && (m.From is not null || m.To is not null)) throw new ArgumentException($"{r.At}: from/to — только со stat min, max, mean, p99");
+        if (m.Stat == "value" && (m.From is not null || m.To is not null)) throw new ArgumentException($"{r.At}: from/to — только со stat min, max, mean, p95, p99");
         if (m.Stat != "value" && m.At is not null) throw new ArgumentException($"{r.At}: at — только со stat value");
         return m;
     }

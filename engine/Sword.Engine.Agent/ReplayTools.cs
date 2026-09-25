@@ -61,8 +61,9 @@ internal static class ReplayTools
         {
             Name = "replay.check", Title = "Проверить реплей",
             Description = "Воспроизвести реплей целиком в отдельной симуляции (сеанс не трогается) и сверить хеши по участникам: " +
-                "совпал ли, первое расхождение — после скольких тиков и у каких участников (animation, ecs…), последнее совпадение. " +
-                "set — ключи конфига поверх реплея (эксперимент). Только Headless.",
+                "совпал ли, первое расхождение — после скольких тиков и у каких участников (animation, ecs…), последнее совпадение; " +
+                "сведения реплея (facts заголовка: отпечаток базы Motion Matching) не те, что у симуляции, — warnings и divergence.cause " +
+                "(вероятная причина). set — ключи конфига поверх реплея (эксперимент). Только Headless.",
             Arguments = Props(
                 ("path", Str("файл реплея: путь или имя в каталоге артефактов; «session» — запись сеанса")),
                 ("set", StrArray("ключи конфига секция.ключ=значение поверх конфига реплея")),
@@ -396,7 +397,14 @@ internal static class ReplayTools
         ["hashesChecked"] = player.HashesChecked,
         ["hashesLeft"] = player.HashesLeft,
         ["lastMatch"] = player.LastMatch,
-        ["divergence"] = player.Divergence is { } d ? new JsonObject
+        ["divergence"] = player.Divergence is { } d ? Divergence(d) : null,
+        ["warnings"] = new JsonArray([.. player.Warnings.Take(20).Select(w => (JsonNode?)w)]),
+    };
+
+    /// <summary>Первое расхождение; <c>cause</c> (8з) — вероятная причина: сведения реплея не те, что у симуляции (другая база MM…).</summary>
+    private static JsonObject Divergence(ReplayDivergence d)
+    {
+        var o = new JsonObject
         {
             ["tick"] = d.Tick,
             ["lastMatch"] = d.LastMatch,
@@ -405,9 +413,10 @@ internal static class ReplayTools
                 ["part"] = p.Part, ["expected"] = $"{p.Expected:X16}", ["actual"] = $"{p.Actual:X16}",
             })]),
             ["hint"] = "расхождение возникло в тиках lastMatch … tick−1; что отличается — state.describe участника",
-        } : null,
-        ["warnings"] = new JsonArray([.. player.Warnings.Take(20).Select(w => (JsonNode?)w)]),
-    };
+        };
+        if (d.Cause is not null) o["cause"] = d.Cause;
+        return o;
+    }
 
     private static JsonObject Props(params (string Name, JsonObject Schema)[] props) => CoreTools.Props(props);
     private static JsonObject Str(string d) => CoreTools.Str(d);

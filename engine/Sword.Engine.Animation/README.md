@@ -186,7 +186,9 @@ Motion Matching — `tests/Sword.Engine.Animation.Tests/Motion/` (раздел [
 Своих инструментов у механизма нет: в тике его ведёт модуль Locomotion (с 8е — игрок при `locomotion.player = mm`), агент видит MM
 через модуль — строка старта базы в журнале, `state.describe {"part":"locomotion"}` (сводка и отпечаток базы, проигрыватели:
 состояние, история, суставы), компонент `MotionMatchState` (`entity.get`, `watch.add`), инвариант `locomotion.mm` (README модуля,
-«Motion Matching игрока в тике (8е)»); вид, события переходов, подробные инварианты и оверлей — 8з. Без игры — тесты подсистемы.
+«Motion Matching игрока в тике (8е)»); с 8з — вид `IMotionMatchView` (`Game.Contracts`), события `MotionTransition`, инварианты
+`locomotion.mmDecay`/`mmContinuity`, оверлей `mm`, раздел MM в `anim.pose` (README модуля, «Агенту и на экран (8з)»). Без игры — тесты
+подсистемы.
 
 ### Проверки
 

@@ -922,6 +922,16 @@ Add-Step 'agent-smoke' {
         if ($clipName -notmatch 'Run' -or $clipName -notlike 'locomotion/*') { $problems += "Headless: после бега играет клип «$clipName», ждали бег базы MM (locomotion/*Run*)" }
         if ([int]$loco.components.MotionMatchState.Searches -lt 5) { $problems += "Headless: MM игрока — поисков $($loco.components.MotionMatchState.Searches) за 120 тиков" }
         $pose = Call-Stdio 'anim.pose' @{ entity = 'player'; joints = @('pelvis', 'head') }
+        # 8з: вид MM в anim.pose (клип, последний поиск, траектории, отпечаток базы), события переходов в журнале, зона поиска.
+        $mm = $pose.motionMatching
+        if (-not $mm -or $mm.clipName -notlike 'locomotion/*' -or -not $mm.lastSearch -or @($mm.desired).Count -lt 4 -or @($mm.matched).Count -lt 4 -or
+            @($mm.history).Count -lt 2 -or "$($mm.base.fingerprint)" -notmatch '^[0-9A-F]{16}$' -or $null -eq $mm.measure.jointJump) {
+            $problems += "Headless: anim.pose motionMatching — $($mm | ConvertTo-Json -Compress -Depth 4)"
+        }
+        $transitions = Call-Stdio 'events.history' @{ types = @('MotionTransition') }
+        if ([int]$transitions.total -lt 1 -or @($transitions.events)[0].type -ne 'Event<MotionTransition>') {
+            $problems += "Headless: events.history MotionTransition — $($transitions | ConvertTo-Json -Compress -Depth 4)"
+        }
         # Этап 3: хеш состояния по участникам и описание участника animation по суставу.
         $hash = Call-Stdio 'state.hash' @{}
         if ("$($hash.total)" -notmatch '^[0-9A-F]{16}$' -or -not $hash.parts.animation -or -not $hash.parts.locomotion) { $problems += "Headless: state.hash — $($hash | ConvertTo-Json -Compress)" }
@@ -978,7 +988,8 @@ Add-Step 'agent-smoke' {
         # Этап 3г: базовые инварианты движка, анимации и модуля не нарушены; свой инвариант агента — остановка на нарушении.
         $list = Call-Stdio 'invariant.list' @{}
         $ids = @($list.invariants | ForEach-Object { $_.id })
-        foreach ($id in @('ecs.finite', 'animation.finite', 'animation.settled', 'animation.pool', 'animation.owners', 'locomotion.poses', 'locomotion.mm')) {
+        foreach ($id in @('ecs.finite', 'animation.finite', 'animation.settled', 'animation.pool', 'animation.owners', 'locomotion.poses', 'locomotion.mm',
+                'locomotion.mmArm', 'locomotion.mmDecay', 'locomotion.mmContinuity')) {   # 8ж: рука с мечом; 8з: тяжёлые MM
             if ($ids -notcontains $id) { $problems += "Headless: invariant.list — нет $id" }
         }
         if ([int]$list.violationsTotal -ne 0) { $problems += "Headless: нарушения инвариантов: $($list.recent | ConvertTo-Json -Compress -Depth 4)" }
@@ -1161,11 +1172,13 @@ Add-Step 'agent-smoke' {
             # Точка 5в: ID-буфер и оверлей капсул по заказу — пиксели игрока несут его сущность и сегменты тела (легенда
             # словами), середина рамки каждого кода тела — внутри рамки игрока, рамка клинка — в пределах ширины рамки от неё
             # (8ж: меч в стойке оружия выходит за рамку тела 0,9 м); оверлей капсул — отдельный PNG.
-            $ids = Call-Http 'capture.bundle' @{ name = 'verify-ids'; ids = $true; overlays = @('capsules') }
+            # 8з: и оверлей mm — игрок со sword.json на Motion Matching: слой снят без заметки «не на Motion Matching».
+            $ids = Call-Http 'capture.bundle' @{ name = 'verify-ids'; ids = $true; overlays = @('capsules', 'mm') }
             $idPlayer = @($ids.entities | Where-Object { $_.name -eq 'player' })
             $mine = @($ids.ids.legend | Where-Object { $_.name -eq 'player' })
             $segments = @($mine | ForEach-Object { $_.segment })
-            if (-not $ids.ids -or -not (Test-Path $ids.ids.png) -or -not (Test-Path $ids.ids.raw) -or -not $ids.overlays -or -not (Test-Path $ids.overlays.capsules)) {
+            if (-not $ids.ids -or -not (Test-Path $ids.ids.png) -or -not (Test-Path $ids.ids.raw) -or -not $ids.overlays -or -not (Test-Path $ids.overlays.capsules) -or
+                -not (Test-Path $ids.overlays.mm) -or @($ids.notes | Where-Object { "$_" -like 'mm:*' }).Count -gt 0) {
                 $problems += "App: capture.bundle ids/overlays — нет файлов: $($ids | ConvertTo-Json -Compress -Depth 3)"
             }
             elseif ($idPlayer.Count -ne 1 -or $segments -notcontains 'head' -or $segments -notcontains 'torso' -or @($mine | Where-Object { $_.title -notmatch 'игрока$' }).Count -gt 0) {
@@ -1196,7 +1209,7 @@ Add-Step 'agent-smoke' {
             # 7з: тяжёлые и инварианты трупа (все тела бойцов после Physics); 7з-3 — сон трупа; 7з-4 — самоколлизия.
             $heavyIds = @('ecs.finite', 'animation.finite', 'physics.finite', 'physics.kinematicPose', 'physics.kinematicSpeed',
                 'physics.modes', 'physics.simulatedSpeed', 'physics.joints', 'physics.ground', 'physics.inArena', 'physics.sleep', 'physics.sleepContacts',
-                'physics.selfContacts')
+                'physics.selfContacts', 'locomotion.mmDecay', 'locomotion.mmContinuity')   # 8з: MM игрока (sword.json — mm)
             $badEvery = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.every -ne $(if ($heavyIds -contains $_.id) { 4 } else { 1 }) } | ForEach-Object { "$($_.id)=$($_.every)" })
             if ($inv.livePeriods -ne $true -or $badEvery.Count -gt 0) { $problems += "App: инварианты живой игры — livePeriods $($inv.livePeriods), период не тот: $($badEvery -join ', ')" }
             # Этап П, точка Па: profile.stages в живой игре — включение с начала следующего кадра, итоги по кадрам: фазы кадра,

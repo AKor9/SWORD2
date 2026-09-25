@@ -96,6 +96,7 @@ public static partial class Program
           аномалия, строка среды; включает профайлер); F4 — снимок; Esc — выход;
           PageUp/PageDown — врагов ±1, R — сброс арены, T — следующий меч (команды арены — в реплее); F7 — капсулы тел
           и клинки поверх персонажей; J — суставы тел, K — контакты физики (включает трассу физики, пока показаны);
+          M — траектории Motion Matching игрока (запрос поиска, найденный кадр, история, стопы на земле);
           ЛКМ — удар, Q — укол, Пробел — рывок; I — инвентарь (1–9 и щелчок — взять меч);
           F3 — ручки «Бой» (урон, острота, враги нападают, игрок неуязвим, рывок) и «Рэгдолл» (трение, выталкивание,
           мягкость суставов, потолки трупа, скорости при смерти, толчок; трупы в кадре); изменение — команда в реплее,
@@ -121,8 +122,9 @@ public static partial class Program
           --no-hud          без HUD (FPS, справка): снимки, сравнимые между прогонами
           --overlay NAME    отладочный оверлей поверх кадра с первого кадра (можно несколько раз): capsules — капсулы тел
                             бойцов (как F7), blades — клинки (отрезок тика, прошлого тика и пройденное за тик), joints —
-                            суставы тел (как J), contacts — контакты физики (как K; включает трассу физики); так
-                            снимаются виды фичи с оверлеем (views[].overlays манифеста)
+                            суставы тел (как J), contacts — контакты физики (как K; включает трассу физики), mm —
+                            траектории Motion Matching игрока (как M); так снимаются виды фичи с оверлеем
+                            (views[].overlays манифеста)
           --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
                             снимок кадра; порт — --agent-port N (по умолчанию 47813)
           --causality       диагностический режим причинности (state.why агента): причина, родитель, система и источник
@@ -212,7 +214,8 @@ public static partial class Program
                 throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
                 showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay),
-                showJoints: options.Overlays.Contains(ArenaClient.JointsOverlay), showContacts: options.Overlays.Contains(ArenaClient.ContactsOverlay));
+                showJoints: options.Overlays.Contains(ArenaClient.JointsOverlay), showContacts: options.Overlays.Contains(ArenaClient.ContactsOverlay),
+                showMotion: options.Overlays.Contains(ArenaClient.MotionOverlay));
             // Панели поверх кадра: инвентарь игры (6е: I — открыть, мышь над ним не бьёт) и DevTools (F3 — ручки).
             var panels = new List<IClientPanel> { arena.Inventory };
             AddDevTools(panels, bench: options.Bench > 0);
@@ -361,6 +364,8 @@ public static partial class Program
                     corpses = arena.View.CorpseCount,
                     joints = new { shown = arena.ShowJoints, drawn = arena.DrawnJoints },
                     contacts = new { shown = arena.ShowContacts, drawn = arena.DrawnContacts, trace = arena.View.TraceOn },
+                    // 8з: траектории Motion Matching игрока (M, --overlay mm): показаны ли, игрок на MM, примитивов нарисовано, стоп на земле.
+                    motion = new { shown = arena.ShowMotion, available = arena.Motion.Available, drawn = arena.DrawnMotion, points = arena.Motion.Points, feetOnGround = arena.Motion.FeetOnGround },
                     recorded = recorded is null ? null : new
                     {
                         file = Path.GetFullPath(options.Record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count,

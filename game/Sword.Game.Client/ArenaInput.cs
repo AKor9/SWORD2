@@ -13,6 +13,7 @@ namespace Sword.Game.Client;
 /// ЛКМ — рубящий удар (жест мышью перед кликом — направление), Q — укол, Пробел — рывок (6в, фронты команды игрока); I — инвентарь,
 /// 1–9 при открытом инвентаре — взять меч (6е, команда арены);
 /// F7 — капсулы тел и клинки поверх персонажей (5в, 6б; отладочный вид SWORD2); J — суставы тел, K — контакты физики и трасса (7и);
+/// M — траектории Motion Matching игрока (8з);
 /// F2 — профайлер в HUD (точка Пв; F2 SWORD — «ПРОФАЙЛЕР» панели). Колесо и курсор — не
 /// действия: они берутся из ввода кадра. Снимок (F4) — действие клиента движка (<c>ClientHost.Screenshot</c>).
 /// Привязки меняются секцией конфига <c>input</c> (<c>--set input.move_forward=Up</c>).
@@ -90,6 +91,12 @@ public static class ArenaInput
     public static readonly InputAction DebugContacts = new("debug_contacts", "K");
 
     /// <summary>
+    /// Траектории Motion Matching игрока поверх кадра (8з, оверлей <c>mm</c>): желаемая траектория, траектория найденного кадра, история
+    /// корня, стопы на земле — показать / скрыть. M — Motion Matching. Действие представления: в команды и реплей не идёт.
+    /// </summary>
+    public static readonly InputAction DebugMotion = new("debug_motion", "M");
+
+    /// <summary>
     /// Инвентарь (SWORD: I, <c>InventoryUi</c>; 6е): открыть / закрыть панель мечей (<see cref="InventoryPanel"/>). Действие
     /// представления: в команды и реплей идёт только выбор меча.
     /// </summary>
@@ -107,7 +114,7 @@ public static class ArenaInput
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
         HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies, Attack, Stab, Dash, Inventory, .. Weapons,
-        DebugJoints, DebugContacts,
+        DebugJoints, DebugContacts, DebugMotion,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>

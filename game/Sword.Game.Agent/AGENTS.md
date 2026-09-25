@@ -32,6 +32,10 @@
 `physics.bodies` — `self` (`PhysicsDebugJson.Self`: пар, действуют ли, толщина, пересекшихся, самая глубокая); источник трассы `self`. Тест —
 `CorpseSelfContactsTests`.
 
+8з (Motion Matching игрока; нового инструмента нет): `anim.pose` — раздел `motionMatching` по виду `IMotionMatchView` (состояние, последний
+поиск с 12 группами, замер, траектории, отпечаток базы; у бойца не на MM — нет); вычисляемые поля `MotionMatch.FootSlide`, `JointJump`,
+`FeetOnGround` — `MotionFields` (часть `BodyFields`; NaN — не определено). Тест — `MotionMatchAgentTests`.
+
 - Имя — подсказка, не идентичность: в ответах сущность всегда и номером.
 - Исполняется в точке обслуживания: только чтение мира. Данные вне ECS — только через виды только для чтения
   (`IAnimationView`, `IBodyView`, `ICombatView`), не через ресурсы-классы симуляции (ресурсы-значения ECS, например
