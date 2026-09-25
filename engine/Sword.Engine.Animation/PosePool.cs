@@ -1,4 +1,5 @@
 using System.Numerics;
+using Sword.Engine.Animation.Motion;
 
 namespace Sword.Engine.Animation;
 
@@ -29,10 +30,13 @@ public readonly record struct BlendMemory(PoseHandle Output, PoseHandle Shortest
     public bool IsNone => Output.IsNone || Shortest.IsNone;
 }
 
-/// <summary>Итог одного <see cref="PosePool.Tick"/>: сколько заданий каждого вида выполнено и сколько пропущено.</summary>
-public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale)
+/// <summary>
+/// Итог одного <see cref="PosePool.Tick"/>: сколько заданий каждого вида выполнено и сколько пропущено; <see cref="Motions"/> —
+/// шагов проигрывателей Motion Matching (<see cref="PosePool.Motion"/>).
+/// </summary>
+public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale, int Motions = 0)
 {
-    public int Total => Samples + Blends + Copies + ToModel;
+    public int Total => Samples + Blends + Copies + ToModel + Motions;
 }
 
 /// <summary>
@@ -40,14 +44,17 @@ public readonly record struct PoseTickStats(int Samples, int Blends, int Copies,
 /// и смещения всех суставов и модельные матрицы (итог прямой кинематики). Слоты лежат подряд в общих массивах.
 ///
 /// Позы меняются только заданиями: системы тика ставят <see cref="Sample"/>, <see cref="Blend"/>, <see cref="BlendMasked"/>,
-/// <see cref="AddMasked"/>, <see cref="Copy"/>, <see cref="ToModel"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
+/// <see cref="AddMasked"/>, <see cref="Copy"/>, <see cref="ToModel"/>, <see cref="Motion"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
 /// Animation), дальше позы читают (Pull, клиент). Порядок заданий одной позы сохраняется, поэтому итог совпадает
 /// с последовательными вызовами <c>SkeletalClips</c> SWORD. Задание к позе, освобождённой до <see cref="Tick"/>,
 /// пропускается (<see cref="PoseTickStats.Stale"/>). Установившийся тик не выделяет памяти.
+///
+/// Задание <see cref="Motion"/> (Motion Matching, этап 8) — шаг проигрывателя <see cref="MotionPlayers"/>: его состояние, как и позы,
+/// меняется только в очереди по порядку; исполнение — <c>Motion/PosePool.Motion.cs</c>.
 /// </summary>
-public sealed class PosePool
+public sealed partial class PosePool
 {
-    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel }
+    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel, Motion }
 
     private struct Job
     {
@@ -58,6 +65,14 @@ public sealed class PosePool
         public float Value;   // время клипа или вес смешивания
         public float Stand;   // смешивание по маске: доля клипа в суставах вне маски
         public BlendMemory Memory;   // смешивание по маске: память (None — без неё)
+    }
+
+    /// <summary>Задание проигрывателя (<see cref="Motion"/>): в очереди — номер в <see cref="_motionJobs"/> (поле <c>Clip</c> задания).</summary>
+    private struct MotionJob
+    {
+        public MotionPlayers Players;
+        public MotionPlayerHandle Player;
+        public MotionStep Step;
     }
 
     /// <summary>
@@ -79,6 +94,8 @@ public sealed class PosePool
     private readonly Matrix4x4[] _referenceModel;
     private Job[] _jobs = new Job[64];
     private int _jobCount;
+    private MotionJob[] _motionJobs = [];
+    private int _motionCount;
     private readonly List<float[]> _masks = [];
     private readonly float[] _layer;   // маска задания «смешать по маске» с долей stand — считается на задание
 
@@ -323,6 +340,34 @@ public sealed class PosePool
         Push(new Job { Op = Op.ToModel, Dst = dst });
     }
 
+    /// <summary>
+    /// Задание (этап 8): шаг проигрывателя Motion Matching <paramref name="player"/> хранилища <paramref name="players"/> — продвижение
+    /// по графу базы, затухание смещений, запрошенный переход (<see cref="MotionStep"/>) — и его выход (локальная поза) — в
+    /// <paramref name="dst"/>. Всё, что зависит от выхода позы, меняется только так — в общей очереди по порядку; два задания одного
+    /// проигрывателя за тик — два шага подряд. Проигрыватель, освобождённый до <see cref="Tick"/>, пропускается (<see cref="PoseTickStats.Stale"/>).
+    /// </summary>
+    /// <exception cref="ArgumentException">Хранилище — другой библиотеки клипов.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Шаг вне допустимого (продвижение &lt; 0, dt или полупериод ≤ 0, переход вне базы).</exception>
+    /// <exception cref="InvalidOperationException">Поза или проигрыватель не живы.</exception>
+    public void Motion(PoseHandle dst, MotionPlayers players, MotionPlayerHandle player, in MotionStep step)
+    {
+        Check(dst);
+        ArgumentNullException.ThrowIfNull(players);
+        if (players.Database.Library != Clips) throw new ArgumentException("проигрыватели — другой библиотеки клипов", nameof(players));
+        if (!players.IsAlive(player)) throw new InvalidOperationException($"проигрыватель {player} не жив");
+        if (!(step.Advance >= 0) || !float.IsFinite(step.Advance))
+            throw new ArgumentOutOfRangeException(nameof(step), step.Advance, "продвижение — конечное и не меньше 0");
+        if (!(step.Dt > 0) || !float.IsFinite(step.Dt)) throw new ArgumentOutOfRangeException(nameof(step), step.Dt, "dt — конечное и больше 0");
+        if (!(step.Halflife > 0) || !float.IsFinite(step.Halflife))
+            throw new ArgumentOutOfRangeException(nameof(step), step.Halflife, "полупериод — конечный и больше 0");
+        if (step.Transition < -1 || step.Transition >= players.Database.FrameCount)
+            throw new ArgumentOutOfRangeException(nameof(step), step.Transition, $"переход — кадр базы (0…{players.Database.FrameCount - 1}) или −1");
+        if (_motionCount == _motionJobs.Length) Array.Resize(ref _motionJobs, Math.Max(4, _motionJobs.Length * 2));
+        _motionJobs[_motionCount] = new MotionJob { Players = players, Player = player, Step = step };
+        Push(new Job { Op = Op.Motion, Dst = dst, Clip = _motionCount });
+        _motionCount++;
+    }
+
     private void Push(in Job job)
     {
         if (_jobCount == _jobs.Length) Array.Resize(ref _jobs, _jobs.Length * 2);
@@ -332,7 +377,7 @@ public sealed class PosePool
     /// <summary>Исполнить все задания очереди по порядку и очистить её.</summary>
     public PoseTickStats Tick()
     {
-        int samples = 0, blends = 0, copies = 0, models = 0, stale = 0;
+        int samples = 0, blends = 0, copies = 0, models = 0, stale = 0, motions = 0;
         var clips = Clips;
         for (int n = 0; n < _jobCount; n++)
         {
@@ -391,11 +436,26 @@ public sealed class PosePool
                     Skeleton.ToModel(_rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), _model.AsSpan(d, _jc));
                     models++;
                     break;
+                case Op.Motion:
+                    if (RunMotion(in _motionJobs[job.Clip], d)) motions++;
+                    else stale++;
+                    break;
             }
         }
         _jobCount = 0;
-        return LastTick = new PoseTickStats(samples, blends, copies, models, stale);
+        if (_motionCount > 0)
+        {
+            Array.Clear(_motionJobs, 0, _motionCount);   // хранилища не держатся очередью после тика
+            _motionCount = 0;
+        }
+        return LastTick = new PoseTickStats(samples, blends, copies, models, stale, motions);
     }
+
+    /// <summary>
+    /// Исполнить задание проигрывателя (<see cref="Motion"/>) в позу с началом <paramref name="dst"/> в общих массивах — реализация в
+    /// <c>Motion/PosePool.Motion.cs</c> (точка 8г). false — проигрыватель освобождён после постановки (задание пропущено).
+    /// </summary>
+    private partial bool RunMotion(in MotionJob job, int dst);
 
     /// <summary>
     /// Маска задания с долей <paramref name="stand"/>: <c>mask[j] + (1 − mask[j])·stand</c> — выражение
