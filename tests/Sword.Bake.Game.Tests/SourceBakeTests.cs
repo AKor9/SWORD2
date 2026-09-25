@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Numerics;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Sword.Bake.Engine.Tests;
 using Sword.Engine.Content;
+using Sword.Engine.Formats;
 using Sword.Game.Data;
 using Xunit.Abstractions;
 
@@ -13,17 +15,151 @@ namespace Sword.Bake.Game.Tests;
 /// Выпечка настоящих исходников плагином игры (категория Source; без исходников — пропуск): временный проект пекарни
 /// с манифестами проекта Bake/ SWORD — риг ue5_manny и меш Manny (на них ссылаются оружие и анатомия), шесть единиц
 /// weapon.static, три anatomy.mesh и combat/actions.json (file.copy ядра); плагины — Sword.Bake.Engine, затем
-/// Sword.Bake.Game; sword-bake build обычным прогоном, затем сверка с эталонным паком побайтно: меши и зоны крови оружия,
-/// меши анатомии, таблица действий. Итог с числами — в выводе теста и artifacts/bake/source-check.json (ключи game*).
+/// Sword.Bake.Game; sword-bake build обычным прогоном, затем сверка с эталонным паком: меши анатомии и таблица действий —
+/// побайтно; оружие — та же геометрия, перенесённая одним жёстким преобразованием на меч (хват по центрам изгиба пальцев,
+/// а не по линии костяшек, как в эталоне). Итог с числами — в выводе теста и artifacts/bake/source-check.json (ключи game*).
 /// </summary>
 [Trait("Category", "Source")]
 public sealed class SourceBakeTests(GameSourceBake bake, ITestOutputHelper output) : IClassFixture<GameSourceBake>
 {
-    [SourceFact]
-    public void Weapons_MatchReferenceByteForByte() => SameFiles("gameWeapons", WeaponMesh.Dir, WeaponMesh.Ext, 6);
+    /// <summary>Допуск жёсткого переноса оружия: м у положений, доля у направлений.</summary>
+    private const float RigidTolerance = 1e-4f;
 
+    /// <summary>
+    /// Оружие эталона и выпечки — одна геометрия в разном хвате: треугольники, UV, секции и разметка зон крови те же; вершины,
+    /// нормали, клинок и зоны крови — эталонные, перенесённые одним жёстким преобразованием на меч; хват сдвинут (не тождество).
+    /// </summary>
     [SourceFact]
-    public void WeaponBlood_MatchesReferenceByteForByte() => SameFiles("gameWeaponBlood", WeaponMesh.Dir, WeaponBloodData.Extension, 6);
+    public void Weapons_AreReferenceMovedRigidly()
+    {
+        using var reference = PakSource.Open(TestPaths.ReferencePak());
+        using var baked = PakSource.Open(bake.Result.Pak);
+        var paths = reference.List(WeaponMesh.Dir, WeaponMesh.Ext);
+        var extra = baked.List(WeaponMesh.Dir, WeaponMesh.Ext).Except(paths, StringComparer.OrdinalIgnoreCase).ToList();
+        var files = new JsonArray();
+        var problems = new List<string>();
+        foreach (string path in paths)
+        {
+            string line = baked.Find(path) is null ? $"{path}: нет в выпечке" : CompareWeapon(reference, baked, path, files);
+            output.WriteLine(line);
+            if (!line.Contains("перенесённый жёстко")) problems.Add(line);
+        }
+        TestPaths.SourceReport("gameWeapons", new JsonObject
+        {
+            ["reference"] = paths.Count, ["matched"] = paths.Count - problems.Count, ["extra"] = new JsonArray([.. extra.Select(e => (JsonNode)e)]),
+            ["files"] = files,
+        });
+        Assert.Equal(6, paths.Count);
+        Assert.Empty(extra);
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
+    /// <summary>Меш и зоны крови меча <paramref name="path"/>: строка итога («перенесённый жёстко» — годен), строка отчёта — в <paramref name="files"/>.</summary>
+    private static string CompareWeapon(PakSource reference, PakSource baked, string path, JsonArray files)
+    {
+        var a = SkinnedMeshData.Read(reference.OpenRead(path), path);
+        var b = SkinnedMeshData.Read(baked.OpenRead(path), path);
+        string blood = Path.ChangeExtension(path, WeaponBloodData.Extension).Replace('\\', '/');
+        var ba = WeaponBloodData.Read(reference.OpenRead(blood), blood);
+        var bb = WeaponBloodData.Read(baked.OpenRead(blood), blood);
+        bool same = a.Vertices.Length == b.Vertices.Length && a.Indices.AsSpan().SequenceEqual(b.Indices)
+            && a.Sections.SequenceEqual(b.Sections) && ba.Zones.Length == bb.Zones.Length && ba.VertexZones.AsSpan().SequenceEqual(bb.VertexZones);
+        if (!same)
+        {
+            files.Add(new JsonObject { ["path"] = path, ["same"] = false });
+            return $"{path}: другая геометрия, секции или разметка зон крови";
+        }
+        var (q, t) = Rigid(a.Vertices.Select(v => v.Position).ToArray(), b.Vertices.Select(v => v.Position).ToArray());
+        Vector3 Point(Vector3 p) => Vector3.Transform(p, q) + t;
+        float worst = 0, moved = 0;
+        void Near(Vector3 expected, Vector3 actual) => worst = MathF.Max(worst, Vector3.Distance(expected, actual));
+        for (int v = 0; v < a.Vertices.Length; v++)
+        {
+            Near(Point(a.Vertices[v].Position), b.Vertices[v].Position);
+            Near(Vector3.Transform(a.Vertices[v].Normal, q), b.Vertices[v].Normal);
+            same &= a.Vertices[v].Uv == b.Vertices[v].Uv;
+            moved = MathF.Max(moved, Vector3.Distance(a.Vertices[v].Position, b.Vertices[v].Position));
+        }
+        Near(Point(ba.Base), bb.Base);
+        Near(Point(ba.Tip), bb.Tip);
+        for (int z = 0; z < ba.Zones.Length; z++)
+        {
+            var (za, zb) = (ba.Zones[z], bb.Zones[z]);
+            same &= (za with { Origin = zb.Origin, AxisU = zb.AxisU, AxisV = zb.AxisV, Length = zb.Length, Half = zb.Half }) == zb
+                && MathF.Abs(za.Length - zb.Length) < RigidTolerance && MathF.Abs(za.Half - zb.Half) < RigidTolerance;
+            Near(Point(za.Origin), zb.Origin);
+            Near(Vector3.Transform(za.AxisU, q), zb.AxisU);
+            Near(Vector3.Transform(za.AxisV, q), zb.AxisV);
+        }
+        files.Add(new JsonObject { ["path"] = path, ["same"] = same, ["deviation"] = worst, ["moved"] = moved });
+        return !same ? $"{path}: другие UV или зоны крови"
+            : worst > RigidTolerance ? string.Create(CultureInfo.InvariantCulture, $"{path}: не жёсткий перенос эталона, отклонение {worst * 100:F3} см")
+            : moved < 1e-3f ? $"{path}: хват как в эталоне — выпечка старая"
+            : string.Create(CultureInfo.InvariantCulture, $"{path}: эталон, перенесённый жёстко (вершины до {moved * 100:F1} см), отклонение {worst * 100:F4} см");
+    }
+
+    /// <summary>Поворот и перенос, переводящие точки <paramref name="a"/> в <paramref name="b"/> по наименьшим квадратам (метод Хорна).</summary>
+    private static (Quaternion Q, Vector3 T) Rigid(Vector3[] a, Vector3[] b)
+    {
+        Vector3 ca = Vector3.Zero, cb = Vector3.Zero;
+        for (int i = 0; i < a.Length; i++)
+        {
+            ca += a[i];
+            cb += b[i];
+        }
+        ca /= a.Length;
+        cb /= b.Length;
+        var s = new double[3, 3];
+        for (int i = 0; i < a.Length; i++)
+        {
+            var (p, r) = (a[i] - ca, b[i] - cb);
+            double[] pa = [p.X, p.Y, p.Z], rb = [r.X, r.Y, r.Z];
+            for (int u = 0; u < 3; u++)
+                for (int w = 0; w < 3; w++) s[u, w] += pa[u] * rb[w];
+        }
+        double[,] n =
+        {
+            { s[0, 0] + s[1, 1] + s[2, 2], s[1, 2] - s[2, 1], s[2, 0] - s[0, 2], s[0, 1] - s[1, 0] },
+            { s[1, 2] - s[2, 1], s[0, 0] - s[1, 1] - s[2, 2], s[0, 1] + s[1, 0], s[2, 0] + s[0, 2] },
+            { s[2, 0] - s[0, 2], s[0, 1] + s[1, 0], -s[0, 0] + s[1, 1] - s[2, 2], s[1, 2] + s[2, 1] },
+            { s[0, 1] - s[1, 0], s[2, 0] + s[0, 2], s[1, 2] + s[2, 1], -s[0, 0] - s[1, 1] + s[2, 2] },
+        };
+        // собственный вектор наибольшего собственного числа — вращениями Якоби (n симметрична)
+        var vec = new double[4, 4];
+        for (int u = 0; u < 4; u++) vec[u, u] = 1;
+        for (int sweep = 0; sweep < 64; sweep++)
+            for (int p = 0; p < 3; p++)
+                for (int r = p + 1; r < 4; r++)
+                {
+                    if (Math.Abs(n[p, r]) < 1e-300) continue;
+                    double theta = (n[r, r] - n[p, p]) / (2 * n[p, r]);
+                    double tan = Math.Sign(theta == 0 ? 1 : theta) / (Math.Abs(theta) + Math.Sqrt(theta * theta + 1));
+                    double c = 1 / Math.Sqrt(tan * tan + 1), sn = tan * c;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        double kp = n[k, p], kr = n[k, r];
+                        n[k, p] = c * kp - sn * kr;
+                        n[k, r] = sn * kp + c * kr;
+                    }
+                    for (int k = 0; k < 4; k++)
+                    {
+                        double pk = n[p, k], rk = n[r, k];
+                        n[p, k] = c * pk - sn * rk;
+                        n[r, k] = sn * pk + c * rk;
+                    }
+                    for (int k = 0; k < 4; k++)
+                    {
+                        double kp = vec[k, p], kr = vec[k, r];
+                        vec[k, p] = c * kp - sn * kr;
+                        vec[k, r] = sn * kp + c * kr;
+                    }
+                }
+        int best = 0;
+        for (int u = 1; u < 4; u++)
+            if (n[u, u] > n[best, best]) best = u;
+        var q = Quaternion.Normalize(new Quaternion((float)vec[1, best], (float)vec[2, best], (float)vec[3, best], (float)vec[0, best]));
+        return (q, cb - Vector3.Transform(ca, q));
+    }
 
     [SourceFact]
     public void Anatomy_MatchesReferenceByteForByte() => SameFiles("gameAnatomy", "characters/manny/anatomy", ".swmesh", 3);

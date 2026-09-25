@@ -149,58 +149,101 @@ public static class SkinBake
     }
 
     /// <summary>
-    /// Средние положения костяшек (index, pinky, middle 01) и центр кольца сжатых пальцев правой кисти
-    /// в системе hand_r (единицы экспорта) по клипам с мечом в правой руке; null — нет костей пальцев.
+    /// Средние положения фаланг 01…03 пальцев хвата (<see cref="UeRig.GripFingers"/>: [палец, фаланга]) правой кисти в системе
+    /// hand_r (единицы экспорта) по клипам с мечом в правой руке; null — нет костей пальцев.
     /// </summary>
-    private static (Vector3 Index, Vector3 Pinky, Vector3 Middle, Vector3 Fist, int Frames)? GripFrame(ClipSource source)
+    private static (Vector3[,] Joints, int Frames)? GripFrame(ClipSource source)
     {
         var man = source.Manifest;
         int B(string name) => Array.IndexOf(man.Bones, name);
-        int hand = B(UeRig.Hand("r")), index = B(UeRig.Phalanx("index", 1, "r")),
-            pinky = B(UeRig.Phalanx("pinky", 1, "r")), middle = B(UeRig.Phalanx("middle", 1, "r"));
-        var ring = UeRig.GripFingers.SelectMany(f => Enumerable.Range(1, 3).Select(i => B(UeRig.Phalanx(f, i, "r")))).ToArray();
-        if (hand < 0 || index < 0 || pinky < 0 || middle < 0 || ring.Any(j => j < 0)) return null;
-        Vector3 sumI = default, sumP = default, sumM = default, sumF = default;
+        int hand = B(UeRig.Hand("r"));
+        var fingers = UeRig.GripFingers;
+        var bones = new int[fingers.Length, 3];
+        for (int f = 0; f < fingers.Length; f++)
+            for (int k = 0; k < 3; k++)
+                if ((bones[f, k] = B(UeRig.Phalanx(fingers[f], k + 1, "r"))) < 0) return null;
+        if (hand < 0) return null;
+        var sum = new Vector3[fingers.Length, 3];
         int n = 0;
         foreach (var info in man.Clips.Where(c => !UeRig.IsMirrored(c.Name)))
         {
             var raw = source.Load(info);
-            for (int f = 0; f < info.Frames; f += 3)
+            for (int fr = 0; fr < info.Frames; fr += 3)
             {
-                var inv = Quaternion.Conjugate(raw.R(f, hand));
-                var h = raw.P(f, hand);
-                sumI += Vector3.Transform(raw.P(f, index) - h, inv);
-                sumP += Vector3.Transform(raw.P(f, pinky) - h, inv);
-                sumM += Vector3.Transform(raw.P(f, middle) - h, inv);
-                foreach (int j in ring) sumF += Vector3.Transform(raw.P(f, j) - h, inv);
+                var inv = Quaternion.Conjugate(raw.R(fr, hand));
+                var h = raw.P(fr, hand);
+                for (int f = 0; f < fingers.Length; f++)
+                    for (int k = 0; k < 3; k++)
+                        sum[f, k] += Vector3.Transform(raw.P(fr, bones[f, k]) - h, inv);
                 n++;
             }
         }
-        return n == 0 ? null : (sumI / n, sumP / n, sumM / n, sumF / (n * ring.Length), n);
+        if (n == 0) return null;
+        for (int f = 0; f < fingers.Length; f++)
+            for (int k = 0; k < 3; k++)
+                sum[f, k] /= n;
+        return (sum, n);
+    }
+
+    /// <summary>Центр окружности через три точки; точки на одной прямой — null.</summary>
+    private static Vector3? Circumcentre(Vector3 a, Vector3 b, Vector3 c)
+    {
+        var ab = b - a;
+        var ac = c - a;
+        var n = Vector3.Cross(ab, ac);
+        float nn = n.LengthSquared();
+        if (nn < 1e-12f * ab.LengthSquared() * ac.LengthSquared()) return null;
+        return a + (Vector3.Cross(n, ab) * ac.LengthSquared() + Vector3.Cross(ac, n) * ab.LengthSquared()) / (2 * nn);
     }
 
     /// <summary>
-    /// Крепление меча к кисти по пальцам анимации (значение крепления <see cref="UeRig.GripAttach"/>), UE (единицы экспорта):
-    /// в кулаке рукоять идёт по линии костяшек от мизинца к указательному, клинок выходит над большим пальцем,
-    /// середина хвата — в центре кольца пальцев. Система меча UE: клинок +Z (0…114 см), кромка по +Y, толщина по X —
-    /// кромка направляется от запястья к костяшкам (по X клинок лёг бы в кулаке плашмя, повёрнутым на 90°). Сокет WeaponSocket пака для этого меша не годится:
-    /// ставит клинок перпендикулярно ладони.
+    /// Крепление меча к кисти по пальцам анимации (значение крепления <see cref="UeRig.GripAttach"/>), UE (единицы экспорта).
+    /// Согнутый палец охватывает рукоять: его фаланги 01…03 лежат на окружности вокруг неё, поэтому ось рукояти — прямая
+    /// через центры этих окружностей (от мизинца к указательному), середина хвата — их средний центр. Центр суставов кулака
+    /// для этого не годится: у рукояти со стороны ладони суставов нет, и он сдвинут к кончикам пальцев — рукоять шла сквозь
+    /// пальцы; линия костяшек — не ось: в кулаке рукоять идёт наискосок ладони. Система меча UE: клинок +Z, кромка по +Y,
+    /// толщина по X — кромка направляется от запястья к костяшкам (по X клинок лёг бы в кулаке плашмя, повёрнутым на 90°).
+    /// Сокет WeaponSocket пака для этого меша не годится: ставит клинок перпендикулярно ладони.
     /// </summary>
     /// <param name="gripAlong">Середина хвата, см от навершия по клинку.</param>
     public static (Vector3 T, Quaternion Q) GripAttachment(ClipSource source, float gripAlong, TextWriter log)
     {
-        var (i, p, m, fist, n) = GripFrame(source)
+        var (joints, n) = GripFrame(source)
             ?? throw new InvalidDataException($"для крепления {UeRig.GripAttach} нужны кости hand_r и фаланги index…pinky 01…03 правой кисти");
         float cm = 100 * source.Space.Unit;                       // сантиметров в единице экспорта
-        var z = Vector3.Normalize(i - p);                         // клинок: от мизинца к указательному
+        int count = joints.GetLength(0);
+        var centres = new Vector3[count];
+        var centre = Vector3.Zero;
+        float radius = 0;
+        for (int f = 0; f < count; f++)
+        {
+            centres[f] = Circumcentre(joints[f, 0], joints[f, 1], joints[f, 2])
+                ?? throw new InvalidDataException($"для крепления {UeRig.GripAttach}: палец {UeRig.GripFingers[f]} в клипах не согнут — рукоять не охватывает");
+            centre += centres[f];
+            radius += Vector3.Distance(centres[f], joints[f, 1]);
+        }
+        centre /= count;
+        radius /= count;
+        // ось — главная ось разброса центров, от мизинца (последний) к указательному (первый)
+        var z = Vector3.Normalize(centres[0] - centres[^1]);
+        for (int it = 0; it < 32; it++)
+        {
+            var s = Vector3.Zero;
+            foreach (var c in centres) s += (c - centre) * Vector3.Dot(c - centre, z);
+            z = Vector3.Normalize(s);
+        }
+        if (Vector3.Dot(z, centres[0] - centres[^1]) < 0) z = -z;
+        int middle = Array.IndexOf(UeRig.GripFingers, "middle");
+        var m = joints[middle, 0];
         var y = Vector3.Normalize(m - z * Vector3.Dot(m, z));     // кромка (+Y меча): к костяшкам
         var x = Vector3.Cross(y, z);                              // толщина клинка
         var q = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(new Matrix4x4(
             x.X, x.Y, x.Z, 0, y.X, y.Y, y.Z, 0, z.X, z.Y, z.Z, 0, 0, 0, 0, 1)));
+        var knuckles = Vector3.Normalize(joints[0, 0] - joints[count - 1, 0]);
         log.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"крепление по пальцам ({n} кадров): костяшки через {Vector3.Distance(i, p) * cm:F1} см в {((i + p) * 0.5f).Length() * cm:F1} см от кисти, " +
-            $"центр кулака в {fist.Length() * cm:F1} см от кисти, {Vector3.Distance(fist, (i + p) * 0.5f) * cm:F1} см от костяшек"));
-        return (fist - z * (gripAlong / cm), q);
+            $"крепление по пальцам ({n} кадров): середина хвата в {centre.Length() * cm:F1} см от кисти, охват пальцев {radius * cm:F1} см, " +
+            $"ось к линии костяшек {MathF.Acos(Math.Clamp(Vector3.Dot(z, knuckles), -1, 1)) * 180 / MathF.PI:F1}°"));
+        return (centre - z * (gripAlong / cm), q);
     }
 
     /// <summary>

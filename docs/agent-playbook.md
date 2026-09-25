@@ -486,7 +486,7 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 4. Сверка: `sword-bake diff ..\Content.reference.swpak ..\Content.swpak --expect reference.expect.json --json` —
    `summary` (`same`, `sameContent`, `unexpected`), `unexpected[]` (`source` `file`: `path`, `kind` `onlyA`/`onlyB`/`size`/`hash`,
    `detail` сравнителя или «отличаются байтами»; `buildInfo`: ассет и поле `.bake/build.json`), `expectations.unused`; код 0 —
-   неожиданных нет, 2 — есть. Сейчас: 34 равны байтами, 1048 клипов — по содержимому (без `SourceHash`), 0 неожиданных.
+   неожиданных нет, 2 — есть. Сейчас: 22 равны байтами, 1048 клипов — по содержимому (без `SourceHash`), 24 ожидаемых (оружие — новый хват), 0 неожиданных.
    Вне проекта `diff` не видит сравнитель `.swclip` (`project: null`) — клипы «отличаются байтами».
 5. Выпечка без проекта — тесты Source: `dotnet test tests/Sword.Bake.Engine.Tests --filter Category=Source` (и
    `tests/Sword.Bake.Game.Tests`), итог — `artifacts/bake/source-check.json`; писатели форматов —
