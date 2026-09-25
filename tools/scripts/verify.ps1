@@ -1159,7 +1159,8 @@ Add-Step 'agent-smoke' {
                 $problems += "App: capture.bundle gpu — $($bundle.gpu | ConvertTo-Json -Compress -Depth 3)"
             }
             # Точка 5в: ID-буфер и оверлей капсул по заказу — пиксели игрока несут его сущность и сегменты тела (легенда
-            # словами), середина рамки каждого кода — внутри рамки игрока; оверлей капсул — отдельный PNG.
+            # словами), середина рамки каждого кода тела — внутри рамки игрока, рамка клинка — в пределах ширины рамки от неё
+            # (8ж: меч в стойке оружия выходит за рамку тела 0,9 м); оверлей капсул — отдельный PNG.
             $ids = Call-Http 'capture.bundle' @{ name = 'verify-ids'; ids = $true; overlays = @('capsules') }
             $idPlayer = @($ids.entities | Where-Object { $_.name -eq 'player' })
             $mine = @($ids.ids.legend | Where-Object { $_.name -eq 'player' })
@@ -1172,7 +1173,9 @@ Add-Step 'agent-smoke' {
             }
             else {
                 $r = $idPlayer[0].rect
-                $outside = @($mine | Where-Object { ($_.rect[0] + $_.rect[2]) / 2 -lt $r[0] -or ($_.rect[0] + $_.rect[2]) / 2 -gt $r[2] -or ($_.rect[1] + $_.rect[3]) / 2 -lt $r[1] -or ($_.rect[1] + $_.rect[3]) / 2 -gt $r[3] })
+                $outside = @($mine | Where-Object { $_.segment -ne 'blade' -and (($_.rect[0] + $_.rect[2]) / 2 -lt $r[0] -or ($_.rect[0] + $_.rect[2]) / 2 -gt $r[2] -or ($_.rect[1] + $_.rect[3]) / 2 -lt $r[1] -or ($_.rect[1] + $_.rect[3]) / 2 -gt $r[3]) })
+                $w = $r[2] - $r[0]
+                $outside += @($mine | Where-Object { $_.segment -eq 'blade' -and ($_.rect[2] -lt $r[0] - $w -or $_.rect[0] -gt $r[2] + $w -or $_.rect[3] -lt $r[1] - $w -or $_.rect[1] -gt $r[3] + $w) })
                 if ($outside.Count -gt 0) { $problems += "App: ID-буфер — середины кодов игрока вне его рамки [$($r -join ', ')]: $($outside | ConvertTo-Json -Compress -Depth 3)" }
                 if (@($ids.ids.legend | Where-Object { -not $_.segment -or -not $_.entity }).Count -gt 0) { $problems += 'App: ID-буфер — код без сущности или сегмента в легенде' }
             }

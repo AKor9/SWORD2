@@ -30,6 +30,9 @@ public sealed record LocomotionSettings
     public float InertialHalflife { get; init; } = GaspMotion.InertialHalflife;
     public float RateRange { get; init; } = GaspMotion.RateRange;
 
+    /// <summary>Вес руки с мечом (8ж, <c>locomotion.armWeight</c>): стойка оружия по маске правой руки поверх позы MM.</summary>
+    public float ArmWeight { get; init; } = SwordArm.DefaultWeight;
+
     // Веса 12 групп признаков — ключи GaspMotion.WeightKeys, значения по умолчанию — веса GaspMotion.Groups.
     public float WeightTrajectory { get; init; } = GaspMotion.Groups[0].Weight;
     public float WeightTrajectoryFacing { get; init; } = GaspMotion.Groups[1].Weight;
@@ -72,6 +75,9 @@ public struct LocomotionRules
     /// <summary>Размах темпа (<c>rateRange</c>): темп в 1 ± размах.</summary>
     public float RateRange;
 
+    /// <summary>Вес руки с мечом (<c>armWeight</c>, 8ж), 0…1.</summary>
+    public float ArmWeight;
+
     public float WeightTrajectory, WeightTrajectoryFacing, WeightPast, WeightRootVelocity, WeightRootYawRate, WeightFeet, WeightFeetVelocity,
         WeightKnees, WeightPelvis, WeightPelvisVelocity, WeightPelvisFacing, WeightChestFacing;
 
@@ -84,6 +90,7 @@ public struct LocomotionRules
             SwitchGain = Check(s.SwitchGain, "switchGain", 0, 1000),
             InertialHalflife = Check(s.InertialHalflife, "inertialHalflife", 1e-3f, 10),
             RateRange = Check(s.RateRange, "rateRange", 0, 0.99f),
+            ArmWeight = Check(s.ArmWeight, "armWeight", 0, 1),
             WeightTrajectory = s.WeightTrajectory, WeightTrajectoryFacing = s.WeightTrajectoryFacing, WeightPast = s.WeightPast,
             WeightRootVelocity = s.WeightRootVelocity, WeightRootYawRate = s.WeightRootYawRate, WeightFeet = s.WeightFeet,
             WeightFeetVelocity = s.WeightFeetVelocity, WeightKnees = s.WeightKnees, WeightPelvis = s.WeightPelvis,
@@ -145,6 +152,7 @@ public static class LocomotionKnobs
                 (ref LocomotionRules r, float v) => SetWeight(ref r, group, v), 0, 10, GaspMotion.Groups[g].Weight, format: "0.00",
                 hint: $"вес группы признаков «{GaspMotion.Groups[g].Name}» в цене кадра");
         }
+        SwordArm.Knob(t, d.ArmWeight);   // 8ж: вес руки с мечом
     }
 
     private static float Weight(in LocomotionRules r, int group)
@@ -211,6 +219,7 @@ public sealed class LocomotionModule : IModule
     {
         var rules = LocomotionRules.From(settings);
         var runtime = new MotionMatchRuntime();
+        var arm = new SwordArm();   // 8ж: рука с мечом поверх позы MM
         b.Component<MotionMatchState>()
             .Resource(rules)
             .System(GameStages.Gameplay, new MotionMatchSetupSystem(runtime))
@@ -222,9 +231,11 @@ public sealed class LocomotionModule : IModule
             .OnWorldBuilt(w =>
             {
                 runtime.Init(w.Resource<PosePool>(), settings.Clips, w.Resource<SimTime>().Dt);
+                arm.Init(w, runtime);   // 8ж: маска руки, поза постройки со стойкой руки, состояние руки игроку
                 Log.Info("locomotion", runtime.Base.StartLine());
                 MotionMatchSetupSystem.PlaceWorldBuilt(w, runtime);
             });
+        arm.Configure(b);
         LocomotionKnobs.Register(b);
     }
 }

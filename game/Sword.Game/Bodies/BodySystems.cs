@@ -18,6 +18,10 @@ namespace Sword.Game.Bodies;
 /// <see cref="StartPose"/>) — <see cref="For(WorldReader, Entity)"/>. Значений бывает несколько (у игрока на MM — своя, у врагов — общая),
 /// поэтому матрицы хранятся по значению — до <see cref="Cached"/> значений, каждое считается один раз (сброс арены, где бойцы строятся
 /// вперемешку, не пересчитывает позы на каждого). Больше значений — старейшее считается заново на месте нового.
+///
+/// 8ж: у своей позы постройки бывает слой поверх (<see cref="FighterStartPose.LayerWeight"/> больше 0 — рука с мечом игрока на MM): клип слоя
+/// в свою позу и смешивание по маске поддерева сустава (<see cref="Skeleton.SubtreeMask"/>, доля вне маски 0) — те же задания, что ставит
+/// модуль в тике, поэтому первый тик после постройки выводит ту же позу. Маска поддерева заводится в своём пуле один раз на сустав.
 /// </summary>
 public sealed class StartPoseModel(ClipLibrary clips)
 {
@@ -25,25 +29,45 @@ public sealed class StartPoseModel(ClipLibrary clips)
     public const int Cached = 4;
 
     private PosePool? _pool;
+    private PoseHandle _layer;
     private readonly PoseHandle[] _poses = new PoseHandle[Cached];
-    private readonly StartPose[] _values = new StartPose[Cached];
+    private readonly FighterStartPose[] _values = new FighterStartPose[Cached];
+    private readonly List<(int Joint, PoseMask Mask)> _masks = [];
     private int _count, _next;
 
-    /// <summary>Поза постройки бойца <paramref name="e"/>: своя (<see cref="FighterStartPose"/>), нет — общая (ресурс <see cref="StartPose"/>).</summary>
-    public static StartPose For(WorldReader world, Entity e) =>
-        world.TryGet<FighterStartPose>(e, out var own) ? new StartPose { Clip = own.Clip, Time = own.Time } : world.Resource<StartPose>();
+    /// <summary>
+    /// Поза постройки бойца <paramref name="e"/>: своя (<see cref="FighterStartPose"/>, со слоем поверх — 8ж), нет — общая (ресурс
+    /// <see cref="StartPose"/>, без слоя).
+    /// </summary>
+    public static FighterStartPose For(WorldReader world, Entity e) =>
+        world.TryGet<FighterStartPose>(e, out var own) ? own : Common(world.Resource<StartPose>());
 
     /// <inheritdoc cref="For(WorldReader, Entity)"/>
-    public static StartPose For(World world, Entity e) =>
-        world.TryGet<FighterStartPose>(e, out var own) ? new StartPose { Clip = own.Clip, Time = own.Time } : world.Resource<StartPose>();
+    public static FighterStartPose For(World world, Entity e) =>
+        world.TryGet<FighterStartPose>(e, out var own) ? own : Common(world.Resource<StartPose>());
+
+    private static FighterStartPose Common(StartPose pose) => new() { Clip = pose.Clip, Time = pose.Time };
+
+    /// <summary>Значения совпадают: клип и момент, а при слое (вес больше 0) — и слой целиком.</summary>
+    private static bool Same(in FighterStartPose a, in FighterStartPose b) =>
+        a.Clip == b.Clip && a.Time.Equals(b.Time) && a.LayerWeight.Equals(b.LayerWeight)
+        && (!(a.LayerWeight > 0) || a.LayerClip == b.LayerClip && a.LayerTime.Equals(b.LayerTime) && a.LayerJoint == b.LayerJoint);
 
     /// <summary>Матрицы позы постройки <paramref name="pose"/>; каждое значение считается один раз (до <see cref="Cached"/> значений).</summary>
-    /// <exception cref="InvalidDataException">Клипа позы постройки нет в библиотеке.</exception>
-    public ReadOnlySpan<Matrix4x4> Of(StartPose pose)
+    /// <exception cref="InvalidDataException">Клипа позы постройки или её слоя нет в библиотеке, сустава слоя нет в скелете.</exception>
+    public ReadOnlySpan<Matrix4x4> Of(in FighterStartPose pose)
     {
-        _pool ??= new PosePool(clips, capacity: Cached);
+        _pool ??= new PosePool(clips, capacity: Cached + 1);   // + поза слоя поверх (8ж)
         for (int i = 0; i < _count; i++)
-            if (_values[i].Clip == pose.Clip && _values[i].Time.Equals(pose.Time)) return _pool.Model(_poses[i]);
+            if (Same(_values[i], pose)) return _pool.Model(_poses[i]);
+        bool layered = pose.LayerWeight > 0;
+        if (layered)
+        {
+            if ((uint)pose.LayerClip >= (uint)clips.ClipCount)
+                throw new InvalidDataException($"поза постройки: клипа слоя {pose.LayerClip} нет (клипов {clips.ClipCount})");
+            if ((uint)pose.LayerJoint >= (uint)clips.JointCount)
+                throw new InvalidDataException($"поза постройки: сустава слоя {pose.LayerJoint} нет (суставов {clips.JointCount})");
+        }
         int slot;
         if (_count < Cached) _poses[slot = _count++] = _pool.Alloc();
         else
@@ -61,10 +85,28 @@ public sealed class StartPoseModel(ClipLibrary clips)
             _pool.Free(_poses[slot]);
             _poses[slot] = _pool.Alloc();   // новая поза — поза привязки
         }
+        if (layered)
+        {
+            if (_layer.IsNone) _layer = _pool.Alloc();
+            _pool.Sample(_layer, pose.LayerClip, pose.LayerTime);
+            _pool.BlendMasked(_poses[slot], _layer, pose.LayerWeight, MaskOf(pose.LayerJoint), 0);
+        }
         _pool.ToModel(_poses[slot]);
         _pool.Tick();
         _values[slot] = pose;
         return _pool.Model(_poses[slot]);
+    }
+
+    /// <summary>Маска поддерева сустава <paramref name="joint"/> в своём пуле — заводится один раз на сустав.</summary>
+    private PoseMask MaskOf(int joint)
+    {
+        foreach (var (j, mask) in _masks)
+            if (j == joint) return mask;
+        var weights = new float[clips.JointCount];
+        clips.Skeleton.SubtreeMask(joint, weights);
+        var added = _pool!.AddMask(weights);
+        _masks.Add((joint, added));
+        return added;
     }
 }
 

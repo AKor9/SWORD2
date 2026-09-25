@@ -33,8 +33,11 @@ public sealed class MotionMatchRuntime
     /// </summary>
     public int StartFrame { get; private set; }
 
-    /// <summary>Поза постройки игрока на MM — клип библиотеки и момент кадра <see cref="StartFrame"/> (компонент <see cref="FighterStartPose"/>).</summary>
-    public FighterStartPose StartPose { get; private set; }
+    /// <summary>
+    /// Поза постройки игрока на MM — клип библиотеки и момент кадра <see cref="StartFrame"/> (компонент <see cref="FighterStartPose"/>); 8ж — со
+    /// слоем руки с мечом (<see cref="SwordArm.Init"/>).
+    /// </summary>
+    public FighterStartPose StartPose { get; internal set; }
 
     /// <summary>Окно пропуска своего клипа, кадров (<see cref="GaspMotion.SkipSeconds"/> × частота клипов).</summary>
     public int SkipFrames { get; private set; }

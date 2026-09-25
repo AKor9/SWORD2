@@ -332,6 +332,28 @@ public sealed class PoseTests
         Assert.Equal(expected, actual);
     }
 
+    [Fact]
+    public void SubtreeMask_RootAndAllDescendants_ParentAfterChild()
+    {
+        // экспорт UE: часть костей идёт раньше родителя; поддерево arm — arm, hand, finger (не root и не соседняя ветка)
+        string[] names = ["hand", "root", "arm", "finger", "leg"];
+        int[] parents = [2, -1, 1, 0, 1];
+        var skeleton = new Skeleton("s", names, parents);
+        float[] Mask(int root)
+        {
+            var mask = new float[names.Length];
+            Array.Fill(mask, 7f);   // всё место переписывается
+            skeleton.SubtreeMask(root, mask);
+            return mask;
+        }
+        Assert.Equal([1f, 0, 1, 1, 0], Mask(2));
+        Assert.Equal([1f, 1, 1, 1, 1], Mask(1));
+        Assert.Equal([0f, 0, 0, 1, 0], Mask(3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Mask(5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Mask(-1));
+        Assert.Throws<ArgumentException>(() => skeleton.SubtreeMask(2, new float[4]));
+    }
+
     [Theory]
     [InlineData(new[] { -1, 2, 1 })]   // цикл
     [InlineData(new[] { 0 })]          // сам себе родитель

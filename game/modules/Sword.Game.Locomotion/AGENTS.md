@@ -28,6 +28,14 @@ Matching игрока при `mm` (`sword.json` игры). Описание — 
   шаг — одно задание `PosePool.Motion` в `PoseRef` игрока (своих поз нет); игрок исключён из `LegacyLocomotion` (одну позу пишет одна
   система). Сброс — только по `Added<Fighter>` (флаг `Restart`), мёртвый (`Dead`) не трогается. Авторитетное состояние — компонент
   `MotionMatchState` (участник `ecs`, все числа конечны) и хранилище проигрывателей с историями (участник `locomotion`). Тик — 0 Б.
+- Рука с мечом игрока на MM (8ж, `Motion/MotionMatchArm.cs`): после шага MM и до `core.animator-pose` (`locomotion.mm-arm`) — стойка
+  оружия (клип слота `idle`, момент `SwordArm.StanceTime`) смешиванием по маске поддерева `clavicle_r` с весом `MotionMatchArm.Weight`
+  (к ручке `locomotion.armWeight` не быстрее `SwordArm.WeightRate`/с); слой действий ядра — поверх руки. Имена суставов руки и её
+  умолчания — одно место, `SwordArm`. Поза стойки — своя поза пула: заводит шаг руки, возвращает `locomotion.mm-arm-release`, держит
+  инвариант `locomotion.mmArm`. Поза постройки игрока несёт руку слоем (`FighterStartPose.Layer*`; ядро считает его в `StartPoseModel`
+  тем же сэмплом и смешиванием по маске `Skeleton.SubtreeMask`): задания руки и слой позы постройки меняются вместе, иначе первый тик
+  после постройки прыгнет (`SwordArmTests.BuildReset_KnobOnTheRun_NoJumps`).
 
-Проверка: `tests/Sword.Game.Tests/AnimationTests`, `tests/Sword.Game.Tests/Locomotion/` (MM — `MotionMatchTests`, на паке), эталоны
-SWORD2 (`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke` (со `sword.json` — MM), `without-modules`, `agent-smoke`.
+Проверка: `tests/Sword.Game.Tests/AnimationTests`, `tests/Sword.Game.Tests/Locomotion/` (MM — `MotionMatchTests`, рука с мечом —
+`SwordArmTests`, на паке), эталоны SWORD2 (`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke` (со `sword.json` — MM),
+`without-modules`, `agent-smoke`.

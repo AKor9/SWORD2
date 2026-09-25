@@ -89,11 +89,28 @@ public struct StartPose
 /// компонентом ядро строит (капсулы тела, клинок, инварианты до первого тика) по нему, остальных — по общей <see cref="StartPose"/>. Ставит
 /// её модуль бойцу, чей слой позы начинает не так, как у всех: игроку на Motion Matching (модуль Locomotion, <c>locomotion.player = mm</c>)
 /// — первый кадр стойки базы MM, с которого начинает его проигрыватель, поэтому в первом тике после постройки капсулы не прыгают.
+///
+/// Слой поверх (8ж): клип <see cref="LayerClip"/> в момент <see cref="LayerTime"/> смешивается в позу по поддереву сустава
+/// <see cref="LayerJoint"/> (сустав и все его потомки, остальные суставы не трогаются) с весом <see cref="LayerWeight"/> — как задание пула
+/// «смешать по маске» с долей вне маски 0. Вес 0 (по умолчанию) — слоя нет. У игрока на Motion Matching это рука с мечом: стойка оружия по
+/// руке с ключицей, тем же весом, что и в первом тике после постройки, — капсулы и клинок не прыгают.
 /// </summary>
 public struct FighterStartPose
 {
     public int Clip;
     public float Time;
+
+    /// <summary>Слой поверх: клип и момент, корень поддерева (номер сустава скелета) и вес 0…1; вес 0 — слоя нет.</summary>
+    public int LayerClip;
+
+    /// <inheritdoc cref="LayerClip"/>
+    public float LayerTime;
+
+    /// <inheritdoc cref="LayerClip"/>
+    public int LayerJoint;
+
+    /// <inheritdoc cref="LayerClip"/>
+    public float LayerWeight;
 }
 
 /// <summary>

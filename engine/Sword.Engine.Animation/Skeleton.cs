@@ -98,6 +98,24 @@ public sealed class Skeleton
     public int Find(string name) => Array.IndexOf(_jointNames, name);
 
     /// <summary>
+    /// Маска поддерева для <see cref="PosePool.AddMask"/> (8ж) — в <paramref name="mask"/> (по суставу на место): 1 — сустав
+    /// <paramref name="root"/> и все его потомки (родитель может идти после ребёнка), 0 — остальные. Для настройки, не для тика.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Сустава <paramref name="root"/> нет в скелете.</exception>
+    /// <exception cref="ArgumentException">Мест в <paramref name="mask"/> не столько, сколько суставов.</exception>
+    public void SubtreeMask(int root, Span<float> mask)
+    {
+        if ((uint)root >= (uint)JointCount) throw new ArgumentOutOfRangeException(nameof(root), root, $"суставов в скелете {JointCount}");
+        if (mask.Length != JointCount) throw new ArgumentException($"мест в маске {mask.Length}, а суставов {JointCount}", nameof(mask));
+        for (int j = 0; j < mask.Length; j++)
+        {
+            int k = j;
+            while (k >= 0 && k != root) k = _jointParents[k];   // циклов нет — проверено при постройке
+            mask[j] = k == root ? 1 : 0;
+        }
+    }
+
+    /// <summary>
     /// Прямая кинематика: локальные позы → модельные матрицы (<c>SkeletalClips.ToComponent</c> SWORD: вектор слева,
     /// сустав = локальная · родитель). Каждая матрица считается ровно один раз теми же операциями, что в SWORD.
     /// </summary>

@@ -74,7 +74,7 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
                 Assert.False(sim.World.Has<FighterStartPose>(e));   // враги строятся по общей позе постройки
             }
         Assert.Contains("locomotion", sim.StateParts);
-        Assert.Equal(4 + GaspMotion.WeightKeys.Count, sim.Tuning.Count(k => k.Section == LocomotionKnobs.Section));
+        Assert.Equal(5 + GaspMotion.WeightKeys.Count, sim.Tuning.Count(k => k.Section == LocomotionKnobs.Section));   // 8ж: + вес руки
         var s = State(sim);
         var view = sim.World.View<IAnimationView>();
         string clip = view.ClipName(s.Clip);
@@ -128,15 +128,13 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
         Clean(sim);
     }
 
-    /// <summary>Наибольшее расстояние суставов итоговой позы игрока от позы постройки <paramref name="start"/> (модельное пространство).</summary>
+    /// <summary>
+    /// Наибольшее расстояние суставов итоговой позы игрока от позы постройки <paramref name="start"/> (модельное пространство; 8ж — со слоем
+    /// руки с мечом: матрицы — те же, что у постройки тела в ядре).
+    /// </summary>
     private static float MaxJointOffset(Simulation sim, Entity player, FighterStartPose start)
     {
-        var pool = new PosePool(Assets.Clips, capacity: 1);
-        var h = pool.Alloc();
-        pool.Sample(h, start.Clip, start.Time);
-        pool.ToModel(h);
-        pool.Tick();
-        var built = pool.Model(h);
+        var built = new Bodies.StartPoseModel(Assets.Clips).Of(start);
         var pose = sim.World.View<IAnimationView>().Model(sim.World.Get<PoseRef>(player));
         float max = 0;
         for (int j = 0; j < built.Length; j++) max = MathF.Max(max, Vector3.Distance(built[j].Translation, pose[j].Translation));
