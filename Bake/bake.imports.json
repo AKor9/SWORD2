@@ -1,0 +1,80 @@
+{
+  "ue5_manny": {
+    "collection": "UE5 Manny (Game Animation Sample)",
+    "source": "Epic Games",
+    "license": "Epic Content License",
+    "pipeline": [ "ue_mesh_export" ],
+    "notes": "SK_Mannequin из рабочей копии GASP (D:/Temp/GamedevAssets/GameAnimationSample_SWORD): меш и поза покоя — tools/ue/export_meshes.py → _Export/meshes (manny.glb, skeleton.json)."
+  },
+  "gasp": {
+    "collection": "Game Animation Sample — локомоция",
+    "source": "Epic Games",
+    "license": "Epic Content License",
+    "pipeline": [ "uefn_to_ue5_manny" ],
+    "notes": "/Game/Characters/UEFN_Mannequin/Animations (Idle/Walk/Run): ретаргет tools/ue/retarget_gasp.py (готовый RTG_UEFN_to_UE5_Mannequin), экспорт tools/ue/export_gasp.py."
+  },
+  "1hm_sword": {
+    "collection": "1HM Sword Attacks & Finishers",
+    "source": "Fab",
+    "license": "Epic Content License",
+    "pipeline": [ "ue4_to_ue5_manny", "ue_mesh_export" ],
+    "notes": "Пак на скелете UE4 Mannequin: ретаргет на UE5 Manny tools/ue/retarget_pack.py, экспорт клипов tools/ue/export_gasp.py (export_config_skin.json и export_config_ue4src.json — исходные пальцы), меч — tools/ue/export_meshes.py."
+  },
+  "combat_master": {
+    "collection": "Combat Master Anim Bundle",
+    "source": "Fab",
+    "license": "Epic Content License",
+    "pipeline": [ "ue4_to_ue5_manny", "ue_mesh_export" ],
+    "notes": "Скелет пака — UE4 Mannequin, у каждого набора свой ассет скелета при одинаковых костях, поэтому ретаргет на UE5 Manny — по прогону tools/ue/retarget_pack.py на набор (SWORD_RTG_PACK=/Game/CombatMasterAnimBundle). Клипы выгружены двумя прогонами export_gasp.py (anim/combat_master, anim/combat_master_ext), оружие — tools/ue/export_weapons.py из /Game/CombatMasterAnimBundle/Weapon."
+  },
+  "realistic_blood": {
+    "collection": "Realistic Blood VFX",
+    "source": "Fab",
+    "license": "Epic Content License",
+    "pipeline": [ "ue_texture_export" ],
+    "notes": "Пак скопирован в UE-проект /Game/RealisticBlood (без Demo); текстуры /Game/RealisticBlood/_Commons/Textures — tools/ue/export_textures.py → _Export/blood (PNG 2048², маски в оттенках серого)."
+  },
+  "human_organs": {
+    "collection": "HumanOrgans",
+    "source": "Fab",
+    "license": "",
+    "pipeline": [ "ue_mesh_export", "ue_texture_export" ],
+    "notes": "Скелет UE4 Mannequin. Меши — tools/ue/export_organs.py (LOD под бюджет SWORD_ORGANS_BUDGET) → _Export/organs, текстуры — tools/ue/export_textures.py (SWORD_TEX_SKIP=Colontex). Лицензию уточнить по странице пака."
+  },
+  "gore_props": {
+    "collection": "Artstation — Gore & Horror Props Megapack",
+    "source": "ArtStation Marketplace",
+    "license": "",
+    "pipeline": [ "fbx_png" ],
+    "notes": "Голые FBX + PNG 4K в ${assets}; для среза взяты участки атласа pile_bone. Лицензию уточнить по странице пака."
+  },
+  "golos": {
+    "collection": "Golos Text",
+    "source": "Paratype / Google Fonts",
+    "url": "https://github.com/googlefonts/golos-text",
+    "license": "SIL OFL 1.1",
+    "licenseFiles": [ "${src}/_Sword/fonts/OFL-GolosText.txt" ],
+    "pipeline": [ "ttf" ]
+  },
+  "ibm_plex_mono": {
+    "collection": "IBM Plex Mono",
+    "source": "IBM",
+    "url": "https://github.com/IBM/plex",
+    "license": "SIL OFL 1.1",
+    "licenseFiles": [ "${src}/_Sword/fonts/OFL-IBMPlexMono.txt" ],
+    "pipeline": [ "ttf" ]
+  },
+  "pt_sans_narrow": {
+    "collection": "PT Sans Narrow",
+    "source": "ParaType",
+    "license": "SIL OFL 1.1",
+    "licenseFiles": [ "${src}/_Sword/fonts/OFL-PTSansNarrow.txt" ],
+    "pipeline": [ "ttf" ]
+  },
+  "sword": {
+    "collection": "SWORD — собственный контент",
+    "source": "свой",
+    "license": "проект SWORD",
+    "pipeline": [ "json" ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "processor": "skin.mesh",
+  "import": "ue5_manny",
+  "notes": "Скелетный меш UE5 Manny (tools/ue/export_meshes.py → _Export/meshes/manny.glb); bind-поза — поза покоя рига.",
+  "params": {
+    "skeleton": "skeletons/ue5_manny",
+    "mesh": "${src}/_Export/meshes/manny.glb"
+  }
+}

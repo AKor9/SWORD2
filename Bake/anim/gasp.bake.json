@@ -1,0 +1,10 @@
+{
+  "processor": "anim.pack",
+  "import": "gasp",
+  "notes": "Локомоция GASP (Idle/Walk/Run): retarget_gasp.py (UEFN → UE5 Manny), экспорт export_config_gasp_skin.json → skin_gasp.",
+  "params": {
+    "skeleton": "skeletons/ue5_manny",
+    "anims": "${src}/_Export/skin_gasp",
+    "sets": { "locomotion": [] }
+  }
+}

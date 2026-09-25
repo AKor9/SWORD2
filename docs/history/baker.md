@@ -203,3 +203,26 @@ build` (сводка корня, пальцев, FK, «записано / без
 **Агентские инструменты.** Хватает: Source и `source-check.json` по всем форматам, `bake diff` со сравнителем `.swclip`, логи.
 **На приёмке (Б6).** README `Bake.Engine` и новый `Bake.Game`; AGENTS ядра (ошибка порядка), Formats, Game.Data; playbook; проект
 `Bake/` с `plugins` [Engine, Game], полная выпечка и `bake diff` с эталоном; Release-замер Source.
+
+## Б6. Проект `Bake/`, полная выпечка, сверка с эталоном (2026-09-25)
+
+**Проверка Б5.** `tests/Sword.Bake.Engine.Tests` 52/52 и `tests/Sword.Bake.Game.Tests` 10/10 с категорией Source, `tests/Sword.Bake.Tests`
+43/43 — зелёные; правок не понадобилось. Разделение прогонов `verify.ps1` (Source — отдельно, после остальных) оставлено: выпечка на
+всех ядрах роняла `FirstAnomaly_NoJitOnMainThread_FreshAssembly`; тест писателя `.swblood` остаётся в тестах Formats.
+**Сделано.** `Bake/` из SWORD 2eab13b: 29 манифестов (в SWORD один — `effects/blood/directional` — был в LF, теперь CRLF),
+`bake.imports.json` как есть (пути `tools/ue/…` относительны — это скрипты SWORD2), `bake.project.json` — плагины `Bake.Engine`, затем
+`Bake.Game`, пак `../artifacts/bake/Content.swpak`, `strictLayout`. В `combat/actions` снята заметка о просмотрщике F6 (в SWORD2 его
+нет; `notes` в хеш параметров не входит). `bake.user.json` и `.bake/` — вне git. Новые `Bake/README.md`, `reference.expect.json`,
+`tools/Sword.Bake.Game/README.md`; README и AGENTS ядра, `Bake.Engine`, Formats, Game.Data, playbook «Пекарня», `tools/ue/README.md`.
+**Числа.** Полная выпечка с нуля (`-j` 4): Debug 30,6 с (текстуры анатомии 27,3 и 25,1 с), Release 9,1 с; 29 ассетов, 1082 файла,
+пак 442 369 090 Б (эталон — 442 368 354 Б; разница — `build.json`); `pak --verify` — в порядке. `diff` с эталоном: 34 равны байтами,
+1048 клипов — по содержимому (другой только `SourceHash`), `build.json` — семантически (29 ассетов; `paramsHash` совпал — корни те
+же), неожиданных 0, ожидаемых 0 — правил в `reference.expect.json` нет (0,7 с). Пак Debug против Release — 1082 файла байт в байт
+(`SourceHash` без MVID). В `artifacts/bake/` оставлен пак Debug (`status` Debug — всё актуально).
+**Находка для решения о переключении.** `PakSource.ContentHash` — хеш оглавления вместе с `.bake/build.json`, а в нём время:
+каждая запись пака меняет хеш контента, даже при тех же файлах (Debug и Release — `DC0F…`, `1C7C…`; эталон — `04A5…`). Реплеи
+сверяются по этому хешу: после переключения игры любая пересборка пака делает эталонные реплеи «записанными на другом контенте».
+**Агентские инструменты.** Хватает: `status`/`build`/`diff --json`, `pak --verify`, тесты Source; новых не нужно.
+**Отклонения.** Тесты Source по-прежнему держат свои копии манифестов (параметры те же), а не читают `Bake/`.
+**Осталось.** Б7 — Studio и предпросмотры; переключение игры на пак пекарни — решение пользователя.
+**Проверка.** `status` после коммита: `combat/actions` устарел — номер коммита в версии сборки меняет MVID (README `Bake/`, «Как печь»).

@@ -1,0 +1,15 @@
+{
+  "processor": "anatomy.mesh",
+  "import": "human_organs",
+  "notes": "Мозг пака HumanOrgans (статика BrainHighPoly, 123 тыс. треугольников, в своём масштабе; прорежена пекарней до 16 тыс.) — вписан в череп скелета на кость head. Центр и длина подобраны по габаритам секции Head в skeleton.swmesh (-0.075…0.075 × 1.578…1.791 × -0.055…0.132 м).",
+  "params": {
+    "mesh": "${src}/_Export/organs/BrainHighPoly.glb",
+    "skeleton": "skeletons/ue5_manny",
+    "skin": "characters/manny/mesh",
+    "materials": [ "Brain" ],
+    "attachBone": "head",
+    "attachCenter": [ 0, 1.722, 0.028 ],
+    "attachSize": 0.155,
+    "maxTriangles": 16000
+  }
+}

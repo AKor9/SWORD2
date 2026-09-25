@@ -1,0 +1,16 @@
+{
+  "processor": "texture.array",
+  "import": "realistic_blood",
+  "notes": "Кровь: лужи — мягкие карты толщины, лужа растёт порогом по значению.",
+  "params": {
+    "layers": [
+      "${src}/_Export/blood/Decals/T_BloodPuddle_0?.png",
+      "${src}/_Export/blood/Decals/T_BloodDecal_03.png",
+      "${src}/_Export/blood/Decals/T_Splat_03.png",
+      "${src}/_Export/blood/Decals/T_Splat_04.png",
+      "${src}/_Export/blood/Decals/Splatters/T_SplatterDecal_0?.png"
+    ],
+    "channel": "luma",
+    "size": 1024
+  }
+}

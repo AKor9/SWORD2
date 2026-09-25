@@ -469,29 +469,32 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 
 ## Пекарня
 
-Ядро и консоль — [tools/Sword.Bake/README.md](../tools/Sword.Bake/README.md). Пекарня — процесс командной строки: агентский вид — `--json`.
-Консоль — `tools/Sword.Bake.Cli/bin/Debug/net10.0-windows10.0.22000.0/sword-bake.exe` (собирает `dotnet build SWORD.slnx`); проект ищется от
-текущего каталога вверх, в том числе в `Bake/`, иначе — `--project КАТАЛОГ`.
+Проект — [Bake/](../Bake/README.md), ядро — [tools/Sword.Bake](../tools/Sword.Bake/README.md), плагины — [Engine](../tools/Sword.Bake.Engine/README.md),
+[Game](../tools/Sword.Bake.Game/README.md). Пекарня — процесс командной строки, агентский вид — `--json`; инструмента MCP нет.
+Консоль — `tools/Sword.Bake.Cli/bin/Debug/net10.0-windows10.0.22000.0/sword-bake.exe` (плагины той же конфигурации собирает
+`dotnet build SWORD.slnx`); запускать в `Bake/` (проект ищется от текущего каталога вверх, иначе `--project КАТАЛОГ`).
 
-**Проверить и отладить проект пекарни.**
-1. Актуальность: `sword-bake status --json` — `assets[]` (`status`: `upToDate`, `dirty`, `noSource`, `error`; `reason` —
-   почему), `project.problems` (плагины, корни, импорты), `project.plugins[].loaded`, `project.broken` (неразобранные манифесты),
-   `provenance`, `layout`, `pak` (`status`, `details`); код 0 — пак актуален, 2 — нет, 1 — ошибка (`error`).
-2. Сборка: `sword-bake build [шаблоны] --json` — `assets[].result` (`built`, `upToDate`, `failed`, `skipped`), `reason`, `error`
-   и `log` упавших, `pakWritten`, `pak.status` после сборки, `messages`; ошибка любого ассета — пак не записан, прежний цел.
-3. Пак: `sword-bake pak --verify` (целостность, код 2), `which ПУТЬ` (кто пишет файл пака), `list --content`.
-4. Пак пекарни SWORD2 — `artifacts/bake/Content.swpak`, временный проект — во временном каталоге: `Content.swpak` в корне подменит игре
-   эталонный пак. Плагины — в `plugins` основа раньше надстройки («Could not load file or assembly» в `project.problems` — порядок).
-5. Писатели форматов против эталона — `dotnet test tests/Sword.Engine.Formats.Tests --filter ReferencePakWriters`.
-6. Два пака: `sword-bake diff A B --json [--expect ФАЙЛ]` — `summary`, `unexpected[]` (что чинить: `source` `file` — путь, `kind`
-   `onlyA`/`onlyB`/`size`/`hash`, `detail` сравнителя или «отличаются байтами»; `buildInfo` — ассет и поле `.bake/build.json`),
-   `expected[]` с правилом, `expectations.unused` (устаревшие ожидания), `comparers[]`; код 0 — неожиданных нет, 2 — есть, 1 — ошибка.
-   Сравнители форматов — из плагинов проекта: запускать в проекте или с `--project`, иначе только оглавление и байты (`project: null`).
-   Файл ожиданий — `{"expected":[{"path"|"asset": маска, "expect": "absent"|"different", "reason": …}]}` (README пекарни).
-7. Анимация — плагин [tools/Sword.Bake.Engine](../tools/Sword.Bake.Engine/README.md): перепечь исходники и сверить с эталоном —
-   `dotnet test tests/Sword.Bake.Engine.Tests --filter Category=Source` (корень `BAKE_ROOT_SRC` или `D:/Temp/GamedevAssets`), итог —
-   `artifacts/bake/source-check.json` (по наборам; у отличий — поле и величина); исходники — `sword-bake inspect rawpose DIR --clip ИМЯ`,
-   `inspect meshinfo GLB`; ход выпечки (корень, пальцы, FK, «записано / без изменений») — лог `sword-bake build` текстом.
+**Перепечь, сверить с эталоном, отладить.**
+1. `sword-bake status --json` — `assets[]` (`status` `upToDate`/`dirty`/`noSource`/`error`, `reason`), `project.problems` (плагины,
+   корни, импорты; «ссылается на плагин X, а стоит в plugins раньше него» — порядок), `project.plugins[].loaded`, `project.broken`,
+   `pak`; код 0 — актуален, 2 — нет. Корни машины — `Bake/bake.user.json` (вне git) или `BAKE_ROOT_*`.
+2. `sword-bake build [шаблоны] --json` (`anim/gasp`, `anim`, `processor:anim.pack`) — `assets[].result`, `reason`, `error` и `log`
+   упавших, `pakWritten`, `pak.status`; ошибка любого ассета — пак не записан, прежний цел. Полная выпечка — Debug ~31 с, Release
+   ~9 с. Ход выпечки (корень, пальцы, FK, «записано / без изменений», слои текстур) — лог `build` текстом. Правка кода выпечки
+   клипа — поднять `AnimImport.ToolVersion`, иначе клипы не перепекутся.
+3. `sword-bake pak --verify` (код 2 — нарушена целостность), `which ПУТЬ` (кто пишет файл), `list --content`.
+4. Сверка: `sword-bake diff ..\Content.reference.swpak ..\artifacts\bake\Content.swpak --expect reference.expect.json --json` —
+   `summary` (`same`, `sameContent`, `unexpected`), `unexpected[]` (`source` `file`: `path`, `kind` `onlyA`/`onlyB`/`size`/`hash`,
+   `detail` сравнителя или «отличаются байтами»; `buildInfo`: ассет и поле `.bake/build.json`), `expectations.unused`; код 0 —
+   неожиданных нет, 2 — есть. Сейчас: 34 равны байтами, 1048 клипов — по содержимому (без `SourceHash`), 0 неожиданных.
+   Вне проекта `diff` не видит сравнитель `.swclip` (`project: null`) — клипы «отличаются байтами».
+5. Выпечка без проекта — тесты Source: `dotnet test tests/Sword.Bake.Engine.Tests --filter Category=Source` (и
+   `tests/Sword.Bake.Game.Tests`), итог — `artifacts/bake/source-check.json`; писатели форматов —
+   `dotnet test tests/Sword.Engine.Formats.Tests --filter ReferencePakWriters`; исходники — `sword-bake inspect rawpose DIR --clip ИМЯ`,
+   `inspect meshinfo GLB`.
+6. Пак пекарни — только `artifacts/bake/Content.swpak`: `Content.swpak` в корне подменит игре, тестам и реплеям эталонный пак.
+   Игра читает эталонный пак; посмотреть пак пекарни — `SWORD_CONTENT=<путь пака>` у процесса игры (реплеи на эталонном контенте
+   с ним не сверяются). Переключение — решение пользователя.
 
 ## Если что-то не так
 

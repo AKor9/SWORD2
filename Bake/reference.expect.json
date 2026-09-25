@@ -1,0 +1,12 @@
+// Ожидаемые расхождения пака пекарни с эталонным паком SWORD (Content.reference.swpak):
+//   sword-bake diff ..\Content.reference.swpak ..\artifacts\bake\Content.swpak --expect reference.expect.json --json
+// Правил нет: сверка сходится без исключений. Что отличается по устройству и расхождением не считается:
+// - SourceHash клипов .swclip: в эталоне в него входит MVID сборок конвертера SWORD, в SWORD2 — нет; клипы сравнивает
+//   сравнитель плагина Sword.Bake.Engine по всем полям, кроме SourceHash («равны по содержимому»);
+// - .bake/build.json: время сборки и входов, отпечатки кода (у отпечатка сравниваются только ID и версия обработчика —
+//   сборки после деления Sword.Bake.Sword на Engine и Game другие). paramsHash включает корни исходников: он равен при
+//   тех же корнях, что у эталона (src = D:/Temp/GamedevAssets, assets = D:/Temp/AssetsDatabase).
+// Новое правило — только с причиной, которую понимаешь; правило, не подошедшее ни к чему, diff называет.
+{
+  "expected": []
+}

@@ -1,0 +1,15 @@
+{
+  "processor": "anatomy.mesh",
+  "import": "human_organs",
+  "notes": "Органы торса из SK_SkeletonWithOrgans пака HumanOrgans (LOD1, органы ~32 тыс. вершин): кости выброшены (они в skeleton), органы уже посажены на кости UE4 Mannequin. Имена — слоты материалов пака по номеру материала glTF (слоты stomach_Inst и stomach_Inst_1 экспортёр слил в один).",
+  "params": {
+    "mesh": "${src}/_Export/organs/SK_SkeletonWithOrgans.glb",
+    "skeleton": "skeletons/ue5_manny",
+    "skin": "characters/manny/mesh",
+    "materials": [ "Ribs", "Spine", "Thigh", "Legs", "Head", "Hands", "Wrist",
+                   "Trachea", "LungL", "LungR", "Glands", "Diaphragm", "Liver", "Stomach", "Spleen",
+                   "Gallbladder", "Pancreas", "Kidneys", "Colon", "Heart" ],
+    "keep": [ "Trachea", "LungL", "LungR", "Glands", "Diaphragm", "Liver", "Stomach", "Spleen",
+              "Gallbladder", "Pancreas", "Kidneys", "Colon", "Heart" ]
+  }
+}

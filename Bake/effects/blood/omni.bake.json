@@ -1,0 +1,22 @@
+{
+  "processor": "texture.array",
+  "import": "realistic_blood",
+  "notes": "Кровь: всплески от капли, упавшей сверху (круглые).",
+  "params": {
+    "layers": [
+      "${src}/_Export/blood/Decals/T_BloodDecal_01.png",
+      "${src}/_Export/blood/Decals/T_BloodDecal_02.png",
+      "${src}/_Export/blood/Splatters/Splatter01/T_BloodSplatter_01.png",
+      "${src}/_Export/blood/Splatters/Splatter02/T_BloodSplatter_02.png",
+      "${src}/_Export/blood/Splatters/Splatter06/T_BloodSplatter_06.png",
+      "${src}/_Export/blood/Splatters/Splatter01/T_BloodSplatter_Smooth_01.png",
+      "${src}/_Export/blood/Splatters/Splatter02/T_BloodSplatter_Smooth_02.png",
+      "${src}/_Export/blood/Splatters/SplatterThick01/T_BloodSplatter_Thick_01.png",
+      "${src}/_Export/blood/Splatters/SplatterThick02/T_BloodSplatter_Thick_02.png",
+      "${src}/_Export/blood/Decals/T_BloodSplotch_0?.png",
+      "${src}/_Export/blood/Decals/T_Splat_02.png"
+    ],
+    "channel": "luma",
+    "size": 1024
+  }
+}

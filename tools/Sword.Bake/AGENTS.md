@@ -21,12 +21,14 @@
 
 Проверка: `dotnet test tests/Sword.Bake.Tests`; писатели форматов — `dotnet test tests/Sword.Engine.Formats.Tests --filter
 ReferencePakWriters` (нужен эталонный пак); проект — `sword-bake status --json`, `sword-bake pak --verify`; два пака —
-`sword-bake diff A B --json` (код 2 — есть неожиданные расхождения).
+`sword-bake diff A B --json` (код 2 — есть неожиданные расхождения); пак проекта `Bake/` с эталоном — `diff
+..\Content.reference.swpak ..\artifacts\bake\Content.swpak --expect reference.expect.json` в `Bake/`.
 
 Типичные ошибки:
 - «нет сборки …dll — соберите проект плагина (конфигурация X)» — `${config}` в `plugins` — конфигурация exe пекарни;
   собрать плагин той же конфигурации.
-- «плагин …: Could not load file or assembly …» — надстройка стоит в `plugins` раньше основы или основа не собрана.
+- «плагин …: ссылается на плагин X, а стоит в plugins раньше него» — поставить основу раньше надстройки (проект `Bake/`:
+  `Sword.Bake.Engine`, затем `Sword.Bake.Game`); «Could not load file or assembly …» — основы нет в `plugins`.
 - «ссылка на X: … параметры которого не T» — две копии плагина-основы (ссылка без `Private=false`) или не тот обработчик.
 - «список плагинов изменился — откройте проект заново» — плагины грузятся только при открытии проекта.
 - «пак не обновлён … прежний пак не тронут» — причина в ассетах: `build --json` → `assets[].error`, `log`.

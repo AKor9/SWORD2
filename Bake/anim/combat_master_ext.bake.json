@@ -1,0 +1,16 @@
+{
+  "processor": "anim.pack",
+  "import": "combat_master",
+  "notes": "Остальные наборы пака (416 клипов) — вторым прогоном экспорта. Ретаргет — по прогону retarget_pack.py на набор (SWORD_RTG_INCLUDE=/<набор>/, SWORD_RTG_SOURCE_MESH=/Game/CombatMasterAnimBundle/Demo/Characters/Mannequin_UE4/Meshes/SK_Mannequin[_<суффикс>], SWORD_RTG_OUT=/Game/SWORD/AnimationsCombatExt/<набор>); экспорт export_config_combat_ext.json → skin_combat_ext, export_config_combat_ext_ue4src.json → skin_combat_ext_ue4. По игровым наборам клипы делятся по папке набора в пути UE.",
+  "params": {
+    "skeleton": "skeletons/ue5_manny",
+    "anims": "${src}/_Export/skin_combat_ext",
+    "fingerSrc": "${src}/_Export/skin_combat_ext_ue4",
+    "sets": {
+      "katana": [ "DynamicKatanaAnims*", "KatanaAnims" ],
+      "sword_shield": [ "DynamicSwordAndShield*" ],
+      "twin_swords": [ "TwinSwordAnims" ],
+      "unarmed": [ "DynamicHandtoHandAnims" ]
+    }
+  }
+}

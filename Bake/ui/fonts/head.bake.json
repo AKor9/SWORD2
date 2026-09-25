@@ -1,0 +1,10 @@
+{
+  "processor": "font.vector",
+  "import": "golos",
+  "notes": "Golos Text SemiBold — заголовки. Лицензия гарнитуры — у ui/fonts/body.",
+  "params": {
+    "font": "${src}/_Sword/fonts/golos-semibold.ttf",
+    "roles": [ "Head" ],
+    "extra": []
+  }
+}
