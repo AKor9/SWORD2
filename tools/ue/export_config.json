@@ -1,0 +1,25 @@
+{
+  "_comment": "Отбор клипов локомоции GASP (root, include, exclude) для tools/ue/retarget_gasp.py; имена сверены с Content/Characters/UEFN_Mannequin/Animations (UE 5.8). Он же — конфиг export_gasp.py по умолчанию: 23 кости UEFN в _Export/gasp, этот выход пекарня не читает (см. tools/ue/README.md).",
+  "root": "/Game/Characters/UEFN_Mannequin/Animations",
+  "include": [
+    "/Idle/M_Neutral_Stand_(Idle_Loop|Turn_\\d{3}_[LR])(\\.|$)",
+    "/Walk/M_Neutral_Walk_(Loop_(F|B|FL|FR|BL|BR|LL|LR|RL|RR)|Pivot_|Start|Stop|Reface_Start)",
+    "/Run/M_Neutral_Run_(Loop_(F|B|FL|FR|BL|BR|LL|LR|RL|RR)|Pivot_|Start|Stop|Reface_Start)",
+    "/(Walk|Run)/M_Neutral_(Walk|Run)_(Box|Diamond|Hourglass|Prism|Arc|Circle|Spin|Shuffle|Turn)_",
+    "/(Walk|Run)/M_Neutral_Transition_(Walk_to_Run|Run_to_Walk)_"
+  ],
+  "exclude": [ "Crouch", "Additive", "/BS", "_offset", "Loop_Strafe", "Lean", "Slope" ],
+  "loopRegex": "_Loop(_|$)",
+  "sampleFps": 30,
+  "out": "D:/Temp/GamedevAssets/_Export/gasp",
+  "rootForward": [ 0, 1, 0 ],
+  "bones": [
+    "root", "pelvis", "spine_01", "spine_03", "spine_05", "neck_01", "head",
+    "clavicle_l", "upperarm_l", "lowerarm_l", "hand_l",
+    "clavicle_r", "upperarm_r", "lowerarm_r", "hand_r",
+    "thigh_l", "calf_l", "foot_l", "ball_l",
+    "thigh_r", "calf_r", "foot_r", "ball_r"
+  ],
+  "curves": [ "contact_l", "contact_r", "movedata_speed" ],
+  "maxClips": 0
+}

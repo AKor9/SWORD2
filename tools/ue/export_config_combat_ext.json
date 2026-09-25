@@ -1,0 +1,14 @@
+{
+  "_comment": "Combat Master: остальные наборы (DynamicHandtoHand, DynamicKatana V1–V3, DynamicSwordAndShield V1–V3, Katana, TwinSword) ПОСЛЕ ретаргета UE4 → UE5 Manny (tools/ue/retarget_pack.py, по прогону на набор с SWORD_RTG_OUT=/Game/SWORD/AnimationsCombatExt/<набор> — см. манифест Bake/anim/combat_master_ext.bake.json). Полный скелет UE5 Manny для GPU-скиннинга.",
+  "root": "/Game/SWORD/AnimationsCombatExt",
+  "include": [],
+  "exclude": [],
+  "loopRegex": "(Idle|Walk|Run|Sprint|_Loop)",
+  "sampleFps": 30,
+  "out": "D:/Temp/GamedevAssets/_Export/skin_combat_ext",
+  "rootForward": [ 0, 1, 0 ],
+  "bones": [ "*" ],
+  "parentsMesh": "/Game/Characters/UE5_Mannequins/Meshes/SKM_Manny",
+  "curves": [],
+  "maxClips": 0
+}

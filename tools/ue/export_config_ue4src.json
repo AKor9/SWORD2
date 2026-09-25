@@ -1,0 +1,14 @@
+{
+  "_comment": "Исходные клипы пака на скелете UE4 (без ретаргета): источник пальцев (fingerSrc) для Bake/anim/1hm_sword.bake.json и Bake/skeletons/ue5_manny.bake.json. Пальцы UE4→UE5 переносятся по направлениям фаланг — IK-ретаргет цепочек даёт отклонение ~50°.",
+  "root": "/Game/1HM_Sword_Attacks_Finishers/Animations",
+  "include": [ "/1HM_" ],
+  "exclude": [ "/Paired_1HM/" ],
+  "loopRegex": "(Idle_Standing|Idle_Mirrored|Walk(Forward|Back|Left|Right)|Run(Forward|Back|Left|Right)|Sprint|JumpInPlace_Loop)",
+  "sampleFps": 30,
+  "out": "D:/Temp/GamedevAssets/_Export/skin_sword_ue4",
+  "rootForward": [ 0, 1, 0 ],
+  "bones": [ "*" ],
+  "parentsMesh": "/Game/1HM_Sword_Attacks_Finishers/Mannequin/Character/Mesh/SK_Mannequin",
+  "curves": [],
+  "maxClips": 0
+}

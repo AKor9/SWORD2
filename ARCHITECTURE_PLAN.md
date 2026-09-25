@@ -129,6 +129,8 @@ SWORD2/
     Sword.Bake.Engine/             обработчики движка: текстуры, шрифты, импорт мешей, скелетов и клипов
     Sword.Bake.Game/               обработчики игры: оружие, кровь оружия, анатомия
     Sword.Bake.Cli/  Sword.Bake.Studio/
+    ue/                            скрипты Unreal: ретаргет и экспорт клипов, мешей, текстур (вход пекарни)
+    scripts/                       verify.ps1, reference.ps1 и другие скрипты репозитория
   tests/
     по проекту на сборку + Sword.Architecture.Tests + Sword.Benchmarks (BenchmarkDotNet)
     Sword.Agent.Evals/             оценка агентского интерфейса: неисправности, ожидаемые диагнозы, подсчёт (раздел 8)
@@ -1220,7 +1222,8 @@ Cutting отложены (решения 16, 17): стадии Defense и Dismem
 - `Fighter.Locomotion` (шаги живого: `UpdateFeet`, `UpdateCapture`, `BuildSupport`, выпуклая оболочка опоры);
 - мышечный привод живого в `Fighter.Muscles` (`DrivePelvis`, `DampMuscles`, коэффициенты `K*`);
 - цели руки и клинка (`HandGoal`, `BladeGoal`, `BladeAngles`) и живая часть `Fighter.BeginTick`;
-- ручки живого рэгдолла (`SWORD_MUSCLE`, `SWORD_KARM`, `SWORD_KLEG`, `SWORD_GAIN`, `SWORD_CP_*`…); `tools/ue`.
+- ручки живого рэгдолла (`SWORD_MUSCLE`, `SWORD_KARM`, `SWORD_KLEG`, `SWORD_GAIN`, `SWORD_CP_*`…); разовые исследования
+  `tools/ue/probe_*.py`, `retarget_variants.py` (конвейер Unreal `tools/ue` переносится — раздел 11).
 
 **Осторожно со смешанным кодом.** `Fighter.BeginTick` сейчас идёт для всех не-кинематических, то есть и для трупов,
 и зовёт `UpdateCapture`/`UpdateFeet`. При переносе рэгдолла из смешанного кода берётся только то, что влияет на трупы, —
@@ -1568,7 +1571,7 @@ Matching будут проблемы). Исходники выпечки на м
 | `Sword.Game/Modules/Tools/Tuning` | `Engine.DevTools` (панель) + `Engine.Introspection` (данные ручек для панели и агента) |
 | `Sword.Game/Modules/Tools/AnimEditor` | `Game.DevTools` |
 | `tools/Sword.Bake.Sword/*` | `Bake.Engine` / `Bake.Game` (раздел 11) |
-| `tools/ue/*` | не переносится |
+| `tools/ue/*` | `tools/ue` — конвейер (ретаргет, экспорт); `probe_*.py`, `retarget_variants.py`, `export_config_sword.json` — не переносятся |
 
 ## Приложение Б. Карта переноса тестов
 

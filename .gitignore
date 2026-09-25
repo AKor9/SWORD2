@@ -17,3 +17,6 @@ artifacts/
 sword.user.json
 bake.user.json
 .bake/
+
+# Кэш Python (проверка синтаксиса скриптов Unreal tools/ue: python -m py_compile).
+__pycache__/

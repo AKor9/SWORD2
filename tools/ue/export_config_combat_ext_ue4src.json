@@ -1,0 +1,14 @@
+{
+  "_comment": "Combat Master: остальные наборы на ИСХОДНОМ скелете UE4 (без ретаргета) — источник пальцев для anim.pack (fingerSrc) ассета anim/combat_master_ext. Ассеты скелета у наборов разные, кости одинаковые — иерархия из одного меша.",
+  "root": "/Game/CombatMasterAnimBundle/Animations",
+  "include": [ "/DynamicHandtoHandAnims/", "/DynamicKatanaAnims/", "/DynamicKatanaAnimsV2/", "/DynamicKatanaAnimsV3/", "/DynamicSwordAndShield/", "/DynamicSwordAndShieldV2/", "/DynamicSwordAndShieldV3/", "/KatanaAnims/", "/TwinSwordAnims/" ],
+  "exclude": [],
+  "loopRegex": "(Idle|Walk|Run|Sprint|_Loop)",
+  "sampleFps": 30,
+  "out": "D:/Temp/GamedevAssets/_Export/skin_combat_ext_ue4",
+  "rootForward": [ 0, 1, 0 ],
+  "bones": [ "*" ],
+  "parentsMesh": "/Game/CombatMasterAnimBundle/Demo/Characters/Mannequin_UE4/Meshes/SK_Mannequin",
+  "curves": [],
+  "maxClips": 0
+}

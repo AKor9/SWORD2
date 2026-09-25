@@ -1,0 +1,14 @@
+{
+  "_comment": "Локомоция GASP после retarget_gasp.py (UEFN → UE5 Manny), полный скелет UE5 Manny → Bake/anim/gasp.bake.json (anim.pack, набор locomotion).",
+  "root": "/Game/SWORD/GASP_UE5",
+  "include": [ "/M_Neutral_" ],
+  "exclude": [],
+  "loopRegex": "(_Loop(_|$)|_Circle_Strafe_[LR]$)",
+  "sampleFps": 30,
+  "out": "D:/Temp/GamedevAssets/_Export/skin_gasp",
+  "rootForward": [ 0, 1, 0 ],
+  "bones": [ "*" ],
+  "parentsMesh": "/Game/Characters/UE5_Mannequins/Meshes/SKM_Manny",
+  "curves": [],
+  "maxClips": 0
+}

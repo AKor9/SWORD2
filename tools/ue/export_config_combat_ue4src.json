@@ -1,0 +1,14 @@
+{
+  "_comment": "Combat Master: те же наборы на ИСХОДНОМ скелете UE4 (без ретаргета) — источник пальцев для anim.pack (fingerSrc). У наборов разные ассеты скелета (PowerfulSword, Sword_1H, Sword_1H_V2), но кости одинаковые, поэтому иерархия берётся из одного меша.",
+  "root": "/Game/CombatMasterAnimBundle/Animations",
+  "include": [ "/PowerfulSwordAnims/", "/HandsomeSwordCombatAnims/", "/HandsomeSwordAnimsV2/" ],
+  "exclude": [],
+  "loopRegex": "(Idle|Walk|Run|Sprint|_Loop)",
+  "sampleFps": 30,
+  "out": "D:/Temp/GamedevAssets/_Export/skin_combat_ue4",
+  "rootForward": [ 0, 1, 0 ],
+  "bones": [ "*" ],
+  "parentsMesh": "/Game/CombatMasterAnimBundle/Demo/Characters/Mannequin_UE4/Meshes/SK_Mannequin_PowerfulSword",
+  "curves": [],
+  "maxClips": 0
+}

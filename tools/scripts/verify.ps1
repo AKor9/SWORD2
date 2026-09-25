@@ -1293,7 +1293,7 @@ else {
 
 Add-Step 'line-endings' {
     $extensions = @('.cs', '.csproj', '.props', '.targets', '.slnx', '.md', '.json', '.ps1', '.xml', '.hlsl', '.hlsli', '.swreplay',
-        '.editorconfig', '.gitattributes', '.gitignore', '.txt', '.yml', '.yaml', '.cmd')
+        '.editorconfig', '.gitattributes', '.gitignore', '.txt', '.yml', '.yaml', '.cmd', '.py')
     # Путь — от корня репозитория: .claude\worktrees\ — рабочие деревья git других агентов (у каждого свой verify.ps1),
     # остальной .claude\ (settings.local.json) проверяется; verify.ps1 внутри рабочего дерева проверяет его файлы.
     $skip = '\\(bin|obj|\.git|\.vs|artifacts|TestResults)\\|^\\\.claude\\worktrees\\'
