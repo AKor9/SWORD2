@@ -1,3 +1,5 @@
+using Sword.Engine.Formats;
+
 namespace Sword.Engine.Ui;
 
 /// <summary>
@@ -19,22 +21,18 @@ public static class UiFaces
 {
     /// <summary>
     /// Роль по имени из файла шрифта — точное имя без учёта регистра; не роль (число, <c>Count</c>, список «A,B») —
-    /// false. Отличие от SWORD: там <c>Enum.TryParse</c> складывал список через запятую в третью роль
-    /// («Label,Head» → NumLight), и опечатка в манифесте молча давала шрифту чужую роль.
+    /// false. Список ролей — <see cref="UiVectorFontFormat.RoleNames"/> (его же проверяет пекарь шрифтов); имена
+    /// перечисления с ним совпадают (тест). Отличие от SWORD: там <c>Enum.TryParse</c> складывал список через запятую
+    /// в третью роль («Label,Head» → NumLight), и опечатка в манифесте молча давала шрифту чужую роль.
     /// </summary>
     public static bool TryParse(string name, out UiFace face)
     {
-        for (var f = UiFace.Body; f < UiFace.Count; f++)
-            if (string.Equals(name, f.ToString(), StringComparison.OrdinalIgnoreCase))
-            {
-                face = f;
-                return true;
-            }
-        face = default;
-        return false;
+        bool known = UiVectorFontFormat.TryParseRole(name, out int role);
+        face = known ? (UiFace)role : default;
+        return known;
     }
 
-    public static string List => string.Join(", ", Enum.GetNames<UiFace>()[..(int)UiFace.Count]);
+    public static string List => UiVectorFontFormat.RoleList;
 }
 
 /// <summary>Метрики начертания в долях кегля.</summary>

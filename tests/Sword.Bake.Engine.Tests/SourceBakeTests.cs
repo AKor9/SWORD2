@@ -12,10 +12,11 @@ using Xunit.Abstractions;
 namespace Sword.Bake.Engine.Tests;
 
 /// <summary>
-/// Выпечка настоящих исходников (категория Source; без них — пропуск): временный проект пекарни с манифестами анимации
-/// проекта Bake/ SWORD (скелет ue5_manny, меш Manny, четыре экспорта anim.pack с теми же наборами), sword-bake build
-/// обычным прогоном, затем сверка с эталонным паком: каждый клип anim/ — по содержимому без SourceHash (всё остальное
-/// побайтно), скелет и меш — побайтно. Итог с числами — в выводе теста и artifacts/bake/source-check.json.
+/// Выпечка настоящих исходников (категория Source; без них — пропуск): временный проект пекарни с манифестами обработчиков
+/// этого плагина из проекта Bake/ SWORD (скелет ue5_manny, меш Manny, четыре экспорта anim.pack с теми же наборами, восемь
+/// массивов текстур, пять шрифтов с лицензиями), sword-bake build обычным прогоном, затем сверка с эталонным паком: каждый
+/// клип anim/ — по содержимому без SourceHash (всё остальное побайтно); скелет, меш, текстуры, шрифты и лицензии — побайтно.
+/// Итог с числами — в выводе теста и artifacts/bake/source-check.json.
 /// </summary>
 [Trait("Category", "Source")]
 public sealed class SourceBakeTests(SourceBake bake, ITestOutputHelper output) : IClassFixture<SourceBake>
@@ -82,6 +83,50 @@ public sealed class SourceBakeTests(SourceBake bake, ITestOutputHelper output) :
     [SourceFact]
     public void Mesh_MatchesReferenceByteForByte() => SameBytes("characters/manny/mesh.swmesh", "mesh");
 
+    [SourceFact]
+    public void Textures_MatchReferenceByteForByte() => SameFiles("textures", "", TextureData.Extension, 8);
+
+    [SourceFact]
+    public void Fonts_MatchReferenceByteForByte() => SameFiles("fonts", UiVectorFontFormat.Dir, "", 8);
+
+    /// <summary>
+    /// Все файлы эталона в <paramref name="dir"/> с расширением <paramref name="ext"/> — побайтно с выпечкой; итог по файлам —
+    /// в отчёте под <paramref name="key"/>. Число файлов эталона — <paramref name="expected"/> (проверка не пуста).
+    /// </summary>
+    private void SameFiles(string key, string dir, string ext, int expected)
+    {
+        using var reference = PakSource.Open(TestPaths.ReferencePak());
+        using var baked = PakSource.Open(bake.Result.Pak);
+        var paths = reference.List(dir, ext);
+        var extra = baked.List(dir, ext).Except(paths, StringComparer.OrdinalIgnoreCase).ToList();
+        var files = new JsonArray();
+        var problems = new List<string>();
+        foreach (string path in paths)
+        {
+            byte[] a = reference.ReadAllBytes(path);
+            byte[]? b = baked.Find(path) is null ? null : baked.ReadAllBytes(path);
+            bool same = b is not null && a.AsSpan().SequenceEqual(b);
+            int at = b is null ? 0 : a.AsSpan().CommonPrefixLength(b);
+            string line = same ? $"{path}: {a.Length} Б — байт в байт"
+                : b is null ? $"{path}: нет в выпечке"
+                : $"{path}: эталон {a.Length} Б, выпечено {b.Length} Б, первое отличие — байт {at}";
+            output.WriteLine(line);
+            if (!same) problems.Add(line);
+            files.Add(new JsonObject
+            {
+                ["path"] = path, ["bytes"] = a.Length, ["baked"] = b?.Length, ["same"] = same, ["firstDifference"] = same || b is null ? null : (JsonNode)at,
+            });
+        }
+        SourceBake.Report(key, new JsonObject
+        {
+            ["reference"] = paths.Count, ["matched"] = paths.Count - problems.Count, ["extra"] = new JsonArray([.. extra.Select(e => (JsonNode)e)]),
+            ["files"] = files,
+        });
+        Assert.Equal(expected, paths.Count);
+        Assert.Empty(extra);
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
     private void SameBytes(string path, string key)
     {
         using var reference = PakSource.Open(TestPaths.ReferencePak());
@@ -100,7 +145,6 @@ public sealed partial class SourceBake : IDisposable
 {
     private readonly Lazy<BakeResult> _result;
     private readonly string _root = Path.Combine(Path.GetTempPath(), "sword-bake-engine-tests", "source-" + Guid.NewGuid().ToString("N")[..12]);
-    private static readonly object ReportLock = new();
 
     public sealed record BakeResult(string Pak, double Seconds, double BuildSeconds, IReadOnlyList<(string Asset, double Seconds)> Assets, string Output);
 
@@ -117,7 +161,7 @@ public sealed partial class SourceBake : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>Манифесты анимации проекта Bake/ SWORD 2eab13b — те же параметры, без полей import и notes.</summary>
+    /// <summary>Манифесты обработчиков плагина движка из проекта Bake/ SWORD 2eab13b — те же параметры, без полей import и notes.</summary>
     private static readonly (string Id, string Json)[] Manifests =
     [
         ("skeletons/ue5_manny", """{"processor":"anim.skeleton","params":{"clips":"${src}/_Export/skin_sword","refPose":"${src}/_Export/meshes/skeleton.json","fingerSrc":"${src}/_Export/skin_sword_ue4"}}"""),
@@ -126,6 +170,19 @@ public sealed partial class SourceBake : IDisposable
         ("anim/combat_master", """{"processor":"anim.pack","params":{"skeleton":"skeletons/ue5_manny","anims":"${src}/_Export/skin_combat","fingerSrc":"${src}/_Export/skin_combat_ue4","sets":{"sword_1h":[]}}}"""),
         ("anim/combat_master_ext", """{"processor":"anim.pack","params":{"skeleton":"skeletons/ue5_manny","anims":"${src}/_Export/skin_combat_ext","fingerSrc":"${src}/_Export/skin_combat_ext_ue4","sets":{"katana":["DynamicKatanaAnims*","KatanaAnims"],"sword_shield":["DynamicSwordAndShield*"],"twin_swords":["TwinSwordAnims"],"unarmed":["DynamicHandtoHandAnims"]}}}"""),
         ("anim/gasp", """{"processor":"anim.pack","params":{"skeleton":"skeletons/ue5_manny","anims":"${src}/_Export/skin_gasp","sets":{"locomotion":[]}}}"""),
+        ("effects/blood/directional", """{"processor":"texture.array","params":{"layers":["${src}/_Export/blood/Decals/T_BloodSplatter_01.png","${src}/_Export/blood/Decals/T_BloodDirectionalSpots_01.png","${src}/_Export/blood/Splatters/SplatterDirectional01/T_BloodSplatter_Directional_01.png","${src}/_Export/blood/Splatters/SplatterDirectional01/T_BloodSplatter_Directional_S_01.png","${src}/_Export/blood/Splatters/SplatterDirectional04/T_BloodSplatter_Directional_04.png","${src}/_Export/blood/Splatters/SplatterDirectional05/T_BloodSplatter_Directional_05.png","${src}/_Export/blood/Splatters/SplatterDirectional06/T_BloodSplatter_Directional_06.png","${src}/_Export/blood/Splatters/SplatterDirectional07/T_BloodSplatter_Directional_07.png","${src}/_Export/blood/Splatters/SplatterDirectionalThick01/T_BloodSplatter_DirectionalThick_01.png","${src}/_Export/blood/Splatters/SplatterDirectionalThick02/T_BloodSplatter_DirectionalThick_02.png","${src}/_Export/blood/Splatters/SplatterDirectionalThick02/T_BloodSplatter_Directional_S_02.png"],"flipU":["T_BloodSplatter_Directional_04","T_BloodSplatter_Directional_05"],"channel":"luma","size":1024}}"""),
+        ("effects/blood/noise", """{"processor":"texture.array","params":{"layers":["${src}/_Export/blood/Noises/T_Noise_0?.png"],"channel":"luma","size":512}}"""),
+        ("effects/blood/omni", """{"processor":"texture.array","params":{"layers":["${src}/_Export/blood/Decals/T_BloodDecal_01.png","${src}/_Export/blood/Decals/T_BloodDecal_02.png","${src}/_Export/blood/Splatters/Splatter01/T_BloodSplatter_01.png","${src}/_Export/blood/Splatters/Splatter02/T_BloodSplatter_02.png","${src}/_Export/blood/Splatters/Splatter06/T_BloodSplatter_06.png","${src}/_Export/blood/Splatters/Splatter01/T_BloodSplatter_Smooth_01.png","${src}/_Export/blood/Splatters/Splatter02/T_BloodSplatter_Smooth_02.png","${src}/_Export/blood/Splatters/SplatterThick01/T_BloodSplatter_Thick_01.png","${src}/_Export/blood/Splatters/SplatterThick02/T_BloodSplatter_Thick_02.png","${src}/_Export/blood/Decals/T_BloodSplotch_0?.png","${src}/_Export/blood/Decals/T_Splat_02.png"],"channel":"luma","size":1024}}"""),
+        ("effects/blood/puddles", """{"processor":"texture.array","params":{"layers":["${src}/_Export/blood/Decals/T_BloodPuddle_0?.png","${src}/_Export/blood/Decals/T_BloodDecal_03.png","${src}/_Export/blood/Decals/T_Splat_03.png","${src}/_Export/blood/Decals/T_Splat_04.png","${src}/_Export/blood/Decals/Splatters/T_SplatterDecal_0?.png"],"channel":"luma","size":1024}}"""),
+        ("effects/blood/spots", """{"processor":"texture.array","params":{"layers":["${src}/_Export/blood/Decals/T_BloodSpots_01.png","${src}/_Export/blood/Shapes/T_CellSpot_01.png"],"channel":"luma","size":1024}}"""),
+        ("effects/innards/cut_albedo", """{"processor":"texture.array","params":{"layers":["${assets}/Artstation - Gore & Horror Props Megapack/tex/pile_bone_DefaultMaterial_BaseColor.png@1300,1000,1400#meat","${assets}/Artstation - Gore & Horror Props Megapack/tex/pile_bone_DefaultMaterial_BaseColor.png@3360,2380,380#bone"],"channel":"rgb","size":512,"tile":true}}"""),
+        ("characters/manny/anatomy/albedo", """{"processor":"texture.array","params":{"layers":["${src}/_Export/organs/textures/Rebra_D.png","${src}/_Export/organs/textures/Spine_D.png","${src}/_Export/organs/textures/Thigh_D.png","${src}/_Export/organs/textures/Legs_D.png","${src}/_Export/organs/textures/Head_D.png","${src}/_Export/organs/textures/Hand_D.png","${src}/_Export/organs/textures/Wrist_D.png","${src}/_Export/organs/textures/Trachea_D.png","${src}/_Export/organs/textures/L_lung_D.png","${src}/_Export/organs/textures/R_lungs_D.png","${src}/_Export/organs/textures/Glands_D.png","${src}/_Export/organs/textures/Diaphragm_D.png","${src}/_Export/organs/textures/Liver_D.png","${src}/_Export/organs/textures/Stomach_D.png","${src}/_Export/organs/textures/Spleen_D.png","${src}/_Export/organs/textures/Gallbladder_D.png","${src}/_Export/organs/textures/Pancreas_D.png","${src}/_Export/organs/textures/Kidneys_D.png","${src}/_Export/organs/textures/Colon_D.png","${src}/_Export/organs/textures/Heart_D.png","${src}/_Export/organs/textures/brain_D.png"],"channel":"rgb","size":1024}}"""),
+        ("characters/manny/anatomy/normals", """{"processor":"texture.array","params":{"layers":["${src}/_Export/organs/textures/Rebra_NM.png","${src}/_Export/organs/textures/Spine_NM.png","${src}/_Export/organs/textures/Thigh_NM.png","${src}/_Export/organs/textures/Legs_NM.png","${src}/_Export/organs/textures/Head_NM.png","${src}/_Export/organs/textures/Hand_NM.png","${src}/_Export/organs/textures/Wrist_NM.png","${src}/_Export/organs/textures/Trachea_NM.png","${src}/_Export/organs/textures/L_Lungs_NM.png","${src}/_Export/organs/textures/R_lungs_NM.png","${src}/_Export/organs/textures/Glands_NM.png","${src}/_Export/organs/textures/Diaphragm_NM.png","${src}/_Export/organs/textures/Liver_NM.png","${src}/_Export/organs/textures/Stomach_NM.png","${src}/_Export/organs/textures/Spleen_NM.png","${src}/_Export/organs/textures/Gallbladder_NM.png","${src}/_Export/organs/textures/Pancreas_NM.png","${src}/_Export/organs/textures/Kidneys_NM.png","${src}/_Export/organs/textures/Colon_NM.png","${src}/_Export/organs/textures/Heart_NM.png"],"channel":"normal","size":1024}}"""),
+        ("ui/fonts/body", """{"processor":"font.vector","params":{"font":"${src}/_Sword/fonts/golos-regular.ttf","roles":["Body"],"extra":["${src}/_Sword/fonts/OFL-GolosText.txt"]}}"""),
+        ("ui/fonts/head", """{"processor":"font.vector","params":{"font":"${src}/_Sword/fonts/golos-semibold.ttf","roles":["Head"],"extra":[]}}"""),
+        ("ui/fonts/label", """{"processor":"font.vector","params":{"font":"${src}/_Sword/fonts/ptnarrow-bold.ttf","roles":["Label"],"extra":["${src}/_Sword/fonts/OFL-PTSansNarrow.txt"]}}"""),
+        ("ui/fonts/num", """{"processor":"font.vector","params":{"font":"${src}/_Sword/fonts/plexmono-regular.ttf","roles":["Num"],"extra":["${src}/_Sword/fonts/OFL-IBMPlexMono.txt"]}}"""),
+        ("ui/fonts/num_light", """{"processor":"font.vector","params":{"font":"${src}/_Sword/fonts/plexmono-light.ttf","roles":["NumLight"],"extra":[]}}"""),
     ];
 
     private BakeResult Bake()
@@ -136,7 +193,7 @@ public sealed partial class SourceBake : IDisposable
         File.WriteAllText(Path.Combine(project, BakeProject.FileName), new JsonObject
         {
             ["name"] = "SourceCheck", ["assets"] = ".", ["pak"] = "Content.swpak",
-            ["roots"] = new JsonObject { ["src"] = src },
+            ["roots"] = new JsonObject { ["src"] = src, ["assets"] = TestPaths.AssetsRoot() },
             ["plugins"] = new JsonArray(TestPaths.Plugin()),
         }.ToJsonString());
         foreach (var (id, json) in Manifests)
@@ -165,27 +222,7 @@ public sealed partial class SourceBake : IDisposable
         return result;
     }
 
-    /// <summary>Часть итога в artifacts/bake/source-check.json (вне git): агент и человек видят числа последней сверки.</summary>
-    public static void Report(string key, JsonNode value)
-    {
-        lock (ReportLock)
-        {
-            string path = Path.Combine(TestPaths.RepoRoot, "artifacts", "bake", "source-check.json");
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            JsonObject root;
-            try
-            {
-                root = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? [] : [];
-            }
-            catch (JsonException)
-            {
-                root = [];
-            }
-            root["updatedUtc"] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-            root[key] = value;
-            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        }
-    }
+    public static void Report(string key, JsonNode value) => TestPaths.SourceReport(key, value);
 
     [GeneratedRegex(@"^✓ (\S+) за ([\d.]+) с", RegexOptions.Multiline)]
     private static partial Regex AssetLine();

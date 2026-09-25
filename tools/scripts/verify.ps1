@@ -8,7 +8,8 @@
       test                  тесты решения, в том числе архитектурные и GPU-тесты рендера (категория Gpu:
                             устройство D3D12 с GPU-валидацией; -SkipGpu — без них) и тесты на шрифтах пака
                             (категория Content; -SkipReference — без них) и выпечка исходников пекарни со сверкой
-                            с эталонным паком (категория Source: без исходников — пропуск; -SkipReference — без неё);
+                            с эталонным паком (категория Source: отдельным прогоном после остальных, без исходников —
+                            пропуск; -SkipReference — без неё);
       forbidden-references  заготовки tests/fixtures/forbidden-references/SWORD00N-*: каждая обязана упасть со своим
                             кодом — иначе проверка ссылок в сборке сломана;
       without-agent         App и Headless с -p:WithoutAgent=true собираются и не содержат сборок агента;
@@ -282,12 +283,20 @@ Add-Step 'build' {
 Add-Step 'test' {
     # Тесты идут без пересборки: после упавшей сборки они проверяли бы старые сборки.
     if (-not $script:buildOk) { return @{ ok = $false; detail = 'не запускались: сборка не прошла' } }
-    $skip = @()
+    # Выпечка исходников (категория Source) десятки секунд занимает все ядра — она идёт отдельно, после остальных тестов:
+    # параллельно с ними ломала тесты на настоящих часах (профайлер: «аномалии не было»).
+    $skip = @('Category!=Source')
     if ($SkipGpu) { $skip += 'Category!=Gpu' }
-    if ($SkipReference) { $skip += 'Category!=Content'; $skip += 'Category!=Source' }
-    $filter = if ($skip.Count -gt 0) { @('--filter', ($skip -join '&')) } else { @() }
-    $out = & dotnet test $solution -c $Configuration --no-build -nologo @filter | Out-String
-    @{ ok = ($LASTEXITCODE -eq 0); detail = (Get-Lines $out 'Passed!|Failed!|\[FAIL\]' 6) }
+    if ($SkipReference) { $skip += 'Category!=Content' }
+    $out = & dotnet test $solution -c $Configuration --no-build -nologo --filter ($skip -join '&') | Out-String
+    $ok = $LASTEXITCODE -eq 0
+    $detail = Get-Lines $out 'Passed!|Failed!|\[FAIL\]' 6
+    if (-not $SkipReference) {
+        $source = & dotnet test $solution -c $Configuration --no-build -nologo --filter 'Category=Source' | Out-String
+        $ok = $ok -and $LASTEXITCODE -eq 0
+        $detail += ' | Source: ' + (Get-Lines $source 'Passed!|Failed!|\[FAIL\]' 4)
+    }
+    @{ ok = $ok; detail = $detail }
 }
 
 Add-Step 'forbidden-references' {

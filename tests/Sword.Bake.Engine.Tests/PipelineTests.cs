@@ -94,7 +94,7 @@ public sealed class PipelineTests : IDisposable
         Assert.True(exit == 0, output);
         var json = JsonNode.Parse(output)!;
         Assert.Empty(json["project"]!["problems"]!.AsArray());
-        Assert.Equal(["anim.pack", "anim.skeleton", "file.copy", "skin.mesh"],
+        Assert.Equal(["anim.pack", "anim.skeleton", "file.copy", "font.vector", "skin.mesh", "texture.array"],
             json["project"]!["processors"]!.AsArray().Select(p => (string)p!).Order(StringComparer.Ordinal));
         Assert.All(json["assets"]!.AsArray(), a => Assert.Equal("built", (string)a!["result"]!));
 

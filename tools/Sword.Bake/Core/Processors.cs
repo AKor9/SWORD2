@@ -138,14 +138,20 @@ public sealed class ProcessorCatalog
         _processors.Add(processor);
     }
 
-    /// <param name="plugins">Полные пути сборок-плагинов.</param>
+    /// <param name="plugins">
+    /// Полные пути сборок-плагинов по порядку. Плагин, который ссылается на другой плагин списка, стоит после него: иначе —
+    /// ошибка проекта, а обработчики этого плагина не регистрируются (как и при сбое загрузки его типов).
+    /// </param>
     public static ProcessorCatalog Load(IEnumerable<string> plugins)
     {
         var c = new ProcessorCatalog();
         foreach (var p in BuiltIn) c._processors.Add(p);
         var loaded = new List<(string, Assembly)>();
-        foreach (var path in plugins)
+        var paths = plugins.ToList();
+        var names = paths.Select(AssemblyNameOf).ToList();
+        for (int index = 0; index < paths.Count; index++)
         {
+            string path = paths[index];
             Assembly asm;
             try
             {
@@ -157,6 +163,15 @@ public sealed class ProcessorCatalog
                 continue;
             }
             loaded.Add((path, asm));
+            var later = names.Skip(index + 1).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var bases = asm.GetReferencedAssemblies().Select(a => a.Name).OfType<string>().Where(later.Contains).ToList();
+            if (bases.Count > 0)
+            {
+                // основа, загруженная позже, работает лишь случайно (пока типы надстройки не нужны при загрузке) — не полагаться
+                c._errors.Add($"плагин {path}: ссылается на плагин {string.Join(", ", bases)}, а стоит в plugins раньше него — " +
+                              "поставьте основу раньше надстройки; обработчики плагина не загружены");
+                continue;
+            }
             Type[] types;
             try
             {
@@ -205,6 +220,19 @@ public sealed class ProcessorCatalog
         }
         c.Plugins = loaded;
         return c;
+    }
+
+    /// <summary>Имя сборки плагина без загрузки; нет файла или не сборка — null (ошибку даст загрузка).</summary>
+    private static string? AssemblyNameOf(string path)
+    {
+        try
+        {
+            return AssemblyName.GetAssemblyName(path).Name;
+        }
+        catch (Exception e) when (e is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

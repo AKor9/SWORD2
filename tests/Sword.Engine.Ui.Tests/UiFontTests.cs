@@ -101,6 +101,15 @@ public sealed class UiFontMergeTests
         Assert.False(UiFaces.TryParse("Count", out _));
         Assert.True(UiFaces.TryParse("numlight", out var face) && face == UiFace.NumLight);
     }
+
+    [Fact]
+    public void FaceNames_MatchFormatRoleList()
+    {
+        // Роли манифеста шрифта проверяет пекарь по списку Formats (Ui пекарня не видит): номер роли — место в списке.
+        Assert.Equal(Enum.GetNames<UiFace>()[..(int)UiFace.Count], UiVectorFontFormat.RoleNames);
+        for (var f = UiFace.Body; f < UiFace.Count; f++)
+            Assert.True(UiFaces.TryParse(f.ToString(), out var parsed) && parsed == f);
+    }
 }
 
 /// <summary>

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Обработчики пекарни игры — плагин проекта (bake.project.json → plugins, после Sword.Bake.Engine): оружие — статический
+       меш в кисти и зоны крови (weapon.static), анатомия на риге персонажа (anatomy.mesh). Конвертеры — Anim/, опираются
+       на открытый API плагина движка (glTF, raw-экспорт, риг, хват, прореживание). Перенесено из SWORD 2eab13b. -->
+  <PropertyGroup>
+    <RootNamespace>Sword.Bake.Game</RootNamespace>
+    <SwordSide>Neutral</SwordSide>
+    <!-- плагин грузится хостом пекарни: зависимости рядом со сборкой, путь без TFM — bin/<конфигурация>/Sword.Bake.Game.dll -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ядро и плагин движка даёт хост (плагин движка стоит в plugins раньше): своя копия сломала бы общие типы
+         IAssetProcessor и SkeletonParams у ctx.Ref -->
+    <ProjectReference Include="..\Sword.Bake\Sword.Bake.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="..\Sword.Bake.Engine\Sword.Bake.Engine.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- писатель .swmesh -->
+    <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+    <!-- формат зон крови оружия .swblood -->
+    <ProjectReference Include="..\..\game\Sword.Game.Data\Sword.Game.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Bake.Game.Tests" />
+  </ItemGroup>
+
+</Project>

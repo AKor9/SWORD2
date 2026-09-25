@@ -180,3 +180,26 @@ build` (сводка корня, пальцев, FK, «записано / без
 загрузчики движка для клипов пака. Добавлено в этой точке: тест Source с файлом итога, `ClipContent` (сравнение клипов без
 `SourceHash`), вывод `inspect` в поток команды. Не хватает сравнения двух паков по форматам — `bake diff` (Б3) и сравнитель
 `.swclip` (Б5).
+
+## Б5. Текстуры, шрифты, `Bake.Game`, сравнитель `.swclip` (2026-09-25)
+
+**Сделано** (SWORD 2eab13b `tools/Sword.Bake.Sword`, логика как есть; предпросмотры — Б7). `Bake.Engine`: `Texture/`, `texture.array`,
+`font.vector` + `Font/UiFontBaker`, открытые `MeshDecimate`, `SpineChain`, `Anim/ClipComparer` (`.swclip` без `SourceHash`).
+`.swtex` → Formats, `.swblood` → Game.Data. Плагин `tools/Sword.Bake.Game`: `weapon.static`, `anatomy.mesh`, `MeshEdges.Open`.
+**Решения.** Роли шрифта — `UiVectorFontFormat.RoleNames`/`TryParseRole` (Formats; `UiFaces` зовёт их, тест: имена `UiFace` = список).
+Файлы пишут писатели (`UiFontFile`, `ContentFiles.Write`): раскладка одна. Чтение `.swtex`/`.swblood` — точным числом байт, без
+`Load`/`Save`. `CodeAssemblies` — и `Bake.Engine`, Formats, Game.Data, StbTrueTypeSharp: код выхода теперь в разных сборках.
+**Проверка Б4 → ядро.** Source Б4 падал (3 из 36, «Failed to parse deps.json»): параллельные `sword-bake` переписывали теневую копию
+плагина, которую другой читал — `PluginLoader.Shadow` копирует в каталог процесса и переносит `Directory.Move`. Плагин игры раньше
+движкового работал случайно (основа нужна только коду обработчиков) — теперь ошибка проекта «ссылается на плагин X, а стоит раньше».
+**Числа (Source, Debug, `-j` 4).** Движок: клипы 1048/1048 по содержимому, скелет, меш, **текстуры 8/8, шрифты 5/5, лицензии 3/3 —
+байт в байт**; выпечка 32,3 с (альбедо и нормали анатомии 29,7 и 28,1 с, кровь 0,7–5,6, шрифты 0,1–0,2). Игра: **оружие 6, `.swblood`
+6, анатомия 3, `combat/actions.json` — байт в байт**, 1,2 с. Писатели на эталоне: `.swtex` 8 и `.swblood` 6 — те же байты.
+**Тесты.** Перенесены `TextureTests`, `SpineChainTests`, `WeaponBloodTests` (новый `tests/Sword.Bake.Game.Tests`); свои — сравнитель
+(без `SourceHash` равны, поле — «отличаются», паки через `PakDiff`), оба плагина в `sword-bake` (анатомия на синтетическом риге через
+`ctx.Ref<SkeletonParams>`; обратный порядок), `.swtex`/`.swblood` (круг, каждая обрезка).
+**Отклонения.** Сверка Source игры — свой тест в `Bake.Game.Tests` (ключи `game*`), запись итога — под именованным мьютексом.
+`verify.ps1`: Source — отдельным прогоном после остальных тестов (32 с на всех ядрах ломали 3 из 3 раз `FirstAnomaly_NoJit…`).
+**Агентские инструменты.** Хватает: Source и `source-check.json` по всем форматам, `bake diff` со сравнителем `.swclip`, логи.
+**На приёмке (Б6).** README `Bake.Engine` и новый `Bake.Game`; AGENTS ядра (ошибка порядка), Formats, Game.Data; playbook; проект
+`Bake/` с `plugins` [Engine, Game], полная выпечка и `bake diff` с эталоном; Release-замер Source.

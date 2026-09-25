@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Sword.Engine.Content;
 using Sword.Engine.Formats;
+using Sword.Game.Data;
 
 namespace Sword.Engine.Formats.Tests;
 
@@ -8,7 +9,7 @@ namespace Sword.Engine.Formats.Tests;
 /// Писатели форматов SWORD2 = байты эталонного пака <c>Content.reference.swpak</c> (категория Content): каждый файл формата
 /// читается форматом SWORD2 и записывается обратно — те же байты. Отделяет «писатель верен» от «логика выпечки верна»:
 /// расхождение пересобранного пекарней пака с эталоном тогда — в обработчике, а не в записи формата.
-/// Форматы, которых в SWORD2 ещё нет (<c>.swtex</c>, <c>.swblood</c>), добавятся сюда вместе с ними.
+/// Формат пака из игровых данных (<c>.swblood</c>, <c>Sword.Game.Data</c>) — здесь же, со всеми форматами пака.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class ReferencePakWritersTests
@@ -65,4 +66,12 @@ public sealed class ReferencePakWritersTests
     [Fact]
     public void Fonts_WriteSameBytes() =>
         RoundTrip(UiVectorFontFormat.Extension, 5, (s, name) => UiFontFile.Read(s, name).Write);
+
+    [Fact]
+    public void Textures_WriteSameBytes() =>
+        RoundTrip(TextureData.Extension, 8, (s, name) => TextureData.Read(s, name).Write);
+
+    [Fact]
+    public void WeaponBlood_WriteSameBytes() =>
+        RoundTrip(WeaponBloodData.Extension, 6, (s, name) => WeaponBloodData.Read(s, name).Write);
 }

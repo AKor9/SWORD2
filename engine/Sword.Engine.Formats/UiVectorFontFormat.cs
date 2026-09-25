@@ -50,6 +50,26 @@ public static class UiVectorFontFormat
     /// </summary>
     public const int MaxRoles = 5, MaxGlyphs = 65536, MaxCurves = 2_000_000, MaxBands = MaxGlyphs * 2 * BandsPerAxis,
         MaxIndices = 20_000_000, MaxTtfBytes = 64 << 20, MaxStringBytes = 4096;
+
+    private static readonly string[] Roles = ["Body", "Head", "Label", "NumLight", "Num"];
+
+    /// <summary>
+    /// Имена ролей интерфейса по номерам — <c>UiFace</c> Sword.Engine.Ui (номер роли — место в списке; совпадение
+    /// с перечислением проверяет тест Ui). Здесь, а не в Ui: роли манифеста шрифта проверяет пекарь, а пекарня Ui не видит.
+    /// </summary>
+    public static IReadOnlyList<string> RoleNames => Roles;
+
+    /// <summary>
+    /// Номер роли по имени — точное имя без учёта регистра; не роль (число, <c>Count</c>, список «A,B») — false.
+    /// </summary>
+    public static bool TryParseRole(string name, out int role)
+    {
+        role = Array.FindIndex(Roles, r => string.Equals(r, name, StringComparison.OrdinalIgnoreCase));
+        return role >= 0;
+    }
+
+    /// <summary>Роли через запятую — для сообщений об ошибке.</summary>
+    public static string RoleList => string.Join(", ", Roles);
 }
 
 /// <summary>Glyph для шейдера: рамка в долях кегля, полосы по осям, перевод координат в номер полосы. 40 Б.</summary>

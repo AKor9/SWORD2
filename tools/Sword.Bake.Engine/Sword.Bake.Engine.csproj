@@ -1,9 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Обработчики пекарни движка — плагин проекта (bake.project.json → plugins, первым): скелет и риг (anim.skeleton),
-       меш персонажа (skin.mesh), клипы raw-экспорта Unreal → наборы библиотеки анимаций (anim.pack) и команда
-       sword-bake inspect. Сами конвертеры — Anim/. Ядро (tools/Sword.Bake) об этом плагине не знает; плагин игры
-       Sword.Bake.Game (Б5) ссылается на этот так же, как на ядро. Перенесено из SWORD 2eab13b — README.md. -->
+       меш персонажа (skin.mesh), клипы raw-экспорта Unreal → наборы библиотеки анимаций (anim.pack), массивы текстур
+       (texture.array), шрифты интерфейса (font.vector), сравнитель .swclip для bake diff и команда sword-bake inspect.
+       Конвертеры — Anim/, Texture/, Font/. Ядро (tools/Sword.Bake) об этом плагине не знает; плагин игры Sword.Bake.Game
+       ссылается на этот так же, как на ядро. Перенесено из SWORD 2eab13b — README.md. -->
   <PropertyGroup>
     <RootNamespace>Sword.Bake.Engine</RootNamespace>
     <SwordSide>Neutral</SwordSide>
@@ -21,6 +22,11 @@
     <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
     <!-- контейнер клипов импорта (ClipLibrary), система корневого движения (MotionMatrix), прямая кинематика (Skeleton) -->
     <ProjectReference Include="..\..\engine\Sword.Engine.Animation\Sword.Engine.Animation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- контуры TrueType для пекаря шрифтов (UiFontBaker) -->
+    <PackageReference Include="StbTrueTypeSharp" />
   </ItemGroup>
 
   <ItemGroup>

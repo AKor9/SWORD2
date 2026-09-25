@@ -65,7 +65,11 @@ internal static class PluginLoader
         return 0;
     }
 
-    /// <summary>Копия каталога плагина во временном каталоге; путь копии сборки. Та же версия файлов — та же копия.</summary>
+    /// <summary>
+    /// Копия каталога плагина во временном каталоге; путь копии сборки. Та же версия файлов — та же копия. Копия
+    /// собирается в своём каталоге процесса и переносится на место целиком: несколько процессов пекарни (тесты
+    /// параллельно) не переписывают файлы копии, которую другой уже читает.
+    /// </summary>
     private static string Shadow(string path)
     {
         string dir = Path.GetDirectoryName(path)!;
@@ -81,14 +85,20 @@ internal static class PluginLoader
         string done = Path.Combine(target, ".complete");
         if (!File.Exists(done))
         {
+            string own = $"{target}.{Environment.ProcessId}-{Guid.NewGuid():N}";
             foreach (var f in files)
             {
-                string to = Path.Combine(target, Path.GetRelativePath(dir, f));
+                string to = Path.Combine(own, Path.GetRelativePath(dir, f));
                 Directory.CreateDirectory(Path.GetDirectoryName(to)!);
-                try { File.Copy(f, to, overwrite: true); }
-                catch (IOException) when (File.Exists(to)) { }   // копию уже держит другой процесс пекарни — она та же
+                File.Copy(f, to);
             }
-            File.WriteAllText(done, "");
+            File.WriteAllText(Path.Combine(own, ".complete"), "");
+            try { Directory.Move(own, target); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // копию уже перенёс другой процесс — она та же
+            if (!File.Exists(done))
+                return Path.Combine(own, Path.GetFileName(path));   // на месте недоделанная копия прежней версии ядра
+            if (Directory.Exists(own))
+                try { Directory.Delete(own, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
         return Path.Combine(target, Path.GetFileName(path));
     }

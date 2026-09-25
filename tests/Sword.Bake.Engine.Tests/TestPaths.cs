@@ -1,10 +1,16 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Sword.Engine.Content;
 
 namespace Sword.Bake.Engine.Tests;
 
-/// <summary>Пути собранного решения: плагин и sword-bake той же конфигурации, что тесты; эталонный пак; корень исходников.</summary>
+/// <summary>
+/// Пути собранного решения: плагины и sword-bake той же конфигурации, что тесты; эталонный пак; корни исходников; итог
+/// сверки Source. Файл общий у тестов обоих плагинов пекарни (в <c>Sword.Bake.Game.Tests</c> — ссылкой).
+/// </summary>
 internal static class TestPaths
 {
     public static string RepoRoot { get; } = FindRepoRoot();
@@ -23,10 +29,10 @@ internal static class TestPaths
         throw new InvalidOperationException($"не найден SWORD.slnx выше {AppContext.BaseDirectory}");
     }
 
-    /// <summary>Сборка плагина, как её видит проект пекарни: tools/Sword.Bake.Engine/bin/&lt;конфигурация&gt;/.</summary>
-    public static string Plugin()
+    /// <summary>Сборка плагина, как её видит проект пекарни: tools/&lt;проект&gt;/bin/&lt;конфигурация&gt;/&lt;проект&gt;.dll.</summary>
+    public static string Plugin(string project = "Sword.Bake.Engine")
     {
-        string path = Path.Combine(RepoRoot, "tools", "Sword.Bake.Engine", "bin", Configuration, "Sword.Bake.Engine.dll");
+        string path = Path.Combine(RepoRoot, "tools", project, "bin", Configuration, project + ".dll");
         Assert.True(File.Exists(path), $"нет {path} — соберите решение ({Configuration})");
         return path;
     }
@@ -58,6 +64,45 @@ internal static class TestPaths
     {
         string root = Environment.GetEnvironmentVariable("BAKE_ROOT_SRC") is { Length: > 0 } env ? env : "D:/Temp/GamedevAssets";
         return File.Exists(Path.Combine(root, "_Export", "skin_gasp", "manifest.json")) ? Path.GetFullPath(root) : null;
+    }
+
+    /// <summary>
+    /// Корень исходников вне GamedevAssets (<c>${assets}</c>: атлас Gore-пака для текстуры среза): <c>BAKE_ROOT_ASSETS</c>,
+    /// иначе <c>D:/Temp/AssetsDatabase</c> (как в bake.user.json SWORD).
+    /// </summary>
+    public static string AssetsRoot() =>
+        Path.GetFullPath(Environment.GetEnvironmentVariable("BAKE_ROOT_ASSETS") is { Length: > 0 } env ? env : "D:/Temp/AssetsDatabase");
+
+    /// <summary>
+    /// Часть итога сверки Source в artifacts/bake/source-check.json (вне git): агент и человек видят числа последней сверки.
+    /// Пишут тесты обоих плагинов — разные процессы, поэтому чтение и запись файла — под именованным мьютексом.
+    /// </summary>
+    public static void SourceReport(string key, JsonNode value)
+    {
+        using var mutex = new Mutex(false, @"Local\sword-bake-source-check");
+        try { mutex.WaitOne(); }
+        catch (AbandonedMutexException) { }   // процесс-владелец упал — файл читается как есть
+        try
+        {
+            string path = Path.Combine(RepoRoot, "artifacts", "bake", "source-check.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            JsonObject root;
+            try
+            {
+                root = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? [] : [];
+            }
+            catch (JsonException)
+            {
+                root = [];
+            }
+            root["updatedUtc"] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            root[key] = value;
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
     }
 
     /// <summary>Запустить sword-bake в каталоге <paramref name="workDir"/>: код выхода, stdout и stderr (UTF-8).</summary>

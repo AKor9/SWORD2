@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
     <!-- эталонный пак — источник файлов для проверки писателей (ReferencePakWritersTests, категория Content) -->
     <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+    <!-- формат пака из игровых данных (.swblood — зоны крови оружия): его писатель сверяется с эталоном здесь же -->
+    <ProjectReference Include="..\..\game\Sword.Game.Data\Sword.Game.Data.csproj" />
   </ItemGroup>
 
 </Project>
