@@ -286,7 +286,7 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
     /// не-<c>Agile</c>), таймер не трогается; иначе ИИ: игрок ближе <see cref="EnemyAiRules.Reach"/>, таймер вышел, может
     /// действовать — рубящий (0,75; случайный из связки) или укол (случайный), таймер 1,1 + ГСЧ·1,4. <paramref name="enemiesAttack"/> —
     /// враги нападают и игрок жив (6г, <c>!p.Dead</c> SWORD); мёртвый враг сюда не приходит (<c>f.CanAttack</c> SWORD: жив; рука и меч
-    /// целы — этап 11). Удар командой при мёртвом игроке начинается (вид), но трупы — не цели.
+    /// целы — с Cutting, отложен: решение 17). Удар командой при мёртвом игроке начинается (вид), но трупы — не цели.
     /// </summary>
     public void Attack(ref AnimatorAction action, ref EnemyAttack state, float distance, int commanded, bool enemiesAttack, Entity e,
         in SimTime time, SimRandom rng, ClipLibrary clips)

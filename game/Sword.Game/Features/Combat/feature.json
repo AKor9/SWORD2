@@ -315,7 +315,7 @@
           "condition": { "event": "Hit", "where": { "all": [{ "field": "Probe", "equals": true }, { "field": "Killed", "equals": false }] } }
         },
         {
-          "id": "sever", "title": "урон больше порога отруба — заявка SeverRequested (без ответа до этапа 11)", "expect": "eventually", "from": 61, "to": 61,
+          "id": "sever", "title": "урон больше порога отруба — заявка SeverRequested (без ответа: Cutting отложен — решение 17)", "expect": "eventually", "from": 61, "to": 61,
           "condition": { "event": "SeverRequested", "where": { "field": "Part", "equals": 3 } }
         },
         {
@@ -572,9 +572,13 @@
     // (тик 1231): первая смерть и первая постройка заново выделяют разово ~44 КБ на мир (чанки новых архетипов ECS — README, «Известные
     // ошибки»); замер — 1080 тиков боя с новыми смертями и возрождениями. Кадр App на записи сценария (640×480, vsync выкл.): средний
     // 0,443 мс, p99 1,52; с клинками (оверлей blades) — 0,441 и 1,55; пределы 0,9 и 2,5 (p99 — как у enemies и bodies).
+    // Решение пользователя 2026-09-25 (после 7з-3; ARCHITECTURE_PLAN.md, «Решено пользователем после 7з-3»): с этапа 7 убитые в толпе —
+    // трупы на физике (сон в бою почти не срабатывает: живые стоят на трупах) — новые пределы по замеру ~2×: тик 1,0 мс (было 0,23; замер
+    // 7з-3 — 0,483), React 0,005 (было 0,0005; отдача 7к, замер 0,0021), своя стадия Physics 0,7 (замер 0,337); остальные пределы — прежние.
+    // Оптимизация физики трупов в бою — «Дальше» плана.
     {
-      "id": "crowd", "scenario": "crowd", "msPerTick": 0.23,
-      "stages": { "Animation": 0.15, "Movement": 0.006, "Intent": 0.004, "Gameplay": 0.0035, "PrePhysics": 0.04, "Combat": 0.02, "Resolve": 0.0005, "React": 0.0005, "Aftermath": 0.0015 },
+      "id": "crowd", "scenario": "crowd", "msPerTick": 1.0,
+      "stages": { "Animation": 0.15, "Movement": 0.006, "Intent": 0.004, "Gameplay": 0.0035, "PrePhysics": 0.04, "Physics": 0.7, "Combat": 0.02, "Resolve": 0.0005, "React": 0.005, "Aftermath": 0.0015 },
       "allocatedBytesPerTick": 0, "repeats": 5, "warmup": 1320,
       "frame": { "averageMs": 0.9, "p99Ms": 2.5, "seconds": 5 }
     },

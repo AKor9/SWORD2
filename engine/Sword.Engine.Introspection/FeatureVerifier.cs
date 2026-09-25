@@ -441,7 +441,7 @@ public static class FeatureVerifier
                 var window = values.AsSpan((int)from, (int)(to - from + 1));
                 value = m.Stat switch
                 {
-                    "min" => Min(window), "max" => Max(window), _ => Mean(window),
+                    "min" => Min(window), "max" => Max(window), "p99" => Percentile(window, 0.99), _ => Mean(window),
                 };
             }
             json["value"] = double.IsFinite(value) ? value : value.ToString(CultureInfo.InvariantCulture);
@@ -472,6 +472,21 @@ public static class FeatureVerifier
             double s = 0;
             foreach (double x in v) s += x;
             return v.Length == 0 ? double.NaN : s / v.Length;
+        }
+
+        /// <summary>
+        /// Перцентиль окна (7л, <c>stat: p99</c>) — ближайший ранг: значение, не меньше которого доля <paramref name="p"/> окна
+        /// (<c>ceil(p·n)</c>-е по возрастанию). Нечисловое значение в окне (сущности не было) — NaN, как у min и max.
+        /// </summary>
+        internal static double Percentile(ReadOnlySpan<double> v, double p)
+        {
+            if (v.Length == 0) return double.NaN;
+            var sorted = v.ToArray();
+            foreach (double x in sorted)
+                if (double.IsNaN(x)) return double.NaN;
+            Array.Sort(sorted);
+            int rank = (int)Math.Ceiling(p * sorted.Length);
+            return sorted[Math.Clamp(rank, 1, sorted.Length) - 1];
         }
     }
 

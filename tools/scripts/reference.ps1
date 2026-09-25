@@ -1,6 +1,7 @@
 ﻿<#
 .SYNOPSIS
-    Пак контента (этап 0, docs/history/stage-0-1.md): закрепить или проверить пак контента игры Content.reference.swpak.
+    Пак контента (раздел 3 ARCHITECTURE_PLAN.md; история этапа 0 — docs/history/stage-0-1.md): закрепить или проверить пак
+    контента игры Content.reference.swpak.
 
 .DESCRIPTION
     -Pin    копирует Content.swpak из замороженного SWORD в Content.reference.swpak (только для чтения, вне git)

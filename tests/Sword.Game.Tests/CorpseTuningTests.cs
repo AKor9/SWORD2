@@ -103,7 +103,7 @@ public sealed class CorpseTuningTests(ITestOutputHelper output)
 
     /// <summary>
     /// Изменение ручки из группы (ползунок панели ставит то же значение строке): трупы трёх врагов на физике, «трение о землю» 0,7 → 1,6 и
-    /// «потолок скорости трупа» 99 (прижато к 40) — ожидающее значение до тика, команда ручки на ближайший тик, в том же тике — правила,
+    /// «потолок скорости» трупа 99 (прижато к 40) — ожидающее значение до тика, команда ручки на ближайший тик, в том же тике — правила,
     /// настройки физики и профиль трупа; строки трупов кадра — 3 трупа, 42 тела на физике, на земле есть. Реплей: команды ручек с именами
     /// в своём тике, воспроизведение — без расхождений, те же хеши всех участников; без изменения ручки итог другой.
     /// </summary>
@@ -281,14 +281,37 @@ public sealed class CorpseTuningDrawTests : IDisposable
         foreach (string text in (string[])[d[..RagdollTuning.Corpses(d, s)].ToString(), d[..RagdollTuning.Bodies(d, s)].ToString(),
             d[..RagdollTuning.Fastest(d, s)].ToString(), d[..RagdollTuning.Fastest(d, default)].ToString()])
             Check(UiFace.Num, text);
-        // Подписи строк: не влезают в свою долю строки (42 % ширины панели) — панель режет их «…» (замер — в выводе).
+    }
+
+    /// <summary>
+    /// 7л (проверка пользователя в игре: «трение между трупа…», «сведение разрыва с…» — подписи обрезались «…»): подпись каждой строки ручки и
+    /// строки сведений вкладок «Рэгдолл» и «Бой» влезает в свою долю строки панели F3 — 42 % ширины строки (<c>TuningPanel.DrawItem</c>,
+    /// <c>UiContext.InfoRow</c>) при полосе прокрутки (вкладка «Рэгдолл» длиннее окна): ширина панели минус отступы 2 × 10 px, полоса и её
+    /// зазор. Полный смысл — в подсказке (строка состояния под курсором) и <c>world.types</c>. Замер — в выводе.
+    /// </summary>
+    [Fact]
+    public void KnobLabels_FitLabelColumn_WithScrollbar()
+    {
+        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=0"));
+        var link = new SimulationLink(sim);
+        var binding = new TuningBinding(link);
+        var groups = new[] { RagdollTuning.Build(binding, new ArenaView(ArenaTerrain.Height)), CombatTuning.Build(binding, link) };
         var draw = new UiDrawList(_fonts);
-        float room = (TuningPanel.Width - 20) * 0.42f;
-        foreach (var item in group.Items.Where(i => i is TuningFloat or TuningInfo))
-        {
-            float w = draw.Measure(UiFace.Body, UiTheme.Default.SmallFontSize, item.Label);
-            _output.WriteLine($"{item.Label}: {w:F0} из {room:F0} px{(w > room ? " — режется" : "")}");
-        }
+        var theme = UiTheme.Default;
+        float room = (TuningPanel.Width - 2 * 10 - theme.ScrollbarWidth - 3) * 0.42f;
+        float widest = 0;
+        int rows = 0;
+        foreach (var group in groups)
+            foreach (var item in group.Items.Where(i => i is TuningFloat or TuningInfo))
+            {
+                float w = draw.Measure(UiFace.Body, theme.SmallFontSize, item.Label);
+                widest = MathF.Max(widest, w);
+                rows++;
+                _output.WriteLine($"{group.Title}: {item.Label} — {w:F1} из {room:F1} px");
+                Assert.True(w <= room, $"{group.Title}: подпись «{item.Label}» — {w:F1} px, в строке {room:F1} px (панель режет «…»)");
+            }
+        Assert.Equal(18, groups[0].Items.OfType<TuningFloat>().Count());
+        _output.WriteLine($"строк {rows}, самая широкая подпись — {widest:F1} из {room:F1} px");
     }
 
     /// <summary>

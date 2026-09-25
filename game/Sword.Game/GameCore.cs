@@ -144,7 +144,7 @@ public static class GameCore
             .Invariants(DamageInvariants.For(physics))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>()
-            // Бой (6г): касания, попадания, заявки на отруб и смерти — клиенту (HUD 6е, кровь — этап 12) и агенту (events.history: без
+            // Бой (6г): касания, попадания, заявки на отруб и смерти — клиенту (HUD 6е; кровь отложена — решение 15) и агенту (events.history: без
             // подписчика у события нет журнала).
             .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>();
         FighterBodies.Register(b, physics);

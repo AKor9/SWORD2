@@ -224,6 +224,8 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    правкой файла с сообщением пользователю.
 4. Новая фича — `feature.json` рядом с md (тест `FeatureManifestsTests`: манифест есть, чек-лист = пункты «Что проверить в игре»).
 Метрика по ресурсу мира: `{"id": …, "resource": "ArenaStats.LastDamage", "expected": 60.8, "tolerance": 0.001}` вместо `entity`/`field`.
+Статистика окна метрики (`stat` с `from`/`to`) — `min`, `max`, `mean`, `p99` (99-й перцентиль ближайшим рангом — распределение без одиночных
+выбросов `max`); потолок «не больше L» — `expected` = `tolerance` = L/2.
 
 **Эксперимент «что если».**
 1. `experiment.fork {"replay":"my.swreplay","at":300,"variants":[{"name":"back","commands":[{"command":"PlayerCommand","fields":{"Move":{"X":-1,"Y":0}},"from":300,"to":301}]},{"name":"nolo","set":["modules.locomotion.enabled=false"]}],"measure":[{"entity":"player","field":"Transform.Position"}]}`
@@ -384,7 +386,17 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
    "fields":{"Knob":"ragdoll.sleepSpeed","Value":0}}` — сна нет (`ragdoll.sleepBodySpeed`, `ragdoll.sleepTime`; F3 — «СОН ТРУПА», F7 —
    синий крест). Приёмка — сценарии `sleep-*`, `s3-asleep`, `s1-asleep` манифеста `ragdoll`.
 
-**Самоколлизия трупа (7з-4).**
+**Приёмка «Рэгдолла» и цена трупов.**
+1. `feature.verify {"id":"ragdoll"}` — 23 сценария, 36 метрик (`value` против `expected`), 8 видов (капсулы, суставы, контакты), бюджеты
+   `corpses32` (тик, Physics, 0 Б/тик, кадр App) и `corpses32-overlays` (кадр с оверлеями); время и кадр судятся только в Release.
+2. Цена по числу трупов: `experiment.sweep {"params":{"arena.enemies":[0,8,16,32],"sim.invariants":[false]},"replay":"<артефакты
+   ragdoll>/scenario-crowd32-budget.swreplay","warmup":602,"repeats":5}` (Release; прогрев — за тиком массовой смерти 600) → `rows[].stages.Physics`
+   на труп; `rows[].systems` — `core.physics-step@Physics`; вердикт машины — `rows[].machine`.
+3. Энергия трупов в бою: `session.start {"replay":"<артефакты combat>/scenario-crowd.swreplay"}` → `physics.bodies {"trace":"on"}` →
+   `time.step {"ticks":2400}` → `physics.bodies {"trace":"show"}` → `trace.run.energy` (`growth` — одиночный труп, допуск 12,5 Дж; `pairedTotal`
+   — сумма касавшихся, 25), `speed.p99`, `capped`.
+
+**Самоколлизия трупа.**
 1. Часть в своём теле: `physics.bodies {"entity":"enemy 1"}` → `self` — `pairs` (76 у трупа), `active`, `scale` (ручка `ragdoll.selfCollision`),
    `touching`, `deepest` (`a`, `b`, `depth`, м); по тикам — `watch.add {"entities":["enemy 1"],"fields":["Body.SelfDepth"]}` → `entity.history`;
    ждать — `time.runUntil {"condition":{"all":[{"entity":"enemy 1"},{"field":"Body.SelfDepth","greaterThan":0.06}]}}`. Таблица пар —

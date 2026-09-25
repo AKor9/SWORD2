@@ -38,7 +38,7 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 `ActionPoses.Snap`), слой верха — задание пула `BlendMasked` по маске `ActionRules.UpperMask`.
 
 Не перенесено: фиксация и постановка стоп, `FootDown` (этап 9), Motion Matching и визуальное смещение (этап 8); рука и IK
-кисти — этап 10, отложен (решение 16).
+кисти — с блоком (Guard отложен — решение 16).
 
 ## Устройство
 

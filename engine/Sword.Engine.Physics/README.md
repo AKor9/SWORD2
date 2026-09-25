@@ -37,7 +37,8 @@ ECS, ни игры подсистема не знает. **Свой путь** (
   (`Pillar`), `Bounds` → `ArticulationBounds`.
 - **Шаг.** `Step(dt)` (подшаги — из настроек), `NonFiniteArticulations`, `HasNonFinite`, `AttachProfiler`. **Сон** — `IsAsleep`,
   `RestTime`, `Wake`, `AsleepCount`, `WakeReason`.
-- **Толчки живых и удары.** `KinematicSource` (`Body`, `Pass`, `NoReaction`), `PreparePass(pusher, strike, mass, speed)`, `PassHit`,
+- **Толчки живых и удары.** `KinematicSource` (`Body`, `Pass`, `NoReaction` — потребителя пока нет: Cutting отложен, решение 17),
+  `PreparePass(pusher, strike, mass, speed)`, `PassHit`,
   `SpendHit`, `ApplyHit(body, point, impulse, impactSpeed, pusher)`, `Pass` → `PassState`, `Reaction`, `TakeReaction`, `EndKinematicTick`.
 - **Трасса.** `Trace`, `EnableTrace`, `DisableTrace`; `PhysicsTrace` (накопители, `LastContacts`, события, `Summary`), `PhysicsSource`
   (с 7з-4 — и `Self`, самоколлизия), `PhysicsPhase`.

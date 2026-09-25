@@ -299,6 +299,34 @@ public sealed class FeatureTests : IDisposable
         Assert.Contains(failed.Failures, f => f.Contains("нет ресурса") || f.Contains("NoSuch"));
     }
 
+    /// <summary>
+    /// 7л: <c>stat: p99</c> — 99-й перцентиль окна ближайшим рангом (распределение без одиночных выбросов <c>max</c>): время после тиков
+    /// 1…240 — k/120 с; p99 — 238-е значение (⌈0,99·240⌉), max — 240-е; окно из одного тика — его значение.
+    /// </summary>
+    [Fact]
+    public void Verify_Metric_P99_NearestRank()
+    {
+        string json = """
+            {
+              "format": "sword-feature", "version": 1, "id": "clock", "title": "время", "doc": "README.md", "sourceRoots": ["feat"],
+              "scenarios": [{ "id": "run", "ticks": 240 }],
+              "metrics": [
+                { "id": "p99", "scenario": "run", "reference": "тест", "resource": "SimTime.Time", "stat": "p99", "from": 1, "to": 240, "expected": 1.98333, "tolerance": 1e-4 },
+                { "id": "max", "scenario": "run", "reference": "тест", "resource": "SimTime.Time", "stat": "max", "from": 1, "to": 240, "expected": 2, "tolerance": 1e-4 },
+                { "id": "one", "scenario": "run", "reference": "тест", "resource": "SimTime.Time", "stat": "p99", "from": 12, "to": 12, "expected": 0.1, "tolerance": 1e-5 }
+              ],
+              "checklist": ["посмотреть"]
+            }
+            """;
+        var m = FeatureManifest.Load(Manifest(json));
+        Assert.Equal("p99", m.Metrics[0].Stat);
+        var report = FeatureVerifier.Verify(m, Env(), new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Views = false, Budgets = false });
+        Assert.True(report.Ok, string.Join('|', report.Failures));
+        Assert.Equal(238 / 120.0, report.Json["metrics"]![0]!["value"]!.GetValue<double>(), 5);
+        Assert.Equal(2.0, report.Json["metrics"]![1]!["value"]!.GetValue<double>(), 5);
+        Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"stat\": \"p99\", \"from\": 12", "\"stat\": \"p95\", \"from\": 12"))));
+    }
+
     [Fact]
     public void Verify_GoodFeature_AllGreen_ViewPlaysRecordedScenario()
     {

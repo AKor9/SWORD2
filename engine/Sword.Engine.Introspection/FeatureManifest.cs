@@ -309,11 +309,12 @@ public sealed record FeatureCheck(string Id, string Expect, JsonNode Condition, 
 /// Метрика фичи с ожиданием и допуском — своё число SWORD2 (свой замер, своя константа или формула; со SWORD не сравниваем — решение
 /// 14, точка 7а сняла источник <c>sword</c> и ряды против трассы SWORD): значение поля сущности (<see cref="Field"/>; несколько
 /// листьев — длина вектора) или поля ресурса мира (<see cref="Resource"/>, 6ж: <c>ArenaStats.LastDamage</c> — вместо сущности) после
-/// тика <see cref="At"/> (по умолчанию — последнего) или <see cref="Stat"/> по тикам окна.
+/// тика <see cref="At"/> (по умолчанию — последнего) или <see cref="Stat"/> по тикам окна: <c>min</c>, <c>max</c>, <c>mean</c>, <c>p99</c>
+/// (7л: 99-й перцентиль окна, ближайший ранг — распределение величины по тикам без одиночных выбросов <c>max</c>).
 /// </summary>
 public sealed record FeatureMetric
 {
-    public static readonly string[] Stats = ["value", "min", "max", "mean"];
+    public static readonly string[] Stats = ["value", "min", "max", "mean", "p99"];
 
     public required string Id { get; init; }
     public required string Scenario { get; init; }
@@ -357,7 +358,7 @@ public sealed record FeatureMetric
         if (!Stats.Contains(m.Stat)) throw new ArgumentException($"{r.At}.stat «{m.Stat}»: {string.Join(", ", Stats)}");
         if (m.Field is null && m.Resource is null || m.Expected is null)
             throw new ArgumentException($"{r.At}: нужно field (или resource) и expected");
-        if (m.Stat == "value" && (m.From is not null || m.To is not null)) throw new ArgumentException($"{r.At}: from/to — только со stat min, max, mean");
+        if (m.Stat == "value" && (m.From is not null || m.To is not null)) throw new ArgumentException($"{r.At}: from/to — только со stat min, max, mean, p99");
         if (m.Stat != "value" && m.At is not null) throw new ArgumentException($"{r.At}: at — только со stat value");
         return m;
     }

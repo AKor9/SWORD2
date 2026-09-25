@@ -12,7 +12,7 @@ namespace Sword.Game.Client;
 /// частям (с остротой; тексты короче SWORD — вмещаются в строку панели). Ключи группы — ключи секции (<c>playerDamage</c>): «сохранить» и
 /// «загрузить» пишут и читают секцию
 /// <c>combat</c> файла <c>sword.user.json</c>. Отличия от SWORD: ручки «враги нападают», «игрок неуязвим» и рывка — новые (решение
-/// пользователя); «отрубил бы» — отруба нет до этапа 11 (заявка <c>SeverRequested</c> без ответа). Строки состояния пишут текст на
+/// пользователя); «отрубил бы» — отруба нет: Cutting отложен, решение 17 (заявка <c>SeverRequested</c> без ответа). Строки состояния пишут текст на
 /// стек — кадр панели без выделений.
 /// </summary>
 public static class CombatTuning
@@ -27,7 +27,7 @@ public static class CombatTuning
         tuning.Add(g, CombatKnobs.PlayerDamage);
         tuning.Add(g, CombatKnobs.PlayerSharpness);
         g.Info("последний удар", d => LastStrike(d, link.World.Resource<ArenaStats>()),
-            "урон последнего удара игрока и порог отруба той части (÷ острота): больше порога — отрубил бы (отруба нет до этапа 11)");
+            "урон последнего удара игрока и порог отруба той части (÷ острота): больше порога — отрубил бы (отруба пока нет — отложен)");
         g.Info("максимум удара", d => MaxStrike(d, tuning.Value(CombatKnobs.PlayerDamage)));
         g.Info("пороги отруба", d => SeverThresholds(d, tuning.Value(CombatKnobs.PlayerSharpness)),
             "порог части ÷ острота: голова, предплечье, плечо, голень, бедро, торс");

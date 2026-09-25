@@ -9,7 +9,7 @@ namespace Sword.Game.Animation;
 
 /// <summary>
 /// Действие слоя действий аниматора (<c>FighterAnimator.ActionKind</c> SWORD 2eab13b; номера — те же). С точки 4г — поворот
-/// на месте, с 6в — удар и вид рывка, с 6г — реакция врага на попадание; отбитый удар и блок — этап 10 (тем же слоем).
+/// на месте, с 6в — удар и вид рывка, с 6г — реакция врага на попадание; отбитого удара и блока нет — Guard отложен (решение 16).
 /// </summary>
 public enum ActionKind : byte
 {
@@ -375,7 +375,7 @@ public static class ActionLayer
     public static bool Recovering(in AnimatorAction a, ReadOnlySpan<AttackInfo> attacks) =>
         a.Kind == ActionKind.Attack && a.Time > attacks[a.Attack].ActiveEnd;
 
-    /// <summary>Занят действием, которое замедляет поворот не-<c>Agile</c> (<c>Busy</c>: удар, реакция на попадание; отбитый удар — этап 10).</summary>
+    /// <summary>Занят действием, которое замедляет поворот не-<c>Agile</c> (<c>Busy</c>: удар, реакция на попадание; отбитого удара нет — решение 16).</summary>
     public static bool Busy(in AnimatorAction a) => a.Kind is ActionKind.Attack or ActionKind.HitReact;
 
     /// <summary>

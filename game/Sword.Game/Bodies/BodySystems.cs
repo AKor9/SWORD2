@@ -109,7 +109,7 @@ public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, St
 /// <summary>
 /// PrePhysics, непрерывная (<see cref="GameLabels.KinematicPlacement"/>): капсулы тела каждого бойца — на суставы позы этого
 /// тика в корне после Movement (<c>DuelArena.PlaceBodies</c> SWORD 2eab13b после <c>ResolveRoots</c>; без клинка — этап 6,
-/// <c>BodyPlacer</c>/<c>PinFeet</c> — этап 9, визуального смещения — этап 8, пропуска отрубленных — этап 11): кинематическая
+/// <c>BodyPlacer</c>/<c>PinFeet</c> — этап 9, визуального смещения — этап 8, пропуска отрубленных нет — Cutting отложен, решение 17): кинематическая
 /// цель тика (<see cref="IPhysicsWorld.SetKinematicTarget"/>) — скорость — разность с прошлой постановкой за тик, угловая —
 /// <c>RotationVector</c>/dt. Первая постановка без скорости — при постройке (<see cref="BodySetupSystem"/>). Боец без позы
 /// (не заведена) или с негодным телом пропускается — его ловят инварианты <c>animation.*</c>, <c>physics.bodyRefs</c>.

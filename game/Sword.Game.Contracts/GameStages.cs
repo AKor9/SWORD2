@@ -4,7 +4,8 @@ namespace Sword.Game.Contracts;
 
 /// <summary>
 /// Стадии тика игры (раздел 7 плана) — раскладка <c>DuelArena.Tick</c> SWORD. После каждой стадии — барьер.
-/// Точки расширения для модулей: модуль встаёт в стадию и до или после метки ядра (<see cref="GameLabels"/>).
+/// Точки расширения для модулей: модуль встаёт в стадию и до или после метки ядра (<see cref="GameLabels"/>). Defense и Dismember —
+/// пустые точки протокола боя: блок (Guard) и расчленение (Cutting) отложены (решения 16, 17).
 /// </summary>
 public static class GameStages
 {

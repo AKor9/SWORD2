@@ -69,6 +69,7 @@ public enum DeathCause : byte
 /// Вид попадания (<c>ArenaHitKind</c> SWORD): рубящий, укол, тупой (плашмя). Тупой в SWORD давал только физический клинок
 /// (<c>RegisterHit</c>/<c>RegisterClash</c>); в SWORD2 физического пути удара нет (решено при разбивке этапа 7) — тупого не бывает.
 /// </summary>
+/// <remarks><c>Blunt</c> не появится: физический путь удара не переносится (номер оставлен — раскладка вида попадания).</remarks>
 public enum HitKind : byte
 {
     Slash = 0,
@@ -155,8 +156,9 @@ public struct Hit
 }
 
 /// <summary>
-/// Заявка на отруб части (событие стадии Resolve; <c>LimbDetachRequest</c> SWORD): урон попадания больше порога отруба. Ответа нет до
-/// этапа 11 (модуль Cutting ответит <c>LimbDetached</c>): без модуля конечность на месте (протокол боя, раздел 9 плана).
+/// Заявка на отруб части (событие стадии Resolve; <c>LimbDetachRequest</c> SWORD): урон попадания больше порога отруба. Ответа нет:
+/// модуль Cutting отложен (решение 17; ответил бы <c>LimbDetached</c>) — конечность на месте, стадия Dismember пуста (протокол боя,
+/// раздел 9 плана).
 /// </summary>
 public struct SeverRequested
 {

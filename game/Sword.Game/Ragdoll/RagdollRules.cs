@@ -216,14 +216,14 @@ public static class RagdollKnobs
             .Float("selfCollision", "самоколлизия", (in RagdollRules r) => r.SelfCollision, (ref RagdollRules r, float v) => r.SelfCollision = v,
                 0, 1.5f, d.SelfCollision, format: "0.00",
                 hint: "толщина частей трупа в столкновениях между собой (доля радиуса капсулы): 1 — капсулы F7; 0 — руки и ноги проходят сквозь тело; больше 1 — толще, но у стоящего бёдра уже касаются — труп при смерти распирает")
-            .Float("corpseMaxSpeed", "потолок скорости трупа", (in RagdollRules r) => r.CorpseMaxSpeed, (ref RagdollRules r, float v) => r.CorpseMaxSpeed = v,
+            .Float("corpseMaxSpeed", "потолок скорости", (in RagdollRules r) => r.CorpseMaxSpeed, (ref RagdollRules r, float v) => r.CorpseMaxSpeed = v,
                 1, 40, d.CorpseMaxSpeed, format: "0.0", hint: "м/с: быстрее тело трупа не движется (страховка от взрыва решателя)")
-            .Float("corpseMaxAngularSpeed", "потолок вращения трупа", (in RagdollRules r) => r.CorpseMaxAngularSpeed,
+            .Float("corpseMaxAngularSpeed", "потолок вращения", (in RagdollRules r) => r.CorpseMaxAngularSpeed,
                 (ref RagdollRules r, float v) => r.CorpseMaxAngularSpeed = v, 1, 60, d.CorpseMaxAngularSpeed, format: "0",
                 hint: "рад/с: быстрее тело трупа не вращается")
             .Float("deathMaxSpeed", "скорость при смерти", (in RagdollRules r) => r.DeathMaxSpeed, (ref RagdollRules r, float v) => r.DeathMaxSpeed = v,
                 0, 20, d.DeathMaxSpeed, format: "0.0", hint: "м/с: скорость тел живого (разность постановок) при переходе в труп урезается до неё")
-            .Float("deathMaxAngularSpeed", "вращение при смерти", (in RagdollRules r) => r.DeathMaxAngularSpeed,
+            .Float("deathMaxAngularSpeed", "закрутка при смерти", (in RagdollRules r) => r.DeathMaxAngularSpeed,
                 (ref RagdollRules r, float v) => r.DeathMaxAngularSpeed = v, 0, 60, d.DeathMaxAngularSpeed, format: "0",
                 hint: "рад/с: угловая скорость тел при переходе в труп (ложная закрутка кинематических капсул) урезается до неё")
             .Float("enemyRecoil", "отдача врагу", (in RagdollRules r) => r.EnemyRecoil, (ref RagdollRules r, float v) => r.EnemyRecoil = v,
@@ -235,10 +235,10 @@ public static class RagdollKnobs
             .Float("recoilMaxSpeed", "предел отдачи", (in RagdollRules r) => r.RecoilMaxSpeed, (ref RagdollRules r, float v) => r.RecoilMaxSpeed = v,
                 0, 10, d.RecoilMaxSpeed, format: "0.00",
                 hint: "м/с: дальше этого отдача не уводит скорость корня от заданной — сквозь кучу трупов боец не останавливается")
-            .Float("jointPopSpeed", "сведение разрыва сустава", (in RagdollRules r) => r.JointPopSpeed, (ref RagdollRules r, float v) => r.JointPopSpeed = v,
+            .Float("jointPopSpeed", "сведение суставов", (in RagdollRules r) => r.JointPopSpeed, (ref RagdollRules r, float v) => r.JointPopSpeed = v,
                 0.1f, 10, d.JointPopSpeed, log: true, format: "0.00",
                 hint: "м/с: так быстро сводится разрыв сустава после удара трупа о землю; больше — резче, всплеск энергии при ударе сильнее")
-            .Float("pairFriction", "трение между трупами", (in RagdollRules r) => r.PairFriction, (ref RagdollRules r, float v) => r.PairFriction = v,
+            .Float("pairFriction", "трение о трупы", (in RagdollRules r) => r.PairFriction, (ref RagdollRules r, float v) => r.PairFriction = v,
                 0, 2, d.PairFriction, format: "0.00", hint: "μ трения трупа о труп (покоя и скольжения): меньше — лёгший на другой труп съезжает с него")
             .Float("sleepSpeed", "порог сна трупа", (in RagdollRules r) => r.SleepSpeed, (ref RagdollRules r, float v) => r.SleepSpeed = v,
                 0, 0.5f, d.SleepSpeed, format: "0.000",
