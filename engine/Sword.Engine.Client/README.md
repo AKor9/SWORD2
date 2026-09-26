@@ -45,13 +45,16 @@
 
 ## GPU-симуляция
 
-- `IGpuSimulation` — `Name`, `Create(GpuSimContext)` (один раз: рендер, `TickDt`, `Readback(storage, bytes)`, `Own`),
+- `IGpuSimulation` — `Name`, `Create(GpuSimContext)` (один раз: рендер, `Readback(storage, bytes)`, `Own`; шаг тика — `ClientBuilder.TickDt`),
   `AddPasses(RenderFrame, in SimFrame)` — только фаза Simulation, `OnReadback(ReadOnlySpan<byte>)` — данные кадра, отправленного
   `GpuReadback.Latency` (3) кадра назад; только представление и диагностика.
-- `SimFrame` — `FirstTick`, `Ticks` (0 — пауза, перетаскивание рамки), `LastTick`, `Dt`, `Contains(tick)`, `Requests<T>(tick)` — заявки
-  тика по порядку, `Requests<T>()` — все. Шаг решает симуляция: 60 Гц — на чётных `TickId` (каждый второй тик при 120 Гц, с тика 0), пара
-  тиков может лежать в разных кадрах.
+- `SimFrame` — `FirstTick`, `Ticks` (0 — пауза, перетаскивание рамки), `Requests<T>()` — заявки кадра по порядку тиков. Шаг решает
+  симуляция: по тикам кадра или по заявкам (огонь — заявка на чётных `TickId`, каждый второй тик при 120 Гц, с тика 0; `TickId` — в самой
+  заявке); пара тиков может лежать в разных кадрах.
 - `SimRequests.Add<T>(tick, in T)` — из наблюдателя тиков, `TickId` не меньше прошлого, тип один на симуляцию; кадр начат — пусто.
+  Выборки заявок одного тика нет: продукту (огню) она не нужна; симуляции, которой понадобится, — добавить вместе с потребителем.
+- `ClientModules.Dispose` — ресурсы модулей в обратном порядке; исключение одного ресурса (закрытие модуля) не мешает освободить
+  остальные — оно после всех (несколько — `AggregateException`).
 
 Проверка: `tests/Sword.Engine.Client.Tests/ClientModulesTests` (наблюдатель при 0, 1, 2, 3, 8 тиках и паузе; шаг через кадр; выключенный
-модуль; ошибки Id; 0 Б), `tests/Sword.Engine.Render.Tests/ReadbackGpuTests`, `tests/Sword.Game.Tests/FireModuleTests`.
+модуль; ошибки Id; освобождение с исключением; 0 Б), `tests/Sword.Engine.Render.Tests/ReadbackGpuTests`, `tests/Sword.Game.Tests/FireModuleTests`.

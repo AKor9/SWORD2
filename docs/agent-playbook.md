@@ -228,7 +228,10 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 2. `feature.verify {"id":"animation"}` — вердикт `ok` и `failures` словами; сценарии (проверки, хеши реплея, нарушения), инварианты,
    метрики (`value`, `expected`, `delta`), бюджеты (медиана мс на тик, стадии, байты; кадр App — `frame`: средний и p99, `frame.overlays`;
    время и кадр — только в Release), виды (PNG `Sword.exe --replay`, хеши App сверены). Артефакты — `report.json`, `scenario-*.swreplay`,
-   `view-*.png` (и итог App `view-*.json`); `views:false` — без App. Без агента — `Sword.Headless --feature ID|all [--json]` (код 4 — провал), `verify.ps1` шаг `features`.
+   `view-*.png` (и итог App `view-*.json`; ожидания вида по нему — `views[].expect`: путь `fire.checks.*`, `fire.metrics[0].flame.heightCm`,
+   `equals` или `min`/`max`, провал называет путь и значение); `views:false` — без App. Без агента — `Sword.Headless --feature ID|all [--json]`
+   (код 4 — провал), `verify.ps1` шаг `features`. Упавший тест шага `test` — текст ошибки в итоге (`failures` в `-Json`) и
+   `artifacts/verify/test/failures.txt` (TRX и вывод прогонов — там же).
 3. Провал называет тик и значение; запись сценария — `session.start {"replay":"…/scenario-X.swreplay"}`. Ослабить манифест — только
    правкой файла с сообщением пользователю.
 4. Новая фича — `feature.json` рядом с md (тест `FeatureManifestsTests`: манифест есть, чек-лист = пункты «Что проверить в игре»).

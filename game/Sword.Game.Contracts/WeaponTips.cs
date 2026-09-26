@@ -25,15 +25,16 @@ public interface IWeaponTips
     /// <summary>Оружия в таблице (номера 0 … N − 1; до постройки мира — 0).</summary>
     int WeaponCount { get; }
 
-    /// <summary>Имя оружия (файл пака без расширения: <c>sword_1h</c>, позже <c>torch</c>).</summary>
+    /// <summary>Имя оружия (файл пака без расширения: <c>sword_1h</c>, <c>torch</c>).</summary>
     string WeaponName(int weapon);
 
     /// <summary>Номер оружия по имени без учёта регистра; нет — −1.</summary>
     int FindWeapon(string name);
 
     /// <summary>
-    /// Оружие бойцов после последнего сыгранного тика — по одному на бойца с оружием, в порядке мира; вернёт, сколько их всего (записано не
+    /// Оружие бойцов после последнего сыгранного тика — по одному на бойца с оружием, в порядке мира; <paramref name="playerOnly"/> — только
+    /// игрока (остальных бойцов, их трупов и выпавшего оружия не считает: огню нужен только игрок). Вернёт, сколько их всего (записано не
     /// больше <paramref name="into"/>.Length). Без выделений.
     /// </summary>
-    int Read(Span<WeaponTip> into);
+    int Read(Span<WeaponTip> into, bool playerOnly);
 }

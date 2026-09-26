@@ -204,6 +204,30 @@ public sealed class FireModuleTests
     }
 
     [Fact]
+    public void WeaponTips_PlayerOnly_SkipsOtherFightersAndCorpses_AllReadsEveryone()
+    {
+        // Игрок и три врага; враг места 1 убит — его оружие выпало. Всё — четыре оружия (одно выпавшее); только игрок — одно, кончик его клинка.
+        var scene = new Scene(ticksPerFrame: 1, AllBurn);
+        scene.Frames(5);
+        scene.Pending.Add(new SceneCommand { Action = SceneAction.Kill, Slot = 1 });
+        scene.Frames(30);
+        var tips = new ArenaWeaponTips(scene.Clock.Link);
+        var buffer = new WeaponTip[8];
+        var all = buffer.AsSpan(0, tips.Read(buffer, playerOnly: false)).ToArray();
+        Assert.Equal(4, all.Length);
+        Assert.Equal([0, 1, 2, 3], all.Select(t => t.Slot).Order());
+        Assert.True(Assert.Single(all, t => t.Slot == 1).Dropped);
+        var player = Assert.Single(buffer.AsSpan(0, tips.Read(buffer, playerOnly: true)).ToArray());
+        Assert.Equal((0, true, false), (player.Slot, player.IsPlayer, player.Dropped));
+        Assert.Equal(scene.Tips[^1].Tip, player.Tip);
+        // Буфер мал — пишет, сколько влезло, и возвращает, сколько всего.
+        Assert.Equal(4, tips.Read(buffer.AsSpan(0, 2), playerOnly: false));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++) tips.Read(buffer, playerOnly: true);
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
     public void MissingWeapon_NoFire_DisabledModule_NotConfigured()
     {
         // В синтетическом паке факела нет (значение в коде — torch): огня нет, имя — в missing.

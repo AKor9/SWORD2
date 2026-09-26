@@ -74,7 +74,7 @@ public sealed class FireTracker
     private readonly bool[] _burning;
     private readonly Fire[] _fires;
     private int _count;
-    private WeaponTip[] _buffer = new WeaponTip[64];
+    private WeaponTip[] _buffer = new WeaponTip[4];
 
     public FireTracker(FireSettings settings, IWeaponTips? tips)
     {
@@ -129,11 +129,12 @@ public sealed class FireTracker
     {
         ObservedTicks++;
         if (_tips is null) return;
-        int n = _tips.Read(_buffer);
+        // Огонь — только у игрока (решение 5): прочие бойцы и их трупы не читаются.
+        int n = _tips.Read(_buffer, playerOnly: true);
         if (n > _buffer.Length)
         {
             _buffer = new WeaponTip[Math.Max(n, _buffer.Length * 2)];
-            n = _tips.Read(_buffer);
+            n = _tips.Read(_buffer, playerOnly: true);
         }
         for (int f = 0; f < _count; f++) _fires[f].Seen = false;
         for (int i = 0; i < n; i++) Update(tick, _buffer[i]);

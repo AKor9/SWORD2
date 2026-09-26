@@ -447,6 +447,78 @@ public sealed class FeatureTests : IDisposable
         Assert.Contains("вид end: App нет", all);
     }
 
+    /// <summary>
+    /// Ожидания вида (<c>views[].expect</c>) по итогу App рядом с PNG: <c>*</c> — каждый элемент объекта, индекс массива, диапазон и равенство
+    /// (числа — как числа: 0 = 0.0); значение не то, пути нет, <c>*</c> пусто, итога App нет — провал вида словами с путём; ошибки разбора — с
+    /// местом в манифесте.
+    /// </summary>
+    [Fact]
+    public void Verify_ViewExpect_ReadsAppJson_FailuresNamePath()
+    {
+        RecordReplay("rec.swreplay", 30);
+        const string Expect = """
+            , "expect": [
+                { "path": "fire.checks.*", "equals": true },
+                { "path": "fire.metrics[0].flame.heightCm", "min": 20, "max": 40 },
+                { "path": "fire.light.added", "equals": 0 },
+                { "path": "fire.gpu", "equals": "ok" }
+              ] }]
+            """;
+        string json = Good().Replace("\"overlays\": [\"capsules\"] }]", "\"overlays\": [\"capsules\"]" + Expect);
+        var m = FeatureManifest.Load(Manifest(json)) with { Budgets = [] };
+        Assert.Equal(4, m.Views[0].Expect.Count);
+        Assert.Equal(["= true", "20…40", "= 0", "= \"ok\""], m.Views[0].Expect.Select(e => e.Expected));
+
+        FeatureReport Run(string? app) => FeatureVerifier.Verify(m, Env((r, _) =>
+        {
+            File.WriteAllBytes(r.Png, [1]);
+            string report = Path.ChangeExtension(r.Png, ".json");
+            if (app is null) File.Delete(report);
+            else File.WriteAllText(report, app);
+            return new ViewResult(true, "снят");
+        }), new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out"), Budgets = false });
+
+        const string App = """{ "fire": { "gpu": "ok", "checks": { "finite": true, "bounded": true }, "metrics": [{ "flame": { "heightCm": 29.3 } }], "light": { "added": 0.0 } } }""";
+        var ok = Run(App);
+        Assert.True(ok.Ok, string.Join("\n", ok.Failures));
+        var view = ok.Json["views"]![0]!;
+        Assert.True(view["ok"]!.GetValue<bool>());
+        var checks = view["expect"]![0]!["values"]!.AsArray();
+        Assert.Equal(["fire.checks.finite", "fire.checks.bounded"], checks.Select(c => c!["path"]!.GetValue<string>()));
+        Assert.Equal(29.3, view["expect"]![1]!["values"]![0]!["value"]!.GetValue<double>());
+
+        string Failures(string? app)
+        {
+            var report = Run(app);
+            Assert.False(report.Ok);
+            Assert.False(report.Json["views"]![0]!["ok"]!.GetValue<bool>());
+            return string.Join("\n", report.Failures);
+        }
+        Assert.Contains("вид end: ожидание fire.checks.bounded = false; ждали = true",
+            Failures(App.Replace("\"bounded\": true", "\"bounded\": false")));
+        Assert.Contains("вид end: ожидание fire.metrics[0].flame.heightCm = 45; ждали 20…40", Failures(App.Replace("29.3", "45")));
+        Assert.Contains("вид end: ожидание fire.metrics[0].flame.heightCm = \"29\"; ждали 20…40", Failures(App.Replace("29.3", "\"29\"")));
+        Assert.Contains("вид end: ожидание fire.light.added = 1; ждали = 0", Failures(App.Replace("0.0", "1")));
+        Assert.Contains("вид end: ожидание fire.gpu: нет fire.gpu", Failures(App.Replace("\"gpu\"", "\"gpu2\"")));
+        Assert.Contains("вид end: ожидание fire.checks.*: fire.checks — пусто", Failures(App.Replace("\"finite\": true, \"bounded\": true", "")));
+        Assert.Contains("вид end: ожидание fire.metrics[0].flame.heightCm: нет fire.metrics[0] (элементов 0)",
+            Failures(App.Replace("[{ \"flame\": { \"heightCm\": 29.3 } }]", "[]")));
+        Assert.Contains("вид end: ожиданиям нужен итог App view-end.json, а его нет", Failures(null));
+        Assert.Contains("вид end: итог App view-end.json — не JSON", Failures("{"));
+
+        void Bad(string from, string to, string expected)
+        {
+            Assert.Contains(from, json);
+            Assert.Contains(expected, Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace(from, to)))).Message);
+        }
+        Bad("\"fire.checks.*\"", "\"fire..checks\"", "views[0].expect[0].path «fire..checks»: пустое имя");
+        Bad("\"fire.checks.*\"", "\"fire.metrics[x]\"", "views[0].expect[0].path «fire.metrics[x]»: индекс");
+        Bad("\"min\": 20, \"max\": 40", "\"min\": 40, \"max\": 20", "views[0].expect[1]: min 40 больше max 20");
+        Bad("\"equals\": 0 }", "\"equals\": 0, \"min\": 1 }", "views[0].expect[2]: нужно equals или min/max");
+        Bad("\"equals\": 0 }", "\"equals\": { \"a\": 1 } }", "views[0].expect[2].equals: число, строка или true/false");
+        Bad("\"equals\": 0 }", "\"is\": 0 }", "views[0].expect[2].is: неизвестный ключ");
+    }
+
     [Fact]
     public void Verify_InvariantViolation_FailsScenario()
     {

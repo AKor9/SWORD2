@@ -4,7 +4,7 @@
 для эффектов, которые различаются только параметрами: потребитель — модуль огня `Sword.Game.Fire.Client`; режимы крови и песка есть
 в `Fluid2DParams`, потребителей у них нет. Игру не знает. Формулы и числа — `artifacts/research/fluidninja/fire-smoke-research.md` (FSR) §3.2–§3.6 и `brush-research.md` (BR) §3–§4, §6, §8.2, §9
 (решения пользователя 3: «порт формул и чисел L2 с записанными отступлениями» и 11: детерминированная кисть BR §8.2 с решениями (a)–(e) по
-рекомендациям). Правила — [AGENTS.md](AGENTS.md), история — [docs/history/stage-f.md](../../docs/history/stage-f.md) (Ф2, Ф3).
+рекомендациям). Правила — [AGENTS.md](AGENTS.md), история — [docs/history/stage-f.md](../../docs/history/stage-f.md).
 
 ## Устройство
 

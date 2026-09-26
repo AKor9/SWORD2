@@ -9,11 +9,13 @@
                             той же конфигурации — все ассеты upToDate; иначе — ошибка с командой выпечки (без него
                             игра и тесты взяли бы эталонный пак, а эталоны отвергались бы по хешу контента);
                             -SkipReference — пропустить;
-      test                  тесты решения, в том числе архитектурные и GPU-тесты рендера (категория Gpu:
-                            устройство D3D12 с GPU-валидацией; -SkipGpu — без них) и тесты на шрифтах пака
-                            (категория Content; -SkipReference — без них) и выпечка исходников пекарни со сверкой
-                            с эталонным паком (категория Source: отдельным прогоном после остальных, без исходников —
-                            пропуск; -SkipReference — без неё);
+      test                  тесты решения, в том числе архитектурные и тесты на шрифтах пака (категория Content;
+                            -SkipReference — без них); GPU-тесты (категория Gpu: устройство D3D12 с GPU-валидацией;
+                            -SkipGpu — без них) — отдельным прогоном после остальных, проект за проектом (проекты — по
+                            исходникам tests/: есть Trait Category=Gpu); выпечка исходников пекарни со сверкой
+                            с эталонным паком (категория Source: последним прогоном, без исходников — пропуск;
+                            -SkipReference — без неё); TRX и вывод каждого прогона — artifacts/verify/test, упавшие тесты
+                            с текстом ошибки — в итоге шага (failures в -Json) и artifacts/verify/test/failures.txt;
       forbidden-references  заготовки tests/fixtures/forbidden-references/SWORD00N-*: каждая обязана упасть со своим
                             кодом — иначе проверка ссылок в сборке сломана;
       without-agent         App и Headless с -p:WithoutAgent=true собираются и не содержат сборок агента;
@@ -268,6 +270,8 @@ function Add-Step([string]$Name, [scriptblock]$Body) {
     }
     $watch.Stop()
     $step = [ordered]@{ name = $Name; ok = $ok; seconds = [math]::Round($watch.Elapsed.TotalSeconds, 1); detail = $detail }
+    if ($result -is [hashtable] -and $result.ContainsKey('failures')) { $step.failures = @($result.failures) }
+    if ($result -is [hashtable] -and $result.ContainsKey('artifacts')) { $step.artifacts = [string]$result.artifacts }
     $steps.Add($step)
     if (-not $Json) {
         $mark = if ($ok) { 'OK  ' } else { 'FAIL' }
@@ -318,23 +322,69 @@ else {
     }
 }
 
+# Упавшие тесты из TRX каталога: имя, сообщение, стек, вывод теста.
+function Get-TrxFailures([string]$Dir) {
+    foreach ($file in @(Get-ChildItem $Dir -Recurse -Filter '*.trx' -File -ErrorAction SilentlyContinue)) {
+        $xml = New-Object System.Xml.XmlDocument
+        $xml.Load($file.FullName)
+        foreach ($r in @($xml.GetElementsByTagName('UnitTestResult') | Where-Object { $_.outcome -eq 'Failed' })) {
+            $info = $r.Output.ErrorInfo
+            [pscustomobject]@{
+                Test = [string]$r.testName; Message = ([string]$info.Message).Trim(); Stack = ([string]$info.StackTrace).Trim()
+                StdOut = ([string]$r.Output.StdOut).Trim(); Trx = $file.Name
+            }
+        }
+    }
+}
+
 Add-Step 'test' {
     # Тесты идут без пересборки: после упавшей сборки они проверяли бы старые сборки.
     if (-not $script:buildOk) { return @{ ok = $false; detail = 'не запускались: сборка не прошла' } }
-    # Выпечка исходников (категория Source) десятки секунд занимает все ядра — она идёт отдельно, после остальных тестов:
-    # параллельно с ними ломала тесты на настоящих часах (профайлер: «аномалии не было»).
-    $skip = @('Category!=Source')
-    if ($SkipGpu) { $skip += 'Category!=Gpu' }
-    if ($SkipReference) { $skip += 'Category!=Content' }
-    $out = & dotnet test $solution -c $Configuration --no-build -nologo --filter ($skip -join '&') | Out-String
-    $ok = $LASTEXITCODE -eq 0
-    $detail = Get-Lines $out 'Passed!|Failed!|\[FAIL\]' 6
-    if (-not $SkipReference) {
-        $source = & dotnet test $solution -c $Configuration --no-build -nologo --filter 'Category=Source' | Out-String
-        $ok = $ok -and $LASTEXITCODE -eq 0
-        $detail += ' | Source: ' + (Get-Lines $source 'Passed!|Failed!|\[FAIL\]' 4)
+    $dir = Join-Path $root 'artifacts\verify\test'
+    if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
+    $null = New-Item -ItemType Directory -Force $dir
+    # Прогоны по очереди; TRX каждого (упавшие — с текстом ошибки) и вывод — в artifacts/verify/test.
+    $runs = New-Object System.Collections.Generic.List[object]
+    function Invoke-Tests([string]$Name, [string]$Target, [string[]]$Filter) {
+        $out = & dotnet test $Target -c $Configuration --no-build -nologo --filter ($Filter -join '&') --logger "trx;LogFilePrefix=$Name" --results-directory $dir | Out-String
+        $code = $LASTEXITCODE
+        [System.IO.File]::WriteAllText((Join-Path $dir "$Name.log"), $out)
+        $runs.Add([pscustomobject]@{ Name = $Name; Ok = $code -eq 0; Summary = (Get-Lines $out 'Passed!|Failed!|\[FAIL\]|Test Run Aborted|aborted' 6) })
     }
-    @{ ok = $ok; detail = $detail }
+    $content = if ($SkipReference) { @('Category!=Content') } else { @() }
+    # Остальные тесты — параллельно по проектам. GPU-тесты — отдельно, проект за проектом: в одном прогоне решения несколько
+    # процессов с устройством D3D12 под GPU-валидацией делили одну видеокарту (внутри проекта они и так в одной коллекции без
+    # параллельности). Выпечка исходников (категория Source) десятки секунд занимает все ядра — последней: параллельно с
+    # остальными ломала тесты на настоящих часах (профайлер: «аномалии не было»).
+    Invoke-Tests 'main' $solution (@('Category!=Source', 'Category!=Gpu') + $content)
+    if (-not $SkipGpu) {
+        $gpu = @(Get-ChildItem (Join-Path $root 'tests') -Directory | Where-Object {
+            @(Get-ChildItem $_.FullName -Filter '*.csproj' -File).Count -gt 0 -and
+            @(Get-ChildItem $_.FullName -Recurse -Filter '*.cs' -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } |
+                Select-String -Pattern 'Trait("Category", "Gpu")' -SimpleMatch -List).Count -gt 0
+        })
+        foreach ($project in $gpu) {
+            $csproj = @(Get-ChildItem $project.FullName -Filter '*.csproj' -File)[0].FullName
+            Invoke-Tests "gpu-$($project.Name)" $csproj (@('Category=Gpu', 'Category!=Source') + $content)
+        }
+    }
+    if (-not $SkipReference) { Invoke-Tests 'source' $solution @('Category=Source') }
+    $ok = @($runs | Where-Object { -not $_.Ok }).Count -eq 0
+    $detail = ($runs | ForEach-Object { if ($_.Name -eq 'main') { $_.Summary } else { "$($_.Name): $($_.Summary)" } }) -join ' | '
+    $failed = @(Get-TrxFailures $dir)
+    $result = @{ ok = $ok; artifacts = $dir }
+    if ($failed.Count -gt 0) {
+        $text = foreach ($f in $failed) { "== $($f.Test) ($($f.Trx))`r`n$($f.Message)`r`n$($f.Stack)`r`n$(if ($f.StdOut) { "-- вывод теста:`r`n$($f.StdOut)`r`n" })" }
+        $file = Join-Path $dir 'failures.txt'
+        [System.IO.File]::WriteAllText($file, ($text -join "`r`n"))
+        $first = { param($m) $line = ($m -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1); if ($line.Length -gt 200) { $line.Substring(0, 200) + '…' } else { $line } }
+        $detail += " | упали ($($failed.Count)): " + (($failed | Select-Object -First 5 | ForEach-Object { "$($_.Test): $(& $first $_.Message)" }) -join '; ') +
+            " — полностью: artifacts\verify\test\failures.txt"
+        $result.failures = @($failed | ForEach-Object { $m = $_.Message; if ($m.Length -gt 1000) { $m = $m.Substring(0, 1000) + '…' }; "$($_.Test): $m" })
+    }
+    elseif (-not $ok) { $detail += ' | упавших тестов в TRX нет (прогон прерван?) — вывод: artifacts\verify\test\<прогон>.log' }
+    $result.detail = $detail
+    $result
 }
 
 Add-Step 'forbidden-references' {
@@ -1436,7 +1486,7 @@ if ($Json) {
     $summary = [ordered]@{ ok = $allOk; configuration = $Configuration }
     if ($onlySteps.Count -gt 0) { $summary.only = $onlySteps }
     $summary.steps = $steps
-    $summary | ConvertTo-Json -Depth 4 -Compress
+    $summary | ConvertTo-Json -Depth 5 -Compress
 }
 else {
     Write-Host ''

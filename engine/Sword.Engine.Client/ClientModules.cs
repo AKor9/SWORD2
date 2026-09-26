@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Render;
 using Sword.Engine.Runtime;
@@ -349,7 +350,7 @@ public sealed class ClientModules : IDisposable
         {
             var context = new ClientModuleContext(m.Id, renderer, camera, m.Owned);
             foreach (var init in m.Initializers) init(context);
-            foreach (var (sim, _) in m.Simulations) sim.Create(new GpuSimContext(m.Id, sim, renderer, _dt, m.Owned));
+            foreach (var (sim, _) in m.Simulations) sim.Create(new GpuSimContext(m.Id, sim, renderer, m.Owned));
         }
     }
 
@@ -380,7 +381,7 @@ public sealed class ClientModules : IDisposable
     }
 
     /// <summary>Тики этого кадра (с начала <see cref="BeginFrame"/>) и заявки <paramref name="requests"/> GPU-симуляции.</summary>
-    public SimFrame Frame(SimRequests? requests = null) => new(_firstTick, _ticks, _dt, requests);
+    public SimFrame Frame(SimRequests? requests = null) => new(_firstTick, _ticks, requests);
 
     /// <summary>Извлечение кадра модулями — после извлечения игры.</summary>
     public void Extract(in FrameView view)
@@ -421,13 +422,6 @@ public sealed class ClientModules : IDisposable
         }
     }
 
-    /// <summary>Шаги GPU-симуляций без рендера (тесты шага по тикам): <paramref name="frame"/> им не нужен.</summary>
-    internal void StepSimulations(RenderFrame frame)
-    {
-        foreach (var m in _active)
-            foreach (var (sim, requests) in m.Simulations) sim.AddPasses(frame, Frame(requests));
-    }
-
     private static void Check(RenderFrame frame, Module m, int from, FramePhase phase, string? simulation)
     {
         for (int i = from; i < frame.Graph.Registered; i++)
@@ -452,16 +446,30 @@ public sealed class ClientModules : IDisposable
     public IEnumerable<(string Id, object? Value)> Sections() =>
         _active.Where(m => m.Report is not null).Select(m => (m.Id, m.Report!()));
 
-    /// <summary>Ресурсы модулей — после ожидания GPU (хост), в обратном порядке.</summary>
+    /// <summary>
+    /// Ресурсы модулей — после ожидания GPU (хост), в обратном порядке. Исключение одного ресурса (например, закрытие модуля, отданное
+    /// во владение) не мешает освободить остальные: оно — после всех (несколько — <see cref="AggregateException"/>).
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        List<Exception>? errors = null;
         for (int i = _active.Count - 1; i >= 0; i--)
         {
             var owned = _active[i].Owned;
-            for (int k = owned.Count - 1; k >= 0; k--) owned[k].Dispose();
+            for (int k = owned.Count - 1; k >= 0; k--)
+                try
+                {
+                    owned[k].Dispose();
+                }
+                catch (Exception e)
+                {
+                    (errors ??= []).Add(e);
+                }
             owned.Clear();
         }
+        if (errors is [var single]) ExceptionDispatchInfo.Throw(single);
+        if (errors is not null) throw new AggregateException("освобождение клиентских модулей", errors);
     }
 }

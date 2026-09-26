@@ -2,7 +2,8 @@
 // игрока (combat.playerWeapon=torch, индекс 6 в паке — последний), бег, замахи, смерть командой сцены (факел выпадает — огонь гаснет), T с
 // факела и обратно; её проверки — оружие в руке, жив/мёртв, удары. Огонь сам — виды App по записи сценария (Sword.exe --replay, ночь —
 // tune light.night=1): PNG и итог --json рядом (view-<id>.json: fire.metrics — высота и ширина пламени, доля ядра, столб дыма; fire.checks;
-// fire.light, fire.smoke.stats). Бюджет — кадр App на записи «стоя» крупным планом ночью и GPU-время проходов огня (fire.* — пламя, дым,
+// fire.light, fire.smoke.stats); expect вида — ожидания по нему (поле конечно и в пределах, пламя стоя ночью по fire.metrics с запасом от
+// замера 29.3 см / ядро 0.667 / дым 39.9 см над пламенем; огонь горит — пламя, дым и свет есть; погас — нет). Бюджет — кадр App на записи «стоя» крупным планом ночью и GPU-время проходов огня (fire.* — пламя, дым,
 // статистика дыма; fluid.* — шаг сима), Release. Решения и замеры — README модуля и docs/history/stage-f.md. Формат — FeatureManifest
 // (Sword.Engine.Introspection), исполняет feature.verify (Sword.Headless --feature fire). Ослабить ожидания — только правкой с сообщением
 // пользователю.
@@ -125,35 +126,114 @@
   "views": [
     {
       "id": "stand-night", "title": "ночь, 6 м: пламя над шишкой, дым вверх, тёплый свет на игроке, полу и двух врагах рядом (view-stand-night.json: fire.metrics)",
-      "scenario": "stand", "tick": 600, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"]
+      "scenario": "stand", "tick": 600, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 20, "max": 40 },
+        { "path": "fire.metrics[0].coreShare", "min": 0.45, "max": 0.85 },
+        { "path": "fire.metrics[0].smokeAboveFlameCm", "min": 20 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     },
     {
-      "id": "stand-day", "title": "день, 6 м: пламя и светлый дым", "scenario": "stand", "tick": 600, "camera": "0.6,0.95,6,0,0"
+      "id": "stand-day", "title": "день, 6 м: пламя и светлый дым", "scenario": "stand", "tick": 600, "camera": "0.6,0.95,6,0,0",
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 10 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     },
     {
       "id": "stand-overlay", "title": "ночь, 6 м, оверлеи fire (рамка площадки, центр шага, точка кисти) и lights (свет факела)",
-      "scenario": "stand", "tick": 600, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"], "overlays": ["fire", "lights"]
+      "scenario": "stand", "tick": 600, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"], "overlays": ["fire", "lights"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 10 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     },
     {
-      "id": "stand-steep", "title": "ночь, наклон 80°: пламя к камере", "scenario": "stand", "tick": 600, "camera": "0.6,1.4,8,0,0", "tune": ["light.night=1"]
+      "id": "stand-steep", "title": "ночь, наклон 80°: пламя к камере", "scenario": "stand", "tick": 600, "camera": "0.6,1.4,8,0,0", "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 10 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     },
     {
-      "id": "run-night", "title": "ночь, бег (камера за игроком): пламя и дым тянутся назад", "scenario": "run", "tick": 360, "tune": ["light.night=1"]
+      "id": "run-night", "title": "ночь, бег (камера за игроком): пламя и дым тянутся назад", "scenario": "run", "tick": 360, "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 10 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     },
     {
-      "id": "swing-night", "title": "ночь, 6 м, замах: огонь идёт за шишкой", "scenario": "swing", "tick": 470, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"]
+      "id": "swing-night", "title": "ночь, 6 м, замах: огонь идёт за шишкой", "scenario": "swing", "tick": 470, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 10 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     },
     {
-      "id": "death-burning", "title": "ночь, 6 м, за миг до смерти: факел горит", "scenario": "death", "tick": 236, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"]
+      "id": "death-burning", "title": "ночь, 6 м, за миг до смерти: факел горит", "scenario": "death", "tick": 236, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 10 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     },
     {
-      "id": "death-out", "title": "ночь, 6 м, 3 с после смерти: факел на земле, огня, дыма и света нет", "scenario": "death", "tick": 600, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"]
+      "id": "death-out", "title": "ночь, 6 м, 3 с после смерти: факел на земле, огня, дыма и света нет", "scenario": "death", "tick": 600, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.flame.quads", "equals": 0 },
+        { "path": "fire.smoke.volumes", "equals": 0 },
+        { "path": "fire.light.added", "equals": 0 }
+      ]
     },
     {
-      "id": "switch-sword", "title": "ночь, 6 м: после T меч, огня нет", "scenario": "switch", "tick": 400, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"]
+      "id": "switch-sword", "title": "ночь, 6 м: после T меч, огонь погас (гаснет 1,5 с), огня, дыма и света нет", "scenario": "switch", "tick": 470,
+      "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.flame.quads", "equals": 0 },
+        { "path": "fire.smoke.volumes", "equals": 0 },
+        { "path": "fire.light.added", "equals": 0 }
+      ]
     },
     {
-      "id": "switch-torch", "title": "ночь, 6 м: снова факел — огонь заново", "scenario": "switch", "tick": 700, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"]
+      "id": "switch-torch", "title": "ночь, 6 м: снова факел — огонь заново", "scenario": "switch", "tick": 700, "camera": "0.6,0.95,6,0,0", "tune": ["light.night=1"],
+      "expect": [
+        { "path": "fire.checks.*", "equals": true },
+        { "path": "fire.metrics[0].state", "equals": "burning" },
+        { "path": "fire.metrics[0].flame.heightCm", "min": 10 },
+        { "path": "fire.flame.quads", "equals": 1 },
+        { "path": "fire.smoke.volumes", "equals": 1 },
+        { "path": "fire.light.added", "equals": 1 }
+      ]
     }
   ],
   "budgets": [

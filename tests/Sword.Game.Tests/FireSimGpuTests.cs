@@ -19,7 +19,7 @@ namespace Sword.Game.Tests;
 
 /// <summary>
 /// Сим огня на шишке факела на настоящем устройстве и паке (слой отладки D3D12): клиент арены и модуль огня в одном кадре, как у
-/// <c>ClientHost</c>. Шаг — каждый второй тик; на бегу k = 0.35 и шлейф ρ позади головки; поля не зависят от разбиения тиков по кадрам и
+/// <c>ClientHost</c>. Шаг — каждый второй тик; на бегу k = 0.35 и шлейф ρ позади головки, стоя — над ней, не вбок; поля не зависят от разбиения тиков по кадрам и
 /// от кадров паузы (бит в бит); кадр модуля — 0 Б; горящего оружия нет в паке — ни сима, ни шумов, ни проходов. Категории Gpu и Content.
 /// </summary>
 [Collection("game-gpu")]
@@ -139,39 +139,54 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
         return FireModule.Hash(MemoryMarshal.AsBytes(fields.Composite.AsSpan()), FireModule.Hash(MemoryMarshal.AsBytes(brush.AsSpan()), 14695981039346656037UL));
     }
 
-    [Fact]
-    public void Running_TrailBehindHead_StandingRisesAbove()
+    /// <summary>
+    /// 2 с (240 тиков, по 2 за кадр): шагов 120 — каждый второй тик; центроид ρ от центра площадки (центр шишки шага) в осях вида, см: позади
+    /// головки по бегу (+x — мировая x при повороте камеры 0), над ней; k последнего шага.
+    /// </summary>
+    private (float Behind, float Above, float K) Measure(Func<ulong, PlayerCommand> command)
     {
-        // 2 с (240 тиков, по 2 за кадр): шагов 120 — каждый второй тик; бег вдоль +x (x вида — мировая x при повороте камеры 0).
-        (float Behind, float Above, float K) Measure(Func<ulong, PlayerCommand> command)
+        (float, float, float) result = default;
+        Run([], Enumerable.Repeat(2, 120), command, (_, _, fire, _) =>
         {
-            (float, float, float) result = default;
-            Run([], Enumerable.Repeat(2, 120), command, (_, _, fire, _) =>
-            {
-                var sim = fire.Sims[0];
-                Assert.Equal(FireState.Burning, sim.Slot.State);
-                Assert.Equal(120, sim.GpuSteps);
-                Assert.Equal(120, sim.Slot.Steps);
-                var stats = Fluid2DStats.Compute(sim.Sim!.ReadFields(), sim.Sim.LastStep ?? 0);
-                var p = sim.Sim.Params;
-                Assert.Equal(0, stats.NonFinite);
-                Assert.True(stats.MaxDensity <= 1f && stats.MaxSpeed <= p.VelocityClamp * MathF.Sqrt(2), $"ρ {stats.MaxDensity}, |v| {stats.MaxSpeed}");
-                Assert.True(stats.DensitySum > 50, $"Σρ {stats.DensitySum}");
-                // Центроид ρ от центра площадки (центр шишки шага) в осях вида, см: x — вправо (по бегу), y — вверх.
-                float x = (stats.Centroid.X - 0.5f) * p.Extents.X * 100f, y = -(stats.Centroid.Y - 0.5f) * p.Extents.Y * 100f;
-                var right = Vector3.Transform(Vector3.UnitX, sim.Rotation);
-                Assert.True(right.X > 0.99f, $"ось x площадки {right}");
-                output.WriteLine($"Σρ {stats.DensitySum:F1}, max|v| {stats.MaxSpeed:F3}, центроид {x:F1}, {y:F1} см, k {sim.K:F3}, Δ {sim.Delta * 100} см");
-                result = (-x, y, sim.K);
-            });
-            return result;
-        }
+            var sim = fire.Sims[0];
+            Assert.Equal(FireState.Burning, sim.Slot.State);
+            Assert.Equal(120, sim.GpuSteps);
+            Assert.Equal(120, sim.Slot.Steps);
+            var stats = Fluid2DStats.Compute(sim.Sim!.ReadFields(), sim.Sim.LastStep ?? 0);
+            var p = sim.Sim.Params;
+            Assert.Equal(0, stats.NonFinite);
+            Assert.True(stats.MaxDensity <= 1f && stats.MaxSpeed <= p.VelocityClamp * MathF.Sqrt(2), $"ρ {stats.MaxDensity}, |v| {stats.MaxSpeed}");
+            Assert.True(stats.DensitySum > 50, $"Σρ {stats.DensitySum}");
+            // Центроид ρ от центра площадки (центр шишки шага) в осях вида, см: x — вправо (по бегу), y — вверх.
+            float x = (stats.Centroid.X - 0.5f) * p.Extents.X * 100f, y = -(stats.Centroid.Y - 0.5f) * p.Extents.Y * 100f;
+            var right = Vector3.Transform(Vector3.UnitX, sim.Rotation);
+            Assert.True(right.X > 0.99f, $"ось x площадки {right}");
+            output.WriteLine($"Σρ {stats.DensitySum:F1}, max|v| {stats.MaxSpeed:F3}, центроид {x:F1}, {y:F1} см, k {sim.K:F3}, Δ {sim.Delta * 100} см");
+            result = (-x, y, sim.K);
+        });
+        return result;
+    }
+
+    /// <summary>
+    /// Шлейф на бегу позади головки — длиннее, стоя вбок — меньше половины (замер: 37.5 и 9.4 см): тесты со своими прогонами вместе дают
+    /// «стоя вбок меньше половины шлейфа бега».
+    /// </summary>
+    private const float TrailCm = 30;
+
+    [Fact]
+    public void Running_TrailBehindHead()
+    {
         var run = Measure(RunX);
-        var stand = Measure(Stand);
         Assert.Equal(0.35f, run.K);
-        Assert.True(run.Behind > 15, $"на бегу центроид ρ позади головки на {run.Behind:F1} см");
+        Assert.True(run.Behind > TrailCm, $"на бегу центроид ρ позади головки на {run.Behind:F1} см");
+    }
+
+    [Fact]
+    public void Standing_RisesAboveHead_NotSideways()
+    {
+        var stand = Measure(Stand);
         Assert.True(stand.Above > 5, $"стоя центроид ρ над головкой на {stand.Above:F1} см");
-        Assert.True(Math.Abs(stand.Behind) < run.Behind / 2, $"стоя по x {stand.Behind:F1} см");
+        Assert.True(Math.Abs(stand.Behind) < TrailCm / 2, $"стоя по x {stand.Behind:F1} см");
     }
 
     [Fact]

@@ -103,6 +103,8 @@
 - Огонь: вид — `views[].tune` (клиентские ручки App `--tune`, «группа.ключ=значение», `light.night=1` — ночь; в реплей не идут), итог App
   `--json` — рядом с PNG (`view-<id>.json`, в отчёте вида — `json`); бюджет кадра — `frame.camera` (`--camera`), `frame.tune`, `frame.gpu`
   (`{"fire": 0.5}`: сумма GPU-времени проходов бенча `report.bench.passes` с именем ключа или «ключ.…»; как время — только в Release, ни
-  одного прохода — провал в любой сборке). Проверка — `FeatureTests.Verify_FrameBudget_GpuPassesCameraTune`.
+  одного прохода — провал в любой сборке). Проверка — `FeatureTests.Verify_FrameBudget_GpuPassesCameraTune`. Ожидания вида — `views[].expect`
+  (`ViewExpectation`): путь в итоге App (`fire.checks.*` — каждый элемент, `fire.metrics[0].flame.heightCm`), `equals` или `min`/`max`; не
+  то значение, нет пути, пустое `*`, нет итога App — провал вида словами с путём. Проверка — `FeatureTests.Verify_ViewExpect_ReadsAppJson_FailuresNamePath`.
 
 Проверка: `tests/Sword.Engine.Introspection.Tests`; причинность — `Sword.Game.Tests/CausalityTests` (нужна игра: бой).

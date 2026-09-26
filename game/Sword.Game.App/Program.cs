@@ -37,7 +37,7 @@ public static partial class Program
     /// Связать панели DevTools с игрой (DevToolsMode.cs): группы ручек клиента игры (заводятся в его <c>Initialize</c> — после
     /// создания клиента движка) и включённых клиентских модулей, сохранение и загрузка, край под HUD. В сборке без DevTools вызова нет.
     /// </summary>
-    static partial void ConnectDevTools(IReadOnlyList<IClientPanel> panels, ArenaClient arena, ClientModules modules);
+    static partial void ConnectDevTools(IReadOnlyList<IClientPanel> panels, ClientHost client, ArenaClient arena, ClientModules modules);
 
     /// <summary>
     /// Переменная окружения: окно без фокуса по умолчанию (как <c>--no-activate</c>). Её задают настройки Claude Code
@@ -98,7 +98,7 @@ public static partial class Program
           WASD — ход относительно камеры, Shift — шагом, курсор на земле — куда смотреть;
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
           F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, последняя
-          аномалия, строка среды; включает профайлер); F4 — снимок; Esc — выход;
+          аномалия, строка среды; включает профайлер); F4 — снимок; V — vsync вкл/выкл; Esc — выход;
           PageUp/PageDown — врагов ±1, R — сброс арены, T — следующее оружие (команды арены — в реплее); F7 — капсулы тел
           и клинки поверх персонажей; J — суставы тел, K — контакты физики (включает трассу физики, пока показаны);
           M — траектории Motion Matching игрока (запрос поиска, найденный кадр, история, стопы на земле);
@@ -106,12 +106,13 @@ public static partial class Program
           F3 — ручки «Бой» (урон, острота, враги нападают, игрок неуязвим, рывок) и «Рэгдолл» (трение, выталкивание,
           мягкость суставов, потолки трупа, скорости при смерти, толчок; трупы в кадре); изменение — команда в реплее,
           «сохранить» — секция combat или ragdoll в sword.user.json; «Свет» (ночь, тестовый факел, экспозиция, bloom) —
-          ручки рендера, «Огонь» (оверлей, вид поля, скорость сима, затухание, кисть, k) — модуля огня: в реплей не идут и не сохраняются.
+          ручки рендера, «Огонь» (оверлей, вид поля, скорость сима, затухание, кисть, k) — модуля огня, «Графика» (vsync) — показа:
+          в реплей не идут и не сохраняются.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
           --fullscreen      окно без рамы на весь монитор
-          --vsync           вертикальная синхронизация
+          --vsync           вертикальная синхронизация (на ходу — V или вкладка «Графика» панели F3)
           --debug           отладочный слой D3D12
           --gpu-validation  отладочный слой с GPU-валидацией (состояния ресурсов из bindless-кучи; медленно)
           --frames N        выйти после N кадров (проверочный прогон)
@@ -289,7 +290,7 @@ public static partial class Program
                 profiler = client.Profiler;
                 foreach (var panel in panels) client.AddPanel(panel);
                 if (client.Panels is { } layer) layer.Scale = Hud.Scale;   // панели — в масштабе HUD (SWORD: Hud.UiScale)
-                ConnectDevTools(panels, arena, clientModules);
+                ConnectDevTools(panels, client, arena, clientModules);
                 // Ручки «Свет» с первого кадра (--tune): те же делегаты, что у панели F3.
                 if (options.Tunes.Count > 0) ApplyTunes(arena, clientModules, options.Tunes);
             // Захват аномалий: судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.

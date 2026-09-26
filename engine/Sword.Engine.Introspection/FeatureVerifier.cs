@@ -172,14 +172,16 @@ public static class FeatureVerifier
                 else result = env.CaptureView(new ViewRequest(manifest.Id, v.Id, run.RecordedFile, v.Tick, v.Camera, v.Hud, png)
                     { Overlays = v.Overlays, Tune = v.Tune }, cancel);
                 if (!result.Ok) Fail($"вид {v.Id}: {result.Detail}");
+                var expect = result.Ok ? ViewExpectations(v, Path.ChangeExtension(png, ".json"), f => Fail($"вид {v.Id}: {f}")) : null;
                 views.Add(new JsonObject
                 {
-                    ["id"] = v.Id, ["title"] = v.Title, ["scenario"] = v.Scenario, ["tick"] = v.Tick, ["ok"] = result.Ok,
+                    ["id"] = v.Id, ["title"] = v.Title, ["scenario"] = v.Scenario, ["tick"] = v.Tick, ["ok"] = result.Ok && expect?.Ok != false,
                     ["overlays"] = v.Overlays.Count > 0 ? new JsonArray([.. v.Overlays.Select(o => (JsonNode?)o)]) : null,
                     ["tune"] = v.Tune.Count > 0 ? new JsonArray([.. v.Tune.Select(o => (JsonNode?)o)]) : null,
                     ["png"] = File.Exists(png) ? png : null,
                     ["json"] = File.Exists(Path.ChangeExtension(png, ".json")) ? Path.ChangeExtension(png, ".json") : null,
                     ["detail"] = result.Detail,
+                    ["expect"] = expect?.Json,
                 });
             }
 
@@ -208,6 +210,41 @@ public static class FeatureVerifier
             json.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })
                 .ReplaceLineEndings("\r\n"));
         return new FeatureReport(manifest.Id, okAll, failures, json, options.OutputDirectory);
+    }
+
+    /// <summary>
+    /// Ожидания вида по итогу App <paramref name="json"/> (<see cref="FeatureView.Expect"/>): каждое — запись с найденными значениями; невыполненное
+    /// и итог без файла или не JSON — провал словами в <paramref name="fail"/>. Ожиданий нет — null.
+    /// </summary>
+    private static (bool Ok, JsonArray Json)? ViewExpectations(FeatureView v, string json, Action<string> fail)
+    {
+        if (v.Expect.Count == 0) return null;
+        JsonNode? root = null;
+        string? error = null;
+        if (!File.Exists(json)) error = $"ожиданиям нужен итог App {Path.GetFileName(json)}, а его нет";
+        else
+            try
+            {
+                root = JsonNode.Parse(File.ReadAllText(json));
+            }
+            catch (JsonException e)
+            {
+                error = $"итог App {Path.GetFileName(json)} — не JSON: {e.Message}";
+            }
+        var list = new JsonArray();
+        bool ok = error is null;
+        if (error is not null) fail(error);
+        foreach (var e in v.Expect)
+        {
+            var (good, values, failure) = error is null ? e.Check(root) : (false, new JsonArray(), error);
+            if (error is null && failure is not null)
+            {
+                fail($"ожидание {failure}");
+                ok = false;
+            }
+            list.Add(new JsonObject { ["path"] = e.Path, ["expected"] = e.Expected, ["ok"] = good, ["values"] = values, ["failure"] = failure });
+        }
+        return (ok, list);
     }
 
     /// <summary>Id совпадает с шаблоном: точно или «префикс.*».</summary>

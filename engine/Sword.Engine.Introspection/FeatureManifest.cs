@@ -378,19 +378,23 @@ public sealed record FeatureMetric
 /// (<c>поворот,наклон,дистанция[,x,z]</c>; без него — камера SWORD за игроком), HUD — по <see cref="Hud"/>, отладочные
 /// оверлеи игры поверх кадра — <see cref="Overlays"/> (<c>Sword.exe --overlay</c>: у арены — <c>capsules</c>, капсулы тел;
 /// имя, которого игра не знает, — провал вида), клиентские ручки F3 с первого кадра — <see cref="Tune"/> (<c>Sword.exe --tune</c>:
-/// <c>light.night=1</c> — ночь; в реплей они не входят).
+/// <c>light.night=1</c> — ночь; в реплей они не входят), ожидания по итогу App <c>--json</c> — <see cref="Expect"/> (<see cref="ViewExpectation"/>).
 /// </summary>
 public sealed record FeatureView(string Id, string Scenario, ulong Tick, string? Camera, bool Hud, string? Title)
 {
     public IReadOnlyList<string> Overlays { get; init; } = [];
     public IReadOnlyList<string> Tune { get; init; } = [];
 
+    /// <summary>Ожидания по итогу App вида (<c>view-&lt;id&gt;.json</c>): не выполнено — провал вида.</summary>
+    public IReadOnlyList<ViewExpectation> Expect { get; init; } = [];
+
     internal static FeatureView Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "title", "scenario", "tick", "camera", "hud", "overlays", "tune");
+        r.Only("id", "title", "scenario", "tick", "camera", "hud", "overlays", "tune", "expect");
         var overlays = ParseOverlays(r);
         return new FeatureView(r.String("id"), r.String("scenario"), (ulong)r.Integer("tick", 1, 1_000_000), r.OptionalString("camera"),
-            r.Bool("hud", false), r.OptionalString("title")) { Overlays = overlays, Tune = ParseTune(r) };
+            r.Bool("hud", false), r.OptionalString("title"))
+        { Overlays = overlays, Tune = ParseTune(r), Expect = [.. r.Objects("expect", optional: true).Select(ViewExpectation.Parse)] };
     }
 
     /// <summary>Поле <c>tune</c> (вида и бюджета кадра): «группа.ключ=значение» клиентских ручек App, без повторов ключа.</summary>

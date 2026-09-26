@@ -217,11 +217,14 @@ public sealed class ClientHost : IDisposable
     /// <summary>Снимок кадра в <see cref="ClientOptions.ScreenshotDirectory"/> (<c>Program.cs</c> SWORD: F4).</summary>
     public static readonly InputAction Screenshot = new("screenshot", "F4");
 
+    /// <summary>Вертикальная синхронизация: включить / выключить на ходу (<see cref="Vsync"/>; в бенче не действует).</summary>
+    public static readonly InputAction VsyncToggle = new("vsync", "V");
+
     /// <summary>
     /// Действия ввода клиента движка — привязываются вместе с действиями игры (секция <c>input</c>): композиция
     /// разрешает привязки для <c>[.. game.Actions, .. ClientHost.Actions]</c>.
     /// </summary>
-    public static IReadOnlyList<InputAction> Actions { get; } = [Screenshot];
+    public static IReadOnlyList<InputAction> Actions { get; } = [Screenshot, VsyncToggle];
 
     private readonly IWindow _window;
     private readonly ClientOptions _options;
@@ -244,7 +247,7 @@ public sealed class ClientHost : IDisposable
     private volatile bool _closeRequested;
     private readonly IReadOnlySet<string>? _held;
     private FrameView _view;
-    private readonly bool _vsync;
+    private bool _vsync;
     private readonly FrameStatsMeter _meter = new();
     private int _screenshots;
 
@@ -443,6 +446,7 @@ public sealed class ClientHost : IDisposable
                 _renderer.Width, _renderer.Height, frameSeconds);
             // Панели (DevTools) — до ввода игры: мышь и клавиатура интерфейса в этом же кадре не уходят игре.
             if (_panels is { } panels) input = PanelsFrame(panels, input);
+            if (input.WasPressed(VsyncToggle)) Vsync = !Vsync;
             _game.Input(input);
             _edges.Note(input);   // фронты кадра — до ближайшего тика (раздел 7)
             profiler.End(_zones.Input);
@@ -802,6 +806,21 @@ public sealed class ClientHost : IDisposable
     {
         get => _clock?.Gate;
         set => (_clock ?? throw new InvalidOperationException("ворота тиков без симуляции")).Gate = value;
+    }
+
+    /// <summary>
+    /// Вертикальная синхронизация (начальная — <see cref="ClientOptions.Vsync"/>): меняется на ходу — действием <see cref="VsyncToggle"/>
+    /// или панелью, со следующего показа. В бенче выключена и не включается (замер без vsync).
+    /// </summary>
+    public bool Vsync
+    {
+        get => _vsync;
+        set
+        {
+            if (value == _vsync || _options.BenchSeconds > 0) return;
+            _vsync = value;
+            Log.Info("client", $"вертикальная синхронизация {(value ? "вкл" : "выкл")}");
+        }
     }
 
     /// <summary>Рендер клиента — для инструментов (граф проходов, снимки).</summary>

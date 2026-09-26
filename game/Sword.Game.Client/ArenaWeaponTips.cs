@@ -10,13 +10,13 @@ namespace Sword.Game.Client;
 /// состояние после своего тика. Живой — клинок тика (<see cref="Blade"/>: кончик и основание после постановки тела тика, тот же отрезок, что
 /// у проходов клинка). Мёртвый — оружие выпало (<see cref="WeaponTip.Dropped"/>): клинок по телу клинка трупа (меч рисуется на нём же,
 /// <see cref="ArenaView.BladeInHandInverse"/>), тела нет — последний клинок. Построен в тике (<see cref="WeaponTip.Built"/>) — есть запись
-/// <see cref="Added{T}"/> бойца этого тика в очереди кадра (как клиент игры видит постройку, <see cref="ArenaView"/>). Без выделений: запрос
-/// строится один раз.
+/// <see cref="Added{T}"/> бойца этого тика в очереди кадра (как клиент игры видит постройку, <see cref="ArenaView"/>). Только игрок — свой
+/// запрос (с <see cref="PlayerTag"/>): остальные бойцы не обходятся вовсе. Без выделений: запросы строятся один раз.
 /// </summary>
 public sealed class ArenaWeaponTips(SimulationLink link) : IWeaponTips
 {
     private readonly WorldReader _world = link.World;
-    private ReadQuery? _query;
+    private ReadQuery? _query, _playerQuery;
     private Matrix4x4[] _inHand = [];
 
     public int WeaponCount => _world.TryView<ICombatView>(out var combat) ? combat.Weapons.Length : 0;
@@ -27,14 +27,17 @@ public sealed class ArenaWeaponTips(SimulationLink link) : IWeaponTips
 
     public int FindWeapon(string name) => _world.TryView<ICombatView>(out var combat) ? combat.FindWeapon(name) : -1;
 
-    public int Read(Span<WeaponTip> into)
+    public int Read(Span<WeaponTip> into, bool playerOnly)
     {
         if (!_world.Knows<WeaponSlot>() || !_world.Knows<Fighter>() || !_world.TryView<ICombatView>(out var combat)) return 0;
-        _query ??= _world.Query().With<Fighter>().Read<WeaponSlot>().Build();
+        if (playerOnly && !_world.Knows<PlayerTag>()) return 0;
+        var query = playerOnly
+            ? _playerQuery ??= _world.Query().With<Fighter>().With<PlayerTag>().Read<WeaponSlot>().Build()
+            : _query ??= _world.Query().With<Fighter>().Read<WeaponSlot>().Build();
         _world.TryView<IBodyView>(out var bodies);
         var weapons = combat.Weapons;
         int count = 0;
-        foreach (var chunk in _world.Iterate(_query))
+        foreach (var chunk in _world.Iterate(query))
         {
             var entities = chunk.Entities;
             var slots = chunk.Read<WeaponSlot>();

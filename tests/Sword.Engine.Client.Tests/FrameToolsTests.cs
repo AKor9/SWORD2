@@ -97,10 +97,11 @@ public class FrameToolsTests
     [Fact]
     public void ScreenshotAction_IsEngineAction_BoundWithGameActions()
     {
-        // Композиция разрешает привязки игры и клиента вместе: снимок — F4 по умолчанию, меняется секцией input.
+        // Композиция разрешает привязки игры и клиента вместе: снимок — F4, vsync — V по умолчанию, меняются секцией input.
         var game = new InputAction("move", "W");
         var bindings = InputBindings.Resolve([game, .. ClientHost.Actions], null);
         Assert.Equal("F4", bindings.Keys["screenshot"]);
+        Assert.Equal("V", bindings.Keys["vsync"]);
         Assert.Throws<ArgumentException>(() => InputBindings.Resolve([new InputAction("screenshot", "F5"), .. ClientHost.Actions], null));
     }
 

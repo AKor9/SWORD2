@@ -450,25 +450,33 @@ internal sealed class FireSmoke : IDisposable
     {
         if (_statsFrames[frame % (ulong)_statsFrames.Length] != frame) return;
         var cells = MemoryMarshal.Cast<byte, uint>(data);
-        int rays = cells.Length / 2, hit = 0, maxSteps = 0, covered = 0;
-        long steps = 0;
-        double alphaSum = 0;
-        float maxAlpha = 0;
-        for (int i = 0; i < rays; i++)
+        int rays = cells.Length / 2;
+        var sum = new RaySum();
+        for (int i = 0; i < rays; i++) sum.Add((int)cells[2 * i], BitConverter.UInt32BitsToSingle(cells[2 * i + 1]));
+        Stats = new SmokeStats(frame, rays, sum.Hit, sum.Hit > 0 ? (double)sum.Steps / sum.Hit : 0, sum.MaxSteps, (double)sum.Covered / rays,
+            sum.AlphaSum / rays, sum.MaxAlpha);
+    }
+
+    /// <summary>Сумма по лучам сетки: тело цикла по 2304 лучам каждого кадра — свой метод (правило OSR).</summary>
+    private struct RaySum
+    {
+        public int Hit, MaxSteps, Covered;
+        public long Steps;
+        public double AlphaSum;
+        public float MaxAlpha;
+
+        public void Add(int steps, float alpha)
         {
-            int s = (int)cells[2 * i];
-            float a = BitConverter.UInt32BitsToSingle(cells[2 * i + 1]);
-            if (s > 0)
+            if (steps > 0)
             {
-                hit++;
-                steps += s;
-                maxSteps = Math.Max(maxSteps, s);
+                Hit++;
+                Steps += steps;
+                MaxSteps = Math.Max(MaxSteps, steps);
             }
-            if (a >= 1f / 255) covered++;
-            alphaSum += a;
-            maxAlpha = MathF.Max(maxAlpha, a);
+            if (alpha >= 1f / 255) Covered++;
+            AlphaSum += alpha;
+            MaxAlpha = MathF.Max(MaxAlpha, alpha);
         }
-        Stats = new SmokeStats(frame, rays, hit, hit > 0 ? (double)steps / hit : 0, maxSteps, (double)covered / rays, alphaSum / rays, maxAlpha);
     }
 
     public void Dispose()

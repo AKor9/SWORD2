@@ -41,7 +41,7 @@
   заголовок служебным кадром не считается — такой кадр попадает в бюджет.
 - Числа кадра для HUD — `FrameStatsMeter` (`Program.cs` SWORD: FPS сглажен 0,08 с 60, худший шаг — окнами по 60
   кадров, CPU — без ожидания GPU и показа) → `FrameView.Stats`: числа прошлого кадра.
-- Действия клиента движка — `ClientHost.Actions` (сейчас `screenshot`, F4): привязываются вместе с действиями игры
+- Действия клиента движка — `ClientHost.Actions` (`screenshot`, F4; `vsync`, V — `ClientHost.Vsync` на ходу, в бенче не действует): привязываются вместе с действиями игры
   (`InputBindings.Resolve([.. game.Actions, .. ClientHost.Actions], config)`), имя не должно совпасть с действием
   игры. Снимок по действию — в `ClientOptions.ScreenshotDirectory`, служебный кадр; не записался (`CaptureException`
   рендера) — ошибка в журнал, прогон идёт дальше. Снимок `ScreenshotPath` не записался — ошибка прогона.

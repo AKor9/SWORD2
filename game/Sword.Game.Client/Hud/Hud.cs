@@ -431,7 +431,7 @@ public sealed class Hud
             $"курсор — поворот    {K(ArenaInput.MoveForward)} {K(ArenaInput.MoveLeft)} {K(ArenaInput.MoveBack)} {K(ArenaInput.MoveRight)} — движение ({K(ArenaInput.Walk)} — шагом)",
             $"колесо, {K(ArenaInput.CameraZoomIn)} {K(ArenaInput.CameraZoomOut)} — зум    {K(ArenaInput.CameraRotateLeft)} {K(ArenaInput.CameraRotateRight)} / {K(ArenaInput.CameraOrbit)} — камера    {K(ArenaInput.CameraFollow)} — свободная",
             // Суставы и контакты физики (отладочные оверлеи, как F7) — в строку клавиш представления: число строк справки прежнее.
-            $"{K(ArenaInput.HudHelp)} — справка    {K(ArenaInput.HudProfiler)} — профайлер    {K(ClientHost.Screenshot)} — снимок    Esc — выход    " +
+            $"{K(ArenaInput.HudHelp)} — справка    {K(ArenaInput.HudProfiler)} — профайлер    {K(ClientHost.Screenshot)} — снимок    {K(ClientHost.VsyncToggle)} — vsync    Esc — выход    " +
             $"{K(ArenaInput.DebugJoints)} — суставы    {K(ArenaInput.DebugContacts)} — контакты физики",
             $"{K(ArenaInput.EnemiesMore)} / {K(ArenaInput.EnemiesFewer)} — врагов ±1    {K(ArenaInput.ArenaReset)} — сброс арены    {K(ArenaInput.NextWeapon)} — следующее оружие    {K(ArenaInput.DebugBodies)} — капсулы и клинки",
             // Траектории Motion Matching (оверлей) — в строку ударов: число строк справки прежнее.
