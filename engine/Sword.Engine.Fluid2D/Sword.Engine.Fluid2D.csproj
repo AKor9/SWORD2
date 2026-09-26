@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ядро 2D-сима жидкости LIVE-2 (огонь; позже кровь и песок): гриды, стадии шага на GPU, CPU-эталон, статистика,
+       снимок полей. Игру не знает; пишет только через рендер-граф (README.md). -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Engine.Fluid2D.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+  </ItemGroup>
+
+  <!-- Шейдеры сима: в выходе — Shaders/fluid2d/…, рядом с общими шейдерами движка. -->
+  <ItemGroup>
+    <None Update="Shaders\**\*.hlsl;Shaders\**\*.hlsli">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

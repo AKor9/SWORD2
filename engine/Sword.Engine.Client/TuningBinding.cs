@@ -71,9 +71,12 @@ public sealed class TuningBinding
     /// <c>Id</c> файла пользователя <paramref name="path"/> (<c>sword.user.json</c>; <see cref="UserConfig.WriteSection"/> — бережно:
     /// другие секции и ключи остаются). Значение не по умолчанию — ставится (флаг — <c>true</c>/<c>false</c>, число — кратчайшей
     /// записью float), по умолчанию — ключ убирается: файл хранит только отличия, как слой конфига. Итог — строка состояния панели.
+    /// Группа без ручек симуляции (ручки клиента: делегаты строк пишут значения клиента) файла не трогает: секции для неё в конфиге
+    /// нет, и записанная секция сделала бы следующий запуск ошибкой «неизвестная секция».
     /// </summary>
     public string Save(TuningGroup group, string path)
     {
+        if (!HasKnobs(group)) return ClientOnly(group, path);
         var changes = new List<(string Key, JsonNode? Value)>();
         int set = 0;
         foreach (var slot in SlotsOf(group))
@@ -100,6 +103,7 @@ public sealed class TuningBinding
     /// </summary>
     public string Load(TuningGroup group, string path)
     {
+        if (!HasKnobs(group)) return ClientOnly(group, path);
         var values = UserConfig.Numbers(UserConfig.ReadSection(path, group.Id));
         int loaded = 0;
         foreach (var slot in SlotsOf(group))
@@ -110,6 +114,12 @@ public sealed class TuningBinding
         }
         return $"загружено значений: {loaded} ({Path.GetFileName(path)}), остальные — по умолчанию";
     }
+
+    /// <summary>Есть ли в группе ручки симуляции (<see cref="SlotsOf"/>).</summary>
+    public bool HasKnobs(TuningGroup group) => SlotsOf(group).Any();
+
+    private static string ClientOnly(TuningGroup group, string path) =>
+        $"«{group.Title}» — ручки клиента: только до выхода, в {Path.GetFileName(path)} не пишутся";
 
     /// <summary>Ручки симуляции строк группы: ключ строки — ключ секции <c>Id</c> группы; строки без ручки пропускаются.</summary>
     private IEnumerable<Slot> SlotsOf(TuningGroup group)

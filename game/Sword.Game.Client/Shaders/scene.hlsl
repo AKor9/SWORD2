@@ -6,7 +6,8 @@
 #include "common/gbuffer.hlsli"
 #include "common/skin.hlsli"
 
-// Непрозрачная фаза пишет две цели: цвет и нормаль с признаком приёмника декалей (SceneTargets).
+// Непрозрачная фаза пишет две цели: линейный цвет HDR-сцены (SceneColor; на экран — тонмап рендера) и нормаль с признаком
+// приёмника декалей (SceneTargets).
 struct SceneOut { float4 colour : SV_Target0; float4 normal : SV_Target1; };
 SceneOut Scene(float3 colour, float3 n, bool receiver)
 {
@@ -14,6 +15,21 @@ SceneOut Scene(float3 colour, float3 n, bool receiver)
     o.colour = float4(colour, 1);
     o.normal = SceneNormalOut(n, receiver);
     return o;
+}
+
+// ── фон: окружение кадра там, куда не легло ничего ─────────────────────────
+// Треугольник на весь экран на дальней глубине (обратный Z: 0): тест GreaterEqual пропускает только пиксели, где глубина сцены
+// осталась очищенной. Рисуется, когда фон окружения не равен цвету очистки сцены (ночь); нормаль - как очистка (вверх, не приёмник).
+
+float4 VsBackground(uint vid : SV_VertexID) : SV_Position
+{
+    float2 uv = float2((vid << 1) & 2, vid & 2);
+    return float4(uv * 2 - 1, 0, 1);
+}
+
+SceneOut PsBackground()
+{
+    return Scene(gFrame.env.background, float3(0, 1, 0), false);
 }
 
 // ── колонны: единичная капсула, растянутая по радиусу и высоте ─────────────
@@ -50,7 +66,7 @@ LitVs VsPillar(uint vid : SV_VertexID, uint inst : SV_InstanceID)
 SceneOut PsPillar(LitVs i)
 {
     float3 n = normalize(i.normal);
-    return Scene(Gamma(Shade(i.colour, n, i.world, 1)), n, true);
+    return Scene(Shade(i.colour, n, i.world, 1), n, true);
 }
 
 // ── скинированные меши (персонажи) ─────────────────────────────────────────
@@ -83,7 +99,7 @@ SceneOut PsSkin(SkinVs i)
 {
     float3 n = normalize(i.normal);
     float3 c = Shade(i.colour, n, i.world, 1) + i.glow * float3(0.5, 0.15, 0.1);
-    return Scene(Gamma(c), n, false);
+    return Scene(c, n, false);
 }
 
 // ID-буфер снимка (диагностический режим, ArenaClient): тот же VsSkin, тест по глубине сцены — код бойца и сегмента тела.
@@ -169,5 +185,5 @@ SceneOut PsGround(GroundVs i)
 
     // кольцо выделения игрока
     c = lerp(c, lerp(float3(1, 0.2, 0.1), float3(0.3, 1.0, 0.45), gFrame.playerHpFrac), smoothstep(0.05, 0.0, abs(dp - 0.75)) * 0.8);
-    return Scene(Gamma(c), n, true);
+    return Scene(c, n, true);
 }

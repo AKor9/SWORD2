@@ -25,6 +25,7 @@ public enum DepthAccess
 public sealed record RenderPassReport(
     string Name,
     PassKind Kind,
+    FramePhase Phase,
     IReadOnlyList<string> Writes,
     IReadOnlyList<string> Reads,
     int Barriers,
@@ -36,12 +37,13 @@ public sealed record RenderPassReport(
 /// (задний буфер, цели сцены, буферы-хранилища <see cref="GpuStorage"/>) или временные (<see cref="CreateTexture"/>,
 /// <see cref="CreateBuffer"/>, из пула); граф сам ставит переходы состояний и барьеры UAV одной пачкой на проход,
 /// привязывает цели, чистит их, ставит область вывода, корневую сигнатуру и константы кадра. Одна graphics-очередь:
-/// <see cref="PassKind.Compute"/> — dispatch на ней же. Порядок — порядок регистрации, без переупорядочивания и
-/// отсечения; алиасинга памяти нет — каждому временному ресурсу своя запись пула.
+/// <see cref="PassKind.Compute"/> — dispatch на ней же. Порядок — по фазам кадра (<see cref="FramePhase"/>), внутри фазы —
+/// порядок регистрации; без отсечения; алиасинга памяти нет — каждому временному ресурсу своя запись пула.
 ///
 /// Инварианты (нарушение — исключение с именами прохода и ресурса, до записи первой команды кадра): проход не читает
 /// ресурс, который в этом кадре никто не записал и не очистил (кроме хранилищ — их содержимое переживает кадр); не пишет
-/// и не читает один ресурс в одном проходе; у графического прохода есть цели, у вычислительного — нет.
+/// и не читает один ресурс в одном проходе; у графического прохода есть цели, у вычислительного — нет; с HDR задний буфер
+/// не пишет ни один проход раньше фазы <see cref="FramePhase.Post"/>. Всё — в порядке исполнения.
 /// </summary>
 public sealed class RenderGraph
 {
@@ -49,6 +51,7 @@ public sealed class RenderGraph
     {
         public string Name = "";
         public PassKind Kind;
+        public FramePhase Phase;
         public readonly List<(int Resource, Color4? Clear)> Colors = [];
         public int Depth = -1;
         public DepthAccess DepthAccess;
@@ -58,10 +61,11 @@ public sealed class RenderGraph
         public ulong FrameConstants;
         public Action<RenderPassContext>? Execute;
 
-        public void Reset(string name, PassKind kind, ulong frameConstants)
+        public void Reset(string name, PassKind kind, FramePhase phase, ulong frameConstants)
         {
             Name = name;
             Kind = kind;
+            Phase = phase;
             Colors.Clear();
             Depth = -1;
             DepthClear = null;
@@ -89,6 +93,12 @@ public sealed class RenderGraph
     private ulong _frameConstants;
 
     /// <summary>
+    /// Первая фаза, в которой проход вправе писать задний буфер: с HDR — <see cref="FramePhase.Post"/> (сцена пишет линейный
+    /// цвет в свою цель, в задний буфер его переводит тонмап), без HDR — любая.
+    /// </summary>
+    internal FramePhase BackBufferFrom;
+
+    /// <summary>
     /// Сырые данные исполненного прохода (docs/history/profiler.md): отчёт
     /// <see cref="RenderPassReport"/> строится из них только по запросу (<see cref="LastFrame"/>: агент, итог прогона), а в кадре —
     /// ни списков, ни строк, ни записей.
@@ -98,6 +108,7 @@ public sealed class RenderGraph
     {
         public string Name;
         public PassKind Kind;
+        public FramePhase Phase;
         public int Barriers, Draws, Dispatches, NamesStart, Writes, Reads;
     }
 
@@ -161,7 +172,7 @@ public sealed class RenderGraph
         for (int i = 0; i < frame.Count; i++)
         {
             ref readonly var r = ref frame.Passes[i];
-            report.Add(new RenderPassReport(r.Name, r.Kind, frame.Names.AsSpan(r.NamesStart, r.Writes).ToArray(),
+            report.Add(new RenderPassReport(r.Name, r.Kind, r.Phase, frame.Names.AsSpan(r.NamesStart, r.Writes).ToArray(),
                 frame.Names.AsSpan(r.NamesStart + r.Writes, r.Reads).ToArray(), r.Barriers, r.Draws, r.Dispatches));
         }
         return report;
@@ -260,10 +271,18 @@ public sealed class RenderGraph
     internal void SetFrameConstants(ulong address) => _frameConstants = address;
 
     /// <summary>
-    /// Новый проход; его ресурсы объявляются у возвращённого построителя, работа — в <see cref="RenderPassBuilder.Execute"/>.
+    /// Новый проход фазы <see cref="FramePhase.Opaque"/>; его ресурсы объявляются у возвращённого построителя, работа — в
+    /// <see cref="RenderPassBuilder.Execute"/>.
     /// </summary>
-    public RenderPassBuilder AddPass(string name, PassKind kind = PassKind.Graphics)
+    public RenderPassBuilder AddPass(string name, PassKind kind = PassKind.Graphics) => AddPass(name, FramePhase.Opaque, kind);
+
+    /// <summary>
+    /// Новый проход фазы <paramref name="phase"/>: граф исполнит его после проходов прежних фаз и после уже
+    /// зарегистрированных проходов той же фазы, как бы ни шла регистрация.
+    /// </summary>
+    public RenderPassBuilder AddPass(string name, FramePhase phase, PassKind kind = PassKind.Graphics)
     {
+        if ((uint)phase > (uint)FramePhase.Debug) throw new ArgumentOutOfRangeException(nameof(phase), phase, "нет такой фазы кадра");
         Pass p;
         if (_passPool.Count > 0)
         {
@@ -271,13 +290,22 @@ public sealed class RenderGraph
             _passPool.RemoveAt(_passPool.Count - 1);
         }
         else p = new Pass();
-        p.Reset(name, kind, _frameConstants);
+        p.Reset(name, kind, phase, _frameConstants);
         _passes.Add(p);
         return new RenderPassBuilder(this, p);
     }
 
-    /// <summary>Вычислительный проход (dispatch на graphics-очереди).</summary>
-    public RenderPassBuilder AddComputePass(string name) => AddPass(name, PassKind.Compute);
+    /// <summary>Вычислительный проход (dispatch на graphics-очереди) фазы <paramref name="phase"/>.</summary>
+    public RenderPassBuilder AddComputePass(string name, FramePhase phase = FramePhase.Opaque) => AddPass(name, phase, PassKind.Compute);
+
+    /// <summary>
+    /// Проходов строящегося кадра, зарегистрированных до сих пор (порядок регистрации) — хост видит, какие проходы добавил вызов модуля
+    /// и в своей ли они фазе (<see cref="RegisteredPass"/>).
+    /// </summary>
+    public int Registered => _passes.Count;
+
+    /// <summary>Имя и фаза прохода строящегося кадра по номеру регистрации (0 … <see cref="Registered"/> − 1).</summary>
+    public (string Name, FramePhase Phase) RegisteredPass(int index) => (_passes[index].Name, _passes[index].Phase);
 
     /// <summary>Построитель прохода: цели по порядку привязки, глубина, читаемые и записываемые ресурсы.</summary>
     public readonly struct RenderPassBuilder
@@ -302,7 +330,7 @@ public sealed class RenderGraph
             if (t.Rtv is null) throw new InvalidOperationException($"{_pass.Name}: {t.Name} не бывает целью цвета");
             if (clear is { } want && t.ClearColor is { } made && want != made)
                 throw new InvalidOperationException($"{_pass.Name}: {t.Name} создана со значением очистки {made}, а чистится {want} — " +
-                    "задайте его в TextureDesc.ClearColor");
+                    "задайте его в TextureDesc.ClearColor (цель HDR-сцены — Renderer.SceneColorClear)");
             if (_pass.Colors.Count == 2) throw new InvalidOperationException($"{_pass.Name}: больше двух целей цвета");
             _pass.Colors.Add((target.Index, clear is { } c ? new Color4(c.X, c.Y, c.Z, c.W) : null));
             return this;
@@ -336,7 +364,7 @@ public sealed class RenderGraph
         /// <summary>Буфер, который шейдеры прохода пишут (UAV); читать его через тот же UAV в проходе можно.</summary>
         public RenderPassBuilder Write(RenderBuffer buffer) => AddWrite(_graph.Get(buffer.Index, buffer: true), buffer.Index);
 
-        /// <summary>Работа прохода: вызывается при исполнении графа, в порядке регистрации проходов.</summary>
+        /// <summary>Работа прохода: вызывается при исполнении графа — по фазам, внутри фазы в порядке регистрации.</summary>
         public void Execute(Action<RenderPassContext> execute) => _pass.Execute = execute;
 
         private RenderPassBuilder AddRead(GraphResource r, int index)
@@ -360,9 +388,12 @@ public sealed class RenderGraph
         }
     }
 
-    /// <summary>Проверить все проходы кадра, затем записать их в список команд; в конце задний буфер — в Present.</summary>
+    /// <summary>
+    /// Упорядочить проходы кадра по фазам, проверить их, затем записать в список команд; в конце задний буфер — в Present.
+    /// </summary>
     internal void Execute(ID3D12GraphicsCommandList list)
     {
+        SortByPhase();
         Validate();
         var frame = _recording;
         frame.Clear();
@@ -432,6 +463,26 @@ public sealed class RenderGraph
     }
 
     /// <summary>
+    /// Устойчивая сортировка вставками по фазе: регистрация обычно уже идёт по фазам — проход почти всегда стоит на месте,
+    /// без выделений; внутри фазы порядок регистрации сохраняется.
+    /// </summary>
+    private void SortByPhase()
+    {
+        for (int i = 1; i < _passes.Count; i++)
+        {
+            var p = _passes[i];
+            int j = i - 1;
+            if (_passes[j].Phase <= p.Phase) continue;
+            while (j >= 0 && _passes[j].Phase > p.Phase)
+            {
+                _passes[j + 1] = _passes[j];
+                j--;
+            }
+            _passes[j + 1] = p;
+        }
+    }
+
+    /// <summary>
     /// Инварианты кадра — до первой команды: при нарушении кадр бросается целиком (<see cref="Renderer.Render"/>),
     /// ни одно состояние ресурса не сдвинуто.
     /// </summary>
@@ -446,6 +497,11 @@ public sealed class RenderGraph
                 throw new InvalidOperationException($"рендер-граф: у графического прохода {p.Name} нет целей");
             if (p.Kind == PassKind.Compute && p.Execute is null)
                 throw new InvalidOperationException($"рендер-граф: у вычислительного прохода {p.Name} нет работы");
+            if (p.Phase < BackBufferFrom)
+                foreach (var (index, _) in p.Colors)
+                    if (index == BackBuffer.Index)
+                        throw new InvalidOperationException($"рендер-граф: HDR включён, а проход {p.Name} фазы {p.Phase} пишет задний буфер — " +
+                            $"до фазы {BackBufferFrom} сцена пишет RenderFrame.SceneColor");
             foreach (int r in p.Reads)
             {
                 string name = _resources[r].Name;
@@ -482,6 +538,7 @@ public sealed class RenderGraph
         ref var record = ref frame.Add();
         record.Name = p.Name;
         record.Kind = p.Kind;
+        record.Phase = p.Phase;
         record.Barriers = barriers;
         record.Draws = draws;
         record.Dispatches = dispatches;

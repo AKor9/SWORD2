@@ -49,6 +49,15 @@ public sealed class RtsCamera
     public const float MinDistance = 3f, MaxDistance = 110f, MinPitch = 0.45f, MaxPitch = 1.45f;
 
     public Vector3 Eye { get; private set; }
+
+    /// <summary>Вид смотрит на столько выше точки взгляда, м.</summary>
+    public const float LookAbove = 0.8f;
+
+    /// <summary>
+    /// Поворот из осей вида (x — вправо по экрану, y — вверх, z — к зрителю) в мир — по углам и дистанции, без позиций: при тех же
+    /// углах тот же бит в бит, где бы ни была цель (площадка огня к камере повторяется по тикам).
+    /// </summary>
+    public Quaternion Rotation { get; private set; }
     public Matrix4x4 View { get; private set; }
     public Matrix4x4 Projection { get; private set; }
     public Matrix4x4 ViewProj { get; private set; }
@@ -111,7 +120,11 @@ public sealed class RtsCamera
     {
         var back = new Vector3(MathF.Sin(Yaw) * MathF.Cos(Pitch), MathF.Sin(Pitch), MathF.Cos(Yaw) * MathF.Cos(Pitch));
         Eye = Target + back * Distance;
-        View = Matrix4x4.CreateLookAt(Eye, Target + new Vector3(0, 0.8f, 0), Vector3.UnitY);
+        View = Matrix4x4.CreateLookAt(Eye, Target + new Vector3(0, LookAbove, 0), Vector3.UnitY);
+        var z = Vector3.Normalize(back * Distance - new Vector3(0, LookAbove, 0));
+        var x = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, z));
+        var y = Vector3.Cross(z, x);
+        Rotation = Quaternion.CreateFromRotationMatrix(new Matrix4x4(x.X, x.Y, x.Z, 0, y.X, y.Y, y.Z, 0, z.X, z.Y, z.Z, 0, 0, 0, 0, 1));
 
         // Обратный Z с бесконечной дальней плоскостью: z/w = near / -z_view.
         float ys = 1f / MathF.Tan(FovY * 0.5f);

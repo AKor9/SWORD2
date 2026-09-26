@@ -10,6 +10,10 @@
 {
   "expected": [
     { "path": "weapons", "expect": "different", "reason": "хват оружия — ось рукояти через центры изгиба пальцев, а не линия костяшек (SkinBake.GripAttachment): меши и зоны крови в системе кисти другие" },
-    { "asset": "weapons/*", "expect": "different", "reason": "то же: выходы оружия другие" }
+    { "asset": "weapons/*", "expect": "different", "reason": "то же: выходы оружия другие" },
+    { "path": "weapons/torch.*", "expect": "absent", "reason": "факел (этап 15, огонь) — своего оружия нет в эталоне: меш tools/scripts/torch_mesh.py" },
+    { "asset": "weapons/torch", "expect": "absent", "reason": "то же: ассет факела только в паке пекарни" },
+    { "path": "effects/fire", "expect": "absent", "reason": "текстуры огня (этап 15) — из VFX Tools, в эталоне их нет" },
+    { "asset": "effects/fire/*", "expect": "absent", "reason": "то же: ассеты текстур огня только в паке пекарни" }
   ]
 }

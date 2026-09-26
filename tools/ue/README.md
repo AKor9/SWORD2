@@ -13,6 +13,7 @@
 |---|---|---|
 | Unreal | `D:/Progs/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe` | команды ниже |
 | рабочая копия GASP (UE-проект) | `D:/Temp/GamedevAssets/GameAnimationSample_SWORD/GameAnimationSample.uproject` | команды ниже |
+| рабочая копия FluidNinja VFX Tools (текстуры огня; PythonScriptPlugin включён, оригинал `D:/Temp/AssetsDatabase/FluidNinjaVFXTools` не трогать) | `D:/Temp/FluidNinjaVFXTools_dump/FluidNinjaVFXTools.uproject` | команда огня ниже |
 | корень выгрузок (`${src}/_Export` пекарни, `${src}` = `D:/Temp/GamedevAssets`) | `D:/Temp/GamedevAssets/_Export` | `EXPORT_ROOT` вверху `export_meshes.py`, `export_weapons.py`, `export_organs.py`, `export_textures.py`; поле `out` каждого `export_config*.json` |
 | папка скриптов | `D:/Work/Visual Studio/SWORD2/tools/ue` | `HERE` в `retarget_gasp.py` — папка скрипта, а если в commandlet не задан `__file__` — этот путь |
 
@@ -30,7 +31,7 @@
 | `export_meshes.py` | `manny.glb` (SKM_Manny со скин-весами), `sword_1h.glb` (меч пака 1HM), `skeleton.json` (поза покоя UE5 Manny: локальная и мировая, сокеты скелета и меша; сокеты скелета UE4 пака) → `_Export/meshes`. В лог — блюпринты пака 1HM (к какой кости крепится меч). |
 | `export_weapons.py` | Все StaticMesh из `SWORD_WEAPON_ROOTS` → `_Export/weapons/<имя ассета>.glb`. |
 | `export_organs.py` | Меши HumanOrgans → `_Export/organs/<имя>.glb`, `stats.json`, `export.log`. У скелетного меша берётся первый LOD, который влезает в бюджет вершин `SWORD_ORGANS_BUDGET`; если такого нет — досоздаёт LOD (до 5) и **сохраняет ассет в UE-проекте**. Статика — LOD0 (в commandlet её не упростить), прореживает пекарня (`maxTriangles`). |
-| `export_textures.py` | Все Texture2D из `SWORD_TEX_ROOTS` → PNG (не вышло — TGA) с путями относительно корня, `textures.json` (размер, sRGB, сжатие UE). |
+| `export_textures.py` | Все Texture2D из `SWORD_TEX_ROOTS` (с `SWORD_TEX_ONLY` — только названные) → PNG (не вышло — TGA) с путями относительно корня, `textures.json` (размер, sRGB, сжатие UE). |
 
 ## Конфиги клипов → выгрузка → манифест пекарни
 
@@ -60,8 +61,10 @@
 | `export_organs.py` | `organs/SK_Skeleton.glb`, `organs/SK_SkeletonWithOrgans.glb`, `organs/BrainHighPoly.glb` | `characters/manny/anatomy/{skeleton,organs,brain}` — `mesh` |
 | `export_textures.py` по умолчанию | `blood/**` | `effects/blood/{directional,noise,omni,puddles,spots}` |
 | `export_textures.py` для анатомии | `organs/textures/*_D.png`, `*_NM.png` | `characters/manny/anatomy/{albedo,normals}` — `layers` |
+| `export_textures.py` для огня (VFX Tools) | `fire/T_Noise3.png` (256², серый, sRGB), `T_NoiseTemplate1.png` (1024², RGBA, sRGB), `T_NoiseTemplate2.png` (256², RGBA, линейная), `T_Crumple_MultiLevel_Inv.png` (512², серый, sRGB) | `effects/fire/{sim_noise,light_noise,noise_template2,crumple}` — `layers` |
 
-Не из Unreal: шрифты и `combat/actions` (`${src}/_Sword`), `effects/innards/cut_albedo` (FBX и PNG пака gore props).
+Не из Unreal: шрифты и `combat/actions` (`${src}/_Sword`), `effects/innards/cut_albedo` (FBX и PNG пака gore props), меш факела
+`weapons/torch.glb` — `tools/scripts/torch_mesh.py` (`weapons/torch`).
 
 ## Как запускать
 
@@ -140,6 +143,10 @@ Invoke-UeScript export_organs.py $gltf @{ SWORD_ORGANS_ONLY = 'SkeletonWithOrgan
 Invoke-UeScript export_textures.py $tex                 # кровь → _Export/blood
 Invoke-UeScript export_textures.py $tex @{ SWORD_TEX_ROOTS = '/Game/HumanOrgans/Textures'
     SWORD_TEX_OUT = 'D:/Temp/GamedevAssets/_Export/organs/textures'; SWORD_TEX_SKIP = 'Colontex' }
+# огонь — из рабочей копии VFX Tools (~11 с, с -nullrhi тоже выгружает)
+$proj = 'D:/Temp/FluidNinjaVFXTools_dump/FluidNinjaVFXTools.uproject'
+Invoke-UeScript export_textures.py $tex @{ SWORD_TEX_ROOTS = '/Game/FluidNinja/Input/SharedBitmaps'
+    SWORD_TEX_OUT = 'D:/Temp/GamedevAssets/_Export/fire'; SWORD_TEX_ONLY = 'T_Noise3;T_NoiseTemplate1;T_NoiseTemplate2;T_Crumple_MultiLevel_Inv' }
 ```
 
 `stats.json` и `export.log` у `export_organs.py` переписываются каждым прогоном. Проба без записи: `export_gasp.py`
@@ -173,6 +180,7 @@ Invoke-UeScript export_textures.py $tex @{ SWORD_TEX_ROOTS = '/Game/HumanOrgans/
 | `SWORD_ORGANS_STATS` | `export_organs.py` | — | `1` — только `stats.json` |
 | `SWORD_TEX_ROOTS` | `export_textures.py` | `/Game/RealisticBlood/_Commons/Textures` | корни UE через `;` |
 | `SWORD_TEX_OUT` | `export_textures.py` | `EXPORT_ROOT/blood` | куда писать |
+| `SWORD_TEX_ONLY` | `export_textures.py` | — | имена ассетов через `;` (целиком, без учёта регистра) — выгрузить только их |
 | `SWORD_TEX_SKIP` | `export_textures.py` | — | подстроки имён через `;`, которые не выгружать (экспортёр падает на них) |
 
 ## Что решается здесь, а что — в пекарне

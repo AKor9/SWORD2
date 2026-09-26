@@ -668,10 +668,8 @@ public sealed class DamageContentTests
     }
 
     /// <summary>
-    /// Прогрев — до первого возрождения (тик 1231): первая смерть и первая постройка заново выделяют разово (~46 КБ на мир: чанки новых
-    /// архетипов — боец с меткой <see cref="Dead"/> и боец, снятый и поставленный заново на барьере; рост буферов команд боя, ~3 КБ) —
-    /// docs/history/combat.md, «Бюджеты и замеры». Замер — ещё 1080 тиков боя: попадания, кровопотеря, новые смерти и возрождения;
-    /// и удары по трупам (импульс в часть, проход) и толчки трупов живыми с отдачей в корень.
+    /// Прогрев — через первое возрождение (<see cref="WarmUp"/>). Замер — ещё <see cref="Measured"/> тиков боя: попадания, кровопотеря,
+    /// новые смерти и возрождения; и удары по трупам (импульс в часть, проход) и толчки трупов живыми с отдачей в корень.
     /// </summary>
     [Fact]
     public void Fight_32AttackingEnemies_RealPack_AfterWarmup_DoesNotAllocate()
@@ -685,7 +683,7 @@ public sealed class DamageContentTests
             sim.Step();
             tick++;
         }
-        while (tick < Warmup) Step();
+        WarmUp(sim, Step, () => tick);
         var dead = new List<Entity>();
         foreach (var chunk in sim.World.Iterate(sim.World.Query().With<EnemyTag>().With<Dead>()))
             for (int i = 0; i < chunk.Count; i++) dead.Add(chunk.Entities[i]);
@@ -693,7 +691,7 @@ public sealed class DamageContentTests
         long allocated = 0;
         int recoils = 0;
         var recoiled = sim.World.Query().With<Fighter>().Read<Ragdoll.Recoil>();
-        while (tick < 2400)
+        for (int stop = tick + Measured; tick < stop;)
         {
             long bytes = GC.GetAllocatedBytesForCurrentThread();
             Step();
@@ -716,7 +714,7 @@ public sealed class DamageContentTests
     /// <summary>
     /// Запас пула поз — на арену из конфига (<see cref="GameCore.ReservePoses"/>), прибавку врагов добирает команда арены до
     /// постройки новых бойцов. Арена из 10 врагов (запас 11 бойцов — 128 слотов) набрана PageUp до 32 (команда в тике 0: запас 33 бойцов —
-    /// 512 слотов) и бьётся, как сценарий <c>crowd</c>: после прогрева — 0 Б/тик, пул за запас не
+    /// 512 слотов) и бьётся, как сценарий <c>crowd</c>: после прогрева (<see cref="WarmUp"/>) — 0 Б/тик, пул за запас не
     /// рос (<see cref="PosePool.Reserved"/> тот же с тика команды до конца), ёмкость пула в бою — внутри запаса.
     /// </summary>
     [Fact]
@@ -744,10 +742,10 @@ public sealed class DamageContentTests
         Assert.Equal(32, sim.World.Resource<ArenaState>().Enemies);
         var grown = Pool();
         Assert.Equal((512, ArenaRules.MaxFighters * GameCore.PoseJobsPerFighter), (grown.Reserved, grown.JobsReserved));
-        while (tick < Warmup) Step();
+        WarmUp(sim, Step, () => tick);
         var before = sim.World.Resource<ArenaStats>();
         long allocated = 0;
-        while (tick < 2400)
+        for (int stop = tick + Measured; tick < stop;)
         {
             long bytes = GC.GetAllocatedBytesForCurrentThread();
             Step();
@@ -762,6 +760,36 @@ public sealed class DamageContentTests
         Assert.Equal(0, allocated);
     }
 
-    /// <summary>Прогрев замера — с первым возрождением толпы (сценарий crowd: тик 1231) — как бюджет crowd манифеста combat.</summary>
+    /// <summary>
+    /// Прогрев замера: бой не короче <see cref="Warmup"/> тиков и до второго тика после первого возрождения. Первая смерть и первая постройка
+    /// заново выделяют разово (~40 КБ на мир: чанки новых архетипов — боец с меткой <see cref="Dead"/> и боец, снятый и поставленный заново на
+    /// барьере; постройка бойца в следующем тике — ещё ~0,1 КБ) — docs/history/combat.md, «Бюджеты и замеры». Возрождение — через 8 с после
+    /// смерти, а тик первой смерти зависит от хода боя (число врагов, клинки пака), поэтому прогрев ждёт само возрождение, а не тик.
+    /// </summary>
+    private static void WarmUp(Simulation sim, Action step, Func<int> tick)
+    {
+        var died = new HashSet<Entity>();
+        var dead = sim.World.Query().With<EnemyTag>().With<Dead>();
+        int respawned = -1;
+        while (tick() < Warmup || respawned < 0 || tick() <= respawned + 1)
+        {
+            Assert.True(tick() < 2 * Warmup, $"за {tick()} тиков боя никто не возродился: разовые выделения возрождения попали бы в замер");
+            step();
+            if (respawned >= 0) continue;
+            foreach (var e in died)
+                if (sim.World.IsAlive(e) && !sim.World.Has<Dead>(e))
+                {
+                    respawned = tick();
+                    break;
+                }
+            foreach (var chunk in sim.World.Iterate(dead))
+                for (int i = 0; i < chunk.Count; i++) died.Add(chunk.Entities[i]);
+        }
+    }
+
+    /// <summary>Прогрев не короче — как у бюджета <c>crowd</c> манифеста combat (первое возрождение толпы 32 врагов — до него).</summary>
     private const int Warmup = 1320;
+
+    /// <summary>Тиков замера после прогрева (9 с боя).</summary>
+    private const int Measured = 1080;
 }

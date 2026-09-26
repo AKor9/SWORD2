@@ -433,7 +433,7 @@ public sealed class Hud
             // Суставы и контакты физики (отладочные оверлеи, как F7) — в строку клавиш представления: число строк справки прежнее.
             $"{K(ArenaInput.HudHelp)} — справка    {K(ArenaInput.HudProfiler)} — профайлер    {K(ClientHost.Screenshot)} — снимок    Esc — выход    " +
             $"{K(ArenaInput.DebugJoints)} — суставы    {K(ArenaInput.DebugContacts)} — контакты физики",
-            $"{K(ArenaInput.EnemiesMore)} / {K(ArenaInput.EnemiesFewer)} — врагов ±1    {K(ArenaInput.ArenaReset)} — сброс арены    {K(ArenaInput.NextWeapon)} — следующий меч    {K(ArenaInput.DebugBodies)} — капсулы и клинки",
+            $"{K(ArenaInput.EnemiesMore)} / {K(ArenaInput.EnemiesFewer)} — врагов ±1    {K(ArenaInput.ArenaReset)} — сброс арены    {K(ArenaInput.NextWeapon)} — следующее оружие    {K(ArenaInput.DebugBodies)} — капсулы и клинки",
             // Траектории Motion Matching (оверлей) — в строку ударов: число строк справки прежнее.
             $"{K(ArenaInput.Attack)} — удар (жест мышью перед кликом — направление)    {K(ArenaInput.Stab)} — укол    {K(ArenaInput.Dash)} — рывок    " +
             $"{K(ArenaInput.DebugMotion)} — траектории MM",

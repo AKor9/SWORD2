@@ -48,7 +48,10 @@ public sealed class PreviewTests(StudioFontsFixture fonts) : IClassFixture<Studi
         using var app = new StudioApp(BakeProject.Open(_root), () => { }, 0) { Watch = false };
         StudioTestEnv.PumpUntil(app, () => app.Idle, "проверка статусов");
         var contentsBefore = app.PakContents.Select(e => e.Path + ":" + e.Hash).ToList();
-        var shots = Program.PreviewShots(app.Project);
+        // Эталонный пак старше проекта: единиц, добавленных после него (факел, текстуры огня), в нём нет — их предпросмотр строить не из чего.
+        // Каждый обработчик всё равно представлен: у него остаётся единица из пака.
+        var inPak = app.PakContents.Select(e => e.Owner).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var shots = Program.PreviewShots(app.Project).Where(s => inPak.Contains(s.Id)).ToList();
         Assert.Equal(["anatomy.mesh", "anim.pack", "anim.skeleton", "font.vector", "skin.mesh", "texture.array", "weapon.static"],
             shots.Select(s => app.Project.Find(s.Id)!.Processor).Distinct().Order(StringComparer.Ordinal));
 

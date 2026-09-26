@@ -3,26 +3,33 @@ using Sword.Engine.Formats;
 namespace Sword.Bake.Engine.Texture;
 
 /// <summary>Что берётся из исходника в слой массива.</summary>
-internal enum TextureChannel { Luma, R, G, B, A, Normal, Rgb }
+internal enum TextureChannel { Luma, R, G, B, A, Normal, Rgb, Rg }
 
 /// <summary>
 /// Слои-картинки → массив <see cref="TextureData"/>: выбор канала, приведение к квадрату размера массива (площадной фильтр,
-/// исходное соотношение сторон уходит в <see cref="TextureLayer.Aspect"/>), полная цепочка мипов, BC4 (один канал) или
-/// BC5 (нормаль xy). Без сжатия — R8 / RG8.
+/// исходное соотношение сторон уходит в <see cref="TextureLayer.Aspect"/>), полная цепочка мипов, BC4 (один канал), BC5 (нормаль xy
+/// или два канала как есть), BC1 sRGB (цвет). Без сжатия — R8 / RG8 / RGBA8 sRGB. Один канал с <c>srgb</c> — серый в BC1 sRGB /
+/// RGBA8 sRGB (канал во все три цвета): у R8 и BC4 нет sRGB-формата, а выборка должна декодировать до фильтра, как в UE.
 /// </summary>
 internal static class TextureBake
 {
-    public static TextureData Build(IReadOnlyList<(string Name, FloatImage Image)> layers, TextureChannel channel, int size, bool compress)
+    public static TextureData Build(IReadOnlyList<(string Name, FloatImage Image)> layers, TextureChannel channel, int size, bool compress,
+        bool srgb = false)
     {
         if (layers.Count == 0) throw new ArgumentException("нет слоёв");
         if (size < 4 || size > 8192 || (size & (size - 1)) != 0) throw new ArgumentException($"size {size}: нужна степень двойки от 4 до 8192");
+        if (srgb && channel is TextureChannel.Normal or TextureChannel.Rg)
+            throw new ArgumentException($"srgb: только один канал или rgb, не {channel.ToString().ToLowerInvariant()}");
         int mips = 1 + (int)Math.Log2(size);
+        // серый sRGB дальше идёт путём цвета: усреднение в линейном, в файле — sRGB
+        bool colour = channel == TextureChannel.Rgb || srgb;
         var format = channel switch
         {
-            TextureChannel.Normal => compress ? TexturePixelFormat.Bc5 : TexturePixelFormat.Rg8,
-            TextureChannel.Rgb => compress ? TexturePixelFormat.Bc1Srgb : TexturePixelFormat.Rgba8Srgb,
+            _ when colour => compress ? TexturePixelFormat.Bc1Srgb : TexturePixelFormat.Rgba8Srgb,
+            TextureChannel.Normal or TextureChannel.Rg => compress ? TexturePixelFormat.Bc5 : TexturePixelFormat.Rg8,
             _ => compress ? TexturePixelFormat.Bc4 : TexturePixelFormat.R8,
         };
+        bool signed = channel == TextureChannel.Normal;
 
         var subs = new byte[layers.Count * mips][];
         var infos = new TextureLayer[layers.Count];
@@ -30,14 +37,14 @@ internal static class TextureBake
         {
             var (name, src) = layers[s];
             infos[s] = new TextureLayer(name, (float)src.Width / src.Height);
-            var level = Resample(Extract(src, channel), size, size);
+            var level = Resample(Extract(src, channel, srgb), size, size);
             for (int m = 0; m < mips; m++)
             {
                 if (m > 0) level = Halve(level);
                 if (channel == TextureChannel.Normal) Renormalize(level);
-                subs[s * mips + m] = channel == TextureChannel.Rgb
+                subs[s * mips + m] = colour
                     ? compress ? BlockCompress.EncodeBc1(level) : QuantizeSrgb(level)
-                    : compress ? BlockCompress.Encode(level) : Quantize(level);
+                    : compress ? BlockCompress.Encode(level, signed) : Quantize(level, signed);
             }
         });
         var data = new TextureData
@@ -57,14 +64,29 @@ internal static class TextureBake
         "a" => TextureChannel.A,
         "normal" => TextureChannel.Normal,
         "rgb" => TextureChannel.Rgb,
-        _ => throw new ArgumentException($"channel «{text}»: luma, r, g, b, a, normal или rgb"),
+        "rg" => TextureChannel.Rg,
+        _ => throw new ArgumentException($"channel «{text}»: luma, r, g, b, a, rg, normal или rgb"),
     };
 
-    /// <summary>Нужные каналы: один (маска) или два (нормаль xy в −1…1).</summary>
-    private static FloatImage Extract(FloatImage src, TextureChannel channel)
+    /// <summary>
+    /// Нужные каналы: один (маска), два (нормаль xy в −1…1 или rg как есть), три (цвет — линейный). Один канал с
+    /// <paramref name="srgb"/> — значение исходника как sRGB: в линейный и во все три цвета.
+    /// </summary>
+    private static FloatImage Extract(FloatImage src, TextureChannel channel, bool srgb)
     {
+        if (srgb && channel != TextureChannel.Rgb)
+        {
+            var one = Extract(src, channel, false);
+            var grey = new FloatImage(src.Width, src.Height, 3);
+            for (int i = 0; i < one.Pixels.Length; i++)
+                grey.Pixels[i * 3] = grey.Pixels[i * 3 + 1] = grey.Pixels[i * 3 + 2] = BlockCompress.FromSrgb(one.Pixels[i]);
+            return grey;
+        }
         int n = src.Width * src.Height, c = src.Channels;
-        var dst = new FloatImage(src.Width, src.Height, channel switch { TextureChannel.Normal => 2, TextureChannel.Rgb => 3, _ => 1 });
+        var dst = new FloatImage(src.Width, src.Height, channel switch
+        {
+            TextureChannel.Normal or TextureChannel.Rg => 2, TextureChannel.Rgb => 3, _ => 1,
+        });
         var p = src.Pixels;
         for (int i = 0; i < n; i++)
         {
@@ -86,6 +108,10 @@ internal static class TextureBake
                     if (c < 3) throw new InvalidDataException("channel normal: в исходнике нет RGB");
                     dst.Pixels[i * 2] = p[o] * 2 - 1;
                     dst.Pixels[i * 2 + 1] = p[o + 1] * 2 - 1;
+                    break;
+                case TextureChannel.Rg:
+                    dst.Pixels[i * 2] = p[o];
+                    dst.Pixels[i * 2 + 1] = c >= 3 ? p[o + 1] : p[o];   // серый (с альфой) — в оба
                     break;
                 default:
                     int k = (int)channel - (int)TextureChannel.R;
@@ -155,7 +181,7 @@ internal static class TextureBake
         }
     }
 
-    /// <summary>Один канал 0…1 или два −1…1 (нормаль) → байты.</summary>
+    /// <summary>Канал 0…1 или −1…1 (<paramref name="signed"/>: нормаль) → байт.</summary>
     internal static byte ToByte(float v, bool signed) =>
         (byte)Math.Clamp(MathF.Round((signed ? v * 0.5f + 0.5f : v) * 255), 0, 255);
 
@@ -172,9 +198,8 @@ internal static class TextureBake
         return bytes;
     }
 
-    private static byte[] Quantize(FloatImage img)
+    private static byte[] Quantize(FloatImage img, bool signed)
     {
-        bool signed = img.Channels == 2;
         var bytes = new byte[img.Pixels.Length];
         for (int i = 0; i < bytes.Length; i++) bytes[i] = ToByte(img.Pixels[i], signed);
         return bytes;

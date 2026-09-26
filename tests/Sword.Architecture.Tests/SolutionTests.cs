@@ -86,6 +86,37 @@ public sealed class SolutionTests
         Assert.True(conditioned > 0, "ни один exe не ссылается на DevTools — проверка пуста (Sword.Game.App должен)");
     }
 
+    /// <summary>
+    /// Сборка без модуля (<c>-p:Without&lt;Модуль&gt;=true</c>, раздел 7): каждая ссылка продукта на модуль (<c>game/modules</c> — часть симуляции
+    /// или клиентская) — под условием <c>'$(Without&lt;Модуль&gt;)' != 'true'</c>, где Модуль — имя без <c>Sword.Game.</c> и <c>.Client</c>
+    /// (Bootstrap — модули симуляции, Sword.exe — клиентские). Что такая сборка собирается и стартует — шаг <c>without-modules</c> verify.ps1.
+    /// </summary>
+    [Fact]
+    public void ModuleReferences_AreRemovedWithoutModule()
+    {
+        var projects = SolutionModel.Load(Root);
+        var modules = projects.Where(p => p.IsModule).Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        var problems = new List<string>();
+        var conditioned = new List<string>();
+        foreach (var p in projects.Where(p => !p.IsTest && !p.IsModule))
+        {
+            var doc = System.Xml.Linq.XDocument.Load(Path.Combine(Root, p.RelativePath));
+            foreach (var reference in doc.Descendants("ProjectReference"))
+            {
+                string name = Path.GetFileNameWithoutExtension(((string?)reference.Attribute("Include") ?? "").Replace('\\', '/'));
+                if (!modules.Contains(name)) continue;
+                string module = name["Sword.Game.".Length..];
+                if (module.EndsWith(".Client", StringComparison.Ordinal)) module = module[..^".Client".Length];
+                string condition = string.Concat(((string?)reference.Parent?.Attribute("Condition") ?? "").Where(c => !char.IsWhiteSpace(c)));
+                if (condition == $"'$(Without{module})'!='true'") conditioned.Add($"{p.Name} → {name}");
+                else problems.Add($"{p.Name} → {name}: ссылка не под условием '$(Without{module})' != 'true'");
+            }
+        }
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+        Assert.Contains("Sword.Game.App → Sword.Game.Fire.Client", conditioned);
+        Assert.Contains("Sword.Game.Bootstrap → Sword.Game.Locomotion", conditioned);
+    }
+
     /// <summary>Каждый проект репозитория — в решении; заготовки запрещённых ссылок (tests/fixtures) — нет.</summary>
     [Fact]
     public void EveryProject_IsInSolution()

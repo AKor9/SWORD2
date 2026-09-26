@@ -34,6 +34,13 @@
     "pipeline": [ "ue_texture_export" ],
     "notes": "Пак скопирован в UE-проект /Game/RealisticBlood (без Demo); текстуры /Game/RealisticBlood/_Commons/Textures — tools/ue/export_textures.py → _Export/blood (PNG 2048², маски в оттенках серого)."
   },
+  "fluidninja_vfx_tools": {
+    "collection": "FluidNinja VFX Tools",
+    "source": "",
+    "license": "",
+    "pipeline": [ "ue_texture_export" ],
+    "notes": "Текстуры огня из /Game/FluidNinja/Input/SharedBitmaps (копия VFX Tools) — tools/ue/export_textures.py (SWORD_TEX_ONLY) → _Export/fire. Источник и лицензию заполняет пользователь."
+  },
   "human_organs": {
     "collection": "HumanOrgans",
     "source": "Fab",

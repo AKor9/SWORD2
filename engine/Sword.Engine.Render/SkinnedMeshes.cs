@@ -40,11 +40,14 @@ public struct GpuSkinInstance
     public float Glow;
 }
 
+/// <summary>Часть меша, загруженного по секциям (<see cref="SkinnedMeshes.LoadMeshSections"/>): номер меша и имя материала секции.</summary>
+public readonly record struct MeshPart(int Mesh, string Material);
+
 /// <summary>
 /// Скинированные меши — движковое подмножество <c>Render/SkinnedRenderer.cs</c> SWORD 2eab13b: вершины
 /// и индексы меша — один раз в память GPU; каждый кадр в кольца пишутся палитры (мировые матрицы скиннинга, уже
-/// интерполированные на CPU) и экземпляры; один <c>DrawIndexedInstanced</c> на меш. Разрезы, материалы секций,
-/// модули поверхности придут со своими фичами.
+/// интерполированные на CPU) и экземпляры; один <c>DrawIndexedInstanced</c> на меш. Меш с секциями разного цвета — по мешу на
+/// секцию (<see cref="LoadMeshSections"/>). Разрезы, материалы секций с текстурами, модули поверхности придут со своими фичами.
 ///
 /// Слоты корневых констант и раскладки — <see cref="Contribute"/>; скиннинг в шейдере — common/skin.hlsli.
 /// </summary>
@@ -101,6 +104,8 @@ public sealed class SkinnedMeshes : IDisposable
     private readonly List<Mesh> _meshes = [];
     /// <summary>Загруженные по пути: ключ — нормализованный путь контента без учёта регистра, как ищет сам контент.</summary>
     private readonly Dictionary<string, int> _loaded = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Загруженные по секциям (<see cref="LoadMeshSections"/>): ключ — как у <see cref="_loaded"/>.</summary>
+    private readonly Dictionary<string, MeshPart[]> _loadedParts = new(StringComparer.OrdinalIgnoreCase);
     private readonly FrameData<GpuMat34> _palette;
     private readonly FrameData<GpuSkinInstance> _instances;
     private readonly GpuSkinInstance[] _cpuInstances = new GpuSkinInstance[MaxInstances];
@@ -154,6 +159,45 @@ public sealed class SkinnedMeshes : IDisposable
         Log.Info("skin", $"{name}: {content.Describe(path)} — вершин {data.Vertices.Length}, треугольников " +
             $"{data.Indices.Length / 3}, суставов {data.JointCount}");
         return id;
+    }
+
+    /// <summary>
+    /// Меш из контента по секциям материалов (оружие и реквизит, у которых части разного цвета): по мешу на секцию — вершины
+    /// меша целиком, индексы секции; цвет — у экземпляра каждой части (<see cref="Add"/>, <see cref="AddRigid"/>). Меш без секций —
+    /// одна часть без имени материала. Вершины копируются в каждую часть — для небольших мешей. Повторная загрузка того же файла —
+    /// те же номера.
+    /// </summary>
+    /// <exception cref="ArgumentException">Путь не путь контента.</exception>
+    /// <exception cref="FileNotFoundException">Нет пака или ассета.</exception>
+    /// <exception cref="InvalidDataException">Файл не .swmesh или испорчен.</exception>
+    public IReadOnlyList<MeshPart> LoadMeshSections(string name, string path)
+    {
+        path = ContentPath.Normalize(path);
+        if (_loadedParts.TryGetValue(path, out var loaded)) return loaded;
+        var content = _renderer.Content;
+        SkinnedMeshData data;
+        using (var s = content.OpenRead(path))
+            data = SkinnedMeshData.Read(s, content.Describe(path));
+        MeshPart[] parts;
+        if (data.Sections.Length == 0) parts = [new MeshPart(AddMesh(name, data), "")];
+        else
+        {
+            parts = new MeshPart[data.Sections.Length];
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var section = data.Sections[i];
+                var part = new SkinnedMeshData
+                {
+                    Vertices = data.Vertices, Indices = data.Indices.AsSpan(section.Start, section.Count).ToArray(),
+                    JointNames = data.JointNames, JointParents = data.JointParents, InverseBind = data.InverseBind,
+                };
+                parts[i] = new MeshPart(AddMesh($"{name}.{section.Material}", part), section.Material);
+            }
+        }
+        _loadedParts[path] = parts;
+        Log.Info("skin", $"{name}: {content.Describe(path)} — вершин {data.Vertices.Length}, треугольников {data.Indices.Length / 3}, " +
+            $"частей {parts.Length} ({string.Join(", ", parts.Select(p => p.Material.Length > 0 ? p.Material : "—"))})");
+        return parts;
     }
 
     /// <summary>

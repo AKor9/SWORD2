@@ -119,6 +119,8 @@ public static class GameCore
         var combat = b.Config.Section<CombatSettings>("combat");
         int playerWeapon = weapons.Find(combat.PlayerWeapon);
         if (playerWeapon < 0) throw new InvalidDataException($"combat.playerWeapon = «{combat.PlayerWeapon}»: такого меча нет; есть: {weapons.Names}");
+        // Оружие врагов — таблица без оружия только игрока (факел): номера таблицы, выбор врага — k-е из них.
+        int[] enemyWeapons = weapons.EnemyWeapons(combat.PlayerOnlyWeapons ?? []);
         b.Component<Transform>().Component<PrevTransform>().Component<RootVelocity>().Component<FighterCommand>()
             .Component<GazeTarget>().Component<Fighter>().Component<PlayerTag>().Component<EnemyTag>()
             .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>().Component<RootContacts>()
@@ -134,7 +136,7 @@ public static class GameCore
             .Resource(PlayerInventory.All(weapons.Count, playerWeapon)).Resource(CombatRules.From(combat)).Resource(ArenaStats.Start).Resource(ragdoll)
             .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 }).Resource(skins)
             .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, jointSegments))
-            .ReadView<ICombatView>(new CombatView(weapons, assets.Strikes, assets.Hand)).ReadView<ISkinView>(new SkinView(skins))
+            .ReadView<ICombatView>(new CombatView(weapons, enemyWeapons, assets.Strikes, assets.Hand)).ReadView<ISkinView>(new SkinView(skins))
             .StateContributor(new AnimationState(poses))
             .StateContributor(new PhysicsState(physics))
             .StateContributor(new SkinState(skins))
@@ -160,7 +162,7 @@ public static class GameCore
         RagdollKnobs.Register(b, physics, corpseProfile);
 
         b.System(GameStages.Begin, new PrevTransformSystem())
-            .System(GameStages.Begin, new ArenaCommandSystem(weapons.Count))
+            .System(GameStages.Begin, new ArenaCommandSystem(enemyWeapons))
             .System(GameStages.Intent, new SceneCommandSystem(physics, weapons.Count))
             .System(GameStages.Intent, new PlayerCommandSystem(strikes))
             .System(GameStages.Intent, new EnemyAiSystem(strikes))
@@ -188,7 +190,7 @@ public static class GameCore
             .System(GameStages.React, new HitReactionSystem())
             .System(GameStages.React, new RootRecoilSystem(physics))
             .System(GameStages.Aftermath, new BleedSystem())
-            .System(GameStages.Aftermath, new RespawnSystem(weapons.Count))
+            .System(GameStages.Aftermath, new RespawnSystem(enemyWeapons))
             .System(GameStages.Aftermath, new BodyRebuildSystem(physics))
             .System(GameStages.Settle, new ArenaStatsSystem())
             .System(GameStages.Settle, new SkinCaptureSystem(physics, skins, gameplay: false))
@@ -197,7 +199,7 @@ public static class GameCore
             .System(GameStages.End, new ActionPoseReleaseSystem())
             .System(GameStages.End, new SkinReleaseSystem(skins));
 
-        b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies, weapons.Count));
+        b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies, enemyWeapons));
         // Тела и клинки бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира: как PlaceBuilt
         // SWORD после AttachRig, до первого тика.
         b.OnWorldReady(w =>
@@ -218,9 +220,9 @@ public static class GameCore
     /// <summary>
     /// Начальная арена (<c>DuelArena.Reset(enemies)</c> SWORD): игрок в центре курсом 0 (место 0), затем враги на местах
     /// 1…<paramref name="enemies"/> кольцом вокруг него (<see cref="ArenaRules.Enemy"/>, партия 0 — сборка мира) со случайными
-    /// мечами из <paramref name="weapons"/>.
+    /// мечами из оружия врагов <paramref name="weapons"/> (номера таблицы).
     /// </summary>
-    public static void SpawnArena(World world, int enemies, int weapons)
+    public static void SpawnArena(World world, int enemies, ReadOnlySpan<int> weapons)
     {
         var rng = world.Resource<SimRandom>();
         ulong tick = world.Resource<SimTime>().Tick;

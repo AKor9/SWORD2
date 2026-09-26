@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 
@@ -116,6 +117,13 @@ public sealed class Simulation
     public IReadOnlyList<string> ActiveModules { get; }
     public IReadOnlyList<string> InactiveModules { get; }
 
+    /// <summary>
+    /// Модули без части симуляции — только клиентские (огонь): включённые и выключенные <c>modules.&lt;id&gt;.enabled</c>. Симуляция их не
+    /// исполняет, в состав реплея (<see cref="ActiveModules"/>) и хеш они не входят; включение читает клиент. Секция выключенного пропущена.
+    /// </summary>
+    public IReadOnlyList<string> ClientOnlyModules { get; private init; } = [];
+    public IReadOnlyList<string> InactiveClientOnlyModules { get; private init; } = [];
+
     /// <summary>Записи тиков для клиента: срабатывания, объявленные <see cref="SimulationBuilder.Export{TTrigger}"/>.</summary>
     public TickExport Export { get; }
 
@@ -138,8 +146,13 @@ public sealed class Simulation
     /// Ядро (принцип 4 плана): то, без чего игры нет, — одна реализация, не модуль и не выключается; его регистрации
     /// без токена модуля. Null — без ядра (тесты движка).
     /// </param>
+    /// <param name="clientModules">
+    /// Id модулей без части симуляции (только клиентские): группа <c>modules.&lt;id&gt;</c> их знает, включение — в
+    /// <see cref="ClientOnlyModules"/>; Id не совпадает ни с модулем симуляции, ни с секцией движка.
+    /// </param>
     public static Simulation Build(ConfigSet config, IReadOnlyList<string> stages, Action<SimulationBuilder>? core,
-        IEnumerable<IModule> modules) => Build(config, stages, core, modules, new WorldOptions());
+        IEnumerable<IModule> modules, IReadOnlyList<string>? clientModules = null) =>
+        Build(config, stages, core, modules, new WorldOptions(), clientModules);
 
     /// <summary>Симуляция без ядра — модули движка и тесты.</summary>
     public static Simulation Build(ConfigSet config, IReadOnlyList<string> stages, IEnumerable<IModule> modules) =>
@@ -148,7 +161,7 @@ public sealed class Simulation
     /// <inheritdoc cref="Build(ConfigSet, IReadOnlyList{string}, Action{SimulationBuilder}, IEnumerable{IModule})"/>
     /// <param name="worldOptions">Настройки мира (размер чанка, проверки) — для тестов и замеров.</param>
     public static Simulation Build(ConfigSet config, IReadOnlyList<string> stages, Action<SimulationBuilder>? core,
-        IEnumerable<IModule> modules, WorldOptions worldOptions)
+        IEnumerable<IModule> modules, WorldOptions worldOptions, IReadOnlyList<string>? clientModules = null)
     {
         if (stages.Count < 1) throw new ArgumentException("нужна хотя бы одна стадия игры");
         if (stages.Contains(CommandStage) || stages.Contains(ExportStage))
@@ -167,7 +180,16 @@ public sealed class Simulation
             if (ids.Contains(m.Id, StringComparer.Ordinal)) throw new InvalidOperationException($"модуль {m.Id} дважды");
             ids.Add(m.Id);
         }
-        var moduleSettings = config.Groups<ModuleSettings>("modules", ids);
+        var clientOnly = clientModules ?? [];
+        foreach (string id in clientOnly)
+        {
+            if (!IModule.IsValidId(id)) throw new InvalidOperationException($"клиентский модуль \"{id}\": нужно {IModule.IdRule}");
+            if (EngineSections.Contains(id))
+                throw new InvalidOperationException($"клиентский модуль {id}: Id совпадает с секцией конфига движка ({string.Join(", ", EngineSections)})");
+            if (ids.Contains(id, StringComparer.Ordinal) || clientOnly.Count(c => c == id) > 1)
+                throw new InvalidOperationException($"клиентский модуль {id} дважды или совпадает с модулем симуляции (у модуля один Id на обе стороны)");
+        }
+        var moduleSettings = config.Groups<ModuleSettings>("modules", [.. ids, .. clientOnly]);
 
         var world = new WorldBuilder { Options = worldOptions }.Stages([CommandStage, .. stages, ExportStage]);
         world.Resource(new SimTime(0, 1f / settings.TickRate, 0));
@@ -194,6 +216,18 @@ public sealed class Simulation
             active.Add(m.Id);
         }
         b.Module = null;
+        var clientActive = new List<string>();
+        var clientInactive = new List<string>();
+        foreach (string id in clientOnly)
+        {
+            if (moduleSettings[id].Enabled)
+            {
+                clientActive.Add(id);
+                continue;
+            }
+            clientInactive.Add(id);
+            config.Skip(id);   // секция выключенного клиентского модуля — не «неизвестная», как у модуля симуляции
+        }
 
         world.System(CommandStage, commands);
         world.System(ExportStage, export);
@@ -210,9 +244,13 @@ public sealed class Simulation
         var invariants = new SimulationInvariants(built.Reader, settings.Invariants,
             [.. EcsInvariants.For(built.Reader).Select(i => (i, "engine")), .. b.Registered]);
         Log.Info("runtime", $"симуляция: {settings.TickRate} тиков/с, модули: {string.Join(", ", active)}" +
-            (inactive.Count > 0 ? $"; выключены: {string.Join(", ", inactive)}" : ""));
+            (inactive.Count > 0 ? $"; выключены: {string.Join(", ", inactive)}" : "") +
+            (clientOnly.Count > 0 ? $"; клиентские по конфигу: {string.Join(", ", clientActive)}" +
+                (clientInactive.Count > 0 ? $" (выключены: {string.Join(", ", clientInactive)})" : "") : ""));
         var sim = new Simulation(built, settings, commands, export, active, inactive, config, state, invariants)
         {
+            ClientOnlyModules = clientActive,
+            InactiveClientOnlyModules = clientInactive,
             Tuning = [.. b.Knobs],
             // Сведения реплея — после начального наполнения мира: модуль строит то, от чего они (база MM), в OnWorldBuilt.
             Facts = b.Facts.Select(f => (f.Name, f.Value())).OrderBy(f => f.Name, StringComparer.Ordinal).ToDictionary(f => f.Name, f => f.Item2),
@@ -334,6 +372,10 @@ public sealed class Simulation
     /// Хеш состояния между тиками (раздел 7 плана): в <paramref name="parts"/> — хеш каждого участника в порядке
     /// <see cref="StateParts"/>, итог — хеш хешей участников. Память не выделяет.
     /// </summary>
+    // Без PGO: по профилю вызовов JIT от запуска к запуску угадывал разный тип участника и иногда встраивал сюда его обход
+    // (позы анимации) — тот же хеш толпы шёл в 1,5 раза дольше (1,8 мс на тик против 1,2), и кадр сверки реплея в App
+    // зависел от запуска. Здесь только вызовы участников — их собственный код остаётся с PGO.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public ulong HashState(Span<ulong> parts)
     {
         if (parts.Length < _state.Length) throw new ArgumentException($"участников {_state.Length}, места {parts.Length}", nameof(parts));

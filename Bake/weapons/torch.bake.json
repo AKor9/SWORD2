@@ -1,0 +1,15 @@
+{
+  "processor": "weapon.static",
+  "import": "sword",
+  "notes": "Факел: палка Ø5 × 80 см и шишка 5×5×4 см с центром на конце палки — по размерам факела LIVE-2 (FSR §3.1); glb — tools/scripts/torch_mesh.py. Хват 12 см от нижнего конца. Секции по материалам (wood, charred) — игра красит палку деревом, шишку — обугленной. Крови факела нет в планах: зоны — минимальные, рукоять до 25 см, «лезвие» — от 26 см.",
+  "params": {
+    "mesh": "${src}/_Export/weapons/torch.glb",
+    "skeleton": "skeletons/ue5_manny",
+    "grip": 12,
+    "sections": true,
+    "blood": {
+      "handleEnd": 25,
+      "bladeStart": 26
+    }
+  }
+}

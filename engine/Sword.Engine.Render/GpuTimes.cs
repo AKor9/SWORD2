@@ -85,7 +85,7 @@ public sealed class GpuFrameTimes
             for (int k = 0; k < i; k++)
                 if (passes[k].Name == p.Name) occurrence++;
             double? ms = Valid ? MillisecondsOf(p.Name, occurrence) : null;
-            list.Add(new RenderPassSummary(p.Name, p.Kind, p.Writes, p.Reads, p.Barriers, p.Draws, p.Dispatches,
+            list.Add(new RenderPassSummary(p.Name, p.Kind, p.Phase, p.Writes, p.Reads, p.Barriers, p.Draws, p.Dispatches,
                 ms is { } v ? Math.Round(v, 5) : null));
         }
         return list;
@@ -102,6 +102,7 @@ public sealed class GpuFrameTimes
 public sealed record RenderPassSummary(
     string Name,
     PassKind Kind,
+    FramePhase Phase,
     IReadOnlyList<string> Writes,
     IReadOnlyList<string> Reads,
     int Barriers,

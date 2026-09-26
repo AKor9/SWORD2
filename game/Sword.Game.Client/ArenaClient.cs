@@ -14,9 +14,9 @@ namespace Sword.Game.Client;
 
 /// <summary>
 /// Клиент игры: арена — пол, рельеф из <see cref="HeightField"/>, колонны — и бойцы: Manny в позе последнего тика
-/// (аниматор) в корне бойца с его курсом на высоте рельефа (<c>DuelArena.KinWorld</c> SWORD). Один непрозрачный
-/// проход «scene.opaque» пишет цвет,
-/// нормали и глубину (порядок отрисовки — <c>SceneRenderer.Record</c> SWORD 2eab13b: пол, рельеф, колонны, скин).
+/// (аниматор) в корне бойца с его курсом на высоте рельефа (<c>DuelArena.KinWorld</c> SWORD). Кадр — в HDR: один непрозрачный
+/// проход «scene.opaque» пишет линейный цвет в <see cref="RenderFrame.SceneColor"/>, нормали и глубину (порядок отрисовки —
+/// <c>SceneRenderer.Record</c> SWORD 2eab13b: пол, рельеф, колонны, скин); на экран его выводит тонмап рендера (фаза Post).
 ///
 /// Кадр — порядок <c>Program.cs</c> SWORD: <see cref="Input"/> — камера (<see cref="RtsCamera"/>, следует за игроком,
 /// каким его показал прошлый кадр) и команда игрока из WASD по этой камере и курсора на земле; <see cref="BeforeTick"/> —
@@ -36,14 +36,15 @@ namespace Sword.Game.Client;
 /// HUD боя (<see cref="CombatHud"/> — снимок мира последнего тика: здоровье и смерть игрока, живые враги, статистика арены
 /// <see cref="ArenaStats"/>, меч; кольцо игрока — цветом по здоровью), инвентарь (<see cref="Inventory"/> — панель клиента: I
 /// открывает, 1–9 и щелчок — команда арены «взять меч» после команд PageUp, PageDown, R, T тика), ручки «Бой» (<see cref="TuningGroups"/>
-/// над привязкой <see cref="Tuning"/> — панель F3 подключает exe; и «Рэгдолл», <see cref="RagdollTuning"/>). Симуляцию
+/// над привязкой <see cref="Tuning"/> — панель F3 подключает exe; и «Рэгдолл», <see cref="RagdollTuning"/>; «Свет» — ручки рендера,
+/// <see cref="LightTuning"/>: ночь — окружение сцены <see cref="SceneEnvironment"/> в константах кадра и фон проходом). Симуляцию
 /// клиент не пишет: только читает мир и ставит команды.
 ///
 /// Труп — по телам (<see cref="ArenaView"/>: скин = привязка × тело, меч — на теле клинка, рамка — по телам), темнее живого
 /// (<see cref="DeadShade"/>), в ID-буфере — «голова трупа врага 3»; оверлеи <see cref="JointsOverlay"/> (J) и <see cref="ContactsOverlay"/>
 /// (K; трасса физики — диагностический режим <c>physics.trace</c>, клиент включает его между тиками, пока контакты показаны).
 /// </summary>
-public sealed class ArenaClient : IClientGame, IClientObservable
+public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISceneSky
 {
     /// <summary>Рамка бойца для наблюдения: полуширина и рост от корня (капсула Manny SWORD: радиус 0,35, рост ~1,8 м).</summary>
     public const float FighterHalfWidth = 0.45f, FighterHeight = 1.85f;
@@ -54,8 +55,19 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Цвет игрока (<c>SkinnedCharacters.Colour</c> SWORD).</summary>
     public static readonly Vector3 PlayerColour = new(0.3f, 0.4f, 0.65f);
 
-    /// <summary>Цвет меча (<c>SkinnedCharacters.Submit</c> SWORD).</summary>
+    /// <summary>Цвет меча (<c>SkinnedCharacters.Submit</c> SWORD) — и части оружия, материала которой нет в <see cref="WeaponMaterialColour"/>.</summary>
     public static readonly Vector3 WeaponColour = new(0.8f, 0.82f, 0.86f);
+
+    /// <summary>
+    /// Цвет части оружия по имени материала секции меша (пекарня weapon.static с <c>sections</c>): факел — палка «wood» (дерево),
+    /// шишка «charred» (обугленная); другое имя и оружие без секций — <see cref="WeaponColour"/>.
+    /// </summary>
+    public static Vector3 WeaponMaterialColour(string material) => material.ToLowerInvariant() switch
+    {
+        "wood" => new(0.36f, 0.22f, 0.11f),
+        "charred" => new(0.04f, 0.035f, 0.03f),
+        _ => WeaponColour,
+    };
 
     /// <summary>Цвет врага на месте <paramref name="slot"/> (<c>SkinnedCharacters.EnemyColour</c> SWORD): оттенок по золотому сечению.</summary>
     public static Vector3 EnemyColour(int slot)
@@ -73,8 +85,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Бойцов, отданных скиннингу в последнем кадре (итог Sword.exe: рендер рисует всех).</summary>
     public int SkinnedFighters { get; private set; }
 
-    /// <summary>Цвет очистки кадра (как <c>SceneRenderer.Record</c> SWORD).</summary>
-    public static readonly Vector4 ClearColour = new(0.33f, 0.29f, 0.27f, 1f);
+    /// <summary>Цвет фона на экране (sRGB-кодированный, как <c>SceneRenderer.Record</c> SWORD).</summary>
+    public static readonly Vector3 BackgroundDisplay = new(0.33f, 0.29f, 0.27f);
+
+    /// <summary>
+    /// Цвет очистки HDR-сцены — линейный: тот, что тонмап с экспозицией по умолчанию выводит цветом <see cref="BackgroundDisplay"/>
+    /// (фон на экране тот же, что без HDR).
+    /// </summary>
+    public static readonly Vector4 ClearColour = new(FilmicTonemap.SceneFor(BackgroundDisplay, Renderer.DefaultExposure), 1f);
 
     public const int SlotTerrain = 8, SlotMesh = 9;
 
@@ -83,6 +101,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private static readonly GraphicsPipelineDesc Terrain = new(SceneShader, "VsTerrain", "PsGround", Depth: DepthMode.TestWrite);
     private static readonly GraphicsPipelineDesc Pillar = new(SceneShader, "VsPillar", "PsPillar", Depth: DepthMode.TestWrite);
     private static readonly GraphicsPipelineDesc Skin = new(SceneShader, "VsSkin", "PsSkin", Depth: DepthMode.TestWrite);
+
+    /// <summary>Фон окружения, когда он не цвет очистки (ночь): экранный треугольник на дальней глубине — только пустые пиксели.</summary>
+    private static readonly GraphicsPipelineDesc Background = new(SceneShader, "VsBackground", "PsBackground", Depth: DepthMode.Test);
 
     /// <summary>
     /// ID-проход (диагностический режим, только в кадре снимка с ID-буфером): те же скинированные меши тем же вершинным
@@ -118,8 +139,18 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// </summary>
     public const string MotionOverlay = "mm";
 
+    /// <summary>
+    /// Оверлей точечных источников кадра (<see cref="PointLights.DrawOverlay"/>): крест в позиции, круги радиуса R, горизонтальный круг
+    /// половины затухания (видимое пятно); в слое снимка — ещё подпись «интенсивность, R».
+    /// </summary>
+    public const string LightsOverlay = "lights";
+
     /// <summary>Оверлеи, которые клиент арены снимает слоем.</summary>
-    public static readonly IReadOnlyList<string> KnownOverlays = [CapsulesOverlay, BladesOverlay, ContactsOverlay, JointsOverlay, MotionOverlay];
+    public static readonly IReadOnlyList<string> KnownOverlays =
+        [CapsulesOverlay, BladesOverlay, ContactsOverlay, JointsOverlay, MotionOverlay, LightsOverlay];
+
+    /// <summary>Тестовый источник от корня игрока на земле: на высоте 1.4 м и чуть в сторону — примерно там, где факел в руке.</summary>
+    public static readonly Vector3 TestLightOffset = new(0.45f, 1.4f, 0.3f);
 
     /// <summary>Нормаль контакта на оверлее: длина, м, и прибавка на метр глубины (1 см глубины — +10 см).</summary>
     public const float ContactNormal = 0.1f, ContactDepthScale = 10f;
@@ -193,8 +224,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     private GpuData? _heights, _capsule;
     private GpuIndices? _capsuleIndices;
     private int _manny = -1;
-    /// <summary>Меши оружия по номеру таблицы оружия и их имена (подписи слоя клинков).</summary>
-    private int[] _weapons = [];
+    /// <summary>Части мешей оружия (меш и цвет) по номеру таблицы оружия и имена оружия (подписи слоя клинков).</summary>
+    private (int Mesh, Vector3 Colour)[][] _weapons = [];
     private string[] _weaponNames = [];
     private SimulationLink? _simulation;
     private readonly PlayerCommand? _scripted;
@@ -235,8 +266,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <param name="showJoints">Суставы тел с первого кадра (<c>--overlay joints</c>; J — переключить).</param>
     /// <param name="showContacts">Контакты физики с первого кадра и трасса физики (<c>--overlay contacts</c>; K — переключить).</param>
     /// <param name="showMotion">Траектории Motion Matching игрока с первого кадра (<c>--overlay mm</c>; M — переключить).</param>
+    /// <param name="showLights">Оверлей точечных источников (<c>--overlay lights</c>).</param>
+    /// <param name="testLights">Тестовых источников «факел» у игрока (<c>--test-light [N]</c>, <see cref="TestLights"/>); 0 — нет.</param>
     public ArenaClient(CameraPose? camera = null, PlayerCommand? scripted = null, bool hud = true, bool playerCommands = true,
-        bool showBodies = false, bool showBlades = false, bool showJoints = false, bool showContacts = false, bool showMotion = false)
+        bool showBodies = false, bool showBlades = false, bool showJoints = false, bool showContacts = false, bool showMotion = false,
+        bool showLights = false, int testLights = 0)
     {
         if (!playerCommands && scripted is not null) throw new ArgumentException("заданная команда игрока без команд игрока", nameof(scripted));
         _showHud = hud;
@@ -246,6 +280,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         ShowJoints = showJoints;
         ShowContacts = showContacts;
         ShowMotion = showMotion;
+        ShowLights = showLights;
+        TestLights = testLights;
         _drawOpaque = DrawOpaque;
         _drawIds = DrawIds;
         _view = new ArenaView(ArenaTerrain.Height);
@@ -327,6 +363,45 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Оверлей Motion Matching игрока, снятый последним кадром (итог Sword.exe, тесты).</summary>
     public MotionMatchOverlay Motion => _motion;
 
+    /// <summary>Точечные источники поверх кадра (<c>--overlay lights</c>).</summary>
+    public bool ShowLights { get; set; }
+
+    /// <summary>Источников в оверлее последнего кадра (0 — не рисовался или источников нет).</summary>
+    public int DrawnLights { get; private set; }
+
+    /// <summary>
+    /// Тестовые источники «факел LIVE-2» (<see cref="PointLight.Torch"/>) у игрока — свет без огня для проверки глазами, снимков и замера
+    /// (<c>Sword.exe --test-light [N]</c>): первый — в <see cref="TestLightOffset"/> от корня, остальные — по кругу 3 м вокруг него на той
+    /// же высоте; 0 — нет; нет игрока — нет и источников. Только представление: симуляция и реплей их не видят.
+    /// </summary>
+    public int TestLights { get; set; }
+
+    /// <summary>Радиус круга тестовых источников после первого, м.</summary>
+    public const float TestLightRing = 3f;
+
+    /// <summary>
+    /// Ночь (ручка группы «Свет», <c>--tune light.night=1</c>): окружение сцены <see cref="SceneEnvironment.Night"/> вместо
+    /// <see cref="SceneEnvironment.Day"/> со следующего кадра — константы кадра и проход фона, ресурсы те же. Только представление.
+    /// </summary>
+    public bool Night { get; set; }
+
+    /// <summary>Окружение сцены следующего кадра (<see cref="Night"/>).</summary>
+    public SceneEnvironment Environment => Night ? SceneEnvironment.Night : SceneEnvironment.Day;
+
+    /// <summary>Туман сцены следующего кадра — для прозрачного клиентских модулей (пламя): цвет окружения, начало и длина как у <c>Shade</c>.</summary>
+    public SceneFog Fog => new(Environment.Fog, SceneEnvironment.FogStart, SceneEnvironment.FogRange);
+
+    /// <summary>Солнце и небо следующего кадра — для объёмов клиентских модулей (дым): солнце окружения и небо вертикальной поверхности.</summary>
+    public SceneSky Sky => new(Environment.Sun, (Environment.SkyLow + Environment.SkyHigh) * 0.5f);
+
+    /// <summary>Группа ручек «Свет» (<see cref="LightTuning"/>); null — до <see cref="Initialize"/>.</summary>
+    public TuningGroup? Light => _light;
+
+    private TuningGroup? _light;
+
+    /// <summary>Фон окружения этого кадра рисуется проходом (не равен цвету очистки).</summary>
+    private bool _drawBackground;
+
     private readonly MotionMatchOverlay _motion;
 
     /// <summary>Трассу физики включил клиент (K, <c>--overlay contacts</c>) — выключает её тоже он; включённую агентом не трогает.</summary>
@@ -350,7 +425,10 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     /// <summary>Привязка ручек симуляции для панели F3; null — до <see cref="Initialize"/>.</summary>
     public TuningBinding? Tuning => _tuning;
 
-    /// <summary>Группы ручек игры (вкладки панели F3: «Бой», «Рэгдолл») — заводятся в <see cref="Initialize"/>.</summary>
+    /// <summary>
+    /// Группы ручек игры (вкладки панели F3: «Бой», «Рэгдолл», «Локомоция» — ручки симуляции; «Свет» — клиента, <see cref="Light"/>) —
+    /// заводятся в <see cref="Initialize"/>.
+    /// </summary>
     public IReadOnlyList<TuningGroup> TuningGroups => _groups;
 
     /// <summary>Нижний край панели производительности HUD в последнем кадре, пиксели (под ней — панель ручек, как в SWORD); без HUD — 0.</summary>
@@ -358,7 +436,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
 
     /// <summary>Камера показанного кадра — для пакета наблюдения агента.</summary>
     CameraView IClientObservable.Camera =>
-        new(_camera.ViewProj, _camera.Eye, _camera.Target, _camera.Yaw, _camera.Pitch, _camera.Distance, _camera.Follow);
+        new(_camera.ViewProj, _camera.Eye, _camera.Target, _camera.Yaw, _camera.Pitch, _camera.Distance, _camera.Follow) { Rotation = _camera.Rotation };
 
     /// <summary>
     /// Бойцы кадра в показанном (интерполированном) положении — рамкой вокруг тела; у трупа — рамка его показанных тел (с мечом на
@@ -440,6 +518,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void Initialize(Renderer renderer, SimulationLink? simulation)
     {
         _renderer = renderer;
+        // Сцена — в HDR: линейный цвет в SceneColor, в задний буфер его переводит тонмап рендера (фаза Post).
+        renderer.Hdr = true;
+        renderer.SceneColorClear = ClearColour;
         // Профайлер CPU кадра — тот же, что у рендера: зоны арены заводятся здесь, не в кадре.
         var profiler = renderer.Profiler;
         _view.Profiler = profiler;
@@ -464,15 +545,17 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         var parts = new uint[joints];
         for (int j = 0; j < joints; j++) parts[j] = (uint)bodies.JointSegment(j);
         renderer.Skinned.SetJointParts(_manny, parts);
-        // Мечи: меш оружия таблицы — статический, в ID-буфере весь — клинок (сегмент 11).
+        // Мечи: меш оружия таблицы — статический, по части на секцию материала (цвет части — по имени материала), в ID-буфере
+        // весь — клинок (сегмент 11).
         var weapons = _simulation.World.View<ICombatView>().Weapons;
-        _weapons = new int[weapons.Length];
+        _weapons = new (int, Vector3)[weapons.Length][];
         _weaponNames = new string[weapons.Length];
         ReadOnlySpan<uint> blade = [(uint)BodySegs.Weapon];
         for (int w = 0; w < weapons.Length; w++)
         {
-            _weapons[w] = renderer.Skinned.LoadMesh("Weapon." + weapons[w].Name, weapons[w].Mesh);
-            renderer.Skinned.SetJointParts(_weapons[w], blade);
+            var sections = renderer.Skinned.LoadMeshSections("Weapon." + weapons[w].Name, weapons[w].Mesh);
+            _weapons[w] = [.. sections.Select(p => (p.Mesh, WeaponMaterialColour(p.Material)))];
+            foreach (var section in sections) renderer.Skinned.SetJointParts(section.Mesh, blade);
             _weaponNames[w] = weapons[w].Name;
         }
         // Жест удара: направления замаха рубящих ударов таблицы — в системе бойца.
@@ -488,6 +571,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         _groups.Add(CombatTuning.Build(_tuning, _simulation));
         _groups.Add(RagdollTuning.Build(_tuning, _view));
         if (LocomotionTuning.Build(_tuning, _simulation, _view) is { } locomotion) _groups.Add(locomotion);   // игрок на MM
+        // «Свет» — ручки клиента (рендер, окружение): значения здесь и в рендере, команд симуляции нет.
+        _light = LightTuning.Build(this, renderer);
+        _groups.Add(_light);
         if (_showHud)
         {
             _ui = renderer.Ui.CreateDrawList();
@@ -634,7 +720,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     public void BuildFrame(RenderFrame frame)
     {
         _camera.Rebuild(frame.Width, frame.Height);   // кадр из перетаскивания рамки — без Input, со своим размером
-        frame.SetFrameConstants(Constants());
+        var environment = Environment;
+        _drawBackground = environment.Background != new Vector3(ClearColour.X, ClearColour.Y, ClearColour.Z);
+        frame.SetFrameConstants(Constants(frame.Lights, environment));
+        frame.Lights.ViewOrigin = _camera.Eye;
+        if (TestLights > 0 && _view.Player is { } player) AddTestLights(frame.Lights, new Vector3(player.Root.X, player.Height, player.Root.Z));
 
         // Manny в позе тика (аниматор); позы нет — поза привязки: палитра InverseBind·Component·World = World.
         // Владелец экземпляра — код бойца для ID-буфера снимка (OwnerOf).
@@ -663,15 +753,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         for (int i = 0; i < fighters.Count; i++)
         {
             var fighter = fighters[i];
-            if ((uint)fighter.Weapon < (uint)_weapons.Length
-                && _renderer!.Skinned.AddRigid(_weapons[fighter.Weapon], fighter.WeaponWorld, WeaponColour, OwnerOf(fighter.Entity)))
+            if ((uint)fighter.Weapon < (uint)_weapons.Length && AddWeapon(_weapons[fighter.Weapon], fighter.WeaponWorld, OwnerOf(fighter.Entity)))
                 armed++;
         }
         DrawnWeapons = armed;
         profiler.End(_zones.Skin);
 
         frame.Graph.AddPass("scene.opaque")
-            .Color(frame.Graph.BackBuffer, ClearColour)
+            .Color(frame.SceneColor, ClearColour)
             .Color(frame.Scene.Normal, SceneTargets.NormalClear)
             .Depth(frame.Scene.Depth, DepthAccess.Write, clear: 0f)
             .Execute(_drawOpaque);
@@ -695,6 +784,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         profiler.End(_zones.Bodies);
     }
 
+    /// <summary>Оружие бойца — все части меша своими цветами в одном мире; false — места в кадре не хватило хоть одной части.</summary>
+    private bool AddWeapon((int Mesh, Vector3 Colour)[] parts, in Matrix4x4 world, uint owner)
+    {
+        bool all = true;
+        foreach (var (mesh, colour) in parts) all &= _renderer!.Skinned.AddRigid(mesh, world, colour, owner);
+        return all;
+    }
+
     /// <summary>Зоны профайлера CPU в построении кадра арены (<see cref="Initialize"/>).</summary>
     private (int Skin, int Hud, int Bodies) _zones;
 
@@ -710,10 +807,10 @@ public sealed class ArenaClient : IClientGame, IClientObservable
     {
         bool capsulesLayer = frame.WantsLayer(CapsulesOverlay), bladesLayer = frame.WantsLayer(BladesOverlay);
         bool contactsLayer = frame.WantsLayer(ContactsOverlay), jointsLayer = frame.WantsLayer(JointsOverlay);
-        bool motionLayer = frame.WantsLayer(MotionOverlay);
-        bool screenBlades = ShowBodies || ShowBlades, screen = screenBlades || ShowJoints || ShowContacts || ShowMotion;
-        DrawnCapsules = DrawnBlades = DrawnJoints = DrawnContacts = DrawnMarks = DrawnGroundedMarks = DrawnMotion = 0;
-        if (!screen && !capsulesLayer && !bladesLayer && !contactsLayer && !jointsLayer && !motionLayer) return;
+        bool motionLayer = frame.WantsLayer(MotionOverlay), lightsLayer = frame.WantsLayer(LightsOverlay);
+        bool screenBlades = ShowBodies || ShowBlades, screen = screenBlades || ShowJoints || ShowContacts || ShowMotion || ShowLights;
+        DrawnCapsules = DrawnBlades = DrawnJoints = DrawnContacts = DrawnMarks = DrawnGroundedMarks = DrawnMotion = DrawnLights = 0;
+        if (!screen && !capsulesLayer && !bladesLayer && !contactsLayer && !jointsLayer && !motionLayer && !lightsLayer) return;
         var debug = _renderer!.Debug;
         if (capsulesLayer)
         {
@@ -752,6 +849,15 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             if (!_motion.Available) frame.CaptureNote(MotionMatchOverlay.NoMotionNote);
             Layer(frame, debug, MotionOverlay, "overlay.mm", from);
         }
+        // Источники, добавленные в этот кадр до оверлея (тестовый — в начале кадра).
+        if (lightsLayer)
+        {
+            var from = debug.Mark();
+            DrawnLights = frame.Lights.DrawOverlay(debug, labels: true);
+            if (DrawnLights == 0)
+                frame.CaptureNote($"{LightsOverlay}: видимых точечных источников в кадре нет (тестовый — Sword.exe --test-light)");
+            Layer(frame, debug, LightsOverlay, "overlay.lights", from);
+        }
         if (!screen) return;
         var screenFrom = debug.Mark();
         if (ShowBodies) DrawnCapsules = DrawCapsules(debug);
@@ -759,6 +865,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         if (ShowJoints) DrawnJoints = DrawJoints(debug);
         if (ShowContacts) DrawnContacts = DrawContacts(debug);
         if (ShowMotion) DrawnMotion = _motion.Draw(debug);
+        if (ShowLights) DrawnLights = frame.Lights.DrawOverlay(debug);
         debug.AddPass(frame, frame.Graph.BackBuffer, _camera.ViewProj, _camera.Eye, "debug.bodies", since: screenFrom);
     }
 
@@ -941,15 +1048,32 @@ public sealed class ArenaClient : IClientGame, IClientObservable
         ctx.DrawIndexed(_capsuleIndices!, ArenaLayout.PillarCount);
 
         _renderer!.Skinned.Record(ctx, Skin);
+        if (_drawBackground)
+        {
+            ctx.SetPipeline(Background);
+            ctx.Draw(3);
+        }
+    }
+
+    /// <summary>Тестовые источники <see cref="TestLights"/>: первый — в <see cref="TestLightOffset"/> от корня, остальные — по кругу.</summary>
+    private void AddTestLights(PointLights lights, Vector3 root)
+    {
+        var first = root + TestLightOffset;
+        lights.Add(PointLight.Torch(first));
+        for (int i = 1; i < TestLights; i++)
+        {
+            float a = i * (2 * MathF.PI / (TestLights - 1));
+            lights.Add(PointLight.Torch(first + new Vector3(MathF.Cos(a), 0, MathF.Sin(a)) * TestLightRing));
+        }
     }
 
     /// <summary>
     /// Константы кадра (<c>Program.Fill</c> SWORD): шаг и время тика, номер последнего тика, доля тика. Тень и кольцо
     /// игрока — таз тела, как в SWORD, в показанной точке, как и Manny (<see cref="ArenaView.PlayerMarker"/>).
     /// Намеренное отличие: в SWORD — таз на последнем тике без интерполяции, и кольцо дрожит относительно плавно идущего
-    /// бойца.
+    /// бойца. SRV точечных источников и окружение (день или ночь) — клиента, симуляция их не видит.
     /// </summary>
-    private FrameConstants Constants()
+    private FrameConstants Constants(PointLights lights, in SceneEnvironment environment)
     {
         var pl = ArenaLayout.Pillars;
         return new FrameConstants
@@ -963,6 +1087,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable
             LightDir = Vector3.Normalize(new Vector3(-0.45f, -1f, -0.3f)),
             PlayerPos = _view.PlayerMarker ?? NoPlayer,
             PlayerHpFrac = PlayerHpFrac(_view.PlayerHp),
+            PointLights = (uint)lights.Srv,
+            Environment = environment,
         };
     }
 

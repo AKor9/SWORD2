@@ -235,11 +235,11 @@ public sealed class BleedSystem : IContinuousSystem
 /// <summary>
 /// Aftermath (<see cref="GameLabels.Respawn"/>), после кровопотери: враг, мёртвый дольше 8 с (<c>Time − DeadTime &gt; 8</c> в
 /// <c>DuelArena.Tick</c> SWORD 2eab13b — по времени тика), строится заново на своём месте (<see cref="Fighters.Rebuild"/>: кольцо вокруг
-/// корня игрока, новый случайный меч, таймер удара ИИ, здоровье и пары — с нуля, метка смерти снята). Постройка — командами на барьере
+/// корня игрока, новый случайный меч из оружия врагов <c>weapons</c>, таймер удара ИИ, здоровье и пары — с нуля, метка смерти снята). Постройка — командами на барьере
 /// Aftermath: следующий тик (ИИ, постройка тела и клинка, локомоция) видит нового бойца. Числа — счётчиковый ГСЧ своей партии
 /// (<see cref="ArenaRules.RespawnBatch"/>).
 /// </summary>
-public sealed class RespawnSystem(int weapons) : IContinuousSystem
+public sealed class RespawnSystem(int[] weapons) : IContinuousSystem
 {
     private Query _dead = null!, _player = null!;
 

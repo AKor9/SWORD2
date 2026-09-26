@@ -143,8 +143,9 @@ public sealed class UiPass : IDisposable
     /// Проход интерфейса поверх того, что уже нарисовано в заднем буфере (или в цели <paramref name="target"/> размера
     /// кадра — слой снимка, <see cref="RenderFrame.CaptureLayer"/>): квады <paramref name="draw"/> копируются в кольцо кадра
     /// сейчас (список можно менять сразу после вызова), рисуются, когда граф дойдёт до прохода. Пустой список — прохода нет.
+    /// Фаза — <see cref="FramePhase.Ui"/> (LDR, после тонмапа); подписи отладочного рисования идут в <see cref="FramePhase.Debug"/>.
     /// </summary>
-    public void Add(RenderFrame frame, UiDrawList draw, string name = "ui", RenderTexture? target = null)
+    public void Add(RenderFrame frame, UiDrawList draw, string name = "ui", RenderTexture? target = null, FramePhase phase = FramePhase.Ui)
     {
         LastQuads = draw.Count;
         LastBatches = 0;
@@ -175,7 +176,7 @@ public sealed class UiPass : IDisposable
         _used += draw.Count;
         LastBatches = work.Batches.Count;
 
-        frame.Graph.AddPass(name).Color(target ?? frame.Graph.BackBuffer).Execute(_record[_passes]);
+        frame.Graph.AddPass(name, phase).Color(target ?? frame.Graph.BackBuffer).Execute(_record[_passes]);
         _passes++;
     }
 

@@ -61,15 +61,16 @@ internal static class Screenshot
     }
 
     /// <summary>
-    /// Цель графа с 4 байтами на пиксель (ID-буфер R32Uint, слой Rgba8) в буфер чтения. Состояние ресурса после копии —
-    /// прежнее: граф его не заметит.
+    /// Цель графа (ID-буфер R32Uint, слой Rgba8 — 4 байта на пиксель; цвет HDR-сцены RGBA16F — 8) в буфер чтения. Состояние
+    /// ресурса после копии — прежнее: граф его не заметит.
     /// </summary>
     public static ID3D12Resource RecordTextureCapture(GraphicsDevice gd, ID3D12GraphicsCommandList list, GraphResource texture,
         out int width, out int height, out int rowPitch)
     {
         width = texture.Width;
         height = texture.Height;
-        rowPitch = (width * 4 + RowPitchAlignment - 1) / RowPitchAlignment * RowPitchAlignment;
+        int pixel = texture.TargetFormat == Vortice.DXGI.Format.R16G16B16A16_Float ? 8 : 4;
+        rowPitch = (width * pixel + RowPitchAlignment - 1) / RowPitchAlignment * RowPitchAlignment;
         var readback = gd.Device.CreateCommittedResource(HeapType.Readback, HeapFlags.None,
             ResourceDescription.Buffer((ulong)rowPitch * (uint)height), ResourceStates.Common);
         readback.Name = "Sword.CaptureReadback." + texture.Name;
@@ -220,6 +221,94 @@ internal static class Screenshot
             }
             File.WriteAllBytes(path, Png.Encode(rgb, width, height));
             return (min, max, covered / (float)((long)width * height));
+        }
+        finally
+        {
+            readback.Unmap(0);
+        }
+    }
+
+    /// <summary>Ступени карты HDR: log2 яркости входа тонмапа → цвет (<see cref="HdrCapture.Path"/>).</summary>
+    private static readonly (float Stop, float R, float G, float B)[] HdrStops =
+    [
+        (-8, 0, 0, 0), (-6, 0, 0, 0.5f), (-4, 0, 0.3f, 1), (-2.4739f, 0, 0.8f, 0.2f), (-1, 0.6f, 0.9f, 0), (0, 1, 1, 0),
+        (2, 1, 0, 0), (4, 1, 0, 1), (6, 1, 1, 1),
+    ];
+
+    /// <summary>Цвет карты HDR для яркости <paramref name="luminance"/> (линейно между ступенями log2).</summary>
+    public static (byte R, byte G, byte B) HdrColour(float luminance)
+    {
+        if (!float.IsFinite(luminance)) return (0, 255, 255);
+        float stop = luminance > 0 ? MathF.Log2(luminance) : float.NegativeInfinity;
+        var stops = HdrStops;
+        if (stop <= stops[0].Stop) return (0, 0, 0);
+        int i = 1;
+        while (i < stops.Length - 1 && stop > stops[i].Stop) i++;
+        var (s0, r0, g0, b0) = stops[i - 1];
+        var (s1, r1, g1, b1) = stops[i];
+        float t = Math.Clamp((stop - s0) / (s1 - s0), 0, 1);
+        return ((byte)MathF.Round((r0 + (r1 - r0) * t) * 255), (byte)MathF.Round((g0 + (g1 - g0) * t) * 255),
+            (byte)MathF.Round((b0 + (b1 - b0) * t) * 255));
+    }
+
+    /// <summary>
+    /// Цвет HDR-сцены (RGBA16F) из буфера чтения: яркость входа тонмапа (× <paramref name="exposure"/>, Rec.709) по кадру и, если
+    /// заданы пути, карта в ложных цветах (<see cref="HdrColour"/>) и сырой цвет (<c>.bin</c>, half RGBA на пиксель);
+    /// <paramref name="meanAlpha"/> — средняя альфа (у цели ½ прозрачного — непрозрачность).
+    /// </summary>
+    /// <remarks>
+    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
+    /// его на ходу (OSR на главном потоке в кадре снимка); PGO переводу half и сумме не нужен.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static unsafe HdrCapture SaveHdr(ID3D12Resource readback, float exposure, int width, int height, int rowPitch, string? pngPath,
+        string? rawPath, out float meanAlpha)
+    {
+        byte* source = readback.Map<byte>(0);
+        try
+        {
+            var rgb = pngPath is null ? null : new byte[width * height * 3];
+            var raw = rawPath is null ? null : new byte[width * height * 8];
+            double sum = 0, alpha = 0;
+            float max = 0;
+            long over = 0, finite = 0;
+            int nonFinite = 0;
+            for (int y = 0; y < height; y++)
+            {
+                var row = new ReadOnlySpan<Half>(source + (long)y * rowPitch, width * 4);
+                if (raw is not null) System.Runtime.InteropServices.MemoryMarshal.AsBytes(row).CopyTo(raw.AsSpan(y * width * 8, width * 8));
+                for (int x = 0; x < width; x++)
+                {
+                    float r = (float)row[x * 4], g = (float)row[x * 4 + 1], b = (float)row[x * 4 + 2];
+                    alpha += (float)row[x * 4 + 3];
+                    float l = (0.2126f * r + 0.7152f * g + 0.0722f * b) * exposure;
+                    bool ok = float.IsFinite(r) && float.IsFinite(g) && float.IsFinite(b);
+                    if (ok)
+                    {
+                        finite++;
+                        sum += l;
+                        if (l > max) max = l;
+                        if (l > 1) over++;
+                    }
+                    else nonFinite++;
+                    if (rgb is not null)
+                    {
+                        var (cr, cg, cb) = HdrColour(ok ? l : float.NaN);
+                        int i = (y * width + x) * 3;
+                        rgb[i] = cr;
+                        rgb[i + 1] = cg;
+                        rgb[i + 2] = cb;
+                    }
+                }
+            }
+            if (rgb is not null) File.WriteAllBytes(pngPath!, Png.Encode(rgb, width, height));
+            if (raw is not null) File.WriteAllBytes(rawPath!, raw);
+            long pixels = (long)width * height;
+            meanAlpha = pixels > 0 ? (float)(alpha / pixels) : 0;
+            return new HdrCapture(exposure, max, finite > 0 ? (float)(sum / finite) : 0, pixels > 0 ? over / (float)pixels : 0, nonFinite)
+            {
+                Path = pngPath, RawPath = rawPath,
+            };
         }
         finally
         {

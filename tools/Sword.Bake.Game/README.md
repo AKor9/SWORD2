@@ -24,7 +24,7 @@ SWORD 2eab13b, `tools/Sword.Bake.Sword` — игровая часть; логи�
 
 | обработчик | параметры | выход |
 |---|---|---|
-| `weapon.static` (`WeaponStaticProcessor`) | `mesh` — glTF статики (`tools/ue/export_weapons.py`), `skeleton` — ссылка на риг (`anim.skeleton`: кулак его эталонных клипов с перенесёнными пальцами), `grip` — середина хвата, см от навершия (пусто — середина рукояти), `unit` — см в единице glTF, `blood` — зоны крови (`shape` `blade`, `handleEnd`, `bladeStart`, `materials` — слот материала → зона или `none`, клетки лезвия и рукояти), `out` | `weapons/<имя>.swmesh` в системе кисти персонажа и рядом `weapons/<имя>.swblood` |
+| `weapon.static` (`WeaponStaticProcessor`) | `mesh` — glTF статики (`tools/ue/export_weapons.py`), `skeleton` — ссылка на риг (`anim.skeleton`: кулак его эталонных клипов с перенесёнными пальцами), `grip` — середина хвата, см от навершия (пусто — середина рукояти), `unit` — см в единице glTF, `sections` — секции по материалам glTF (имя материала — имя секции: игра красит части; нет — одна часть), `blood` — зоны крови (`shape` `blade`, `handleEnd`, `bladeStart`, `materials` — слот материала → зона или `none`, клетки лезвия и рукояти), `out` | `weapons/<имя>.swmesh` в системе кисти персонажа и рядом `weapons/<имя>.swblood` |
 | `anatomy.mesh` (`AnatomyMeshProcessor`) | `mesh` — glTF анатомии пака (`tools/ue/export_organs.py`), `skeleton` — риг, `skin` — меш персонажа (`skin.mesh`: анатомия прячется под кожу на `margin` см), `materials` — имена материалов по номеру glTF, `keep` — оставить только эти, `attachBone`/`attachCenter`/`attachSize` — статика на кость (мозг), `maxTriangles` — бюджет прореживания, `unit`, `out` | `<ID>.swmesh` на риге персонажа (та же палитра и плоскости разрезов, что у кожи) |
 
 Как печётся:

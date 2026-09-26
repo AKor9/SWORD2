@@ -40,8 +40,8 @@ public class HudTests
         Assert.StartsWith("F2 — справка    F9 — профайлер    F4 — снимок", lines[2]);   // F2 по умолчанию — профайлер
         Assert.StartsWith("F1 — справка    F2 — профайлер    F4 — снимок", Hud.HelpLines(new Dictionary<string, string>())[2]);
         // Клавиши арены, меч (T) и капсулы тел с клинками (F7 по умолчанию, привязка — секция input).
-        Assert.Equal("PgUp / PgDn — врагов ±1    Home — сброс арены    T — следующий меч    F8 — капсулы и клинки", lines[3]);
-        Assert.EndsWith("T — следующий меч    F7 — капсулы и клинки", Hud.HelpLines(new Dictionary<string, string>())[3]);
+        Assert.Equal("PgUp / PgDn — врагов ±1    Home — сброс арены    T — следующее оружие    F8 — капсулы и клинки", lines[3]);
+        Assert.EndsWith("T — следующее оружие    F7 — капсулы и клинки", Hud.HelpLines(new Dictionary<string, string>())[3]);
     }
 }
 

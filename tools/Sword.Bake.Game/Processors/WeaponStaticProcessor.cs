@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 using Sword.Bake.Engine.Anim;
 using Sword.Bake.Engine.Processors;
 using Sword.Bake.Game.Anim;
@@ -22,6 +23,10 @@ internal sealed class WeaponStaticParams
     public float? Grip { get; set; }
     [Description("Сантиметров в единице glTF: экспорт UE — 1.")]
     public float Unit { get; set; } = 1;
+    [Description("Секции по материалам glTF (имя материала — имя секции): игра красит части оружия по имени; нет — один цвет на всё оружие.")]
+    // false в хеш параметров не входит: оружие без секций сохраняет прежний paramsHash (сверка с эталонным паком).
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Sections { get; set; }
     [Description("Зоны крови: форма, границы рукояти и лезвия, слоты материалов → зона.")]
     public WeaponBloodParams Blood { get; set; } = new();
 }
@@ -58,7 +63,7 @@ internal sealed class WeaponStaticProcessor : AssetProcessor<WeaponStaticParams>
         var (mesh, blood) = OutPaths(ctx.Asset.Id, p);
         var rig = ctx.Ref<SkeletonParams>(p.Skeleton);
         WeaponBake.Run(ctx.InputFile(p.Mesh), ctx.InputDir(rig.Clips), ctx.InputFile(rig.RefPose),
-            rig.FingerSrc is null ? null : ctx.InputDir(rig.FingerSrc), ctx.Output(mesh), p.Grip, p.Unit, p.Blood,
+            rig.FingerSrc is null ? null : ctx.InputDir(rig.FingerSrc), ctx.Output(mesh), p.Grip, p.Unit, p.Sections, p.Blood,
             ctx.Output(blood), ctx.Log);
     }
 }

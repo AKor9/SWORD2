@@ -22,7 +22,9 @@
       without-modules       Headless с -p:Without<Модуль>=true для каждого модуля game/modules по очереди: собирается
                             без ссылки на модуль, DLL модуля нет в выходе, 10 с игрового времени без ошибок, модуля нет
                             в составе; своё поведение без модуля — по таблице $expect (Locomotion: корень ушёл по +X,
-                            поза игрока — поза привязки);
+                            поза игрока — поза привязки); клиентский модуль (Sword.Game.<Модуль>.Client) — так же Sword.exe:
+                            без его DLL, 30 кадров, модуля нет в report.modules, его секция конфига не роняет запуск
+                            (-SkipGpu — только сборка);
       headless-smoke        Sword.Headless: 600 тиков с командой «бег по +X» — итог JSON в порядке, игрок ушёл
                             по +X со скоростью бега, тик после прогрева не выделяет памяти (симуляция игры без
                             окна, та же композиция, что у Sword.exe); второй такой же прогон — тот же хеш
@@ -419,8 +421,30 @@ Add-Step 'without-modules' {
         elseif (@($r.modules) -contains $m.ToLowerInvariant()) { $failures += "без ${m}: модуль всё равно в составе" }
         elseif ($expect.ContainsKey($m) -and ($problem = & $expect[$m] $r)) { $failures += "без ${m}: $problem" }
     }
+    # Клиентские модули (Sword.Game.<Модуль>.Client, композиция Sword.exe): Sword.exe без модуля собирается без его сборки и стартует —
+    # 30 кадров, модуля нет в report.modules, его секция конфига (--set <id>.…) запуск не роняет; с -SkipGpu — только сборка.
+    $clientModules = @(Get-ChildItem (Join-Path $root 'game\modules') -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^Sword\.Game\.\w+\.Client$' } | ForEach-Object { $_.Name -replace '^Sword\.Game\.(\w+)\.Client$', '$1' })
+    $app = Join-Path $root 'game\Sword.Game.App\Sword.Game.App.csproj'
+    foreach ($m in $clientModules) {
+        $output = Join-Path $root "artifacts\verify\without-modules\$m.Client"
+        if (Test-Path $output) { Remove-Item $output -Recurse -Force }
+        $out = & dotnet build $app -c $Configuration -nologo -v:minimal "-p:Without$m=true" -o $output | Out-String
+        if ($LASTEXITCODE -ne 0) { $failures += "Sword.exe без ${m} не собрался: $(Get-Lines $out ': error ' 3)"; continue }
+        if (Test-Path (Join-Path $output "Sword.Game.$m.Client.dll")) { $failures += "Sword.exe без ${m}: в выходе есть Sword.Game.$m.Client.dll"; continue }
+        if ($SkipGpu) { continue }
+        $ErrorActionPreference = 'Continue'
+        $id = $m.ToLowerInvariant()
+        $r = (& (Join-Path $output 'Sword.exe') --windowed 640x360 --no-activate --frames 30 --ticks-per-frame 2 --set "$id.anything=1" --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or -not $r.ok) { $failures += "Sword.exe без ${m}: прогон — код $LASTEXITCODE, $($r.error)" }
+        elseif (@($r.report.modules | ForEach-Object { $_.id }) -contains $id) { $failures += "Sword.exe без ${m}: модуль всё равно в составе" }
+        elseif ($r.report.frames -ne 30) { $failures += "Sword.exe без ${m}: кадров $($r.report.frames), а не 30" }
+    }
     $checked = @($modules | Where-Object { $expect.ContainsKey($_) })
-    if ($failures.Count -eq 0) { @{ ok = $true; detail = "Headless без модуля ($($modules -join ', ')) собрался без его сборки, 10 с без ошибок; своё поведение без модуля проверено у: $($checked -join ', ')" } }
+    $client = if ($clientModules.Count -eq 0) { '' }
+        elseif ($SkipGpu) { "; Sword.exe без клиентского ($($clientModules -join ', ')) собрался без его сборки (-SkipGpu: без прогона)" }
+        else { "; Sword.exe без клиентского ($($clientModules -join ', ')) собрался без его сборки, 30 кадров, секция модуля не мешает" }
+    if ($failures.Count -eq 0) { @{ ok = $true; detail = "Headless без модуля ($($modules -join ', ')) собрался без его сборки, 10 с без ошибок; своё поведение без модуля проверено у: $($checked -join ', ')$client" } }
     else { @{ ok = $false; detail = $failures -join '; ' } }
 }
 

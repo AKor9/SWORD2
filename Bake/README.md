@@ -27,8 +27,8 @@
 | `skeletons/` | `ue5_manny` — риг | `anim.skeleton` (Engine) |
 | `characters/manny/` | `mesh` — меш Manny; `anatomy/skeleton`, `organs`, `brain` — анатомия; `anatomy/albedo`, `normals` — её текстуры | `skin.mesh`, `anatomy.mesh` (Game), `texture.array` |
 | `anim/` | `gasp` (набор `locomotion`), `1hm_sword` и `combat_master` (`sword_1h`), `combat_master_ext` (`katana`, `sword_shield`, `twin_swords`, `unarmed`) | `anim.pack` (Engine) |
-| `weapons/` | `combat_sword`, `katana`, `katana_v2`, `powerful_sword`, `sword_1h`, `sword_dss` — меш и зоны крови | `weapon.static` (Game) |
-| `effects/` | `blood/directional`, `noise`, `omni`, `puddles`, `spots`; `innards/cut_albedo` | `texture.array` (Engine) |
+| `weapons/` | `combat_sword`, `katana`, `katana_v2`, `powerful_sword`, `sword_1h`, `sword_dss`, `torch` (факел: glb — `tools/scripts/torch_mesh.py`) — меш и зоны крови | `weapon.static` (Game) |
+| `effects/` | `blood/directional`, `noise`, `omni`, `puddles`, `spots`; `innards/cut_albedo`; `fire/sim_noise`, `light_noise`, `noise_template2`, `crumple` — текстуры огня | `texture.array` (Engine) |
 | `ui/fonts/` | `body`, `head`, `label`, `num`, `num_light` (+ лицензии гарнитур) | `font.vector` (Engine) |
 | `combat/` | `actions` — `combat/actions.json` (действия боя) | `file.copy` (ядро) |
 
@@ -63,7 +63,7 @@ sword-bake build [шаблоны] [--json] собрать устаревшее �
 sword-bake pak --verify             целостность пака
 ```
 
-Полная выпечка с нуля — 29 ассетов, 1082 файла, пак 421,9 МБ; по `ядра/2` заданий: Debug ~31 с (дольше всех — текстуры
+Полная выпечка с нуля — 34 ассета, 1088 файлов, пак 424 МБ; по `ядра/2` заданий: Debug ~31 с (дольше всех — текстуры
 анатомии, по 25–27 с), Release ~9 с. Ошибка любого ассета — пак не пишется, прежний цел; ничего не пересобрано — пак не
 переписывается. Отпечаток кода обработчика — MVID его сборок; номера коммита у библиотек нет ни в версии, ни в PDB
 (`Directory.Build.targets`), поэтому коммит без правки кода ничего не устаревает. MVID зависит от конфигурации и от пути
@@ -80,8 +80,8 @@ sword-bake diff ..\Content.reference.swpak ..\Content.swpak --expect reference.e
 Запускать в `Bake/`: сравнитель `.swclip` приходит из плагина проекта. Итог полной выпечки: 22 файла равны байтами,
 1048 клипов равны по содержимому (отличается только `SourceHash`: в эталоне в него входил MVID конвертера SWORD),
 сведения о сборке `.bake/build.json` равны семантически (29 ассетов; время и сборки в отпечатке не сравниваются),
-неожиданных расхождений 0, ожидаемых 24 (меши и зоны крови шести мечей и сведения их сборки — хват по центрам изгиба
-пальцев, правила в `reference.expect.json`); код 0. Паки Debug и Release между собой — 1082 файла байт в байт.
+неожиданных расхождений 0, ожидаемых 35 (меши и зоны крови шести мечей и сведения их сборки — хват по центрам изгиба
+пальцев; факел и текстуры огня — только в паке пекарни; правила в `reference.expect.json`); код 0.
 `reference.expect.json` — список правил «ожидаемо отличается / отсутствует» с причиной; новое правило — только с понятой
 причиной (формат — README ядра, «Файл ожидаемых расхождений»).
 

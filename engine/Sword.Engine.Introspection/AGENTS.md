@@ -100,5 +100,9 @@
   Проверка — `FeatureTests.Verify_Budget_ZonePeak_LimitOnlyInRelease_MissingZoneFails`. `Experiments.Fork(…, fields)` — замер ветки читает и
   вычисляемые поля игры (как метрики; `experiment.fork` передаёт `AgentHost.Fields`): поза ветки — `Body.foot.l.Position`, `MotionMatch.*`;
   проверка — `FeatureTests.Fork_BranchDivergesOnTickAfterChange_ConfigFromStart`.
+- Огонь: вид — `views[].tune` (клиентские ручки App `--tune`, «группа.ключ=значение», `light.night=1` — ночь; в реплей не идут), итог App
+  `--json` — рядом с PNG (`view-<id>.json`, в отчёте вида — `json`); бюджет кадра — `frame.camera` (`--camera`), `frame.tune`, `frame.gpu`
+  (`{"fire": 0.5}`: сумма GPU-времени проходов бенча `report.bench.passes` с именем ключа или «ключ.…»; как время — только в Release, ни
+  одного прохода — провал в любой сборке). Проверка — `FeatureTests.Verify_FrameBudget_GpuPassesCameraTune`.
 
 Проверка: `tests/Sword.Engine.Introspection.Tests`; причинность — `Sword.Game.Tests/CausalityTests` (нужна игра: бой).

@@ -16,7 +16,12 @@ internal static class RootLayout
     public const int Constants = 2;
 }
 
-public enum BlendMode { Opaque, Additive, Alpha }
+/// <summary>
+/// Смешивание цели 0. <see cref="Premultiplied"/> — цвет уже умножен на альфу: dst = src.rgb + dst·(1 − src.a), альфа —
+/// src.a + dst.a·(1 − src.a) (непрозрачность «поверх»): прозрачное поверх HDR-сцены и накопление в цели ½
+/// (<see cref="HalfResTransparency"/>).
+/// </summary>
+public enum BlendMode { Opaque, Additive, Alpha, Premultiplied }
 
 /// <summary>
 /// Глубина конвейера. Обратный Z: сравнение GreaterEqual. <see cref="TestBehind"/> — проходит то, что ЗА записанной
@@ -55,7 +60,7 @@ internal readonly record struct TargetLayout(Format Color0, Format Color1 = Form
 
 /// <summary>
 /// Единственная корневая сигнатура (bindless: b0, b1 CBV + <see cref="RootLayout.ConstantCount"/> корневых констант
-/// в b2 + статические сэмплеры s0–s2) и кеш конвейеров поверх неё. Ресурсы шейдер берёт из <c>ResourceDescriptorHeap</c>
+/// в b2 + статические сэмплеры s0–s3) и кеш конвейеров поверх неё. Ресурсы шейдер берёт из <c>ResourceDescriptorHeap</c>
 /// по индексу, пришедшему в константах. Перенос <c>Graphics/PipelineCache.cs</c> SWORD 2eab13b; форматы целей теперь
 /// — часть ключа (их объявляет проход рендер-графа), а не набор «задний буфер или цели сцены».
 /// </summary>
@@ -112,6 +117,17 @@ internal sealed class PipelineCache : IDisposable
                 AddressU = TextureAddressMode.Clamp,
                 AddressV = TextureAddressMode.Clamp,
                 AddressW = TextureAddressMode.Clamp,
+                ComparisonFunction = ComparisonFunction.Always,
+                MaxLOD = float.MaxValue,
+            },
+            // Размытие bloom: за краем кадра — прозрачный чёрный, а не повтор края (край не тянет полосу света внутрь).
+            new StaticSamplerDescription(ShaderVisibility.All, 3, 0)
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Border,
+                AddressV = TextureAddressMode.Border,
+                AddressW = TextureAddressMode.Border,
+                BorderColor = StaticBorderColor.TransparentBlack,
                 ComparisonFunction = ComparisonFunction.Always,
                 MaxLOD = float.MaxValue,
             },
@@ -172,6 +188,9 @@ internal sealed class PipelineCache : IDisposable
         else if (d.Blend == BlendMode.Alpha)
             blendDesc.RenderTarget[0] = new RenderTargetBlendDescription(true, false,
                 Blend.SourceAlpha, Blend.InverseSourceAlpha, BlendOperation.Add, Blend.One, Blend.InverseSourceAlpha, BlendOperation.Add);
+        else if (d.Blend == BlendMode.Premultiplied)
+            blendDesc.RenderTarget[0] = new RenderTargetBlendDescription(true, false,
+                Blend.One, Blend.InverseSourceAlpha, BlendOperation.Add, Blend.One, Blend.InverseSourceAlpha, BlendOperation.Add);
 
         if (d.Depth != DepthMode.None && layout.Depth == Format.Unknown)
             throw new InvalidOperationException($"{d.File}:{d.VsEntry}/{d.PsEntry}: глубина {d.Depth} в проходе без цели глубины");

@@ -1,0 +1,14 @@
+{
+  "processor": "texture.array",
+  "import": "fluidninja_vfx_tools",
+  "notes": "Огонь: flow-map пламени T_Crumple_MultiLevel_Inv 512², .r, мипы по производным, sRGB в UE (серый sRGB; BC7 в L2).",
+  "params": {
+    "layers": [
+      "${src}/_Export/fire/T_Crumple_MultiLevel_Inv.png"
+    ],
+    "channel": "r",
+    "srgb": true,
+    "compress": false,
+    "size": 512
+  }
+}

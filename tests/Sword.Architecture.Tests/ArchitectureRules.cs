@@ -15,7 +15,7 @@ public static class ArchitectureRules
     private const string Core = "Sword.Engine.Core", Diag = "Sword.Engine.Diagnostics", Geometry = "Sword.Engine.Geometry",
         Formats = "Sword.Engine.Formats", Platform = "Sword.Engine.Platform", Ecs = "Sword.Engine.Ecs",
         Content = "Sword.Engine.Content", Physics = "Sword.Engine.Physics", Animation = "Sword.Engine.Animation",
-        Ui = "Sword.Engine.Ui", Rhi = "Sword.Engine.Rhi", Render = "Sword.Engine.Render",
+        Ui = "Sword.Engine.Ui", Rhi = "Sword.Engine.Rhi", Render = "Sword.Engine.Render", Fluid2D = "Sword.Engine.Fluid2D",
         Win32 = "Sword.Engine.Platform.Win32", Runtime = "Sword.Engine.Runtime", Client = "Sword.Engine.Client",
         Introspection = "Sword.Engine.Introspection", Agent = "Sword.Engine.Agent", AgentClient = "Sword.Engine.Agent.Client",
         DevTools = "Sword.Engine.DevTools",
@@ -47,6 +47,7 @@ public static class ArchitectureRules
         [Ui] = [Formats],
         [Rhi] = [Diag, Platform],
         [Render] = [Diag, Geometry, Rhi, Formats, Content, Ui],
+        [Fluid2D] = [Render, Formats, Diag],
         [Win32] = [Diag, Platform],
         [Runtime] = [Diag, Ecs, Content],
         [Client] = [Runtime, Ecs, Platform, Rhi, Render, Ui, Diag],
@@ -76,7 +77,7 @@ public static class ArchitectureRules
     private static readonly string[] SimulationModuleAllowed = [Contracts, Data, Runtime, Physics, Animation, Geometry, Ecs, Content, Diag];
 
     /// <summary>Клиентская часть модуля: свой модуль симуляции (проверяется отдельно) и клиентские сборки движка.</summary>
-    private static readonly string[] ClientModuleAllowed = [Contracts, Data, Client, Render, Ui, Diag];
+    private static readonly string[] ClientModuleAllowed = [Contracts, Data, Client, Render, Fluid2D, Ui, Diag];
 
     /// <summary>Где можно ссылаться на пакеты Vortice.</summary>
     private static readonly HashSet<string> VorticeOwners = [Rhi, Render];

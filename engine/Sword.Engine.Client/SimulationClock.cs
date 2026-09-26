@@ -24,6 +24,7 @@ public sealed class SimulationClock
 
     private readonly Simulation _simulation;
     private readonly Action<SimulationLink, TickInput> _beforeTick;
+    private readonly Action<ulong>? _afterTick;
     private readonly InputEdges? _edges;
     private readonly int _ticksPerFrame;
     private double _accumulator;
@@ -32,12 +33,17 @@ public sealed class SimulationClock
     /// <param name="beforeTick">Команды игры на тик (<see cref="IClientGame.BeforeTick"/>) — с фронтами ввода для тика.</param>
     /// <param name="ticksPerFrame">Ровно столько тиков на кадр; 0 — по часам.</param>
     /// <param name="edges">Защёлка фронтов ввода: первый тик после кадра забирает их; null — без ввода.</param>
+    /// <param name="afterTick">
+    /// Наблюдатель тиков (клиентские модули, <see cref="ClientModules.AfterTick"/>): после каждого тика, до ворот инструмента, с <c>TickId</c>
+    /// сыгранного тика (номер с 0); мир — после своего тика. Null — без наблюдателя.
+    /// </param>
     public SimulationClock(Simulation simulation, Action<SimulationLink, TickInput> beforeTick, int ticksPerFrame = 0,
-        InputEdges? edges = null)
+        InputEdges? edges = null, Action<ulong>? afterTick = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(ticksPerFrame);
         _simulation = simulation;
         _beforeTick = beforeTick;
+        _afterTick = afterTick;
         _edges = edges;
         _ticksPerFrame = ticksPerFrame;
         Link = new SimulationLink(simulation);
@@ -132,5 +138,6 @@ public sealed class SimulationClock
         _beforeTick(Link, _edges?.ForTick() ?? TickInput.None);
         _edges?.Consume();   // фронты — ровно одному тику
         _simulation.Step();
+        _afterTick?.Invoke(_simulation.Tick - 1);
     }
 }

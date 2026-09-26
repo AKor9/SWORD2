@@ -94,9 +94,9 @@ public sealed class CombatTests
         for (uint batch = 0; batch < 4; batch++)
             for (int slot = 1; slot <= ArenaState.MaxEnemies; slot++)
             {
-                var a = ArenaRules.Enemy(rng, 5, batch, slot, center, 2);
-                var b = ArenaRules.Enemy(rng, 5, batch, slot, center, 64);
-                // Меч — своя выборка: корень, курс и зерно от числа мечей не зависят.
+                var a = ArenaRules.Enemy(rng, 5, batch, slot, center, [0, 1]);
+                var b = ArenaRules.Enemy(rng, 5, batch, slot, center, [.. Enumerable.Range(0, 64)]);
+                // Меч — своя выборка: корень, курс и зерно от оружия врагов не зависят.
                 Assert.Equal((a.Position, a.Facing, a.Seed), (b.Position, b.Facing, b.Seed));
                 Assert.InRange(a.Weapon, 0, 1);
                 seen.Add(a.Weapon);

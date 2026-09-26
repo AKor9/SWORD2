@@ -19,4 +19,8 @@ public struct FrameConstants
     public Vector3 LightDir; public float PlayerHpFrac;
     /// <summary>Обратная к <see cref="ViewProj"/>: точка мира по глубине сцены (декали).</summary>
     public Matrix4x4 InvViewProj;
+    /// <summary>SRV точечных источников кадра (<c>RenderFrame.Lights.Srv</c>, <c>common/lights.hlsli</c>).</summary>
+    public uint PointLights; public uint Pad0; public uint Pad1; public uint Pad2;
+    /// <summary>Окружение сцены — цвета освещения и фон (<see cref="SceneEnvironment"/>: день или ночь).</summary>
+    public SceneEnvironment Environment;
 }

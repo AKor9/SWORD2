@@ -96,6 +96,10 @@ public sealed class ClientAgent : IClientTool, ITickGate
             {
                 IdsPath = _inFlight.Ids ? _host.ArtifactPath(stem + ".ids.png") : null,
                 Layers = [.. _inFlight.Overlays.Select(o => new CaptureLayer(o, _host.ArtifactPath($"{stem}.overlay-{o}.png")))],
+                HdrPath = _client.Renderer.Hdr ? _host.ArtifactPath(stem + ".hdr.png") : null,
+                BloomPath = _client.Renderer.Hdr && _client.Renderer.Bloom.Active ? _host.ArtifactPath(stem + ".bloom.png") : null,
+                // Слой ½ прозрачного есть не в каждом кадре: без него карты нет (hdr.transparent — null).
+                TransparentPath = _client.Renderer.Hdr ? _host.ArtifactPath(stem + ".transparent.png") : null,
             };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -202,6 +206,54 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 ["legend"] = legend,
             };
         }
+        JsonObject? hdr = null;
+        if (result.Hdr is { } h)
+            hdr = new JsonObject
+            {
+                ["exposure"] = h.Exposure,
+                ["maxLuminance"] = Math.Round(h.MaxLuminance, 5),
+                ["meanLuminance"] = Math.Round(h.MeanLuminance, 5),
+                ["overOne"] = Math.Round(h.OverOne, 5),
+                ["nonFinite"] = h.NonFinite,
+                ["png"] = h.Path,
+                ["raw"] = h.RawPath,
+                ["note"] = "яркость входа тонмапа: цвет сцены (RGBA16F, линейный) x exposure, Rec.709; overOne — доля пикселей ярче 1, " +
+                    "nonFinite — пикселей с NaN или бесконечностью (на экране чёрные). png — эта яркость в ложных цветах по ступеням: " +
+                    "чёрный до 1/256, тёмно-синий 1/64, синий 1/16, зелёный 0.18 (средний серый), жёлто-зелёный 0.5, жёлтый 1, красный 4, " +
+                    $"пурпурный 16, белый от 64; NaN — голубой. raw — half RGBA на пиксель без экспозиции, {result.Width}x{result.Height}, " +
+                    "строки сверху вниз. Цвет кадра (color) — после bloom, тонмапа Filmic и кодирования sRGB",
+                ["bloom"] = h.Bloom is { } b
+                    ? new JsonObject
+                    {
+                        ["enabled"] = b.Settings.Enabled,
+                        ["intensity"] = b.Settings.Intensity,
+                        ["threshold"] = b.Settings.Threshold,
+                        ["maxLuminance"] = Math.Round(b.MaxLuminance, 5),
+                        ["meanLuminance"] = Math.Round(b.MeanLuminance, 5),
+                        ["nonFinite"] = b.NonFinite,
+                        ["png"] = b.Path,
+                        ["raw"] = b.RawPath,
+                        ["note"] = "добавка bloom ко входу тонмапа (вход = сцена + bloom): цвет bloom x exposure, Rec.709, по цели " +
+                            $"{b.Width}x{b.Height} (половина кадра); png — в ложных цветах той же шкалы, что hdr.png; raw — half RGBA без " +
+                            "экспозиции, строки сверху вниз. Порог — яркость входа тонмапа, с которой пиксель светится",
+                    }
+                    : new JsonObject { ["enabled"] = false },
+                ["transparent"] = h.Transparent is { } t
+                    ? new JsonObject
+                    {
+                        ["width"] = t.Width,
+                        ["height"] = t.Height,
+                        ["maxLuminance"] = Math.Round(t.MaxLuminance, 5),
+                        ["meanLuminance"] = Math.Round(t.MeanLuminance, 5),
+                        ["coverage"] = Math.Round(t.Coverage, 5),
+                        ["nonFinite"] = t.NonFinite,
+                        ["png"] = t.Path,
+                        ["raw"] = t.RawPath,
+                        ["note"] = "слой 1/2 прозрачного (Renderer.HalfRes) до композита: премультиплицированный цвет x exposure, Rec.709; " +
+                            "coverage — средняя альфа (непрозрачность); png — в ложных цветах шкалы hdr.png; raw — half RGBA без экспозиции",
+                    }
+                    : null,
+            };
         JsonObject? overlays = null;
         if (result.Layers.Count > 0)
         {
@@ -223,6 +275,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
             ["depthNote"] = "reversed-Z: светлее — ближе, чёрное — дальняя плоскость (пусто)",
             ["depthRange"] = new JsonArray(result.DepthMin, result.DepthMax),
             ["depthCoverage"] = Math.Round(result.DepthCoverage, 4),
+            ["hdr"] = hdr,
             ["camera"] = camera,
             ["ids"] = ids,
             ["overlays"] = overlays,
@@ -269,6 +322,44 @@ public sealed class ClientAgent : IClientTool, ITickGate
         int ix0 = (int)MathF.Floor(Math.Clamp(x0, 0, width)), iy0 = (int)MathF.Floor(Math.Clamp(y0, 0, height));
         int ix1 = (int)MathF.Ceiling(Math.Clamp(x1, 0, width)), iy1 = (int)MathF.Ceiling(Math.Clamp(y1, 0, height));
         return ix1 > ix0 && iy1 > iy0 ? (ix0, iy0, ix1, iy1) : null;
+    }
+
+    /// <summary>Точечный свет кадра для агента (render.graph).</summary>
+    private static JsonObject LightsJson(ClientLightsReport r)
+    {
+        var lights = new JsonArray();
+        foreach (var l in r.Lights)
+            lights.Add(new JsonObject
+            {
+                ["position"] = new JsonArray(l.Position[0], l.Position[1], l.Position[2]),
+                ["color"] = new JsonArray(l.Color[0], l.Color[1], l.Color[2]),
+                ["intensity"] = l.Intensity,
+                ["radius"] = l.Radius,
+                ["falloff"] = l.Falloff.ToString(),
+                ["exponent"] = l.Exponent,
+                ["maxDrawDistance"] = l.MaxDrawDistance,
+                ["fadeRange"] = l.FadeRange,
+                ["fade"] = Math.Round(l.Fade, 4),
+                ["function"] = l.Function,
+                ["volumetricScattering"] = l.VolumetricScattering,
+            });
+        return new JsonObject
+        {
+            ["shown"] = r.Shown, ["dropped"] = r.Dropped, ["hidden"] = r.Hidden, ["functions"] = r.Functions,
+            ["droppedFunctions"] = r.DroppedFunctions, ["max"] = r.Max, ["lights"] = lights,
+        };
+    }
+
+    private static JsonArray TexturesJson(IEnumerable<ClientTextureReport> textures)
+    {
+        var list = new JsonArray();
+        foreach (var t in textures)
+            list.Add(new JsonObject
+            {
+                ["path"] = t.Path, ["width"] = t.Width, ["height"] = t.Height, ["slices"] = t.Slices, ["mips"] = t.Mips,
+                ["format"] = t.Format.ToString(), ["srgb"] = t.Srgb, ["bytes"] = t.Bytes,
+            });
+        return list;
     }
 
     /// <summary>
@@ -319,12 +410,17 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 "прямоугольниками и именами, камера, tickId и frameId — файлы в каталоге артефактов сеанса. По заказу — ID-буфер " +
                 "(ids: сущность и сегмент тела на пиксель, легенда «левое предплечье врага 3», у трупа — «таз трупа врага 3») и оверлеи " +
                 "слоем поверх цвета (overlays: у арены capsules — капсулы тел, blades — клинки, joints — суставы тел, contacts — " +
-                "контакты физики, нужна трасса: physics.bodies {trace: on}). На паузе кадр показывает ровно последний тик.",
+                "контакты физики, нужна трасса: physics.bodies {trace: on}; mm — траектории Motion Matching; lights — точечные источники: " +
+                "крест, круги радиуса R и половины затухания, подпись; сами источники — render.graph lights). С HDR — всегда hdr: " +
+                "экспозиция, яркость входа тонмапа " +
+                "(максимум, среднее, доля ярче 1) и её карта в ложных цветах с сырым цветом сцены; hdr.bloom — настройки bloom и его " +
+                "добавка ко входу тонмапа (максимум, среднее, карта той же шкалы); hdr.transparent — слой 1/2 прозрачного до композита (если " +
+                "он есть в кадре: яркость, покрытие, карта). На паузе кадр показывает ровно последний тик.",
             Arguments = ToolSchema.Props(
                 ("name", ToolSchema.Str("метка в имени файлов (буквы, цифры, «-»; по умолчанию bundle)")),
                 ("ids", new JsonObject { ["type"] = "boolean", ["description"] = "снять ID-буфер: код сущности и сегмента на пиксель с легендой (по умолчанию false)" }),
-                ("overlays", ToolSchema.StrArray("оверлеи игры слоем снимка (у арены — capsules: капсулы тел с подписями бойцов, blades, " +
-                    "joints, contacts); неизвестное имя — ошибка")),
+                ("overlays", ToolSchema.StrArray("оверлеи слоем снимка — игры (у арены — capsules: капсулы тел с подписями бойцов, blades, " +
+                    "joints, contacts, mm, lights) и включённых клиентских модулей (fire — головка горящего оружия по тикам); неизвестное имя — ошибка")),
                 ("timeoutSeconds", ToolSchema.Num($"сколько ждать кадр, с (по умолчанию 10, не больше {MaxCaptureWait:0.#})", 0.5, MaxCaptureWait))),
             ReadOnly = true, Idempotent = false, Cost = ToolCost.Heavy,
             Run = async call =>
@@ -334,7 +430,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
                     throw new ArgumentException("name: буквы, цифры и «-», до 40 знаков");
                 bool wantIds = call.Bool("ids", false);
                 var overlays = call.Strings("overlays").Distinct().ToList();
-                var known = (_client.Game as IClientObservable)?.Overlays ?? [];
+                var known = _client.Overlays;
                 if (overlays.FirstOrDefault(o => !known.Contains(o)) is { } unknown)
                     throw new ArgumentException($"overlays: оверлея {unknown} нет; есть: {(known.Count > 0 ? string.Join(", ", known) : "никаких")}");
                 double seconds = call.Number("timeoutSeconds", 10, 0.5, MaxCaptureWait);   // все аргументы — до постановки снимка
@@ -366,9 +462,14 @@ public sealed class ClientAgent : IClientTool, ITickGate
         _host.Add(new AgentTool
         {
             Name = "render.graph", Title = "Рендер-граф кадра",
-            Description = "Проходы последнего показанного кадра по порядку: вид, записи и чтения ресурсов, барьеры, вызовы " +
+            Description = "Проходы последнего показанного кадра в порядке исполнения: вид, фаза кадра (Simulation, Opaque, Composite, " +
+                "Transparent, Post, Ui, Debug — граф исполняет по фазам, внутри фазы по регистрации), записи и чтения ресурсов, барьеры, вызовы " +
                 "отрисовки и dispatch, GPU-время прохода (gpuMs; кадра gpu.frameId — обычно на 3 раньше показанного: кадры в полёте). " +
                 "gpu — GPU-время того кадра целиком и сумма проходов. frameId и tickId — показанного кадра (тик, который он показывает). " +
+                "hdr, exposure, bloom — постобработка (проходы post.bloom.* и post.tonemap). lights — точечные источники кадра: показано (в " +
+                "буфере, до max), отброшено сверх предела, скрыто дальностью показа, у каждого позиция, линейный цвет, интенсивность, радиус, " +
+                "затухание, угасание по дальности (fade), light function (-1 — нет); радиусы на кадре — оверлей lights (capture.bundle). " +
+                "textures — текстуры пака в видеопамяти (Renderer.LoadTexture): путь, размер, слои, мипы, формат, sRGB, байт. " +
                 "Среднее GPU-время за окно — profile.stages (frames.gpu).",
             Run = async call =>
             {
@@ -377,7 +478,10 @@ public sealed class ClientAgent : IClientTool, ITickGate
                 // потоке кадра: они обновляются на месте в начале кадра.
                 var snapshot = await _host.Serve(_ => _shownFrame == 0
                     ? throw new InvalidOperationException("ни одного кадра ещё не показано — повторите")
-                    : (Passes: _client.Renderer.Gpu.Join(_client.Renderer.Graph.LastFrame), Gpu: GpuJson(), _client.Renderer.AdapterName, Width: _shownWidth,
+                    : (Passes: _client.Renderer.Gpu.Join(_client.Renderer.Graph.LastFrame), Gpu: GpuJson(), _client.Renderer.AdapterName,
+                        Hdr: _client.Renderer.Hdr, _client.Renderer.Exposure, _client.Renderer.Bloom,
+                        Lights: ClientLightsReport.From(_client.Renderer.Lights.Report()),
+                        Textures: _client.Renderer.Textures.Select(ClientTextureReport.From).ToArray(), Width: _shownWidth,
                         Height: _shownHeight, Pipelines: _shownPipelines, Frame: _shownFrame, Tick: _shownTick), call.Cancel).ConfigureAwait(false);
                 var list = new JsonArray();
                 foreach (var p in snapshot.Passes)   // список кадра не меняется после исполнения графа
@@ -385,6 +489,7 @@ public sealed class ClientAgent : IClientTool, ITickGate
                     {
                         ["name"] = p.Name,
                         ["kind"] = p.Kind.ToString(),
+                        ["phase"] = p.Phase.ToString(),
                         ["writes"] = new JsonArray([.. p.Writes.Select(w => (JsonNode?)JsonValue.Create(w))]),
                         ["reads"] = new JsonArray([.. p.Reads.Select(r => (JsonNode?)JsonValue.Create(r))]),
                         ["barriers"] = p.Barriers,
@@ -398,6 +503,14 @@ public sealed class ClientAgent : IClientTool, ITickGate
                     ["width"] = snapshot.Width,
                     ["height"] = snapshot.Height,
                     ["pipelines"] = snapshot.Pipelines,
+                    ["hdr"] = snapshot.Hdr,
+                    ["exposure"] = snapshot.Exposure,
+                    ["bloom"] = new JsonObject
+                    {
+                        ["enabled"] = snapshot.Bloom.Enabled, ["intensity"] = snapshot.Bloom.Intensity, ["threshold"] = snapshot.Bloom.Threshold,
+                    },
+                    ["lights"] = LightsJson(snapshot.Lights),
+                    ["textures"] = TexturesJson(snapshot.Textures),
                     ["gpu"] = snapshot.Gpu,
                     ["passes"] = list,
                 }) { Frame = snapshot.Frame, Tick = snapshot.Tick };

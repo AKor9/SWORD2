@@ -43,10 +43,14 @@ public sealed record FeatureVerifyOptions
     public bool Budgets { get; init; } = true;
 }
 
-/// <summary>Вид для App: реплей сценария (записанный Headless), после скольких тиков, ракурс, HUD, куда PNG, оверлеи игры.</summary>
+/// <summary>
+/// Вид для App: реплей сценария (записанный Headless), после скольких тиков, ракурс, HUD, куда PNG (итог App <c>--json</c> — рядом, <c>.json</c>),
+/// оверлеи игры, клиентские ручки.
+/// </summary>
 public sealed record ViewRequest(string Feature, string View, string Replay, ulong Tick, string? Camera, bool Hud, string Png)
 {
     public IReadOnlyList<string> Overlays { get; init; } = [];
+    public IReadOnlyList<string> Tune { get; init; } = [];
 }
 
 /// <summary>Итог вида: снят ли кадр, совпали ли хеши App с реплеем, подробности для людей.</summary>
@@ -54,11 +58,13 @@ public sealed record ViewResult(bool Ok, string Detail);
 
 /// <summary>
 /// Замер кадра для App (бюджет кадра): реплей сценария (записанный Headless), секунды бенча (первые 4 — прогрев), оверлеи игры
-/// поверх каждого кадра.
+/// поверх каждого кадра, ракурс (null — камера за игроком), клиентские ручки.
 /// </summary>
 public sealed record FrameRequest(string Feature, string Budget, string Replay, double Seconds)
 {
     public IReadOnlyList<string> Overlays { get; init; } = [];
+    public string? Camera { get; init; }
+    public IReadOnlyList<string> Tune { get; init; } = [];
 }
 
 /// <summary>
@@ -69,6 +75,9 @@ public sealed record FrameResult(bool Ok, string Detail, long Frames = 0, double
 {
     /// <summary>Машина за замер App (<c>report.machine</c> итога Sword.exe) — JSON как есть; null — нет.</summary>
     public JsonObject? Machine { get; init; }
+
+    /// <summary>GPU-время проходов бенча, мс на кадр (<c>report.bench.passes</c>): имя прохода → мс.</summary>
+    public IReadOnlyDictionary<string, double> GpuPasses { get; init; } = new Dictionary<string, double>();
 }
 
 /// <summary>Итог <c>feature.verify</c>: вердикт, провалы словами, полный отчёт JSON (он же — <c>report.json</c> в артефактах).</summary>
@@ -160,13 +169,17 @@ public static class FeatureVerifier
                 if (env.CaptureView is null) result = new ViewResult(false, "App нет — виды снимает Sword.Headless рядом со собранным Sword.exe");
                 else if (run.RecordedFile is null) result = new ViewResult(false, "сценарий не записан — снимать нечего");
                 else if (v.Tick > run.Ticks) result = new ViewResult(false, $"тик {v.Tick} за концом сценария ({run.Ticks})");
-                else result = env.CaptureView(new ViewRequest(manifest.Id, v.Id, run.RecordedFile, v.Tick, v.Camera, v.Hud, png) { Overlays = v.Overlays }, cancel);
+                else result = env.CaptureView(new ViewRequest(manifest.Id, v.Id, run.RecordedFile, v.Tick, v.Camera, v.Hud, png)
+                    { Overlays = v.Overlays, Tune = v.Tune }, cancel);
                 if (!result.Ok) Fail($"вид {v.Id}: {result.Detail}");
                 views.Add(new JsonObject
                 {
                     ["id"] = v.Id, ["title"] = v.Title, ["scenario"] = v.Scenario, ["tick"] = v.Tick, ["ok"] = result.Ok,
                     ["overlays"] = v.Overlays.Count > 0 ? new JsonArray([.. v.Overlays.Select(o => (JsonNode?)o)]) : null,
-                    ["png"] = File.Exists(png) ? png : null, ["detail"] = result.Detail,
+                    ["tune"] = v.Tune.Count > 0 ? new JsonArray([.. v.Tune.Select(o => (JsonNode?)o)]) : null,
+                    ["png"] = File.Exists(png) ? png : null,
+                    ["json"] = File.Exists(Path.ChangeExtension(png, ".json")) ? Path.ChangeExtension(png, ".json") : null,
+                    ["detail"] = result.Detail,
                 });
             }
 
@@ -661,6 +674,8 @@ public static class FeatureVerifier
     {
         var fj = new JsonObject { ["seconds"] = frame.Seconds, ["limitAverageMs"] = frame.AverageMs, ["limitP99Ms"] = frame.P99Ms };
         if (frame.Overlays.Count > 0) fj["overlays"] = new JsonArray([.. frame.Overlays.Select(o => (JsonNode?)o)]);
+        if (frame.Camera is not null) fj["camera"] = frame.Camera;
+        if (frame.Tune.Count > 0) fj["tune"] = new JsonArray([.. frame.Tune.Select(o => (JsonNode?)o)]);
         json["frame"] = fj;
         if (!options.Views)
         {
@@ -683,7 +698,8 @@ public static class FeatureVerifier
             failures.Add($"кадр: сценарий ({run.Ticks} тиков) короче бенча ({frame.Seconds} с — {need} тиков)");
             return;
         }
-        var r = env.MeasureFrame(new FrameRequest(feature, budget.Id, run.RecordedFile, frame.Seconds) { Overlays = frame.Overlays }, cancel);
+        var r = env.MeasureFrame(new FrameRequest(feature, budget.Id, run.RecordedFile, frame.Seconds)
+            { Overlays = frame.Overlays, Camera = frame.Camera, Tune = frame.Tune }, cancel);
         fj["ok"] = r.Ok;
         fj["detail"] = r.Detail;
         fj["frames"] = r.Frames;
@@ -696,15 +712,37 @@ public static class FeatureVerifier
             failures.Add($"кадр: {r.Detail}");
             return;
         }
+        var gpu = GpuSums(frame, r, fj, failures);
         if (!env.Optimized)
         {
             fj["time"] = "не проверяется: сборка Debug (время — только в Release, verify.ps1 -Configuration Release)";
             return;
         }
+        foreach (var (key, ms) in gpu)
+            if (!(ms <= frame.Gpu[key])) failures.Add($"кадр: GPU {key} {Fmt(ms)} мс на кадр, предел {Fmt(frame.Gpu[key])}");
         // Вердикт машины App — в текст провала времени: «машина занята» видно сразу.
         string why = r.Machine?["kind"]?.GetValue<string>() is { } kind && kind != "code" ? $" — {r.Machine["text"]}" : "";
         if (frame.AverageMs is { } avg && !(r.AverageMs <= avg)) failures.Add($"кадр {Fmt(r.AverageMs)} мс в среднем, предел {Fmt(avg)}{why}");
         if (frame.P99Ms is { } p99 && !(r.P99Ms <= p99)) failures.Add($"кадр {Fmt(r.P99Ms)} мс (99-й перцентиль), предел {Fmt(p99)}{why}");
+    }
+
+    /// <summary>GPU-время по ключам бюджета кадра: сумма проходов с именем ключа или «ключ.…»; ни одного — провал в любой сборке.</summary>
+    private static Dictionary<string, double> GpuSums(FeatureFrameBudget frame, FrameResult r, JsonObject fj, List<string> failures)
+    {
+        var sums = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (frame.Gpu.Count == 0) return sums;
+        var gj = new JsonObject();
+        foreach (var (key, limit) in frame.Gpu)
+        {
+            var passes = r.GpuPasses.Where(p => p.Key == key || p.Key.StartsWith(key + ".", StringComparison.Ordinal)).ToList();
+            if (passes.Count == 0) failures.Add($"кадр: GPU {key} — ни одного прохода «{key}» или «{key}.…» в замере");
+            else sums[key] = passes.Sum(p => p.Value);
+            var list = new JsonObject();
+            foreach (var p in passes) list[p.Key] = Math.Round(p.Value, 5);
+            gj[key] = new JsonObject { ["limitMs"] = limit, ["ms"] = passes.Count > 0 ? Math.Round(sums[key], 5) : null, ["passes"] = list };
+        }
+        fj["gpu"] = gj;
+        return sums;
     }
 
     internal static double Median(IReadOnlyList<double> sorted) =>

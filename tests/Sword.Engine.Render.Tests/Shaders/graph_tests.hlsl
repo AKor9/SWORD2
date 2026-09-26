@@ -48,3 +48,17 @@ void CsSpin(uint3 id : SV_DispatchThreadID)
     for (uint i = 0; i < gPass0; i++) x = frac(sin(x * 1.37 + 0.11) * 43758.5453) + 1.0;
     s[id.x] = asuint(x);
 }
+
+// HDR-полосы (HdrGpuTests): пиксель — цвет своей полосы по x из хранилища gPass4 (float4 на полосу); gPass0 — полос,
+// gPass1 — ширина цели.
+float4 PsBands(float4 pos : SV_Position) : SV_Target0
+{
+    StructuredBuffer<float4> bands = ResourceDescriptorHeap[gPass4];
+    return bands[min(uint(pos.x) * gPass0 / gPass1, gPass0 - 1)];
+}
+
+// Сплошной цвет (BloomGpuTests): gPass0..2 — RGB как float; пятно задаёт обрезка прохода (SetScissor).
+float4 PsSolid(float4 pos : SV_Position) : SV_Target0
+{
+    return float4(asfloat(gPass0), asfloat(gPass1), asfloat(gPass2), 1);
+}

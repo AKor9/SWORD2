@@ -217,6 +217,9 @@ public interface ICombatView : IReadView
     /// <summary>Меч по умолчанию (<c>sword_1h</c>, нет — первый): по его клинку размечены окна ударов.</summary>
     int DefaultWeapon { get; }
 
+    /// <summary>Оружие врагов — номера таблицы по возрастанию, из которых враг берёт случайное (без оружия только игрока).</summary>
+    ReadOnlySpan<int> EnemyWeapons { get; }
+
     /// <summary>Сустав скелета, в котором оружие (hand_r): меч в мире — его модельная матрица · мир бойца.</summary>
     int HandJoint { get; }
 

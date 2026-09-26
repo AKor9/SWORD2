@@ -12,6 +12,13 @@ public sealed record CombatSettings
     /// <summary>Меч игрока при старте (<c>combat.playerWeapon</c>): имя файла пака без расширения.</summary>
     public string PlayerWeapon { get; init; } = WeaponTable.DefaultName;
 
+    /// <summary>
+    /// Оружие только игрока (<c>combat.playerOnlyWeapons</c>, по умолчанию факел — решение 5): враги не берут его случайно, у игрока оно
+    /// в инвентаре. Имена пака без расширения, регистр не важен; имени нет в паке — исключать нечего. Всё оружие только игрока — ошибка
+    /// конфига.
+    /// </summary>
+    public string[] PlayerOnlyWeapons { get; init; } = ["torch"];
+
     /// <summary>Враги бьют по таймеру ИИ (<c>combat.enemiesAttack</c>, по умолчанию да); нет — мирные враги.</summary>
     public bool EnemiesAttack { get; init; } = true;
 
@@ -38,9 +45,10 @@ public sealed record CombatSettings
 }
 
 /// <summary>Оружие и удары для наблюдателей (<see cref="ICombatView"/>): таблицы — неизменяемые ассеты.</summary>
-public sealed class CombatView(WeaponTable weapons, StrikeTable strikes, int hand) : ICombatView
+public sealed class CombatView(WeaponTable weapons, int[] enemyWeapons, StrikeTable strikes, int hand) : ICombatView
 {
     public ReadOnlySpan<WeaponInfo> Weapons => weapons.Weapons;
+    public ReadOnlySpan<int> EnemyWeapons => enemyWeapons;
     public int DefaultWeapon => weapons.Default;
     public int HandJoint => hand;
     public ReadOnlySpan<AttackInfo> Attacks => strikes.Attacks;

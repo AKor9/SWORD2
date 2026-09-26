@@ -21,5 +21,6 @@ cbuffer PassConstants : register(b2)
 SamplerState gLinearClamp : register(s0);
 SamplerState gLinearWrap  : register(s1);
 SamplerState gAnisoClamp  : register(s2);
+SamplerState gLinearBorder : register(s3);   // за краем - прозрачный чёрный (гауссианы bloom: свет из-за края не приходит)
 
 #endif

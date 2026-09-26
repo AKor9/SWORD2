@@ -4,7 +4,7 @@ using Sword.Engine.Formats;
 
 namespace Sword.Bake.Engine.Tests;
 
-/// <summary>Текстуры пекарни: чтение PNG, BC4 и формат .swtex (перенесено из тестов SWORD 2eab13b).</summary>
+/// <summary>Текстуры пекарни: чтение PNG, BC4 и формат .swtex (перенесено из тестов SWORD 2eab13b); серый sRGB, два канала как есть.</summary>
 public sealed class TextureTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "sword-texture-tests", Guid.NewGuid().ToString("N"));
@@ -167,5 +167,83 @@ public sealed class TextureTests : IDisposable
         int left = texels[0];
         BlockCompress.DecodeBc4(ramp.AsSpan(7 * 8, 8), texels);
         Assert.True(texels[3] > left + 180);
+    }
+
+    /// <summary>Исходник 8×8: шахматка 0/1 по r (усреднение в линейном и в sRGB расходится сильнее всего), g и b — другое.</summary>
+    private static FloatImage Checker()
+    {
+        var img = new FloatImage(8, 8, 4);
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++)
+            {
+                img[x, y, 0] = (x + y) % 2;
+                img[x, y, 1] = 0.3f;
+                img[x, y, 2] = x / 7f;
+                img[x, y, 3] = 1;
+            }
+        return img;
+    }
+
+    [Fact]
+    public void GreySrgb_ChannelInAllColours_MipsAveragedInLinear()
+    {
+        // Серый sRGB: байт исходника как есть во всех трёх цветах; мип 1 — среднее 0 и 1 в линейном (0.5 → sRGB 188), а не 128.
+        var raw = TextureBake.Build([("n", Checker())], TextureChannel.R, 8, compress: false, srgb: true);
+        Assert.Equal((TexturePixelFormat.Rgba8Srgb, 4), (raw.Format, raw.Mips));
+        var mip0 = raw.Subresource(0, 0);
+        for (int i = 0; i < 64; i++)
+            Assert.Equal([(byte)((i % 8 + i / 8) % 2 * 255), (byte)((i % 8 + i / 8) % 2 * 255), (byte)((i % 8 + i / 8) % 2 * 255), 255],
+                mip0.AsSpan(i * 4, 4).ToArray());
+        byte half = TextureBake.ToByte(BlockCompress.ToSrgb(0.5f), false);
+        Assert.Equal(188, half);
+        Assert.All(raw.Subresource(0, 1).Chunk(4), t => Assert.Equal([half, half, half, 255], t));
+
+        // сжатый — BC1 sRGB; кодировщик втягивает опоры на 1/16 размаха блока внутрь: 0 и 255 выходят 16 и 239
+        var bc1 = TextureBake.Build([("n", Checker())], TextureChannel.R, 8, compress: true, srgb: true);
+        Assert.Equal(TexturePixelFormat.Bc1Srgb, bc1.Format);
+        Span<byte> rgba = stackalloc byte[64];
+        BlockCompress.DecodeBc1(bc1.Subresource(0, 0).AsSpan(0, 8), rgba);
+        for (int k = 0; k < 16; k++)
+            if ((k % 4 + k / 4) % 2 == 0) Assert.InRange(rgba[k * 4], 0, 20);
+            else Assert.InRange(rgba[k * 4], 235, 255);
+        BlockCompress.DecodeBc1(bc1.Subresource(0, 1).AsSpan(0, 8), rgba);
+        Assert.InRange(rgba[0], half - 3, half + 3);
+
+        // без srgb тот же канал — BC4/R8 с усреднением как есть
+        var linear = TextureBake.Build([("n", Checker())], TextureChannel.R, 8, compress: false);
+        Assert.Equal(TexturePixelFormat.R8, linear.Format);
+        Assert.All(linear.Subresource(0, 1), b => Assert.Equal(128, b));
+
+        Assert.Throws<ArgumentException>(() => TextureBake.Build([("n", Checker())], TextureChannel.Normal, 8, false, srgb: true));
+        Assert.Throws<ArgumentException>(() => TextureBake.Build([("n", Checker())], TextureChannel.Rg, 8, false, srgb: true));
+
+        // srgb: false в параметрах не пишется: хеш параметров ассетов без srgb — прежний (сверка с эталонным паком)
+        Assert.DoesNotContain("srgb", System.Text.Json.JsonSerializer.Serialize(new Processors.TextureArrayParams()), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Srgb", System.Text.Json.JsonSerializer.Serialize(new Processors.TextureArrayParams { Srgb = true }));
+    }
+
+    [Fact]
+    public void Rg_TwoChannelsAsIs()
+    {
+        // r = g = 1 нормаль вытянула бы до длины 1 (0.707); rg хранит как есть. Второй канал — g, не b.
+        var img = new FloatImage(8, 8, 4);
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++)
+                (img[x, y, 0], img[x, y, 1], img[x, y, 2]) = x < 4 ? (1f, 1f, 0f) : (0.25f, 0.75f, 0.5f);
+        Assert.Equal(TextureChannel.Rg, TextureBake.ParseChannel("RG"));
+        var raw = TextureBake.Build([("n", img)], TextureChannel.Rg, 8, compress: false);
+        Assert.Equal(TexturePixelFormat.Rg8, raw.Format);
+        var mip0 = raw.Subresource(0, 0);
+        Assert.Equal([255, 255], mip0.AsSpan(0, 2).ToArray());
+        Assert.Equal([64, 191], mip0.AsSpan(5 * 2, 2).ToArray());
+
+        var bc5 = TextureBake.Build([("n", img)], TextureChannel.Rg, 8, compress: true);
+        Assert.Equal(TexturePixelFormat.Bc5, bc5.Format);
+        Span<byte> r = stackalloc byte[16], g = stackalloc byte[16];
+        var block = bc5.Subresource(0, 0).AsSpan(16, 16);   // блок (1, 0): x 4…7
+        BlockCompress.DecodeBc4(block[..8], r);
+        BlockCompress.DecodeBc4(block[8..], g);
+        Assert.All(r.ToArray(), v => Assert.InRange(v, 63, 65));
+        Assert.All(g.ToArray(), v => Assert.InRange(v, 190, 192));
     }
 }

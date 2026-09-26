@@ -79,12 +79,14 @@ public static class ArenaRules
     /// Враг на месте <paramref name="slot"/> (<c>DuelArena.Spawn</c>): угол a = ГСЧ·τ, радиус r = 5 + ГСЧ·4 вокруг
     /// <paramref name="center"/> (корня игрока — в SWORD таз его тела); дальше радиуса арены − 3 м —
     /// на этот радиус; курс — на центр (<c>atan2(p.X − pos.X, p.Z − pos.Z)</c>); зерно — третьим числом (в SWORD — в
-    /// <c>Fighter.Build</c> тем же генератором после угла и радиуса); меч — случайный из <paramref name="weapons"/> мечей таблицы
-    /// своей выборкой (<c>f.WeaponKind = _rng.Next(Rig.Weapons.Length)</c> в <c>Spawn</c>).
+    /// <c>Fighter.Build</c> тем же генератором после угла и радиуса); меч — случайный из оружия врагов <paramref name="weapons"/> (номера
+    /// таблицы, <see cref="WeaponTable.EnemyWeapons"/>) своей выборкой (<c>f.WeaponKind = _rng.Next(Rig.Weapons.Length)</c> в <c>Spawn</c>):
+    /// выпало k — k-е оружие врагов.
     /// </summary>
-    public static FighterSpawn Enemy(SimRandom rng, ulong tick, uint batch, int slot, Vector3 center, int weapons)
+    public static FighterSpawn Enemy(SimRandom rng, ulong tick, uint batch, int slot, Vector3 center, ReadOnlySpan<int> weapons)
     {
         if (slot is < 1 or > ArenaState.MaxEnemies) throw new ArgumentOutOfRangeException(nameof(slot), slot, "место врага — 1…32");
+        if (weapons.IsEmpty) throw new ArgumentException("оружия врагов нет", nameof(weapons));
         float a = rng.Float(SpawnStream, tick, Entity.Null, Sample(batch, slot, 0)) * MathF.Tau;
         float r = SpawnMin + rng.Float(SpawnStream, tick, Entity.Null, Sample(batch, slot, 1)) * (SpawnMax - SpawnMin);
         var pos = new Vector3(center.X + MathF.Cos(a) * r, 0, center.Z + MathF.Sin(a) * r);
@@ -95,7 +97,7 @@ public static class ArenaRules
         float timer = EnemyAiRules.FirstTimer
                       + rng.Float(EnemyAiRules.AttackStream, tick, Entity.Null, Sample(batch, slot, 0)) * EnemyAiRules.FirstTimerSpread;
         return new FighterSpawn(slot, pos, facing, rng.Float(SpawnStream, tick, Entity.Null, Sample(batch, slot, 2)),
-            rng.Index(SpawnStream, tick, Entity.Null, weapons, WeaponSample(batch, slot)), timer);
+            weapons[rng.Index(SpawnStream, tick, Entity.Null, weapons.Length, WeaponSample(batch, slot))], timer);
     }
 
     /// <summary>

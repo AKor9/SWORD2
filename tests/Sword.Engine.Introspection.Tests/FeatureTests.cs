@@ -134,7 +134,7 @@ public sealed class FeatureTests : IDisposable
     [InlineData("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }", "{ \"id\": \"rec\" }", "без реплея нужно ticks")]
     [InlineData("\"msPerTick\": 5", "\"msPerTick\": -5", "пределы — положительные")]
     [InlineData("\"from\": 0, \"to\": 10", "\"from\": 10, \"to\": 10", "to 10 не больше from 10")]
-    [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"seconds\": 5 }", "frame: нечего проверять — averageMs или p99Ms")]
+    [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"seconds\": 5 }", "frame: нечего проверять — averageMs, p99Ms или gpu")]
     [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"averageMs\": 1, \"seconds\": 4 }", "frame.seconds: больше 4")]
     [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"p99Ms\": 0 }", "frame: пределы — положительные")]
     [InlineData("\"allocatedBytesPerTick\": 0, \"msPerTick\": 5, \"repeats\": 3, \"warmup\": 5", "\"frame\": { \"p99Ms\": 1, \"fps\": 60 }", "fps: неизвестный ключ")]
@@ -529,6 +529,62 @@ public sealed class FeatureTests : IDisposable
         var longer = FeatureManifest.Load(Manifest(json.Replace("\"p99Ms\": 4,", "\"p99Ms\": 4, \"seconds\": 7,")));
         Assert.Contains("бюджет frame: кадр: сценарий (60 тиков) короче бенча (7 с — 70 тиков)", Run(longer, optimized: true).Failures);
         Assert.Null(seen);
+    }
+
+    /// <summary>
+    /// Бюджет кадра с ракурсом, клиентскими ручками и GPU-временем проходов (клиентский модуль): App получает <c>camera</c> и <c>tune</c>,
+    /// вид — свои <c>tune</c>; GPU ключа — сумма проходов «ключ» и «ключ.…» (чужие проходы с тем же началом не входят); в Debug не судится, в
+    /// Release выше предела — провал; ни одного прохода ключа — провал в любой сборке; tune без «группа.ключ=» и повтор ключа — ошибка разбора.
+    /// </summary>
+    [Fact]
+    public void Verify_FrameBudget_GpuPassesCameraTune()
+    {
+        RecordReplay("rec.swreplay", 30);
+        string json = Good()
+            .Replace("\"budgets\": [", "\"budgets\": [{ \"id\": \"gpu\", \"scenario\": \"slow\", \"frame\": { \"camera\": \"0.6,0.95,6,0,0\", " +
+                "\"tune\": [\"light.night=1\"], \"gpu\": { \"fire\": 0.5 } } }, ")
+            .Replace("\"overlays\": [\"capsules\"] }]", "\"overlays\": [\"capsules\"], \"tune\": [\"light.night=1\", \"fire.smoke=0\"] }]")
+            .Replace("{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }",
+                "{ \"id\": \"rec\", \"replay\": \"rec.swreplay\" }, { \"id\": \"slow\", \"set\": [\"sim.tickRate=10\"], \"ticks\": 60 }");
+        var m = FeatureManifest.Load(Manifest(json));
+        Assert.Equal(["light.night=1", "fire.smoke=0"], m.Views[0].Tune);
+
+        FrameRequest? seen = null;
+        ViewRequest? view = null;
+        var passes = new Dictionary<string, double> { ["fire.flame"] = 0.2, ["fire.smoke"] = 0.25, ["fire"] = 0.1, ["firefly"] = 5, ["scene.opaque"] = 1 };
+        FeatureReport Run(bool optimized) => FeatureVerifier.Verify(m, new FeatureEnvironment
+        {
+            RepoRoot = _root, Build = Build, Info = Info, Optimized = optimized,
+            CaptureView = (r, _) =>
+            {
+                view = r;
+                File.WriteAllBytes(r.Png, [1]);
+                return new ViewResult(true, "снят");
+            },
+            MeasureFrame = (r, _) =>
+            {
+                seen = r;
+                return new FrameResult(true, "замер", 100, 3, 3.5, 9) { GpuPasses = passes };
+            },
+        }, new FeatureVerifyOptions { OutputDirectory = Path.Combine(_root, "out") });
+
+        var debug = Run(optimized: false);
+        Assert.True(debug.Ok, string.Join("\n", debug.Failures));
+        Assert.Equal("0.6,0.95,6,0,0", seen!.Camera);
+        Assert.Equal(["light.night=1"], seen.Tune);
+        Assert.Equal(["light.night=1", "fire.smoke=0"], view!.Tune);
+        var gpu = debug.Json["budgets"]![0]!["frame"]!["gpu"]!["fire"]!;
+        Assert.Equal(0.55, gpu["ms"]!.GetValue<double>(), 6);   // fire + fire.flame + fire.smoke, без firefly
+        Assert.Equal(3, gpu["passes"]!.AsObject().Count);
+
+        passes["fire.smoke"] = 0.45;
+        Assert.Contains("бюджет gpu: кадр: GPU fire 0.75 мс на кадр, предел 0.5", Run(optimized: true).Failures);
+
+        passes = new Dictionary<string, double> { ["scene.opaque"] = 1 };
+        Assert.Contains("бюджет gpu: кадр: GPU fire — ни одного прохода «fire» или «fire.…» в замере", Run(optimized: false).Failures);
+
+        Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"fire.smoke=0\"", "\"smoke=0\""))));
+        Assert.Throws<InvalidDataException>(() => FeatureManifest.Load(Manifest(json.Replace("\"fire.smoke=0\"", "\"light.night=0\""))));
     }
 
     /// <summary>

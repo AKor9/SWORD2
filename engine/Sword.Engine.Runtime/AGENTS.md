@@ -45,8 +45,9 @@
   `SimulationLink` (Engine.Client).
 
 Ограничения: переменная `SWORD_*` с опечаткой не находится (переменные ищутся по известным ключам, а общий префикс
-`SWORD_` занят и переменными SWORD) — опечатки ловят файлы и `--set`. Группы `modules` знают только модули симуляции:
-чисто клиентский модуль (раздел 7) потребует своего списка групп.
+`SWORD_` занят и переменными SWORD) — опечатки ловят файлы и `--set`. Чисто клиентский модуль (раздел 7) объявляется Id
+(`Simulation.Build(…, clientModules)`): группа `modules` его знает, включение — `ClientOnlyModules`/`InactiveClientOnlyModules`, секция
+выключенного пропущена; в `ActiveModules` (состав реплея) и хеш он не входит.
 
 - Путь инструментов (агент): `Simulation.CommandTypes` и `EnqueueRaw(type, tick, bytes, repeat)` — команда байтами по
   типу, только на будущий тик, `repeat` тиков подряд одной постановкой; ожидающих команд этого пути одного типа — не
@@ -115,7 +116,9 @@
   тело цикла в отдельный метод, иначе многоуровневый JIT заменяет его на ходу (OSR) — синхронная компиляция 1,5…3,5 мс на
   главном потоке в первые секунды (`RootCollision.Resolve`, `EcsInvariants`, `AnimationState.AppendHash` — исправлены).
   `AggressiveOptimization` — только тонкому методу из вызовов или примитивному циклу, которому PGO не нужен (пиксели, байты): у
-  счётного кода он теряет PGO (+3 % тика, [docs/history/profiler.md](../../docs/history/profiler.md), «Разбор Пд»).
+  счётного кода он теряет PGO (+3 % тика, [docs/history/profiler.md](../../docs/history/profiler.md), «Разбор Пд»). Так помечен
+  `Simulation.HashState(parts)` — только вызовы участников: по PGO JIT от запуска к запуску встраивал в него обход разного участника
+  (хеш толпы 1,8 мс на тик против 1,2, кадр сверки реплея в App зависел от запуска); код участников остаётся с PGO.
   Проверка — `Sword.Headless --ticks 3600 --units 32 --move 1,0 --profile
   runtime`: в `events.recent.jitMain` отчёта нет `osr`; все компиляции процесса — `DOTNET_JitDisasmSummary=1
   DOTNET_JitStdOutFile=<файл>` (строки `Tier1-OSR`).

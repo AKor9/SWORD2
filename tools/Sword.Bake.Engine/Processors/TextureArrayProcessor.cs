@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 using Sword.Bake.Engine.Anim;
 using Sword.Bake.Engine.Preview;
 using Sword.Bake.Engine.Texture;
@@ -15,11 +16,15 @@ internal sealed class TextureArrayParams
     public List<string> Layers { get; set; } = [];
     [Description("Сделать слои бесшовными: к краям подмешивается та же картинка, сдвинутая на полстороны. Для материалов, которые кладутся плиткой (трипланар).")]
     public bool Tile { get; set; }
-    [Description("Что взять из картинки: luma, r, g, b, a (маска, BC4), normal (xy нормали, BC5) или rgb (цвет sRGB, BC1).")]
+    [Description("Что взять из картинки: luma, r, g, b, a (маска, BC4), rg (два канала как есть: шумы, BC5), normal (xy нормали, BC5) или rgb (цвет sRGB, BC1).")]
     public string Channel { get; set; } = "luma";
+    [Description("Один канал (luma, r, g, b, a) — sRGB: серый в BC1 sRGB (без сжатия — RGBA8 sRGB), канал во все три цвета; выборка декодирует в линейное до фильтра, мипы усредняются в линейном. Шумы и flow-map из текстур UE с галкой sRGB.")]
+    // false в хеш параметров не входит: ассеты без srgb сохраняют прежний paramsHash (сверка с эталонным паком).
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Srgb { get; set; }
     [Description("Сторона слоя в паке, степень двойки; все слои приводятся к ней, исходное соотношение сторон хранится в слое.")]
     public int Size { get; set; } = 1024;
-    [Description("Сжатие BC4/BC5; false — R8/RG8.")]
+    [Description("Сжатие BC4/BC5/BC1; false — R8/RG8/RGBA8 sRGB.")]
     public bool Compress { get; set; } = true;
     [Description("Слои (имя файла без расширения), которые отразить по горизонтали при запекании: у набора с направлением (хвост брызг) все слои должны смотреть в одну сторону — игра об исключениях не знает.")]
     public List<string> FlipU { get; set; } = [];
@@ -107,7 +112,7 @@ internal sealed class TextureArrayProcessor : AssetProcessor<TextureArrayParams>
         if (p.Tile)
             for (int i = 0; i < images.Length; i++) images[i].Item2 = MakeTileable(images[i].Item2);
 
-        var data = TextureBake.Build(images, channel, p.Size, p.Compress);
+        var data = TextureBake.Build(images, channel, p.Size, p.Compress, p.Srgb);
         string output = ctx.Output(outPath);
         ContentFiles.Write(output, data.Write);
         for (int i = 0; i < images.Length; i++)

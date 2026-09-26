@@ -11,7 +11,7 @@ namespace Sword.Game.Arena;
 /// Begin, после <c>core.prev-transform</c>, реактивная по <c>Event&lt;ArenaCommand&gt;</c>:
 /// команды арены тика по порядку — число врагов (<c>SetEnemyCount</c> SWORD: больше — новые места old+1…n спаунятся заново;
 /// меньше — последние места уходят), сброс (<c>Reset(EnemyCount)</c>: игрок заново в центре курсом 0, все враги заново) и меч
-/// игрока (T — следующий меч инвентаря, <c>NextPlayerWeapon</c>; «взять меч N» — <c>EquipPlayerWeapon</c>). Порядок SWORD в
+/// игрока (T — следующее оружие инвентаря, <c>NextPlayerWeapon</c>; «взять меч N» — <c>EquipPlayerWeapon</c>). Порядок SWORD в
 /// кадре — PageUp, PageDown, R, T — задаёт клиент.
 ///
 /// Команды тика сначала сводятся в итог (сколько врагов, какие места строятся заново и от какого центра, сброшен ли
@@ -25,9 +25,9 @@ namespace Sword.Game.Arena;
 /// Игрок после сброса — с прежней точкой взгляда (<c>_cursor</c> контроллера SWORD
 /// сброс не трогает) и мечом инвентаря; враг при каждой постройке — со случайным мечом (<see cref="ArenaRules.Enemy"/>).
 /// Постройка оживляет мёртвого (метка <see cref="Dead"/> снимается, здоровье полное), сброс обнуляет статистику арены
-/// (<see cref="ArenaStats"/>).
+/// (<see cref="ArenaStats"/>). Мечи врагов — из оружия врагов <c>weapons</c> (номера таблицы, <c>WeaponTable.EnemyWeapons</c>).
 /// </summary>
-public sealed class ArenaCommandSystem(int weapons) : IReactiveSystem<Event<ArenaCommand>>
+public sealed class ArenaCommandSystem(int[] weapons) : IReactiveSystem<Event<ArenaCommand>>
 {
     private Query _fighters = null!;
     private readonly Entity[] _bySlot = new Entity[ArenaRules.MaxFighters];

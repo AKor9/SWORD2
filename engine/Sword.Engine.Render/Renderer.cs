@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
+using Sword.Engine.Formats;
 using Sword.Engine.Rhi;
 using Sword.Engine.Ui;
 
@@ -17,6 +18,25 @@ public sealed class RenderFrame
 
     /// <summary>Глубина и нормали сцены.</summary>
     public SceneTargets Scene => _renderer.Scene;
+
+    /// <summary>Точечные источники этого кадра (<see cref="PointLights"/>): добавляет тот, кто строит кадр; SRV буфера — для констант кадра.</summary>
+    public PointLights Lights => _renderer.Lights;
+
+    /// <summary>Прозрачное в ½ разрешения этого кадра (<see cref="HalfResTransparency"/>): слой ½ и его композит в <see cref="SceneColor"/>.</summary>
+    public HalfResTransparency HalfRes => _renderer.HalfRes;
+
+    /// <summary>
+    /// HDR в этом кадре (<see cref="Renderer.Hdr"/> на начало кадра): сцена пишет линейный цвет в <see cref="SceneColor"/>, задний
+    /// буфер до фазы <see cref="FramePhase.Post"/> не пишет никто — его пишет тонмап рендера.
+    /// </summary>
+    public bool Hdr => _renderer.FrameHdr;
+
+    /// <summary>
+    /// Цвет HDR-сцены: постоянная цель RGBA16F размера кадра, линейный цвет; создана со значением очистки
+    /// <see cref="Renderer.SceneColorClear"/> и чистится только им. Как текстура — <c>Texture2D&lt;float4&gt;</c>. Только с HDR.
+    /// </summary>
+    public RenderTexture SceneColor => _renderer.FrameHdr ? _renderer.HdrScene.Color
+        : throw new InvalidOperationException("HDR выключен (Renderer.Hdr): цели SceneColor нет, сцена пишет задний буфер");
 
     public int Width => _renderer.Device.BackBufferWidth;
     public int Height => _renderer.Device.BackBufferHeight;
@@ -96,6 +116,24 @@ public sealed record FrameCapture(string? ColorPath, string? DepthPath = null)
     /// <summary>Слои снимка (оверлеи игры: капсулы тел и т. п.) — каждый в свой PNG поверх цвета кадра.</summary>
     public IReadOnlyList<CaptureLayer> Layers { get; init; } = [];
 
+    /// <summary>
+    /// Карта HDR-сцены: яркость входа тонмапа в ложных цветах (PNG, <see cref="HdrCapture.Path"/>) по этому пути и сырой цвет
+    /// сцены рядом (<c>.bin</c>); null — не снимать. Сводку яркости (<see cref="CaptureResult.Hdr"/>) снимок с HDR даёт всегда.
+    /// </summary>
+    public string? HdrPath { get; init; }
+
+    /// <summary>
+    /// Карта добавки bloom (PNG ½ экрана, шкала карты HDR, <see cref="BloomCapture.Path"/>) и сырая добавка рядом (<c>.bin</c>); null — не
+    /// снимать. Сводку (<see cref="HdrCapture.Bloom"/>) снимок с bloom даёт всегда.
+    /// </summary>
+    public string? BloomPath { get; init; }
+
+    /// <summary>
+    /// Карта цели ½ прозрачного (PNG ½ экрана, шкала карты HDR, <see cref="TransparentCapture.Path"/>) и сырая цель рядом (<c>.bin</c>);
+    /// null — не снимать. Сводку (<see cref="HdrCapture.Transparent"/>) снимок кадра со слоем ½ даёт всегда; кадр без него — ничего.
+    /// </summary>
+    public string? TransparentPath { get; init; }
+
     /// <summary>Заказан ли слой <paramref name="name"/> (циклом, без замыкания).</summary>
     public bool WantsLayer(string name)
     {
@@ -126,6 +164,9 @@ public sealed record CaptureResult(int Width, int Height, string? ColorPath, str
 
     /// <summary>Что заказано, но не снято: кадр не дал ID-буфер или слой (игра не умеет его).</summary>
     public IReadOnlyList<string> Notes { get; init; } = [];
+
+    /// <summary>HDR-кадр: экспозиция и яркость входа тонмапа (и карта, если заказана); null — HDR в кадре выключен.</summary>
+    public HdrCapture? Hdr { get; init; }
 }
 
 /// <summary>Снимок кадра не записан в файл (каталог недоступен, диск полон, неверный путь); сам кадр показан.</summary>
@@ -156,6 +197,12 @@ public sealed class Renderer : IDisposable
     /// <summary>Потолок структуры констант кадра, байт.</summary>
     public const int MaxFrameConstantsBytes = 1024;
 
+    /// <summary>
+    /// Экспозиция по умолчанию: средний серый 0.18 сцены после «экспозиция → Filmic → sRGB» даёт тот же байт (117), что
+    /// вывод сцены без HDR <c>pow(0.18, 1/2.2)</c> — дневная арена в HDR близка к прежней по средним тонам.
+    /// </summary>
+    public const float DefaultExposure = 0.99f;
+
     private const int FrameConstantSlots = 8;
 
     private readonly RenderFrame _frame;
@@ -182,15 +229,20 @@ public sealed class Renderer : IDisposable
             Constants = new ConstantRing(Device, "Frame.Constants", MaxFrameConstantsBytes, FrameConstantSlots);
             Graph = new RenderGraph(Device, Pipelines);
             Scene = new SceneTargets(Device, Graph);
+            HdrScene = new HdrScene(Device, Graph);
             Skinned = new SkinnedMeshes(this);
             Debug = new DebugDraw(this);
+            Lights = new PointLights(this);
+            HalfRes = new HalfResTransparency(this);
             Gpu = new GpuFrameTimes(Device);
             _frame = new RenderFrame(this);
         }
         catch
         {
+            Lights?.Dispose();
             Debug?.Dispose();
             Skinned?.Dispose();
+            HdrScene?.Dispose();
             Scene?.Dispose();
             Constants?.Dispose();
             Pipelines?.Dispose();
@@ -207,6 +259,10 @@ public sealed class Renderer : IDisposable
         SkinnedMeshes.Contribute(c);
         UiPass.Contribute(c);
         DebugDraw.Contribute(c);
+        PointLights.Contribute(c);
+        HalfResTransparency.Contribute(c);
+        HdrScene.Contribute(c);
+        FilmicTonemap.Contribute(c);
     }
 
     internal GraphicsDevice Device { get; }
@@ -219,7 +275,18 @@ public sealed class Renderer : IDisposable
     public int Height => Device.BackBufferHeight;
 
     /// <summary>Пересоздать задние буферы под новый размер окна (ждёт GPU); тот же или нулевой размер — ничего.</summary>
-    public void Resize(int width, int height) => Device.Resize(width, height);
+    public void Resize(int width, int height)
+    {
+        // Смена размера сбрасывает номер слота кадра: чтения, ждущие забора, отдаются до неё — по порядку кадров (обход с конца: обработчик
+        // может снять чтение).
+        if (_readbacks.Count > 0 && width > 0 && height > 0 && (width != Device.BackBufferWidth || height != Device.BackBufferHeight))
+        {
+            Device.WaitForIdle();
+            for (int i = _readbacks.Count - 1; i >= 0; i--)
+                if (i < _readbacks.Count) _readbacks[i].CollectAll();
+        }
+        Device.Resize(width, height);
+    }
 
     /// <summary>Дождаться, пока GPU доделает всё отправленное, и освободить отложенное.</summary>
     public void WaitForIdle() => Device.WaitForIdle();
@@ -230,8 +297,50 @@ public sealed class Renderer : IDisposable
     public SceneTargets Scene { get; }
     public SkinnedMeshes Skinned { get; }
 
+    /// <summary>Цель HDR-сцены и тонмап.</summary>
+    internal HdrScene HdrScene { get; }
+
+    /// <summary>HDR этого кадра — снимок <see cref="Hdr"/> на начало кадра (переключение посреди кадра — со следующего).</summary>
+    internal bool FrameHdr { get; private set; }
+
+    /// <summary>
+    /// HDR: сцена рисуется линейным цветом в <see cref="RenderFrame.SceneColor"/> (RGBA16F), рендер сам добавляет в фазу
+    /// <see cref="FramePhase.Post"/> проход <c>post.tonemap</c> — цвет × <see cref="Exposure"/> → Filmic (<see cref="FilmicTonemap"/>)
+    /// → кодирование sRGB в задний буфер; интерфейс и отладочное рисование — после него, в LDR. По умолчанию выключен: кадр
+    /// рисуется в задний буфер, как без HDR (инструменты, тесты). Включает игра, обычно в <c>IClientGame.Initialize</c>;
+    /// действует со следующего кадра.
+    /// </summary>
+    public bool Hdr { get; set; }
+
+    /// <summary>Множитель цвета сцены перед тонмапом (<see cref="DefaultExposure"/>).</summary>
+    public float Exposure { get; set; } = DefaultExposure;
+
+    /// <summary>
+    /// Bloom (метод UE «сумма гауссиан», <see cref="BloomKernel"/>) между HDR-сценой и тонмапом: проходы <c>post.bloom.*</c> в фазе Post
+    /// перед <c>post.tonemap</c>. Только с HDR; по умолчанию — <see cref="BloomSettings.Default"/>; действует со следующего кадра.
+    /// </summary>
+    public BloomSettings Bloom { get; set; } = BloomSettings.Default;
+
+    /// <summary>
+    /// Значение очистки цели <see cref="RenderFrame.SceneColor"/> (линейный цвет): цель создаётся с ним и чистится только им
+    /// (<see cref="RenderGraph.RenderPassBuilder.Color"/>). Смена — цель пересоздаётся в начале следующего кадра.
+    /// </summary>
+    public System.Numerics.Vector4 SceneColorClear { get; set; } = new(0, 0, 0, 1);
+
     /// <summary>Отладочное рисование (фаза Debug): отрезки, капсулы, текст в мире — поверх сцены или в слой снимка.</summary>
     public DebugDraw Debug { get; }
+
+    /// <summary>
+    /// Точечные источники кадра: список на кадр (<see cref="PointLights.Add"/>), после построения кадра — отбор и буфер для шейдеров
+    /// сцены (<c>common/lights.hlsli</c>); отчёт и оверлей — последнего кадра.
+    /// </summary>
+    public PointLights Lights { get; }
+
+    /// <summary>
+    /// Прозрачное в ½ разрешения (фаза Transparent, только с HDR): <see cref="HalfResTransparency.Begin"/> — глубина ½ и цель ½,
+    /// <see cref="HalfResTransparency.Composite"/> — апсемпл по глубине в <see cref="RenderFrame.SceneColor"/>; раз за кадр.
+    /// </summary>
+    public HalfResTransparency HalfRes { get; }
 
     /// <summary>
     /// Контент, из которого рендер загружает ассеты по пути (<see cref="SkinnedMeshes.LoadMesh"/>): пак из
@@ -344,6 +453,76 @@ public sealed class Renderer : IDisposable
     public GpuImage CreateImage(string name, int width, int height, IReadOnlyList<byte[]> mips, bool srgb = false) =>
         GpuImage.Create(Device, name, width, height, mips, srgb);
 
+    private readonly List<GpuTexture> _textures = [];
+
+    /// <summary>Загруженные и ещё не освобождённые текстуры (<see cref="LoadTexture(string)"/>) — для отчётов и агента.</summary>
+    public IReadOnlyList<GpuTexture> Textures => _textures;
+
+    /// <summary>
+    /// Текстура пака по пути <paramref name="path"/> (<c>.swtex</c> пекарни) в видеопамять: мипы и слои файла как есть, SRV в
+    /// bindless-куче. Заливает и ждёт GPU — на старте модуля, не в кадре. Каждый вызов — новая текстура; освобождает вызывающий
+    /// (<see cref="GpuTexture.Dispose"/>), остальные — рендер при своём освобождении.
+    /// </summary>
+    /// <exception cref="FileNotFoundException">Файла нет в контенте (в сообщении — путь).</exception>
+    /// <exception cref="InvalidDataException">Файл не текстура, обрезан или противоречив (в сообщении — путь).</exception>
+    public GpuTexture LoadTexture(string path)
+    {
+        path = ContentPath.Normalize(path);
+        var content = Content;
+        string where = content.Describe(path);
+        TextureData data;
+        using (var s = content.OpenRead(path))
+            data = TextureData.Read(s, where);
+        return AddTexture(path, where, data);
+    }
+
+    /// <summary>
+    /// Текстура из потока файла <c>.swtex</c> не из контента игры (выпечка во временный каталог, инструменты) под именем
+    /// <paramref name="name"/>; иначе — как <see cref="LoadTexture(string)"/>.
+    /// </summary>
+    /// <exception cref="InvalidDataException">Поток — не текстура, обрезан или противоречив (в сообщении — имя).</exception>
+    public GpuTexture LoadTexture(string name, Stream file) => AddTexture(name, name, TextureData.Read(file, name));
+
+    /// <summary>
+    /// Канал <paramref name="channel"/> (0 — r) слоя 0, мип 0 текстуры пака на CPU, линейные значения — CPU-эталоны и отчёты (например,
+    /// значение light function кадра); видеопамять не трогает. Только несжатые форматы.
+    /// </summary>
+    /// <exception cref="FileNotFoundException">Файла нет в контенте.</exception>
+    /// <exception cref="InvalidDataException">Не текстура, обрезана или формат сжатый.</exception>
+    public TextureTexels ReadTexels(string path, int channel = 0)
+    {
+        path = ContentPath.Normalize(path);
+        var content = Content;
+        string where = content.Describe(path);
+        using var s = content.OpenRead(path);
+        return TextureTexels.Read(s, where, channel);
+    }
+
+    private GpuTexture AddTexture(string path, string where, TextureData data)
+    {
+        var texture = GpuTexture.Create(Device, path, data, t => _textures.Remove(t));
+        _textures.Add(texture);
+        Log.Info("texture", $"{where}: {texture.Width}×{texture.Height}, слоёв {texture.Slices}, мипов {texture.Mips}, {texture.Format}" +
+            $"{(texture.Srgb ? " sRGB" : "")}, {texture.Bytes / 1024.0:F0} КБ");
+        return texture;
+    }
+
+    private readonly List<GpuReadback> _readbacks = [];
+
+    /// <summary>
+    /// Асинхронное чтение первых <paramref name="bytes"/> байт хранилища каждый кадр (<see cref="GpuReadback"/>): данные кадра N приходят в
+    /// <paramref name="ready"/> в начале кадра N + <see cref="GpuReadback.Latency"/>, на потоке кадра, без ожидания GPU. Только представление
+    /// и диагностика.
+    /// </summary>
+    public GpuReadback CreateReadback(GpuStorage source, uint bytes, ReadbackHandler ready)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(ready);
+        var readback = new GpuReadback(Device, source, bytes, ready, r => _readbacks.Remove(r));
+        _readbacks.Add(readback);
+        return readback;
+    }
+
     /// <summary>Буфер-хранилище из <paramref name="count"/> элементов <typeparamref name="T"/>, заполненный нулями.</summary>
     public GpuStorage CreateStorage<T>(string name, uint count) where T : unmanaged
     {
@@ -438,20 +617,32 @@ public sealed class Renderer : IDisposable
         Device.BeginFrame();
         profiler.End(_zones.FenceWait);
         RecordGpu(profiler);   // времена кадра, забора которого ждали (или разобранного ожиданием простоя)
+        // Чтения кадра этого слота: его забора дождались — данные готовы (обработчик может снять чтение — обход с конца).
+        for (int i = _readbacks.Count - 1; i >= 0; i--) _readbacks[i].Collect(Device.FrameIndex);
         long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var list = Device.GraphicsList;
         try
         {
             Constants.BeginFrame(Device.FrameIndex);
             Scene.EnsureSize();
+            FrameHdr = Hdr;
+            HdrScene.Ensure(FrameHdr, SceneColorClear);
             Skinned.Begin();
             Debug.BeginFrame();
+            Lights.BeginFrame();
+            HalfRes.BeginFrame();
             _ui?.BeginFrame();
             Graph.BeginFrame(0);
+            Graph.BackBufferFrom = FrameHdr ? FramePhase.Post : FramePhase.Simulation;
 
             profiler.Begin(_zones.Build);
             build(_frame);
+            Lights.Flush();
+            HalfRes.EndFrame();
             profiler.End(_zones.Build);
+            // Bloom и тонмап — последними проходами фазы Post: модули регистрируют свою постобработку раньше, во время построения кадра.
+            if (FrameHdr) HdrScene.AddTonemap(Graph, Exposure, Bloom);
+            else HdrScene.SkipFrame();
 
             profiler.Begin(_zones.Record);
             Graph.Execute(list);
@@ -470,12 +661,14 @@ public sealed class Renderer : IDisposable
             throw;
         }
 
-        Vortice.Direct3D12.ID3D12Resource? readback = null, depthReadback = null, idsReadback = null;
+        Vortice.Direct3D12.ID3D12Resource? readback = null, depthReadback = null, idsReadback = null, hdrReadback = null, bloomReadback = null,
+            halfReadback = null;
         var layerReadbacks = capture is { Layers.Count: > 0 } ? new List<(CaptureLayer Layer, Vortice.Direct3D12.ID3D12Resource Readback)>() : null;
         var notes = capture is null ? null : new List<string>();   // обычный кадр — без выделений
         try
         {
-            int w = 0, h = 0, pitch = 0, dw = 0, dh = 0, dpitch = 0, iw = 0, ih = 0, ipitch = 0, lpitch = 0;
+            int w = 0, h = 0, pitch = 0, dw = 0, dh = 0, dpitch = 0, iw = 0, ih = 0, ipitch = 0, lpitch = 0, hw = 0, hh = 0, hpitch = 0,
+                bw = 0, bh = 0, bpitch = 0, tw = 0, th = 0, tpitch = 0;
             if (capture?.DepthPath is not null)
                 depthReadback = Screenshot.RecordDepthCapture(Device, list, Scene.DepthResource, out dw, out dh, out dpitch);
             if (capture?.ColorPath is not null) readback = Screenshot.RecordCapture(Device, list, out w, out h, out pitch);
@@ -497,11 +690,25 @@ public sealed class Renderer : IDisposable
                     layerReadbacks.Add((layer, Screenshot.RecordTextureCapture(Device, list, Graph.Get(CapturedLayers[k].Texture.Index, buffer: false),
                         out _, out _, out lpitch)));
                 }
+            // Цвет HDR-сцены — при любом снимке с HDR: сводка яркости входа тонмапа (и карта, если заказана).
+            if (capture is not null && FrameHdr)
+                hdrReadback = Screenshot.RecordTextureCapture(Device, list, HdrScene.Resource, out hw, out hh, out hpitch);
+            else if (capture?.HdrPath is not null) notes!.Add("карта HDR заказана, а HDR в кадре выключен (Renderer.Hdr)");
+            // Итог bloom — при любом снимке с bloom: сводка добавки (и карта, если заказана).
+            if (capture is not null && FrameHdr && HdrScene.BloomOutput is { } bloomOutput)
+                bloomReadback = Screenshot.RecordTextureCapture(Device, list, Graph.Get(bloomOutput.Index, buffer: false), out bw, out bh, out bpitch);
+            else if (capture?.BloomPath is not null) notes!.Add("карта bloom заказана, а bloom в кадре нет (Renderer.Hdr, Renderer.Bloom)");
+            // Цель ½ прозрачного — при любом снимке кадра со слоем ½ (до композита: то, что легло поверх сцены).
+            if (capture is not null && FrameHdr && HalfRes.Current is { } half)
+                halfReadback = Screenshot.RecordTextureCapture(Device, list, Graph.Get(half.Color.Index, buffer: false), out tw, out th, out tpitch);
             if (notes is not null) notes.AddRange(CaptureNotes);   // заметки игры — после заметок рендера
 
+            // Чтения — последними командами кадра, после всех проходов; ждут забора — только если кадр отправлен.
+            foreach (var r in _readbacks) r.Record(list, Device.FrameIndex, Device.FrameNumber);
             profiler.Begin(_zones.Present);
             Device.EndFrame(vsync);
             profiler.End(_zones.Present);
+            foreach (var r in _readbacks) r.Commit(Device.FrameIndex);
 
             if (capture is not null)
             {
@@ -542,11 +749,49 @@ public sealed class Renderer : IDisposable
                             Screenshot.SaveLayer(rb, current, Width, Height, lpitch, rgb is { } under && under.Length == Width * Height * 3 ? under : null);
                             layers.Add(layer);
                         }
-                    if (readback is not null || depthReadback is not null || idsReadback is not null || layers.Count > 0 || notes!.Count > 0)
+                    HdrCapture? hdr = null;
+                    if (hdrReadback is not null)
+                    {
+                        current = capture.HdrPath;
+                        if (current is not null) Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                        hdr = Screenshot.SaveHdr(hdrReadback, Exposure, hw, hh, hpitch, current, current is null ? null : Path.ChangeExtension(current, ".bin"),
+                            out _);
+                    }
+                    if (bloomReadback is not null && hdr is not null)
+                    {
+                        current = capture.BloomPath;
+                        if (current is not null) Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                        var b = Screenshot.SaveHdr(bloomReadback, Exposure, bw, bh, bpitch, current, current is null ? null : Path.ChangeExtension(current, ".bin"),
+                            out _);
+                        hdr = hdr with
+                        {
+                            Bloom = new BloomCapture(HdrScene.FrameBloom, bw, bh, b.MaxLuminance, b.MeanLuminance, b.NonFinite)
+                            {
+                                Path = b.Path, RawPath = b.RawPath,
+                            },
+                        };
+                    }
+                    if (halfReadback is not null && hdr is not null)
+                    {
+                        current = capture.TransparentPath;
+                        if (current is not null) Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                        var t = Screenshot.SaveHdr(halfReadback, Exposure, tw, th, tpitch, current, current is null ? null : Path.ChangeExtension(current, ".bin"),
+                            out float halfCoverage);
+                        hdr = hdr with
+                        {
+                            Transparent = new TransparentCapture(tw, th, t.MaxLuminance, t.MeanLuminance, halfCoverage, t.NonFinite)
+                            {
+                                Path = t.Path, RawPath = t.RawPath,
+                            },
+                        };
+                    }
+                    if (readback is not null || depthReadback is not null || idsReadback is not null || layers.Count > 0 || hdr is not null ||
+                        notes!.Count > 0)
                         LastCapture = new CaptureResult(Width, Height, readback is not null ? capture.ColorPath : null,
                             depthReadback is not null ? capture.DepthPath : null, depth.Min, depth.Max, depth.Coverage)
                         {
                             IdsPath = idsReadback is not null ? capture.IdsPath : null, IdsRawPath = idsRaw, Ids = coverage, Layers = layers, Notes = notes!,
+                            Hdr = hdr,
                         };
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -570,6 +815,9 @@ public sealed class Renderer : IDisposable
             if (readback is not null) Device.DeferRelease(readback);
             if (depthReadback is not null) Device.DeferRelease(depthReadback);
             if (idsReadback is not null) Device.DeferRelease(idsReadback);
+            if (hdrReadback is not null) Device.DeferRelease(hdrReadback);
+            if (bloomReadback is not null) Device.DeferRelease(bloomReadback);
+            if (halfReadback is not null) Device.DeferRelease(halfReadback);
             if (layerReadbacks is not null)
                 foreach (var (_, rb) in layerReadbacks) Device.DeferRelease(rb);
         }
@@ -580,11 +828,15 @@ public sealed class Renderer : IDisposable
     public void Dispose()
     {
         Device.WaitForIdle();
+        foreach (var readback in _readbacks.ToArray()) readback.Dispose();
+        foreach (var texture in _textures.ToArray()) texture.Dispose();
         _ui?.Dispose();
         _uiFonts?.Dispose();   // проход не создавался — шрифты вызывающего остались у рендера
+        Lights.Dispose();
         Debug.Dispose();
         Skinned.Dispose();
         Graph.Dispose();
+        HdrScene.Dispose();
         Scene.Dispose();
         Constants.Dispose();
         Pipelines.Dispose();

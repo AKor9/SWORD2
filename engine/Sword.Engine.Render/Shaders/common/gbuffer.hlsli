@@ -14,6 +14,17 @@ float3 SceneWorld(float2 px, float depth, float2 size, float4x4 invViewProj)
     return w.xyz / w.w;
 }
 
+// Линейная глубина вида (м, вдоль оси камеры) из глубины обратного Z: k = TransparencyMath.ViewDepthParams(проекция),
+// d = k.y / (depth - k.x). Бесконечная дальняя плоскость (k.x = 0): пусто (0) - очень далеко, но конечно (сравнения без NaN).
+float SceneViewDepth(float depth, float2 k) { return k.y / max(depth - k.x, 1e-20); }
+
+// Мягкий край прозрачного у непрозрачной сцены (depth fade): 0 у поверхности, 1 - дальше fadeDistance перед ней; линейно по
+// разнице линейных глубин сцены и пикселя. Множитель премультиплицированного цвета и альфы.
+float DepthFade(float sceneViewDepth, float pixelViewDepth, float fadeDistance)
+{
+    return saturate((sceneViewDepth - pixelViewDepth) / fadeDistance);
+}
+
 float3 SceneNormal(float4 texel) { return normalize(texel.xyz * 2 - 1); }
 
 // Статичный мир (пол, стены, колонны) принимает декали мира; персонажи и оружие — нет.

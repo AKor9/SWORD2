@@ -5,6 +5,7 @@ using Sword.Engine.Client;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Platform;
 using Sword.Engine.Platform.Win32;
+using Sword.Engine.Render;
 using Sword.Engine.Runtime;
 using Sword.Game.Bootstrap;
 using Sword.Game.Client;
@@ -34,9 +35,9 @@ public static partial class Program
 
     /// <summary>
     /// Связать панели DevTools с игрой (DevToolsMode.cs): группы ручек клиента игры (заводятся в его <c>Initialize</c> — после
-    /// создания клиента движка), сохранение и загрузка, край под HUD. В сборке без DevTools вызова нет.
+    /// создания клиента движка) и включённых клиентских модулей, сохранение и загрузка, край под HUD. В сборке без DevTools вызова нет.
     /// </summary>
-    static partial void ConnectDevTools(IReadOnlyList<IClientPanel> panels, ArenaClient arena);
+    static partial void ConnectDevTools(IReadOnlyList<IClientPanel> panels, ArenaClient arena, ClientModules modules);
 
     /// <summary>
     /// Переменная окружения: окно без фокуса по умолчанию (как <c>--no-activate</c>). Её задают настройки Claude Code
@@ -82,6 +83,10 @@ public static partial class Program
         public readonly List<string> Hold = [];
         public readonly List<string> Sets = [];
         public readonly List<string> Overlays = [];
+        /// <summary>Тестовых точечных источников «факел» у игрока (<c>--test-light [N]</c>): свет без огня, только представление.</summary>
+        public int TestLights;
+        /// <summary>Ручки клиента с первого кадра (<c>--tune light.ключ=значение</c>): ключ группы «Свет» → значение.</summary>
+        public readonly List<(string Group, string Key, double Value)> Tunes = [];
         /// <summary>Окно показано свёрнутым, без фокуса (<c>--minimized</c>): проверка, что прогон идёт и в свёрнутом окне.</summary>
         public bool Minimized;
         /// <summary>Сторож кадров проверочного прогона (<c>--stall</c>): нет кадров столько секунд — выход с ошибкой.</summary>
@@ -94,13 +99,14 @@ public static partial class Program
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
           F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, последняя
           аномалия, строка среды; включает профайлер); F4 — снимок; Esc — выход;
-          PageUp/PageDown — врагов ±1, R — сброс арены, T — следующий меч (команды арены — в реплее); F7 — капсулы тел
+          PageUp/PageDown — врагов ±1, R — сброс арены, T — следующее оружие (команды арены — в реплее); F7 — капсулы тел
           и клинки поверх персонажей; J — суставы тел, K — контакты физики (включает трассу физики, пока показаны);
           M — траектории Motion Matching игрока (запрос поиска, найденный кадр, история, стопы на земле);
           ЛКМ — удар, Q — укол, Пробел — рывок; I — инвентарь (1–9 и щелчок — взять меч);
           F3 — ручки «Бой» (урон, острота, враги нападают, игрок неуязвим, рывок) и «Рэгдолл» (трение, выталкивание,
           мягкость суставов, потолки трупа, скорости при смерти, толчок; трупы в кадре); изменение — команда в реплее,
-          «сохранить» — секция combat или ragdoll в sword.user.json.
+          «сохранить» — секция combat или ragdoll в sword.user.json; «Свет» (ночь, тестовый факел, экспозиция, bloom) —
+          ручки рендера, «Огонь» (оверлей, вид поля, скорость сима, затухание, кисть, k) — модуля огня: в реплей не идут и не сохраняются.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
           --borderless      окно без рамы заданного размера по центру (как игровое окно SWORD)
@@ -123,8 +129,19 @@ public static partial class Program
           --overlay NAME    отладочный оверлей поверх кадра с первого кадра (можно несколько раз): capsules — капсулы тел
                             бойцов (как F7), blades — клинки (отрезок тика, прошлого тика и пройденное за тик), joints —
                             суставы тел (как J), contacts — контакты физики (как K; включает трассу физики), mm —
-                            траектории Motion Matching игрока (как M); так снимаются виды фичи с оверлеем
-                            (views[].overlays манифеста)
+                            траектории Motion Matching игрока (как M), lights — точечные источники (крест, круги радиуса R
+                            и половины затухания), fire — головка горящего оружия игрока по тикам последнего кадра, рамка площадки
+                            сима огня, центр шага, точка кисти (модуль Fire; горящее оружие — fire.weapons, по умолчанию факел:
+                            --set combat.playerWeapon=torch), fire.field — поле огня (ρ тепловой шкалой на площадке); так снимаются
+                            виды фичи с оверлеем (views[].overlays манифеста)
+          --test-light [N]  тестовые точечные источники у игрока — факел LIVE-2 (цвет 1, 0.038, 0; интенсивность 100;
+                            экспонента 400; R 20 м) на высоте 1.4 м, N > 1 — ещё N − 1 по кругу 3 м (замер; сверх 64 —
+                            отброшены): свет без огня, симуляция и реплей их не видят; итог --json — report.lights
+          --tune G.K=V      клиентская ручка F3 с первого кадра, можно несколько раз: группа light («Свет») — night (0/1) — ночь,
+                            testLight (0/1) — тестовый факел, exposure — экспозиция, bloom (0/1), bloomIntensity, bloomThreshold;
+                            группа fire («Огонь») — flame, flameLayer, smoke, smokeLayer, light, lightFunction, overlay, field
+                            (0/1), smokeDensity, simSpeed, accumulation, brushStrength, brushSize, kMin;
+                            только представление (реплей и хеш те же); итог --json — light, fire
           --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
                             снимок кадра; порт — --agent-port N (по умолчанию 47813)
           --causality       диагностический режим причинности (state.why агента): причина, родитель, система и источник
@@ -210,12 +227,18 @@ public static partial class Program
             // Живая игра (решение пользователя): тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy).
             // Сверка реплея (--replay: виды фич, проверки) — каждый тик, как Headless и тесты.
             simulation.Invariants.LivePeriods = replay is null;
-            if (options.Overlays.FirstOrDefault(o => !ArenaClient.KnownOverlays.Contains(o)) is { } unknown)
-                throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", ArenaClient.KnownOverlays)}");
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
                 showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay),
                 showJoints: options.Overlays.Contains(ArenaClient.JointsOverlay), showContacts: options.Overlays.Contains(ArenaClient.ContactsOverlay),
-                showMotion: options.Overlays.Contains(ArenaClient.MotionOverlay));
+                showMotion: options.Overlays.Contains(ArenaClient.MotionOverlay), showLights: options.Overlays.Contains(ArenaClient.LightsOverlay),
+                testLights: options.TestLights);
+            // Клиентские модули (огонь) — до Complete: читают свои секции; выключенные не настраиваются вовсе. Туман сцены — от клиента арены.
+            var clientModules = ClientModuleList.Compose(config, simulation, arena, arena);
+            IReadOnlyList<string> overlays = [.. ArenaClient.KnownOverlays, .. clientModules.Overlays.Select(o => o.Name)];
+            if (options.Overlays.FirstOrDefault(o => !overlays.Contains(o)) is { } unknown)
+                throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", overlays)}");
+            foreach (string name in options.Overlays)
+                if (clientModules.Overlay(name) is { } moduleOverlay) moduleOverlay.Shown = true;
             // Панели поверх кадра: инвентарь игры (I — открыть, мышь над ним не бьёт) и DevTools (F3 — ручки).
             var panels = new List<IClientPanel> { arena.Inventory };
             AddDevTools(panels, bench: options.Bench > 0);
@@ -261,12 +284,14 @@ public static partial class Program
                 // а не бенч без конца. Свёрнутое окно такой прогон и так рисует (ClientHost).
                 StallSeconds = options.Frames > 0 || options.Bench > 0 ? options.StallSeconds : 0,
                 Stalled = message => Stalled(message, options.Json),
-            }, arena, simulation))
+            }, arena, simulation, clientModules))
             {
                 profiler = client.Profiler;
                 foreach (var panel in panels) client.AddPanel(panel);
                 if (client.Panels is { } layer) layer.Scale = Hud.Scale;   // панели — в масштабе HUD (SWORD: Hud.UiScale)
-                ConnectDevTools(panels, arena);
+                ConnectDevTools(panels, arena, clientModules);
+                // Ручки «Свет» с первого кадра (--tune): те же делегаты, что у панели F3.
+                if (options.Tunes.Count > 0) ApplyTunes(arena, clientModules, options.Tunes);
             // Захват аномалий: судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.
                 profiler.CaptureAnomalies(new AnomalyOptions
                 {
@@ -327,7 +352,8 @@ public static partial class Program
             var player = arena.LastPlayer;
             var shown = arena.View.Player;
             if (options.Json)
-                Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                var json = JsonSerializer.SerializeToNode(new
                 {
                     ok = true, report,
                     player = player is { } t ? new { x = t.Position.X, z = t.Position.Z, facing = t.Facing } : null,
@@ -366,6 +392,11 @@ public static partial class Program
                     contacts = new { shown = arena.ShowContacts, drawn = arena.DrawnContacts, trace = arena.View.TraceOn },
                     // Траектории Motion Matching игрока (M, --overlay mm): показаны ли, игрок на MM, примитивов нарисовано, стоп на земле.
                     motion = new { shown = arena.ShowMotion, available = arena.Motion.Available, drawn = arena.DrawnMotion, points = arena.Motion.Points, feetOnGround = arena.Motion.FeetOnGround },
+                    // Точечный свет арены: тестовых источников (--test-light N), оверлей (--overlay lights) — показан ли, источников
+                    // нарисовано; сами источники кадра — report.lights.
+                    lightsOverlay = new { testLights = arena.TestLights, shown = arena.ShowLights, drawn = arena.DrawnLights },
+                    // Ручки «Свет» (F3, --tune light.*) в конце прогона: ночь, тестовый факел, экспозиция, bloom — ключ → число (флаг — 1/0).
+                    light = arena.Light?.Values(),
                     recorded = recorded is null ? null : new
                     {
                         file = Path.GetFullPath(options.Record!), ticks = recorded.Ticks, hashes = recorded.Hashes.Count,
@@ -390,7 +421,11 @@ public static partial class Program
                         hashesChecked = playback.HashesChecked, lastMatch = playback.LastMatch,
                         divergence = playback.Divergence?.ToString(), warnings = playback.Warnings,
                     },
-                }, JsonOptions));
+                }, JsonOptions)!.AsObject();
+                // Разделы включённых клиентских модулей — под их Id (fire: огни, головки, оружие); сами модули — report.modules.
+                foreach (var (id, value) in clientModules.Sections()) json[id] = JsonSerializer.SerializeToNode(value, JsonOptions);
+                Console.WriteLine(json.ToJsonString(JsonOptions));
+            }
             else
             {
                 Log.Info("sword", $"выход: {report.ExitReason}; кадров {report.Frames}, изменений размера {report.Resizes}, " +
@@ -410,6 +445,53 @@ public static partial class Program
             if (options.Json)
                 Console.WriteLine(JsonSerializer.Serialize(new { ok = false, error = ex.Message }, JsonOptions));
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// <c>--tune группа.ключ=значение</c>: клиентские ручки F3 — группа «Свет» (<see cref="LightTuning"/>) и группы клиентских модулей («Огонь»:
+    /// <c>fire.field=1</c>); ручки симуляции — <c>--set</c>, они идут в конфиг и реплей. Значение — число или true/false; группа и ключ
+    /// проверяются, когда группы собраны (<see cref="ApplyTunes"/>).
+    /// </summary>
+    internal static (string Group, string Key, double Value) ParseTune(string option, string text)
+    {
+        int eq = text.IndexOf('=');
+        int dot = text.IndexOf('.');
+        if (dot <= 0 || eq <= dot + 1)
+            throw new ArgumentException($"{option} {text}: ожидается группа.ключ=значение ({LightTuning.Id}.night=1)");
+        string group = text[..dot].Trim(), key = text[(dot + 1)..eq].Trim(), value = text[(eq + 1)..].Trim();
+        double number = value.ToLowerInvariant() switch
+        {
+            "true" => 1,
+            "false" => 0,
+            _ => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && double.IsFinite(v) ? v
+                : throw new ArgumentException($"{option} {text}: значение — число или true/false"),
+        };
+        return (group, key, number);
+    }
+
+    /// <summary>Значения <c>--tune</c> — в группы клиента (числа прижаты к пределам ручки), итог — в журнал; нет группы или ключа — ошибка.</summary>
+    private static void ApplyTunes(ArenaClient arena, ClientModules modules, IReadOnlyList<(string Group, string Key, double Value)> tunes)
+    {
+        var groups = new List<TuningGroup>();
+        if (arena.Light is { } light) groups.Add(light);
+        groups.AddRange(modules.TuningGroups);
+        foreach (var byGroup in tunes.GroupBy(t => t.Group, StringComparer.OrdinalIgnoreCase))
+        {
+            var group = groups.FirstOrDefault(g => string.Equals(g.Id, byGroup.Key, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"--tune {byGroup.Key}.…: группы «{byGroup.Key}» нет — есть {string.Join(", ", groups.Select(g => g.Id))} " +
+                    "(ручки симуляции — --set секция.ключ=значение)");
+            var values = new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (var (_, key, value) in byGroup)
+            {
+                string known = group.Items.Select(i => i switch { TuningFloat f => f.Key, TuningBool b => b.Key, _ => null })
+                    .FirstOrDefault(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"--tune {group.Id}.{key}: ключа «{key}» нет; есть: " + string.Join(", ",
+                        group.Items.Select(i => i switch { TuningFloat f => f.Key, TuningBool b => b.Key, _ => null }).OfType<string>()));
+                values[known] = value;
+            }
+            group.Apply(values);
+            Log.Info("tuning", $"{group.Id}: {group.Describe()} (--tune)");
         }
     }
 
@@ -487,6 +569,17 @@ public static partial class Program
                 case "--screenshots": o.Screenshots = Next(); break;
                 case "--no-hud": o.NoHud = true; break;
                 case "--overlay": o.Overlays.Add(Next()); break;
+                case "--test-light":
+                    o.TestLights = 1;
+                    if (i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int lights))
+                    {
+                        if (lights < 1 || lights > PointLights.MaxQueued)
+                            throw new ArgumentException($"{a}: ожидается число источников 1…{PointLights.MaxQueued}");
+                        o.TestLights = lights;
+                        i++;
+                    }
+                    break;
+                case "--tune": o.Tunes.Add(ParseTune(a, Next())); break;
                 case "--agent": o.Agent = true; break;
                 case "--causality": o.Causality = true; break;
                 case "--profile":

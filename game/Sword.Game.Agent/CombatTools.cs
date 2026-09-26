@@ -21,7 +21,7 @@ public static class CombatTools
         {
             Name = "combat.weapons", Title = "Оружие и удары",
             Description = "Оружие после последнего тика: таблица мечей пака (номер = WeaponSlot.Index, имя, меш, клинок в системе " +
-                "кисти hand_r — основание и кончик, длина), меч по умолчанию (им размечены удары), инвентарь игрока (доступное, " +
+                "кисти hand_r — основание и кончик, длина, enemies — берут ли его враги), меч по умолчанию (им размечены удары), инвентарь игрока (доступное, " +
                 "выбранное), бойцы — меч в руке и клинок в мире (основание и кончик тика и прошлого тика, путь кончика за тик, м); " +
                 "attacks — таблица ударов: слот, клип, клип отбитого удара, длительность, укол, слой верха, окна урона (начало, " +
                 "конец, пик и его скорость, направление замаха). entity — только этот боец.",
@@ -48,11 +48,13 @@ public static class CombatTools
         string Name(int w) => (uint)w < (uint)weapons.Length ? weapons[w].Name : $"?{w}";
 
         var table = new JsonArray();
+        var enemyWeapons = view.EnemyWeapons;
         for (int w = 0; w < weapons.Length; w++)
             table.Add(new JsonObject
             {
                 ["index"] = w, ["name"] = weapons[w].Name, ["mesh"] = weapons[w].Mesh,
                 ["bladeBase"] = Vec(weapons[w].BladeBase), ["bladeTip"] = Vec(weapons[w].BladeTip), ["length"] = Round(weapons[w].Length),
+                ["enemies"] = enemyWeapons.Contains(w),
             });
         var inventory = world.Resource<PlayerInventory>();
         var owned = new JsonArray();

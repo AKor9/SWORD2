@@ -154,8 +154,9 @@ public static partial class Program
 
     /// <summary>
     /// Вид фичи: Sword.exe играет записанный сценарий (<c>--replay</c>) ровно <see cref="ViewRequest.Tick"/> тиков — по K тиков
-    /// на кадр (наибольший делитель тика до 8), кадр 1280×720 без фокуса; последний кадр — PNG. Хеши App сверяются с записью
-    /// Headless: тот же реплей обязан дать то же состояние.
+    /// на кадр (наибольший делитель тика до 8), кадр 1280×720 без фокуса; последний кадр — PNG, итог App <c>--json</c> — рядом (<c>.json</c>:
+    /// разделы клиентских модулей — <c>fire.metrics</c>). Клиентские ручки вида — <c>--tune</c>. Хеши App сверяются с записью Headless: тот же
+    /// реплей обязан дать то же состояние.
     /// </summary>
     private static ViewResult CaptureView(ViewRequest request, CancellationToken cancel)
     {
@@ -169,8 +170,10 @@ public static partial class Program
         if (!request.Hud) args.Add("--no-hud");
         if (request.Camera is { } camera) args.AddRange(["--camera", camera]);
         foreach (string overlay in request.Overlays) args.AddRange(["--overlay", overlay]);
+        foreach (string tune in request.Tune) args.AddRange(["--tune", tune]);
         var (report, error) = RunApp(exe, args, cancel);
         if (report is null) return new ViewResult(false, error!);
+        File.WriteAllText(Path.ChangeExtension(request.Png, ".json"), report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         var replay = report["replay"];
         bool match = replay?["match"]?.GetValue<bool>() == true;
         if (!File.Exists(request.Png)) return new ViewResult(false, "Sword.exe отработал, а PNG нет");
@@ -183,7 +186,8 @@ public static partial class Program
     /// <summary>
     /// Бюджет кадра: Sword.exe играет записанный сценарий бенчем (<c>--replay … --bench N</c>: первые 4 с — прогрев,
     /// vsync выключен, справка скрыта), окно 640×480 без фокуса — как бенч <c>verify.ps1</c> app-smoke. Хеши App сверяются с
-    /// записью Headless: замер — ровно той игры, что сценарий. Оверлеи бюджета — <c>--overlay</c> на весь замер, как у вида.
+    /// записью Headless: замер — ровно той игры, что сценарий. Оверлеи бюджета — <c>--overlay</c> на весь замер, как у вида; ракурс —
+    /// <c>--camera</c>, клиентские ручки — <c>--tune</c>; GPU-время проходов — <c>report.bench.passes</c>.
     /// </summary>
     private static FrameResult MeasureFrame(FrameRequest request, CancellationToken cancel)
     {
@@ -194,6 +198,8 @@ public static partial class Program
             "--bench", request.Seconds.ToString(CultureInfo.InvariantCulture),
         };
         foreach (string overlay in request.Overlays) args.AddRange(["--overlay", overlay]);
+        if (request.Camera is { } camera) args.AddRange(["--camera", camera]);
+        foreach (string tune in request.Tune) args.AddRange(["--tune", tune]);
         var (report, error) = RunApp(exe, args, cancel);
         if (report is null) return new FrameResult(false, error!);
         var bench = report["report"]?["bench"];
@@ -218,7 +224,19 @@ public static partial class Program
             (machine?["text"] is { } text ? $"; {text}" : ""), frames, avg, p99, max)
         {
             Machine = machine?.DeepClone().AsObject(),
+            GpuPasses = GpuPasses(bench),
         };
+    }
+
+    /// <summary>Проходы бенча (<c>report.bench.passes</c>: имя, мс на кадр GPU) — имя → мс; одноимённые складываются.</summary>
+    private static Dictionary<string, double> GpuPasses(JsonNode bench)
+    {
+        var passes = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (bench["passes"] is not JsonArray list) return passes;
+        foreach (var p in list)
+            if (p?["name"]?.GetValue<string>() is { } name && p["ms"]?.GetValue<double>() is { } ms)
+                passes[name] = passes.GetValueOrDefault(name) + ms;
+        return passes;
     }
 
     /// <summary>

@@ -68,8 +68,8 @@ public sealed class FeatureManifestsTests
             }
             Assert.True(manifest, $"у фичи {feature} нет {FeatureManifest.FileName} (раздел 12 плана: без манифеста фича не принимается)");
         }
-        // Манифест locomotion — в папке модуля (game/modules/Sword.Game.Locomotion), md — README модуля.
-        Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "locomotion", "movement", "profiler", "ragdoll", "tools"],
+        // Манифесты locomotion и fire — в папках модулей (game/modules/Sword.Game.Locomotion, Sword.Game.Fire.Client), md — README модуля.
+        Assert.Equal(["animation", "bodies", "combat", "control", "determinism", "enemies", "fire", "locomotion", "movement", "profiler", "ragdoll", "tools"],
             manifests.Select(m => m.Id));
         foreach (var m in manifests)
         {
@@ -94,7 +94,7 @@ public sealed class FeatureManifestsTests
     internal static Simulation Build(ConfigSet config)
     {
         var sim = SwordSimulation.Create(config, Reference.Value.Assets);
-        config.SkipClientSections();
+        SwordSimulation.SkipClientSections(config);   // как Headless: привязки клавиш и секции клиентских модулей не читаются
         config.Complete();
         return sim;
     }
@@ -170,6 +170,8 @@ public sealed class ControlFeatureVerifyTests() : FeatureVerifyTests("control");
 public sealed class DeterminismFeatureVerifyTests() : FeatureVerifyTests("determinism");
 
 public sealed class EnemiesFeatureVerifyTests() : FeatureVerifyTests("enemies");
+
+public sealed class FireFeatureVerifyTests() : FeatureVerifyTests("fire");
 
 public sealed class LocomotionFeatureVerifyTests() : FeatureVerifyTests("locomotion");
 

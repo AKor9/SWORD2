@@ -1,0 +1,14 @@
+{
+  "processor": "texture.array",
+  "import": "fluidninja_vfx_tools",
+  "notes": "Огонь, light function факела, слагаемое A: T_Noise3 256², .r, wrap, sRGB в UE (серый sRGB). Слагаемое B — noise_template2 (.r).",
+  "params": {
+    "layers": [
+      "${src}/_Export/fire/T_Noise3.png"
+    ],
+    "channel": "r",
+    "srgb": true,
+    "compress": false,
+    "size": 256
+  }
+}

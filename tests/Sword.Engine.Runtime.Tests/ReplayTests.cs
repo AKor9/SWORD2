@@ -271,12 +271,15 @@ public class ReplayTests
         Assert.Equal(91ul, d.FirstHashTick);
         Assert.Equal(90ul, d.LastCommonHash);
         Assert.Equal(["ecs"], d.HashParts);
+        Assert.Equal(91ul, d.PartFirstTicks["ecs"]);
+        Assert.Equal(a.Parts, d.PartFirstTicks.Keys);
         Assert.Empty(d.Header);
 
         var same = ReplayDiff.Compare(a, a);
         Assert.Null(same.FirstCommandTick);
         Assert.Null(same.FirstHashTick);
         Assert.Equal(201, same.CommonHashes);
+        Assert.All(same.PartFirstTicks.Values, v => Assert.Null(v));
     }
 
     /// <summary>

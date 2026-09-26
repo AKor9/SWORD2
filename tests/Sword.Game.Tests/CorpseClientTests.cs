@@ -564,18 +564,20 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     /// <summary>
     /// Оверлеи клиента — имена годятся для строгого разбора видов манифеста (строчные латинские,
     /// цифры, «-»), вид манифеста с ними разбирается, а каждый оверлей в видах и бюджетах манифестов фич игры клиент знает (иначе
-    /// <c>Sword.exe --overlay</c> отказал бы на снимке вида).
+    /// <c>Sword.exe --overlay</c> отказал бы на снимке вида; оверлеи клиентских модулей — их модуль).
     /// </summary>
     [Fact]
     public void Overlays_KnownToClient_ParseInManifestViews()
     {
-        Assert.Equal(["capsules", "blades", "contacts", "joints", "mm"], ArenaClient.KnownOverlays);   // mm — траектории Motion Matching
+        Assert.Equal(["capsules", "blades", "contacts", "joints", "mm", "lights"], ArenaClient.KnownOverlays);   // mm — траектории Motion Matching
         Assert.All(ArenaClient.KnownOverlays, o => Assert.Matches("^[a-z0-9-]+$", o));
+        // Оверлеи клиентских модулей — у модуля: огонь — fire (имена с точкой строгий разбор видов не пропускает).
+        string[] known = [.. ArenaClient.KnownOverlays, Fire.FireModule.OverlayName];
         foreach (var m in FeatureManifestsTests.All())
         {
-            foreach (var v in m.Views) Assert.All(v.Overlays, o => Assert.Contains(o, ArenaClient.KnownOverlays));
+            foreach (var v in m.Views) Assert.All(v.Overlays, o => Assert.Contains(o, known));
             foreach (var b in m.Budgets)
-                if (b.Frame is { } frame) Assert.All(frame.Overlays, o => Assert.Contains(o, ArenaClient.KnownOverlays));
+                if (b.Frame is { } frame) Assert.All(frame.Overlays, o => Assert.Contains(o, known));
         }
         string dir = Path.Combine(Path.GetTempPath(), $"sword-overlays-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);

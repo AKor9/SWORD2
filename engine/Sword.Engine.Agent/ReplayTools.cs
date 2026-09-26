@@ -104,7 +104,8 @@ internal static class ReplayTools
         {
             Name = "replay.diff", Title = "Сравнить реплеи",
             Description = "Сравнить два реплея: заголовки (сборка, контент, конфиг по ключам, модули), первый тик с разными " +
-                "командами (какие), первый общий хеш с разными участниками и последний совпавший. «session» — запись сеанса.",
+                "командами (какие), первый общий хеш с разными участниками и последний совпавший; byPart — у каждого участника первый " +
+                "общий хеш, где он разный, по всем общим хешам (null — не разошёлся). «session» — запись сеанса.",
             Arguments = Props(
                 ("a", Str("первый реплей: путь, имя в каталоге артефактов или «session»")),
                 ("b", Str("второй реплей: то же"))),
@@ -126,6 +127,7 @@ internal static class ReplayTools
                     {
                         ["common"] = d.CommonHashes, ["firstTick"] = d.FirstHashTick, ["lastCommon"] = d.LastCommonHash,
                         ["parts"] = new JsonArray([.. d.HashParts.Select(p => (JsonNode?)p)]),
+                        ["byPart"] = new JsonObject(d.PartFirstTicks.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))),
                     },
                 });
             },

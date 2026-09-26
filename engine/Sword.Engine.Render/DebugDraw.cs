@@ -51,9 +51,10 @@ public sealed class DebugDraw : IDisposable
 
     /// <summary>
     /// Проходов отладочного рисования в кадре не больше: работа прохода — заранее созданные делегаты. Слои снимка арены —
-    /// капсулы, клинки, контакты, суставы — и проход на экран: нужно 5 (было 4), предел — 8 с запасом.
+    /// капсулы, клинки, контакты, суставы, mm, источники — и её проход на экран (7), клиентские модули — свой слой и свой проход на экран
+    /// (огонь — 2): предел — 12 с запасом.
     /// </summary>
-    public const int MaxPassesPerFrame = 8;
+    public const int MaxPassesPerFrame = 12;
 
     /// <summary>Сетка капсулы: вершин по кругу и колец на полусферу; вершин на капсулу — <see cref="CapsuleVertices"/>.</summary>
     public const int CapsuleAround = 16, CapsuleRings = 4;
@@ -201,7 +202,7 @@ public sealed class DebugDraw : IDisposable
             work.LineVertices = _lineVertices;
             work.CapsuleStart = capsuleStart;
             work.Capsules = _capsuleCount;
-            frame.Graph.AddPass(name).Color(target, clear).Execute(_record[_passes]);
+            frame.Graph.AddPass(name, FramePhase.Debug).Color(target, clear).Execute(_record[_passes]);
             _passes++;
         }
         if (_textCount > textStart) AddText(frame, target, viewProj, name + ".text", textStart);
@@ -224,7 +225,7 @@ public sealed class DebugDraw : IDisposable
             _textList.Rect(x - half, y - size * 0.7f, x + half, y + size * 0.7f, 0xA0000000, size * 0.3f);   // подложка
             _textList.TextCentered(UiFace.Body, size, new Vector2(x, y - size * 0.5f), colour, text);
         }
-        ui.Add(frame, _textList, name, target);
+        ui.Add(frame, _textList, name, target, FramePhase.Debug);
     }
 
     /// <summary>Начало кадра (<see cref="Renderer.Render"/>): накопленное прошлым кадром забыто, проходов нет.</summary>

@@ -24,6 +24,9 @@ public sealed class ArenaTests
 {
     private static Simulation Create(params string[] sets) => TestAssets.Simulation(ConfigSet.Empty(sets));
 
+    /// <summary>Оружие врагов пака из шести мечей.</summary>
+    private static readonly int[] SixWeapons = [0, 1, 2, 3, 4, 5];
+
     private sealed record EnemyRow(int Slot, Entity Entity, Transform Root, PrevTransform Built, FighterCommand Intent, float Seed);
 
     private static List<EnemyRow> Enemies(Simulation sim)
@@ -129,7 +132,7 @@ public sealed class ArenaTests
         for (uint batch = 0; batch < 20; batch++)
             for (int slot = 1; slot <= ArenaState.MaxEnemies; slot++)
             {
-                var s = ArenaRules.Enemy(rng, 7, batch, slot, center, 6);
+                var s = ArenaRules.Enemy(rng, 7, batch, slot, center, SixWeapons);
                 float r = new Vector2(s.Position.X, s.Position.Z).Length();
                 Assert.True(r <= lim + 1e-4f, $"{r} > {lim}");
                 if (MathF.Abs(r - lim) < 1e-4f) clamped++;
@@ -137,10 +140,10 @@ public sealed class ArenaTests
             }
         Assert.True(clamped > 50, $"на краю только {clamped} спаунов — предел радиуса не срабатывает?");
         // Партия и место меняют числа, тик тоже; то же (зерно, тик, партия, место) — то же.
-        Assert.Equal(ArenaRules.Enemy(rng, 7, 1, 3, center, 6), ArenaRules.Enemy(rng, 7, 1, 3, center, 6));
-        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center, 6), ArenaRules.Enemy(rng, 7, 2, 3, center, 6));
-        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center, 6), ArenaRules.Enemy(rng, 8, 1, 3, center, 6));
-        Assert.Throws<ArgumentOutOfRangeException>(() => ArenaRules.Enemy(rng, 0, 0, 0, center, 6));
+        Assert.Equal(ArenaRules.Enemy(rng, 7, 1, 3, center, SixWeapons), ArenaRules.Enemy(rng, 7, 1, 3, center, SixWeapons));
+        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center, SixWeapons), ArenaRules.Enemy(rng, 7, 2, 3, center, SixWeapons));
+        Assert.NotEqual(ArenaRules.Enemy(rng, 7, 1, 3, center, SixWeapons), ArenaRules.Enemy(rng, 8, 1, 3, center, SixWeapons));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ArenaRules.Enemy(rng, 0, 0, 0, center, SixWeapons));
     }
 
     [Fact]

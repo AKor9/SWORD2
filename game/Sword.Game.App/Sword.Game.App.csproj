@@ -23,6 +23,14 @@
     <ProjectReference Include="..\..\engine\Sword.Engine.Platform.Win32\Sword.Engine.Platform.Win32.csproj" />
   </ItemGroup>
 
+  <!-- Клиентские модули (раздел 7): композиция — ClientModuleList.cs. Сборка без модуля (-p:Without<Модуль>=true) — без ссылки на него. -->
+  <ItemGroup Condition="'$(WithoutFire)' != 'true'">
+    <ProjectReference Include="..\modules\Sword.Game.Fire.Client\Sword.Game.Fire.Client.csproj" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(WithoutFire)' == 'true'">
+    <DefineConstants>$(DefineConstants);WITHOUT_FIRE</DefineConstants>
+  </PropertyGroup>
+
   <!-- Агентский доступ (раздел 8): в сборке без агента (-p:WithoutAgent=true) его нет. -->
   <ItemGroup Condition="'$(WithoutAgent)' != 'true'">
     <ProjectReference Include="..\..\engine\Sword.Engine.Agent\Sword.Engine.Agent.csproj" />

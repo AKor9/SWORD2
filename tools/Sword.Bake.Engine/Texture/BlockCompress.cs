@@ -9,11 +9,11 @@ namespace Sword.Bake.Engine.Texture;
 /// </summary>
 internal static class BlockCompress
 {
-    public static byte[] Encode(FloatImage img)
+    /// <param name="signed">Каналы в −1…1 (нормаль xy), иначе 0…1.</param>
+    public static byte[] Encode(FloatImage img, bool signed)
     {
         int bw = (img.Width + 3) / 4, bh = (img.Height + 3) / 4, channels = img.Channels;
         if (channels is not (1 or 2)) throw new ArgumentException($"BC4/BC5: каналов {channels}");
-        bool signed = channels == 2;
         var output = new byte[bw * bh * 8 * channels];
         Span<float> block = stackalloc float[16];
         for (int by = 0; by < bh; by++)

@@ -1,0 +1,13 @@
+{
+  "processor": "texture.array",
+  "import": "fluidninja_vfx_tools",
+  "notes": "Огонь: T_NoiseTemplate2 256², линейная (без sRGB в UE): R — шум плотности кисти и слагаемое B light function, RG — шум скорости кисти. Два канала как есть (RG8; BC7 в L2).",
+  "params": {
+    "layers": [
+      "${src}/_Export/fire/T_NoiseTemplate2.png"
+    ],
+    "channel": "rg",
+    "compress": false,
+    "size": 256
+  }
+}

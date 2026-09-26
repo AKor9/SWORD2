@@ -197,7 +197,7 @@ public static partial class Program
             Simulation Build(ConfigSet c)
             {
                 var s = SwordSimulation.Create(c, assets);
-                c.SkipClientSections();   // клиента нет: привязки клавиш из общего sword.json не читаются
+                SwordSimulation.SkipClientSections(c);   // клиента нет: привязки клавиш и секции клиентских модулей не читаются
                 c.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
                 return s;
             }

@@ -4,6 +4,17 @@
 #define SWORD_SCENE_COMMON
 #include "common/pass.hlsli"
 
+// Окружение сцены (Scene/SceneEnvironment.cs): цвета освещения Shade и фон; день или ночь выбирает клиент.
+struct SceneEnvironment
+{
+    float3 sun; float pad0;
+    float3 skyLow; float pad1;
+    float3 skyHigh; float pad2;
+    float3 rim; float pad3;
+    float3 fog; float pad4;
+    float3 background; float pad5;
+};
+
 // Константы кадра — одна структура, её размер сверяется с C# (FRAME_CONSTANTS_SIZE). Поля — строками по 16 байт:
 // так плотная раскладка (sizeof) совпадает с упаковкой константного буфера. Тексты проверок — ASCII: DXC получает
 // исходник в кодировке ANSI и на кириллицу в строковых литералах предупреждает.
@@ -16,6 +27,8 @@ struct FrameConstants
     float4 pillars[PILLAR_COUNT];
     float3 lightDir; float playerHpFrac;
     float4x4 invViewProj;
+    uint pointLights; uint pad0; uint pad1; uint pad2;
+    SceneEnvironment env;
 };
 _Static_assert(sizeof(FrameConstants) == FRAME_CONSTANTS_SIZE, "FrameConstants layout differs from C# (Scene/FrameConstants.cs)");
 

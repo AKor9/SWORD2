@@ -192,7 +192,9 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 4. «Что если»: после `session.start` с реплеем `command.send` на тик T ветвит; `replay.diff {"a":"my.swreplay","b":"session"}` — первый тик
    с разными командами и первый разный хеш; другой конфиг — `replay.check {"path":…,"set":["sim.seed=2"]}`.
 5. Эталоны SWORD2 — `tests/reference/replays/*.swreplay` (`ReferenceReplaysTests`); намеренное изменение поведения — перезапись
-   `Sword.Headless --replay F --record F` с доказательством (раздел 12 плана), причина — в md фичи.
+   `Sword.Headless --replay F --record F` с доказательством (раздел 12 плана), причина — в md фичи. Какие участники разошлись за весь
+   прогон — `replay.diff {"a":"старый","b":"новый"}`, `hashes.byPart`: первый тик расхождения каждого участника по всем общим хешам
+   (null — совпал тик в тик; например, прибавка к инвентарю — только `ecs` с тика 0).
 
 **Наблюдать и остановиться по условию.** Условия — один JSON-язык (узлы — в описании `time.runUntil`):
 `{"all":[{"entity":"player"},{"field":"Transform.Position.Y","lessThan":-10}]}`, `{"event":"PlayerCommand","where":{"field":"Walk","equals":true}}`,
@@ -226,7 +228,7 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 2. `feature.verify {"id":"animation"}` — вердикт `ok` и `failures` словами; сценарии (проверки, хеши реплея, нарушения), инварианты,
    метрики (`value`, `expected`, `delta`), бюджеты (медиана мс на тик, стадии, байты; кадр App — `frame`: средний и p99, `frame.overlays`;
    время и кадр — только в Release), виды (PNG `Sword.exe --replay`, хеши App сверены). Артефакты — `report.json`, `scenario-*.swreplay`,
-   `view-*.png`; `views:false` — без App. Без агента — `Sword.Headless --feature ID|all [--json]` (код 4 — провал), `verify.ps1` шаг `features`.
+   `view-*.png` (и итог App `view-*.json`); `views:false` — без App. Без агента — `Sword.Headless --feature ID|all [--json]` (код 4 — провал), `verify.ps1` шаг `features`.
 3. Провал называет тик и значение; запись сценария — `session.start {"replay":"…/scenario-X.swreplay"}`. Ослабить манифест — только
    правкой файла с сообщением пользователю.
 4. Новая фича — `feature.json` рядом с md (тест `FeatureManifestsTests`: манифест есть, чек-лист = пункты «Что проверить в игре»).
@@ -238,6 +240,10 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
 Редкая дорогая работа (поиск MM раз в 12 тиков), которую медиана тика прячет, — пик зоны профайлера в бюджете: `"zones": {"locomotion.search":
 0.25}` — наибольшее время зоны за тик в прогоне бюджета с профайлером, мс; в отчёте `budgets[].zones` (пик, среднее, вызовы, доля тиков);
 судится в Release.
+Вид или кадр App с клиентскими ручками — `"tune": ["light.night=1"]` (ночь; у вида и в `frame`), ракурс замера кадра — `frame.camera`
+(`поворот,наклон,дистанция[,x,z]`, как у вида). GPU-бюджет клиентского модуля — `frame.gpu`: `{"fire": 0.5}` — сумма GPU-времени проходов
+бенча `fire` и `fire.…`, мс на кадр (судится в Release; ни одного прохода — провал в любой сборке). Итог App `--json` вида — рядом с PNG,
+`view-<id>.json` (числа модулей на кадре вида, например `fire.metrics`).
 
 **Эксперимент «что если».**
 1. `experiment.fork {"replay":"my.swreplay","at":300,"variants":[{"name":"back","commands":[{"command":"PlayerCommand","fields":{"Move":{"X":-1,"Y":0}},"from":300,"to":301}]},{"name":"nolo","set":["modules.locomotion.enabled=false"]}],"measure":[{"entity":"player","field":"Transform.Position"}]}`
@@ -466,6 +472,48 @@ stab1–3), рывок — `PlayerControl` игрока (`Kind` = `Dash`).
     (скольжение, скачок, переходов и поисков по сценариям), 3 вида с оверлеем `mm`, бюджеты `run` и `crowd` с пиком поиска (`zones`); записи
     сценариев — `artifacts/features/locomotion/scenario-*.swreplay`. В рабочем дереве сервер MCP сеанса — из основного дерева: свою сборку
     Headless — командной строкой или клиентом MCP по stdio (`Sword.Headless.exe --agent --idle-exit 0`, строка JSON-RPC на сообщение).
+
+## Рендер: HDR, bloom, свет, прозрачное
+
+Рендер — [README](../engine/Sword.Engine.Render/README.md). Сцена игры — в HDR: линейный цвет → (+ bloom) × экспозиция 0.99 → Filmic → sRGB.
+
+1. Яркость кадра: `Sword.exe --windowed 1280x720 --no-activate --frames 40 --no-hud --shot artifacts/look.png --json` → `report.hdr`
+   (экспозиция, bloom) и `report.hdr.shot` — яркость входа тонмапа (максимум, среднее, `overOne`, `nonFinite`), рядом `look.hdr.png` (ложные
+   цвета: зелёный — средний серый 0.18, жёлтый — 1, красный — 4, голубой — NaN) и сырой half `look.hdr.bin`. Живая игра — `capture.bundle` →
+   `hdr`. Пятна `nonFinite` — NaN в шейдере сцены или модуля.
+2. Bloom: `report.hdr.shot.bloom` / `capture.bundle` → `hdr.bloom` — добавка × экспозиция, карта `.bloom.png` той же шкалы; проходы
+   `post.bloom.*` и их GPU-время — `render.graph`. Нет свечения — сравнить яркость с порогом (`threshold`, по умолчанию 1).
+3. Точечный свет: `Sword.exe --test-light [N]` — факел LIVE-2 у игрока (N − 1 ещё по кругу 3 м); `report.lights` / `render.graph` → `lights` —
+   показано, отброшено сверх 64, скрыто дальностью, источники с угасанием; картинкой — `--overlay lights` или `capture.bundle
+   {"overlays":["lights"]}` (крест, круги R и половины затухания, подпись).
+4. Ручки «Свет» (F3; клиент, не реплей): `Sword.exe --tune light.night=1 --tune light.testLight=1 --tune light.exposure=2` (ещё `bloom`,
+   `bloomIntensity`, `bloomThreshold`) — с первого кадра; итог `--json` → `light`. В `sword.user.json` не пишутся.
+5. Прозрачное: слой ½ — `report.hdr.shot.transparent` / `capture.bundle` → `hdr.transparent` (размер ½, яркость, `coverage` — средняя
+   альфа), карта `.transparent.png`; проходы `transparent.halfres.depth` и `.composite` — в `render.graph`. Слоя нет в кадре — поле `null`.
+6. Текстуры пака: `report.textures` / `render.graph` → `textures` (путь, формат, размер, мипы, слои, sRGB, байт видеопамяти); журнал —
+   категория `texture`. Проверить любой пак — `SWORD_CONTENT=<пак> dotnet test tests/Sword.Engine.Render.Tests --filter TextureGpuTests`.
+7. Порядок проходов и фазы (Simulation → Opaque → Composite → Transparent → Post → Ui → Debug) — `render.graph` → `passes[].phase`;
+   запись заднего буфера до Post — исключение графа с именем прохода (журнал, `log.tail`).
+8. Клиентские модули ([контракт](../engine/Sword.Engine.Client/README.md)): `--json` → `report.modules` (включён ли, проходы, оверлеи,
+   ручки, GPU-симуляции, тики наблюдателя); выключить — `--set modules.<id>.enabled=false`. Огонь ([модуль](../game/modules/Sword.Game.Fire.Client/README.md)):
+   факел в руке — `--set combat.playerWeapon=torch --overlay fire` (головки по тикам, рамка площадки сима, центр шага, точка кисти;
+   `capture.bundle {"overlays":["fire"]}`); поле сима — `--overlay fire.field` (ρ тепловой шкалой) или `--tune fire.field=1`, ручки
+   `--tune fire.kMin=…` (`simSpeed`, `accumulation`, `brushStrength`, `brushSize`); итог — `fire`: огни, экземпляры `sims[]` (k, WOD, шаги,
+   Σρ, центроид в см, `checks` finite/bounded/centered, `fieldHash`); поля в снимок — `<shot>.fire[N].density.png`, `.velocity.png`, `.brush.*`.
+   Бег — `--move 1,0`, замах — `--hold attack` (один удар в начале), кадры повторяемы — `--fps 60`. Повтор полей: `--record` → два
+   `--replay` с разным `--fps` и тем же числом тиков → `fire.sims[0].fieldHash` равны. На мече — `--set fire.weapons=["sword_1h"]`.
+   Пламя (по умолчанию видно; `--tune fire.flame=0` — выкл.): итог — `fire.flame` (площадок, площадь на экране, фаза, туман, числа формулы),
+   вклад — `--overlay fire.flame` / слой `fire.flame` (цвет x/(1 + x), альфа), проход и GPU-время — `fire.flame`; ночь — `--tune light.night=1`.
+   Свет огня (по умолчанию вкл.; `--tune fire.light=0`, мерцание — `fire.lightFunction=0`): итог — `fire.light` (источники, гашение, LF вниз
+   в кадре и за прогон), источник — `report.lights`, картинкой — `--overlay lights`; вклад в освещение — снимки со светом и без него.
+   Дым (по умолчанию вкл.; `--tune fire.smoke=0`, плотность — `fire.smokeDensity`): итог — `fire.smoke` (объёмы, источники, единицы, `stats` —
+   шагов на луч средн./макс., покрытие по сетке 64×36), вклад — `--overlay fire.smoke` / слой `fire.smoke`, сырой слой ½ —
+   `report.hdr.shot.transparent`; GPU-время — `fire.smoke`, `transparent.halfres.*`; столб и цвет — снимки с дымом и без (`fire.smoke=0`).
+   Размеры огня — `fire.metrics[]` (по полю на выходе, см в осях площадки от центра шишки: `flame`, `core`, `smoke` — высота, ширина, края,
+   центроид; `coreShare`, `smokeAboveFlameCm`, `thresholds`): `Sword.exe --replay <запись> --frames N --json` или `view-<id>.json` вида.
+9. Фича `fire` ([манифест](../game/modules/Sword.Game.Fire.Client/feature.json)): `feature.verify {"id":"fire"}` или `Sword.Headless --feature
+   fire` — сценарии `stand`, `run`, `swing`, `death`, `switch`, виды App ночью и днём (PNG и `view-<id>.json`), бюджет `stand-night` (кадр
+   крупным планом ночью, GPU `fire` и `fluid`; время — Release).
 
 ## Пекарня
 

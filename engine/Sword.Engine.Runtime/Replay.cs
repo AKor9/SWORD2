@@ -733,12 +733,16 @@ public sealed class ReplayPlayer : IReplaySource
     }
 }
 
-/// <summary>Сравнение двух реплеев (<c>replay.diff</c>): заголовки, первый тик с разными командами, первый хеш с разными участниками.</summary>
+/// <summary>
+/// Сравнение двух реплеев (<c>replay.diff</c>): заголовки, первый тик с разными командами, первый хеш с разными участниками; по каждому
+/// общему участнику — первый общий хеш, где он разный, по всем общим хешам (<see cref="Result.PartFirstTicks"/>: null — не разошёлся ни разу;
+/// так видно, что перезаписанный эталон разошёлся только участником, которого касалось изменение).
+/// </summary>
 public static class ReplayDiff
 {
     public sealed record Result(
         IReadOnlyList<string> Header, ulong? FirstCommandTick, string? CommandDetail, ulong? FirstHashTick,
-        IReadOnlyList<string> HashParts, ulong? LastCommonHash, int CommonHashes);
+        IReadOnlyList<string> HashParts, ulong? LastCommonHash, int CommonHashes, IReadOnlyDictionary<string, ulong?> PartFirstTicks);
 
     public static Result Compare(Replay a, Replay b)
     {
@@ -793,7 +797,23 @@ public static class ReplayDiff
             parts = diff;
             break;
         }
-        return new Result(header, firstCommand, detail, firstHash, parts, lastCommon, common);
+        return new Result(header, firstCommand, detail, firstHash, parts, lastCommon, common, PartFirstTicks(a, b, byTick));
+    }
+
+    /// <summary>Каждый общий участник — первый общий хеш, где он разный (по всем общим хешам); null — совпал на всех.</summary>
+    private static Dictionary<string, ulong?> PartFirstTicks(Replay a, Replay b, Dictionary<ulong, ReplayHash> byTick)
+    {
+        var inB = b.Parts.Select((p, i) => (p, i)).ToDictionary(x => x.p, x => x.i);
+        var first = new Dictionary<string, ulong?>();
+        foreach (var p in a.Parts)
+            if (inB.ContainsKey(p)) first[p] = null;
+        foreach (var ha in a.Hashes)
+        {
+            if (!byTick.TryGetValue(ha.Tick, out var hb)) continue;
+            for (int i = 0; i < a.Parts.Count; i++)
+                if (inB.TryGetValue(a.Parts[i], out int j) && first[a.Parts[i]] is null && ha.Parts[i] != hb.Parts[j]) first[a.Parts[i]] = ha.Tick;
+        }
+        return first;
     }
 
     // Отрезки между границами — одни и те же команды: сравнивать достаточно на границах отрезков.

@@ -28,6 +28,13 @@
     <ProjectReference Include="..\..\game\Sword.Game.App\Sword.Game.App.csproj" />
   </ItemGroup>
 
+  <!-- Проверочные шейдеры GPU-тестов (пламя огня): в выход рядом с шейдерами движка и игры. -->
+  <ItemGroup>
+    <None Update="Shaders\**\*.hlsl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- GPU-тест ID-прохода и оверлея капсул (категории Gpu и Content): App-local Agility SDK, как у игры. -->
   <ItemGroup>
     <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\D3D12Core.dll"

@@ -30,11 +30,28 @@ public static class SwordSimulation
     /// </summary>
     public static readonly IReadOnlyList<string> ModuleIds = ["locomotion"];
 
+    /// <summary>
+    /// Id модулей игры без части симуляции — только клиентских (<c>modules/Sword.Game.&lt;Модуль&gt;.Client</c>, композиция — Sword.exe):
+    /// группа <c>modules.&lt;id&gt;.enabled</c> знает их и у Headless, их секцию (<c>fire</c>) читает только клиент — exe без клиента и
+    /// сборка без модуля её пропускают (<see cref="SkipClientSections"/>). Новый клиентский модуль — строка здесь и в композиции exe.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ClientModuleIds = ["fire"];
+
     public static Simulation Create(ConfigSet config, CharacterAssets assets)
     {
         var modules = Modules();
         foreach (string id in ModuleIds)
             if (!modules.Any(m => m.Id == id)) config.Skip(id);
-        return Simulation.Build(config, GameStages.All, b => GameCore.Configure(b, assets), modules);
+        return Simulation.Build(config, GameStages.All, b => GameCore.Configure(b, assets), modules, ClientModuleIds);
+    }
+
+    /// <summary>
+    /// Exe без клиента (Headless): секции, которые читает только клиент, — привязки клавиш (<see cref="ConfigSet.SkipClientSections"/>) и
+    /// секции клиентских модулей (<see cref="ClientModuleIds"/>) — не читаются и неизвестными не считаются.
+    /// </summary>
+    public static void SkipClientSections(ConfigSet config)
+    {
+        config.SkipClientSections();
+        foreach (string id in ClientModuleIds) config.Skip(id);
     }
 }

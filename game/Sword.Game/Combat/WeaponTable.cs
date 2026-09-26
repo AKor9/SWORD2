@@ -48,6 +48,21 @@ public sealed class WeaponTable
         return -1;
     }
 
+    /// <summary>
+    /// Оружие врагов: номера таблицы по возрастанию без оружия только игрока (<paramref name="playerOnly"/> — имена, регистр не важен;
+    /// имени нет в таблице — исключать нечего). Порядок и номера — таблицы: оружие только игрока в конце таблицы (факел — последний по
+    /// алфавиту) не меняет выбор врагов среди остальных.
+    /// </summary>
+    /// <exception cref="InvalidDataException">Врагам не осталось оружия.</exception>
+    public int[] EnemyWeapons(IEnumerable<string> playerOnly)
+    {
+        var excluded = new HashSet<string>(playerOnly, StringComparer.OrdinalIgnoreCase);
+        int[] pool = [.. Enumerable.Range(0, _weapons.Length).Where(w => !excluded.Contains(_weapons[w].Name))];
+        if (pool.Length == 0)
+            throw new InvalidDataException($"combat.playerOnlyWeapons: всё оружие пака ({Names}) — только игрока, врагам не осталось");
+        return pool;
+    }
+
     /// <summary>Имена мечей через запятую — для сообщений.</summary>
     public string Names => string.Join(", ", _weapons.Select(w => w.Name));
 

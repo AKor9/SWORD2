@@ -28,9 +28,10 @@ internal static class WeaponBake
 
     /// <param name="gripAlong">Середина хвата, см от навершия; null — посередине рукояти.</param>
     /// <param name="unit">Сантиметров в единице glTF (экспорт UE с export_uniform_scale 1 — сантиметры).</param>
+    /// <param name="sections">Секции по материалам glTF (<see cref="Sections"/>); нет — меш без секций.</param>
     /// <param name="outBlood">Зоны крови (<see cref="WeaponBloodBake"/>) рядом с мешем.</param>
     public static void Run(string glb, string animDir, string? refPosePath, string? fingerSrcDir, string outMesh,
-        float? gripAlong, float unit, WeaponBloodParams blood, string outBlood, TextWriter log)
+        float? gripAlong, float unit, bool sections, WeaponBloodParams blood, string outBlood, TextWriter log)
     {
         var inv = CultureInfo.InvariantCulture;
         var gltf = GltfMesh.Load(glb);
@@ -53,6 +54,7 @@ internal static class WeaponBake
         {
             Vertices = new SkinVertex[n],
             Indices = gltf.Indices.Select(i => (uint)i).ToArray(),
+            Sections = sections ? Sections(gltf) : [],
         };
         for (int v = 0; v < n; v++)
         {
@@ -74,6 +76,32 @@ internal static class WeaponBake
         var zones = WeaponBloodBake.Build(canonical, gltf.VertexMaterial, gltf.MaterialNames, blood,
             c => space.Point(Vector3.Transform(c / cm, q) + t), log);
         ContentFiles.Write(outBlood, zones.Write);
+    }
+
+    /// <summary>
+    /// Секции по материалам: подряд идущие треугольники одного материала (материал треугольника — его первой вершины; примитивы glTF
+    /// читаются подряд, поэтому треугольники примитива — одна секция). Материал без имени — «материал N»; материалов нет — одна
+    /// секция без имени.
+    /// </summary>
+    /// <exception cref="InvalidDataException">Материал встречается двумя несмежными кусками — секция не одна на материал.</exception>
+    private static MeshSection[] Sections(GltfMesh gltf)
+    {
+        string Name(int material) =>
+            material < 0 ? "" : material < gltf.MaterialNames.Length && gltf.MaterialNames[material].Length > 0 ? gltf.MaterialNames[material]
+            : string.Create(CultureInfo.InvariantCulture, $"материал {material}");
+        var result = new List<MeshSection>();
+        int start = 0;
+        for (int t = 3; t <= gltf.Indices.Length; t += 3)
+        {
+            int material = gltf.VertexMaterial[gltf.Indices[start]];
+            if (t < gltf.Indices.Length && gltf.VertexMaterial[gltf.Indices[t]] == material) continue;
+            string name = Name(material);
+            if (result.Any(r => r.Material == name))
+                throw new InvalidDataException($"секции: материал «{name}» двумя несмежными кусками треугольников");
+            result.Add(new MeshSection(start, t - start, name));
+            start = t;
+        }
+        return [.. result];
     }
 
     /// <summary>Система меча: начало на навершии, базис x, y (кромка), z (клинок); UE, см.</summary>

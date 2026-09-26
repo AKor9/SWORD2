@@ -158,7 +158,50 @@ public sealed record ClientRunReport(
     GpuFrameReport? Gpu = null,
     int ToolFrames = 0,
     int DisplayHz = 0,
-    int MinimizedFrames = 0);
+    int MinimizedFrames = 0,
+    ClientHdrReport? Hdr = null,
+    ClientLightsReport? Lights = null,
+    IReadOnlyList<ClientTextureReport>? Textures = null,
+    IReadOnlyList<ClientModuleReport>? Modules = null);
+
+/// <summary>Текстура пака в видеопамяти (<see cref="Renderer.Textures"/>): путь, размер, слои, мипы, формат, sRGB, байт видеопамяти.</summary>
+public sealed record ClientTextureReport(string Path, int Width, int Height, int Slices, int Mips, GpuTextureFormat Format, bool Srgb, long Bytes)
+{
+    public static ClientTextureReport From(GpuTexture t) => new(t.Path, t.Width, t.Height, t.Slices, t.Mips, t.Format, t.Srgb, t.Bytes);
+}
+
+/// <summary>
+/// Точечный свет последнего кадра прогона (<see cref="Renderer.Lights"/>): показано (в буфере кадра, до <see cref="Max"/>), отброшено сверх
+/// предела, скрыто дальностью показа (или без света), light functions и отброшенные сверх их предела; у каждого показанного — параметры,
+/// угасание по дальности показа (<see cref="ClientLightReport.Fade"/>) и индекс LF (−1 — нет).
+/// </summary>
+public sealed record ClientLightsReport(int Shown, int Dropped, int Hidden, int Functions, int DroppedFunctions, int Max,
+    IReadOnlyList<ClientLightReport> Lights)
+{
+    public static ClientLightsReport From(PointLightsReport r) => new(r.Shown, r.Dropped, r.Hidden, r.Functions, r.DroppedFunctions,
+        PointLights.MaxLights, [.. r.Lights.Select(ClientLightReport.From)]);
+}
+
+/// <summary>
+/// Источник кадра: позиция (м), линейный цвет, интенсивность, радиус, затухание, дальность показа, угасание, LF, множитель рассеяния в
+/// объёмах.
+/// </summary>
+public sealed record ClientLightReport(float[] Position, float[] Color, float Intensity, float Radius, LightFalloff Falloff, float Exponent,
+    float MaxDrawDistance, float FadeRange, float Fade, int Function, float VolumetricScattering)
+{
+    public static ClientLightReport From(ShownPointLight s)
+    {
+        var l = s.Light;
+        return new([l.Position.X, l.Position.Y, l.Position.Z], [l.Color.X, l.Color.Y, l.Color.Z], l.Intensity, l.Radius, l.Falloff,
+            l.Exponent, l.MaxDrawDistance, l.FadeRange, s.Fade, l.Function, l.VolumetricScattering);
+    }
+}
+
+/// <summary>
+/// HDR в конце прогона: включён ли (<see cref="Renderer.Hdr"/>), экспозиция, bloom (<see cref="Renderer.Bloom"/>) и — если прогон
+/// снимал кадр (<c>--shot</c>) с HDR — яркость входа тонмапа на нём, добавка bloom и их карты (<see cref="HdrCapture"/>).
+/// </summary>
+public sealed record ClientHdrReport(bool Enabled, float Exposure, BloomSettings Bloom, HdrCapture? Shot);
 
 /// <summary>
 /// Клиент движка (раздел 7 ARCHITECTURE_PLAN.md): окно → ввод по привязкам (<see cref="FrameInput"/>) → тики симуляции
@@ -184,9 +227,13 @@ public sealed class ClientHost : IDisposable
     private readonly ClientOptions _options;
     private readonly Renderer _renderer;
     private readonly IClientGame _game;
+    private readonly ClientModules _modules;
     private readonly Action<RenderFrame> _buildFrame;
     private readonly int _screenshotFrame;
     private string? _screenshot;
+
+    /// <summary>HDR-сводка последнего снимка прогона (<see cref="ClientOptions.ScreenshotPath"/>); null — не снимали или без HDR.</summary>
+    private HdrCapture? _screenshotHdr;
     private readonly Simulation? _simulation;
     private readonly SimulationClock? _clock;
     private readonly InputBindings _bindings;
@@ -215,7 +262,11 @@ public sealed class ClientHost : IDisposable
 
     private readonly FrameWatchdog? _watchdog;
 
-    public ClientHost(IWindow window, ClientOptions options, IClientGame game, Simulation? simulation = null)
+    /// <param name="modules">
+    /// Клиентские модули (<see cref="ClientModules.Compose"/> — exe, до <c>ConfigSet.Complete</c>): хост ведёт их в своём кадре — наблюдатель
+    /// после каждого тика, извлечение после игры, проходы после проходов игры; null — без модулей.
+    /// </param>
+    public ClientHost(IWindow window, ClientOptions options, IClientGame game, Simulation? simulation = null, ClientModules? modules = null)
     {
         if (options.ResizeCycle && (options.ResizeCycleFrames < 1 || options.ResizeCycleSizes.Count == 0))
             throw new ArgumentException("ResizeCycle: нужны ResizeCycleFrames ≥ 1 и хотя бы один размер", nameof(options));
@@ -249,14 +300,20 @@ public sealed class ClientHost : IDisposable
         _view = new FrameView(1, 0, 0, _meter.Stats(0, _vsync));
         _game = game;
         _simulation = simulation;
+        _modules = modules ?? ClientModules.None(simulation?.Dt ?? 1f / 120);
         _edges = new InputEdges(_bindings);
         _clock = simulation is null ? null
-            : new SimulationClock(simulation, (link, input) => game.BeforeTick(link, input), options.TicksPerFrame, _edges);
+            : new SimulationClock(simulation, (link, input) => game.BeforeTick(link, input), options.TicksPerFrame, _edges, _modules.AfterTick);
         _buildFrame = BuildFrame;
         _screenshotFrame = options.ScreenshotFrame > 0 ? options.ScreenshotFrame : options.MaxFrames > 0 ? options.MaxFrames : 30;
+        var gameOverlays = (game as IClientObservable)?.Overlays ?? [];
+        if (_modules.Overlays.FirstOrDefault(o => gameOverlays.Contains(o.Name)) is { } clash)
+            throw new ArgumentException($"оверлей {clash.Name} модуля {clash.Module} совпадает с оверлеем игры", nameof(modules));
+        Overlays = [.. gameOverlays, .. _modules.Overlays.Select(o => o.Name)];
         var contract = new ShaderContract();
         Renderer.Contribute(contract);
         game.ContributeShaders(contract);
+        _modules.ContributeShaders(contract);
         _renderer = new Renderer(new RendererOptions(window.NativeHandle, window.Width, window.Height,
             options.DebugLayer || options.GpuValidation, options.ShaderRoot ?? Path.Combine(AppContext.BaseDirectory, "Shaders"),
             options.GpuValidation), contract);
@@ -277,11 +334,14 @@ public sealed class ClientHost : IDisposable
         try
         {
             game.Initialize(_renderer, _clock?.Link);
+            // Модули — после игры: их проходы идут после проходов игры и видят её камеру.
+            _modules.Initialize(_renderer, ModuleCamera);
         }
         catch
         {
-            // Игра могла успеть создать часть ресурсов GPU: они освобождаются раньше рендера (он ждёт GPU).
+            // Игра и модули могли успеть создать часть ресурсов GPU: они освобождаются раньше рендера (он ждёт GPU).
             _renderer.WaitForIdle();
+            _modules.Dispose();
             game.Dispose();
             _renderer.Dispose();
             throw;
@@ -389,6 +449,7 @@ public sealed class ClientHost : IDisposable
             profiler.Begin(_zones.Simulate);
             // Кадр до первого сыгранного тика включительно — служебный: тик 0 строит мир.
             bool beforeFirstTick = _simulation is not null && _simulation.Tick == 0;
+            _modules.BeginFrame(_simulation?.Tick ?? 0);
             int ticks = _clock?.RunFrame(seconds) ?? 0;
             profiler.End(_zones.Simulate);
             profiler.Begin(_zones.Tools);
@@ -402,6 +463,7 @@ public sealed class ClientHost : IDisposable
             _view = new FrameView(_clock?.Alpha ?? 1, ticks, frameSeconds, _meter.Stats(ticks, _vsync)) { Capture = toolCapture };
             profiler.Begin(_zones.Extract);
             _game.Extract(_view);
+            _modules.Extract(_view);
             profiler.End(_zones.Extract);
             double simTime = _clock is { } clock ? clock.Link.Tick * (double)clock.Link.Dt : 0;
             // Последний кадр замера — по игровому времени после тиков кадра (BenchRecorder.Done SWORD).
@@ -549,7 +611,11 @@ public sealed class ClientHost : IDisposable
             Gpu: _renderer.Gpu.Report(),
             ToolFrames: toolFrames,
             DisplayHz: _displayHz,
-            MinimizedFrames: minimizedFrames);
+            MinimizedFrames: minimizedFrames,
+            Hdr: new ClientHdrReport(_renderer.Hdr, _renderer.Exposure, _renderer.Bloom, _screenshotHdr),
+            Lights: ClientLightsReport.From(_renderer.Lights.Report()),
+            Textures: [.. _renderer.Textures.Select(ClientTextureReport.From)],
+            Modules: _modules.Report());
     }
 
     private long _benchGpu;
@@ -606,7 +672,17 @@ public sealed class ClientHost : IDisposable
         _toolCaptured = false;
         // Снимок инструмента — в кадре без своего снимка (прогона или F4): инструмент просит, пока не получит.
         if (!tools || screenshot is not null) (toolCapture, capturer) = (null, null);
-        var capture = screenshot is not null ? new FrameCapture(screenshot) : toolCapture;
+        // Снимок прогона с HDR — ещё и карты рядом: HDR (<снимок>.hdr.png и сырой цвет .hdr.bin), bloom (.bloom.png, .bloom.bin) и слой ½
+        // прозрачного (.transparent.png, .transparent.bin — если он есть в кадре); F4 — только цвет.
+        bool maps = screenshot is not null && screenshot == _options.ScreenshotPath && _renderer.Hdr;
+        var capture = screenshot is not null
+            ? new FrameCapture(screenshot)
+            {
+                HdrPath = maps ? Path.ChangeExtension(screenshot, ".hdr.png") : null,
+                BloomPath = maps && _renderer.Bloom.Active ? Path.ChangeExtension(screenshot, ".bloom.png") : null,
+                TransparentPath = maps ? Path.ChangeExtension(screenshot, ".transparent.png") : null,
+            }
+            : toolCapture;
         bool captured = true;
         try
         {
@@ -630,6 +706,7 @@ public sealed class ClientHost : IDisposable
         {
             _screenshots++;
             _screenshot = Path.GetFullPath(screenshot);
+            if (screenshot == _options.ScreenshotPath) _screenshotHdr = _renderer.LastCapture?.Hdr;
             Log.Info("client", $"снимок {_screenshot}");
         }
     }
@@ -707,11 +784,17 @@ public sealed class ClientHost : IDisposable
         return framed;
     }
 
-    /// <summary>Проходы кадра: игра, поверх — квады панелей последнего кадра панелей (и в кадре перетаскивания рамки).</summary>
+    /// <summary>
+    /// Проходы кадра: точечные источники модулей (до игры — их видят константы и оверлей игры), игра, затем клиентские модули (шаги
+    /// GPU-симуляций и проходы своих фаз), поверх — квады панелей последнего кадра панелей (и в кадре перетаскивания рамки).
+    /// </summary>
     private void BuildFrame(RenderFrame frame)
     {
+        _modules.AddLights(frame.Lights);
         _game.BuildFrame(frame);
-        if (_panels is { Shown: true } panels) _renderer.Ui.Add(frame, panels.Ui.Output, "panels");
+        _modules.BuildFrame(frame);
+        // Панели — в фазе Debug, последними: ручки F3 правят при включённых оверлеях, и оверлеи не должны закрывать панель.
+        if (_panels is { Shown: true } panels) _renderer.Ui.Add(frame, panels.Ui.Output, "panels", phase: FramePhase.Debug);
     }
 
     /// <summary>Ворота тиков (пауза и шаги инструмента); null — тики по часам. Нужна симуляция.</summary>
@@ -746,6 +829,18 @@ public sealed class ClientHost : IDisposable
 
     /// <summary>Клиентская часть игры — для инструментов (наблюдаемость: <see cref="IClientObservable"/>).</summary>
     public IClientGame Game => _game;
+
+    /// <summary>Клиентские модули (включённые и выключенные, их оверлеи и ручки).</summary>
+    public ClientModules Modules => _modules;
+
+    /// <summary>
+    /// Оверлеи кадра, которые снимаются слоем (<c>capture.bundle</c>, виды манифестов): игры (<see cref="IClientObservable.Overlays"/>) и
+    /// включённых клиентских модулей.
+    /// </summary>
+    public IReadOnlyList<string> Overlays { get; }
+
+    /// <summary>Камера кадра игры для проходов модулей; игра не наблюдаема — нулевая.</summary>
+    private CameraView ModuleCamera() => (_game as IClientObservable)?.Camera ?? default;
 
     /// <summary>Номер последнего нарисованного кадра (с 1).</summary>
     public ulong Frame => _frame;
@@ -785,8 +880,11 @@ public sealed class ClientHost : IDisposable
             ResizeIfNeeded();
             // Кадр без тиков: очередь кадра пуста — события прошлого кадра не обрабатываются второй раз.
             _clock?.EmptyFrame();
+            _modules.BeginFrame(_simulation?.Tick ?? 0);   // и у модулей кадр без тиков: GPU-симуляции не шагают
             ServeTools();   // тянут рамку — главный цикл стоит, инструменты обслуживаются отсюда
-            _game.Extract(_view with { Ticks = 0, Seconds = 0, Stats = _view.Stats with { Ticks = 0 }, Capture = null });
+            var view = _view with { Ticks = 0, Seconds = 0, Stats = _view.Stats with { Ticks = 0 }, Capture = null };
+            _game.Extract(view);
+            _modules.Extract(view);
             RenderFrame();
         }
         catch (Exception ex)
@@ -800,7 +898,7 @@ public sealed class ClientHost : IDisposable
     {
         _watchdog?.Dispose();
         _window.LiveResize -= OnLiveResize;
-        // Ресурсы кадра освобождаются только после того, как GPU их отпустил: сначала ожидание, затем сцена игры,
+        // Ресурсы кадра освобождаются только после того, как GPU их отпустил: сначала ожидание, затем модули и сцена игры,
         // затем рендер с устройством. Ожидание может упасть (потеря устройства) — освобождение всё равно идёт.
         try
         {
@@ -810,7 +908,14 @@ public sealed class ClientHost : IDisposable
         {
             try
             {
-                _game.Dispose();
+                try
+                {
+                    _modules.Dispose();
+                }
+                finally
+                {
+                    _game.Dispose();
+                }
             }
             finally
             {

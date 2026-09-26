@@ -24,6 +24,7 @@
     <Project Path="engine/Sword.Engine.Rhi/Sword.Engine.Rhi.csproj" />
     <Project Path="engine/Sword.Engine.Ui/Sword.Engine.Ui.csproj" />
     <Project Path="engine/Sword.Engine.Render/Sword.Engine.Render.csproj" />
+    <Project Path="engine/Sword.Engine.Fluid2D/Sword.Engine.Fluid2D.csproj" />
     <Project Path="engine/Sword.Engine.Runtime/Sword.Engine.Runtime.csproj" />
     <Project Path="engine/Sword.Engine.Client/Sword.Engine.Client.csproj" />
     <Project Path="engine/Sword.Engine.Introspection/Sword.Engine.Introspection.csproj" />
@@ -42,6 +43,7 @@
     <Project Path="game/Sword.Game.Headless/Sword.Game.Headless.csproj" />
   </Folder>
   <Folder Name="/game/modules/">
+    <Project Path="game/modules/Sword.Game.Fire.Client/Sword.Game.Fire.Client.csproj" />
     <Project Path="game/modules/Sword.Game.Locomotion/Sword.Game.Locomotion.csproj" />
   </Folder>
   <Folder Name="/tools/">
@@ -67,6 +69,7 @@
     <Project Path="tests/Sword.Engine.DevTools.Tests/Sword.Engine.DevTools.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Content.Tests/Sword.Engine.Content.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Render.Tests/Sword.Engine.Render.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Fluid2D.Tests/Sword.Engine.Fluid2D.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Platform.Tests/Sword.Engine.Platform.Tests.csproj" />
     <Project Path="tests/Sword.Game.Tests/Sword.Game.Tests.csproj" />
     <Project Path="tests/Sword.Bake.Tests/Sword.Bake.Tests.csproj" />

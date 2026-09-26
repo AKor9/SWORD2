@@ -94,7 +94,7 @@ public sealed class CorpseGpuTests : IDisposable, ILogSink
         try
         {
             arena.Initialize(renderer, clock.Link);
-            Assert.Equal(["Бой", "Рэгдолл"], arena.TuningGroups.Select(g => g.Title));   // вкладки F3
+            Assert.Equal(["Бой", "Рэгдолл", "Свет"], arena.TuningGroups.Select(g => g.Title));   // вкладки F3
             // Бойцы приходят очередью кадра — Extract каждый кадр.
             void Frames(int n)
             {

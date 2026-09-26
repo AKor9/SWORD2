@@ -51,7 +51,15 @@ public interface IClientTool
 }
 
 /// <summary>Камера кадра для наблюдения: матрица вида-проекции, глаз, точка взгляда, параметры RTS-камеры.</summary>
-public readonly record struct CameraView(Matrix4x4 ViewProj, Vector3 Eye, Vector3 Target, float Yaw, float Pitch, float Distance, bool Follow);
+public readonly record struct CameraView(Matrix4x4 ViewProj, Vector3 Eye, Vector3 Target, float Yaw, float Pitch, float Distance, bool Follow)
+{
+    /// <summary>
+    /// Поворот из осей вида (x — вправо по экрану, y — вверх, z — к зрителю) в мир; default — игра его не дала. Считается по углам и
+    /// дистанции камеры, а не по позициям: при тех же углах тот же бит в бит, где бы камера ни была (представления, повторяемые по тикам —
+    /// площадка огня к камере).
+    /// </summary>
+    public Quaternion Rotation { get; init; }
+}
 
 /// <summary>Видимое в мире: сущность и её рамка в мире (ось-выровненный параллелепипед).</summary>
 public readonly record struct VisibleEntity(Entity Entity, string Kind, Vector3 Min, Vector3 Max);

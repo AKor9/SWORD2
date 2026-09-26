@@ -377,18 +377,36 @@ public sealed record FeatureMetric
 /// Вид фичи — кадр App (<c>Sword.exe --replay</c>) после <see cref="Tick"/> тиков сценария: ракурс <see cref="Camera"/>
 /// (<c>поворот,наклон,дистанция[,x,z]</c>; без него — камера SWORD за игроком), HUD — по <see cref="Hud"/>, отладочные
 /// оверлеи игры поверх кадра — <see cref="Overlays"/> (<c>Sword.exe --overlay</c>: у арены — <c>capsules</c>, капсулы тел;
-/// имя, которого игра не знает, — провал вида).
+/// имя, которого игра не знает, — провал вида), клиентские ручки F3 с первого кадра — <see cref="Tune"/> (<c>Sword.exe --tune</c>:
+/// <c>light.night=1</c> — ночь; в реплей они не входят).
 /// </summary>
 public sealed record FeatureView(string Id, string Scenario, ulong Tick, string? Camera, bool Hud, string? Title)
 {
     public IReadOnlyList<string> Overlays { get; init; } = [];
+    public IReadOnlyList<string> Tune { get; init; } = [];
 
     internal static FeatureView Parse(FeatureManifest.Reader r)
     {
-        r.Only("id", "title", "scenario", "tick", "camera", "hud", "overlays");
+        r.Only("id", "title", "scenario", "tick", "camera", "hud", "overlays", "tune");
         var overlays = ParseOverlays(r);
         return new FeatureView(r.String("id"), r.String("scenario"), (ulong)r.Integer("tick", 1, 1_000_000), r.OptionalString("camera"),
-            r.Bool("hud", false), r.OptionalString("title")) { Overlays = overlays };
+            r.Bool("hud", false), r.OptionalString("title")) { Overlays = overlays, Tune = ParseTune(r) };
+    }
+
+    /// <summary>Поле <c>tune</c> (вида и бюджета кадра): «группа.ключ=значение» клиентских ручек App, без повторов ключа.</summary>
+    internal static IReadOnlyList<string> ParseTune(FeatureManifest.Reader r)
+    {
+        var tune = r.Strings("tune", optional: true);
+        for (int i = 0; i < tune.Count; i++)
+        {
+            int eq = tune[i].IndexOf('=');
+            int dot = tune[i].IndexOf('.');
+            if (eq <= 0 || dot <= 0 || dot > eq || eq == tune[i].Length - 1)
+                throw new ArgumentException($"{r.At}.tune[{i}]: ожидается «группа.ключ=значение», а не «{tune[i]}»");
+            string key = tune[i][..eq];
+            if (tune.Take(i).Any(t => t[..t.IndexOf('=')] == key)) throw new ArgumentException($"{r.At}.tune[{i}]: {key} дважды");
+        }
+        return tune;
     }
 
     /// <summary>Поле <c>overlays</c> (вида и бюджета кадра): имена оверлеев игры — строчные латинские буквы, цифры и «-», без повторов.</summary>
@@ -466,12 +484,26 @@ public sealed record FeatureBudget
 /// Бюджет кадра: App играет запись сценария бенчем (<c>Sword.exe --replay … --bench <see cref="Seconds"/></c>:
 /// первые 4 с игрового времени — прогрев, vsync выключен, хеши сверяются с записью Headless) — средний кадр и 99-й
 /// перцентиль, мс. Как время бюджета — проверяется только в Release; нужен App (виды включены). Оверлеи игры —
-/// поверх кадра на всё время замера (<see cref="Overlays"/>, <c>Sword.exe --overlay</c>, как у вида): кадр с капсулами тел.
+/// поверх кадра на всё время замера (<see cref="Overlays"/>, <c>Sword.exe --overlay</c>, как у вида): кадр с капсулами тел. Ракурс —
+/// <see cref="Camera"/> (как у вида; без него — камера за игроком), клиентские ручки — <see cref="Tune"/>; GPU-время проходов —
+/// <see cref="Gpu"/>.
 /// </summary>
 public sealed record FeatureFrameBudget
 {
     public double? AverageMs { get; init; }
     public double? P99Ms { get; init; }
+
+    /// <summary>Ракурс замера (<c>поворот,наклон,дистанция[,x,z]</c>, <c>Sword.exe --camera</c>); null — камера за игроком.</summary>
+    public string? Camera { get; init; }
+
+    /// <summary>Клиентские ручки F3 с первого кадра замера (<c>--tune</c>, как у вида).</summary>
+    public IReadOnlyList<string> Tune { get; init; } = [];
+
+    /// <summary>
+    /// Пределы GPU-времени проходов, мс на кадр (ключ <c>gpu</c>: <c>{"fire": 0.3}</c>): сумма проходов бенча с именем ключа или
+    /// «ключ.…». Как время — судится только в Release; ни одного такого прохода в замере — провал в любой сборке.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> Gpu { get; init; } = new Dictionary<string, double>();
 
     /// <summary>Секунды игрового времени бенча (больше 4 — прогрев): запись сценария должна быть не короче.</summary>
     public double Seconds { get; init; } = 5;
@@ -481,14 +513,19 @@ public sealed record FeatureFrameBudget
 
     internal static FeatureFrameBudget Parse(FeatureManifest.Reader r)
     {
-        r.Only("averageMs", "p99Ms", "seconds", "overlays");
+        r.Only("averageMs", "p99Ms", "seconds", "overlays", "camera", "tune", "gpu");
+        var gpu = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (r.OptionalObject("gpu") is { } o)
+            foreach (var (name, _) in o)
+                gpu[name] = new FeatureManifest.Reader(o, $"{r.At}.gpu").Number(name);
         var f = new FeatureFrameBudget
         {
             AverageMs = r.OptionalNumber("averageMs"), P99Ms = r.OptionalNumber("p99Ms"), Seconds = r.OptionalNumber("seconds") ?? 5,
-            Overlays = FeatureView.ParseOverlays(r),
+            Overlays = FeatureView.ParseOverlays(r), Camera = r.OptionalString("camera"), Tune = FeatureView.ParseTune(r), Gpu = gpu,
         };
-        if (f.AverageMs is null && f.P99Ms is null) throw new ArgumentException($"{r.At}: нечего проверять — averageMs или p99Ms");
-        if (f.AverageMs <= 0 || f.P99Ms <= 0) throw new ArgumentException($"{r.At}: пределы — положительные");
+        if (f.AverageMs is null && f.P99Ms is null && f.Gpu.Count == 0)
+            throw new ArgumentException($"{r.At}: нечего проверять — averageMs, p99Ms или gpu");
+        if (f.AverageMs <= 0 || f.P99Ms <= 0 || f.Gpu.Values.Any(v => !(v > 0))) throw new ArgumentException($"{r.At}: пределы — положительные");
         if (!(f.Seconds > 4 && f.Seconds <= 60)) throw new ArgumentException($"{r.At}.seconds: больше 4 (прогрев бенча) и не больше 60");
         return f;
     }
