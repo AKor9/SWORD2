@@ -1,0 +1,12 @@
+{
+  "converter": "font",
+  "import": "golos",
+  "notes": "Golos Text SemiBold — заголовки. Лицензия гарнитуры — у ui/fonts/body.",
+  "params": {
+    "name": "head",
+    "roles": [
+      "Head"
+    ],
+    "extra": []
+  }
+}

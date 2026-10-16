@@ -7,26 +7,21 @@ namespace Sword.Engine.Animation;
 public readonly record struct ClipSource(string Path, Func<Stream> Open, string Describe);
 
 /// <summary>
-/// Библиотека клипов одного скелета — <c>SkeletalClips</c> и <c>AnimLibrary</c> SWORD 2eab13b: все клипы одной таблицей,
-/// на кадр — ЛОКАЛЬНЫЕ повороты и смещения всех суставов (чтобы смешивать клипы и накладывать слои по частям тела)
-/// и корневое движение. Клип — диапазон кадров; ID клипа — «источник/имя» (папка и имя файла в <c>anim/</c>).
-/// Данные только для чтения: библиотеку делят все позы и все системы.
+/// Библиотека клипов одного скелета: все клипы одной таблицей, на кадр — локальные повороты и смещения всех суставов и
+/// корневое движение. ID клипа — «источник/имя» (папка и файл в <c>anim/</c>). Только для чтения: её делят все позы и системы.
 /// </summary>
 public sealed class ClipLibrary
 {
-    /// <summary>Каталог клипов в контенте и расширения (<c>AnimLibrary</c> SWORD).</summary>
-    public const string AnimDir = "anim", ClipExt = ".swclip", SkeletonDir = "skeletons", SkeletonExt = ".swskeleton";
+    /// <summary>Каталог клипов в контенте и расширения.</summary>
+    public const string AnimDir = "animations", ClipExt = ".swclip", SkeletonDir = "skeletons", SkeletonExt = ".swskeleton";
 
-    /// <summary>Путь скелета внутри контента.</summary>
     public static string SkeletonFile(string id) => $"{SkeletonDir}/{id}{SkeletonExt}";
 
     /// <summary>Клип: ID «источник/имя», первый кадр в таблице, число кадров, цикл.</summary>
     public readonly record struct Clip(string Name, int Start, int Count, bool Loop)
     {
         public int End => Start + Count;
-        /// <summary>Источник (папка библиотеки).</summary>
         public string Source => Name.IndexOf('/') is var i and >= 0 ? Name[..i] : "";
-        /// <summary>Имя без источника.</summary>
         public string ShortName => Name[(Name.IndexOf('/') + 1)..];
     }
 
@@ -44,14 +39,11 @@ public sealed class ClipLibrary
     public ReadOnlySpan<Quaternion> LocalRot => _localRot;
     public ReadOnlySpan<Vector3> LocalPos => _localPos;
     /// <summary>
-    /// [кадр] смещение персонажа от первого кадра клипа (пространство персонажа, Y = 0). Поза клипа стоит на месте;
-    /// движение, которое пак запёк в таз, вынесено сюда. У циклов — равномерный дрейф.
+    /// [кадр] смещение персонажа от первого кадра клипа (Y = 0): движение, запечённое в таз, вынесено сюда, поза клипа стоит
+    /// на месте. У циклов — равномерный дрейф.
     /// </summary>
     public ReadOnlySpan<Vector3> RootMotion => _rootMotion;
-    /// <summary>
-    /// [кадр] поворот персонажа вокруг вертикали от первого кадра клипа, рад (+ — от +Z к +X, как у
-    /// <see cref="Quaternion.CreateFromAxisAngle"/> вокруг Y).
-    /// </summary>
+    /// <summary>[кадр] поворот персонажа вокруг вертикали от первого кадра, рад (+ — от +Z к +X).</summary>
     public ReadOnlySpan<float> RootYaw => _rootYaw;
 
     public int JointCount => Skeleton.JointCount;
@@ -85,10 +77,9 @@ public sealed class ClipLibrary
     }
 
     /// <summary>
-    /// Все клипы скелета одной таблицей (<c>AnimLibrary.Load</c> SWORD): в порядке <paramref name="files"/>, ID —
-    /// «источник/имя» из пути <c>anim/&lt;источник&gt;/&lt;имя&gt;.swclip</c> (вложенные глубже — не клипы библиотеки).
-    /// Клипы другого скелета молча не берутся; изменившегося скелета, другой частоты и повреждённые пропускаются
-    /// с записью в <paramref name="skipped"/>. Клипов нет — null.
+    /// Все клипы скелета одной таблицей в порядке <paramref name="files"/>; ID — из пути <c>anim/&lt;источник&gt;/&lt;имя&gt;.swclip</c>.
+    /// Клипы другого скелета молча не берутся; изменившегося скелета, другой частоты и повреждённые — в <paramref name="skipped"/>.
+    /// Клипов нет — null.
     /// </summary>
     public static ClipLibrary? Load(Skeleton skeleton, IEnumerable<ClipSource> files, ICollection<string>? skipped = null)
     {
@@ -154,9 +145,7 @@ public sealed class ClipLibrary
         return m;
     }
 
-    /// <summary>
-    /// Клип по ID «источник/имя»; без источника — по имени, если оно в библиотеке одно. −1 — нет или неоднозначно.
-    /// </summary>
+    /// <summary>Клип по ID «источник/имя»; без источника — по имени, если оно одно. −1 — нет или неоднозначно.</summary>
     public int FindClip(string name)
     {
         for (int i = 0; i < _clips.Length; i++)
@@ -203,10 +192,7 @@ public sealed class ClipLibrary
         return Vector3.Lerp(_rootMotion[c.Start + i0], _rootMotion[c.Start + i1], f - i0);
     }
 
-    /// <summary>
-    /// Локальная поза клипа в момент <paramref name="time"/>, с (циклический — по кругу, иначе с упором в конец):
-    /// сферическая интерполяция поворотов и линейная смещений между соседними кадрами.
-    /// </summary>
+    /// <summary>Локальная поза клипа в момент <paramref name="time"/>, с (цикл — по кругу, иначе упор в конец): слерп поворотов и лерп смещений.</summary>
     public void Sample(int clip, float time, Span<Quaternion> rot, Span<Vector3> pos)
     {
         var c = _clips[clip];

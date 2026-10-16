@@ -3,8 +3,7 @@ using Sword.Engine.Formats;
 namespace Sword.Engine.Ui;
 
 /// <summary>
-/// Роль шрифта в интерфейсе: текст, заголовки, подписи, цифры. Каждую роль берёт ровно один шрифт контента (поле ролей
-/// в <c>.swfont</c>). Номера и имена — <c>UiFace</c> SWORD 2eab13b (их пишет пекарь, читает эталонный пак).
+/// Роль шрифта в интерфейсе; каждую роль берёт ровно один шрифт контента. Номера и имена пишет пекарь, читает и эталонный пак.
 /// </summary>
 public enum UiFace
 {
@@ -20,10 +19,8 @@ public enum UiFace
 public static class UiFaces
 {
     /// <summary>
-    /// Роль по имени из файла шрифта — точное имя без учёта регистра; не роль (число, <c>Count</c>, список «A,B») —
-    /// false. Список ролей — <see cref="UiVectorFontFormat.RoleNames"/> (его же проверяет пекарь шрифтов); имена
-    /// перечисления с ним совпадают (тест). Отличие от SWORD: там <c>Enum.TryParse</c> складывал список через запятую
-    /// в третью роль («Label,Head» → NumLight), и опечатка в манифесте молча давала шрифту чужую роль.
+    /// Роль по имени без учёта регистра; не роль (число, <c>Count</c>, список «A,B») — false: <c>Enum.TryParse</c> молча
+    /// дал бы опечатке в манифесте чужую роль. Имена совпадают с <see cref="UiVectorFontFormat.RoleNames"/> (тест).
     /// </summary>
     public static bool TryParse(string name, out UiFace face)
     {

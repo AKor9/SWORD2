@@ -11,10 +11,7 @@ using Sword.Game.Contracts;
 
 namespace Sword.Game.Tests;
 
-/// <summary>
-/// Клиент игры без окна и GPU: камера SWORD, команда игрока из ввода, мир представления с интерполяцией.
-/// Ожидания — <c>RtsCamera</c>, <c>PlayerController</c>, <c>SkinCutPose.DrawnJoints</c> SWORD 2eab13b.
-/// </summary>
+/// <summary>Клиент игры без окна и GPU: камера, команда игрока из ввода, мир представления с интерполяцией.</summary>
 public class CameraTests
 {
     private const float Dt = 1f / 60;
@@ -43,7 +40,7 @@ public class CameraTests
         Assert.Equal(0.6f + 1.8f * 0.5f, cam.Yaw, 5);
         cam.Update(new CameraControls { Orbit = true, MouseDeltaX = 100, MouseDeltaY = 1000 }, Dt, Vector3.Zero, 1600, 900);
         Assert.Equal(0.6f + 0.9f - 0.6f, cam.Yaw, 4);
-        Assert.Equal(RtsCamera.MaxPitch, cam.Pitch);   // наклон в пределах SWORD
+        Assert.Equal(RtsCamera.MaxPitch, cam.Pitch);   // наклон в пределах
     }
 
     [Fact]
@@ -86,7 +83,7 @@ public class PlayerIntentTests
     [Fact]
     public void F7_TogglesBodyCapsules_BindingFromConfig()
     {
-        // Капсулы тел поверх персонажей — действие debug_bodies (F7 по умолчанию; F2, F3, F5, F6 заняты по SWORD).
+        // Капсулы тел поверх персонажей — действие debug_bodies (F7 по умолчанию; F2, F3, F5, F6 заняты).
         Assert.Contains(ArenaInput.DebugBodies, ArenaInput.All);
         Assert.Equal(("debug_bodies", "F7"), (ArenaInput.DebugBodies.Name, ArenaInput.DebugBodies.DefaultKey));
         var bindings = InputBindings.Resolve([.. ArenaInput.All, .. ClientHost.Actions], ConfigSet.Empty("input.debug_bodies=F9"));
@@ -103,20 +100,6 @@ public class PlayerIntentTests
     }
 
     [Fact]
-    public void IdBufferOwner_FitsTheCode_OverflowGetsNoOwner()
-    {
-        // Код ID-буфера — владелец << 8 | сегмент: номер сущности + 1 в 24 бита. Больший номер при сдвиге потерял бы старшие
-        // биты и совпал бы с кодом другого бойца — у него владельца нет (0: пиксели «ничего»), а не чужой код.
-        Assert.Equal(1u, ArenaClient.OwnerOf(new Entity(0, 1)));
-        Assert.Equal(ArenaClient.OwnerOf(new Entity(7, 1)), ArenaClient.OwnerOf(new Entity(7, 5)));   // поколение — не в коде
-        var last = new Entity((int)SkinnedMeshes.MaxOwner - 1, 1);
-        Assert.Equal(SkinnedMeshes.MaxOwner, ArenaClient.OwnerOf(last));
-        Assert.Equal((SkinnedMeshes.MaxOwner, (uint)BodySegs.Head), SkinnedMeshes.SplitId(SkinnedMeshes.IdOf(ArenaClient.OwnerOf(last), BodySegs.Head)));
-        Assert.Equal(0u, ArenaClient.OwnerOf(new Entity((int)SkinnedMeshes.MaxOwner, 1)));
-        Assert.Equal(0u, SkinnedMeshes.IdOf(ArenaClient.OwnerOf(new Entity(int.MaxValue, 1)), BodySegs.Head));
-    }
-
-    [Fact]
     public void Actions_ReachPlayerKeysAndCamera()
     {
         // Путь действий (привязки → FrameInput → ArenaInput): то, что делают клавиши в игре.
@@ -130,7 +113,7 @@ public class PlayerIntentTests
     [Fact]
     public void Wasd_IsRelativeToCamera()
     {
-        // PlayerController.Think SWORD: W — GroundForward, D — GroundRight; симуляция нормирует направление.
+        // W — GroundForward, D — GroundRight; симуляция нормирует направление.
         var cam = new RtsCamera { Yaw = 0.6f };
         var w = PlayerIntent.Command(new PlayerKeys(true, false, false, false, false), cam, false, default);
         Assert.Equal(new Vector2(cam.GroundForward.X, cam.GroundForward.Z), w.Move);
@@ -172,7 +155,7 @@ public class PlayerIntentTests
 
 public class ArenaViewTests
 {
-    // Функция рельефа, как Terrain.Height в KinWorld SWORD (не сетка рисования).
+    // Функция рельефа, а не сетка рисования.
     private static readonly Func<float, float, float> Field = ArenaTerrain.Height;
 
     [Fact]
@@ -322,8 +305,8 @@ public class ArenaViewTests
     [Fact]
     public void ShownCapsules_StayOnTheShownPose_AtAnyAlpha()
     {
-        // Капсулы живого бойца — постановка тика, перенесённая в показанный мир бойца (SkinCutPose.DrawnJoints SWORD): на
-        // суставах той же позы тика в том же мире, в котором рисуется меш, — при любой доле тика (без отставания и дрожи).
+        // Капсулы живого бойца — постановка тика, перенесённая в показанный мир бойца: на суставах той же позы тика в том же мире,
+        // в котором рисуется меш, — при любой доле тика (без отставания и дрожи).
         var joints = new Sword.Game.Bodies.BodyJoints(TestAssets.Assets.Clips.Skeleton);
         float worstShown = 0, worstLerp = 0;
         int fractional = 0;
@@ -346,7 +329,7 @@ public class ArenaViewTests
                         : Sword.Game.Bodies.BodyPlacement.Ends(pose, joints, f.World, body[i].Segment);
                     worstShown = MathF.Max(worstShown, Vector3.Distance(body[i].Center, (a + b) * 0.5f));
                     Assert.True(Vector3.Dot(body[i].Axis, Vector3.Normalize(b - a)) > 1 - 1e-4f, $"{f.Entity} {BodySegs.Name(body[i].Segment)}: ось не вдоль суставов");
-                    // Для сравнения — интерполяция прошлой и нынешней постановки (BodyMatrix(b, α) SWORD): отстаёт от меша.
+                    // Для сравнения — интерполяция прошлой и нынешней постановки: отстаёт от меша.
                     worstLerp = MathF.Max(worstLerp, Vector3.Distance(ArenaView.Lerp(bodies.Body(bodyRef, i), alpha).Center, (a + b) * 0.5f));
                 }
             }
@@ -388,9 +371,8 @@ public class ArenaViewTests
     }
 
     /// <summary>
-    /// Без капсул (F7 выключен, слой снимка не заказан)
-    /// Extract читает только таз игрока — у бойцов кадра капсул нет, а точка тени и кольца и фокус камеры — те же числа, что при
-    /// чтении тел всех бойцов, при любой доле тика; кадр по-прежнему без выделений.
+    /// Без капсул (F7 выключен) Extract читает только таз игрока, а точка тени, кольцо и фокус камеры — те же, что при чтении тел
+    /// всех бойцов, при любой доле тика; кадр без выделений.
     /// </summary>
     [Fact]
     public void WithoutCapsules_OnlyPlayerPelvis_SameMarkerAndFocus()
@@ -445,7 +427,7 @@ public class ArenaViewTests
                 Assert.Equal((BodySegs.Segment(i), s.Radius, s.HalfLength), (body[i].Segment, body[i].Radius, body[i].HalfLength));
             }
         }
-        // Фокус камеры — таз между прошлой и нынешней постановкой по доле тика (Program.cs SWORD), с Y = 0.
+        // Фокус камеры — таз между прошлой и нынешней постановкой по доле тика, с Y = 0.
         foreach (float alpha in (float[])[0, 0.3f, 1])
         {
             view.Extract(clock.Link, alpha);

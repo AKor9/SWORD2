@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace Sword.Engine.Ui.Tests;
 
-/// <summary>Нарезка прямоугольников и обрезка списка квадов (<c>UiLayoutTests</c> SWORD 2eab13b) и вызовы рисования.</summary>
+/// <summary>Нарезка прямоугольников, обрезка списка квадов и вызовы рисования.</summary>
 public sealed class UiLayoutTests
 {
     [Fact]
@@ -103,7 +103,7 @@ public sealed class UiLayoutTests
         d.Rect(0, 0, 10, 10, 1);
         Assert.False(d.HasFonts);
         Assert.Throws<InvalidOperationException>(() => d.Text(UiFace.Body, 14, Vector2.Zero, 1, "x"));
-        Assert.Equal(0f, d.Text(UiFace.Body, 14, Vector2.Zero, 1, ""));   // пустая строка шрифт не трогает (SWORD)
+        Assert.Equal(0f, d.Text(UiFace.Body, 14, Vector2.Zero, 1, ""));   // пустая строка шрифт не трогает
     }
 
     [Fact]

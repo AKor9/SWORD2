@@ -13,10 +13,8 @@ public interface IContinuousSystem : ISystem
 }
 
 /// <summary>
-/// Реактивная система: исполняется в своей стадии, только если с её прошлого запуска были срабатывания
-/// <typeparamref name="TTrigger"/> (<see cref="Added{T}"/>, <see cref="Removed{T}"/>, <see cref="Changed{T}"/>,
-/// <see cref="Event{E}"/>, <see cref="ResourceChanged{T}"/>), и получает только их. Без срабатываний стоит одну проверку
-/// длины журнала. Одно срабатывание на систему; нужно два — две системы.
+/// Реактивная система: исполняется, только если с прошлого запуска были срабатывания <typeparamref name="TTrigger"/>,
+/// и получает только их; без срабатываний — одна проверка длины журнала. Одно срабатывание на систему.
 /// </summary>
 public interface IReactiveSystem<TTrigger> : ISystem where TTrigger : struct
 {
@@ -62,11 +60,8 @@ internal static class TriggerKeyCache<TTrigger> where TTrigger : struct
     public static readonly TriggerKey Key = TriggerKey.Of(typeof(TTrigger));
 }
 
-/// <summary>
-/// Объявления системы при сборке мира: метка, порядок внутри стадии, запросы, что система производит (по ним
-/// планировщик проверяет порядок стадий производителя и потребителя), какие журналы читает непрерывная система и где
-/// задержка реакции на тик разрешена (<see cref="NextTickOk{TTrigger}"/>).
-/// </summary>
+/// <summary>Объявления системы при сборке мира: метка, порядок, запросы, что производит (по этому планировщик проверяет
+/// порядок стадий), какие журналы читает и где задержка на тик разрешена.</summary>
 public sealed class SystemSetup
 {
     private readonly World _world;
@@ -157,11 +152,8 @@ public sealed class SystemSetup
         return this;
     }
 
-    /// <summary>
-    /// Ёмкость буфера команд системы заранее: команд (<c>Add/Remove/Set/Create/Destroy</c>, замена ресурса), событий и байт их значений
-    /// за один запуск в худшем случае — чтобы пик (бой полной арены: касания, попадания, смерти и возрождения в одном тике) не растил буфер
-    /// посреди игры. Логики не меняет; сверх запаса буфер растёт удвоением, как без него.
-    /// </summary>
+    /// <summary>Ёмкость буфера команд заранее — на худший запуск, чтобы пик (бой полной арены) не растил буфер посреди
+    /// игры. Логики не меняет; сверх запаса буфер растёт удвоением.</summary>
     public SystemSetup ReserveCommands(int commands, int events, int payloadBytes)
     {
         if (commands < 0 || events < 0 || payloadBytes < 0) throw new ArgumentOutOfRangeException(nameof(commands), "запас — не меньше 0");
@@ -170,9 +162,8 @@ public sealed class SystemSetup
     }
 
     /// <summary>
-    /// Система читает журнал срабатываний своим курсором (<see cref="SystemContext.Journal{T}"/>). Непрерывная видит каждую
-    /// запись ровно один раз. У реактивной это контекст срабатывания: в тике, где она сработала, — записи с её прошлого
-    /// места в тике; записи тиков без срабатывания ей не адресованы и пропускаются.
+    /// Система читает журнал своим курсором (<see cref="SystemContext.Journal{T}"/>): непрерывная видит каждую запись
+    /// ровно один раз; реактивная — только записи тиков, где она сработала.
     /// </summary>
     public SystemSetup ReadsJournal<TTrigger>() where TTrigger : struct
     {
@@ -180,10 +171,8 @@ public sealed class SystemSetup
         return this;
     }
 
-    /// <summary>
-    /// Реакция на срабатывания производителей в той же или более поздней стадии приходит в следующем тике — и это
-    /// задумано. Без объявления такая пара — ошибка сборки мира.
-    /// </summary>
+    /// <summary>Реакция на производителя в той же или более поздней стадии придёт в следующем тике — задумано. Без
+    /// объявления такая пара — ошибка сборки мира.</summary>
     public SystemSetup NextTickOk<TTrigger>() where TTrigger : struct
     {
         Registration.NextTickOk.Add(TriggerKey.Of(typeof(TTrigger)));
@@ -207,21 +196,6 @@ public readonly struct SystemContext
 
     /// <summary>Буфер команд этой регистрации: применяется на барьере после стадии.</summary>
     public CommandBuffer Commands => _registration.Buffer;
-
-    /// <summary>
-    /// Причина — родитель всего, что система запишет дальше (<see cref="CommandBuffer.Cause"/>; <c>state.why</c>): реактивная
-    /// система ставит её по срабатыванию, которое обрабатывает (<c>ctx.Cause = c.Cause</c>), непрерывный производитель — явно
-    /// (причина начала удара из <see cref="CausalityLog.Linked"/>). Перед запуском системы — пусто; у реактивной с одним
-    /// срабатыванием в диагностическом режиме — его причина.
-    /// </summary>
-    public CauseId Cause
-    {
-        get => _registration.Buffer.Cause;
-        set => _registration.Buffer.Cause = value;
-    }
-
-    /// <summary>Журнал причинности (диагностический режим); null — выключен: всё, что только для него, пропускается.</summary>
-    public CausalityLog? Causality => World.Causality;
 
     public ulong Tick { get; }
 
@@ -249,7 +223,7 @@ internal sealed class Registration
     public required int StageIndex { get; init; }
     public required int Id { get; init; }
     public string? Module { get; init; }
-    /// <summary>Где система зарегистрирована (файл:строка) — для людей и агента; null — неизвестно.</summary>
+    /// <summary>Где система зарегистрирована (файл:строка) — для людей и инструментов; null — неизвестно.</summary>
     public string? Source { get; init; }
     public SystemLabel Label;
     public readonly List<SystemLabel> After = [];
@@ -296,11 +270,8 @@ internal sealed class Registration
 /// <summary>Потребляемый журнал: вид срабатывания и данные (стабильное имя компонента, события или ресурса).</summary>
 public sealed record TriggerInfo(string Kind, string Data);
 
-/// <summary>
-/// Регистрация системы наружу — для описания мира, профайлера, агента (карта архитектуры, раздел 8 плана): что система
-/// читает и пишет, какие события порождает и какие журналы потребляет, где стоит в стадии и где зарегистрирована.
-/// Компоненты и события — стабильными именами.
-/// </summary>
+/// <summary>Регистрация системы наружу — для описания мира и профайлера: что читает, пишет, порождает и потребляет,
+/// где стоит в стадии. Компоненты и события — стабильными именами.</summary>
 public sealed record SystemInfo(
     string Name, string Stage, string Label, int RegistrationId, string? Module, bool Active, bool Reactive,
     IReadOnlyList<string> Consumes)

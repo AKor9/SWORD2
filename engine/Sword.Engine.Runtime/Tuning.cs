@@ -6,10 +6,8 @@ using Sword.Engine.Ecs;
 namespace Sword.Engine.Runtime;
 
 /// <summary>
-/// Ключ ручки (раздел 7 плана, «Конфигурация»): стабильный хеш полного имени ручки «секция.ключ» — того же ключа
-/// конфига (<c>combat.playerDamage</c>), без учёта регистра. В команде и реплее — число (от порядка регистрации ручек и от
-/// набора модулей не зависит); имя по числу знают ручки, заведённые в процессе (<see cref="Name"/>) — агент пишет и читает ручку
-/// именем (<c>command.send</c>, <c>events.history</c>).
+/// Ключ ручки: стабильный хеш полного имени «секция.ключ» (ключ конфига) без учёта регистра. В команде и реплее —
+/// число, не зависящее от порядка регистрации и набора модулей; имя по числу знают ручки процесса (<see cref="Name"/>).
 /// </summary>
 public struct TuningKey : IEquatable<TuningKey>
 {
@@ -17,7 +15,7 @@ public struct TuningKey : IEquatable<TuningKey>
 
     public TuningKey(ulong hash) => Hash = hash;
 
-    // Имена заведённых ручек по ключу — общие для процесса (ветки experiment.fork — потоки одного процесса): отображение
+    // Имена заведённых ручек по ключу — общие для процесса (симуляции в разных потоках одного процесса): отображение
     // «имя → хеш» у всех симуляций одно, поэтому общий словарь только растёт и не расходится.
     private static readonly ConcurrentDictionary<ulong, string> Names = new();
 
@@ -62,11 +60,9 @@ public struct TuningKey : IEquatable<TuningKey>
 }
 
 /// <summary>
-/// Команда ручки (раздел 7 плана): новое значение ручки <see cref="Knob"/> — число; флаг — не ноль. Изменение ручки на ходу —
-/// команда симуляции, как любая другая: ставится на ближайший тик, в служебной стадии <c>runtime.commands</c> становится
-/// событием, система ручек своего раздела (<c>tuning.&lt;секция&gt;</c>, первая стадия игры) применяет её в том же тике —
-/// ресурс заменяется командой (<see cref="ResourceChanged{T}"/> для реактивных систем, видно со следующей стадии), — и она
-/// пишется в реплей. Значение прижимается к диапазону ручки; нечисло и незнакомая ручка — ничего.
+/// Команда ручки: новое значение (флаг — не ноль). Как любая команда, становится событием в <c>runtime.commands</c>,
+/// система <c>tuning.&lt;секция&gt;</c> применяет её в том же тике, и она пишется в реплей. Значение прижимается
+/// к диапазону; нечисло и незнакомая ручка — ничего.
 /// </summary>
 public struct TuningCommand
 {
@@ -82,10 +78,8 @@ public enum TuningKind : byte
 }
 
 /// <summary>
-/// Ручка симуляции — описание для панели F3, агента и записи в конфиг: полное имя (ключ конфига «секция.ключ»), подпись,
-/// подсказка, диапазон, значение по умолчанию (значение в коде), ресурс мира и его поле. Значение живёт в ресурсе мира
-/// (<see cref="Read"/>), меняется только командой <see cref="TuningCommand"/>. Заводит её ядро или модуль при сборке
-/// симуляции (<see cref="SimulationBuilder.Tuning{T}"/>).
+/// Ручка симуляции — описание для панели F3 и конфига. Значение живёт в ресурсе мира (<see cref="Read"/>) и меняется
+/// только командой <see cref="TuningCommand"/>; заводит ручку <see cref="SimulationBuilder.Tuning{T}"/>.
 /// </summary>
 public sealed class TuningKnob
 {
@@ -174,10 +168,8 @@ public delegate bool TuningGetBool<T>(in T resource);
 /// <summary>Запись флага ресурса ручкой.</summary>
 public delegate void TuningSetBool<T>(ref T resource, bool value);
 
-/// <summary>
-/// Ручки одной секции конфига над ресурсом <typeparamref name="T"/> (<see cref="SimulationBuilder.Tuning{T}"/>): каждая ручка —
-/// поле ресурса. Их команды применяет система секции <c>tuning.&lt;секция&gt;</c> в первой стадии игры.
-/// </summary>
+/// <summary>Ручки одной секции конфига над полями ресурса <typeparamref name="T"/>; команды применяет система
+/// <c>tuning.&lt;секция&gt;</c> в первой стадии игры.</summary>
 public sealed class TuningSection<T> where T : unmanaged
 {
     private readonly SimulationBuilder _builder;
@@ -192,10 +184,8 @@ public sealed class TuningSection<T> where T : unmanaged
 
     public string Section { get; }
 
-    /// <summary>
-    /// Число: поле ресурса <paramref name="field"/> (по умолчанию — ключ с заглавной буквы: <c>playerDamage</c> → <c>PlayerDamage</c>),
-    /// диапазон [<paramref name="min"/>, <paramref name="max"/>], значение по умолчанию — значение в коде.
-    /// </summary>
+    /// <summary>Число: поле <paramref name="field"/> (по умолчанию — ключ с заглавной буквы), диапазон
+    /// [<paramref name="min"/>, <paramref name="max"/>], по умолчанию — значение в коде.</summary>
     public TuningSection<T> Float(string key, string label, TuningGet<T> get, TuningSet<T> set, float min, float max, float defaultValue,
         bool log = false, string format = "0.###", string? hint = null, string? field = null)
     {
@@ -237,10 +227,8 @@ public sealed class TuningSection<T> where T : unmanaged
 }
 
 /// <summary>
-/// Система ручек секции (<c>tuning.&lt;секция&gt;</c>, первая стадия игры — реактивная по <c>Event&lt;TuningCommand&gt;</c>): команды
-/// ручек тика по порядку правят копию ресурса (значение прижато к диапазону ручки; нечисло и чужая ручка — пропуск), итог —
-/// одной заменой ресурса командой (с барьера стадии его видят все следующие стадии тика, реактивные — <see cref="ResourceChanged{T}"/>).
-/// Внутреннего состояния нет: всё авторитетное — в ресурсе мира.
+/// Система ручек секции: команды тика по порядку правят копию ресурса, итог — одной заменой ресурса командой (видна
+/// со следующей стадии). Своего состояния нет — всё в ресурсе мира.
 /// </summary>
 internal sealed class TuningSystem<T>(string section) : IReactiveSystem<Event<TuningCommand>> where T : unmanaged
 {
@@ -264,8 +252,6 @@ internal sealed class TuningSystem<T>(string section) : IReactiveSystem<Event<Tu
             if (float.IsNaN(v)) continue;
             knob.Set(ref value, v);
             changed = true;
-            // Причина замены ресурса (state.why) — последняя применённая команда ручки (одна команда тика — и так она).
-            ctx.Cause = commands[i].Cause;
         }
         if (changed) ctx.Commands.SetResource(value);
     }

@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
 using Sword.Engine.Client;
 using Sword.Engine.Content;
 using Sword.Engine.DevTools;
@@ -15,10 +14,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// На шрифтах пака (категория Content): HUD боя (секция «ФИЗИКА И БОЙ» в панели, полоса здоровья и последний удар внизу, подпись
-/// меча справа внизу, экран «ПАЛ») — в окне, буквы в шрифте, кадр без выделений; панель инвентаря — строка на меч, щелчок — «взять меч»,
-/// мышь над панелью; панель ручек F3 с вкладкой «Бой» — ползунок ставит команду ручки и показывает ожидающее значение до тика, кадр без
-/// выделений.
+/// На шрифтах пака (категория Content): HUD боя, экран «ПАЛ», панель инвентаря (щелчок — «взять меч»), вкладка «Бой» панели F3
+/// (ползунок ставит команду ручки и показывает ожидающее значение); кадры без выделений.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class CombatUiDrawTests : IDisposable
@@ -147,7 +144,7 @@ public sealed class CombatUiDrawTests : IDisposable
         Assert.True(panel.Update(default));
         Assert.False(Frame());   // мышь не над панелью
         var rect = panel.LastRect;
-        Assert.Equal((1280 - 16f, 340f), (rect.X1, rect.Width));   // справа, ширина 340 (SWORD)
+        Assert.Equal((1280 - 16f, 340f), (rect.X1, rect.Width));   // справа, ширина 340
         Assert.Equal(22 + 12 + 24 + 26 * 2, rect.Height, 3);        // две строки — два меча
         // Строка 2 — sword_1h (выбран); щелчок по строке 1 — katana.
         float row0 = rect.Y0 + 8 + 22 + 6 + 13;
@@ -217,10 +214,8 @@ public sealed class CombatUiDrawTests : IDisposable
 }
 
 /// <summary>
-/// Без видеокарты и шрифтов: справка F1 со всеми клавишами боя, тексты HUD боя, кольцо игрока, инвентарь (1–9 и щелчок —
-/// команда арены «взять меч» после команд PageUp, PageDown, R, T тика, в реплее), ручки «Бой» (команда ручки в том же тике, смена
-/// правил прижимает таймеры, реплей с ручкой посреди прогона — те же хеши, ожидающее значение до тика, сохранение и загрузка в
-/// <c>sword.user.json</c>, агенту — <c>command.send</c> по имени ручки и диапазоны в <c>world.types</c>).
+/// Без видеокарты и шрифтов: справка F1, тексты HUD боя, кольцо игрока, инвентарь (1–9 и щелчок — команда «взять меч», в
+/// реплее), ручки «Бой» (команда в том же тике, реплей — те же хеши, сохранение в <c>sword.user.json</c>).
 /// </summary>
 public class CombatUiTests
 {
@@ -296,7 +291,7 @@ public class CombatUiTests
         Assert.Equal(0, sim.World.Get<WeaponSlot>(GameCore.Player(sim.World)).Index);
         Frame(clock, edges, bindings, ArenaInput.Weapons[8]);   // 9 — такого меча нет: ничего
         Assert.Equal(0, Equipped());
-        // T и 1 в одном кадре: порядок SWORD — сначала T (katana → sword_1h), затем 1 (→ katana).
+        // T и 1 в одном кадре: сначала T (katana → sword_1h), затем 1 (→ katana).
         Frame(clock, edges, bindings, ArenaInput.NextWeapon, ArenaInput.Weapons[0]);
         Assert.Equal(0, Equipped());
         Frame(clock, edges, bindings);
@@ -502,84 +497,5 @@ public class CombatUiTests
         Assert.Equal("рубящий 61, укол 62", d[..CombatTuning.MaxStrike(d, 2)].ToString());   // 2·(8 + 16·1,4), 2·(12 + 16·1,2)
         Assert.Equal("27, 18, 25, 26, 37, 75", d[..CombatTuning.SeverThresholds(d, 1)].ToString());
         Assert.Equal("14, 9, 13, 13, 19, 38", d[..CombatTuning.SeverThresholds(d, 2)].ToString());
-    }
-
-    // ── агент ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Агенту — без нового инструмента: <c>world.types CombatRules</c> — ручки с диапазонами и значениями по умолчанию, <c>command.send
-    /// TuningCommand</c> — ручка именем, <c>state.describe ecs</c> — значение в мире, <c>events.history</c> — команда ручки с именем.
-    /// </summary>
-    [Fact]
-    public async Task Agent_KnobByName_RangesInWorldTypes_ValueInStateDescribe()
-    {
-        var sim = Create("arena.enemies=0");
-        sim.EnableCausality();   // команда ручки — корень причинности, замена правил — от неё
-        var host = new Sword.Engine.Agent.AgentHost(new Sword.Engine.Agent.AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Sword.Engine.Introspection.Catalog(sim),
-            Time = new Sword.Engine.Introspection.TimeControl(true, sim.Tick), Service = new Sword.Engine.Introspection.ServiceQueue(),
-            Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"), Stop = () => { },
-            ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        Sword.Game.Agent.SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => Sword.Engine.Agent.SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonNode> Call(string tool, JsonObject? args = null, bool error = false)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.Equal(error, r["isError"]?.GetValue<bool>() ?? false);
-                return error ? r : r["structuredContent"]!;
-            }
-
-            var types = (await Call("world.types", new() { ["name"] = "CombatRules" }))["types"]![0]!;
-            var knobs = types["knobs"]!.AsArray();
-            Assert.Equal(8, knobs.Count);
-            var damage = knobs.Single(k => k!["name"]!.GetValue<string>() == CombatKnobs.PlayerDamage)!;
-            Assert.Equal(("PlayerDamage", "number", 0.2, 5.0, 2.0, true),
-                (damage["field"]!.GetValue<string>(), damage["kind"]!.GetValue<string>(), Math.Round(damage["min"]!.GetValue<double>(), 5),
-                    damage["max"]!.GetValue<double>(), damage["default"]!.GetValue<double>(), damage["log"]!.GetValue<bool>()));
-            var command = (await Call("world.types", new() { ["name"] = "TuningCommand" }))["types"]![0]!;
-            Assert.Contains(CombatKnobs.EnemiesAttack, command["fields"]!["Knob"]!.GetValue<string>());
-
-            var sent = await Call("command.send", new()
-            {
-                ["command"] = "TuningCommand", ["fields"] = new JsonObject { ["Knob"] = "combat.PlayerDamage", ["Value"] = 3.5 },
-            });
-            Assert.Equal(CombatKnobs.PlayerDamage, sent["fields"]!["Knob"]!.GetValue<string>());
-            var wrong = await Call("command.send", new()
-            {
-                ["command"] = "TuningCommand", ["fields"] = new JsonObject { ["Knob"] = "combat.nope", ["Value"] = 1 },
-            }, error: true);
-            Assert.Contains("combat.playerDamage", wrong.ToJsonString());   // ошибка перечисляет ручки
-            await Call("time.step", new() { ["ticks"] = 1 });
-            var state = (await Call("state.describe", new() { ["part"] = "ecs", ["filter"] = "CombatRules" })).ToJsonString();
-            Assert.Contains("PlayerDamage", state);
-            Assert.Contains("3.5", state);
-            var history = (await Call("events.history", new() { ["types"] = new JsonArray("TuningCommand") })).ToJsonString();
-            Assert.Contains(CombatKnobs.PlayerDamage, history);
-            // Причинность: команда ручки — корень (очередь агента), замена ресурса системой ручек — её ребёнок.
-            var root = (await Call("events.history", new() { ["types"] = new JsonArray("TuningCommand") }))["events"]![0]!["cause"]!;
-            Assert.Equal(("Command", null), (root["kind"]!.GetValue<string>(), root["parent"]));
-            Assert.Contains("агент", root["note"]!.GetValue<string>());
-            var changed = (await Call("events.history", new() { ["types"] = new JsonArray("ResourceChanged<CombatRules>") }))["events"]!.AsArray();
-            var child = Assert.Single(changed)!["cause"]!;
-            Assert.Equal(root["id"]!.GetValue<ulong>(), child["parent"]!.GetValue<ulong>());
-            Assert.StartsWith("tuning.combat", child["system"]!.GetValue<string>());
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
     }
 }

@@ -324,6 +324,45 @@ public sealed class FireModuleTests
     }
 
     [Fact]
+    public void Plane_UpOnScreenIsWorldUp_FacesEye_CameraPlaneStraightBelow()
+    {
+        // Камера 54° вниз, как RTS: у огня сбоку и внизу кадра мировая вертикаль на экране отклоняется от «вверх по экрану» — пламя
+        // на площадке камеры поднимается не туда, куда дым. Площадка огня: её ось y на экране — та же, что мировая вертикаль.
+        var eye = new Vector3(0, 2.4f, 1.75f);
+        var f = Vector3.Normalize(-eye);
+        var x = Vector3.Normalize(Vector3.Cross(f, Vector3.UnitY));
+        var y = Vector3.Cross(x, f);
+        var camera = Quaternion.CreateFromRotationMatrix(new Matrix4x4(x.X, x.Y, x.Z, 0, y.X, y.Y, y.Z, 0, -f.X, -f.Y, -f.Z, 0, 0, 0, 0, 1));
+        var viewProj = Matrix4x4.CreateLookAt(eye, Vector3.Zero, Vector3.UnitY) * Matrix4x4.CreatePerspectiveFieldOfView(1.05f, 16f / 9, 0.1f, 100);
+        float worstCamera = 0;
+        foreach (var c in new[] { new Vector3(0.9f, 0, 0.6f), new Vector3(-0.8f, 0.3f, 0.5f), new Vector3(0.4f, 0.8f, -0.6f), Vector3.Zero })
+        {
+            var plane = FireArea.Plane(camera, eye, c);
+            Assert.Equal(1f, Vector3.Dot(Vector3.Transform(Vector3.UnitZ, plane), Vector3.Normalize(eye - c)), 1e-5f);
+            float angle = ScreenAngle(viewProj, c, Vector3.Transform(Vector3.UnitY, plane), Vector3.UnitY);
+            Assert.True(angle < 0.1f, $"{c}: «вверх» площадки на экране в {angle:0.00}° от мировой вертикали");
+            worstCamera = MathF.Max(worstCamera, ScreenAngle(viewProj, c, Vector3.Transform(Vector3.UnitY, camera), Vector3.UnitY));
+        }
+        Assert.True(worstCamera > 10, $"площадка камеры отклоняется не больше {worstCamera:0.0}° — пример не показывает расхождения");
+        // Луч по вертикали — площадка камеры (без скачка: переход по длине проекции вертикали); камеры нет — без поворота.
+        Assert.Equal(camera, FireArea.Plane(camera, new Vector3(0, 3, 0), Vector3.Zero));
+        Assert.Equal(Quaternion.Identity, FireArea.Plane(default, eye, Vector3.Zero));
+    }
+
+    private static float ScreenAngle(in Matrix4x4 viewProj, Vector3 at, Vector3 a, Vector3 b)
+    {
+        static Vector2 Screen(in Matrix4x4 m, Vector3 p)
+        {
+            var c = Vector4.Transform(new Vector4(p, 1), m);
+            return new Vector2(c.X, c.Y) / c.W;
+        }
+        var o = Screen(viewProj, at);
+        var da = Vector2.Normalize(Screen(viewProj, at + 0.01f * a) - o);
+        var db = Vector2.Normalize(Screen(viewProj, at + 0.01f * b) - o);
+        return MathF.Acos(Math.Clamp(Vector2.Dot(da, db), -1f, 1f)) * 180 / MathF.PI;
+    }
+
+    [Fact]
     public void Display_InterpolatedCenter_OffsetFromStepCenter()
     {
         // Кадр между шагами: показанный центр — центр шишки между двумя последними тиками по доле тика, смещение — от центра площадки шага.
@@ -416,19 +455,22 @@ public sealed class FireModuleTests
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
         Assert.Single(fires.Fires.ToArray());
 
-        // Экземпляры и заявки шага (тик шага) — тоже 0 Б: заявки кадра — в памяти, заведённой прогревом.
+        // Экземпляры пламени и газа и заявки шага (тик шага) — тоже 0 Б: заявки кадра — в памяти, заведённой прогревом.
         var slots = scene.Fire.Slots!;
+        var gas = scene.Fire.GasSlots!;
         ulong step = tick & ~1UL;
         for (int i = 0; i < 100; i++)
         {
             scene.Modules.BeginFrame(scene.Sim.Tick);
             slots.Observe(step);
+            gas.Observe(step);
         }
         before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 1000; i++)
         {
             scene.Modules.BeginFrame(scene.Sim.Tick);
             slots.Observe(step);
+            gas.Observe(step);
         }
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
@@ -500,5 +542,136 @@ public sealed class FireModuleTests
         int burning = Array.FindIndex(scene.Fire.Slots.Slots.ToArray(), x => x.State == FireState.Burning);
         Assert.Equal(1f, light.Fade(burning));
         Assert.Equal(100f, light.Light(burning)!.Value.Intensity);
+    }
+    [Fact]
+    public void GasWindow_AboveKnob_CentreFollowsKnob_LeadClamped_RotationCentred()
+    {
+        var settings = new FireSettings();
+        float dt = 1f / 60, tau = settings.GasFollowSeconds;
+        var knob = new Vector3(1, 1.3f, -2);
+        // Стоя — окно над шишкой на GasUp: шишка на 1.92 − 1 = 0.92 м над низом окна 3.84 м.
+        Assert.Equal(knob + new Vector3(0, 1, 0), FireGasSlots.WindowTarget(knob, new Vector3(knob.X, 0, knob.Z), settings));
+        Vector3 Steady(Func<int, Vector3> path, int steps)
+        {
+            var f = new Vector3(path(0).X, 0, path(0).Z);
+            for (int i = 1; i <= steps; i++) f = FireGasSlots.Follow(f, path(i), dt, settings);
+            return f;
+        }
+        // Шаг 0.5 м/с по x — центр позади на v·(τ − dt) = 0.49 м; бег 5 м/с — 4.9 м зажато до 1.1; высота центра не важна.
+        var walk = Steady(i => new Vector3(0.5f * i * dt, 1.3f + 0.1f * i, 0), 900);
+        Assert.Equal(900 * 0.5f * dt - 0.5f * (tau - dt), walk.X, 2e-3f);
+        var run = Steady(i => new Vector3(5 * i * dt, 1.3f, 0), 300);
+        Assert.Equal(300 * 5 * dt - 1.1f, run.X, 1e-3f);
+        // Вращение на месте (факел по кругу 1.15 м, 1 об/с, как в игре) — центр окна у оси, а не на шишке: шишка на пределе 1.1 м тянет его
+        // на 0.28 м от оси — кольцо дыма (1.15 + 0.28) влезает в окно ±1.44 м.
+        float omega = 2 * MathF.PI;
+        var spin = Steady(i => 1.15f * new Vector3(MathF.Cos(omega * i * dt), 0, MathF.Sin(omega * i * dt)), 600);
+        Assert.InRange(new Vector2(spin.X, spin.Z).Length(), 0.2f, 0.3f);
+        // Скорость (итогу): экспонента по шагам, только горизонталь; скачок быстрее 40 м/с — прежняя.
+        tau = FireGasSlots.VelocitySmoothing;
+        var v = FireGasSlots.SmoothVelocity(Vector3.Zero, Vector3.Zero, new Vector3(0.1f, 0.5f, 0), dt, tau);
+        Assert.Equal(6f * dt / tau, v.X, 1e-4f);
+        Assert.Equal(0f, v.Y);
+        Assert.Equal(v, FireGasSlots.SmoothVelocity(v, Vector3.Zero, new Vector3(1f, 0, 0), dt, tau));
+    }
+
+    [Fact]
+    public void GasDrift_KnobAndCentroidPaths_OverWindow()
+    {
+        // Шишка по кругу 0.5 м за 60 шагов, центроид стоит — путь шишки π м, центроида 0; центроид за шишкой — доля 1. Шаги без чтения
+        // (каждый второй) не рвут путь шишки.
+        var drift = new FireGasDrift();
+        for (ulong s = 100; s <= 160; s++)
+        {
+            float a = 2 * MathF.PI * (s - 100) / 60f;
+            var knob = new Vector3(0.5f * MathF.Cos(a), 1, 0.5f * MathF.Sin(a));
+            drift.Knob(s, knob);
+            if (s % 2 == 0) drift.Centroid(s, new Vector3(0.01f, 1.5f, 0));
+        }
+        var d = Assert.IsType<FireGasDriftStats>(drift.Compute(60));
+        Assert.Equal((100UL, 160UL, 31), (d.FromStep, d.ToStep, d.Samples));
+        Assert.Equal(MathF.PI, d.KnobPath, 0.01f);
+        Assert.Equal(0f, d.CentroidPath);
+        Assert.Equal(0f, d.Ratio);
+        drift.Reset();
+        for (ulong s = 0; s <= 60; s++)
+        {
+            var knob = new Vector3(s * 0.05f, 1, 0);
+            drift.Knob(s, knob);
+            drift.Centroid(s, knob - new Vector3(0.3f, 0, 0));
+        }
+        d = Assert.IsType<FireGasDriftStats>(drift.Compute(60));
+        Assert.Equal(1f, d.Ratio, 1e-4f);
+        Assert.Equal(3f, d.KnobShift, 1e-4f);
+        Assert.Null(new FireGasDrift().Compute(60));
+    }
+
+    [Fact]
+    public void Gas_FollowsFire_DeathFades_WindowStays_ReleasedByTime_ResetNewInstance()
+    {
+        // Горит — экземпляр газа 0 с источником у шишки шага и окном над ней; смерть (факел выпал) — источник выключен, окно стоит, газ шагает
+        // до предела времени (без GPU Σρ не читается), затем свободен. Сброс R — новый огонь: экземпляр со сбросом. Шаги газа — те же тики, что
+        // у сима пламени.
+        var scene = new Scene(ticksPerFrame: 2, Sword, InHand);
+        var fire = scene.Fire.Slots!;
+        var gas = scene.Fire.GasSlots!;
+        scene.Frames(1);
+        var g = gas[0];
+        Assert.Equal((FireGasState.Emitting, FireGasFlags.Emit | FireGasFlags.Reset), (g.State, g.StepFlags));
+        scene.Frames(20);
+        Assert.Equal((FireGasFlags.Emit, fire[0].Step, fire[0].StepTick, fire[0].StepCenter), (g.StepFlags, g.Step, g.StepTick, g.StepKnob));
+        Assert.Equal(FireGasSlots.WindowTarget(g.Knob, g.Follow, gas.Settings), g.Target);
+        Assert.Equal(fire[0].Steps, g.Steps);
+
+        scene.Pending.Add(new SceneCommand { Action = SceneAction.Kill, Slot = 0 });
+        scene.Frames(1);
+        Assert.Equal((FireGasState.Fading, FireGasFlags.None), (g.State, g.StepFlags));
+        var target = g.Target;
+        Assert.Equal(480, gas.FadeSteps);
+        int frames = 0;
+        while (g.State == FireGasState.Fading && frames++ < 600)
+        {
+            scene.Frames(1);
+            if (g.State == FireGasState.Fading) Assert.Equal(target, g.Target);
+        }
+        Assert.Equal(FireGasState.Free, g.State);
+        Assert.Equal((1L, 0L), (gas.ReleasedByTime, gas.ReleasedByDensity));
+        Assert.Equal(FireState.Free, fire[0].State);   // пламя освобождено раньше (1.5 с)
+
+        scene.PendingArena.Add(new ArenaCommand { Action = ArenaAction.Reset });
+        scene.Frames(1);
+        var reborn = Assert.Single(gas.Slots.ToArray(), x => x.State == FireGasState.Emitting);
+        Assert.Equal(FireGasFlags.Emit | FireGasFlags.Reset, reborn.StepFlags);
+        Assert.Equal(0, gas.OverLimit);
+    }
+
+    [Fact]
+    public void Gas_WeaponSwitch_OldSmokeFades_NewFireSecondInstance_SwitchOffFreesAll()
+    {
+        // T с горящего и обратно: прежний дым гаснет на месте (окно стоит), новый огонь — второй экземпляр со сбросом. Ручка «3D-дым» выкл. —
+        // все свободны, заявок нет; вкл. — горящему огню новый экземпляр.
+        var scene = new Scene(ticksPerFrame: 2, Sword, InHand);
+        var gas = scene.Fire.GasSlots!;
+        scene.Frames(10);
+        scene.PendingArena.Add(new ArenaCommand { Action = ArenaAction.NextWeapon });
+        scene.Frames(3);
+        Assert.Equal(FireGasState.Fading, gas[0].State);
+        var target = gas[0].Target;
+        scene.PendingArena.Add(new ArenaCommand { Action = ArenaAction.NextWeapon });
+        scene.Frames(3);
+        Assert.Equal((FireGasState.Fading, target), (gas[0].State, gas[0].Target));
+        Assert.Equal((FireGasState.Emitting, FireGasFlags.Emit), (gas[1].State, gas[1].StepFlags));
+        Assert.Equal(0, gas.Stolen);
+
+        long requests = gas.StepRequests;
+        gas.Enabled = false;
+        Assert.All(gas.Slots.ToArray(), s => Assert.Equal(FireGasState.Free, s.State));
+        scene.Frames(5);
+        Assert.Equal(requests, gas.StepRequests);
+        Assert.Equal(2, gas.ReleasedBySwitch);
+        gas.Enabled = true;
+        scene.Frames(1);
+        var s = Assert.Single(gas.Slots.ToArray(), x => x.State == FireGasState.Emitting);
+        Assert.Equal(FireGasFlags.Emit | FireGasFlags.Reset, s.StepFlags);
     }
 }

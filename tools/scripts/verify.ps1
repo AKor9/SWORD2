@@ -5,20 +5,18 @@
 .DESCRIPTION
     Шаги:
       build                 сборка SWORD.slnx (предупреждения — ошибки);
-      content               пак игры Content.swpak (печёт пекарня Bake/) есть в корне и актуален: sword-bake status
-                            той же конфигурации — все ассеты upToDate; иначе — ошибка с командой выпечки (без него
-                            игра и тесты взяли бы эталонный пак, а эталоны отвергались бы по хешу контента);
+      content               пак игры Content.swpak есть в корне и собран из текущего Content/ и Bake/pak.json:
+                            sword-assets check той же конфигурации — те же пути и хеши файлов; иначе — ошибка
+                            с командой сборки (эталоны и сценарии фич отвергались бы по хешу контента);
                             -SkipReference — пропустить;
       test                  тесты решения, в том числе архитектурные и тесты на шрифтах пака (категория Content;
                             -SkipReference — без них); GPU-тесты (категория Gpu: устройство D3D12 с GPU-валидацией;
                             -SkipGpu — без них) — отдельным прогоном после остальных, проект за проектом (проекты — по
-                            исходникам tests/: есть Trait Category=Gpu); выпечка исходников пекарни со сверкой
-                            с эталонным паком (категория Source: последним прогоном, без исходников — пропуск;
-                            -SkipReference — без неё); TRX и вывод каждого прогона — artifacts/verify/test, упавшие тесты
+                            исходникам tests/: есть Trait Category=Gpu); TRX и вывод каждого прогона —
+                            artifacts/verify/test, упавшие тесты
                             с текстом ошибки — в итоге шага (failures в -Json) и artifacts/verify/test/failures.txt;
       forbidden-references  заготовки tests/fixtures/forbidden-references/SWORD00N-*: каждая обязана упасть со своим
                             кодом — иначе проверка ссылок в сборке сломана;
-      without-agent         App и Headless с -p:WithoutAgent=true собираются и не содержат сборок агента;
       without-devtools      App с -p:WithoutDevTools=true собирается без сборок DevTools (ни DLL в выходе, ни записи в
                             Sword.deps.json), а в обычной сборке Engine.DevTools есть (проверка не пуста);
       without-modules       Headless с -p:Without<Модуль>=true для каждого модуля game/modules по очереди: собирается
@@ -33,11 +31,7 @@
                             состояния по всем участникам (детерминизм); каждый модуль по очереди выключен — 10 с
                             игрового времени без ошибок; опечатка в секции конфига и выключение ядра — ошибки;
                             толпа с --profile: 0 Б/тик, тот же хеш, profile.json с зонами тика, стадий, систем, инвариантов;
-                            machine в итоге (вердикт «код или машина»), среда тика и машина в отчёте;
-                            --profile runtime — события среды с калибровкой часов, 0 Б/тик, тот же хеш;
-                            секция anomalies в итоге и отчёте, порог --profile-threshold 0.001 (аномалия — каждый тик):
-                            0 Б/тик и при захвате, файлов не больше лимита, файл аномалии и его трасса — верный JSON,
-                            --profile-trace — trace.json (Chrome Trace); аномалии ровного прогона — сообщение, не провал;
+                            --profile-trace — trace.json (Chrome Trace) с тиками кольца;
       app-smoke             Sword.exe без фокуса: 90 кадров по 2 тика с командой «бег по +X», смена размера по
                             кругу, слой отладки D3D12 с GPU-валидацией, снимок последнего кадра — итог JSON в
                             порядке, предупреждений и ошибок D3D12 и предупреждений шейдеров нет, проход
@@ -51,9 +45,7 @@
                             справка скрыта; debug_bodies (F7) — капсулы тел 11 бойцов проходом debug.bodies;
                             --no-hud — HUD не показан, прохода hud нет; I и F3 (--hold inventory,tuning) —
                             панели инвентаря и ручек видны, вкладка «Бой», HUD боя в итоге (combat); --profile: те же байты на кадр, что без него,
-                            profile.json с фазами кадра, тиками, проходами графа и зонами игры; среда кадра и тика,
-                            машина в отчёте, report.machine в итоге и бенче; --profile с захватом аномалий: те же
-                            байты на кадр, секция anomalies (аномалии под нагрузкой машины — сообщение, не провал); F2
+                            profile.json с фазами кадра, тиками, проходами графа и зонами игры; F2
                             (--hold hud_profiler) — секция профайлера в HUD и профайлер включён; у каждого
                             прохода итога gpuMs (GPU-время того же кадра, под GPU-валидацией), report.gpu: отставание 0,
                             кадр больше нуля, сумма проходов не больше кадра; profile.json — frames.gpu (кадр и проходы,
@@ -65,49 +57,23 @@
                             тике; испорченный реплей (команда одного тика в середине) называет тик и участника,
                             код выхода 3; эталоны tests/reference/replays воспроизводятся из командной строки
                             (-SkipGpu — запись Headless вместо Sword.exe; -SkipReference — без эталонов);
-      features              приёмка фич: Sword.Headless --feature all — манифест feature.json каждой фичи:
-                            сценарии, их проверки и хеши реплеев, инварианты, метрики (свои числа SWORD2 с допуском),
-                            бюджеты (время и кадр App на записи сценария — только с -Configuration Release,
-                            байты — всегда), виды — кадры
-                            Sword.exe --replay по записи сценария с теми же хешами; итоги — artifacts/features/<id>
-                            (-SkipGpu — без видов; -SkipReference — пропустить: эталоны на паке игры);
-      agent-smoke           агентский доступ (раздел 8) — настоящие сеансы MCP: Sword.Headless --agent
-                            (stdio) — initialize, список инструментов, игрок по имени, команда движения на 120 тиков,
-                            time.step, игрок ушёл по +X, ecs.explainSystem, играет клип бега (anim.clips по номеру
-                            из MotionMatchState — игрок со sword.json на Motion Matching), участник хеша locomotion,
-                            anim.pose, physics.bodies, state.hash, state.describe; реплеи —
-                            replay.save, time.seek назад и вперёд к тому же хешу, session.start с реплеем — совпал,
-                            replay.check; feature.list, feature.verify, experiment.fork (ветка с другой
-                            командой расходится на тике после неё), experiment.compare; profile.stages (включить,
-                            30 тиков, зоны, среда тика и машина, аномалии и trace, выключить);
-                            session.stop — выход 0;
-                            Sword.exe --agent
-                            (HTTP 127.0.0.1) — пауза, команда, шаги, capture.bundle (цвет, глубина, игрок в кадре с
-                            рамкой; ID-буфер: сегменты игрока в его рамке с легендой, оверлей капсул), render.graph,
-                            replay.status (запись с тика 0), profile.stages (кадры: фазы, тики, проходы, gpu),
-                            gpuMs проходов в render.graph и gpu снимка (отставание 0), session.stop — выход
-                            closed-by-tool (с -SkipGpu — только Headless); время жизни сервера: конец stdin
-                            посреди долгого time.runUntil — выход за секунды, снятая обёртка cmd (вход открыт) — выход,
-                            --idle-exit 0.05 — выход после простоя;
       ecs-bench             только с -Bench (~2 мин): BenchmarkDotNet, tests/Sword.Benchmarks — обход ECS медленнее
                             сырого цикла по Span не более чем на 30 %, команды и журналы — 0 байт на тик (раздел 5
                             плана); сэмплинг поз (1 и 33 бойца, кроссфейд) — 0 байт на тик; итог —
                             artifacts/bench/ecs.json; пара Begin/End профайлера CPU — выключенного не дороже
-                            1,5 нс, 0 байт с ним и без; счётчики среды, период, снимок машины, строка HUD —
-                            0 байт — artifacts/bench/profiler.json;
+                            1,5 нс, 0 байт с ним и без; период профайлера — 0 байт — artifacts/bench/profiler.json;
       line-endings          все текстовые файлы — CRLF (соглашение AGENTS.md); рабочие деревья других агентов
-                            (.claude\worktrees\) не проверяются;
-      reference             SHA-256 эталонного пака совпадает с tests/reference/reference.json;
+                            (.claude\worktrees\) и игровые ресурсы Content\ (копии исходников, вне git) не проверяются;
       processes             идёт всегда, последним: после verify не осталось процессов SWORD — ни в его
-                            задании Windows (фоновые запуски Sword.Headless --agent и Sword.exe --agent — в задании с
-                            KILL_ON_JOB_CLOSE: verify снят или упал — они завершаются с ним), ни среди его потомков.
+                            задании Windows (запуски Sword.exe и Sword.Headless — в задании с KILL_ON_JOB_CLOSE:
+                            verify снят или упал — они завершаются с ним), ни среди его потомков.
 
 .PARAMETER Json
     Итог одним JSON-объектом в stdout, UTF-8 (для агентов). Код выхода: 0 — всё прошло, 1 — нет.
 
 .PARAMETER SkipReference
-    Не проверять паки контента (пак игры Content.swpak и эталонный) и не запускать то, чему они нужны (тесты категорий
-    Content и Source, эталоны, сценарии фич) — например, на машине без них.
+    Не проверять пак игры Content.swpak и не запускать то, чему он нужен (тесты категории Content, эталоны) — например,
+    на машине без него.
 
 .PARAMETER Bench
     Прогнать микробенчмарки ECS (BenchmarkDotNet, Release, около двух минут) и проверить цели производительности.
@@ -118,14 +84,14 @@
 .PARAMETER Only
     Только эти шаги (через запятую); `build` идёт всегда, остальные — «пропущено (-Only)»; неизвестный шаг — ошибка до
     сборки; итог — только выбранных шагов (поле `only` в `-Json`, пометка в последней строке). Для Release-замеров после
-    полного прогона Debug: `-Configuration Release -Only headless-smoke,app-smoke,features` — тесты и проверки правил в
-    Release не повторяются (проверки мира ECS включены только в Debug, время бюджетов проверяется только в Release).
+    полного прогона Debug: `-Configuration Release -Only headless-smoke,app-smoke` — тесты и проверки правил в
+    Release не повторяются (проверки мира ECS включены только в Debug).
 
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 -Json
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 -Json -Configuration Release -Only headless-smoke,app-smoke,features
+    powershell -NoProfile -ExecutionPolicy Bypass -File tools/scripts/verify.ps1 -Json -Configuration Release -Only headless-smoke,app-smoke
 #>
 param(
     [ValidateSet('Debug', 'Release')]
@@ -143,8 +109,8 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
 
-$knownSteps = @('build', 'content', 'test','forbidden-references', 'without-agent', 'without-devtools', 'without-modules', 'headless-smoke', 'app-smoke',
-    'replay-smoke', 'features', 'agent-smoke', 'ecs-bench', 'line-endings', 'reference', 'processes')
+$knownSteps = @('build', 'content', 'test','forbidden-references', 'without-devtools', 'without-modules', 'headless-smoke', 'app-smoke',
+    'replay-smoke', 'ecs-bench', 'line-endings', 'processes')
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($name in $Only) {
     if ($knownSteps -notcontains $name) { throw "-Only: неизвестный шаг «$name»; шаги: $($knownSteps -join ', ')" }
@@ -154,7 +120,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $solution = Join-Path $root 'SWORD.slnx'
 $steps = New-Object System.Collections.Generic.List[object]
 
-# Процессы SWORD, которые verify запускает в фоне (Sword.Headless --agent, Sword.exe --agent), — в задании
+# Процессы SWORD, которые verify запускает (Sword.exe, Sword.Headless), — в задании
 # Windows (Job Object) с KILL_ON_JOB_CLOSE: verify снят или упал — ОС закрывает ручку задания, они завершаются. Сам
 # verify в задание не входит: узлы MSBuild и сервер компилятора, общие с другими сборками пользователя, оно не трогает.
 # Шаг processes в конце — процессов SWORD не осталось.
@@ -297,28 +263,25 @@ if ($SkipReference) {
 }
 else {
     Add-Step 'content' {
-        # Пак игры — Content.swpak пекарни в корне. Без него ContentLocator взял бы эталонный пак: игра работает, а эталоны
-        # и сценарии фич отвергаются по хешу контента — здесь это ошибка с командой выпечки, а не загадка в других шагах.
+        # Пак игры — Content.swpak в корне, собранный менеджером ресурсов из Content/ (без pak.json-исключений). Пак,
+        # не совпадающий с Content/, — ошибка с командой сборки, а не загадка в эталонах и сценариях фич.
         if (-not $script:buildOk) { return @{ ok = $false; detail = 'не запускался: сборка не прошла' } }
-        $bake = Get-ChildItem (Join-Path $root "tools\Sword.Bake.Cli\bin\$Configuration") -Recurse -Filter 'sword-bake.exe' | Select-Object -First 1
-        if (-not $bake) { return @{ ok = $false; detail = 'не найден sword-bake.exe' } }
-        $relBake = $bake.FullName.Substring($root.Length + 1)
-        $hint = "выпечь: cd Bake; ..\$relBake build (корни исходников — Bake/bake.user.json)"
+        $assets = Get-ChildItem (Join-Path $root "tools\Sword.Assets\bin\$Configuration") -Recurse -Filter 'sword-assets.exe' | Select-Object -First 1
+        if (-not $assets) { return @{ ok = $false; detail = 'не найден sword-assets.exe' } }
+        $relAssets = $assets.FullName.Substring($root.Length + 1)
+        $hint = "собрать: $relAssets pack (ресурсы Content/ — sword-bake --all, корни исходников — Bake/bake.user.json)"
         $pak = Join-Path $root 'Content.swpak'
         if (-not (Test-Path $pak)) { return @{ ok = $false; detail = "нет пака игры Content.swpak в корне — $hint" } }
+        if (-not (Test-Path (Join-Path $root 'Content'))) { return @{ ok = $false; detail = "нет игровых ресурсов Content/ в корне — sword-bake --all, затем $hint" } }
         $ErrorActionPreference = 'Continue'
-        $out = (& $bake.FullName status --json --project (Join-Path $root 'Bake') 2>$null | Out-String).Trim()
-        $code = $LASTEXITCODE
-        $st = $null
-        try { $st = $out | ConvertFrom-Json } catch { }
-        if (-not $st) { return @{ ok = $false; detail = "sword-bake status: код $code, ответ не JSON: $($out.Substring(0, [Math]::Min(300, $out.Length)))" } }
-        $assets = @($st.assets)
-        $stale = @($assets | Where-Object { $_.status -ne 'upToDate' })
-        if ($code -ne 0 -or $stale.Count -gt 0) {
-            $why = @($stale | Select-Object -First 5 | ForEach-Object { "$($_.id): $($_.status) $($_.reason)" }) + @($st.project.problems | Select-Object -First 3)
-            return @{ ok = $false; detail = "пак игры устарел ($Configuration; код $code; не актуальны $($stale.Count) из $($assets.Count)): $($why -join '; ') — $hint" }
+        Push-Location $root
+        try { $out = (& $assets.FullName check 2>&1 | Out-String).Trim(); $code = $LASTEXITCODE }
+        finally { Pop-Location }
+        $lines = @($out -split "`r?`n" | Where-Object { $_ })
+        if ($code -ne 0) {
+            return @{ ok = $false; detail = "пак не собран из текущего Content/ (код $code): $(@($lines | Select-Object -First 6) -join '; ') — $hint" }
         }
-        @{ ok = $true; detail = "Content.swpak актуален ($Configuration): ассетов $($assets.Count), $([Math]::Round((Get-Item $pak).Length / 1MB)) МБ" }
+        @{ ok = $true; detail = "$($lines[-1]), $([Math]::Round((Get-Item $pak).Length / 1MB)) МБ" }
     }
 }
 
@@ -355,7 +318,7 @@ Add-Step 'test' {
     # Остальные тесты — параллельно по проектам. GPU-тесты — отдельно, проект за проектом: в одном прогоне решения несколько
     # процессов с устройством D3D12 под GPU-валидацией делили одну видеокарту (внутри проекта они и так в одной коллекции без
     # параллельности). Выпечка исходников (категория Source) десятки секунд занимает все ядра — последней: параллельно с
-    # остальными ломала тесты на настоящих часах (профайлер: «аномалии не было»).
+    # остальными ломала тесты на настоящих часах.
     Invoke-Tests 'main' $solution (@('Category!=Source', 'Category!=Gpu') + $content)
     if (-not $SkipGpu) {
         $gpu = @(Get-ChildItem (Join-Path $root 'tests') -Directory | Where-Object {
@@ -368,7 +331,6 @@ Add-Step 'test' {
             Invoke-Tests "gpu-$($project.Name)" $csproj (@('Category=Gpu', 'Category!=Source') + $content)
         }
     }
-    if (-not $SkipReference) { Invoke-Tests 'source' $solution @('Category=Source') }
     $ok = @($runs | Where-Object { -not $_.Ok }).Count -eq 0
     $detail = ($runs | ForEach-Object { if ($_.Name -eq 'main') { $_.Summary } else { "$($_.Name): $($_.Summary)" } }) -join ' | '
     $failed = @(Get-TrxFailures $dir)
@@ -399,22 +361,6 @@ Add-Step 'forbidden-references' {
         elseif ($out -notmatch "error $code") { $failures += "$($case.Name): упала, но не с $code" }
     }
     if ($failures.Count -eq 0) { @{ ok = $true; detail = "$($cases.Count) заготовок упали со своими кодами" } }
-    else { @{ ok = $false; detail = $failures -join '; ' } }
-}
-
-Add-Step 'without-agent' {
-    # Сборка без агента (-p:WithoutAgent=true) не содержит ни одной его сборки — раздел 4 плана.
-    $failures = @()
-    foreach ($exe in @('Sword.Game.App', 'Sword.Game.Headless')) {
-        $project = Join-Path $root "game\$exe\$exe.csproj"
-        $output = Join-Path $root "artifacts\verify\without-agent\$exe"
-        if (Test-Path $output) { Remove-Item $output -Recurse -Force }
-        $out = & dotnet build $project -c $Configuration -nologo -v:minimal -p:WithoutAgent=true -o $output | Out-String
-        if ($LASTEXITCODE -ne 0) { $failures += "$exe не собрался без агента: $(Get-Lines $out ': error ' 3)"; continue }
-        $leaked = @(Get-ChildItem $output -Filter '*.Agent*.dll' | ForEach-Object { $_.Name })
-        if ($leaked.Count -gt 0) { $failures += "$exe без агента содержит: $($leaked -join ', ')" }
-    }
-    if ($failures.Count -eq 0) { @{ ok = $true; detail = 'App и Headless без агента собрались и не содержат его сборок' } }
     else { @{ ok = $false; detail = $failures -join '; ' } }
 }
 
@@ -544,55 +490,16 @@ Add-Step 'headless-smoke' {
         elseif (-not $report -or $report.format -ne 'sword-profile' -or $report.ticks.count -ne 480) { $problems += "--profile: отчёт $($prof.profile.file) — формат $($report.format), тиков $($report.ticks.count) (ждали 480 после прогрева)" }
         elseif ($top[0] -ne 'tick' -or $missing.Count -gt 0) { $problems += "--profile: нет зон [$($missing -join ', ')] или первая не tick: [$($zones -join ', ')]" }
         elseif ($prof.profile.mismatches -ne 0) { $problems += "--profile: несогласованных зон $($prof.profile.mismatches)" }
-        # Машина за тики после прогрева в итоге --json (и без профайлера), среда на тик и машина — в отчёте.
-        elseif (-not $crowd.machine -or $crowd.machine.verdict -notin @('код', 'среда', 'машина') -or -not $crowd.machine.text) { $problems += "итог --json без machine (вердикт «код или машина»): $($crowd.machine | ConvertTo-Json -Compress)" }
-        elseif (-not $report.ticks.runtime -or -not ($report.ticks.runtime.cpuMs -gt 0) -or -not $report.machine.verdict) { $problems += "--profile: в отчёте нет среды тика (ticks.runtime) или машины (machine)" }
-        else { $crowdNote += "; --profile — 0 Б/тик, тот же хеш, зон $($zones.Count), тик на CPU $($report.ticks.runtime.onCpuPct) %, отчёт $($prof.profile.file); машина: $($crowd.machine.text)" }
+        else { $crowdNote += "; --profile — 0 Б/тик, тот же хеш, зон $($zones.Count), отчёт $($prof.profile.file)" }
     }
-    # Диагностический режим (--profile runtime) — события среды с местами, 0 Б/тик, тот же хеш.
+    # Кольцо профайлера в Chrome Trace (--profile-trace): trace.json с тиками кольца, 0 Б/тик.
     if ($problems.Count -eq 0) {
-        $diag = (& $exe.FullName --ticks 600 --units 40 --move 1,0 --profile runtime --json 2>$null | Out-String).Trim() | ConvertFrom-Json
-        $diagReport = if ($diag.profile.file -and (Test-Path $diag.profile.file)) { Get-Content $diag.profile.file -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
-        if (-not $diag.ok -or -not $diagReport) { $problems += "--profile runtime: итог или отчёт — $($diag.error)" }
-        elseif ($diag.allocatedBytesPerTick -ne 0) { $problems += "--profile runtime: тик выделяет $($diag.allocatedBytesPerTick) Б, ждали 0 (слушатель выделяет на своём потоке)" }
-        elseif (($diag.stateHash | ConvertTo-Json -Compress) -ne ($crowd.stateHash | ConvertTo-Json -Compress)) { $problems += "--profile runtime: хеш $($diag.stateHash.total), без профайлера — $($crowd.stateHash.total)" }
-        elseif (-not $diagReport.events -or -not $diagReport.events.calibrated -or $diagReport.events.received -lt 1) { $problems += "--profile runtime: события — калибровка $($diagReport.events.calibrated), принято $($diagReport.events.received)" }
-        else { $crowdNote += "; --profile runtime — событий $($diagReport.events.received), JIT $($diagReport.events.jit.methods), 0 Б/тик, тот же хеш" }
-    }
-    # Захват аномалий. Ровный прогон толпы (--profile выше) — аномалии не провал: первые секунды свежего процесса — JIT
-    # (OSR в тике, класс JIT), под нагрузкой машины — «машина»; о них — сообщение. Проверка устройства — порогом 0.001 мс
-    # (аномалия — каждый тик после 32 первых): главный поток не выделяет и в кадре аномалии (0 Б/тик), файлов — не больше лимита
-    # (20), каждый — формат sword-profile-anomaly с главной зоной и классом, трасса аномалии и trace.json — Chrome Trace.
-    if ($problems.Count -eq 0) {
-        $normal = $prof.profile.anomalies
-        $forced = (& $exe.FullName --ticks 240 --units 40 --move 1,0 --profile-threshold 0.001 --profile-trace --json 2>$null | Out-String).Trim() | ConvertFrom-Json
-        $a = $forced.profile.anomalies
-        $dirA = if ($a) { $a.directory } else { $null }
-        $files = @(if ($dirA -and (Test-Path $dirA)) { Get-ChildItem $dirA -Filter 'anomaly-*.json' | Where-Object { $_.Name -notlike '*.trace.json' } })
-        $traces = @(if ($dirA -and (Test-Path $dirA)) { Get-ChildItem $dirA -Filter 'anomaly-*.trace.json' })
-        $first = if ($files.Count -gt 0) { Get-Content $files[0].FullName -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
-        $firstTrace = if ($traces.Count -gt 0) { Get-Content $traces[0].FullName -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
-        $ringTrace = if ($forced.profile.trace -and (Test-Path $forced.profile.trace)) { Get-Content $forced.profile.trace -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
-        if (-not $normal) { $problems += '--profile: в итоге нет profile.anomalies (захват аномалий)' }
-        elseif (-not $forced.ok -or -not $a) { $problems += "--profile-threshold: итог — $($forced.error)" }
-        elseif ([int]$a.detected -ne 240 - 32) { $problems += "--profile-threshold 0.001: аномалий $($a.detected), ждали $(240 - 32) (каждый тик после 32 первых)" }
-        elseif ($forced.allocatedBytesPerTick -ne 0) { $problems += "--profile-threshold 0.001: тик выделяет $($forced.allocatedBytesPerTick) Б при захвате аномалий, ждали 0" }
-        # Лимиты файлов по классам — код/JIT/GC 20, «машина» 5 (ожидания GPU и заметных у Headless нет): не больше 25.
-        elseif (-not $a.limits -or [int]$a.limits.general.files -gt 20 -or [int]$a.limits.machine.files -gt 5 -or [int]$a.limits.gpu.files -ne 0 -or [int]$a.limits.noticeable.files -ne 0) { $problems += "--profile-threshold 0.001: лимиты файлов по классам — $($a.limits | ConvertTo-Json -Compress -Depth 3)" }
-        elseif ($files.Count -lt 1 -or $files.Count -gt 25 -or [int]$a.written -ne $files.Count) { $problems += "--profile-threshold 0.001: файлов аномалий $($files.Count) (в итоге — $($a.written)), ждали 1…25 (20 код/JIT/GC + 5 «машина»)" }
-        # Порог 0.001 — аномалия и на тике не дольше обычного; у такого главной зоны нет (mainZone.name null и
-        # mainZone.note «главной зоны нет»), у остальных — имя зоны. Одно из двух — у каждого файла.
-        elseif (-not $first -or $first.format -ne 'sword-profile-anomaly' -or $first.class -notin @('code', 'jit', 'gc', 'gpu', 'machine') -or
-            @($files | ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } | Where-Object {
-                -not ([bool]$_.mainZone.name -xor ([string]$_.mainZone.note).StartsWith('главной зоны нет')) }).Count -gt 0) {
-            $problems += "файл аномалии $($files[0].FullName): формат $($first.format), зона $($first.mainZone.name) ($($first.mainZone.note)), класс $($first.class); у каждого файла — имя главной зоны или «главной зоны нет»"
-        }
-        elseif (-not $firstTrace -or @($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count -lt 10) { $problems += "трасса аномалии: событий X $(@($firstTrace.traceEvents | Where-Object { $_.ph -eq 'X' }).Count)" }
-        elseif (-not $ringTrace -or @($ringTrace.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count -lt 100) { $problems += "--profile-trace: trace.json — $($forced.profile.trace)" }
-        else {
-            $normalText = if ([int]$normal.detected -gt 0) { "аномалий $($normal.detected) ($(@($normal.last | ForEach-Object { "тик $($_.number) $($_.classText) $($_.zone)" }) -join '; '))" } else { 'аномалий нет' }
-            $crowdNote += "; ровный прогон: $normalText; порог 0.001 мс — $($a.detected) аномалий, 0 Б/тик, файлов $($files.Count) (код/JIT/GC — $($a.limits.general.files) из 20, «машина» — $($a.limits.machine.files) из 5), трасса и trace.json — Chrome Trace"
-        }
+        $traced = (& $exe.FullName --ticks 240 --units 40 --move 1,0 --profile-trace --json 2>$null | Out-String).Trim() | ConvertFrom-Json
+        $ringTrace = if ($traced.profile.trace -and (Test-Path $traced.profile.trace)) { Get-Content $traced.profile.trace -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
+        if (-not $traced.ok) { $problems += "--profile-trace: итог — $($traced.error)" }
+        elseif ($traced.allocatedBytesPerTick -ne 0) { $problems += "--profile-trace: тик выделяет $($traced.allocatedBytesPerTick) Б, ждали 0" }
+        elseif (-not $ringTrace -or @($ringTrace.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count -lt 100) { $problems += "--profile-trace: trace.json — $($traced.profile.trace)" }
+        else { $crowdNote += "; --profile-trace — trace.json (Chrome Trace), тиков $(@($ringTrace.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count)" }
     }
     # Детерминизм: тот же прогон ещё раз — тот же хеш каждого участника.
     if ($problems.Count -eq 0) {
@@ -783,7 +690,7 @@ else {
                 else {
                     $profReport = if (Test-Path $profRun.profile.file) { Get-Content $profRun.profile.file -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
                     $frameZones = if ($profReport) { @($profReport.frames.zones | ForEach-Object { $_.name }) } else { @() }
-                    $needZones = @('frame', 'frame.messages', 'frame.input', 'frame.simulate', 'tick', 'frame.tools', 'frame.extract', 'frame.render',
+                    $needZones = @('frame', 'frame.messages', 'frame.input', 'frame.simulate', 'tick', 'frame.extract', 'frame.render',
                         'frame.fenceWait', 'frame.build', 'frame.record', 'frame.present', 'render.scene.opaque', 'render.hud', 'arena.extract.bodies',
                         'arena.build.skin', 'stage.Animation', 'core.animation-tick@Animation')
                     $missingZones = @($needZones | Where-Object { $frameZones -notcontains $_ })
@@ -795,24 +702,13 @@ else {
                     }
                     elseif ($missingZones.Count -gt 0) { $problems += "--profile: в кадре нет зон [$($missingZones -join ', ')]" }
                     elseif ($profReport.mismatches -ne 0 -or $profReport.abandoned -ne 0) { $problems += "--profile: несогласованных зон $($profReport.mismatches), брошенных периодов $($profReport.abandoned)" }
-                    # Среда на кадр и тик, машина в отчёте и в итоге прогона (и без профайлера).
-                    elseif (-not $profReport.frames.runtime -or -not $profReport.ticks.runtime -or -not $profReport.machine.verdict) { $problems += '--profile: в отчёте нет frames.runtime, ticks.runtime или machine' }
-                    elseif (-not $plainRun.report.machine -or -not $plainRun.report.machine.text) { $problems += 'итог Sword.exe без report.machine (вердикт «код или машина»)' }
-                    # Захват аномалий включён с --profile (байты на кадр — те же, проверено выше); аномалии этого прогона —
-                    # сообщение, а не провал: 120 кадров с GPU-валидацией на машине пользователя (GPU и CPU делят с другими
-                    # программами) — рывки ожидания GPU и снятия с процессора бывают, и это не ошибка кода.
-                    elseif (-not $profReport.anomalies -or -not $profRun.profile.anomalies) { $problems += '--profile: в отчёте или итоге нет anomalies' }
                     # GPU-время кадра и проходов рядом с зонами CPU — секция frames.gpu, данные кадра N − 3; в зонах CPU их нет.
                     elseif (-not $profReport.frames.gpu -or $profReport.frames.gpu.lagFrames -ne 3 -or $profReport.frames.gpu.frame.name -ne 'gpu.frame' -or
                         -not ($profReport.frames.gpu.frame.meanMs -gt 0) -or @($profReport.frames.gpu.passes | Where-Object { $_.name -eq 'gpu.scene.opaque' }).Count -ne 1 -or
                         @($frameZones | Where-Object { $_ -like 'gpu.*' }).Count -ne 0) {
                         $problems += "--profile: frames.gpu — $($profReport.frames.gpu | ConvertTo-Json -Compress -Depth 4)"
                     }
-                    else {
-                        $an = $profReport.anomalies
-                        $anText = if ([int]$an.detected -gt 0) { "аномалий $($an.detected) ($(@($an.list | Select-Object -Last 3 | ForEach-Object { "кадр $($_.number) $($_.classText) $($_.zone)" }) -join '; '))" } else { 'аномалий нет' }
-                        $script:profileNote = "--profile — $($profRun.report.allocatedBytesPerFrame) Б/кадр, как без него (и с захватом аномалий), зон кадра $($frameZones.Count), кадр на CPU $($profReport.frames.runtime.onCpuPct) %, $anText"
-                    }
+                    else { $script:profileNote = "--profile — $($profRun.report.allocatedBytesPerFrame) Б/кадр, как без него, зон кадра $($frameZones.Count)" }
                 }
                 # F2 (удержание нажимает его в первом кадре) — секция профайлера в HUD, профайлер включён им самим.
                 $f2 = Invoke-App 'f2' @('--frames', '60', '--hold', 'hud_profiler')
@@ -835,12 +731,11 @@ else {
                     elseif ($bench.report.simTicks -lt 600) { $problems += "--bench 5: тиков $($bench.report.simTicks), замер кончился раньше 5 с" }
                     elseif (-not (Test-Path $benchShot)) { $problems += '--bench 5: нет снимка последнего кадра замера' }
                     elseif ($bench.arena.enemies -ne 32 -or $bench.arena.skinned -ne 33) { $problems += "--bench 5 --units 32: врагов $($bench.arena.enemies), отдано скиннингу $($bench.arena.skinned); ждали 32 и 33" }
-                    elseif (-not $bench.report.machine -or -not $bench.report.machine.text) { $problems += '--bench 5: нет report.machine (машина за замер)' }
                     # GPU-время кадра замера (среднее, p99) и проходы — мс на кадр (как BenchRecorder SWORD).
                     elseif ($b.gpuFrames -lt 1 -or -not ($b.gpuMs -gt 0) -or $b.gpuP99Ms -lt $b.gpuMs * 0.5 -or @($b.passes | Where-Object { $_.name -eq 'scene.opaque' -and $_.ms -gt 0 }).Count -ne 1) {
                         $problems += "--bench 5: GPU — кадров $($b.gpuFrames), ср $($b.gpuMs) мс, p99 $($b.gpuP99Ms), проходы $($b.passes | ConvertTo-Json -Compress)"
                     }
-                    else { $script:benchNote = "команды арены (PageUp, R) в записи Sword.exe — Headless повторил её хеши; бенч с 32 врагами (33 бойца в кадре): $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс, GPU ср $($b.gpuMs) мс, p99 $($b.gpuP99Ms) мс; $($bench.report.machine.text)" }
+                    else { $script:benchNote = "команды арены (PageUp, R) в записи Sword.exe — Headless повторил её хеши; бенч с 32 врагами (33 бойца в кадре): $($b.frames) кадров, ср $($b.averageMs) мс, p99 $($b.p99Ms) мс, GPU ср $($b.gpuMs) мс, p99 $($b.gpuP99Ms) мс" }
                 }
             }
         }
@@ -944,445 +839,6 @@ Add-Step 'replay-smoke' {
     else { @{ ok = $false; detail = $problems -join '; ' } }
 }
 
-if ($SkipReference) {
-    $steps.Add([ordered]@{ name = 'features'; ok = $true; seconds = 0; detail = 'пропущено (-SkipReference): сценарии фич — на паке игры' })
-    if (-not $Json) { Write-Host 'SKIP features                     пропущено (-SkipReference)' }
-}
-else {
-    Add-Step 'features' {
-        # Приёмка каждой фичи по её манифесту одним вызовом; вердикт — по манифесту и эталонам.
-        $ErrorActionPreference = 'Continue'
-        $headless = Get-ChildItem (Join-Path $root "game\Sword.Game.Headless\bin\$Configuration") -Recurse -Filter 'Sword.Headless.exe' | Select-Object -First 1
-        if (-not $headless) { return @{ ok = $false; detail = 'не найден Sword.Headless.exe' } }
-        $arguments = @('--feature', 'all', '--json')
-        if ($SkipGpu) { $arguments += '--no-views' }
-        $r = (& $headless.FullName @arguments 2>$null | Out-String).Trim() | ConvertFrom-Json
-        $code = $LASTEXITCODE
-        if (-not $r -or -not $r.features) { return @{ ok = $false; detail = "Sword.Headless --feature all: код $code, $($r.error)" } }
-        $failed = @($r.features | Where-Object { -not $_.ok })
-        if ($code -ne 0 -or $failed.Count -gt 0) {
-            return @{ ok = $false; detail = ($failed | ForEach-Object { "$($_.feature): $(@($_.failures | Select-Object -First 3) -join '; ')" }) -join ' | ' }
-        }
-        $summary = $r.features | ForEach-Object {
-            $views = if ($_.views -is [array]) { @($_.views).Count } else { 0 }
-            "$($_.feature) (сценариев $(@($_.scenarios).Count), метрик $(@($_.metrics).Count), видов $views, бюджетов $(if ($_.budgets -is [array]) { @($_.budgets).Count } else { 0 }))"
-        }
-        $time = if ($Configuration -eq 'Release') { 'бюджеты времени и кадра проверены' } else { 'время и кадр бюджетов только замерены (Debug)' }
-        $viewNote = if ($SkipGpu) { 'виды пропущены (-SkipGpu)' } else { 'хеши App во всех видах совпали с Headless' }
-        @{ ok = $true; detail = "зелёные: $($summary -join ', '); $time; $viewNote" }
-    }
-}
-
-Add-Step 'agent-smoke' {
-    # Сеанс MCP как у Claude Code: запрос — строка JSON-RPC, ответ — строка (stdio) или тело POST (HTTP).
-    $problems = @()
-    $headless = Get-ChildItem (Join-Path $root "game\Sword.Game.Headless\bin\$Configuration") -Recurse -Filter 'Sword.Headless.exe' | Select-Object -First 1
-    if (-not $headless) { return @{ ok = $false; detail = 'не найден Sword.Headless.exe' } }
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $headless.FullName
-    $psi.Arguments = '--agent'
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
-    $psi.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    Add-ToJob $proc
-    $stderr = $proc.StandardError.ReadToEndAsync()
-    $script:rpcId = 0
-    $utf8 = New-Object System.Text.UTF8Encoding $false
-    function Write-Stdio([string]$line) {
-        # Байтами UTF-8: у StandardInput в PowerShell 5.1 кодировка консоли (OEM), кириллица исказилась бы.
-        $bytes = $utf8.GetBytes($line + "`n")
-        $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-        $proc.StandardInput.BaseStream.Flush()
-    }
-    function Send-Stdio($method, $params) {
-        $script:rpcId++
-        Write-Stdio (@{ jsonrpc = '2.0'; id = $script:rpcId; method = $method; params = $params } | ConvertTo-Json -Compress -Depth 20)
-        $read = $proc.StandardOutput.ReadLineAsync()
-        if (-not $read.Wait(60000)) { throw "Headless не ответил на $method за 60 с" }
-        if (-not $read.Result) { throw "Headless закрыл вывод на $method" }
-        return ($read.Result | ConvertFrom-Json)
-    }
-    function Call-Stdio($tool, $arguments) {
-        $r = Send-Stdio 'tools/call' @{ name = $tool; arguments = $arguments }
-        if ($r.error) { throw "${tool}: $($r.error.message)" }
-        if ($r.result.isError) { throw "${tool}: $($r.result.structuredContent.error)" }
-        return $r.result.structuredContent
-    }
-    try {
-        $init = Send-Stdio 'initialize' @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'verify' } }
-        if ($init.result.protocolVersion -ne '2025-06-18') { $problems += "Headless: протокол $($init.result.protocolVersion)" }
-        Write-Stdio '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-        $tools = @((Send-Stdio 'tools/list' @{}).result.tools | ForEach-Object { $_.name })
-        foreach ($t in @('session.status', 'time.step', 'world.query', 'entity.get', 'command.send', 'log.tail', 'ecs.explainSystem', 'architecture.projects', 'anim.pose', 'anim.clips', 'physics.bodies', 'combat.weapons', 'state.hash', 'state.describe',
-                'replay.status', 'replay.save', 'replay.check', 'replay.diff', 'session.start', 'time.seek',
-                'time.break', 'watch.add', 'watch.list', 'watch.remove', 'entity.history', 'events.history', 'world.snapshot', 'world.diff', 'replay.observe',
-                'invariant.list', 'invariant.enable', 'invariant.run', 'invariant.define', 'time.breakOnInvariant',
-                'feature.list', 'feature.verify', 'experiment.fork', 'experiment.compare', 'experiment.sweep', 'profile.stages')) {
-            if ($tools -notcontains $t) { $problems += "Headless: нет инструмента $t" }
-        }
-        $player = Call-Stdio 'entity.get' @{ entity = 'player' }
-        if ($player.name -ne 'player') { $problems += "Headless: entity.get player — $($player.name)" }
-        $null = Call-Stdio 'command.send' @{ command = 'PlayerCommand'; fields = @{ Move = @{ X = 1; Y = 0 } }; repeat = 120 }
-        $step = Call-Stdio 'time.step' @{ ticks = 120 }
-        if ($step.receipt.tickId -ne 120) { $problems += "Headless: после time.step тик $($step.receipt.tickId), ждали 120" }
-        $moved = Call-Stdio 'entity.get' @{ entity = 'player'; components = @('Transform') }
-        $x = $moved.components.Transform.Position.X
-        if (-not ($x -gt 3.5)) { $problems += "Headless: игрок не ушёл по +X за 120 тиков: x = $x" }
-        $explain = Call-Stdio 'ecs.explainSystem' @{ name = 'PlayerCommand' }
-        if ($explain.stage -ne 'Intent' -or -not $explain.source) { $problems += "Headless: ecs.explainSystem — стадия $($explain.stage), источник $($explain.source)" }
-        # Motion Matching: игрок со sword.json (locomotion.player = mm) играет клип бега базы MM (номер клипа в состоянии
-        # MM → имя через anim.clips), поза — живая; враги — на клипах (LegacyLocomotionState).
-        $loco = Call-Stdio 'entity.get' @{ entity = 'player'; components = @('MotionMatchState') }
-        $clip = Call-Stdio 'anim.clips' @{ index = [int]$loco.components.MotionMatchState.Clip }
-        $clipName = "$(@($clip.clips)[0].name)"
-        if ($clipName -notmatch 'Run' -or $clipName -notlike 'locomotion/*') { $problems += "Headless: после бега играет клип «$clipName», ждали бег базы MM (locomotion/*Run*)" }
-        if ([int]$loco.components.MotionMatchState.Searches -lt 5) { $problems += "Headless: MM игрока — поисков $($loco.components.MotionMatchState.Searches) за 120 тиков" }
-        $pose = Call-Stdio 'anim.pose' @{ entity = 'player'; joints = @('pelvis', 'head') }
-        # Вид MM в anim.pose (клип, последний поиск, траектории, отпечаток базы), события переходов в журнале, зона поиска.
-        $mm = $pose.motionMatching
-        if (-not $mm -or $mm.clipName -notlike 'locomotion/*' -or -not $mm.lastSearch -or @($mm.desired).Count -lt 4 -or @($mm.matched).Count -lt 4 -or
-            @($mm.history).Count -lt 2 -or "$($mm.base.fingerprint)" -notmatch '^[0-9A-F]{16}$' -or $null -eq $mm.measure.jointJump) {
-            $problems += "Headless: anim.pose motionMatching — $($mm | ConvertTo-Json -Compress -Depth 4)"
-        }
-        $transitions = Call-Stdio 'events.history' @{ types = @('MotionTransition') }
-        if ([int]$transitions.total -lt 1 -or @($transitions.events)[0].type -ne 'Event<MotionTransition>') {
-            $problems += "Headless: events.history MotionTransition — $($transitions | ConvertTo-Json -Compress -Depth 4)"
-        }
-        # Хеш состояния по участникам и описание участника animation по суставу.
-        $hash = Call-Stdio 'state.hash' @{}
-        if ("$($hash.total)" -notmatch '^[0-9A-F]{16}$' -or -not $hash.parts.animation -or -not $hash.parts.locomotion) { $problems += "Headless: state.hash — $($hash | ConvertTo-Json -Compress)" }
-        $described = Call-Stdio 'state.describe' @{ part = 'animation'; filter = 'pelvis'; take = 1 }
-        if ([int]$described.matched -lt 3 -or -not @($described.items)[0].pelvis) { $problems += "Headless: state.describe animation — поз $($described.matched)" }
-        $pelvisY = @($pose.joints)[0].model[1]
-        if (-not ($pelvisY -gt 0.5) -or $pose.pool.poses -lt 3) { $problems += "Headless: anim.pose — таз на $pelvisY м, поз в пуле $($pose.pool.poses)" }
-        # Капсулы тела бегущего игрока — на позе (таз над землёй), 14 штук (и клинок), самая быстрая — не стоит.
-        $bodies = Call-Stdio 'physics.bodies' @{ entity = 'player'; segments = @('pelvis') }
-        $capsuleY = @($bodies.capsules)[0].position[1]
-        if ($bodies.bodyCount -ne 14 -or -not ($capsuleY -gt 0.5) -or -not ($bodies.fastest.speed -gt 1)) {
-            $problems += "Headless: physics.bodies — тел $($bodies.bodyCount), таз на $capsuleY м, быстрее всех $($bodies.fastest | ConvertTo-Json -Compress)"
-        }
-        # Меч игрока — sword_1h (combat.playerWeapon по умолчанию), клинок им, кончик бегущего движется; удары slash1–4, stab1–3.
-        $combat = Call-Stdio 'combat.weapons' @{ entity = 'player' }
-        $mine = @($combat.fighters)[0]
-        if ($mine.weapon -ne 'sword_1h' -or $mine.bladeWeapon -ne 'sword_1h' -or -not ($mine.tipTravel -gt 0) -or @($combat.weapons).Count -lt 1 -or @($combat.attacks).Count -ne 7) {
-            $problems += "Headless: combat.weapons — $($combat | ConvertTo-Json -Compress -Depth 4)"
-        }
-        # Запись сеанса, перемотка назад и вперёд к тому же хешу, новая симуляция из реплея, сверка реплея.
-        $saved = Call-Stdio 'replay.save' @{ name = 'smoke' }
-        if ($saved.ticks -ne 120 -or $saved.hashes -ne 121) { $problems += "Headless: replay.save — тиков $($saved.ticks), хешей $($saved.hashes)" }
-        $back = Call-Stdio 'time.seek' @{ tick = 60 }
-        $null = Call-Stdio 'time.step' @{ ticks = 60 }
-        $again = Call-Stdio 'state.hash' @{}
-        if (-not $back.rebuilt -or $again.total -ne $hash.total) { $problems += "Headless: time.seek 60 и 60 тиков вперёд — хеш $($again.total), был $($hash.total)" }
-        $null = Call-Stdio 'session.start' @{ replay = 'smoke.swreplay' }
-        $null = Call-Stdio 'time.step' @{ ticks = 120 }
-        $status = Call-Stdio 'replay.status' @{}
-        if (-not $status.playback.match -or $status.playback.hashesChecked -ne 121) { $problems += "Headless: session.start с реплеем — $($status.playback | ConvertTo-Json -Compress -Depth 5)" }
-        $check = Call-Stdio 'replay.check' @{ path = 'smoke.swreplay' }
-        if (-not $check.match) { $problems += "Headless: replay.check — $($check.divergence | ConvertTo-Json -Compress -Depth 5)" }
-        # Условие в runUntil, наблюдение и история, останов посреди тика, события, снимки.
-        $null = Call-Stdio 'session.start' @{ replay = 'smoke.swreplay' }
-        $null = Call-Stdio 'watch.add' @{ entities = @('player'); fields = @('Transform.Position.X') }
-        $until = Call-Stdio 'time.runUntil' @{ condition = @{ all = @(@{ entity = 'player' }, @{ field = 'Transform.Position.X'; greaterThan = 1 }) } }
-        $at = [int]$until.tick
-        $rows = @((Call-Stdio 'entity.history' @{ entity = 'player'; from = $at - 1; to = $at }).rows)
-        $before = if ($rows.Count -eq 2) { [double]$rows[0].values.'Transform.Position.X' } else { $null }
-        $after = if ($rows.Count -eq 2) { [double]$rows[1].values.'Transform.Position.X' } else { $null }
-        if (-not $until.met -or $at -le 0 -or $at -ge 120 -or $rows.Count -ne 2 -or -not ($before -le 1) -or -not ($after -gt 1)) {
-            $problems += "Headless: time.runUntil {condition} — $($until | ConvertTo-Json -Compress -Depth 5), история $($rows | ConvertTo-Json -Compress -Depth 5)"
-        }
-        $break = Call-Stdio 'time.break' @{ stage = 'Animation' }
-        $pose = Call-Stdio 'entity.get' @{ entity = 'player' }
-        if (-not $break.met -or $break.receipt.stage -ne 'Animation' -or $pose.receipt.stage -ne 'Animation' -or [int]$pose.receipt.tickId -ne $at) {
-            $problems += "Headless: time.break Animation — $($break | ConvertTo-Json -Compress -Depth 5)"
-        }
-        $snap = Call-Stdio 'world.snapshot' @{}
-        $null = Call-Stdio 'time.step' @{ ticks = 2 }
-        $diff = Call-Stdio 'world.diff' @{ a = $snap.id; b = 'now'; filter = 'Transform/Position.X' }
-        $events = Call-Stdio 'events.history' @{ types = @('PlayerCommand') }
-        if ([int]$diff.changed -lt 1 -or [int]$events.total -lt 1) { $problems += "Headless: world.diff — изменено $($diff.changed), events.history — $($events.total)" }
-        # Базовые инварианты движка, анимации и модуля не нарушены; свой инвариант агента — остановка на нарушении.
-        $list = Call-Stdio 'invariant.list' @{}
-        $ids = @($list.invariants | ForEach-Object { $_.id })
-        foreach ($id in @('ecs.finite', 'animation.finite', 'animation.settled', 'animation.pool', 'animation.owners', 'locomotion.poses', 'locomotion.mm',
-                'locomotion.mmArm', 'locomotion.mmDecay', 'locomotion.mmContinuity')) {   # рука с мечом; тяжёлые MM
-            if ($ids -notcontains $id) { $problems += "Headless: invariant.list — нет $id" }
-        }
-        if ([int]$list.violationsTotal -ne 0) { $problems += "Headless: нарушения инвариантов: $($list.recent | ConvertTo-Json -Compress -Depth 4)" }
-        # Headless (и агент в нём) — все кодовые инварианты каждый тик (точная остановка), периоды — только в живой игре.
-        $notEvery = @($list.invariants | Where-Object { $_.enabled -and [int]$_.every -ne 1 } | ForEach-Object { "$($_.id)=$($_.every)" })
-        if ($list.livePeriods -ne $false -or $notEvery.Count -gt 0) { $problems += "Headless: инварианты не каждый тик — livePeriods $($list.livePeriods), $($notEvery -join ', ')" }
-        $x0 = [double](Call-Stdio 'entity.get' @{ entity = 'player' }).components.Transform.Position.X
-        $null = Call-Stdio 'invariant.define' @{ id = 'agent.playerNear'; must = @{ field = 'Transform.Position.X'; lessThan = $x0 + 1 }; where = @{ entity = 'player' } }
-        $null = Call-Stdio 'command.send' @{ command = 'PlayerCommand'; fields = @{ Move = @{ X = 1; Y = 0 } }; repeat = 240 }
-        $broke = Call-Stdio 'time.breakOnInvariant' @{ ids = @('agent.playerNear'); maxTicks = 600 }
-        $v = @($broke.violations)[0]
-        $recorded3g = Call-Stdio 'events.history' @{ types = @('InvariantViolation') }
-        if (-not $broke.met -or $broke.receipt.stage -ne 'runtime.export' -or $v.id -ne 'agent.playerNear' -or -not $v.entity -or [int]$recorded3g.total -lt 1) {
-            $problems += "Headless: time.breakOnInvariant — $($broke | ConvertTo-Json -Compress -Depth 5), история $($recorded3g.total)"
-        }
-        # Манифесты фич, приёмка одной фичи, развилка записи сеанса и сравнение веток.
-        $features = @((Call-Stdio 'feature.list' @{}).features | ForEach-Object { $_.id })
-        foreach ($id in @('animation', 'control', 'determinism', 'movement', 'tools')) {
-            if ($features -notcontains $id) { $problems += "Headless: feature.list — нет $id" }
-        }
-        $verified = Call-Stdio 'feature.verify' @{ id = 'movement'; views = $false; budgets = $false }
-        if (-not $verified.ok) { $problems += "Headless: feature.verify movement — $(@($verified.failures) -join '; ')" }
-        $fork = Call-Stdio 'experiment.fork' @{ replay = 'smoke.swreplay'; at = 60; variants = @(@{ name = 'back'; commands = @(@{ command = 'PlayerCommand'; fields = @{ Move = @{ X = -1; Y = 0 } }; from = 60; to = 61 }) }); measure = @(@{ entity = 'player'; field = 'Transform.Position.X' }) }
-        $branches = @($fork.branches)
-        if ($branches.Count -ne 2 -or [int]$branches[1].vsBase.firstHashTick -ne 61 -or [int]$branches[1].vsBase.lastCommon -ne 60) {
-            $problems += "Headless: experiment.fork — $($fork | ConvertTo-Json -Compress -Depth 6)"
-        }
-        else {
-            $compare = Call-Stdio 'experiment.compare' @{ a = $branches[0].file; b = $branches[1].file }
-            if ([int]$compare.describedAt -ne 61 -or @($compare.describe).Count -lt 1) { $problems += "Headless: experiment.compare — $($compare | ConvertTo-Json -Compress -Depth 4)" }
-        }
-        # profile.stages — включить, 30 тиков, зоны тика, стадий, систем, инвариантов; выключить. Сеанс
-        # может стоять посреди тика (time.breakOnInvariant выше): включение — с начала следующего тика, поэтому тик
-        # доигрывается, затем итоги сбрасываются между тиками.
-        $profOn = Call-Stdio 'profile.stages' @{ enable = $true }
-        $null = Call-Stdio 'time.step' @{ ticks = 1 }
-        $null = Call-Stdio 'profile.stages' @{ reset = $true }
-        $null = Call-Stdio 'time.step' @{ ticks = 30 }
-        $prof = Call-Stdio 'profile.stages' @{ top = 300 }
-        $profZones = @($prof.zones | ForEach-Object { $_.name })
-        $profMissing = @(@('tick', 'stage.Animation', 'core.animation-tick@Animation', 'barrier.Animation', 'invariant.ecs.finite', 'sim.record') | Where-Object { $profZones -notcontains $_ })
-        $profOff = Call-Stdio 'profile.stages' @{ enable = $false }
-        if (-not $profOn.requested -or -not $prof.enabled -or [int]$prof.periods -ne 30 -or $prof.per -ne 'tick' -or $profMissing.Count -gt 0 -or [int]$prof.mismatches -ne 0 -or $profOff.enabled) {
-            $problems += "Headless: profile.stages — заказан $($profOn.requested), включён $($prof.enabled), тиков $($prof.periods), нет зон [$($profMissing -join ', ')], выключен $(-not $profOff.enabled)"
-        }
-        # Среда за тик и машина с вердиктом в ответе profile.stages.
-        elseif (-not $prof.runtime -or -not ($prof.runtime.cpuMs -gt 0) -or -not $prof.machine -or $prof.machine.verdict -notin @('код', 'среда', 'машина')) {
-            $problems += "Headless: profile.stages без runtime или machine: $($prof.runtime | ConvertTo-Json -Compress) $($prof.machine.verdict)"
-        }
-        # Захват аномалий сеанса настроен exe (порог по медиане), трасса кольца — Chrome Trace.
-        elseif (-not $prof.anomalies -or $prof.anomalies -is [string] -or $prof.anomalies.threshold.mode -ne 'median') {
-            $problems += "Headless: profile.stages без anomalies (захват не настроен exe?): $($prof.anomalies | ConvertTo-Json -Compress -Depth 3)"
-        }
-        else {
-            $profTrace = Call-Stdio 'profile.stages' @{ trace = $true; anomalies = 0 }
-            $traceJson = if ($profTrace.trace -and (Test-Path $profTrace.trace)) { Get-Content $profTrace.trace -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
-            if (-not $traceJson -or @($traceJson.traceEvents | Where-Object { $_.ph -eq 'X' -and $_.name -like 'tick *' }).Count -lt 30) { $problems += "Headless: profile.stages {trace} — $($profTrace.trace)" }
-        }
-        $null = Call-Stdio 'session.stop' @{}
-        if (-not $proc.WaitForExit(10000)) { $problems += 'Headless: не вышел после session.stop'; $proc.Kill() }
-        elseif ($proc.ExitCode -ne 0) { $problems += "Headless: код выхода $($proc.ExitCode)" }
-    }
-    catch { $problems += "Headless: $($_.Exception.Message) $(if ($stderr.IsCompleted) { $stderr.Result })" }
-    finally { if (-not $proc.HasExited) { $proc.Kill() } }
-
-    # Сервер выходит сам. Три сервера сразу: (1) конец stdin посреди долгого time.runUntil — за секунды;
-    # (2) клиент снял обёртку cmd, а вход держит открытым — сервер видит конец родителя; (3) --idle-exit 0.05 (3 с) —
-    # выход после простоя без вызовов.
-    $lifeNote = ''
-    $life = @()
-    try {
-        function Start-Agent([string]$Extra, [switch]$ViaCmd) {
-            $p = New-Object System.Diagnostics.ProcessStartInfo
-            if ($ViaCmd) { $p.FileName = 'cmd.exe'; $p.Arguments = "/c `"`"$($headless.FullName)`" --agent $Extra`"" }
-            else { $p.FileName = $headless.FullName; $p.Arguments = "--agent $Extra" }
-            $p.UseShellExecute = $false
-            $p.RedirectStandardInput = $true
-            $p.RedirectStandardOutput = $true
-            $p.RedirectStandardError = $true
-            $p.StandardOutputEncoding = $utf8
-            $p.StandardErrorEncoding = $utf8
-            $started = [System.Diagnostics.Process]::Start($p)
-            Add-ToJob $started
-            $null = $started.StandardError.ReadToEndAsync()
-            return $started
-        }
-        function Send-Line($p, [string]$line) {
-            $bytes = $utf8.GetBytes($line + "`n")
-            $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-            $p.StandardInput.BaseStream.Flush()
-        }
-        function Read-Line($p) {
-            $t = $p.StandardOutput.ReadLineAsync()
-            if (-not $t.Wait(60000)) { throw 'сервер не ответил за 60 с' }
-            return $t.Result
-        }
-        $eof = Start-Agent ''
-        $wrapped = Start-Agent '' -ViaCmd
-        $idle = Start-Agent '--idle-exit 0.05'
-        $life = @($eof, $wrapped, $idle)
-        foreach ($p in $life) {
-            Send-Line $p '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify-lifetime"}}}'
-            if (-not (Read-Line $p)) { throw "сервер $($p.Id) закрыл вывод на initialize" }
-        }
-        $inner = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($wrapped.Id)" | Where-Object { $_.Name -eq 'Sword.Headless.exe' } | Select-Object -First 1
-        if (-not $inner) { throw 'под cmd нет Sword.Headless.exe' }
-        $innerProc = Get-Process -Id $inner.ProcessId
-        $life += $innerProc
-        Send-Line $idle '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"session.status","arguments":{}}}'
-        $null = Read-Line $idle
-        $idleWatch = [System.Diagnostics.Stopwatch]::StartNew()
-        # Долгий вызов без нагрузки: runUntil к далёкому тику, затем пауза — вызов ждёт (до 600 с), тики не идут.
-        Send-Line $eof '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"time.runUntil","arguments":{"tick":10000000,"timeoutSeconds":600}}}'
-        Start-Sleep -Milliseconds 200
-        Send-Line $eof '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"time.pause","arguments":{}}}'
-        if ((Read-Line $eof) -notmatch '"id":3') { throw 'time.pause: ответ не на тот запрос (runUntil закончился раньше?)' }
-        $eofWatch = [System.Diagnostics.Stopwatch]::StartNew()
-        $eof.StandardInput.Close()
-        $wrapWatch = [System.Diagnostics.Stopwatch]::StartNew()
-        Stop-Process -Id $wrapped.Id -Force                   # только обёртка: наш конец входа сервера открыт
-        $eofOut = $eof.WaitForExit(8000); $eofSec = [math]::Round($eofWatch.Elapsed.TotalSeconds, 1)
-        $wrapOut = $innerProc.WaitForExit(8000); $wrapSec = [math]::Round($wrapWatch.Elapsed.TotalSeconds, 1)
-        $idleOut = $idle.WaitForExit(20000); $idleSec = [math]::Round($idleWatch.Elapsed.TotalSeconds, 1)
-        if (-not $eofOut) { $problems += 'Headless: конец stdin посреди time.runUntil — не вышел за 8 с' }
-        if (-not $wrapOut) { $problems += 'Headless: обёртка cmd снята, вход открыт — не вышел за 8 с (слежение за родителем)' }
-        if (-not $idleOut) { $problems += 'Headless: --idle-exit 0.05 — не вышел за 20 с простоя' }
-        $lifeNote = "; время жизни: конец stdin посреди runUntil — выход за $eofSec с, снятая обёртка — за $wrapSec с, простой 3 с — выход через $idleSec с"
-    }
-    catch { $problems += "Headless (время жизни): $($_.Exception.Message)" }
-    finally { foreach ($p in $life) { if ($p -and -not $p.HasExited) { $p.Kill() } } }
-
-    $headlessNote = "Headless: игрок в x = $([math]::Round([double]$x, 3)) после 120 тиков команды агента, клип $clipName; реплей сеанса, time.seek, session.start с реплеем — совпали; runUntil по условию, time.break, история, снимки — работают; инварианты не нарушены, свой инвариант агента встал на нарушении посреди тика; feature.verify movement зелёный, ветка experiment.fork разошлась после 61 тика, experiment.compare назвал участника; profile.stages — зоны 30 тиков$lifeNote"
-
-    $appNote = 'живая игра — пропущено (-SkipGpu)'
-    if (-not $SkipGpu) {
-        $exe = Get-ChildItem (Join-Path $root "game\Sword.Game.App\bin\$Configuration") -Recurse -Filter 'Sword.exe' | Select-Object -First 1
-        $port = Get-Random -Minimum 47900 -Maximum 48900
-        $dir = Join-Path $root 'artifacts\verify\agent-smoke'
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        $out = Join-Path $dir 'app.json'
-        $err = Join-Path $dir 'app.log'
-        $app = Start-Process -FilePath $exe.FullName -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err `
-            -ArgumentList @('--windowed', '640x480', '--no-activate', '--json', '--gpu-validation', '--agent-port', "$port")
-        Add-ToJob $app
-        $url = "http://127.0.0.1:$port/mcp"
-        $script:httpId = 0
-        function Send-Http($method, $params) {
-            $script:httpId++
-            $body = @{ jsonrpc = '2.0'; id = $script:httpId; method = $method; params = $params } | ConvertTo-Json -Compress -Depth 20
-            return Invoke-RestMethod -Method Post -Uri $url -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json' -TimeoutSec 60
-        }
-        function Call-Http($tool, $arguments) {
-            $r = Send-Http 'tools/call' @{ name = $tool; arguments = $arguments }
-            if ($r.error) { throw "${tool}: $($r.error.message)" }
-            if ($r.result.isError) { throw "${tool}: $($r.result.structuredContent.error)" }
-            return $r.result.structuredContent
-        }
-        try {
-            $ready = $false
-            for ($i = 0; $i -lt 150 -and -not $ready -and -not $app.HasExited; $i++) {
-                try { $null = Send-Http 'initialize' @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'verify' } }; $ready = $true }
-                catch { Start-Sleep -Milliseconds 200 }
-            }
-            if (-not $ready) { throw "сервер не поднялся на $url" }
-            $paused = Call-Http 'time.pause' @{}
-            $null = Call-Http 'command.send' @{ command = 'PlayerCommand'; fields = @{ Move = @{ X = 1; Y = 0 } }; repeat = 60 }
-            $step = Call-Http 'time.step' @{ ticks = 60 }
-            if ($step.tick -ne $paused.tick + 60) { $problems += "App: после time.step тик $($step.tick), ждали $($paused.tick + 60)" }
-            $bundle = Call-Http 'capture.bundle' @{ name = 'verify' }
-            $player = @($bundle.entities | Where-Object { $_.name -eq 'player' })
-            if (-not (Test-Path $bundle.color) -or -not (Test-Path $bundle.depth) -or -not (Test-Path $bundle.bundle)) { $problems += 'App: capture.bundle — нет файлов' }
-            elseif ($player.Count -ne 1) { $problems += "App: capture.bundle — игрока в кадре нет ($(@($bundle.entities).Count) сущностей)" }
-            elseif ($bundle.tickId -ne $step.tick) { $problems += "App: снимок на тике $($bundle.tickId), ждали $($step.tick) (пауза)" }
-            elseif (-not ($bundle.depthCoverage -gt 0.5)) { $problems += "App: глубина почти пуста: $($bundle.depthCoverage)" }
-            # Кадр снимка ждёт простоя GPU — его GPU-время разобрано сразу (отставание 0), проходы с gpuMs.
-            elseif (-not $bundle.gpu -or $bundle.gpu.lagFrames -ne 0 -or $bundle.gpu.frameId -ne $bundle.frameId -or -not ($bundle.gpu.frameMs -gt 0) -or
-                @($bundle.gpu.passes | Where-Object { $_.name -eq 'scene.opaque' -and $_.gpuMs -gt 0 }).Count -ne 1) {
-                $problems += "App: capture.bundle gpu — $($bundle.gpu | ConvertTo-Json -Compress -Depth 3)"
-            }
-            # ID-буфер и оверлей капсул по заказу — пиксели игрока несут его сущность и сегменты тела (легенда
-            # словами), середина рамки каждого кода тела — внутри рамки игрока, рамка клинка — в пределах ширины рамки от неё
-            # (меч в стойке оружия выходит за рамку тела 0,9 м); оверлей капсул — отдельный PNG.
-            # И оверлей mm — игрок со sword.json на Motion Matching: слой снят без заметки «не на Motion Matching».
-            $ids = Call-Http 'capture.bundle' @{ name = 'verify-ids'; ids = $true; overlays = @('capsules', 'mm') }
-            $idPlayer = @($ids.entities | Where-Object { $_.name -eq 'player' })
-            $mine = @($ids.ids.legend | Where-Object { $_.name -eq 'player' })
-            $segments = @($mine | ForEach-Object { $_.segment })
-            if (-not $ids.ids -or -not (Test-Path $ids.ids.png) -or -not (Test-Path $ids.ids.raw) -or -not $ids.overlays -or -not (Test-Path $ids.overlays.capsules) -or
-                -not (Test-Path $ids.overlays.mm) -or @($ids.notes | Where-Object { "$_" -like 'mm:*' }).Count -gt 0) {
-                $problems += "App: capture.bundle ids/overlays — нет файлов: $($ids | ConvertTo-Json -Compress -Depth 3)"
-            }
-            elseif ($idPlayer.Count -ne 1 -or $segments -notcontains 'head' -or $segments -notcontains 'torso' -or @($mine | Where-Object { $_.title -notmatch 'игрока$' }).Count -gt 0) {
-                $problems += "App: ID-буфер — у игрока сегменты [$($segments -join ', ')], названия [$(@($mine | ForEach-Object { $_.title }) -join ', ')]"
-            }
-            else {
-                $r = $idPlayer[0].rect
-                $outside = @($mine | Where-Object { $_.segment -ne 'blade' -and (($_.rect[0] + $_.rect[2]) / 2 -lt $r[0] -or ($_.rect[0] + $_.rect[2]) / 2 -gt $r[2] -or ($_.rect[1] + $_.rect[3]) / 2 -lt $r[1] -or ($_.rect[1] + $_.rect[3]) / 2 -gt $r[3]) })
-                $w = $r[2] - $r[0]
-                $outside += @($mine | Where-Object { $_.segment -eq 'blade' -and ($_.rect[2] -lt $r[0] - $w -or $_.rect[0] -gt $r[2] + $w -or $_.rect[3] -lt $r[1] - $w -or $_.rect[1] -gt $r[3] + $w) })
-                if ($outside.Count -gt 0) { $problems += "App: ID-буфер — середины кодов игрока вне его рамки [$($r -join ', ')]: $($outside | ConvertTo-Json -Compress -Depth 3)" }
-                if (@($ids.ids.legend | Where-Object { -not $_.segment -or -not $_.entity }).Count -gt 0) { $problems += 'App: ID-буфер — код без сущности или сегмента в легенде' }
-            }
-            $recording = (Call-Http 'replay.status' @{}).recording
-            if (-not $recording -or $recording.ticks -lt 60) { $problems += "App: replay.status — запись $($recording | ConvertTo-Json -Compress)" }
-            # Условие встаёт ровно на своём тике, даже посреди кадра (8 тиков на кадр на паузе).
-            $goal = [int]$recording.ticks + 37
-            $until = Call-Http 'time.runUntil' @{ condition = @{ sim = 'ticks'; greaterOrEqual = $goal } }
-            $after = Call-Http 'session.status' @{}
-            if (-not $until.met -or [int]$until.tick -ne $goal -or [int]$after.tick -ne $goal -or -not $after.paused) {
-                $problems += "App: time.runUntil {condition} — встали на $($after.tick), ждали $goal ($($until | ConvertTo-Json -Compress -Depth 4))"
-            }
-            # Инварианты в живой игре проверяются и не нарушены.
-            $inv = Call-Http 'invariant.list' @{}
-            $checked = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.evaluations -gt 0 }).Count
-            if ($checked -lt 6 -or [int]$inv.violationsTotal -ne 0) { $problems += "App: инварианты — проверялось $checked, нарушений $($inv.violationsTotal): $($inv.recent | ConvertTo-Json -Compress -Depth 4)" }
-            # Решение пользователя: живая игра — тяжёлые инварианты раз в 4 тика, остальные — каждый тик.
-            # Тяжёлые и инварианты трупа (все тела бойцов после Physics), сон трупа, самоколлизия.
-            $heavyIds = @('ecs.finite', 'animation.finite', 'physics.finite', 'physics.kinematicPose', 'physics.kinematicSpeed',
-                'physics.modes', 'physics.simulatedSpeed', 'physics.joints', 'physics.ground', 'physics.inArena', 'physics.sleep', 'physics.sleepContacts',
-                'physics.selfContacts', 'locomotion.mmDecay', 'locomotion.mmContinuity')   # MM игрока (sword.json — mm)
-            $badEvery = @($inv.invariants | Where-Object { $_.enabled -and [int]$_.every -ne $(if ($heavyIds -contains $_.id) { 4 } else { 1 }) } | ForEach-Object { "$($_.id)=$($_.every)" })
-            if ($inv.livePeriods -ne $true -or $badEvery.Count -gt 0) { $problems += "App: инварианты живой игры — livePeriods $($inv.livePeriods), период не тот: $($badEvery -join ', ')" }
-            # profile.stages в живой игре — включение с начала следующего кадра, итоги по кадрам: фазы кадра,
-            # тики, проходы графа.
-            $null = Call-Http 'profile.stages' @{ enable = $true }
-            $null = Call-Http 'time.step' @{ ticks = 16 }
-            $null = Call-Http 'capture.bundle' @{ name = 'verify-profile' }   # ещё кадр-другой после шагов
-            $appProf = Call-Http 'profile.stages' @{ top = 300; per = 'frame' }
-            $appZones = @($appProf.zones | ForEach-Object { $_.name })
-            $appMissing = @(@('frame', 'frame.simulate', 'tick', 'frame.tools', 'frame.extract', 'frame.render', 'frame.record', 'render.scene.opaque', 'stage.Animation') | Where-Object { $appZones -notcontains $_ })
-            if (-not $appProf.enabled -or [int]$appProf.frames -lt 2 -or [int]$appProf.ticks -lt 16 -or $appMissing.Count -gt 0 -or [int]$appProf.mismatches -ne 0) {
-                $problems += "App: profile.stages — включён $($appProf.enabled), кадров $($appProf.frames), тиков $($appProf.ticks), нет зон [$($appMissing -join ', ')], несогласованных $($appProf.mismatches)"
-            }
-            elseif (-not $appProf.runtime -or -not $appProf.machine) { $problems += 'App: profile.stages без runtime или machine' }
-            elseif (-not $appProf.anomalies -or $appProf.anomalies -is [string]) { $problems += 'App: profile.stages без anomalies (захват настраивает Sword.exe)' }
-            # Кадры с запросами агента (time.step, этот profile.stages) — кадры инструментов: служебные, помечены; заметность —
-            # по частоте монитора окна (или 60 Гц по умолчанию).
-            elseif ([int]$appProf.toolFrames -lt 1 -or [int]$appProf.serviceFrames -lt [int]$appProf.toolFrames) {
-                $problems += "App: profile.stages — кадров инструментов $($appProf.toolFrames), служебных $($appProf.serviceFrames): запросы агента не помечают кадр"
-            }
-            elseif (-not ($appProf.anomalies.display.noticeableMs -gt 0) -or $appProf.anomalies.display.source -notin @('monitor', 'default')) {
-                $problems += "App: profile.stages — нет порога заметности: $($appProf.anomalies.display | ConvertTo-Json -Compress)"
-            }
-            # GPU-время кадра и проходов за окно — секция gpu (данные кадра N − 3).
-            elseif (-not $appProf.gpu -or $appProf.gpu.lagFrames -lt 0 -or -not ($appProf.gpu.frame.meanMs -gt 0) -or @($appProf.gpu.passes).Count -lt 1) {
-                $problems += "App: profile.stages без gpu: $($appProf.gpu | ConvertTo-Json -Compress -Depth 3)"
-            }
-            $graph = Call-Http 'render.graph' @{}
-            $passes = @($graph.passes | ForEach-Object { $_.name })
-            if ($passes -notcontains 'scene.opaque' -or $passes -notcontains 'hud') { $problems += "App: render.graph — проходы $($passes -join ', ')" }
-            # У проходов — gpuMs кадра gpu.frameId (показанный минус отставание: на паузе снимки и шаги, 0…3 кадра).
-            elseif (-not $graph.gpu -or $graph.gpu.lagFrames -lt 0 -or $graph.gpu.lagFrames -gt 3 -or -not ($graph.gpu.frameMs -gt 0) -or
-                @($graph.passes | Where-Object { $_.name -eq 'scene.opaque' -and $_.gpuMs -gt 0 }).Count -ne 1) {
-                $problems += "App: render.graph gpu — $($graph.gpu | ConvertTo-Json -Compress) / $(@($graph.passes | ForEach-Object { "$($_.name)=$($_.gpuMs)" }) -join ', ')"
-            }
-            $null = Call-Http 'session.stop' @{}
-            if (-not $app.WaitForExit(15000)) { $problems += 'App: не вышла после session.stop' }
-            else {
-                $report = ([System.IO.File]::ReadAllText($out).Trim()) | ConvertFrom-Json
-                if ($report.report.exitReason -ne 'closed-by-tool') { $problems += "App: выход $($report.report.exitReason)" }
-            }
-            # Снимок глубины и цвета — под GPU-валидацией: сообщения слоя и предупреждения шейдеров — отказ.
-            $d3d12 = @(Get-Content $err -Encoding UTF8 | Where-Object { ($_ -match '^\[d3d12\]' -and $_ -notmatch '^\[d3d12\] Message:') -or $_ -match '^\[shader\]' })
-            if ($d3d12.Count -gt 0) { $problems += "App: сообщения D3D12 или шейдеров: $($d3d12 | Select-Object -First 3)" }
-            $appNote = "живая игра (GPU-валидация): пауза, 60 тиков команды, снимок кадра $($bundle.width)×$($bundle.height) на тике $($bundle.tickId) с рамкой игрока [$($player[0].rect -join ', ')]; ID-буфер — кодов $(@($ids.ids.legend).Count), у игрока [$($segments -join ', ')], оверлей капсул снят; условие runUntil встало на своём тике; инварианты проверяются, нарушений нет; profile.stages — кадров $($appProf.frames) (кадров инструментов — $($appProf.toolFrames)), зон $($appZones.Count), порог заметности $($appProf.anomalies.display.noticeableMs) мс ($($appProf.anomalies.display.source)), GPU кадра $($appProf.gpu.frame.meanMs) мс; render.graph — GPU-время проходов кадра на $($graph.gpu.lagFrames) раньше показанного; снимок — GPU кадра $($bundle.gpu.frameMs) мс (отставание 0)"
-        }
-        catch { $problems += "App: $($_.Exception.Message) — журнал $err" }
-        finally { if (-not $app.HasExited) { $app.Kill() } }
-    }
-    if ($problems.Count -eq 0) { @{ ok = $true; detail = "$headlessNote; $appNote" } }
-    else { @{ ok = $false; detail = $problems -join '; ' } }
-}
-
 if ($Bench) {
     Add-Step 'ecs-bench' {
         # BenchmarkDotNet пишет много в stdout; вердикт — в artifacts/bench/ecs.json и код выхода.
@@ -1400,7 +856,7 @@ if ($Bench) {
         $p = if (Test-Path $profilerFile) { Get-Content $profilerFile -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
         $profilerNote = if ($p) {
             "пара Begin/End профайлера: выключенного $($p.disabledPairNs) нс (не больше $($p.maxDisabledPairNs)), включённого $($p.enabledPairNs) нс, $($p.disabledBytes) и $($p.enabledBytes) Б" +
-            "; период включённого (два опроса счётчиков) $($p.counters.PeriodEnabled.ns) нс, выключенного $($p.counters.PeriodDisabled.ns) нс; снимок машины $($p.counters.MachineSampleNoProbe.ns) нс, с пробой частоты $($p.counters.MachineSampleWithProbe.ns) нс; строка HUD $($p.counters.HudMeterFrame.ns) нс на кадр"
+            "; период включённого $($p.counters.PeriodEnabled.ns) нс, выключенного $($p.counters.PeriodDisabled.ns) нс"
         } else { 'нет итога профайлера' }
         $detail = "обход ECS / сырой цикл — $ratios (не больше ×$($r.maxRatio)); тик команд и журналов $([math]::Round($r.commandsAndJournals.tickNs / 1000, 1)) мкс, $($r.commandsAndJournals.bytesPerTick) Б; сэмплинг поз (кроссфейд): $poses; $profilerNote"
         @{ ok = [bool]$r.ok -and $p -and [bool]$p.ok; detail = $detail }
@@ -1416,24 +872,13 @@ Add-Step 'line-endings' {
         '.editorconfig', '.gitattributes', '.gitignore', '.txt', '.yml', '.yaml', '.cmd', '.py')
     # Путь — от корня репозитория: .claude\worktrees\ — рабочие деревья git других агентов (у каждого свой verify.ps1),
     # остальной .claude\ (settings.local.json) проверяется; verify.ps1 внутри рабочего дерева проверяет его файлы.
-    $skip = '\\(bin|obj|\.git|\.vs|artifacts|TestResults)\\|^\\\.claude\\worktrees\\'
+    $skip = '\\(bin|obj|\.git|\.vs|artifacts|TestResults)\\|^\\\.claude\\worktrees\\|^\\Content\\'
     $bad = @(Get-ChildItem $root -Recurse -File -Force | Where-Object {
             ($extensions -contains $_.Extension.ToLowerInvariant()) -and ($_.FullName.Substring($root.Length) -notmatch $skip) -and
             [regex]::IsMatch([System.IO.File]::ReadAllText($_.FullName), '(?<!\r)\n')
         } | ForEach-Object { $_.FullName.Substring($root.Length + 1) })
     if ($bad.Count -eq 0) { @{ ok = $true; detail = 'все текстовые файлы — CRLF' } }
     else { @{ ok = $false; detail = 'LF без CR: ' + ($bad -join ', ') } }
-}
-
-if ($SkipReference) {
-    $steps.Add([ordered]@{ name = 'reference'; ok = $true; seconds = 0; detail = 'пропущено (-SkipReference)' })
-    if (-not $Json) { Write-Host 'SKIP reference                    пропущено (-SkipReference)' }
-}
-else {
-    Add-Step 'reference' {
-        $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'reference.ps1') -Check -Json | Out-String
-        @{ ok = ($LASTEXITCODE -eq 0); detail = $out.Trim() }
-    }
 }
 
 Add-Step 'processes' {

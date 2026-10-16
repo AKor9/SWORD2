@@ -7,11 +7,9 @@ using Vortice.Mathematics;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// HDR-кадр на снимке: экспозиция и яркость входа тонмапа (цвет сцены × экспозиция, яркость Rec.709) по всему кадру — максимум,
-/// среднее, доля пикселей ярче 1 и число пикселей с NaN или бесконечностью (их тонмап выводит чёрными).
+/// HDR-кадр на снимке: экспозиция и яркость входа тонмапа (Rec.709) по кадру — максимум, среднее, доля ярче 1,
+/// пикселей с NaN или бесконечностью (в среднее и максимум не входят).
 /// </summary>
-/// <param name="OverOne">Доля пикселей кадра с яркостью входа тонмапа больше 1.</param>
-/// <param name="NonFinite">Пикселей с NaN или бесконечностью в каком-либо канале (в среднее и максимум не входят).</param>
 public sealed record HdrCapture(float Exposure, float MaxLuminance, float MeanLuminance, float OverOne, int NonFinite)
 {
     /// <summary>
@@ -24,9 +22,7 @@ public sealed record HdrCapture(float Exposure, float MaxLuminance, float MeanLu
     /// <summary>Сырой цвет сцены рядом с картой (<c>.bin</c>: RGBA half на пиксель, строки сверху вниз, без экспозиции).</summary>
     public string? RawPath { get; init; }
 
-    /// <summary>
-    /// Добавка bloom к этому входу (яркость выше — без неё; тонмап видит сцену + bloom); null — bloom в кадре выключен.
-    /// </summary>
+    /// <summary>Добавка bloom к этому входу (тонмап видит сцену + bloom); null — bloom в кадре выключен.</summary>
     public BloomCapture? Bloom { get; init; }
 
     /// <summary>Цель ½ прозрачного до композита (<see cref="HalfResTransparency"/>); null — слоя ½ в кадре не было.</summary>
@@ -34,9 +30,8 @@ public sealed record HdrCapture(float Exposure, float MaxLuminance, float MeanLu
 }
 
 /// <summary>
-/// Цель HDR-сцены и тонмап (<see cref="Renderer.Hdr"/>): постоянная цель <c>scene.color</c> RGBA16F размера заднего буфера
-/// (линейный цвет), в фазе <see cref="FramePhase.Post"/> — bloom (<see cref="BloomChain"/>, если включён) и проход <c>post.tonemap</c>:
-/// (цвет + bloom) × экспозиция → Filmic (<see cref="FilmicTonemap"/>) → кодирование sRGB в задний буфер. Выключенный HDR цели не держит.
+/// Цель HDR-сцены <c>scene.color</c> (RGBA16F, линейный цвет) и тонмап: в фазе Post — bloom и <c>post.tonemap</c>
+/// ((цвет + bloom) × экспозиция → Filmic → sRGB). Выключенный HDR цели не держит.
 /// </summary>
 internal sealed class HdrScene : IDisposable
 {
@@ -47,10 +42,7 @@ internal sealed class HdrScene : IDisposable
     // Кривая рендера — умолчания UE 5.8: точки стыка считаются один раз и уходят в шейдер корневыми константами.
     private static readonly FilmicCurve.Constants Curve = FilmicCurve.Default.Derive();
 
-    /// <summary>
-    /// Корневые константы тонмапа: SRV цели сцены, экспозиция, кривая (<see cref="FilmicCurve.Constants"/>), SRV итога bloom (или
-    /// BLOOM_NONE).
-    /// </summary>
+    /// <summary>Корневые константы тонмапа: SRV цели сцены, экспозиция, кривая, SRV итога bloom (или BLOOM_NONE).</summary>
     public const int SlotScene = 0, SlotExposure = 1, SlotSlope = 2, SlotToeMatch = 3, SlotStraightMatch = 4, SlotShoulderMatch = 5,
         SlotToeScale = 6, SlotShoulderScale = 7, SlotBlackClip = 8, SlotWhiteClip = 9, SlotInvSpan = 10, SlotBloom = 11;
 
@@ -101,10 +93,7 @@ internal sealed class HdrScene : IDisposable
     /// <summary>Настройки bloom этого кадра (на момент регистрации тонмапа).</summary>
     internal BloomSettings FrameBloom { get; private set; }
 
-    /// <summary>
-    /// Цель под размер заднего буфера и значение очистки <paramref name="clear"/>; выключенный HDR — освободить. Прежняя
-    /// освобождается после своего кадра.
-    /// </summary>
+    /// <summary>Цель под размер заднего буфера и очистку <paramref name="clear"/>; выключенный HDR — освободить.</summary>
     internal void Ensure(bool enabled, Vector4 clear)
     {
         if (!enabled)
@@ -130,10 +119,7 @@ internal sealed class HdrScene : IDisposable
         _color.ClearColor = clear;
     }
 
-    /// <summary>
-    /// Bloom (если <paramref name="bloom"/> активен) и тонмап в фазу <see cref="FramePhase.Post"/> — последними из зарегистрированных к
-    /// этому моменту: bloom видит сцену после постобработки модулей.
-    /// </summary>
+    /// <summary>Bloom и тонмап в фазу Post — последними из зарегистрированных: bloom видит постобработку модулей.</summary>
     internal void AddTonemap(RenderGraph graph, float exposure, BloomSettings bloom)
     {
         _exposure = exposure;

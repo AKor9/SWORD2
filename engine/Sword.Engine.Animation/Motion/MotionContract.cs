@@ -17,9 +17,8 @@ public enum MotionPast : byte
 }
 
 /// <summary>
-/// Измеренное движение клипа базы — то, по чему политика графа (<see cref="IMotionGraphPolicy"/>) выбирает продолжение. Скорости —
-/// корня, м/с, в системе корня: начала и средняя — первого кадра клипа, выхода — последнего кадра (+Z вперёд, +X влево);
-/// начало и выход — средние за окно <see cref="MotionBuildParams.VelocityWindow"/>, средняя — за весь клип (у цикла — за оборот).
+/// Измеренное движение клипа базы — по нему политика графа выбирает продолжение. Скорости корня, м/с, в системе корня
+/// (+Z вперёд, +X влево): начала и выхода — средние за <see cref="MotionBuildParams.VelocityWindow"/>, средняя — за клип.
 /// </summary>
 /// <param name="LibraryClip">Номер клипа в <see cref="ClipLibrary"/> (имя — <c>library.Clips[LibraryClip].Name</c>).</param>
 /// <param name="Turn">Поворот корня за клип, рад (курс последнего кадра относительно первого): непрерывный, может превышать π.</param>
@@ -37,18 +36,14 @@ public readonly record struct MotionClipInfo(int LibraryClip, bool Loop, int Fra
 }
 
 /// <summary>
-/// Политика графа переходов — знание о контенте, которого нет у движка (имена клипов, «стойка», «походка»). Реализует модуль
-/// игры; зовётся только при постройке базы (<see cref="MotionDatabase.Build"/>), в тике — никогда. Номера клипов — клипы базы
-/// (индексы в <paramref name="clips"/>, по возрастанию номера в библиотеке).
+/// Политика графа переходов — знание о контенте, которого нет у движка. Реализует модуль игры; зовётся только при
+/// постройке базы, в тике — никогда. Номера клипов — индексы в <paramref name="clips"/>.
 /// </summary>
 public interface IMotionGraphPolicy
 {
     /// <summary>
-    /// Кандидаты продолжения нециклического клипа <paramref name="clip"/>: клипы базы, в кадры которых может перейти его
-    /// конец (по измеренному выходу <c>clips[clip]</c> — скорость, направление, поворот). Лучший кадр входа среди кадров
-    /// кандидатов (у цикла — кроме последнего, у нециклического — до его окна выхода) база выбирает сама — ценой шва (разница
-    /// признаков позы). Ни одного кандидата — у клипа нет продолжения: кадры без полного горизонта будущего не ищутся. Запасные
-    /// ветви (та же походка — любая — стойка) — забота политики.
+    /// Кандидаты продолжения нециклического клипа: клипы базы, в кадры которых может перейти его конец. Лучший кадр входа база
+    /// выбирает сама — ценой шва. Ни одного кандидата — продолжения нет: кадры без полного горизонта будущего не ищутся.
     /// </summary>
     /// <param name="candidates">Пустой список, куда писать номера клипов базы (порядок и повторы не важны).</param>
     void Continuations(int clip, ReadOnlySpan<MotionClipInfo> clips, List<int> candidates);
@@ -58,9 +53,8 @@ public interface IMotionGraphPolicy
 }
 
 /// <summary>
-/// Детектор контактов стоп (<see cref="ContactDetector"/>): сустав стоит на земле, если он низко и почти не движется по
-/// земле; вход и выход — с гистерезисом, серии короче <paramref name="MinRun"/> кадров — шум. Высота — над самой низкой точкой
-/// сустава в клипе. Типичные значения для голеностопа при 30 кадрах/с: вход 0,05 м и 0,35 м/с, выход 0,07 м и 0,55 м/с, серия 2.
+/// Детектор контактов стоп: сустав на земле, если низко (над самой низкой точкой в клипе) и почти не движется; вход и выход —
+/// с гистерезисом, серии короче <paramref name="MinRun"/> — шум. Голеностоп при 30 к/с: 0,05/0,07 м, 0,35/0,55 м/с, серия 2.
 /// </summary>
 /// <param name="HeightEnter">Выше «пола» клипа не больше — может встать, м.</param>
 /// <param name="HeightExit">Выше — отрывается, м (не меньше <paramref name="HeightEnter"/>).</param>
@@ -69,23 +63,14 @@ public interface IMotionGraphPolicy
 /// <param name="MinRun">Внутренняя серия контакта или отрыва короче — переворачивается, кадров (≥ 1).</param>
 public readonly record struct ContactParams(float HeightEnter, float HeightExit, float SpeedEnter, float SpeedExit, int MinRun);
 
-/// <summary>
-/// Параметры постройки базы (<see cref="MotionDatabase.Build"/>) — все от вызывающего (модуля), у движка своих умолчаний нет.
-/// </summary>
+/// <summary>Параметры постройки базы (<see cref="MotionDatabase.Build"/>) — все от модуля, своих умолчаний у движка нет.</summary>
 /// <param name="Contacts">Детектор контактов суставов <see cref="MotionSchema.ContactJoints"/>.</param>
-/// <param name="ExitWindow">
-/// Окно раннего выхода, с: кадр выхода нециклического клипа ищется в его последних секундах (у SWORD — 0,5); ребро у клипа одно,
-/// кадры окна входом не бывают.
-/// </param>
-/// <param name="VelocityWindow">Окно средних скоростей начала и выхода клипа, с (<see cref="MotionClipInfo"/>; у SWORD — 0,1).</param>
-/// <param name="MovingThreshold">
-/// Сустав, чьё локальное смещение где-либо в клипах базы отходит от первого кадра своего клипа дальше, м, — с движущимся
-/// смещением (<see cref="MotionDatabase.MovingJoints"/>; у SWORD — 0,001).
-/// </param>
+/// <param name="ExitWindow">Окно раннего выхода, с: кадр выхода нециклического клипа ищется в его последних секундах; кадры окна входом не бывают.</param>
+/// <param name="VelocityWindow">Окно средних скоростей начала и выхода клипа, с.</param>
+/// <param name="MovingThreshold">Смещение сустава дальше этого, м, от первого кадра клипа — сустав с движущимся смещением (<see cref="MotionDatabase.MovingJoints"/>).</param>
 /// <param name="SeamTie">
-/// Явный разрыв ничьих графа, доля в [0, 1): цены шва, различающиеся меньше доли <c>SeamTie</c> от большей из (цена, 1), равны —
-/// берётся меньший номер кадра; ранний выход — только если его шов заметно дешевле последнего кадра (устойчивость к классу
-/// процессора, research-mm-data §4.1).
+/// Разрыв ничьих, доля в [0, 1): цены шва, различающиеся меньше доли от большей из (цена, 1), равны — берётся меньший номер
+/// кадра; ранний выход — только если заметно дешевле последнего кадра (устойчивость к классу процессора).
 /// </param>
 public readonly record struct MotionBuildParams(ContactParams Contacts, float ExitWindow, float VelocityWindow, float MovingThreshold,
     float SeamTie);
@@ -96,16 +81,12 @@ public readonly record struct MotionClip(int LibraryClip, int Start, int Count, 
     public int End => Start + Count;
 }
 
-/// <summary>
-/// Сводка базы — для строки старта, <c>Describe</c> и агента. <paramref name="Edges"/> — кадров выхода (у которых
-/// <see cref="MotionDatabase.Entry"/> ≥ 0), <paramref name="EarlyExits"/> — из них не последних в своём клипе.
-/// <paramref name="BuildMilliseconds"/> — время постройки (в отпечаток не входит).
-/// </summary>
+/// <summary>Сводка базы: <paramref name="Edges"/> — кадров выхода, <paramref name="EarlyExits"/> — из них не последних в клипе; время постройки в отпечаток не входит.</summary>
 public readonly record struct MotionDatabaseSummary(int Clips, int Frames, int Searchable, int Edges, int EarlyExits, double BuildMilliseconds);
 
 /// <summary>
-/// Цены поиска по группам схемы (<see cref="MotionSchema.MaxGroups"/> мест, заняты первые <see cref="MotionSchema.GroupCount"/>).
-/// Равенство — поэлементное (встроенное у <c>InlineArray</c> бросает исключение, а итог поиска сравнивается как запись).
+/// Цены поиска по группам схемы (заняты первые <see cref="MotionSchema.GroupCount"/>). Равенство — поэлементное: встроенное у
+/// <c>InlineArray</c> бросает исключение.
 /// </summary>
 [InlineArray(MotionSchema.MaxGroups)]
 public struct MotionGroupCosts : IEquatable<MotionGroupCosts>
@@ -124,14 +105,10 @@ public struct MotionGroupCosts : IEquatable<MotionGroupCosts>
     }
 }
 
-/// <summary>
-/// Итог поиска (<see cref="MotionMatcher"/>) — значение без ссылок, память не выделяет (можно хранить в компоненте).
-/// </summary>
+/// <summary>Итог поиска — значение без ссылок, память не выделяет.</summary>
 /// <param name="Frame">Лучший кадр базы; −1 — искать было не в чем (ни одного искомого кадра вне окна пропуска).</param>
 /// <param name="Cost">Цена лучшего кадра (взвешенная сумма квадратов разниц нормализованных признаков), без скидки.</param>
 /// <param name="ContinuationCost">Цена продолжения — текущего кадра, без скидки; текущего нет — +∞.</param>
-/// <param name="Blocks">Блоков осмотрено (не отсечено нижней оценкой).</param>
-/// <param name="Frames">Кадров посчитано.</param>
 /// <param name="Groups">Цены лучшего кадра по группам (сумма по группам — <paramref name="Cost"/>).</param>
 public readonly record struct MotionMatch(int Frame, float Cost, float ContinuationCost, int Blocks, int Frames, MotionGroupCosts Groups);
 
@@ -143,9 +120,7 @@ public readonly record struct MotionPlayerHandle(int Index, int Generation)
     public override string ToString() => IsNone ? "нет" : $"{Index}v{Generation}";
 }
 
-/// <summary>
-/// Скалярное состояние проигрывателя (<see cref="MotionPlayers.State"/>): что показывает и сколько переходов было.
-/// </summary>
+/// <summary>Скалярное состояние проигрывателя (<see cref="MotionPlayers.State"/>).</summary>
 /// <param name="Frame">Кадр базы; −1 — ещё не начат (первое задание с переходом ставит кадр без перехода).</param>
 /// <param name="Alpha">Доля интервала <c>Frame → Next[Frame]</c>, [0, 1).</param>
 /// <param name="Transitions">Переходов с инерциализацией (запрошенных и по рёбрам графа).</param>
@@ -153,9 +128,7 @@ public readonly record struct MotionPlayerHandle(int Index, int Generation)
 /// <param name="RootStep">Перенос корня клипа за продвижение последнего задания — в системе корня до шага.</param>
 public readonly record struct MotionPlayerState(int Frame, float Alpha, int Transitions, bool HasOutput, Pose2 RootStep);
 
-/// <summary>
-/// Шаг проигрывателя — параметры задания пула <see cref="PosePool.Motion"/>.
-/// </summary>
+/// <summary>Шаг проигрывателя — параметры задания <see cref="PosePool.Motion"/>.</summary>
 /// <param name="Advance">Продвижение по графу, с клипа (dt × темп), ≥ 0.</param>
 /// <param name="Dt">Время тика, с (&gt; 0): затухание смещений и скорости выхода — во времени игры, а не клипа.</param>
 /// <param name="Transition">Запрошенный переход — кадр базы (итог поиска); −1 — без перехода.</param>

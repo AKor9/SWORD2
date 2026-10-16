@@ -4,13 +4,8 @@ using Sword.Engine.Formats;
 namespace Sword.Engine.Animation;
 
 /// <summary>
-/// Скелет: имена и родители суставов, хеш (по нему клип узнаёт свой скелет) и поза привязки — локальные повороты и
-/// смещения, в которых меш рисуется без анимации. Пространство персонажа SWORD: +Z вперёд, +X влево, Y вверх, метры.
-///
-/// Неизменяем: скелет делят все симуляции, поэтому данные наружу — только <see cref="ReadOnlySpan{T}"/>, массивы
-/// конструктора копируются, поза привязки из меша — новый скелет (<see cref="WithMeshBindPose"/>).
-///
-/// Родитель может идти после ребёнка (экспорт UE оставил часть костей без порядка) — прямая кинематика идёт в заранее
+/// Скелет: имена и родители суставов, хеш и поза привязки. Пространство персонажа: +Z вперёд, +X влево, Y вверх, метры.
+/// Неизменяем — его делят все симуляции. Родитель может идти после ребёнка (экспорт UE): прямая кинематика — в заранее
 /// посчитанном порядке «родитель раньше ребёнка»; цикл в родителях — ошибка данных.
 /// </summary>
 public sealed class Skeleton
@@ -59,7 +54,6 @@ public sealed class Skeleton
         _referencePos = referencePos;
     }
 
-    /// <summary>Скелет из .swskeleton.</summary>
     /// <exception cref="InvalidDataException">Файл испорчен или в родителях цикл.</exception>
     public static Skeleton Read(Stream stream, string name)
     {
@@ -94,13 +88,9 @@ public sealed class Skeleton
         return order;
     }
 
-    /// <summary>Номер сустава по имени; нет — −1.</summary>
     public int Find(string name) => Array.IndexOf(_jointNames, name);
 
-    /// <summary>
-    /// Маска поддерева для <see cref="PosePool.AddMask"/> — в <paramref name="mask"/> (по суставу на место): 1 — сустав
-    /// <paramref name="root"/> и все его потомки (родитель может идти после ребёнка), 0 — остальные. Для настройки, не для тика.
-    /// </summary>
+    /// <summary>Маска поддерева для <see cref="PosePool.AddMask"/>: 1 — <paramref name="root"/> и потомки, 0 — остальные. Для настройки, не для тика.</summary>
     /// <exception cref="ArgumentOutOfRangeException">Сустава <paramref name="root"/> нет в скелете.</exception>
     /// <exception cref="ArgumentException">Мест в <paramref name="mask"/> не столько, сколько суставов.</exception>
     public void SubtreeMask(int root, Span<float> mask)
@@ -115,10 +105,7 @@ public sealed class Skeleton
         }
     }
 
-    /// <summary>
-    /// Прямая кинематика: локальные позы → модельные матрицы (<c>SkeletalClips.ToComponent</c> SWORD: вектор слева,
-    /// сустав = локальная · родитель). Каждая матрица считается ровно один раз теми же операциями, что в SWORD.
-    /// </summary>
+    /// <summary>Прямая кинематика: локальные позы → модельные матрицы (вектор слева, сустав = локальная · родитель); каждая матрица — один раз.</summary>
     public void ToModel(ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos, Span<Matrix4x4> model)
     {
         var parents = _jointParents;
@@ -133,9 +120,8 @@ public sealed class Skeleton
     }
 
     /// <summary>
-    /// Этот скелет с позой привязки из меша персонажа (.swmesh): модельная матрица сустава — обращённая обратная
-    /// bind-матрица, локальная — она же относительно родителя. Скелет меша должен совпадать со скелетом клипов по именам
-    /// и родителям; bind-матрица — поворот и перенос (со сдвигом или отражением поза привязки не выражается).
+    /// Скелет с позой привязки из меша (.swmesh): модельная матрица сустава — обращённая обратная bind-матрица. Скелет меша
+    /// совпадает со скелетом клипов; bind-матрица — только поворот и перенос.
     /// </summary>
     /// <exception cref="InvalidDataException">Меш испорчен, его скелет другой или bind-матрица не разлагается.</exception>
     public Skeleton WithMeshBindPose(Stream mesh, string name)

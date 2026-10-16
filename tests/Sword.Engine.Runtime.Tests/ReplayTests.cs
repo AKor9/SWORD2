@@ -232,13 +232,13 @@ public class ReplayTests
     }
 
     [Fact]
-    public void ToolCommands_AfterReplay_Branch()
+    public void ClientCommands_AfterReplay_Branch()
     {
         var replay = RecordRun();
-        // Nudge берёт последнюю команду тика: команда инструмента (после реплея) перебивает реплей — ветвление
+        // Nudge берёт последнюю команду тика: команда клиента (после реплея) перебивает реплей — ветвление
         var player = PlayAll(replay, (sim, tick) =>
         {
-            if (tick == 40) sim.EnqueueRaw(typeof(Nudge), tick, BitConverter.GetBytes(0.26f));
+            if (tick == 40) sim.Enqueue(tick, new Nudge { X = 0.26f });
         });
         Assert.Equal(41ul, player.Divergence!.Tick);
     }
@@ -282,10 +282,7 @@ public class ReplayTests
         Assert.All(same.PartFirstTicks.Values, v => Assert.Null(v));
     }
 
-    /// <summary>
-    /// Начало реплея — команды до тика и хеши не дальше него; без хешей — только команды. Ветка с началом играет
-    /// те же тики бит в бит и дальше идёт без команд реплея.
-    /// </summary>
+    /// <summary>Начало реплея — команды до тика и хеши не дальше него; ветка с началом играет те же тики бит в бит.</summary>
     [Fact]
     public void Head_KeepsCommandsAndHashesBeforeTick()
     {
@@ -305,10 +302,7 @@ public class ReplayTests
         Assert.Equal(41, player.HashesChecked);
     }
 
-    /// <summary>
-    /// Воспроизведение реплея не выделяет памяти на тик — команды тика выдаются по индексу, а
-    /// не перечислителем через интерфейс (32 байта на тик).
-    /// </summary>
+    /// <summary>Воспроизведение — 0 Б на тик: команды тика выдаются по индексу, а не перечислителем через интерфейс.</summary>
     [Fact]
     public void Playback_SteadyTick_DoesNotAllocate()
     {

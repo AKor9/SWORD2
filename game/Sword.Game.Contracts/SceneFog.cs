@@ -3,9 +3,8 @@ using System.Numerics;
 namespace Sword.Game.Contracts;
 
 /// <summary>
-/// Туман сцены для прозрачного поверх неё (пламя огня): линейный по расстоянию до камеры, как у освещения непрозрачной сцены, —
-/// доля f = saturate((d − <see cref="Start"/>) / <see cref="Range"/>), цвет → lerp(цвет, <see cref="Colour"/>, f). Линейный цвет HDR до
-/// экспозиции; день или ночь — у клиента игры.
+/// Туман сцены для прозрачного поверх неё (пламя огня), линейный по расстоянию до камеры:
+/// f = saturate((d − <see cref="Start"/>) / <see cref="Range"/>), цвет → lerp(цвет, <see cref="Colour"/>, f). Линейный HDR до экспозиции.
 /// </summary>
 public readonly record struct SceneFog(Vector3 Colour, float Start, float Range)
 {
@@ -16,10 +15,7 @@ public readonly record struct SceneFog(Vector3 Colour, float Start, float Range)
     public float Factor(float distance) => Math.Clamp((distance - Start) / Range, 0f, 1f);
 }
 
-/// <summary>
-/// Туман сцены кадра для клиентских модулей (сервис клиента — <c>ClientServices</c>): реализует клиентская часть игры (окружение дня или
-/// ночи), отдаёт модулям exe. Только представление.
-/// </summary>
+/// <summary>Туман сцены кадра для клиентских модулей (сервис клиента); реализует клиентская часть игры. Только представление.</summary>
 public interface ISceneFog
 {
     /// <summary>Туман следующего кадра.</summary>

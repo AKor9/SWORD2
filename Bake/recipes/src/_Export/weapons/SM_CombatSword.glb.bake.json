@@ -1,0 +1,9 @@
+{
+  "converter": "weapon",
+  "import": "combat_master",
+  "notes": "/Game/CombatMasterAnimBundle/Weapon/Sword/SM_CombatSword.",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "name": "combat_sword"
+  }
+}

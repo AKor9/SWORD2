@@ -11,12 +11,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Инварианты толчков живых и ударов по трупам: <c>physics.sources</c> (после PrePhysics — чем толкают тела живых:
-/// клинок в ударе — проходом, прочее — телом), <c>ragdoll.hitSource</c> (после Resolve — «физический клинок попаданий не даёт»: попадание
-/// клинком — только от кинематического клинка живого в ударе; попадание по трупу — ровно у жертвы, мёртвой до попаданий тика), <c>ragdoll.hitImpulse</c>
-/// (после Resolve — импульс удара этого тика: Δv точки ≤ доли скорости удара, не больше, чем хотел удар, у трупа — оплачен проходом пары).
-/// Свойства толчков по трассе физики (доли бюджетов пары и прохода, выталкивание толчком) — диагностический <c>physics.pushes</c> (
-/// <see cref="CorpseInvariants"/>). Допуск — округление float.
+/// Инварианты толчков живых и ударов по трупам: <c>physics.sources</c> (после PrePhysics), <c>ragdoll.hitSource</c> и
+/// <c>ragdoll.hitImpulse</c> (после Resolve). Допуск — округление float.
 /// </summary>
 public static class KinematicPushInvariants
 {
@@ -38,12 +34,9 @@ public static class KinematicPushInvariants
     private static readonly int PrePhysicsIndex = StageIndex(GameStages.PrePhysics), ResolveIndex = StageIndex(GameStages.Resolve);
 
     /// <summary>
-    /// <c>physics.sources</c> (после PrePhysics; проверка «сейчас» — до Resolve включительно: React может сменить действие реакцией, а метки
-    /// ставит PrePhysics следующего тика) — у живого бойца с годным телом тело клинка кинематическое и толкает проходом
-    /// (<see cref="KinematicSource.Pass"/>) ровно в ударе (<see cref="KinematicPush.Striking"/>), вне удара — телом. Остальные 13 тел метку
-    /// не меняют (<see cref="KinematicSource.Body"/> с постройки; их метки видит тест KinematicPushTests.Sources_…) — проверяется только клинок:
-    /// дёшево, каждый тик (33 чтения тела). Ловит клинок, толкающий проходом вне удара (бюджет прохода без удара), и удар, клинок которого толкает
-    /// только телом (проход и попадание разошлись).
+    /// <c>physics.sources</c> — у живого бойца тело клинка кинематическое и толкает проходом (<see cref="KinematicSource.Pass"/>) ровно
+    /// в ударе (<see cref="KinematicPush.Striking"/>), вне удара — телом. Проверяется только клинок: остальные 13 тел метку не меняют.
+    /// Проверка «сейчас» — до Resolve включительно (React может сменить действие).
     /// </summary>
     private sealed class Sources(IPhysicsWorld physics) : IInvariant
     {
@@ -95,11 +88,8 @@ public static class KinematicPushInvariants
     }
 
     /// <summary>
-    /// <c>ragdoll.hitSource</c> (после Resolve) — физический клинок попаданий не даёт: каждое попадание клинком этого тика (не проба) — от
-    /// бойца, живого до тика (убитого этим же тиком — можно: касания тика посчитаны до смертей), в ударе, чьё тело клинка кинематическое и
-    /// толкает проходом (<see cref="KinematicSource.Pass"/>; у трупа тело клинка — на физике). Попадание по трупу (<see cref="Hit.Corpse"/>)
-    /// — ровно у жертвы, мёртвой до попаданий тика (смерть прошлых тиков или команда сцены этого тика, не попадание этого тика); попадание по
-    /// трупу никого не убивает.
+    /// <c>ragdoll.hitSource</c> — физический клинок попаданий не даёт: попадание клинком — только от живого до тика бойца в ударе с
+    /// кинематическим клинком, толкающим проходом. Попадание по трупу — ровно у жертвы, мёртвой до попаданий тика, и никого не убивает.
     /// </summary>
     private sealed class HitSource(IPhysicsWorld physics) : IInvariant
     {
@@ -148,10 +138,8 @@ public static class KinematicPushInvariants
     }
 
     /// <summary>
-    /// <c>ragdoll.hitImpulse</c> (после Resolve; проверка «сейчас» — с Resolve до конца тика) — импульс удара этого тика в тело бойца
-    /// (<see cref="HitImpulse"/>): Δv точки вдоль удара — не больше <see cref="PhysicsSettings.HitDvShare"/> скорости удара, приложенный — не
-    /// больше, чем хотел удар; у части трупа — из прохода: проход пары атакующий → труп открыт, остаток — в пределах бюджета, потрачено с
-    /// открытия — не меньше приложенного (импульс за проход ≤ бюджета прохода).
+    /// <c>ragdoll.hitImpulse</c> — импульс удара тика (<see cref="HitImpulse"/>): Δv точки — не больше
+    /// <see cref="PhysicsSettings.HitDvShare"/> скорости удара, приложенный — не больше желаемого; у трупа — оплачен проходом пары.
     /// </summary>
     private sealed class Impulses(IPhysicsWorld physics) : IInvariant
     {

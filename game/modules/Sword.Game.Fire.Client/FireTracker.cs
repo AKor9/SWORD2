@@ -15,7 +15,7 @@ namespace Sword.Game.Fire;
 /// </summary>
 public sealed class FireTracker
 {
-    /// <summary>Головок по тикам у огня (кольцо): не меньше тиков кадра (<c>sim.maxTicksPerFrame</c> = 8) с запасом на шаги агента.</summary>
+    /// <summary>Головок по тикам у огня (кольцо): не меньше тиков кадра (<c>sim.maxTicksPerFrame</c> = 8) с запасом на шаги инструментов.</summary>
     public const int Points = 16;
 
     /// <summary>Огонь: владелец, оружие, головка тика, гаснет ли, тики и кольцо головок.</summary>
@@ -37,9 +37,6 @@ public sealed class FireTracker
         internal readonly Vector3[] Centers = new Vector3[Points];
         internal readonly ulong[] HeadTicks = new ulong[Points];
         internal int HeadCount, HeadNext;
-
-        /// <summary>Подписи слоя снимка — заранее, без выделений в кадре.</summary>
-        internal string Label = "", DyingLabel = "";
 
         /// <summary>Головка тика <paramref name="k"/>-го с конца (0 — последний тик), не больше <see cref="PointCount"/>.</summary>
         public (ulong Tick, Vector3 Head) Point(int k)
@@ -196,8 +193,6 @@ public sealed class FireTracker
         fire.FirstTick = tick;
         fire.Ticks = 0;
         fire.HeadCount = fire.HeadNext = 0;
-        fire.Label = $"{Owner(t.Slot)}: {fire.WeaponName}";
-        fire.DyingLabel = fire.Label + " — гаснет";
     }
 
     /// <summary>Владелец словами: игрок (место 0) или враг N.</summary>

@@ -10,6 +10,9 @@ BenchmarkDotNet.Artifacts/
 *.swpak
 *.swpak.tmp
 
+# Игровые ресурсы пекарни Content/ — вне git (сотни МБ, лицензии ассетов); исключения пака — Bake/pak.json.
+/Content/
+
 # Выгрузки агентских сеансов, снимки, отчёты.
 artifacts/
 

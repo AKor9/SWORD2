@@ -25,11 +25,9 @@
     <Project Path="engine/Sword.Engine.Ui/Sword.Engine.Ui.csproj" />
     <Project Path="engine/Sword.Engine.Render/Sword.Engine.Render.csproj" />
     <Project Path="engine/Sword.Engine.Fluid2D/Sword.Engine.Fluid2D.csproj" />
+    <Project Path="engine/Sword.Engine.Fluid3D/Sword.Engine.Fluid3D.csproj" />
     <Project Path="engine/Sword.Engine.Runtime/Sword.Engine.Runtime.csproj" />
     <Project Path="engine/Sword.Engine.Client/Sword.Engine.Client.csproj" />
-    <Project Path="engine/Sword.Engine.Introspection/Sword.Engine.Introspection.csproj" />
-    <Project Path="engine/Sword.Engine.Agent/Sword.Engine.Agent.csproj" />
-    <Project Path="engine/Sword.Engine.Agent.Client/Sword.Engine.Agent.Client.csproj" />
     <Project Path="engine/Sword.Engine.DevTools/Sword.Engine.DevTools.csproj" />
   </Folder>
   <Folder Name="/game/">
@@ -38,7 +36,6 @@
     <Project Path="game/Sword.Game/Sword.Game.csproj" />
     <Project Path="game/Sword.Game.Client/Sword.Game.Client.csproj" />
     <Project Path="game/Sword.Game.Bootstrap/Sword.Game.Bootstrap.csproj" />
-    <Project Path="game/Sword.Game.Agent/Sword.Game.Agent.csproj" />
     <Project Path="game/Sword.Game.App/Sword.Game.App.csproj" />
     <Project Path="game/Sword.Game.Headless/Sword.Game.Headless.csproj" />
   </Folder>
@@ -48,10 +45,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Sword.Bake/Sword.Bake.csproj" />
-    <Project Path="tools/Sword.Bake.Cli/Sword.Bake.Cli.csproj" />
-    <Project Path="tools/Sword.Bake.Engine/Sword.Bake.Engine.csproj" />
-    <Project Path="tools/Sword.Bake.Game/Sword.Bake.Game.csproj" />
-    <Project Path="tools/Sword.Bake.Studio/Sword.Bake.Studio.csproj" />
+    <Project Path="tools/Sword.Assets/Sword.Assets.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sword.Architecture.Tests/Sword.Architecture.Tests.csproj" />
@@ -64,19 +58,14 @@
     <Project Path="tests/Sword.Benchmarks/Sword.Benchmarks.csproj" />
     <Project Path="tests/Sword.Engine.Formats.Tests/Sword.Engine.Formats.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Ui.Tests/Sword.Engine.Ui.Tests.csproj" />
-    <Project Path="tests/Sword.Engine.Introspection.Tests/Sword.Engine.Introspection.Tests.csproj" />
-    <Project Path="tests/Sword.Engine.Agent.Tests/Sword.Engine.Agent.Tests.csproj" />
     <Project Path="tests/Sword.Engine.DevTools.Tests/Sword.Engine.DevTools.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Content.Tests/Sword.Engine.Content.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Render.Tests/Sword.Engine.Render.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Fluid2D.Tests/Sword.Engine.Fluid2D.Tests.csproj" />
+    <Project Path="tests/Sword.Engine.Fluid3D.Tests/Sword.Engine.Fluid3D.Tests.csproj" />
     <Project Path="tests/Sword.Engine.Platform.Tests/Sword.Engine.Platform.Tests.csproj" />
     <Project Path="tests/Sword.Game.Tests/Sword.Game.Tests.csproj" />
     <Project Path="tests/Sword.Bake.Tests/Sword.Bake.Tests.csproj" />
-    <Project Path="tests/Sword.Bake.Tests.PluginA/Sword.Bake.Tests.PluginA.csproj" />
-    <Project Path="tests/Sword.Bake.Tests.PluginB/Sword.Bake.Tests.PluginB.csproj" />
-    <Project Path="tests/Sword.Bake.Engine.Tests/Sword.Bake.Engine.Tests.csproj" />
-    <Project Path="tests/Sword.Bake.Game.Tests/Sword.Bake.Game.Tests.csproj" />
-    <Project Path="tests/Sword.Bake.Studio.Tests/Sword.Bake.Studio.Tests.csproj" />
+    <Project Path="tests/Sword.Assets.Tests/Sword.Assets.Tests.csproj" />
   </Folder>
 </Solution>

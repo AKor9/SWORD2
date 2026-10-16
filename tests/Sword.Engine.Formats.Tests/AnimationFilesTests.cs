@@ -4,10 +4,7 @@ using Sword.Engine.Formats;
 
 namespace Sword.Engine.Formats.Tests;
 
-/// <summary>
-/// Скелет (<c>.swskeleton</c>, версия 1) и клип (<c>.swclip</c>, версия 2) библиотеки анимаций — спецификация нашего формата пака
-/// контента: раскладка поле за полем, запись и чтение без искажений, версия 1 клипа, обрезка.
-/// </summary>
+/// <summary>Форматы <c>.swskeleton</c> (v1) и <c>.swclip</c> (v2): раскладка поле за полем, запись и чтение, версия 1 клипа, обрезка.</summary>
 public class AnimationFilesTests
 {
     private static readonly string[] Joints = ["root", "pelvis", "spine"];

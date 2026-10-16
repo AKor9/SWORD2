@@ -3,13 +3,9 @@ using System.Runtime.CompilerServices;
 namespace Sword.Engine.Animation.Motion;
 
 /// <summary>
-/// Нормализация признаков базы: среднее по признаку и разброс, общий на группу (среднее разбросов её признаков, не
-/// меньше <see cref="FeatureGroup.MinStd"/>), по искомым кадрам; суммы — в double. Зовётся из <see cref="Build"/>.
-///
-/// Дважды: сначала только поза (группы корня и суставов) по всем кадрам базы — для цены шва графа (искомые кадры ещё неизвестны:
-/// их задаёт граф); затем все признаки по искомым кадрам — итог базы. Разброс — по <c>N</c> (не <c>N − 1</c>); среднее и разброс
-/// считаются двумя проходами по строкам (сначала сумма, затем квадраты отклонений от среднего) — порядок сложения по кадрам
-/// возрастающий, итог от потоков не зависит.
+/// Нормализация признаков базы: среднее по признаку и разброс, общий на группу (не меньше <see cref="FeatureGroup.MinStd"/>);
+/// суммы в double, по <c>N</c>, порядок сложения возрастающий — итог от потоков не зависит. Дважды: поза по всем кадрам (для
+/// цены шва), затем все признаки по искомым кадрам.
 /// </summary>
 public sealed partial class MotionDatabase
 {
@@ -49,10 +45,7 @@ public sealed partial class MotionDatabase
             }
         }
 
-        /// <summary>
-        /// Итоговая нормализация по искомым кадрам: среднее и разброс групп; признаки всех кадров нормализуются на месте
-        /// (<see cref="Raw"/> становится нормализованным).
-        /// </summary>
+        /// <summary>Итоговая нормализация по искомым кадрам; признаки всех кадров — на месте (<see cref="Raw"/> становится нормализованным).</summary>
         /// <exception cref="InvalidDataException">Нет ни одного искомого кадра; признак — не число (с клипом и группой).</exception>
         public (float[] Mean, float[] Std) Normalize()
         {
@@ -83,10 +76,7 @@ public sealed partial class MotionDatabase
                 $"клип {ClipName(clip)}, кадр {f - Clips[clip].Start}: признак {feature} (группа «{group}») = {value} — данные клипа испорчены");
         }
 
-        /// <summary>
-        /// Среднее по признаку и разброс группы (среднее разбросов её признаков, не меньше пола) по кадрам <paramref name="mask"/>
-        /// (null — все); суммы в double.
-        /// </summary>
+        /// <summary>Среднее по признаку и разброс группы по кадрам <paramref name="mask"/> (null — все).</summary>
         /// <exception cref="InvalidDataException">По маске нет ни одного кадра.</exception>
         private (float[] Mean, float[] Std) Stats(bool[]? mask)
         {
@@ -138,10 +128,7 @@ public sealed partial class MotionDatabase
             }
         }
 
-        /// <summary>
-        /// Цена шва: сумма квадратов разниц нормализованных признаков позы кадров <paramref name="a"/> и <paramref name="b"/>; дошла до
-        /// <paramref name="bound"/> — счёт обрывается (итог не меньше границы: сумма неотрицательных слагаемых не убывает).
-        /// </summary>
+        /// <summary>Цена шва кадров <paramref name="a"/> и <paramref name="b"/> по признакам позы; дошла до <paramref name="bound"/> — счёт обрывается.</summary>
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private float Seam(int a, int b, float bound)
         {

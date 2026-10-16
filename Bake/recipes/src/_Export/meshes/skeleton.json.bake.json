@@ -1,0 +1,10 @@
+{
+  "converter": "skeleton",
+  "import": "ue5_manny",
+  "notes": "Скелет UE5 Manny и риг, на который ссылаются меш персонажа, наборы клипов, оружие и анатомия. Кости и пространство — эталонный экспорт skin_sword (клипы 1HM на Manny); по его кулаку с пальцами из skin_sword_ue4 крепится оружие.",
+  "params": {
+    "id": "ue5_manny",
+    "clips": "${src}/_Export/skin_sword",
+    "fingerSrc": "${src}/_Export/skin_sword_ue4"
+  }
+}

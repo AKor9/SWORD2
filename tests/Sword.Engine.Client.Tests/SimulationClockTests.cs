@@ -6,10 +6,7 @@ namespace Sword.Engine.Client.Tests;
 public struct Ping { public ulong SentForTick; }
 public struct Pong { public ulong Tick; }
 
-/// <summary>
-/// Очередь кадра через клиент (раздел 5 плана: «экспорт тика в очередь кадра клиента при кадрах с 0 и 3 тиками»):
-/// <see cref="SimulationClock"/> делает тики кадра, игра читает записи через <see cref="SimulationLink.Frame{T}"/>.
-/// </summary>
+/// <summary><see cref="SimulationClock"/> делает тики кадра (в том числе 0 и 3), игра читает записи через <see cref="SimulationLink.Frame{T}"/>.</summary>
 public class SimulationClockTests
 {
     private static readonly string[] Stages = ["Begin", "Late"];
@@ -112,11 +109,11 @@ public class SimulationClockTests
         var (clock, _) = Create();
         double dt = clock.Link.Dt;
         Assert.Equal(2, clock.RunFrame(2.25 * dt));
-        Assert.Equal(0.25f, clock.Alpha, 4);          // accumulator / dt после тиков кадра (Program.cs SWORD)
+        Assert.Equal(0.25f, clock.Alpha, 4);          // accumulator / dt после тиков кадра
         Assert.Equal(1, clock.RunFrame(0.9 * dt));
         Assert.Equal(0.15f, clock.Alpha, 4);
         Assert.Equal((float)(0.25 * dt), clock.FrameSeconds(0.25 * dt));
-        Assert.Equal(5f, clock.FrameSeconds(5));   // камере — сырой шаг кадра, как в SWORD (тики — не больше 0,25 с)
+        Assert.Equal(5f, clock.FrameSeconds(5));   // камере — сырой шаг кадра (тики — не больше 0,25 с)
 
         var (fixedClock, _) = Create(ticksPerFrame: 3);
         fixedClock.RunFrame(0.001);
@@ -140,35 +137,6 @@ public class SimulationClockTests
         }
     }
 
-    private sealed class Gate(int? ticks) : ITickGate
-    {
-        public int? Ticks = ticks;
-        public readonly List<ulong> Reported = [];
-        public int? Override(int maxPerFrame) => Ticks is { } t ? Math.Min(t, maxPerFrame) : null;
-        public void Ran(ulong tick) => Reported.Add(tick);
-    }
-
-    [Fact]
-    public void Gate_PausesAndStepsInsteadOfClock_ShowsLastTick()
-    {
-        // Инструмент (агент): пауза — ноль тиков при любом шаге кадра, шаги — ровно заданные; часы стоят, доля тика 1.
-        var (clock, _) = Create();
-        double dt = clock.Link.Dt;
-        var gate = new Gate(0);
-        clock.Gate = gate;
-        Assert.Equal(0, clock.RunFrame(5 * dt));
-        Assert.Equal(1f, clock.Alpha);
-        gate.Ticks = 3;
-        Assert.Equal(3, clock.RunFrame(0));
-        Assert.Equal(3, Frame(clock.Link).Count);                    // очередь кадра — как у обычных тиков
-        gate.Ticks = 100;
-        Assert.Equal(8, clock.RunFrame(0));                          // не больше MaxTicksPerFrame
-        gate.Ticks = null;                                           // снова по часам — накопитель пуст
-        Assert.Equal(0, clock.RunFrame(0.5 * dt));
-        Assert.Equal(0.5f, clock.Alpha, 4);
-        Assert.Equal([0ul, 3ul, 11ul, 11ul], gate.Reported);        // сколько сыграно — каждому кадру
-    }
-
     [Theory]
     [InlineData(double.NaN)]
     [InlineData(-1.0)]
@@ -183,32 +151,10 @@ public class SimulationClockTests
     [Fact]
     public void Accumulator_CapsTicksPerFrame_AndTrimsTheRest()
     {
-        // Program.cs SWORD: шаг кадра до 0,25 с, не больше MaxTicksPerFrame тиков, остаток — до одного тика.
+        // шаг кадра до 0,25 с, не больше MaxTicksPerFrame тиков, остаток — до одного тика.
         var (clock, _) = Create();
         Assert.Equal(8, clock.RunFrame(1.0));        // 0,25 с = 30 тиков, потолок — 8
         Assert.Equal(8, Frame(clock.Link).Count);
         Assert.True(clock.RunFrame(0) <= 1, "после упора остаток не больше одного тика");
-    }
-    private sealed class StoppingGate(int? ticks, ulong stopAt) : ITickGate
-    {
-        public int? Override(int maxPerFrame) => ticks is { } t ? Math.Min(t, maxPerFrame) : null;
-        public void Ran(ulong tick) { }
-        public bool StopAfterTick(ulong tick) => tick >= stopAt;
-    }
-
-    [Fact]
-    public void Gate_StopAfterTick_EndsFrameOnThatTick()
-    {
-        // Условие наблюдения или пауза агента встают на своём тике, а не в конце кадра.
-        var (clock, _) = Create();
-        double dt = clock.Link.Dt;
-        clock.Gate = new StoppingGate(5, stopAt: 2);
-        Assert.Equal(2, clock.RunFrame(0));                  // шагов 5, встали на тике 2
-        Assert.Equal(2, Frame(clock.Link).Count);
-        clock.Gate = new StoppingGate(null, stopAt: 4);
-        Assert.Equal(2, clock.RunFrame(8 * dt));             // по часам 8 тиков, встали на тике 4
-        Assert.Equal(0f, clock.Alpha);                       // несыгранное время кадра не догоняется
-        clock.Gate = null;
-        Assert.Equal(1, clock.RunFrame(dt));
     }
 }

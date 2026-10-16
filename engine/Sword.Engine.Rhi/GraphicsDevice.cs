@@ -9,14 +9,8 @@ using Vortice.DXGI;
 namespace Sword.Engine.Rhi;
 
 /// <summary>
-/// Устройство D3D12, graphics-очередь, свопчейн и кольцо из <see cref="FrameCount"/> кадров.
-///
-/// Очередь одна: compute-проходы рендер-графа v0 идут dispatch'ем на ней же. Отдельная compute-очередь,
-/// межочередные заборы и async compute появятся вместе с первой GPU-симуляцией (раздел 6 ARCHITECTURE_PLAN.md).
-/// Логика кольца кадров, ожидания слота и отложенного освобождения — из SWORD.
-///
-/// Типы Vortice в открытых членах предназначены Render: остальным сборкам они при сборке не видны
-/// (<c>PrivateAssets=compile</c>), им доступны только члены без типов D3D12.
+/// Устройство D3D12, одна graphics-очередь (compute — dispatch на ней же), свопчейн и кольцо из <see cref="FrameCount"/>
+/// кадров. Типы Vortice в открытых членах — для Render: остальным сборкам они не видны (<c>PrivateAssets=compile</c>).
 /// </summary>
 public sealed class GraphicsDevice : IDisposable
 {
@@ -73,15 +67,11 @@ public sealed class GraphicsDevice : IDisposable
     /// <summary>Сколько CPU простоял в ожидании свободного слота кадра, мс.</summary>
     public double LastFenceWaitMs { get; private set; }
 
-    /// <summary>
-    /// GPU-время кадра и проходов: разбор кадра N − <see cref="FrameCount"/> — в <see cref="BeginFrame"/>, после
-    /// ожидания его слота; после <see cref="WaitForIdle"/> — последнего отправленного.
-    /// </summary>
+    /// <summary>GPU-время кадра и проходов: кадр N − <see cref="FrameCount"/> разбирается в <see cref="BeginFrame"/>.</summary>
     public GpuTimer Timer { get; }
 
     /// <param name="gpuValidation">
-    /// GPU-валидация (только вместе с <paramref name="enableDebugLayer"/>): проверяет на GPU состояния ресурсов, взятых
-    /// шейдером из bindless-кучи, — обычный слой отладки их не видит. Медленно: для тестов и проверочных прогонов.
+    /// GPU-валидация (только со слоем отладки): состояния ресурсов из bindless-кучи. Медленно — для тестов и проверочных прогонов.
     /// </param>
     public GraphicsDevice(nint hwnd, int width, int height, bool enableDebugLayer, bool gpuValidation = false)
     {
@@ -249,10 +239,7 @@ public sealed class GraphicsDevice : IDisposable
     /// <summary>Список команд текущего кадра; открыт между <see cref="BeginFrame"/> и <see cref="EndFrame"/>.</summary>
     public ID3D12GraphicsCommandList GraphicsList => _lists[FrameIndex];
 
-    /// <summary>
-    /// Ждёт слот кадра (единственное ожидание CPU за кадр — ограничение очереди в <see cref="FrameCount"/> кадров)
-    /// и открывает список команд.
-    /// </summary>
+    /// <summary>Ждёт слот кадра (единственное ожидание CPU за кадр) и открывает список команд.</summary>
     public void BeginFrame()
     {
         FrameIndex = (int)SwapChain.CurrentBackBufferIndex;
@@ -281,10 +268,7 @@ public sealed class GraphicsDevice : IDisposable
     /// <summary>Кадр открыт: <see cref="BeginFrame"/> был, <see cref="EndFrame"/> или <see cref="AbandonFrame"/> — нет.</summary>
     public bool FrameOpen { get; private set; }
 
-    /// <summary>
-    /// Бросить открытый кадр, не отправляя: список команд закрывается, GPU его не увидит. После ошибки посреди записи
-    /// кадра — иначе следующий <see cref="BeginFrame"/> сбрасывал бы открытый список.
-    /// </summary>
+    /// <summary>Бросить открытый кадр без отправки — после ошибки посреди записи кадра.</summary>
     public void AbandonFrame()
     {
         if (!FrameOpen) return;

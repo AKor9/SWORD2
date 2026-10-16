@@ -1,16 +1,10 @@
 namespace Sword.Engine.Ecs;
 
 /// <summary>
-/// Хуки времени жизни (раздел 5 плана): <see cref="AddHook{T}"/> и <see cref="RemoveHook{T}"/> — завести и освободить
-/// ресурс подсистемы (хэндл тела, позы) вместе с компонентом, который его держит.
-///
-/// Барьер: 1) команды буферов по порядку; каждое настоящее добавление и снятие компонента с хуком (и удаление сущности —
-/// снятие каждого её компонента) записывается в очередь хуков в порядке команд, значение снятия копируется на месте;
-/// 2) нормализованные срабатывания — в журналы; 3) хуки очереди по порядку; 4) события. Хуки не нормализуются: компонент,
-/// добавленный и снятый на одном барьере, в журналах не виден, а хуки отработали оба — добавления (над копией, которую
-/// получит и хук снятия) и снятия. Хук видит мир уже после всех команд барьера; структуру мира не меняет — команд у него
-/// нет, немедленные операции, тик и переключение систем из хука — исключение (повторного входа нет).
-/// <c>Add</c> уже имеющегося компонента при выключенных проверках — замена значения, а не добавление: хука нет.
+/// Хуки времени жизни: <see cref="AddHook{T}"/> и <see cref="RemoveHook{T}"/> заводят и освобождают ресурс подсистемы
+/// вместе с компонентом. Хуки не нормализуются: компонент, добавленный и снятый на одном барьере, в журналах не виден,
+/// но оба хука отработают над одной копией значения. Хук видит мир после всех команд барьера и структуру не меняет.
+/// <c>Add</c> имеющегося компонента без проверок — замена значения, хука нет.
 /// </summary>
 public sealed partial class World
 {
@@ -32,23 +26,7 @@ public sealed partial class World
         public int Value;
     }
 
-    /// <summary>Хуки мира — компонент, вид, модуль-владелец (описание мира для агента).</summary>
-    public IReadOnlyList<HookInfo> Hooks
-    {
-        get
-        {
-            var list = new List<HookInfo>();
-            for (int i = 0; i < _types.Length; i++)
-            {
-                if (_hooks[i] is not { } h) continue;
-                if (h.HasAdd) list.Add(new HookInfo(_types[i].StableName, "OnAdd", h.AddModule));
-                if (h.HasRemove) list.Add(new HookInfo(_types[i].StableName, "OnRemove", h.RemoveModule));
-            }
-            return list;
-        }
-    }
-
-    internal void SetHook<T>(AddHook<T>? onAdd, RemoveHook<T>? onRemove, string? module) where T : unmanaged
+    internal void SetHook<T>(AddHook<T>? onAdd, RemoveHook<T>? onRemove) where T : unmanaged
     {
         var t = TypeOf<T>();
         var hooks = (ComponentHooks<T>)(_hooks[t.Id] ??= new ComponentHooks<T>());
@@ -57,13 +35,11 @@ public sealed partial class World
         {
             if (hooks.OnAdd is not null) throw new InvalidOperationException($"хук OnAdd<{t.StableName}> дважды: у ресурса компонента один владелец");
             hooks.OnAdd = onAdd;
-            hooks.AddModule = module;
         }
         if (onRemove is not null)
         {
             if (hooks.OnRemove is not null) throw new InvalidOperationException($"хук OnRemove<{t.StableName}> дважды: у ресурса компонента один владелец");
             hooks.OnRemove = onRemove;
-            hooks.RemoveModule = module;
         }
     }
 
@@ -74,10 +50,8 @@ public sealed partial class World
         _hookCalls.Add(new HookCall { Entity = e, Type = type, Add = true, Value = -1 });
     }
 
-    /// <summary>
-    /// Компонент с хуком снимается (до переноса или удаления): значение копируется. Добавлен на этом же барьере — хук
-    /// добавления получит ту же копию, и что он в неё запишет (хэндл ресурса), увидит хук снятия.
-    /// </summary>
+    /// <summary>Снятие компонента с хуком: значение копируется; добавлен на этом же барьере — хук добавления получит ту же
+    /// копию, и хук снятия увидит записанный в неё хэндл.</summary>
     private void NoteHookRemoval(Entity e, int type)
     {
         var dt = _types[type];

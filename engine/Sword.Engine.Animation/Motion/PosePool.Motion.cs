@@ -7,36 +7,23 @@ namespace Sword.Engine.Animation;
 // сюда — в PosePool.cs. Состояние проигрывателя — MotionPlayers (меняется только здесь).
 public sealed partial class PosePool
 {
-    /// <summary>
-    /// Предохранитель продвижения: интервалов графа за одно задание не больше (1024 кадра — 34 с клипа при 30 кадрах/с; шаг игры —
-    /// доли кадра). Остаток продвижения сверх — отбрасывается: огромное продвижение (1e30 с) не зацикливает тик.
-    /// </summary>
+    /// <summary>Предохранитель: интервалов графа за задание не больше; остаток продвижения отбрасывается (1e30 с не зацикливает тик).</summary>
     private const int MaxIntervalsPerStep = 1024;
 
     /// <summary>Предохранитель цепочки входов (кадр входа — сам кадр выхода): переходов по <see cref="MotionDatabase.Entry"/> подряд не больше.</summary>
     private const int MaxEntryChain = 16;
 
     /// <summary>
-    /// Смещение и его скорость меньше 10⁻⁶ (рад и рад/с, м и м/с; сравниваются квадраты длин) — обнуляются: иначе хвост затухания уходит в
-    /// денормализованные числа (медленная арифметика x86 — секунды на каждом долгом стоянии без переходов); обнулённый сустав затухание
-    /// пропускает.
+    /// Смещение и его скорость меньше 10⁻⁶ (квадраты длин) обнуляются: иначе хвост затухания уходит в денормализованные числа
+    /// (медленная арифметика x86).
     /// </summary>
     private const float OffsetFlush = 1e-12f;
 
     /// <summary>
-    /// Шаг проигрывателя <c>job.Player</c> хранилища <c>job.Players</c> и его выход — в позу с началом <paramref name="dst"/> в общих
-    /// массивах: продвижение по графу на <c>Step.Advance</c> с (у кадра выхода — вход продолжения с переходом), затухание смещений
-    /// за <c>Step.Dt</c> с полупериодом <c>Step.Halflife</c>, сэмпл кадра с долей внутри клипа, смещения (повороты — все суставы,
-    /// позиции — движущиеся), скорости выхода; затем запрошенный переход <c>Step.Transition</c> (смещение = выход ∘ сопряжённый кадр
-    /// входа, скорость смещения = скорость выхода − скорость клипа во входе): выход этого тика не меняется, разрыв берут смещения.
-    /// Проигрыватель не начат — переход ставит кадр без инерциализации; без перехода — задание ничего не делает.
-    ///
-    /// Скорости — во времени игры: скорость клипа — разность соседних кадров × частота библиотеки × темп (<c>Advance / Dt</c>).
-    /// Переход на ребре графа (кадр выхода или ребро в другой клип) — инерциализация от выхода в точке ребра: смещение ∘ кадр, куда
-    /// проигрыватель дошёл (на ребре в другой клип — кадр, на котором поза стояла), скорость смещения + скорость клипа на подходе;
-    /// ребро посреди тика делит затухание: до момента ребра (доля продвижения × Dt) и остаток тика после (без рёбер — одно затухание
-    /// за Dt). Кадр выхода — всегда его вход (<see cref="MotionDatabase.Entry"/>, и у запрошенного перехода тоже): на кадре выхода
-    /// проигрыватель не стоит.
+    /// Шаг проигрывателя и его выход — в позу <paramref name="dst"/>: продвижение по графу (на ребре — инерциализация в точке
+    /// ребра, затухание делится по моменту ребра), затухание смещений, сэмпл кадра, скорости выхода; затем запрошенный переход
+    /// (выход этого тика не меняется, разрыв берут смещения). Скорости — во времени игры (× темп <c>Advance / Dt</c>). На кадре
+    /// выхода проигрыватель не стоит — всегда его вход.
     /// </summary>
     /// <returns>false — проигрыватель освобождён после постановки (задание пропущено).</returns>
     private partial bool RunMotion(in MotionJob job, int dst)
@@ -96,11 +83,9 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// Продвижение на <c>Advance</c> по графу базы: доля интервала растёт, в конце интервала — <c>Next</c>; перенос корня — композиция
-    /// долей <see cref="MotionDatabase.Interval"/> (<see cref="Pose2.Lerp"/> от начала интервала). Пришёл в кадр выхода (или по ребру в
-    /// другой клип) — переход во вход с инерциализацией, доля сохраняется; смещения до перехода затухают до момента ребра в тике
-    /// (доля продвижения × Dt), иначе скорость нового смещения действовала бы и на часть тика до ребра. Кадр без следующего — конец:
-    /// проигрыватель стоит в нём.
+    /// Продвижение на <c>Advance</c> по графу: перенос корня — композиция долей <see cref="MotionDatabase.Interval"/>. Кадр выхода
+    /// или ребро в другой клип — переход с инерциализацией; смещения до него затухают до момента ребра, иначе скорость нового
+    /// смещения действовала бы и до ребра. Кадр без следующего — проигрыватель стоит в нём.
     /// </summary>
     /// <returns>Время тика, до которого смещения уже затухли (момент последнего ребра; без рёбер — 0).</returns>
     private static float AdvancePlayer(MotionDatabase db, MotionPlayers.Slot p, in MotionStep step, float scale, ref int frame, ref float alpha,
@@ -147,9 +132,8 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// Переход на ребре графа: из интервала <paramref name="from"/> → <paramref name="to"/> в кадр <paramref name="dst"/>. Выход в
-    /// точке ребра — смещение ∘ кадр <paramref name="to"/> (ребро внутри клипа) или <paramref name="from"/> (ребро в другой клип — поза
-    /// стояла), его скорость — скорость смещения + скорость клипа на подходе (у стоявшей позы — 0).
+    /// Переход на ребре <paramref name="from"/> → <paramref name="to"/>: выход — смещение ∘ кадр <paramref name="to"/> (внутри клипа)
+    /// или <paramref name="from"/> (в другой клип), скорость — смещения + клипа на подходе.
     /// </summary>
     private static void EdgeTransition(MotionDatabase db, MotionPlayers.Slot p, int from, int to, bool inClip, int dst, float scale)
     {
@@ -166,10 +150,7 @@ public sealed partial class PosePool
         EdgePositions(db.MovingJoints, srcPos, prevPos, dstPos, nextPos, scale, p.PosOffset, p.PosOffsetVelocity);
     }
 
-    /// <summary>
-    /// Запрошенный переход в кадр <paramref name="dst"/> после выхода этого тика: смещение = выход ∘ сопряжённый кадр входа, скорость
-    /// смещения = скорость выхода − скорость клипа во входе (вход → Next внутри клипа; иначе 0).
-    /// </summary>
+    /// <summary>Запрошенный переход: смещение = выход ∘ сопряжённый кадр входа, скорость смещения = скорость выхода − скорость клипа во входе.</summary>
     private static void InertializeRequested(MotionDatabase db, MotionPlayers.Slot p, int dst, float scale)
     {
         FramePose(db, dst, out var dstRot, out var dstPos);
@@ -181,10 +162,7 @@ public sealed partial class PosePool
         RequestedPositions(db.MovingJoints, p.OutputPos, p.LinearVelocity, dstPos, nextPos, scale, p.PosOffset, p.PosOffsetVelocity);
     }
 
-    /// <summary>
-    /// Затухание смещений за <paramref name="dt"/> — <see cref="AnimMath.DecaySpring(ref Quaternion, ref Vector3, float, float)"/> (те же
-    /// выражения, коэффициенты — раз на задание; поворот — на векторе поворота, итог — с W ≥ 0); малый хвост обнуляется (<see cref="OffsetFlush"/>).
-    /// </summary>
+    /// <summary>Затухание смещений за <paramref name="dt"/> — выражения <see cref="AnimMath.DecaySpring(ref Quaternion, ref Vector3, float, float)"/>, коэффициенты раз на задание; малый хвост обнуляется.</summary>
     private static void DecayOffsets(MotionDatabase db, MotionPlayers.Slot p, float halflife, float dt)
     {
         float y = AnimMath.HalflifeToDamping(halflife) * 0.5f;
@@ -222,7 +200,6 @@ public sealed partial class PosePool
         return next >= 0 && db.ClipOf[next] == db.ClipOf[frame] ? next : -1;
     }
 
-    /// <summary>Локальная поза кадра базы — в библиотеке клипов.</summary>
     private static void FramePose(MotionDatabase db, int frame, out ReadOnlySpan<Quaternion> rot, out ReadOnlySpan<Vector3> pos)
     {
         var lib = db.Library;
@@ -371,9 +348,6 @@ public sealed partial class PosePool
         }
     }
 
-    /// <summary>
-    /// Смещение — с неотрицательной W (та же ориентация, угол ≤ π): выход <c>смещение · кадр</c> остаётся в полусфере кадра клипа, знак
-    /// поворотов выхода не скачет.
-    /// </summary>
+    /// <summary>Смещение с W ≥ 0: выход <c>смещение · кадр</c> остаётся в полусфере кадра, знак поворотов не скачет.</summary>
     private static Quaternion Positive(Quaternion q) => q.W < 0 ? Quaternion.Negate(q) : q;
 }

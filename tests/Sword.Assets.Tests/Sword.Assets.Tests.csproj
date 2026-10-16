@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Менеджер ресурсов (tools/Sword.Assets) без окна: сборка пака из Content/ и исключения pak.json, CLI pack и list,
+       модель вкладки «Пекарня», предпросмотр каждого вида ресурса кадром интерфейса на Content/ репозитория (нет его —
+       пропуск), ключи; с окном (категория Gpu) — снимок без фокуса. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\Sword.Assets\Sword.Assets.csproj" />
+    <ProjectReference Include="..\..\tools\Sword.Bake\Sword.Bake.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Ui\Sword.Engine.Ui.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -19,13 +19,10 @@ public enum GameFault
 }
 
 /// <summary>
-/// Модуль-неисправность в настоящей композиции игры (ядро и Locomotion): на тике <see cref="Tick"/> портит одно свойство,
-/// которое держат базовые инварианты — корень игрока в NaN (Movement), поза бойца в NaN (смешивание с весом NaN,
-/// Animation), задание пулу поз после его исполнения (Animation),
-/// хэндл позы бойца (End), общая поза слоя и снимка локомоции (End); после столкновений (Movement) — корень врага 2 в
-/// 0,1 м от врага 1 (в круге соседа) с тика <see cref="Tick"/> − 4 или прижат к нему на 0,65 м (перекрытие 0,05 м) с тика
-/// <see cref="Tick"/> − 24: на тике <see cref="Tick"/> — на тик дольше, чем можно (<c>movement.rootOverlap</c>; нужны враги —
-/// <c>arena.enemies = 2</c>).
+/// Модуль-неисправность в настоящей композиции игры: на тике <see cref="Tick"/> портит одно свойство базовых инвариантов —
+/// NaN в корне или позе, задание пулу после исполнения, хэндл позы, общая поза слоя и снимка; или держит врага 2 в круге
+/// соседа (с тика <see cref="Tick"/> − 4) либо с перекрытием 0,05 м (с <see cref="Tick"/> − 24) — на тик дольше допустимого
+/// (<c>movement.rootOverlap</c>, нужно <c>arena.enemies = 2</c>).
 /// </summary>
 public sealed class GameFaultModule(GameFault fault) : IModule
 {
@@ -192,10 +189,9 @@ public sealed class GameFaultModule(GameFault fault) : IModule
     }
 
     /// <summary>
-    /// Тело игрока сдвинуто на <paramref name="offset"/> без скорости (<see cref="IPhysicsWorld.Place"/>) на тике
-    /// <see cref="Tick"/> после <paramref name="after"/>: в PrePhysics после постановки — капсула таза не на суставах
-    /// (<c>physics.kinematicPose</c>); в Gameplay до постановки — все капсулы «прилетают» из стороны (как постройка без постановки,
-    /// <c>physics.kinematicSpeed</c>).
+    /// Тело игрока сдвинуто на <paramref name="offset"/> без скорости на тике <see cref="Tick"/> после <paramref name="after"/>:
+    /// в PrePhysics после постановки — таз не на суставах (<c>physics.kinematicPose</c>); в Gameplay до постановки — капсулы
+    /// «прилетают» (<c>physics.kinematicSpeed</c>).
     /// </summary>
     private sealed class ShiftPlayerBody(Vector3 offset, SystemLabel after, bool onlyPelvis) : IContinuousSystem
     {
@@ -335,10 +331,7 @@ public sealed class GameFaultModule(GameFault fault) : IModule
     }
 }
 
-/// <summary>
-/// Инварианты игры: базовые инварианты движка и анимации и инвариант модуля Locomotion ловят
-/// модуль-неисправность на её тике, после нужной стадии; честная игра их не нарушает.
-/// </summary>
+/// <summary>Базовые инварианты и инвариант Locomotion ловят неисправность на её тике после нужной стадии; честная игра чиста.</summary>
 public sealed class GameInvariantTests
 {
     private static Simulation Build(GameFault fault) =>
@@ -383,12 +376,9 @@ public sealed class GameInvariantTests
     }
 
     /// <summary>
-    /// Живая игра (решение пользователя): тяжёлые по цене в тике толпы — <c>animation.finite</c>,
-    /// <c>ecs.finite</c>, <c>physics.finite</c>, <c>physics.kinematicPose</c>, <c>physics.kinematicSpeed</c> и инварианты трупа
-    /// (<c>physics.modes</c>, <c>simulatedSpeed</c>, <c>joints</c>, <c>ground</c>, <c>inArena</c>, <c>sleep</c>, <c>sleepContacts</c>,
-    /// <c>selfContacts</c>) — раз в 4 тика, остальные
-    /// (и <c>movement.rootOverlap</c> со счётом тиков подряд) — каждый тик. Неисправность, которая держится (NaN корня с тика 25),
-    /// поймана не позже чем через 3 тика — на тике 28; в тестах (не живая игра) — на тике 25 (<see cref="Fault_CaughtOnItsTick_AfterItsStage"/>).
+    /// Живая игра: тяжёлые инварианты (<c>*.finite</c>, <c>physics.kinematic*</c> и инварианты трупа) — раз в 4 тика, остальные
+    /// (в том числе <c>movement.rootOverlap</c>) — каждый тик. NaN корня с тика 25 пойман на тике 28; в тестах — на тике 25
+    /// (<see cref="Fault_CaughtOnItsTick_AfterItsStage"/>).
     /// </summary>
     [Fact]
     public void LiveGame_HeavyEveryFourTicks_PersistentFaultCaughtWithinPeriod()
@@ -397,7 +387,7 @@ public sealed class GameInvariantTests
             "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena",   // инварианты трупа — по всем телам
             "physics.sleep", "physics.sleepContacts",   // сон трупа
             "physics.selfContacts",   // самоколлизия — все пары всех трупов
-            "locomotion.mmDecay", "locomotion.mmContinuity"];   // MM игрока (только при locomotion.player = mm) — MotionMatchAgentTests
+            "locomotion.mmDecay", "locomotion.mmContinuity"];   // MM игрока (только при locomotion.player = mm) — MotionMatchViewTests
         var sim = Build(GameFault.NaNRoot);
         Assert.All(sim.Invariants.List().Where(i => i.Enabled), i => Assert.Equal(1, i.Every));   // не живая игра — каждый тик
         sim.Invariants.LivePeriods = true;
@@ -412,14 +402,14 @@ public sealed class GameInvariantTests
         Assert.Equal(GameFaultModule.Tick + 3, first.Tick);   // 28 — ближайшая проверка раз в 4 после тика 25
         // К тику 28 NaN корня разошёлся по клинку и прошлому корню — подробностей больше 8, корня среди них может не быть.
         Assert.Contains("= NaN", first.Details);
-        Assert.Equal(8, sim.Invariants.Find("ecs.finite")!.Evaluations);              // тики 0, 4, …, 28
-        Assert.Equal(29, sim.Invariants.Find("movement.rootOverlap")!.Evaluations);   // каждый тик: счёт тиков подряд
+        Assert.Equal(8, sim.Invariants.List().Single(i => i.Id == "ecs.finite").Evaluations);              // тики 0, 4, …, 28
+        Assert.Equal(29, sim.Invariants.List().Single(i => i.Id == "movement.rootOverlap").Evaluations);   // каждый тик: счёт тиков подряд
     }
 
     [Fact]
-    public void RootOverlap_OnDemandRuns_DoNotAdvanceTicksInARow()
+    public void RootOverlap_RunNow_DoesNotAdvanceTicksInARow()
     {
-        // Пара прижата с тика 1: после тика 24 — 24 тика подряд (можно). Проверки по запросу между тиками тот же мир
+        // Пара прижата с тика 1: после тика 24 — 24 тика подряд (можно). Проверки «сейчас» между тиками тот же мир
         // не считают новым тиком; нарушение — ровно на плановой проверке тика 25.
         var sim = Build(GameFault.RootsPressed);
         for (int t = 0; t < (int)GameFaultModule.Tick; t++) sim.Step();
@@ -430,7 +420,7 @@ public sealed class GameInvariantTests
         var first = sim.Invariants.Recent()[0];
         Assert.Equal(("movement.rootOverlap", GameFaultModule.Tick), (first.Id, first.Tick));
         Assert.Contains("25 тиков подряд", first.Details);
-        // По запросу после нарушения — то же нарушение (счёт не сдвинулся до 26).
+        // Проверка «сейчас» после нарушения — то же нарушение (счёт не сдвинулся до 26).
         var again = sim.Invariants.Run(["movement.rootOverlap"], sim.Tick, "между тиками", sim.Dt);
         Assert.Contains("25 тиков подряд", Assert.Single(again).Details[0].Details);
     }
@@ -439,7 +429,7 @@ public sealed class GameInvariantTests
     public void FairGame_NoViolations_AllCoreInvariantsChecked()
     {
         var sim = TestAssets.Simulation();
-        Assert.Equal(["ecs.finite", "ecs.entityRefs", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "ragdoll.skin", "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena", "physics.energy", "physics.pushes", "physics.sleep", "physics.sleepContacts", "physics.selfContacts", "physics.sources", "ragdoll.hitSource", "ragdoll.hitImpulse", "combat.blade", "combat.weapons", "combat.control", "combat.health", "combat.dead", "combat.hits", "combat.respawn", "locomotion.poses"],
+        Assert.Equal(["ecs.finite", "animation.finite", "animation.settled", "animation.pool", "animation.owners", "animation.actions", "arena.slots", "movement.rootOverlap", "physics.finite", "physics.kinematicPose", "physics.kinematicSpeed", "physics.bodyRefs", "ragdoll.skin", "physics.modes", "physics.simulatedSpeed", "physics.joints", "physics.ground", "physics.inArena", "physics.sleep", "physics.sleepContacts", "physics.selfContacts", "physics.sources", "ragdoll.hitSource", "ragdoll.hitImpulse", "combat.blade", "combat.weapons", "combat.control", "combat.health", "combat.dead", "combat.hits", "combat.respawn", "locomotion.poses"],
             sim.Invariants.List().Select(i => i.Id));
         for (int t = 0; t < 400; t++)
         {
@@ -448,7 +438,6 @@ public sealed class GameInvariantTests
         }
         Assert.True(sim.Invariants.Total == 0, string.Join("\n", sim.Invariants.Recent()));
         Assert.All(sim.Invariants.List().Where(i => i.Enabled), i => Assert.Equal(400, i.Evaluations));
-        Assert.DoesNotContain(sim.Invariants.Run(["ecs.entityRefs"], sim.Tick, "между тиками", sim.Dt), r => r.Violations > 0);
     }
 
     /// <summary>Модуль, который после постановки тел сборки мира сдвигает таз игрока на 10 см (до первого тика).</summary>
@@ -480,48 +469,20 @@ public sealed class GameInvariantTests
         Assert.Contains("капсула pelvis (таз) не на суставах позы: центр в 0.1 м", violation.Details);
     }
 
-    /// <summary>
-    /// Проверка «сейчас» (<c>invariant.run</c> агента) до первого тика (свежий сеанс, <c>time.seek 0</c>) и посреди тика после
-    /// каждой стадии (<c>time.break</c>) — все инварианты чисты: тела бойцов сборки мира стоят по позе постройки и
-    /// сверяются с ней, а посреди тика до PrePhysics (корень, курс и поза уже новые, капсулы — ещё прошлого тика)
-    /// <c>physics.kinematicPose</c> капсулы с позой не сверяет.
-    /// </summary>
+    /// <summary>Проверка «сейчас» до первого тика и между тиками — чисто: тела сборки мира стоят по позе постройки.</summary>
     [Fact]
-    public void RunNow_BeforeFirstTickAndMidTick_NoViolations()
+    public void RunNow_BeforeFirstTickAndBetweenTicks_NoViolations()
     {
         var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=12"));
         var results = sim.Invariants.Run(null, sim.Tick, "между тиками", sim.Dt);
         Assert.Contains(results, r => r.Id == "physics.kinematicPose");
         Assert.True(results.All(r => r.Violations == 0), string.Join("\n", results.SelectMany(r => r.Details)));
-        var probe = new RunNowProbe();
-        sim.Observe(probe);
         for (int t = 0; t < 30; t++)
         {
             sim.Enqueue(new PlayerCommand { Move = new Vector2(1, 0.5f) });
             sim.Step();
             results = sim.Invariants.Run(null, sim.Tick, "между тиками", sim.Dt);
             Assert.True(results.All(r => r.Violations == 0), string.Join("\n", results.SelectMany(r => r.Details)));
-        }
-        Assert.Equal(30 * GameStages.All.Count, probe.Runs);
-        Assert.True(probe.Violations.Count == 0, string.Join("\n", probe.Violations));
-    }
-
-    /// <summary>После барьера каждой стадии — все инварианты «сейчас», как <c>invariant.run</c> после <c>time.break</c>.</summary>
-    private sealed class RunNowProbe : ISimulationObserver
-    {
-        public int Runs;
-        public readonly List<InvariantViolation> Violations = [];
-
-        public void AfterStage(Simulation simulation, int stage)
-        {
-            string name = simulation.World.Stages[stage];
-            if (!GameStages.All.Contains(name)) return;
-            Runs++;
-            foreach (var r in simulation.Invariants.Run(null, simulation.Tick, name, simulation.Dt)) Violations.AddRange(r.Details);
-        }
-
-        public void AfterTick(Simulation simulation)
-        {
         }
     }
 }

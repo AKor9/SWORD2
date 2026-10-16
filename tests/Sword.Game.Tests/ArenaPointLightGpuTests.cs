@@ -15,10 +15,8 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Точечный свет на арене (настоящее устройство с GPU-валидацией, Manny из пака, 1280×720): без источников и с источником, до которого
-/// ничего не достаёт, цвет сцены (HDR, сырой half) один и тот же бит в бит; тестовый факел (<see cref="ArenaClient.TestLights"/>) —
-/// тёплое пятно под собой (синий канал сцены не меняется ни в одном пикселе: у факела синего нет), слой снимка <c>lights</c>; 64 и 70
-/// тестовых источников — в буфере 64, лишние отброшены. Категории Gpu и Content.
+/// Точечный свет на арене (устройство, Manny из пака, категории Gpu и Content): источник, до которого ничего не достаёт, кадр
+/// не меняет; тестовый факел (<see cref="ArenaClient.TestLights"/>) — тёплое пятно без синего; 70 источников — в буфере 64.
 /// </summary>
 [Collection("game-gpu")]
 [Trait("Category", "Gpu")]
@@ -47,7 +45,7 @@ public sealed class ArenaPointLightGpuTests(ITestOutputHelper output) : IDisposa
     }
 
     [Fact]
-    public void Arena_NoLightsBitExact_TorchWarmSpot_LayerAndLimit()
+    public void Arena_NoLightsBitExact_TorchWarmSpot_OverlayAndLimit()
     {
         Log.AddSink(this);
         Directory.CreateDirectory(_dir);
@@ -70,11 +68,11 @@ public sealed class ArenaPointLightGpuTests(ITestOutputHelper output) : IDisposa
         }
 
         // Кадр без новых тиков — та же сцена; вернёт сырой цвет сцены (half RGBA).
-        Half[] Scene(string name, Action<RenderFrame> build, IReadOnlyList<CaptureLayer>? layers = null)
+        Half[] Scene(string name, Action<RenderFrame> build)
         {
             string hdr = Path.Combine(_dir, name + ".hdr.png");
             window.PumpMessages();
-            renderer.Render(build, vsync: false, new FrameCapture(Path.Combine(_dir, name + ".png")) { HdrPath = hdr, Layers = layers ?? [] });
+            renderer.Render(build, vsync: false, new FrameCapture(Path.Combine(_dir, name + ".png")) { HdrPath = hdr });
             return System.Runtime.InteropServices.MemoryMarshal.Cast<byte, Half>(File.ReadAllBytes(Path.ChangeExtension(hdr, ".bin"))).ToArray();
         }
 
@@ -90,13 +88,11 @@ public sealed class ArenaPointLightGpuTests(ITestOutputHelper output) : IDisposa
         Assert.True(none.AsSpan().SequenceEqual(far), "источник, до которого ничего не достаёт, меняет цвет сцены");
 
         arena.TestLights = 1;
-        string layer = Path.Combine(_dir, "lights.png");
-        var torch = Scene("torch", arena.BuildFrame, [new CaptureLayer(ArenaClient.LightsOverlay, layer)]);
-        var result = renderer.LastCapture!;
-        Assert.Empty(result.Notes);
-        Assert.Equal([new CaptureLayer(ArenaClient.LightsOverlay, layer)], result.Layers);
-        Assert.True(File.Exists(layer));
+        arena.ShowLights = true;   // оверлей — после тонмапа: цвет HDR-сцены он не меняет
+        var torch = Scene("torch", arena.BuildFrame);
+        Assert.Empty(renderer.LastCapture!.Notes);
         Assert.Equal(1, arena.DrawnLights);
+        arena.ShowLights = false;
         var report = renderer.Lights.Report();
         Assert.Equal(1, report.Shown);
         var light = report.Lights[0].Light;

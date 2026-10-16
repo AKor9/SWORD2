@@ -3,11 +3,9 @@ using System.Xml.Linq;
 namespace Sword.Architecture.Tests;
 
 /// <summary>Проект, каким его видят правила: слой, сторона, прямые ссылки на проекты и пакеты.</summary>
-/// <param name="Name">Имя проекта (имя .csproj без расширения).</param>
 /// <param name="RelativePath">Путь .csproj от корня репозитория, через «/».</param>
 /// <param name="Layer">Engine | Game | Tool | Test — по папке или из свойства SwordLayer.</param>
 /// <param name="Side">Neutral | Simulation | Client; null — не задана.</param>
-/// <param name="IsExe">OutputType = Exe.</param>
 /// <param name="AssemblyName">Свойство AssemblyName; null — как имя проекта.</param>
 public sealed record ProjectNode(
     string Name,
@@ -102,10 +100,7 @@ public static class SolutionModel
             AssemblyName: Property("AssemblyName"));
     }
 
-    /// <summary>
-    /// Собранная сборка проекта в конфигурации <paramref name="configuration"/>: bin/&lt;конфигурация&gt;/&lt;TFM&gt;/имя.dll
-    /// или, у плагина пекарни (выход без TFM), bin/&lt;конфигурация&gt;/имя.dll; самая свежая; null — не собрана.
-    /// </summary>
+    /// <summary>Собранная .dll проекта в <paramref name="configuration"/> (у плагина пекарни — без TFM), самая свежая; null — не собрана.</summary>
     public static string? BuiltAssembly(string root, ProjectNode project, string configuration)
     {
         string bin = Path.Combine(root, Path.GetDirectoryName(project.RelativePath)!, "bin", configuration);

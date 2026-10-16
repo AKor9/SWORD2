@@ -83,7 +83,6 @@ public sealed class FireSlot(int index)
 
     internal bool Matched, PendingReset;
     internal SimRequests? Requests;
-    internal string Label = "", DyingLabel = "";
 }
 
 /// <summary>
@@ -235,8 +234,6 @@ public sealed class FireSlots
         s.FadeFrom = s.FadeTick = 0;
         s.DensitySum = null;
         s.PendingReset = true;
-        s.Label = $"{FireTracker.Owner(f.Slot)}: {f.WeaponName} [{s.Index}]";
-        s.DyingLabel = s.Label + " — гаснет";
     }
 
     private void StepAll(ulong tick, ulong step)

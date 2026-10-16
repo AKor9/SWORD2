@@ -1,14 +1,9 @@
 namespace Sword.Engine.Ecs;
 
 /// <summary>
-/// Сущность: номер и поколение. Удаление увеличивает поколение — висячий хэндл распознаётся. Живые поколения
-/// начинаются с 1, поэтому <c>default</c> — не сущность (<see cref="Null"/>).
-///
-/// Отрицательный номер — <b>отложенное значение</b> черновика (<see cref="EntityDraft.Ref"/>): в номере — побитовое
-/// отрицание (номер буфера · 2¹⁶ + номер черновика в буфере), в поле поколения — оборот буфера (все 32 бита): черновик
-/// прошлого барьера отличим от нынешнего, пока буфер не сделал 2³² оборотов с черновиками. Его можно записать в
-/// компонент или событие через команды буфера; на барьере оно заменяется настоящей сущностью. С живой сущностью его не
-/// спутать.
+/// Сущность: номер и поколение (живые — с 1, <c>default</c> — <see cref="Null"/>); удаление растит поколение.
+/// Отрицательный номер — отложенное значение черновика (<see cref="EntityDraft.Ref"/>): ~(буфер · 2¹⁶ + черновик),
+/// в поколении — оборот буфера; на барьере заменяется настоящей сущностью.
 /// </summary>
 public readonly record struct Entity(int Index, int Generation)
 {
@@ -32,10 +27,8 @@ public readonly record struct Entity(int Index, int Generation)
         IsDeferred ? $"черновик {DraftIndex} буфера {DraftBuffer} (оборот {DraftTurn})" : IsNull ? "Entity.Null" : $"{Index}v{Generation}";
 }
 
-/// <summary>
-/// Черновик сущности: команда создания записана, живой сущности до барьера нет. Команды и события <b>своего</b>
-/// буфера могут ссылаться на черновик (<see cref="Ref"/> — отложенное значение <see cref="Entity"/>).
-/// </summary>
+/// <summary>Черновик сущности до барьера; на него могут ссылаться команды и события <b>своего</b> буфера
+/// (<see cref="Ref"/>).</summary>
 public readonly record struct EntityDraft(int Index, int Buffer, uint Turn)
 {
     /// <summary>Черновиков в буфере до барьера — не больше; буферов — не больше (номер буфера и черновика — в номере).</summary>
@@ -45,21 +38,8 @@ public readonly record struct EntityDraft(int Index, int Buffer, uint Turn)
     public Entity Ref => new(~((Buffer << 16) | Index), unchecked((int)Turn));
 }
 
-/// <summary>
-/// Причина записи команды или события — для <c>state.why</c> (раздел 8 плана). Слот есть в каждой записи с v0; вне
-/// диагностического режима пуст (<see cref="None"/>) и ничего не стоит; в режиме — номер записи журнала причинности
-/// (<see cref="CausalityLog"/>). В хеш состояния не входит.
-/// </summary>
-public readonly record struct CauseId(int Value)
-{
-    public static readonly CauseId None = default;
-}
-
-/// <summary>
-/// Реактивный компонент: меняется только командой <c>Set</c>, поэтому каждое изменение попадает в журнал
-/// <see cref="Changed{T}"/>. Прямая запись через <see cref="ChunkView.Write{T}"/> — исключение (проверки мира включены).
-/// Частые данные реактивными не делаются.
-/// </summary>
+/// <summary>Реактивный компонент: меняется только командой <c>Set</c>, каждое изменение — в <see cref="Changed{T}"/>.
+/// Частые данные реактивными не делаются.</summary>
 [AttributeUsage(AttributeTargets.Struct)]
 public sealed class ReactiveAttribute : Attribute;
 
@@ -72,16 +52,16 @@ public readonly record struct SystemLabel(string Name)
 // ── срабатывания: записи журналов ───────────────────────────────────────────
 
 /// <summary>Компонент <typeparamref name="T"/> добавлен (сущности его не было до барьера, после — есть).</summary>
-public readonly record struct Added<T>(Entity Entity, CauseId Cause) : ICaused where T : unmanaged;
+public readonly record struct Added<T>(Entity Entity) where T : unmanaged;
 
 /// <summary>Компонент снят или сущность удалена; <see cref="Value"/> — значение на момент снятия.</summary>
-public readonly record struct Removed<T>(Entity Entity, T Value, CauseId Cause) : ICaused where T : unmanaged;
+public readonly record struct Removed<T>(Entity Entity, T Value) where T : unmanaged;
 
 /// <summary>Реактивный компонент заменён командой <c>Set</c>; <see cref="Value"/> — итоговое значение барьера.</summary>
-public readonly record struct Changed<T>(Entity Entity, T Value, CauseId Cause) : ICaused where T : unmanaged;
+public readonly record struct Changed<T>(Entity Entity, T Value) where T : unmanaged;
 
 /// <summary>Событие <typeparamref name="E"/>.</summary>
-public readonly record struct Event<E>(E Value, CauseId Cause) : ICaused where E : unmanaged;
+public readonly record struct Event<E>(E Value) where E : unmanaged;
 
 /// <summary>Ресурс мира заменён.</summary>
-public readonly record struct ResourceChanged<T>(T Value, CauseId Cause) : ICaused;
+public readonly record struct ResourceChanged<T>(T Value);

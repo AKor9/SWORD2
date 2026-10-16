@@ -1,0 +1,9 @@
+{
+  "converter": "weapon",
+  "import": "combat_master",
+  "notes": "/Game/CombatMasterAnimBundle/Weapon/Katana/SM_Katana.",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "name": "katana"
+  }
+}

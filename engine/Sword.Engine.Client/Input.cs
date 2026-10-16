@@ -5,10 +5,8 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Client;
 
 /// <summary>
-/// Действие ввода игры (раздел 7 плана: привязки клавиш к действиям — в конфиге): имя — ключ конфига
-/// (<c>input.&lt;имя&gt;</c>, <c>SWORD_INPUT_&lt;ИМЯ&gt;</c>), клавиша по умолчанию — имя клавиши (<c>W</c>, <c>Shift</c>,
-/// <c>Plus</c>) или кнопки мыши (<c>MouseLeft</c>, <c>MouseRight</c>, <c>MouseMiddle</c>), <c>None</c> — без привязки.
-/// Игра знает только действия: клавиши и платформа ей не видны.
+/// Действие ввода игры: имя — ключ конфига <c>input.&lt;имя&gt;</c>, клавиша по умолчанию — имя клавиши или кнопки мыши
+/// (<c>W</c>, <c>MouseLeft</c>), <c>None</c> — без привязки. Игре видны только действия, не клавиши.
 /// </summary>
 public sealed record InputAction
 {
@@ -24,10 +22,8 @@ public sealed record InputAction
     public string DefaultKey { get; }
 }
 
-/// <summary>
-/// Привязки действий к клавишам: значения по умолчанию игры, поверх — секция конфига <see cref="Section"/> по общим
-/// слоям (<see cref="ConfigSet.Strings"/>). Неизвестное действие в конфиге и неизвестная клавиша — ошибки композиции.
-/// </summary>
+/// <summary>Привязки: значения игры, поверх — секция <see cref="Section"/> (<see cref="ConfigSet.Strings"/>).
+/// Неизвестное действие или клавиша — ошибка композиции.</summary>
 public sealed class InputBindings
 {
     /// <summary>Секция конфига привязок.</summary>
@@ -53,7 +49,7 @@ public sealed class InputBindings
         _index.TryGetValue(action.Name, out int i) ? i
             : throw new InvalidOperationException($"действие ввода {action.Name} не объявлено игрой (IClientGame.Actions)");
 
-    /// <summary>Действие → клавиша (как в конфиге) — для справки, итога запуска и агента.</summary>
+    /// <summary>Действие → клавиша (как в конфиге) — для справки и итога запуска.</summary>
     public IReadOnlyDictionary<string, string> Keys => _bindings.ToDictionary(p => p.Key, p => p.Value.Name);
 
     /// <summary>Действия, привязанные к клавише <paramref name="key"/> (проверка конфликтов с клавишами клиента).</summary>
@@ -93,10 +89,8 @@ public sealed class InputBindings
                 : throw new InvalidDataException($"конфиг: {Section}.{action} = «{text}»: нет такой клавиши; есть: " +
                     string.Join(", ", Enum.GetNames<Key>().Concat(Enum.GetNames<MouseButton>().Select(b => MousePrefix + b))));
 
-        /// <summary>
-        /// Точное имя клавиши или кнопки без учёта регистра. <c>Enum.TryParse</c> не годится: «A, B» он сложил бы в
-        /// третью клавишу по битам, а «Mouse0» принял бы по числу.
-        /// </summary>
+        /// <summary>Точное имя клавиши без учёта регистра. Не <c>Enum.TryParse</c>: он сложил бы «A, B» по битам и принял бы
+        /// «Mouse0» по числу.</summary>
         public static bool TryParse(string text, out Binding binding)
         {
             foreach (var name in Enum.GetNames<MouseButton>())
@@ -124,13 +118,9 @@ public sealed class InputBindings
 }
 
 /// <summary>
-/// Ввод кадра для клиентской части игры (шаг Input кадра, раздел 7): действия по привязкам, мышь, колесо, размер кадра и
-/// шаг кадра. Снимается раз в кадр, до тиков кадра.
-///
-/// Панели интерфейса (<see cref="IClientPanel"/>) видят ввод кадра первыми: мышь у панели (<see cref="UiMouse"/>) —
-/// действия на кнопках мыши игре не нажаты и не удержаны, колеса нет; клавиатура у поля ввода панели
-/// (<see cref="UiKeyboard"/>) — то же с действиями на клавишах. Отпускания доходят всегда (у действия нет нажатия без
-/// пары); удержание заданием прогона (<see cref="ClientOptions.HeldActions"/>) — тоже.
+/// Ввод кадра для клиентской части игры, снимается раз в кадр до тиков. Панели видят его первыми: мышь или клавиатура
+/// у панели (<see cref="UiMouse"/>, <see cref="UiKeyboard"/>) — соответствующие действия игре не нажаты и не удержаны.
+/// Отпускания и удержание заданием прогона доходят всегда.
 /// </summary>
 public readonly struct FrameInput
 {
@@ -160,10 +150,8 @@ public readonly struct FrameInput
         return (!TakenByUi(b) && b.IsDown(_state)) || _held?.Contains(action.Name) == true;
     }
 
-    /// <summary>
-    /// Действие нажато в этом кадре (фронт); удерживаемое заданием прогона — в первом кадре. Для представления (камера,
-    /// интерфейс); в команды симуляции фронты идут через <see cref="TickInput"/> — ровно одним тиком.
-    /// </summary>
+    /// <summary>Нажато в этом кадре (фронт) — для представления; в команды симуляции фронты идут через
+    /// <see cref="TickInput"/> ровно одним тиком.</summary>
     public bool WasPressed(InputAction action)
     {
         var b = _bindings.Of(action);
@@ -173,10 +161,7 @@ public readonly struct FrameInput
     /// <summary>Действие отпущено в этом кадре (фронт). Отпускание доходит и тогда, когда ввод у интерфейса.</summary>
     public bool WasReleased(InputAction action) => _bindings.Of(action).WasReleased(_state);
 
-    /// <summary>
-    /// Мышь у панели интерфейса в этом кадре (курсор над ней или тянут её виджет): действия на кнопках мыши и колесо игре
-    /// не достаются («мышь над панелью не бьёт»). Курсор (<see cref="MouseX"/>, <see cref="MouseY"/>) виден как есть.
-    /// </summary>
+    /// <summary>Мышь у панели: кнопки мыши и колесо игре не достаются; курсор виден как есть.</summary>
     public bool UiMouse { get; private init; }
 
     /// <summary>Клавиатура у поля ввода панели: действия на клавишах игре не достаются (набор числа — не горячие клавиши).</summary>
@@ -207,18 +192,6 @@ public readonly struct FrameInput
 }
 
 /// <summary>Кадр после тиков (шаг Extract): доля тика для интерполяции, сколько тиков сделано, числа кадров для HUD.</summary>
-/// <param name="Alpha">
-/// Доля следующего тика, прошедшая по часам: 0 — состояние прошлого тика, 1 — последнего (<c>accumulator / dt</c> SWORD;
-/// при заданном числе тиков на кадр — 1).
-/// </param>
-/// <param name="Stats">FPS, шаг и работа прошлого кадра, тики этого (<see cref="FrameStats"/>).</param>
-public readonly record struct FrameView(float Alpha, int Ticks, float Seconds, FrameStats Stats)
-{
-    /// <summary>
-    /// Снимок этого кадра, заказанный инструментом (агент: <c>capture.bundle</c> — ID-буфер, слои), если заказ уже есть: он
-    /// приходит в точке обслуживания, до <c>Extract</c>, — игра снимает в мир представления то, что нужно только снимку (слой
-    /// капсул). Тот же заказ кадр увидит в <c>RenderFrame.Capture</c>; null — снимка инструмента нет
-    /// (снимок F4 и <c>--shot</c> — без слоёв).
-    /// </summary>
-    public FrameCapture? Capture { get; init; }
-}
+/// <param name="Alpha">Доля следующего тика по часам: 0 — состояние прошлого тика, 1 — последнего (при заданном числе
+/// тиков на кадр — 1).</param>
+public readonly record struct FrameView(float Alpha, int Ticks, float Seconds, FrameStats Stats);

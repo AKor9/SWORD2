@@ -9,10 +9,9 @@ using Xunit.Abstractions;
 namespace Sword.Engine.Render.Tests;
 
 /// <summary>
-/// Точечный свет на настоящем устройстве (скрытое окно, отладочный слой D3D12 с GPU-валидацией): плоскость под источниками кадра
-/// (<c>lights_tests.hlsl</c>, <c>common/lights.hlsli</c>) против CPU-эталона <see cref="PointLightMath"/> по HDR-значению (сырой half
-/// цели сцены), оба режима затухания, дальность показа, предел 64 источников, light function на синтетических текстурах
-/// (<c>Renderer.CreateImage</c>) и на текстуре пака, UV шейдера против эталона, 0 Б на кадр. Любое сообщение отладочного слоя — провал.
+/// Точечный свет на устройстве: плоскость под источниками против <see cref="PointLightMath"/> по сырому HDR (half), оба режима
+/// затухания, дальность показа, предел 64 источников, light function и её UV, 0 Б на кадр. Любое сообщение отладочного слоя —
+/// провал.
 /// </summary>
 [Collection("gpu")]
 [Trait("Category", "Gpu")]
@@ -244,7 +243,7 @@ public sealed class PointLightsGpuTests : IDisposable, ILogSink
         // Шум крови пака (BC4) как узор LF: текстура пака против той же картинки (слой 0, мип 0, CPU-декод → RGBA8) через GpuImage.
         // Разница — декод BCn железом против CPU (допуск TextureDecode.Tolerance), округление картинки до байта и half цели сцены.
         // Вторая текстура — чёрная: сумма не насыщается, LF = узор.
-        const string NoisePath = "effects/blood/noise.swtex";
+        const string NoisePath = "textures/blood/noise.swtex";
         TextureData data;
         using (var pak = ContentLocator.Open())
         using (var s = pak.OpenRead(NoisePath)) data = TextureData.Read(s, NoisePath);

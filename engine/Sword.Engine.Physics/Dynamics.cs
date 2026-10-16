@@ -3,12 +3,9 @@ using System.Numerics;
 namespace Sword.Engine.Physics;
 
 /// <summary>
-/// Профиль динамики тела на физике (идея — <c>BodyDynamics</c> SWORD 2eab13b): гравитация, демпфирование, трение о землю,
-/// потолки скоростей. Мир держит таблицу профилей (<see cref="IPhysicsWorld.RegisterDynamics"/>), тело — номер профиля
-/// (<see cref="BodyState.Profile"/>); профиль 0 — по умолчанию (<c>new BodyDynamics()</c>), игра регистрирует свои
-/// (профиль трупа). Демпфирование и трение — доли скорости в секунду: за подшаг h скорость умножается на <c>max(0, 1 − k·h)</c>.
-/// Отправные значения — SWORD: 9,81 / 0,15 / 0,8 / 9 / 3 / 40 / 60. <c>default(BodyDynamics)</c> — не профиль (нулевые
-/// потолки): мир его не примет.
+/// Профиль динамики тела на физике: гравитация, демпфирование, трение о землю, потолки скоростей. Мир держит таблицу
+/// профилей, тело — номер (0 — по умолчанию). Демпфирование и трение — доли скорости в секунду: за подшаг множитель
+/// <c>max(0, 1 − k·h)</c>. <c>default(BodyDynamics)</c> — не профиль (нулевые потолки).
 /// </summary>
 public readonly record struct BodyDynamics()
 {
@@ -47,9 +44,8 @@ public readonly record struct BodyDynamics()
 }
 
 /// <summary>
-/// Обратная инерция тела в мире — симметричная матрица 3×3 по столбцам: <c>R · diag(I⁻¹) · Rᵀ</c> для позы, которая дальше не
-/// меняется (скоростной проход контактов и расслабление суставов идут после обновления скоростей подшага): одна матрица на тело вместо
-/// двух поворотов на каждый вызов <see cref="BodyState.InvInertiaWorld"/>. Та же величина, округление — своё.
+/// Обратная инерция в мире <c>R · diag(I⁻¹) · Rᵀ</c> для позы, которая дальше не меняется (скоростной проход, расслабление):
+/// одна матрица на тело вместо двух поворотов на вызов.
 /// </summary>
 internal readonly struct InvInertiaMatrix
 {
@@ -87,29 +83,21 @@ internal readonly struct InvInertiaMatrix
 }
 
 /// <summary>
-/// Динамика тела-капсулы — функции над <c>ref BodyState</c> (идеи — <c>RigidBody</c> SWORD 2eab13b): форма с массой,
-/// позиционная коррекция импульсом и поворот (решатель XPBD — <see cref="Xpbd"/>), импульс в скорость, интеграция подшага и
-/// обновление скоростей подшага по профилю. Запросы (точки, скорость точки, обратная масса и инерция) — члены
-/// <see cref="BodyState"/>. Функции не проверяют аргументы (горячий путь): <c>h</c> — конечный и больше 0, направления —
-/// единичные; проверяет мир. Памяти не выделяют.
+/// Динамика тела-капсулы — функции над <c>ref BodyState</c>: форма, коррекция импульсом, поворот, интеграция и обновление
+/// скоростей подшага. Аргументы не проверяют (горячий путь; h &gt; 0, направления единичные); памяти не выделяют.
 /// </summary>
 public static class Dynamics
 {
     /// <summary>
-    /// Наибольший поворот за один вызов <see cref="Rotate"/>, рад (SWORD: 0,5): линеаризованный поворот кватерниона верен для
-    /// малых углов, большой шаг решателя — признак взрыва; обрезка действует и на <see cref="Correct"/>, и на интеграцию.
+    /// Наибольший поворот за вызов <see cref="Rotate"/>, рад: линеаризованный поворот верен для малых углов, большой шаг —
+    /// признак взрыва решателя.
     /// </summary>
     public const float MaxRotationPerCall = 0.5f;
 
     /// <summary>
-    /// Обратная инерция сплошной капсулы (цилиндр высотой 2·<paramref name="halfLength"/> и две полусферы радиуса
-    /// <paramref name="radius"/>, плотность однородная) — диагональ в системе тела, ось капсулы — Y. Масса больше 0, радиус
-    /// больше 0, полудлина ≥ 0. Вдоль оси инерция наименьшая (у шара — равная).
-    /// <para>
-    /// Не формула SWORD (<c>len = 2·halfLen + r</c>, цилиндр длиной len): у короткой капсулы она даёт осевую инерцию больше
-    /// поперечной — шар (<c>halfLen = 0</c>) у неё анизотропен (<c>m r²/3</c> поперёк против <c>m r²/2</c> вдоль), а капсулы
-    /// короче <c>0,37·r</c> «катятся» не той осью. Точная формула не дороже и верна при любых пропорциях.
-    /// </para>
+    /// Обратная инерция сплошной капсулы (цилиндр 2·<paramref name="halfLength"/> и две полусферы, плотность однородна) —
+    /// диагональ в системе тела, ось — Y. Точная формула: приближение цилиндром длины <c>2·halfLen + r</c> делает шар
+    /// анизотропным, и короткие капсулы катятся не той осью.
     /// </summary>
     public static Vector3 CapsuleInvInertia(float mass, float radius, float halfLength)
     {
@@ -123,10 +111,7 @@ public static class Dynamics
         return new Vector3(1f / ixz, 1f / iy, 1f / ixz);
     }
 
-    /// <summary>
-    /// Форма с массой: радиус, полудлина, масса, обратная масса и обратная инерция капсулы (<see cref="CapsuleInvInertia"/>).
-    /// Масса — конечная и больше 0, радиус — больше 0, полудлина ≥ 0 (проверяет мир).
-    /// </summary>
+    /// <summary>Форма с массой: радиус, полудлина, масса и обратные масса и инерция (проверяет мир).</summary>
     public static void SetShape(ref BodyState b, float mass, float radius, float halfLength)
     {
         b.Radius = radius;
@@ -136,10 +121,7 @@ public static class Dynamics
         b.InvInertia = CapsuleInvInertia(mass, radius, halfLength);
     }
 
-    /// <summary>
-    /// Повернуть тело на вектор поворота <paramref name="dTheta"/> (мир, рад) линеаризованно:
-    /// <c>q ← normalize(q + ½ (dθ, 0) · q)</c>; длина шага обрезается до <see cref="MaxRotationPerCall"/>.
-    /// </summary>
+    /// <summary>Повернуть на <paramref name="dTheta"/> (мир, рад) линеаризованно: <c>q ← normalize(q + ½ (dθ, 0) · q)</c>, шаг ≤ <see cref="MaxRotationPerCall"/>.</summary>
     public static void Rotate(ref BodyState b, Vector3 dTheta)
     {
         float l = dTheta.Length();
@@ -148,9 +130,8 @@ public static class Dynamics
     }
 
     /// <summary>
-    /// Позиционная коррекция импульсом <paramref name="impulse"/> (кг·м — λ·n решателя) в точке с плечом
-    /// <paramref name="r"/> (от центра, мир): центр сдвигается на <c>impulse / m</c>, тело поворачивается на
-    /// <c>I⁻¹(r × impulse)</c> (<see cref="Rotate"/>, с обрезкой угла).
+    /// Позиционная коррекция импульсом (кг·м) в точке с плечом <paramref name="r"/>: центр — на <c>impulse / m</c>, поворот —
+    /// на <c>I⁻¹(r × impulse)</c>.
     /// </summary>
     public static void Correct(ref BodyState b, Vector3 impulse, Vector3 r)
     {
@@ -158,10 +139,7 @@ public static class Dynamics
         Rotate(ref b, b.InvInertiaWorld(Vector3.Cross(r, impulse)));
     }
 
-    /// <summary>
-    /// Импульс <paramref name="impulse"/> (Н·с) в скорость в точке с плечом <paramref name="r"/> (от центра, мир):
-    /// <c>v += J / m</c>, <c>ω += I⁻¹(r × J)</c>. Скоростной проход контактов, расслабление суставов, импульс удара.
-    /// </summary>
+    /// <summary>Импульс (Н·с) в скорость в точке с плечом <paramref name="r"/>: <c>v += J / m</c>, <c>ω += I⁻¹(r × J)</c>.</summary>
     public static void ApplyImpulse(ref BodyState b, Vector3 impulse, Vector3 r)
     {
         b.Velocity += impulse * b.InvMass;
@@ -169,9 +147,8 @@ public static class Dynamics
     }
 
     /// <summary>
-    /// Начало подшага <paramref name="h"/>, с: прошлая поза ← нынешняя; скорость — плюс гравитация профиля (вниз по Y);
-    /// положение — плюс скорость · h; поворот — на угловую скорость · h (<see cref="Rotate"/>); касание земли сброшено
-    /// (его ставят контакты подшага). Явно-неявный Эйлер: ошибка смещения при падении — <c>g·h·t / 2</c>.
+    /// Начало подшага: прошлая поза ← нынешняя, скорость + гравитация, положение и поворот — на скорости · h, касание земли
+    /// сброшено. Явно-неявный Эйлер: ошибка смещения при падении — <c>g·h·t / 2</c>.
     /// </summary>
     public static void Integrate(ref BodyState b, in BodyDynamics d, float h)
     {
@@ -184,12 +161,8 @@ public static class Dynamics
     }
 
     /// <summary>
-    /// Конец подшага <paramref name="h"/>, с (после проекций): скорость — сдвиг за подшаг / h; угловая —
-    /// <c>2 · (q · q̄_prev).xyz / h</c> (кратчайший путь; стандартное приближение XPBD, при ω·h ≪ 1 неотличимо от
-    /// <see cref="PhysicsMath.RotationVector"/>); затем демпфирование профиля <c>max(0, 1 − k·h)</c>; при
-    /// <see cref="BodyState.Grounded"/> — трение о землю: горизонтальная скорость (X, Z) и угловая; наконец потолки
-    /// скоростей — по длине, направление сохраняется. Множители не бывают отрицательными (у SWORD демпфирование при
-    /// <c>k·h &gt; 1</c> меняло бы знак скорости).
+    /// Конец подшага: скорость — сдвиг / h, угловая — <c>2 · (q · q̄_prev).xyz / h</c>; затем демпфирование
+    /// <c>max(0, 1 − k·h)</c> (не меняет знак при k·h &gt; 1), трение о землю при <see cref="BodyState.Grounded"/> и потолки по длине.
     /// </summary>
     public static void UpdateVelocity(ref BodyState b, in BodyDynamics d, float h)
     {

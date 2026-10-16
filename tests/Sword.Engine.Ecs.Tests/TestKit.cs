@@ -59,10 +59,7 @@ public static class Worlds
 {
     public static readonly string[] Stages = ["Begin", "Early", "Late", "End"];
 
-    /// <summary>
-    /// Мир тестов — всегда с проверками: тесты ожидают их исключений, а по умолчанию проверки включены только в Debug
-    /// (<see cref="WorldOptions.DefaultChecks"/>), и в Release тесты бы молча не проверяли ничего.
-    /// </summary>
+    /// <summary>Мир тестов — всегда с проверками: по умолчанию они только в Debug (<see cref="WorldOptions.DefaultChecks"/>).</summary>
     public static WorldBuilder Builder() => new WorldBuilder { Options = new WorldOptions { Checks = true } }
         .Stages(Stages)
         .Component<Position>().Component<Velocity>().Component<Frozen>().Component<Health>()

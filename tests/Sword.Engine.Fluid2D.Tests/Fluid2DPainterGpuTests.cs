@@ -208,14 +208,14 @@ public sealed class Fluid2DPainterGpuTests : IDisposable
     }
 
     /// <summary>
-    /// Шум кисти из пака (<c>effects/fire/noise_template2.swtex</c>, слой T_NoiseTemplate2, линейный RG): Painter факела = эталон на значениях,
+    /// Шум кисти из пака (<c>textures/fire/noise_template2.swtex</c>, слой T_NoiseTemplate2, линейный RG): Painter факела = эталон на значениях,
     /// прочитанных с GPU.
     /// </summary>
     [Fact]
     [Trait("Category", "Content")]
     public void PackBrushNoise_Painter_MatchesReference()
     {
-        using var texture = _gpu.Renderer.LoadTexture("effects/fire/noise_template2.swtex");
+        using var texture = _gpu.Renderer.LoadTexture("textures/fire/noise_template2.swtex");
         Assert.False(texture.Srgb, "шум кисти — линейный (BR §4.1)");
         var noise = Fluid2DNoise.FromLayer(texture, "T_NoiseTemplate2");
         var p = Fluid2DParams.Torch;

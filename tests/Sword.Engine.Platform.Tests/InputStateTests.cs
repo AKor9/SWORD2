@@ -2,9 +2,7 @@ using Sword.Engine.Platform;
 
 namespace Sword.Engine.Platform.Tests;
 
-/// <summary>
-/// Ввод кадра: фронты против уровней. Каждый тест — случай, на котором SWORD однажды терял нажатие или залипал.
-/// </summary>
+/// <summary>Ввод кадра: фронты против уровней; каждый тест — случай потерянного или залипшего нажатия.</summary>
 public sealed class InputStateTests
 {
     [Fact]

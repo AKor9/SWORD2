@@ -6,10 +6,8 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Client;
 
 /// <summary>
-/// Клиентская часть модуля (раздел 7 плана, «Модули»): сборка <c>modules/Sword.Game.&lt;Модуль&gt;.Client</c>, подключённая к exe статически.
-/// Регистрирует всё своё в <see cref="ClientBuilder"/> — только если модуль включён (<c>modules.&lt;id&gt;.enabled</c>); выключенный или
-/// не собранный (<c>-p:Without&lt;Модуль&gt;=true</c>) не даёт ни прохода, ни ресурса, ни ручки. Игра (<see cref="IClientGame"/>) модулей
-/// не знает: их ведёт <see cref="ClientHost"/>.
+/// Клиентская часть модуля, подключённая к exe статически: регистрирует своё в <see cref="ClientBuilder"/>, только если
+/// модуль включён; выключенный или не собранный не даёт ни прохода, ни ресурса, ни ручки. Игра модулей не знает.
 /// </summary>
 public interface IClientModule
 {
@@ -23,10 +21,8 @@ public interface IClientModule
 /// <summary>Извлечение кадра модулем — после тиков кадра, с долей тика (<see cref="FrameView.Alpha"/>).</summary>
 public delegate void FrameExtract(in FrameView view);
 
-/// <summary>
-/// Сервисы клиентской части игры для модулей (простые данные из <c>Game.Contracts</c>, например оружие бойцов тика): их даёт exe при
-/// композиции — игра о модулях не знает, модули не видят ни мира ECS, ни ядра игры. Нет сервиса — <see cref="Get{T}"/> вернёт null.
-/// </summary>
+/// <summary>Сервисы клиентской части игры для модулей (простые данные из <c>Game.Contracts</c>) — даёт exe; модули не
+/// видят ни мира ECS, ни ядра игры. Нет сервиса — <see cref="Get{T}"/> вернёт null.</summary>
 public sealed class ClientServices
 {
     private readonly Dictionary<Type, object> _services = [];
@@ -40,10 +36,8 @@ public sealed class ClientServices
         return this;
     }
 
-    /// <summary>
-    /// Сервис над симуляцией (мир и очередь кадра — <see cref="SimulationLink"/>): создаётся при композиции модулей
-    /// (<see cref="ClientModules.Compose"/>) над связью с её симуляцией — у exe связи нет, её даёт клиент движка.
-    /// </summary>
+    /// <summary>Сервис над симуляцией: создаётся при композиции модулей над <see cref="SimulationLink"/>, которую даёт
+    /// клиент движка.</summary>
     public ClientServices Add<T>(Func<SimulationLink, T> create) where T : class
     {
         ArgumentNullException.ThrowIfNull(create);
@@ -64,10 +58,7 @@ public sealed class ClientServices
     public T? Get<T>() where T : class => _services.TryGetValue(typeof(T), out var s) ? (T)s : null;
 }
 
-/// <summary>
-/// Оверлей модуля: имя — слой снимка (<c>capture.bundle</c>, <c>RenderFrame.WantsLayer</c>) и ключ <c>Sword.exe --overlay</c>;
-/// <see cref="Shown"/> — рисовать поверх кадра на экране.
-/// </summary>
+/// <summary>Оверлей модуля: имя — ключ <c>Sword.exe --overlay</c>; <see cref="Shown"/> — рисовать поверх кадра на экране.</summary>
 public sealed class ClientOverlay(string module, string name)
 {
     public string Module { get; } = module;
@@ -104,11 +95,7 @@ public sealed class ClientModuleContext
     }
 }
 
-/// <summary>
-/// Построитель клиентской части модуля — узкий (раздел 7 плана): секция конфига модуля, сервисы игры, наблюдатель тиков, извлечение кадра,
-/// проходы кадра по фазам, GPU-симуляции, группа ручек F3, оверлеи, вклад в контракт шейдеров, инициализация, раздел итога. Действует
-/// только в <see cref="IClientModule.ConfigureClient"/>.
-/// </summary>
+/// <summary>Построитель клиентской части модуля; действует только в <see cref="IClientModule.ConfigureClient"/>.</summary>
 public sealed class ClientBuilder
 {
     private readonly ClientModules.Module _module;
@@ -147,19 +134,15 @@ public sealed class ClientBuilder
     /// <summary>Ресурсы GPU и контент — один раз, когда рендер готов (после игры).</summary>
     public ClientBuilder Initialize(Action<ClientModuleContext> initialize) => Add(_module.Initializers, initialize);
 
-    /// <summary>
-    /// Наблюдатель тиков: после каждого сыгранного тика — ровно раз, по порядку, с <c>TickId</c> этого тика (номер с 0, как
-    /// <c>SimTime.Tick</c>); мир в этот момент — после своего тика, а не кадра (при 0…8 тиках за кадр; на паузе — ни одного вызова).
-    /// </summary>
+    /// <summary>Наблюдатель тиков: после каждого сыгранного тика ровно раз, по порядку, с <c>TickId</c> (с 0); мир — после
+    /// своего тика, а не кадра. На паузе вызовов нет.</summary>
     public ClientBuilder AfterTick(Action<ulong> observer) => Add(_module.Observers, observer);
 
     /// <summary>Извлечение кадра: после тиков кадра и извлечения игры, с долей тика.</summary>
     public ClientBuilder Extract(FrameExtract extract) => Add(_module.Extracts, extract);
 
-    /// <summary>
-    /// Проходы кадра фазы <paramref name="phase"/>: вызов получает кадр после проходов игры и регистрирует проходы только своей фазы (иначе —
-    /// ошибка кадра). Порядок исполнения — по фазам, в фазе — по регистрации.
-    /// </summary>
+    /// <summary>Проходы фазы <paramref name="phase"/> после проходов игры; проход чужой фазы — ошибка кадра. Порядок — по
+    /// фазам, в фазе — по регистрации.</summary>
     public ClientBuilder Pass(FramePhase phase, Action<RenderFrame> build)
     {
         Open();
@@ -168,10 +151,8 @@ public sealed class ClientBuilder
         return this;
     }
 
-    /// <summary>
-    /// Точечные источники кадра (<see cref="PointLights"/>): вызов — до проходов игры, поэтому константы кадра, оверлей источников игры и
-    /// освещение непрозрачного их видят. Только источники и light functions — проходов здесь нет.
-    /// </summary>
+    /// <summary>Точечные источники кадра — до проходов игры, поэтому их видят константы кадра и освещение. Только источники
+    /// и light functions.</summary>
     public ClientBuilder Lights(Action<PointLights> add) => Add(_module.Lights, add);
 
     /// <summary>GPU-симуляция модуля; вернёт её заявки CPU (добавлять — из наблюдателя тиков, с <c>TickId</c> своего тика).</summary>
@@ -226,11 +207,8 @@ public sealed record ClientModuleReport(string Id, bool Enabled, IReadOnlyList<s
     IReadOnlyList<string> Tuning, IReadOnlyList<string> GpuSimulations, int Observers, ulong ObservedTicks, int LastFramePasses);
 
 /// <summary>
-/// Клиентские модули клиента (раздел 7 плана): композиция и активация (<see cref="Compose"/>) и их место в кадре — без окна и GPU, поэтому
-/// проверяется тестами отдельно от <see cref="ClientHost"/>. Кадр: <see cref="BeginFrame"/> (до тиков) → тики, после каждого —
-/// <see cref="AfterTick"/> → <see cref="Extract"/> (после извлечения игры) → <see cref="AddLights"/> (до проходов игры) → <see cref="BuildFrame"/>
-/// (после проходов игры: шаги GPU-симуляций
-/// в фазе Simulation, затем проходы модулей своих фаз). Выключенный модуль не настраивается вовсе.
+/// Клиентские модули: композиция (<see cref="Compose"/>) и место в кадре — <see cref="BeginFrame"/> → тики с
+/// <see cref="AfterTick"/> → <see cref="Extract"/> → <see cref="AddLights"/> → <see cref="BuildFrame"/>. Без окна и GPU.
 /// </summary>
 public sealed class ClientModules : IDisposable
 {
@@ -271,9 +249,8 @@ public sealed class ClientModules : IDisposable
     public static ClientModules None(float dt = 1f / 120) => new(dt);
 
     /// <summary>
-    /// Композиция (exe, до <see cref="ConfigSet.Complete"/>: модули читают свои секции): модуль включён, когда включена его часть симуляции
-    /// (<c>Simulation.ActiveModules</c>) или он чисто клиентский и включён (<c>Simulation.ClientOnlyModules</c>); Id, которого симуляция не
-    /// знает, — ошибка (новый клиентский модуль объявляется и симуляции — строкой в композиции exe). Включённые настраиваются по порядку.
+    /// Композиция (до <see cref="ConfigSet.Complete"/>): модуль включён, когда включена его часть симуляции или он чисто
+    /// клиентский и включён; Id, которого симуляция не знает, — ошибка. Включённые настраиваются по порядку.
     /// </summary>
     public static ClientModules Compose(ConfigSet config, Simulation simulation, IEnumerable<IClientModule> modules, ClientServices? services = null)
     {
@@ -354,10 +331,7 @@ public sealed class ClientModules : IDisposable
         }
     }
 
-    /// <summary>
-    /// Начало кадра, до его тиков: тиков кадра нет, заявки GPU-симуляций пусты. <paramref name="nextTick"/> — <c>TickId</c> тика, который
-    /// сыграется первым (<c>Simulation.Tick</c>).
-    /// </summary>
+    /// <summary>Начало кадра до тиков; <paramref name="nextTick"/> — <c>TickId</c> первого тика кадра.</summary>
     public void BeginFrame(ulong nextTick)
     {
         _firstTick = nextTick;
@@ -397,10 +371,7 @@ public sealed class ClientModules : IDisposable
             foreach (var add in m.Lights) add(lights);
     }
 
-    /// <summary>
-    /// Проходы модулей — после проходов игры: шаги GPU-симуляций (только фаза Simulation), затем проходы своих фаз. Проход не своей фазы —
-    /// ошибка кадра (<see cref="InvalidOperationException"/>).
-    /// </summary>
+    /// <summary>Проходы модулей после проходов игры: шаги GPU-симуляций (фаза Simulation), затем проходы своих фаз.</summary>
     public void BuildFrame(RenderFrame frame)
     {
         foreach (var m in _active)
@@ -446,10 +417,8 @@ public sealed class ClientModules : IDisposable
     public IEnumerable<(string Id, object? Value)> Sections() =>
         _active.Where(m => m.Report is not null).Select(m => (m.Id, m.Report!()));
 
-    /// <summary>
-    /// Ресурсы модулей — после ожидания GPU (хост), в обратном порядке. Исключение одного ресурса (например, закрытие модуля, отданное
-    /// во владение) не мешает освободить остальные: оно — после всех (несколько — <see cref="AggregateException"/>).
-    /// </summary>
+    /// <summary>Ресурсы модулей — после ожидания GPU, в обратном порядке. Исключение одного не мешает освободить остальные:
+    /// бросается после всех.</summary>
     public void Dispose()
     {
         if (_disposed) return;

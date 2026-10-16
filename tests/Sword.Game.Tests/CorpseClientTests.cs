@@ -1,7 +1,6 @@
 using System.Numerics;
 using Sword.Engine.Client;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
 using Sword.Game.Arena;
@@ -14,14 +13,9 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Труп на экране без окна и GPU (свои тесты свойств) на настоящих трупах (труп падает на физике).
-/// Скин трупа — сустав = привязка × показанное тело: в начале тика смерти — ровно поза смерти (≤ 0,1 мм), дальше — за падающими телами при
-/// любой доле тика, между кадрами без скачков (поза начала тика → поза тика; конец тика — начало следующего); «сдвинуть тела» движущегося
-/// трупа — скин, меч и капсулы на вектор сдвига; меч — на теле клинка, выпавший лежит отдельно от кисти; рамка по телам; капсулы трупа — на
-/// физике, касание земли; суставы тела (оверлей <c>joints</c>) — 13, запястье выключено, ошибка точки мала; контакты последнего подшага
-/// (оверлей <c>contacts</c>, режим <c>physics.trace</c>) — земля под лежащим трупом; хеш с трассой и без — один на прогоне с трупами
-/// (≥ 300 тиков после смерти); строки трупов кадра (F3 «Рэгдолл»); 0 Б на кадр с 32 трупами; оверлеи клиента — в строгом разборе видов
-/// манифестов. Контент — синтетический (<see cref="TestAssets"/>).
+/// Труп на экране без окна и GPU на настоящих трупах: скин = привязка × показанное тело — в тике смерти ровно поза смерти,
+/// дальше за телами без скачков; меч на теле клинка; капсулы, суставы и контакты по оверлеям; хеш с трассой и без — один;
+/// 0 Б на кадр с 32 трупами. Контент — синтетический (<see cref="TestAssets"/>).
 /// </summary>
 public sealed class CorpseClientTests(ITestOutputHelper output)
 {
@@ -35,13 +29,10 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
         public void Configure(SimulationBuilder b) => b.OnWorldBuilt(w => take(w.Resource<IPhysicsWorld>()));
     }
 
-    /// <summary>
-    /// Симуляция арены с командами сцен из очереди теста (каждый кадр — один тик) и физикой симуляции; враги не нападают (игрок стоит — за
-    /// сотни тиков живые враги его не убьют, трупы — только те, что убил тест).
-    /// </summary>
     /// <summary>Сон трупа выключен (порог 0): спящий труп шаг не считает — контактов с землёй в трассе у него нет.</summary>
     private const string NoSleep = "ragdoll.sleepSpeed=0";
 
+    /// <summary>Арена с командами сцен из очереди теста (кадр — один тик) и физикой симуляции; враги не нападают.</summary>
     private sealed class Scene
     {
         public readonly Simulation Sim;
@@ -147,11 +138,9 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Скин падающего трупа (настоящий труп): сустав = привязка × тело его сегмента. В тике смерти командой переход в
-    /// труп — до шага, поэтому поза начала тика — поза смерти: при доле 0 скин — ровно поза смерти (≤ 0,1 мм и по осям), меч — там же, где
-    /// в кисти позы смерти; при любой доле скин и меч — привязка и тело клинка по виду тел (≤ 0,05 мм); за 60 тиков труп падает. «Сдвинуть
-    /// тела» движущегося трупа — при доле 0 тика сдвига суставы, меч и капсулы — ровно на вектор от конца прошлого тика, капсулы — на физике
-    /// и в рамке трупа. Живой — как раньше (поза пула, не труп).
+    /// Скин падающего трупа: сустав = привязка × тело сегмента. Переход в труп — до шага, поэтому при доле 0 скин и меч — ровно
+    /// поза смерти (≤ 0,1 мм), при любой доле — по виду тел (≤ 0,05 мм). «Сдвинуть тела» — суставы, меч и капсулы ровно на вектор
+    /// сдвига. Живой — поза пула, не труп.
     /// </summary>
     [Fact]
     public void CorpseSkin_Falling_DeathPoseAtTickStart_FollowsBodies_ShiftOfMovingCorpse()
@@ -222,11 +211,8 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
         && p.X <= f.BoundsMax.X + 1e-4f && p.Y <= f.BoundsMax.Y + 1e-4f && p.Z <= f.BoundsMax.Z + 1e-4f;
 
     /// <summary>
-    /// Скин трупа между кадрами без скачков: кадры по четверти тика (доли 0,25; 0,5; 0,75; 1) — скин падающего трупа идёт от позы
-    /// начала тика к позе тика; начало тика — ровно конец прошлого (≤ 0,01 мм: поза начала тика — поза конца прошлого), шаг кадра — не больше
-    /// 0,35 пути тика (линейно по центру, Slerp по повороту). И переход живой → труп в тике смерти командой без скачка: живой при доле 1 до
-    /// смерти (поза пула в мире корня тика) — это поза смерти, с неё начинается труп. Без интерполяции (доля 1 в каждом кадре) шаг кадра был
-    /// бы путём тика.
+    /// Скин трупа по четвертям тика идёт от позы начала тика к позе тика без скачков: начало тика — конец прошлого (≤ 0,01 мм),
+    /// шаг кадра — не больше 0,35 пути тика. Переход живой → труп тоже без скачка: живой при доле 1 — это поза смерти.
     /// </summary>
     [Fact]
     public void CorpseSkin_BetweenFrames_NoJumps_TickStartToTick()
@@ -290,10 +276,7 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
         Assert.Equal((body.Position, body.Rotation), ArenaView.Shown(frozen, 0));
     }
 
-    /// <summary>
-    /// Меч на теле клинка: кисть = (тело клинка в кисти)⁻¹ × тело — обратное к постановке тела клинка по кисти (
-    /// <see cref="BladePlacement.BodyOf"/>) для каждого меча и любого поворота кисти (≤ 1e-5).
-    /// </summary>
+    /// <summary>Кисть = (тело клинка в кисти)⁻¹ × тело — обратное к <see cref="BladePlacement.BodyOf"/> для каждого меча (≤ 1e-5).</summary>
     [Fact]
     public void BladeInHandInverse_UndoesBladePlacement()
     {
@@ -314,11 +297,9 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Суставы трупа (оверлей <c>joints</c>; суставы перехода в труп): у живых суставов нет; у трупа — 13, запястье (ребёнок
-    /// — тело клинка) выключено, прочие включены; точки на ребёнке и на родителе — в мире по показанным телам: в начале тика смерти (поза
-    /// смерти, по ней привязаны) совпадают, у падающего и лежащего трупа — расходятся не больше чем на сантиметр (ошибка точки из вида — та
-    /// же); голень сдвинута отдельно на 5 см — точка колена на ребёнке ушла, на родителе — нет, вид называет ошибку точки. Без флага
-    /// суставов — не снимаются.
+    /// Суставы трупа (оверлей <c>joints</c>): у живых нет, у трупа 13, запястье выключено; точки на ребёнке и родителе в начале
+    /// тика смерти совпадают, у падающего и лежащего — расходятся не больше сантиметра; сдвиг голени на 5 см — вид называет
+    /// ошибку точки. Без флага — не снимаются.
     /// </summary>
     [Fact]
     public void Joints_OfRealCorpse_WristDisabled_AnchorsFromView_ErrorAfterShinShift()
@@ -379,10 +360,9 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Лежащий труп (≥ 300 тиков после смерти, трасса физики включена): капсулы трупа — все на физике (крест), часть касается
-    /// земли; оверлей <c>contacts</c> с данными — контакты земли с телами трупа (нормаль вверх, глубина — миллиметры); оверлей <c>joints</c> —
-    /// 13 суставов; выпавший меч лежит отдельно от кисти: мир меча — по телу клинка (≤ 0,05 мм), от сустава кисти скина — дальше 10 см, клинок
-    /// у земли; строки трупов кадра (F3 «Рэгдолл») — 1 труп, 14 тел на физике, на земле — сколько капсул касается земли.
+    /// Лежащий труп (≥ 300 тиков, трасса включена): все капсулы на физике, часть на земле; оверлей <c>contacts</c> — контакты с
+    /// землёй (нормаль вверх, глубина — мм), <c>joints</c> — 13; выпавший меч на теле клинка, дальше 10 см от кисти; строка F3
+    /// «Рэгдолл» — 1 труп, 14 тел.
     /// </summary>
     [Fact]
     public void LyingCorpse_GroundContacts_Joints_Crosses_SwordApartFromHand()
@@ -467,11 +447,9 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Трасса физики — диагностический режим <c>physics.trace</c>: включают его владелец и агент между тиками, мир и хеш от него не
-    /// зависят. На прогоне с трупами на физике: три врага убиты на тике 20, 400 тиков после смерти (падение, куча, покой) хеши
-    /// с режимом и без — те же каждый тик, и когда режим посреди прогона сбрасывают, выключают и включают снова. Вид отладки физики —
-    /// выключено, пусто; включено — трасса идёт (шагов столько, сколько тиков с режимом), контакты последнего подшага — в сочленение и номер
-    /// тела, мир — пустое сочленение; выключили — снова пусто.
+    /// Трасса физики (<c>physics.trace</c>) не меняет мир и хеш: прогон с тремя трупами, 400 тиков — хеши с режимом и без те же,
+    /// в том числе при сбросе и переключении посреди прогона. Включено — шаги и контакты последнего подшага видны через вид
+    /// отладки физики; выключено — пусто.
     /// </summary>
     [Fact]
     public void TraceMode_CorpsesOnPhysics_SameHashes_ContactsThroughView()
@@ -533,10 +511,7 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
         traced.Clean();
     }
 
-    /// <summary>
-    /// 0 Б на кадр: мир представления 32 трупов и игрока — скин по телам, мечи на телах клинков, капсулы, суставы и контакты по флагам,
-    /// строки трупов кадра — без выделений в установившемся кадре.
-    /// </summary>
+    /// <summary>0 Б на установившийся кадр: 32 трупа и игрок со всеми оверлеями и строками трупов.</summary>
     [Fact]
     public void Extract_32Corpses_AllOverlays_AllocatesNothing()
     {
@@ -561,44 +536,4 @@ public sealed class CorpseClientTests(ITestOutputHelper output)
         Assert.Equal(0, bytes);
     }
 
-    /// <summary>
-    /// Оверлеи клиента — имена годятся для строгого разбора видов манифеста (строчные латинские,
-    /// цифры, «-»), вид манифеста с ними разбирается, а каждый оверлей в видах и бюджетах манифестов фич игры клиент знает (иначе
-    /// <c>Sword.exe --overlay</c> отказал бы на снимке вида; оверлеи клиентских модулей — их модуль).
-    /// </summary>
-    [Fact]
-    public void Overlays_KnownToClient_ParseInManifestViews()
-    {
-        Assert.Equal(["capsules", "blades", "contacts", "joints", "mm", "lights"], ArenaClient.KnownOverlays);   // mm — траектории Motion Matching
-        Assert.All(ArenaClient.KnownOverlays, o => Assert.Matches("^[a-z0-9-]+$", o));
-        // Оверлеи клиентских модулей — у модуля: огонь — fire (имена с точкой строгий разбор видов не пропускает).
-        string[] known = [.. ArenaClient.KnownOverlays, Fire.FireModule.OverlayName];
-        foreach (var m in FeatureManifestsTests.All())
-        {
-            foreach (var v in m.Views) Assert.All(v.Overlays, o => Assert.Contains(o, known));
-            foreach (var b in m.Budgets)
-                if (b.Frame is { } frame) Assert.All(frame.Overlays, o => Assert.Contains(o, known));
-        }
-        string dir = Path.Combine(Path.GetTempPath(), $"sword-overlays-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        try
-        {
-            File.WriteAllText(Path.Combine(dir, "README.md"), "# x");
-            string manifest = Path.Combine(dir, "feature.json");
-            File.WriteAllText(manifest, """
-                {
-                  "format": "sword-feature", "version": 1, "id": "corpse", "title": "труп", "doc": "README.md", "sourceRoots": ["."],
-                  "scenarios": [{ "id": "s", "ticks": 10 }],
-                  "views": [{ "id": "v", "scenario": "s", "tick": 5, "camera": "0.6,0.95,24", "overlays": ["capsules", "contacts", "joints"] }],
-                  "checklist": ["посмотреть"]
-                }
-                """);
-            var parsed = FeatureManifest.Load(manifest);
-            Assert.Equal(["capsules", "contacts", "joints"], parsed.Views[0].Overlays);
-        }
-        finally
-        {
-            Directory.Delete(dir, recursive: true);
-        }
-    }
 }

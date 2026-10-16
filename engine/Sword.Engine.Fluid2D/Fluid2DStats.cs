@@ -23,7 +23,7 @@ public readonly record struct Fluid2DStats(ulong Step, int Resolution, float Den
             (int)u[2], new Vector2(BitConverter.UInt32BitsToSingle(u[8]), BitConverter.UInt32BitsToSingle(u[9])));
     }
 
-    /// <summary>То же на CPU по полю (в double) — сверка GPU-редукции и снимок агента.</summary>
+    /// <summary>То же на CPU по полю (в double) — сверка GPU-редукции и снимок.</summary>
     public static Fluid2DStats Compute(Fluid2DFields fields, ulong step)
     {
         int n = fields.N;
@@ -52,7 +52,7 @@ public readonly record struct Fluid2DStats(ulong Step, int Resolution, float Den
 }
 
 /// <summary>
-/// Снимок полей для агента: поле C и его статистика, грид кисти (если был Painter). <see cref="Save"/> пишет <c>.density.png</c> (ρ, серый),
+/// Снимок полей для отладки: поле C и его статистика, грид кисти (если был Painter). <see cref="Save"/> пишет <c>.density.png</c> (ρ, серый),
 /// <c>.velocity.png</c> (vx, vy → R, G вокруг 0.5 в пределах ±VelocityClamp; B — wet) и сырые half (<c>.bin</c>: N × N × 4 half RGBA, ряд 0 —
 /// v = 0); кисть — <c>.brush.density.png</c> (слой 2), <c>.brush.velocity.png</c> (слои 0, 1 вокруг 0.5 в пределах ±BVC·VMXY; B — слой 6) и
 /// <c>.brush.bin</c> (BrushN × BrushN × 8 half).

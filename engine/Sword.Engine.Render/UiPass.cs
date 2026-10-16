@@ -8,16 +8,9 @@ using Vortice.DXGI;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// UI-проход (раздел 6 плана): квады <see cref="UiDrawList"/> поверх заднего буфера — фигуры полем расстояний и
-/// GPU-векторный текст (<c>common/ui.hlsl</c>). Без вершинного буфера: записи в кольце кадра, вершины по SV_VertexID.
-/// Фигуры и текст — разные конвейеры над одним буфером; вызов рисования рвётся ещё на смене обрезки
-/// (<see cref="UiDrawList.ClipRuns"/>) — она ставится scissor'ом.
-///
-/// Шрифты — <c>ui/fonts/*.swfont</c> из пака рендера или готовые от вызывающего (<see cref="RendererOptions.UiFonts"/>: окно
-/// инструмента печёт системные): берутся при создании прохода (<see cref="Renderer.Ui"/> — при
-/// первом обращении), склеиваются (<see cref="UiFonts"/>, Ui без GPU) и лежат в видеопамяти до конца работы.
-/// Перенос <c>Ui/UiRenderer.cs</c> и <c>Text/UiVectorFontGpu.cs</c> SWORD 2eab13b: порядок вызовов и разбиение на
-/// вызовы те же; проход — узел рендер-графа (цель — задний буфер без очистки, конвейеры — кеш рендера).
+/// UI-проход: квады <see cref="UiDrawList"/> поверх цели — фигуры полем расстояний и GPU-векторный текст
+/// (<c>common/ui.hlsl</c>). Без вершинного буфера: записи в кольце кадра, вершины по SV_VertexID. Вызов рисования рвётся
+/// на смене конвейера (фигуры / текст) и обрезки (scissor). Шрифты склеиваются при создании и живут в видеопамяти до конца.
 /// </summary>
 public sealed class UiPass : IDisposable
 {
@@ -85,7 +78,7 @@ public sealed class UiPass : IDisposable
         }
     }
 
-    /// <summary>Шрифты интерфейса из пака: все <c>ui/fonts/*.swfont</c>.</summary>
+    /// <summary>Шрифты интерфейса из пака: все <c>fonts/*.swfont</c>.</summary>
     private static UiFonts ReadFonts(Sword.Engine.Content.IContentSource content)
     {
         var files = content.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension);
@@ -140,10 +133,8 @@ public sealed class UiPass : IDisposable
     public string Report() => $"UI: {Fonts.Report()}, GPU {(_glyphs.Bytes + _curves.Bytes + _bands.Bytes + _indices.Bytes) / 1024.0 / 1024.0:F2} МБ";
 
     /// <summary>
-    /// Проход интерфейса поверх того, что уже нарисовано в заднем буфере (или в цели <paramref name="target"/> размера
-    /// кадра — слой снимка, <see cref="RenderFrame.CaptureLayer"/>): квады <paramref name="draw"/> копируются в кольцо кадра
-    /// сейчас (список можно менять сразу после вызова), рисуются, когда граф дойдёт до прохода. Пустой список — прохода нет.
-    /// Фаза — <see cref="FramePhase.Ui"/> (LDR, после тонмапа); подписи отладочного рисования идут в <see cref="FramePhase.Debug"/>.
+    /// Проход интерфейса поверх уже нарисованного: квады копируются в кольцо кадра сейчас (список можно менять сразу),
+    /// рисуются, когда граф дойдёт до прохода. Пустой список — прохода нет. Фаза — <see cref="FramePhase.Ui"/> (LDR).
     /// </summary>
     public void Add(RenderFrame frame, UiDrawList draw, string name = "ui", RenderTexture? target = null, FramePhase phase = FramePhase.Ui)
     {
@@ -157,8 +148,7 @@ public sealed class UiPass : IDisposable
 
         if (_used + draw.Count > _quads.Capacity)
         {
-            // Кольцо мало: новое вдвое больше. Старое освобождается отложенно — проходы этого кадра, уже записавшие в
-            // него квады, читают его до конца кадра на GPU.
+            // Кольцо мало — новое вдвое больше; старое освобождается отложенно (проходы кадра читают его на GPU).
             // Сначала новое: не создалось — старое остаётся рабочим, кадр бросается целиком.
             uint capacity = Math.Max(_quads.Capacity * 2, (uint)(draw.Count + 1024));
             var grown = _renderer.CreateFrameData<UiQuad>("Ui.Quads", capacity);
@@ -228,7 +218,7 @@ public sealed class UiPass : IDisposable
         Fonts.Dispose();
     }
 
-    /// <summary>Неизменяемые контуры шрифта в видеопамяти (DEFAULT-куча, SRV), как <c>UiVectorFontGpu</c> SWORD.</summary>
+    /// <summary>Неизменяемые контуры шрифта в видеопамяти (DEFAULT-куча, SRV).</summary>
     private sealed class FontBuffer : IDisposable
     {
         private readonly GraphicsDevice _gd;
@@ -246,10 +236,7 @@ public sealed class UiPass : IDisposable
             Bytes = bytes;
         }
 
-        /// <summary>
-        /// Пустая таблица (шрифт без кривых) — один нулевой элемент: буфера нулевого размера D3D12 не создаёт (в SWORD
-        /// такой шрифт ронял загрузку).
-        /// </summary>
+        /// <summary>Пустая таблица (шрифт без кривых) — один нулевой элемент: буфера нулевого размера D3D12 не создаёт.</summary>
         public static unsafe FontBuffer Create<T>(GraphicsDevice gd, string name, ReadOnlySpan<T> data) where T : unmanaged
         {
             if (data.IsEmpty) data = new T[1];

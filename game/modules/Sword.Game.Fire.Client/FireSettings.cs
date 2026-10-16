@@ -40,6 +40,30 @@ public sealed record FireSettings
 
     public float FadeDensity { get; init; } = 0.5f;
 
+    /// <summary>
+    /// Окно 3D-дыма (<see cref="FireGasSlots"/>) выше шишки: цель окна — шишка + столько вверх, м. Окно 2.88×3.84×2.88 м: при 1 м шишка
+    /// на 0.92 м над низом окна, над ней 2.92 м — место столбу дыма 1.5–2 м.
+    /// </summary>
+    public float GasUp { get; init; } = 1f;
+
+    /// <summary>
+    /// Упреждение окна: центр окна по горизонтали догоняет шишку экспонентой с постоянной <see cref="GasFollowSeconds"/> с, шишка — не дальше
+    /// <see cref="GasMaxLead"/> м от него. На бегу шишка впереди центра на v·τ, зажатое до предела, — шлейфу позади больше места; при вращении на
+    /// месте центр окна — у оси вращения, а не на шишке: факел в руке ходит по кругу ≈1.15 м, кольцо дыма (Ø 2.3 м) влезает в окно 2.88 м только
+    /// с центром у оси. Предел 1.1 м — шишка не ближе 0.34 м к грани окна.
+    /// </summary>
+    public float GasFollowSeconds { get; init; } = 1f;
+
+    public float GasMaxLead { get; init; } = 1.1f;
+
+    /// <summary>
+    /// Дым погасшего огня (источник выключен, окно стоит): сим шагает, пока Σρ поля (чтение GPU с задержкой) не ниже
+    /// <see cref="GasFadeDensity"/>, но не дольше <see cref="GasFadeSeconds"/>; затем экземпляр газа свободен.
+    /// </summary>
+    public float GasFadeSeconds { get; init; } = 8f;
+
+    public float GasFadeDensity { get; init; } = 1f;
+
     /// <summary>Проверка чисел — до ресурсов.</summary>
     public void Validate()
     {
@@ -50,5 +74,11 @@ public sealed record FireSettings
             throw new InvalidDataException($"конфиг: fire.brushObjectSize = {BrushObjectSize}: 0…20");
         if (!(FadeSeconds > 0 && FadeSeconds <= 30)) throw new InvalidDataException($"конфиг: fire.fadeSeconds = {FadeSeconds}: 0…30 с");
         if (!(FadeDensity >= 0)) throw new InvalidDataException($"конфиг: fire.fadeDensity = {FadeDensity}: ≥ 0");
+        if (!(GasUp >= 0 && GasUp <= 1.8f)) throw new InvalidDataException($"конфиг: fire.gasUp = {GasUp}: 0…1.8 м");
+        if (!(GasFollowSeconds > 0 && GasFollowSeconds <= 5))
+            throw new InvalidDataException($"конфиг: fire.gasFollowSeconds = {GasFollowSeconds}: 0…5 с");
+        if (!(GasMaxLead >= 0 && GasMaxLead <= 1.2f)) throw new InvalidDataException($"конфиг: fire.gasMaxLead = {GasMaxLead}: 0…1.2 м");
+        if (!(GasFadeSeconds > 0 && GasFadeSeconds <= 60)) throw new InvalidDataException($"конфиг: fire.gasFadeSeconds = {GasFadeSeconds}: 0…60 с");
+        if (!(GasFadeDensity >= 0)) throw new InvalidDataException($"конфиг: fire.gasFadeDensity = {GasFadeDensity}: ≥ 0");
     }
 }

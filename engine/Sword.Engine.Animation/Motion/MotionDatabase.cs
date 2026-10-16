@@ -5,24 +5,10 @@ using System.Runtime.CompilerServices;
 namespace Sword.Engine.Animation.Motion;
 
 /// <summary>
-/// База Motion Matching: кадры выбранных клипов библиотеки подряд с ЛОКАЛЬНЫМИ номерами (0…<see cref="FrameCount"/>), граф
-/// переходов, признаки по схеме, блоки поиска, контакты стоп, скорость корня. Строится из клипов при загрузке
-/// (<see cref="Build"/>), один раз на процесс; неизменяема — её делят все симуляции и потоки: массивы приватные, наружу — только
-/// <see cref="ReadOnlySpan{T}"/>, открытый конструктор копирует входные массивы.
-///
-/// Граф: из кадра f проигрыватель идёт в <see cref="Next"/>[f], перенос корня за интервал — <see cref="Interval"/>[f] (в системе
-/// кадра f). Внутри клипа f → f + 1; цикл — шов последнего кадра на второй (последний кадр цикла = первый). Кадр выхода
-/// нециклического клипа (<see cref="Entry"/>[f] ≥ 0) «становится» кадром входа продолжения: его <c>Next</c> и <c>Interval</c> —
-/// как у входа, проигрыватель, дойдя до него, сразу переходит во вход с инерциализацией.
-///
-/// Признаки <see cref="Features"/> — нормализованные без весов (<c>(сырой − Mean) / Std</c>, разброс общий на группу, не меньше
-/// её <see cref="FeatureGroup.MinStd"/>); веса — параметр поиска. Искомые кадры (<see cref="Searchable"/>) — с полным горизонтом
-/// будущего по графу; <see cref="Rows"/> — они по возрастанию, блоки — по <see cref="BlockSize"/> строк подряд с границами
-/// признаков (<see cref="BoundsMin"/>/<see cref="BoundsMax"/>) для отсечения поиска.
-///
-/// Клипы базы — по возрастанию номера в библиотеке, независимо от порядка списка постройки: номера кадров и отпечаток от него
-/// не зависят. <see cref="Fingerprint"/> — 64 бита от схемы, клипов, графа, признаков и разметки: одна и та же база — один
-/// отпечаток (строка старта, <c>Describe</c>, заголовок реплея).
+/// База Motion Matching: кадры выбранных клипов подряд с локальными номерами, граф переходов, нормализованные признаки,
+/// блоки поиска, контакты стоп. Строится раз на процесс и неизменяема — её делят все симуляции и потоки. Кадр выхода
+/// нециклического клипа (<see cref="Entry"/> ≥ 0) «становится» кадром входа продолжения. Порядок клипов — по номеру в
+/// библиотеке; <see cref="Fingerprint"/> — одна база, один отпечаток.
 /// </summary>
 public sealed partial class MotionDatabase
 {
@@ -46,21 +32,13 @@ public sealed partial class MotionDatabase
     private readonly int[] _movingJoints;
     private readonly int _featureCount;
 
-    /// <summary>
-    /// База из готовых массивов — для тестов поиска, запроса и проигрывателя без постройки из клипов. Массивы копируются;
-    /// строки поиска, блоки, отпечаток и сводка считаются здесь же — так же, как у <see cref="Build"/>.
-    /// </summary>
+    /// <summary>База из готовых массивов (копируются) — для тестов без постройки; строки, блоки и отпечаток — как у <see cref="Build"/>.</summary>
     /// <param name="clips">Клипы базы: подряд с кадра 0, по строгому возрастанию номера в библиотеке, целиком (число кадров и цикл — как в библиотеке).</param>
-    /// <param name="next">[кадр] следующий кадр графа; −1 — нет (такой кадр не ищется).</param>
+    /// <param name="next">[кадр] следующий кадр графа; −1 — нет.</param>
     /// <param name="interval">[кадр] перенос корня за интервал кадр → next, в системе кадра.</param>
     /// <param name="entry">[кадр] кадр входа, которым «становится» кадр выхода; −1 — не выход.</param>
-    /// <param name="searchable">[кадр] кадр ищется (нужен <c>next ≥ 0</c>).</param>
-    /// <param name="features">[кадр·признак] нормализованные признаки.</param>
-    /// <param name="mean">[признак] среднее сырых признаков.</param>
-    /// <param name="std">[признак] разброс (&gt; 0).</param>
     /// <param name="rootVelocity">[кадр] скорость корня клипа в системе корня кадра, м/с (Y = 0).</param>
-    /// <param name="contacts">[кадр] контакты: бит i — сустав <c>schema.ContactJoints[i]</c> на земле.</param>
-    /// <param name="movingJoints">Суставы с движущимся локальным смещением — номера скелета по возрастанию.</param>
+    /// <param name="contacts">[кадр] бит i — сустав <c>schema.ContactJoints[i]</c> на земле.</param>
     /// <exception cref="ArgumentException">Массивы не сходятся по длинам, номера вне базы, числа не конечны.</exception>
     public MotionDatabase(ClipLibrary library, MotionSchema schema, ReadOnlySpan<MotionClip> clips, ReadOnlySpan<int> next,
         ReadOnlySpan<Pose2> interval, ReadOnlySpan<int> entry, ReadOnlySpan<bool> searchable, ReadOnlySpan<float> features,
@@ -72,10 +50,7 @@ public sealed partial class MotionDatabase
     {
     }
 
-    /// <summary>
-    /// Общая часть постройки и конструктора из массивов: массивы — уже свои (не копируются); проверка, строки поиска, блоки,
-    /// отпечаток, сводка. <paramref name="started"/> — метка <see cref="Stopwatch.GetTimestamp"/> начала постройки.
-    /// </summary>
+    /// <summary>Общая часть постройки и конструктора из массивов: массивы уже свои (не копируются).</summary>
     private MotionDatabase(ClipLibrary library, MotionSchema schema, MotionClip[] clips, int[] next, Pose2[] interval, int[] entry,
         bool[] searchable, float[] features, float[] mean, float[] std, Vector3[] rootVelocity, byte[] contacts, int[] movingJoints,
         long started)
@@ -134,26 +109,13 @@ public sealed partial class MotionDatabase
     }
 
     /// <summary>
-    /// Постройка из клипов: кинематика кадров базы, контакты, признаки по схеме, граф (внутри клипа, шов цикла,
-    /// продолжение по политике с ценой шва, ранний выход в окне <see cref="MotionBuildParams.ExitWindow"/>, явный разрыв ничьих),
-    /// траектории (будущее — по графу, прошлое — по политике), нормализация, суставы с движущимся смещением. Клипы базы — по
-    /// возрастанию номера в библиотеке (порядок <paramref name="clips"/> не важен). Вход не меняется; зовётся при загрузке, не в тике.
+    /// Постройка из клипов при загрузке, не в тике: кинематика кадров, признаки, граф, траектории, нормализация. Порядок
+    /// <paramref name="clips"/> не важен. Итог не зависит от потоков, сборки и уровня JIT; без AVX2 признаки отличаются в
+    /// последних битах, но граф тот же при доле ничьей 10⁻⁴. Циклы по кадрам — с <c>AggressiveOptimization</c>: постройка
+    /// раз на процесс, на tier-0 — в разы медленнее.
     /// </summary>
-    /// <remarks>
-    /// Порядок: кинематика кадров базы (<see cref="ClipKinematics"/>, по клипам параллельно) → признаки позы (корень и суставы) →
-    /// нормализация позы по всем кадрам (для цены шва) → измеренное движение клипов (<see cref="MotionClipInfo"/>) → связи внутри
-    /// клипов → рёбра нециклических клипов (после всех связей внутри клипов) → траектории и искомые кадры → нормализация всего по
-    /// искомым кадрам (на месте, без копии) → суставы с движущимся смещением → общий конструктор (строки, блоки, отпечаток, сводка).
-    /// Все массивы — только на кадры базы. Политику зовут по порядку клипов в одном потоке; тела циклов по кадрам — в своих методах с
-    /// <c>AggressiveOptimization</c> (постройка раз на процесс: PGO не нужен, на tier-0 — в разы медленнее; замер на паке — Release
-    /// ~0,1–0,16 с первая постройка). Итог не зависит от потоков, сборки (Debug/Release) и уровня JIT; другой класс процессора (без
-    /// AVX2) даёт другие признаки в последних битах, но тот же граф при доле ничьей 10⁻⁴ (замер на паке).
-    /// </remarks>
-    /// <param name="clips">Номера клипов библиотеки, без повторов.</param>
-    /// <exception cref="ArgumentException">
-    /// Повторы или номера вне библиотеки, суставы схемы вне скелета, параметры вне допустимого, политика вернула клип вне базы.
-    /// </exception>
-    /// <exception cref="InvalidDataException">Данные клипов не дают базы (нет ни одного искомого кадра и т. п.) — с понятной причиной.</exception>
+    /// <exception cref="ArgumentException">Повторы или номера вне библиотеки, суставы вне скелета, параметры вне допустимого, политика вернула клип вне базы.</exception>
+    /// <exception cref="InvalidDataException">Данные клипов не дают базы — с понятной причиной.</exception>
     public static MotionDatabase Build(ClipLibrary library, ReadOnlySpan<int> clips, MotionSchema schema, IMotionGraphPolicy policy,
         in MotionBuildParams parameters)
     {
@@ -199,11 +161,7 @@ public sealed partial class MotionDatabase
         ContactDetector.Validate(p.Contacts);
     }
 
-    /// <summary>
-    /// Состояние постройки (<see cref="Build"/>): вход, кинематика и массивы базы по мере заполнения. Сырые признаки <see cref="Raw"/>
-    /// после <see cref="Normalize"/> — нормализованные (на месте). Части — признаки позы (здесь), граф и траектории
-    /// (<c>MotionDatabase.Graph.cs</c>), нормализация (<c>MotionDatabase.Normalize.cs</c>).
-    /// </summary>
+    /// <summary>Состояние постройки: вход, кинематика и массивы базы по мере заполнения; <see cref="Raw"/> после <see cref="Normalize"/> — нормализованные.</summary>
     private sealed partial class Builder
     {
         public readonly ClipLibrary Library;
@@ -326,13 +284,11 @@ public sealed partial class MotionDatabase
     public ClipLibrary Library { get; }
     public MotionSchema Schema { get; }
 
-    /// <summary>Частота кадров базы, Гц (у библиотеки одна).</summary>
+    /// <summary>Частота кадров базы, Гц.</summary>
     public float SampleRate => Library.SampleRate;
 
-    /// <summary>Признаков в строке (<see cref="MotionSchema.FeatureCount"/>).</summary>
     public int FeatureCount => _featureCount;
 
-    /// <summary>Кадров базы.</summary>
     public int FrameCount => _clips.Length == 0 ? 0 : _clips[^1].End;
 
     public int ClipCount => _clips.Length;
@@ -340,7 +296,6 @@ public sealed partial class MotionDatabase
     /// <summary>Клипы базы по возрастанию номера в библиотеке; кадры клипа — <c>Start…End − 1</c>.</summary>
     public ReadOnlySpan<MotionClip> Clips => _clips;
 
-    /// <summary>[кадр] клип базы.</summary>
     public ReadOnlySpan<int> ClipOf => _clipOf;
 
     /// <summary>[кадр] следующий кадр графа; −1 — нет.</summary>
@@ -352,7 +307,6 @@ public sealed partial class MotionDatabase
     /// <summary>[кадр] кадр входа, которым «становится» этот кадр выхода; −1 — не выход.</summary>
     public ReadOnlySpan<int> Entry => _entry;
 
-    /// <summary>[кадр] кадр ищется.</summary>
     public ReadOnlySpan<bool> Searchable => _searchable;
 
     /// <summary>Искомые кадры по возрастанию — строки поиска; блок b — строки <c>b·BlockSize…</c> (<see cref="BlockRows"/>).</summary>
@@ -389,7 +343,6 @@ public sealed partial class MotionDatabase
 
     public MotionDatabaseSummary Summary { get; }
 
-    /// <summary>Нормализованные признаки кадра.</summary>
     public ReadOnlySpan<float> FeatureRow(int frame) => _features.AsSpan(frame * _featureCount, _featureCount);
 
     /// <summary>Сырые признаки кадра (<c>нормализованный·Std + Mean</c>) — в <paramref name="into"/> (не меньше <see cref="FeatureCount"/>).</summary>
@@ -413,7 +366,6 @@ public sealed partial class MotionDatabase
         return Library.Clips[clip.LibraryClip].Start + frame - clip.Start;
     }
 
-    /// <summary>Номер кадра внутри его клипа (0 — первый).</summary>
     public int FrameInClip(int frame) => frame - _clips[_clipOf[frame]].Start;
 
     /// <summary>Клип базы по номеру клипа библиотеки; нет в базе — −1.</summary>

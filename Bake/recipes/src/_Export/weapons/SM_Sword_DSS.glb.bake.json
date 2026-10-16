@@ -1,0 +1,9 @@
+{
+  "converter": "weapon",
+  "import": "combat_master",
+  "notes": "/Game/CombatMasterAnimBundle/Weapon/SwordAndShield/SM_Sword_DSS.",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "name": "sword_dss"
+  }
+}

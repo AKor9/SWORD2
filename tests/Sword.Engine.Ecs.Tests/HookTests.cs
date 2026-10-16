@@ -6,9 +6,8 @@ namespace Sword.Engine.Ecs.Tests;
 public struct Handle { public int Slot; }
 
 /// <summary>
-/// Граничные тесты хуков времени жизни (раздел 5 плана, v1): хуки на барьере после журналов и до событий, в порядке
-/// команд; не нормализуются («добавлен и снят на одном барьере» — журналы пусты, хуки отработали оба и ресурс вернулся);
-/// повторный вход и изменение структуры из хука — исключение; 0 байт в установившемся режиме.
+/// Хуки времени жизни: на барьере после журналов и до событий, в порядке команд, не нормализуются; повторный вход и изменение
+/// структуры из хука — исключение; 0 байт в установившемся режиме.
 /// </summary>
 public class HookTests
 {
@@ -295,16 +294,13 @@ public class HookTests
     }
 
     [Fact]
-    public void Registration_OneHookPerKind_OnlyRegisteredComponents_VisibleToObservers()
+    public void Registration_OneHookPerKind_OnlyRegisteredComponents()
     {
         var pool = new Pool();
         Assert.Contains("дважды", Assert.Throws<InvalidOperationException>(() =>
             Builder(pool).OnAdd<Handle>(pool.OnAdd).Build()).Message);
         Assert.Contains("не зарегистрирован", Assert.Throws<InvalidOperationException>(() =>
             Worlds.Builder().OnAdd<Handle>(pool.OnAdd).Build()).Message);
-        var w = Worlds.Builder().Component<Handle>().OnAdd<Handle>(pool.OnAdd, "physics").OnRemove<Handle>(pool.OnRemove).Build();
-        Assert.Equal([new HookInfo(typeof(Handle).FullName!, "OnAdd", "physics"), new HookInfo(typeof(Handle).FullName!, "OnRemove", null)],
-            w.Reader.Hooks);
     }
 
     [Fact]

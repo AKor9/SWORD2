@@ -7,7 +7,7 @@ namespace Sword.Engine.Fluid2D.Tests;
 
 /// <summary>
 /// Свойства сима на устройстве: шум скорости = эталон, ноль остаётся нулём, 10 000 шагов с сильным впрыском конечны и в пределах, статистика
-/// GPU = подсчёт по полю, два прогона — бит в бит (и после сброса), статистика асинхронно, снимок агента, 0 Б на кадр, GPU-время шага.
+/// GPU = подсчёт по полю, два прогона — бит в бит (и после сброса), статистика асинхронно, снимок, 0 Б на кадр, GPU-время шага.
 /// </summary>
 [Collection("gpu")]
 [Trait("Category", "Gpu")]
@@ -41,14 +41,14 @@ public sealed class Fluid2DSimGpuTests(ITestOutputHelper output) : IDisposable
         Quaternion.CreateFromYawPitchRoll(0.3f, -0.9f, 0));
 
     /// <summary>
-    /// Шумы из пака (<c>effects/fire/sim_noise.swtex</c>: слой T_Noise3 — плотность, T_NoiseTemplate1 — amp-шум, sRGB): Composite факела 368²
+    /// Шумы из пака (<c>textures/fire/sim_noise.swtex</c>: слой T_Noise3 — плотность, T_NoiseTemplate1 — amp-шум, sRGB): Composite факела 368²
     /// с кистью = эталон на шумах, прочитанных с GPU.
     /// </summary>
     [Fact]
     [Trait("Category", "Content")]
     public void PackNoise_TorchComposite_MatchesReference()
     {
-        using var texture = _gpu.Renderer.LoadTexture("effects/fire/sim_noise.swtex");
+        using var texture = _gpu.Renderer.LoadTexture("textures/fire/sim_noise.swtex");
         Assert.True(texture.Srgb, "шумы сима — sRGB (FSR §3.11)");
         var density = Fluid2DNoise.FromLayer(texture, "T_Noise3");
         var amp = Fluid2DNoise.FromLayer(texture, "T_NoiseTemplate1");
@@ -232,7 +232,7 @@ public sealed class Fluid2DSimGpuTests(ITestOutputHelper output) : IDisposable
         foreach (var i in images) i.Dispose();
     }
 
-    /// <summary>Кадр с шагом, экспортом и чтением статистики — 0 Б; проходы в render.graph названы по стадиям.</summary>
+    /// <summary>Кадр с шагом, экспортом и чтением статистики — 0 Б; проходы графа названы по стадиям.</summary>
     [Fact]
     public void Frame_WithStepExportAndReadback_AllocatesNothing()
     {

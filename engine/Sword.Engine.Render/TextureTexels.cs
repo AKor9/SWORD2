@@ -4,9 +4,8 @@ using Sword.Engine.Formats;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// Один канал слоя текстуры пака на CPU, мип 0, линейные значения (sRGB декодирован формулой) — для CPU-эталонов выборок шейдеров и
-/// отчётов (<see cref="Renderer.ReadTexels"/>, <see cref="Read"/>). Только несжатые форматы: R8, RG8, RGBA8, RGBA8 sRGB. Декод sRGB
-/// железом отличается от формулы до ≈0.004, веса билинейки железа — 8-битные: это эталон формулы, а не пикселя в пиксель.
+/// Один канал слоя текстуры на CPU, мип 0, линейные значения — для CPU-эталонов выборок шейдеров. Только несжатые форматы.
+/// Декод sRGB и билинейка железа отличаются до ≈0.004: это эталон формулы, а не пикселя в пиксель.
 /// </summary>
 public sealed class TextureTexels
 {
@@ -45,10 +44,7 @@ public sealed class TextureTexels
         return w >= size ? 0 : w;
     }
 
-    /// <summary>
-    /// Канал <paramref name="channel"/> (0 — r) слоя <paramref name="slice"/> файла <c>.swtex</c> из потока <paramref name="file"/>;
-    /// <paramref name="name"/> — для сообщений.
-    /// </summary>
+    /// <summary>Канал (0 — r) слоя файла <c>.swtex</c> из потока; <paramref name="name"/> — для сообщений.</summary>
     /// <exception cref="InvalidDataException">Не текстура, обрезана или формат сжатый (BCn).</exception>
     /// <exception cref="ArgumentOutOfRangeException">Канала или слоя нет в формате или файле.</exception>
     public static TextureTexels Read(Stream file, string name, int channel = 0, int slice = 0)

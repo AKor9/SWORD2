@@ -7,11 +7,8 @@ namespace Sword.Engine.Render;
 public delegate void ReadbackHandler(ReadOnlySpan<byte> data, ulong frame);
 
 /// <summary>
-/// Асинхронное чтение хранилища на CPU — для представления и диагностики (статистика GPU-симуляции), не для симуляции: в конце каждого
-/// кадра рендер копирует первые <see cref="Bytes"/> байт <see cref="Source"/> в буфер чтения своего слота кольца кадров, а в начале кадра
-/// того же слота — когда GPU его доделал, без ожидания — отдаёт их обработчику. Задержка — <see cref="Latency"/> кадров; кадр, брошенный
-/// до показа, данных не даёт; смена размера отдаёт ждущие данные сразу, по порядку кадров. Создаёт <see cref="Renderer.CreateReadback"/>;
-/// освобождение — отложенное (GPU мог ещё писать).
+/// Асинхронное чтение хранилища на CPU — для представления и диагностики, не для симуляции. Данные приходят через
+/// <see cref="Latency"/> кадров без ожидания GPU; брошенный кадр данных не даёт. Освобождение — отложенное.
 /// </summary>
 public sealed class GpuReadback : IDisposable
 {
@@ -88,10 +85,7 @@ public sealed class GpuReadback : IDisposable
         _ready(new ReadOnlySpan<byte>(_mapped + (ulong)slot * _stride, (int)Bytes), _frames[slot]);
     }
 
-    /// <summary>
-    /// GPU простаивает, а номер слота кадра сейчас собьётся (смена размера: задние буферы — с нуля): все ждущие данные — сразу, по порядку
-    /// кадров, иначе слоты отдали бы их не по порядку.
-    /// </summary>
+    /// <summary>Смена размера сбивает номер слота: все ждущие данные отдаются сразу, по порядку кадров.</summary>
     internal void CollectAll()
     {
         while (true)

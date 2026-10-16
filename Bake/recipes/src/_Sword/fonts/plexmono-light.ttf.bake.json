@@ -1,0 +1,12 @@
+{
+  "converter": "font",
+  "import": "ibm_plex_mono",
+  "notes": "IBM Plex Mono Light — лёгкие цифры. Лицензия гарнитуры — у ui/fonts/num.",
+  "params": {
+    "name": "num_light",
+    "roles": [
+      "NumLight"
+    ],
+    "extra": []
+  }
+}

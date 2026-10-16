@@ -13,11 +13,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Труп на физике: переход тела бойца в труп и обратно — функции над телом в подсистеме Physics (идеи — <c>CaptureAndSettle</c>,
-/// <c>TameDetached</c>, <c>ToRagdoll</c>, <c>Build</c> SWORD 2eab13b; research-arena-tick §3). Живой — все 14 тел кинематические, профиль
-/// по умолчанию, суставы (если были) включены; труп — все 14 тел на физике, профиль трупа, суставы привязаны по позе смерти, запястье
-/// выключено (меч выпал), самоколлизия — пары <see cref="CorpseJoints.SelfPairs"/> (у живого они есть, если он уже был трупом, но
-/// не действуют: тела кинематические).
+/// Труп на физике: переход тела бойца в труп и обратно. Живой — 14 тел кинематические, профиль по умолчанию; труп — 14 тел на
+/// физике, профиль трупа, суставы по позе смерти, запястье выключено (меч выпал), самоколлизия — <see cref="CorpseJoints.SelfPairs"/>.
 /// </summary>
 public static class Corpse
 {
@@ -26,13 +23,9 @@ public static class Corpse
         physics.Get(physics.Body(body, BodySegs.Body(BodySegs.Pelvis))).Mode == BodyMode.Simulated;
 
     /// <summary>
-    /// Переход в труп по позе смерти <paramref name="model"/> в мире бойца <paramref name="fighterWorld"/>: (1) скорости тел (последней
-    /// постановки живого) урезаны до <see cref="RagdollRules.DeathMaxSpeed"/> и <see cref="RagdollRules.DeathMaxAngularSpeed"/> — гасит и
-    /// ложную закрутку кинематических капсул вокруг оси, и скачок постановки; (2) суставы — описания по позе смерти (оси шарниров — анатомические)
-    /// и привязка по ней: ошибка точки 0, пределы наклона — от этой позы; (3) сустав запястья выключен — меч выпадает при каждой смерти;
-    /// (4) самоколлизия — пары <see cref="CorpseJoints.SelfPairs"/>; (5) все 14 тел — на физике с профилем трупа. Привязку скина снимает
-    /// <c>core.skin-capture</c> раньше в той же стадии — ей нужна только поза тел, не скорости. Нечисловое тело не урезается (его пересоберёт
-    /// <see cref="BodyRebuildSystem"/>). Памяти не выделяет.
+    /// Переход в труп по позе смерти <paramref name="model"/>: скорости тел урезаны до <see cref="RagdollRules.DeathMaxSpeed"/> и
+    /// <see cref="RagdollRules.DeathMaxAngularSpeed"/> (гасит ложную закрутку капсул и скачок постановки), суставы привязаны по позе
+    /// смерти, запястье выключено, тела — на физике. Нечисловое тело не урезается. Памяти не выделяет.
     /// </summary>
     public static void Convert(IPhysicsWorld physics, ArticulationHandle body, CorpseJoints joints, Span<JointDesc> descs,
         ReadOnlySpan<Matrix4x4> model, in Matrix4x4 fighterWorld, int corpseProfile, in RagdollRules rules)
@@ -67,9 +60,8 @@ public static class Corpse
     }
 
     /// <summary>
-    /// Живой снова (постройка заново — возрождение, сброс R, команда сцены «поставить», пересборка): все 14 тел кинематические, профиль по
-    /// умолчанию, касания земли нет, суставы (если есть) включены. Поставит тела без скорости постройка (<see cref="BodyPlacement.Build"/>,
-    /// тело клинка — <see cref="BladePlacement.BuildBody"/>). Нечисловое тело (пересборка) сначала ставится в начало координат без скорости.
+    /// Живой снова (постройка заново): 14 тел кинематические, профиль по умолчанию, суставы включены; тела поставит постройка.
+    /// Нечисловое тело сначала ставится в начало координат без скорости.
     /// </summary>
     public static void Revive(IPhysicsWorld physics, ArticulationHandle body)
     {
@@ -102,28 +94,12 @@ public static class Corpse
         return true;
     }
 
-    /// <summary>Центр масс тел сочленения, м (масса 0 — нет центра: NaN).</summary>
-    public static Vector3 CenterOfMass(IPhysicsWorld physics, ArticulationHandle body)
-    {
-        var sum = Vector3.Zero;
-        float mass = 0;
-        for (int k = 0, n = physics.BodyCount(body); k < n; k++)
-        {
-            var s = physics.Get(physics.Body(body, k));
-            sum += s.Position * s.Mass;
-            mass += s.Mass;
-        }
-        return mass > 0 ? sum / mass : new Vector3(float.NaN);
-    }
 }
 
 /// <summary>
-/// Gameplay (после <c>core.skin-capture</c>, до <c>core.root-steer</c>) и Settle (после <c>core.skin-capture</c>) (<see cref="GameLabels.DeathToRagdoll"/>),
-/// реактивная по <c>Added&lt;Dead&gt;</c>: переход в труп (<see cref="Corpse.Convert"/>). В Gameplay — смерти командой сцены этого тика
-/// (Intent): тела и поза — прошлого тика, шаг физики этого тика уже двигает труп; в Settle — смерти от ударов (Resolve) и кровопотери
-/// (Aftermath) этого тика: тела и поза этого тика, двигать их начнёт шаг следующего. Идемпотентна: уже перешедших (таз на физике —
-/// регистрация в Gameplay видит и смерти прошлого тика, снятые в Settle) пропускает; ожившие, без позы или годного тела — тоже (их ловят
-/// <c>physics.modes</c>, <c>animation.*</c>, <c>physics.bodyRefs</c>). Памяти не выделяет.
+/// Gameplay и Settle, реактивная по <c>Added&lt;Dead&gt;</c>: переход в труп (<see cref="Corpse.Convert"/>). В Gameplay — смерти
+/// командой сцены (тела прошлого тика), в Settle — от ударов и кровопотери этого тика. Идемпотентна; ожившие, без позы или годного
+/// тела пропускает. Памяти не выделяет.
 /// </summary>
 public sealed class DeathToRagdollSystem(IPhysicsWorld physics, CorpseJoints joints, int corpseProfile, bool gameplay) : IReactiveSystem<Added<Dead>>
 {
@@ -155,15 +131,9 @@ public sealed class DeathToRagdollSystem(IPhysicsWorld physics, CorpseJoints joi
 }
 
 /// <summary>
-/// Physics (<see cref="GameLabels.PhysicsStep"/>): шаг физики на тик (<see cref="IPhysicsWorld.Step"/>, подшаги — из настроек): тела на
-/// физике (трупы) — интеграция, суставы, земля, стена и колонны арены, трупы между собой и толчки кинематических тел живых, мир после пар.
-/// Кинематические тела шаг не двигает; без трупов — только границы сочленений. Мир ECS не меняет.
-/// <para>
-/// Зоны профайлера внутри шага (<c>physics.*</c>, <see cref="IPhysicsWorld.AttachProfiler"/>) — профайлер мира, пока он включён: сменился
-/// (подключили, включили, выключили) — физике передаётся перед шагом (заведение зон выделяет память — один раз на профайлер, в первом тике
-/// после включения); выключенный или <see cref="CpuProfiler.Off"/> — физике <see cref="CpuProfiler.Off"/>. Прогрев кода шага —
-/// <see cref="PhysicsWarmup"/> при сборке мира (конструктор системы).
-/// </para>
+/// Physics: шаг физики на тик (<see cref="IPhysicsWorld.Step"/>); кинематические тела шаг не двигает, мир ECS не меняет.
+/// Профайлер мира передаётся физике перед шагом, когда сменился (заведение зон выделяет память один раз). Прогрев кода шага —
+/// <see cref="PhysicsWarmup"/> в конструкторе.
 /// </summary>
 public sealed class PhysicsStepSystem : IContinuousSystem
 {
@@ -194,10 +164,8 @@ public sealed class PhysicsStepSystem : IContinuousSystem
 }
 
 /// <summary>
-/// Physics, после шага (<see cref="GameLabels.CorpseRoot"/>): корень мёртвого идёт за тазом его трупа по земле — (x, z) корня ← (x, z)
-/// центра тела таза (высота и курс корня прежние): кто целится в корень (ИИ врагов идёт к трупу игрока ×0,2), видит, где лежит труп.
-/// Таз не на физике (труп ещё не перешёл — смерть этого тика после шага) или нечисловой (пересборка — <see cref="BodyRebuildSystem"/>) — корень
-/// стоит. Памяти не выделяет.
+/// Physics, после шага: корень мёртвого идёт за тазом трупа по земле — (x, z) корня ← (x, z) таза, чтобы целящиеся в корень видели
+/// труп. Таз не на физике или нечисловой — корень стоит. Памяти не выделяет.
 /// </summary>
 public sealed class CorpseRootSystem(IPhysicsWorld physics) : IContinuousSystem
 {
@@ -229,18 +197,9 @@ public sealed class CorpseRootSystem(IPhysicsWorld physics) : IContinuousSystem
 }
 
 /// <summary>
-/// Aftermath, после возрождения (<see cref="GameLabels.BodyRebuild"/>; идея — пересборка по NaN у таза SWORD 2eab13b, у нас — любое
-/// поле любого тела): труп, у которого нечисловое хоть одно поле хоть одного из 14 тел (решатель «взорвался»), строится заново на месте
-/// корня тем же курсом (<see cref="Fighters.Rebuild"/>: зерно и меч прежние, таймер удара врага — своей партией
-/// <see cref="ArenaRules.RebuildBatch"/>), живым; тела без скорости ставит постройка следующего тика (Gameplay). Враг, которого в этом
-/// же тике строит возрождение, пропускается. Нарушение до пересборки видно — <c>physics.finite</c> после шага. Живого с нечисловым телом
-/// (кинематика — по позе и корню: ошибка выше физики) не пересобирает — его ловят <c>ecs.finite</c>, <c>physics.finite</c>, и чинить молча
-/// нельзя.
-/// <para>
-/// Нечисловые тела считает физика (<see cref="IPhysicsWorld.NonFiniteArticulations"/> — по концу шага и записям тел после него): 0 —
-/// система ничего не обходит (тик боя — одно чтение счётчика вместо 14 копий тел на каждого бойца); иначе — бойцы по порядку, у трупа с
-/// флагом <see cref="IPhysicsWorld.HasNonFinite"/> — постройка заново. Гарантия та же: флаг — любое нечисловое поле любого тела на физике.
-/// </para>
+/// Aftermath, после возрождения: труп с нечисловым полем хоть одного тела (решатель «взорвался») строится заново живым на месте
+/// корня (<see cref="Fighters.Rebuild"/>, партия <see cref="ArenaRules.RebuildBatch"/>). Живого с нечисловым телом не пересобирает —
+/// это ошибка выше физики, её ловят <c>ecs.finite</c> и <c>physics.finite</c>. Без нечисловых тел (счётчик физики 0) — ничего не обходит.
 /// </summary>
 public sealed class BodyRebuildSystem(IPhysicsWorld physics) : IContinuousSystem
 {

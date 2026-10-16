@@ -6,19 +6,13 @@ using static Sword.Engine.Animation.Tests.MotionBuildFixtures;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Постройка базы из клипов на синтетических клипах: граф не зависит от порядка клипов; у нециклического клипа ровно одно
-/// ребро — кадр выхода становится кадром входа; ранний выход — когда его шов дешевле; ничьи шва — меньший номер кадра; у каждого
-/// искомого кадра полный горизонт будущего по графу, клип без продолжения не ищется в хвосте; прошлое — по клипу и политике;
-/// разброс группы общий и не меньше пола; два построения — один отпечаток; суставы с движущимся смещением.
-/// </summary>
+/// <summary>Постройка базы из синтетических клипов: граф и ранние выходы, горизонт будущего, прошлое, разброс групп, отпечаток.</summary>
 public sealed class MotionDatabaseBuildTests
 {
     private static MotionDatabase Build(ClipLibrary library, int[]? clips = null, IMotionGraphPolicy? policy = null,
         MotionBuildParams? parameters = null) =>
         MotionDatabase.Build(library, clips ?? All(library), Schema(), policy ?? new TestPolicy(), parameters ?? Params());
 
-    /// <summary>Клип базы по короткому имени синтетического клипа.</summary>
     private static MotionClip Clip(MotionDatabase db, string name) => db.Clips[db.FindClip(Find(db.Library, name)[0])];
 
     /// <summary>Кадры выхода клипа (у которых есть вход).</summary>
@@ -380,8 +374,8 @@ public sealed class PackLocomotion
 }
 
 /// <summary>
-/// База на клипах <c>locomotion</c> пака (категория Content) с тестовой политикой без имён GASP и раскладкой 45 признаков: постройка
-/// проходит, сводка печатается, отпечаток двух построений (прямой и обратный порядок клипов) один. Время постройки — не бюджет.
+/// База на клипах <c>locomotion</c> пака (категория Content), 45 признаков: постройка проходит, отпечаток не зависит от
+/// порядка клипов. Время постройки — не бюджет.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class MotionDatabasePackTests(PackLocomotion pack, ITestOutputHelper output) : IClassFixture<PackLocomotion>
@@ -433,10 +427,7 @@ public sealed class MotionDatabasePackTests(PackLocomotion pack, ITestOutputHelp
 
     private static string Source(ClipLibrary lib) => lib.Clips[0].Source;
 
-    /// <summary>
-    /// Хеш одного графа (следующий кадр, вход, искомый) — без признаков: показывает, что граф устойчив там, где признаки расходятся
-    /// в последних битах (другой класс процессора, research-mm-data §4.1).
-    /// </summary>
+    /// <summary>Хеш графа без признаков: граф устойчив, даже когда признаки расходятся в последних битах на другом процессоре.</summary>
     private static ulong GraphHash(MotionDatabase db)
     {
         ulong h = 14695981039346656037UL;

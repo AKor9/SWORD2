@@ -6,10 +6,8 @@ using Sword.Engine.Formats;
 namespace Sword.Engine.Animation.Tests;
 
 /// <summary>
-/// Данные и помощники тестов проигрывателя. Клипы — гладкие, на скелете тестов (root, pelvis, spine): циклы по
-/// договорённости контента (последний кадр = первому), позы клипов далеко друг от друга (разрыв на переходе без инерциализации —
-/// десятые доли радиана), скорости разные; root и pelvis двигают смещение (движущиеся суставы базы), spine — нет. База —
-/// <see cref="MotionFixtures.Plain"/> (граф внутри клипа, шов цикла на второй кадр) и, по желанию, ранний выход
+/// Клипы проигрывателя на скелете тестов: гладкие, позы далеко друг от друга (разрыв без инерциализации — десятые доли
+/// радиана); root и pelvis двигают смещение, spine — нет. База — <see cref="MotionFixtures.Plain"/> и ранний выход
 /// <see cref="Exit"/> → <see cref="Entry"/>.
 /// </summary>
 internal static class MotionPlayerFixtures
@@ -77,7 +75,6 @@ internal static class MotionPlayerFixtures
         a.Interval[exit] = a.Interval[entry];
     }
 
-    /// <summary>Локальная поза кадра базы в библиотеке.</summary>
     public static (Quaternion[] Rot, Vector3[] Pos) FramePose(MotionDatabase db, int frame)
     {
         int jc = db.Library.JointCount, o = db.LibraryFrame(frame) * jc;

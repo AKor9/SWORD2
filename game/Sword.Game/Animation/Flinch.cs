@@ -3,7 +3,7 @@ using Sword.Engine.Animation;
 
 namespace Sword.Game.Animation;
 
-/// <summary>Слот вздрагивания: клип реакции (−1 — слот свободен), время от начала и длина, с (<c>FighterAnimator.Flinch</c> SWORD).</summary>
+/// <summary>Слот вздрагивания: клип реакции (−1 — слот свободен), время от начала и длина, с.</summary>
 public struct FlinchSlot
 {
     public int Clip;
@@ -13,10 +13,8 @@ public struct FlinchSlot
 }
 
 /// <summary>
-/// Вздрагивание игрока от попадания (<c>FighterAnimator.StartFlinch</c>, <c>_flinch</c>, <c>_flinchLast</c> SWORD 2eab13b — реакция
-/// <c>Agile</c>): первые 0,55 с клипа реакции — добавкой поворотов к верху тела (отклонение от первого кадра клипа, сила 0,8) поверх
-/// удара, бега и рывка; управление не отнимается (цель SWORD2 — отзывчивый бой). Два слота: новое попадание гасит прошлое с текущего
-/// веса, а не обрывает. Компонент игрока; хешируется, виден агенту (<c>entity.get player</c>).
+/// Вздрагивание игрока от попадания: первые 0,55 с клипа реакции — добавкой поворотов к верху тела (сила 0,8) поверх удара, бега
+/// и рывка; управление не отнимается. Два слота: новое попадание гасит прошлое с текущего веса, а не обрывает. Хешируется.
 /// </summary>
 public struct Flinch
 {
@@ -34,7 +32,7 @@ public struct Flinch
     public ref FlinchSlot Slot(int i) => ref i == 0 ? ref First : ref Second;
 }
 
-/// <summary>Константы и логика вздрагивания — <c>CharacterRig.Flinch*</c> и <c>FighterAnimator</c> SWORD 2eab13b.</summary>
+/// <summary>Константы и логика вздрагивания.</summary>
 public static class FlinchLayer
 {
     /// <summary>Длина вздрагивания, с; вход и выход огибающей, с; сила добавки (<c>FlinchLength</c>, <c>FlinchIn</c>, <c>FlinchOut</c>, <c>FlinchStrength</c>).</summary>
@@ -44,11 +42,9 @@ public static class FlinchLayer
     public static float Envelope(float t, float length) => Math.Clamp(t / In, 0, 1) * Math.Clamp((length - t) / Out, 0, 1);
 
     /// <summary>
-    /// Новое вздрагивание клипом <paramref name="clip"/> длительностью <paramref name="duration"/> (<c>StartFlinch</c>): прошлый слот гаснет с
-    /// текущего веса, новый — в другом слоте с начала. Отличия от SWORD (оба — скачки позы при частых попаданиях, их ловит
-    /// <c>physics.kinematicSpeed</c>: предплечье до 41 м/с): прошлый гаснет от своего веса выхода — длина не больше «сейчас + выход·доля
-    /// выхода» (в SWORD — «сейчас + выход·огибающая»: на входе, первые 0,06 с, вес падал скачком до квадрата входа); другой слот ещё виден
-    /// (третье попадание за время угасания) — нового вздрагивания нет, идущие доигрывают (в SWORD другой слот обрывался). false — не начато.
+    /// Новое вздрагивание клипом <paramref name="clip"/>: прошлый слот гаснет от своего веса выхода, новый — в другом слоте с начала;
+    /// другой слот ещё виден (третье попадание) — нового нет, идущие доигрывают (иначе скачки позы — <c>physics.kinematicSpeed</c>).
+    /// false — не начато.
     /// </summary>
     public static bool Start(ref Flinch f, int clip, float duration)
     {
@@ -65,7 +61,7 @@ public static class FlinchLayer
         return true;
     }
 
-    /// <summary>Шаг на тик (начало цикла вздрагиваний <c>TickActions</c>): время слотов; вышло — слот свободен.</summary>
+    /// <summary>Шаг на тик: время слотов; вышло — слот свободен.</summary>
     public static void Tick(ref Flinch f, float dt)
     {
         for (int i = 0; i < 2; i++)
@@ -78,9 +74,8 @@ public static class FlinchLayer
     }
 
     /// <summary>
-    /// Задания пулу поз (конец цикла <c>TickActions</c>: после действия и снимка, до прямой кинематики): каждый занятый слот по порядку —
-    /// первый кадр клипа и кадр слота, добавка по маске верха <paramref name="upper"/> с весом силы × огибающей. Позы берутся при
-    /// первом вздрагивании.
+    /// Задания пулу поз (после действия и снимка, до прямой кинематики): каждый занятый слот — добавка по маске верха
+    /// <paramref name="upper"/> с весом силы × огибающей. Позы берутся при первом вздрагивании.
     /// </summary>
     public static void Pose(in Flinch f, ref ActionPoses poses, PoseHandle pose, PosePool pool, PoseMask upper)
     {

@@ -1,9 +1,8 @@
 namespace Sword.Engine.Ui;
 
 /// <summary>
-/// Палитра и размеры интерфейса — единственный источник цветов: виджеты, HUD, панели игры берут их отсюда,
-/// а не задают числами на месте. Размеры — в логических пикселях, <see cref="UiContext"/> умножает их на масштаб.
-/// Перенос <c>Widgets/UiTheme.cs</c> SWORD 2eab13b, значения те же.
+/// Палитра и размеры интерфейса — единственный источник цветов. Размеры — в логических пикселях,
+/// <see cref="UiContext"/> умножает их на масштаб.
 /// </summary>
 public sealed class UiTheme
 {
@@ -14,7 +13,6 @@ public sealed class UiTheme
 
     public uint Background = C(6, 11, 15);
     public uint Panel = C(12, 20, 26);
-    public uint PanelAlt = C(17, 28, 35);
     public uint Border = C(120, 210, 230, 28);
     public uint BorderStrong = C(120, 210, 230, 80);
 
@@ -59,7 +57,6 @@ public sealed class UiTheme
     public float FontSize = 14;
     public float SmallFontSize = 12;
     public float RowHeight = 22;
-    public float Padding = 8;
     public float Radius = 4;
     public float ScrollbarWidth = 8;
 }

@@ -1,0 +1,14 @@
+{
+  "converter": "font",
+  "import": "ibm_plex_mono",
+  "notes": "IBM Plex Mono Regular — цифры, пути, лог; с ним в пак идёт лицензия гарнитуры.",
+  "params": {
+    "name": "num",
+    "roles": [
+      "Num"
+    ],
+    "extra": [
+      "${src}/_Sword/fonts/OFL-IBMPlexMono.txt"
+    ]
+  }
+}

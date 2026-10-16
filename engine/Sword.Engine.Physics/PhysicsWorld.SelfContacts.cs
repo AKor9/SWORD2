@@ -2,9 +2,8 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// Самоколлизия — пары тел одного сочленения (таблица владельца, SetSelfContacts), решаются в проходе пар подшага после пар сочленений
-// тем же контактом тело ↔ тело на физике (PhysicsWorld.Contacts.cs: ContactsSimulatedPair). Своя, не SWORD (у SWORD части трупа друг сквозь
-// друга проходили). Члены — с приставкой Self; README физики, «Устройство» → «Самоколлизия»; замеры — docs/history/engine-physics.md.
+// Самоколлизия — пары тел одного сочленения (таблица владельца), решаются после пар сочленений тем же контактом тело ↔ тело
+// на физике (ContactsSimulatedPair). Члены — с приставкой Self; README физики, «Самоколлизия».
 public sealed partial class PhysicsWorld
 {
     /// <summary>Пары самоколлизии по слотам сочленений (массив переиспользуется — место под все пары с создания сочленения) и их число.</summary>
@@ -14,10 +13,10 @@ public sealed partial class PhysicsWorld
     /// <summary>Толщина частей в самоколлизии — из настроек на шаг (<see cref="PhysicsSettings.SelfContactScale"/>).</summary>
     private float _selfScale = 1;
 
-    /// <summary>Пар самоколлизии, дошедших до ближайших точек осей, за последний шаг — тестам и диагностике.</summary>
+    /// <summary>Пар самоколлизии, дошедших до ближайших точек осей, за последний шаг — тестам.</summary>
     internal int SelfNarrowChecks { get; private set; }
 
-    /// <summary>Контактов самоколлизии (пересеклись капсулы) за последний шаг — тестам и диагностике.</summary>
+    /// <summary>Контактов самоколлизии за последний шаг — тестам.</summary>
     internal int SelfTouches { get; private set; }
 
 
@@ -64,10 +63,7 @@ public sealed partial class PhysicsWorld
         Array.Resize(ref _selfCount, articulations);
     }
 
-    /// <summary>
-    /// Сочленение в слоте создано или удаляется (зовёт <see cref="ContactsReset"/>): пар нет, место под все пары его тел — за слотом (запись
-    /// таблицы трупа посреди игры — без выделения памяти; как <c>JointsReserve</c>).
-    /// </summary>
+    /// <summary>Сочленение в слоте создано или удаляется: пар нет, место под все пары — за слотом (таблица трупа посреди игры — без выделения памяти).</summary>
     private void SelfReset(int a)
     {
         _selfCount[a] = 0;
@@ -75,10 +71,7 @@ public sealed partial class PhysicsWorld
         if (need > 0 && (_selfPairs[a] is not { } stored || stored.Length < need)) _selfPairs[a] = new BodyPair[need];
     }
 
-    /// <summary>
-    /// Самоколлизия подшага — из прохода пар после пар сочленений (<see cref="ContactsPairs"/>): неспящие сочленения с телами на физике по
-    /// слотам, пары — по порядку таблицы. Толщина 0 — пропуск.
-    /// </summary>
+    /// <summary>Самоколлизия подшага: неспящие сочленения с телами на физике по слотам, пары — по порядку таблицы. Толщина 0 — пропуск.</summary>
     private void SelfPairs(float h)
     {
         float scale = _selfScale;
@@ -98,11 +91,7 @@ public sealed partial class PhysicsWorld
         }
     }
 
-    /// <summary>
-    /// Пара самоколлизии: оба тела на физике (кинематическое тело сочленения — пропуск); коробки щупов (радиусы × толщина) пересеклись — ближайшие
-    /// точки осей; капсулы пересеклись — контакт тело ↔ тело на физике (<see cref="ContactsSimulatedPair"/>, источник
-    /// <see cref="PhysicsSource.Self"/>).
-    /// </summary>
+    /// <summary>Пара самоколлизии: оба тела на физике, коробки (радиусы × толщина) пересеклись — контакт с источником <see cref="PhysicsSource.Self"/>.</summary>
     private void SelfPair(int ia, int ib, float scale, float h)
     {
         ref readonly var qa = ref _contactsProbe[ia];

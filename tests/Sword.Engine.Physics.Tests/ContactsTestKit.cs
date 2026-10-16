@@ -2,10 +2,7 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics.Tests;
 
-/// <summary>
-/// Помощник тестов контактов и шага: тестовые земли (<see cref="IGround"/> без состояния и без выделения памяти), постройка
-/// тел на физике, замеры глубины и перекрытия. Общий помощник — <see cref="TestBodies"/>.
-/// </summary>
+/// <summary>Тестовые земли (<see cref="IGround"/> без состояния и выделений), тела на физике, замеры глубины и перекрытия.</summary>
 internal static class ContactsKit
 {
     /// <summary>Тик 120 Гц, с.</summary>

@@ -12,10 +12,8 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Рука с мечом игрока на Motion Matching (категория Content — клипы GASP есть только в паке; <c>locomotion.player = mm</c>): кисть и
-/// клинок относительно груди (<c>spine_05</c> — родитель ключицы) — у стойки оружия (слот <c>idle</c>) стоя и на ходу; в ударе рука — у слоя
-/// действий; первый тик после постройки, R, смерть и возрождение — ровно поза постройки (со слоем руки), без скачков капсул и прохода
-/// клинка; ручка веса на ходу — плавно; смена меча — та же стойка; <c>clips</c> — ничего от руки; запас пула и 0 Б в тике.
+/// Рука с мечом игрока на MM (категория Content): кисть и клинок относительно груди — у стойки оружия стоя и на ходу, в ударе —
+/// у слоя действий; постройка, R и возрождение — поза постройки без скачков; <c>clips</c> — руки нет; 0 Б в тике.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class SwordArmTests(ITestOutputHelper output)
@@ -25,7 +23,7 @@ public sealed class SwordArmTests(ITestOutputHelper output)
     /// <summary>Допуск «у стойки» / «у слоя действий», м: кисть и кончик клинка относительно груди (смешивание с весом 1 — те же повороты суставов руки).</summary>
     private const float Eps = 1e-4f;
 
-    private static Animation.CharacterAssets Assets => FeatureManifestsTests.Reference.Value.Assets;
+    private static Animation.CharacterAssets Assets => TestContent.Reference.Value.Assets;
 
     private static Simulation Create(params string[] sets) =>
         SwordSimulation.Create(ConfigSet.Empty(["locomotion.player=mm", .. sets]), Assets);
@@ -76,14 +74,12 @@ public sealed class SwordArmTests(ITestOutputHelper output)
 
     private static int Chest => Assets.Clips.Skeleton.Find("spine_05");
 
-    /// <summary>Кисть в системе груди.</summary>
     private static Matrix4x4 HandInChest(ReadOnlySpan<Matrix4x4> model)
     {
         Assert.True(Matrix4x4.Invert(model[Chest], out var chest));
         return model[Assets.Hand] * chest;
     }
 
-    /// <summary>Кисть в системе груди у клипа <paramref name="clip"/> в момент <paramref name="time"/>.</summary>
     private static Matrix4x4 ClipHandInChest(int clip, float time)
     {
         var pool = new PosePool(Assets.Clips, capacity: 1);
@@ -94,7 +90,6 @@ public sealed class SwordArmTests(ITestOutputHelper output)
         return HandInChest(pool.Model(h));
     }
 
-    /// <summary>Стойка оружия — кисть в системе груди.</summary>
     private static Matrix4x4 Stance => ClipHandInChest(Assets.Actions.Idle, SwordArm.StanceTime);
 
     private static Matrix4x4 PlayerHandInChest(Simulation sim)
@@ -226,10 +221,8 @@ public sealed class SwordArmTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Первый тик после постройки, после R и после возрождения — ровно поза постройки со слоем руки (капсулы и клинок встали по ней: нет
-    /// скачка и прохода клинка); ручка веса на ходу 1 → 0 → 1 — вес идёт не быстрее 4/с; R при ручке 0 — вес позы постройки (1, как при
-    /// сборке), дальше — к ручке. Ни одного нарушения инвариантов (<c>physics.kinematicSpeed</c>, <c>physics.kinematicPose</c>,
-    /// <c>combat.blade</c>, <c>locomotion.mmArm</c>) — в том числе до первого тика.
+    /// Первый тик после постройки, R и возрождения — ровно поза постройки со слоем руки (без скачка и прохода клинка); ручка веса
+    /// на ходу — не быстрее 4/с; R при ручке 0 — вес постройки 1, дальше к ручке. Инварианты чисты, в том числе до первого тика.
     /// </summary>
     [Fact]
     public void BuildReset_KnobOnTheRun_NoJumps()
@@ -291,10 +284,7 @@ public sealed class SwordArmTests(ITestOutputHelper output)
         Assert.True(sweep < 1e-3f, $"{when}: клинок прошёл {sweep} м от клинка постройки");
     }
 
-    /// <summary>
-    /// Смена меча (T — следующий меч инвентаря): стойка одна на все мечи (слот <c>idle</c> таблицы действий), поза стойки не берётся
-    /// заново; клинок — нового меча на той же кисти.
-    /// </summary>
+    /// <summary>Смена меча (T): стойка одна на все мечи, поза стойки не берётся заново; клинок нового меча — на той же кисти.</summary>
     [Fact]
     public void WeaponChange_SameStance_NewBlade()
     {
@@ -334,10 +324,8 @@ public sealed class SwordArmTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Запас пула: у игрока на MM с рукой, ударами, рывком и вздрагиванием (проба удара по нему) поз не больше
-    /// <see cref="GameCore.PosesPerFighter"/> (наибольшее — все позы слоя действий, вздрагивания и рука), пул не растёт с постройки (память —
-    /// запас сборки мира). 0 Б в тике после прогрева — без врагов (удары игрока по врагам, смерть и возрождение — не про руку): бег,
-    /// удары, рывки.
+    /// Поз игрока на MM с рукой, ударами, рывком и вздрагиванием — не больше <see cref="GameCore.PosesPerFighter"/>, пул не растёт
+    /// с постройки; 0 Б в тике после прогрева.
     /// </summary>
     [Fact]
     public void PoolWithinReserve_ZeroBytes()

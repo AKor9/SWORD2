@@ -1,0 +1,16 @@
+{
+  "converter": "texture",
+  "import": "fluidninja_vfx_tools",
+  "notes": "Огонь, шумы сима: слой T_Noise3 — шум плотности (T_Noise3_128px L2 = T_Noise3 ↓2), слой T_NoiseTemplate1 — amp-шум скорости (T_NoiseTemplate1_128px L2 = ↓8). Читается .r, SampleLevel 0, wrap. sRGB в UE: серый sRGB — выборка декодирует до фильтра, мипы усреднены в линейном. Без сжатия: BC1 втягивает опоры блока (теряет края шума).",
+  "params": {
+    "layers": [
+      "${src}/_Export/fire/T_Noise3.png",
+      "${src}/_Export/fire/T_NoiseTemplate1.png"
+    ],
+    "channel": "r",
+    "srgb": true,
+    "compress": false,
+    "size": 128,
+    "out": "textures/fire/sim_noise.swtex"
+  }
+}

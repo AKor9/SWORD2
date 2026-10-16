@@ -76,10 +76,7 @@ public sealed class FaultyModule : IModule
     public static Simulation Build(ConfigSet? config = null) => Simulation.Build(config ?? ConfigSet.Empty(), ["A", "B"], [new FaultyModule()]);
 }
 
-/// <summary>
-/// Инварианты (раздел 8 плана): реестр в симуляции, проверка после барьера своей стадии, нарушение — на своём
-/// тике, стоимость и отказы, хеш и память не затрагиваются.
-/// </summary>
+/// <summary>Инварианты: реестр, проверка после барьера своей стадии, нарушение на своём тике, стоимость, хеш и память не затронуты.</summary>
 public class InvariantTests
 {
     [Fact]
@@ -87,7 +84,7 @@ public class InvariantTests
     {
         var sim = FaultyModule.Build();
         var ids = sim.Invariants.List().Select(i => (i.Id, i.Owner, i.Enabled)).ToList();
-        Assert.Equal([("ecs.finite", "engine", true), ("ecs.entityRefs", "engine", false), ("faulty.nonNegative", "faulty", true)], ids);
+        Assert.Equal([("ecs.finite", "engine", true), ("faulty.nonNegative", "faulty", true)], ids);
 
         while (sim.Tick < 15) sim.Step();
         var recent = sim.Invariants.Recent();
@@ -95,33 +92,36 @@ public class InvariantTests
         var nan = recent.First(v => v.Id == "ecs.finite");
         Assert.Equal((FaultyModule.NaNTick, Simulation.ExportStage, new Entity(1, 1)), (nan.Tick, nan.Stage, nan.Entity));
         Assert.Contains("Gauge.Level = NaN", nan.Details);
-        Assert.Equal(15 - (long)FaultyModule.NaNTick, sim.Invariants.Find("ecs.finite")!.Violations);
+        Assert.Equal(15 - (long)FaultyModule.NaNTick, Info(sim, "ecs.finite").Violations);
         // −1 — свой инвариант модуля, сразу после стадии A тика 11.
         var negative = recent.First(v => v.Id == "faulty.nonNegative");
         Assert.Equal((FaultyModule.NegativeTick, "A", new Entity(2, 1)), (negative.Tick, negative.Stage, negative.Entity));
         Assert.Equal(recent.Count, sim.Invariants.Total);
-        var info = sim.Invariants.Find("faulty.nonNegative")!;
+        var info = Info(sim, "faulty.nonNegative");
         Assert.Equal(15, info.Evaluations);
         Assert.True(info.MeanMicroseconds > 0);
         Assert.Equal(("faulty.nonNegative", 14ul), (info.Last!.Value.Id, info.Last.Value.Tick));   // −1 держится — последнее на тике 14
     }
 
     [Fact]
-    public void OnDemand_NotChecked_ByItself_RunFindsIt()
+    public void Disabled_NotChecked_RunOnlyAnswers()
     {
         var sim = FaultyModule.Build();
-        while (sim.Tick < 6) sim.Step();
-        Assert.Equal(0, sim.Invariants.Find("ecs.entityRefs")!.Evaluations);    // «по запросу» сам не проверяется
-        var run = sim.Invariants.Run(["ecs.entityRefs"], sim.Tick, "между тиками", sim.Dt).Single();
-        Assert.Equal(3, run.Violations);                                          // три датчика ссылаются на удалённого соседа
-        Assert.Contains("Gauge.Peer = 0v1 — не жива", run.Details[0].Details);
-        Assert.Equal(0, sim.Invariants.Total);                                    // проверка по запросу — только в ответе
+        sim.Invariants.SetEnabled("faulty.nonNegative", false);
+        while (sim.Tick <= FaultyModule.NegativeTick) sim.Step();
+        Assert.Equal(0, Info(sim, "faulty.nonNegative").Evaluations);              // выключенный не проверяется
+        long total = sim.Invariants.Total;
+        var run = sim.Invariants.Run(["faulty.nonNegative"], sim.Tick, "между тиками", sim.Dt).Single();
+        Assert.Equal(1, run.Violations);
+        Assert.Equal(total, sim.Invariants.Total);                                // проверка сейчас — только в ответе
 
-        sim.Invariants.SetEnabled("ecs.entityRefs", true);                        // включённый — каждый тик
+        sim.Invariants.SetEnabled("faulty.nonNegative", true);
         sim.Step();
-        Assert.Equal(3, sim.Invariants.Find("ecs.entityRefs")!.Violations);
+        Assert.Equal(1, Info(sim, "faulty.nonNegative").Violations);
         Assert.Throws<ArgumentException>(() => sim.Invariants.SetEnabled("no.such", true));
     }
+
+    private static InvariantInfo Info(Simulation sim, string id) => sim.Invariants.List().Single(i => i.Id == id);
 
     [Fact]
     public void ConfigOff_NothingChecked_HashTheSame()
@@ -166,9 +166,8 @@ public class InvariantTests
     }
 
     /// <summary>
-    /// Период кодового инварианта (решение пользователя) действует только в живой игре
-    /// (<see cref="SimulationInvariants.LivePeriods"/>, Sword.exe): в тестах, verify и Headless — каждый тик; инвариант агента
-    /// (<see cref="SimulationInvariants.Add"/>, <c>invariant.define every</c>) держит свой период всегда.
+    /// Период кодового инварианта действует только в живой игре (<see cref="SimulationInvariants.LivePeriods"/>): в тестах,
+    /// verify и Headless — каждый тик.
     /// </summary>
     [Fact]
     public void Periodic_AndThrowing_Invariants()
@@ -176,38 +175,19 @@ public class InvariantTests
         var periodic = new Periodic(4);
         var sim = Simulation.Build(ConfigSet.Empty(), ["A", "B"], [new Module(periodic, new Throws())]);
         Assert.False(sim.Invariants.LivePeriods);
-        Assert.Equal(1, sim.Invariants.Find("test.periodic")!.Every);
+        Assert.Equal(1, Info(sim, "test.periodic").Every);
         while (sim.Tick < 10) sim.Step();
         Assert.Equal([.. Enumerable.Range(0, 10).Select(t => (ulong)t)], periodic.Ticks);   // не живая игра — каждый тик
-        var thrown = sim.Invariants.Find("test.throws")!;
+        var thrown = Info(sim, "test.throws");
         Assert.Equal(10, thrown.Violations);                                      // исключение — нарушение, а не падение тика
         Assert.Contains("исключение в проверке: InvalidOperationException: сломался", thrown.Last!.Value.Details);
 
         var live = new Periodic(4);
         var game = Simulation.Build(ConfigSet.Empty(), ["A", "B"], [new Module(live)]);
         game.Invariants.LivePeriods = true;
-        Assert.Equal(4, game.Invariants.Find("test.periodic")!.Every);
-        var agent = new AgentPeriodic(3);
-        game.Invariants.Add(agent, "agent");
+        Assert.Equal(4, Info(game, "test.periodic").Every);
         while (game.Tick < 10) game.Step();
         Assert.Equal([0ul, 4ul, 8ul], live.Ticks);                               // живая игра — раз в 4
-        Assert.Equal([0ul, 3ul, 6ul, 9ul], agent.Ticks);
-
-        var agentOnly = new AgentPeriodic(3);
-        sim.Invariants.Add(agentOnly, "agent");                                   // не живая игра: период агента — всё равно свой
-        while (sim.Tick < 16) sim.Step();
-        Assert.Equal([12ul, 15ul], agentOnly.Ticks);
-        Assert.Equal(3, sim.Invariants.Find("agent.periodic")!.Every);
-    }
-
-    private sealed class AgentPeriodic(int period) : IInvariant
-    {
-        public readonly List<ulong> Ticks = [];
-        public string Id => "agent.periodic";
-        public InvariantCost Cost => InvariantCost.Every(period);
-        public InvariantScope Scope => InvariantScope.World;
-        public string After => Simulation.ExportStage;
-        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations) => Ticks.Add(ctx.Tick);
     }
 
     /// <summary>Неисправность с тика <paramref name="from"/>: уровень датчика — NaN и дальше (держится).</summary>
@@ -239,9 +219,8 @@ public class InvariantTests
     }
 
     /// <summary>
-    /// Живая игра: тяжёлый кодовый инвариант (<c>ecs.finite</c> — <see cref="InvariantCost.Heavy"/>) раз в
-    /// 4 тика ловит нарушение, которое держится, не позже чем через 3 тика после его тика — при любом тике начала; не живая
-    /// игра (тесты, verify, Headless) — на самом тике нарушения.
+    /// Живая игра: тяжёлый <c>ecs.finite</c> (<see cref="InvariantCost.Heavy"/>) раз в 4 тика ловит держащееся нарушение не позже
+    /// чем через 3 тика; не живая игра — на самом тике.
     /// </summary>
     [Fact]
     public void LiveGame_HeavyInvariant_CatchesPersistentViolationWithinPeriod()
@@ -298,6 +277,6 @@ public class InvariantTests
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int t = 0; t < 200; t++) sim.Step();
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
-        Assert.Equal(250, sim.Invariants.Find("ecs.finite")!.Evaluations);
+        Assert.Equal(250, Info(sim, "ecs.finite").Evaluations);
     }
 }

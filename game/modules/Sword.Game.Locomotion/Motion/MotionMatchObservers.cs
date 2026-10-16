@@ -6,11 +6,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Агенту и на экран (только при <c>locomotion.player = mm</c>): вид <see cref="IMotionMatchView"/> для клиента и агента, события
-/// переходов <see cref="MotionTransition"/> (журнал ECS и экспорт клиенту) и их система <c>locomotion.mm-events</c>, тяжёлые инварианты
-/// <c>locomotion.mmDecay</c> и <c>locomotion.mmContinuity</c>, сведение реплея <c>locomotion.base</c> (отпечаток базы), рантайм MM —
-/// ресурсом мира (системы и проверки симуляции; клиенту — нет: у наблюдателя ресурсы только-значения). Зона профайлера
-/// <c>locomotion.search</c> и последний поиск — <see cref="MotionMatchDiagnostics"/> (в шаге <c>locomotion.mm</c>).
+/// На экран (только при <c>locomotion.player = mm</c>): вид <see cref="IMotionMatchView"/>, события <see cref="MotionTransition"/>
+/// и их система, тяжёлые инварианты, сведение реплея <c>locomotion.base</c> (отпечаток базы), рантайм MM — ресурсом мира
+/// (клиенту — нет: у наблюдателя ресурсы только-значения).
 /// </summary>
 public static class MotionMatchObservers
 {

@@ -12,10 +12,7 @@ public sealed record UserSection
     public string PlayerWeapon { get; init; } = "sword_1h";
 }
 
-/// <summary>
-/// Файл пользователя <c>sword.user.json</c> («сохранить» и «загрузить» панели F3): запись одной секции бережная — другие
-/// секции, другие ключи секции, порядок и комментарии остаются; CRLF, UTF-8 без BOM; файл читается конфигом.
-/// </summary>
+/// <summary><c>sword.user.json</c>: запись секции бережная — другие секции, ключи, порядок и комментарии остаются; CRLF, без BOM.</summary>
 public sealed class UserConfigTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "sword-user-config", Guid.NewGuid().ToString("N")[..8]);

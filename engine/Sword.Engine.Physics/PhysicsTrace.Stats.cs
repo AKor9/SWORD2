@@ -13,24 +13,17 @@ public sealed partial class PhysicsTrace
 
     private static readonly string[] PhaseNames = ["интеграция", "суставы", "мир", "пары", "мир после пар", "скорости", "скоростной проход", "расслабление"];
 
-    /// <summary>Имя источника для сводки.</summary>
     public static string SourceName(PhysicsSource source) => SourceNames[(int)source];
 
-    /// <summary>Имя фазы подшага для сводки.</summary>
     public static string PhaseName(PhysicsPhase phase) => PhaseNames[(int)phase];
 
-    /// <summary>
-    /// Контакт подшага: источник, тело на физике, второе тело (<see cref="BodyHandle.None"/> — мир: земля, стена, колонна;
-    /// у толчка — кинематическое), точка на теле и нормаль к нему (мир), настоящая глубина и решённая за подшаг, м.
-    /// </summary>
+    /// <summary>Контакт подшага: второе тело <see cref="BodyHandle.None"/> — мир (у толчка — кинематическое); глубина настоящая и решённая, м.</summary>
     public readonly record struct Contact(PhysicsSource Source, BodyHandle Body, BodyHandle Other, Vector3 Point, Vector3 Normal, float Depth,
         float Solved);
 
     /// <summary>
-    /// Накопленное по источнику поправок: поправок записано; наибольшие сдвиг за подшаг / h (м/с), угол / h (рад/с), сдвиг
-    /// прошлой позы / h (скрытый, должен быть 0); псевдоимпульс <c>Σ m·сдвиг/h</c> за тик — наибольший и сумма, Н·с;
-    /// контактов, наибольшая настоящая и отложенная (глубина − решённая) глубина, м; наибольшая скорость, погашенная
-    /// скоростным проходом, м/с; точный импульс толчков <c>Σλ/h</c>, Н·с.
+    /// Накопленное по источнику поправок: наибольшие сдвиг / h, угол / h и сдвиг прошлой позы / h (скрытый, должен быть 0);
+    /// псевдоимпульс, Н·с; глубины контактов, м; погашенная скоростным проходом скорость; точный импульс толчков <c>Σλ/h</c>.
     /// </summary>
     public struct SourceStats
     {
@@ -53,11 +46,7 @@ public sealed partial class PhysicsTrace
         private float _element;
     }
 
-    /// <summary>
-    /// Событие: тело на физике в тике шага <see cref="Step"/> (номер от начала прогона) было быстрее порога: наибольшие за тик
-    /// скорость и угловая скорость, поправки этого тика по источникам (сдвиг / h, угол / h), Δv от удара перед шагом (0 — не
-    /// было).
-    /// </summary>
+    /// <summary>Событие: тело на физике в тике <see cref="Step"/> было быстрее порога — скорости, поправки по источникам, Δv удара.</summary>
     public struct Event
     {
         private SourceFloats _linear, _angular;
@@ -114,10 +103,7 @@ public sealed partial class PhysicsTrace
         }
     }
 
-    /// <summary>
-    /// Накопитель трассы: последний тик (<see cref="Last"/>), окно (<see cref="Window"/>) или прогон (<see cref="Run"/>).
-    /// Наибольшие значения — «хуже всего за время накопителя»; ноль — не было.
-    /// </summary>
+    /// <summary>Накопитель трассы: последний тик, окно или прогон. Наибольшие — «хуже всего за время накопителя»; ноль — не было.</summary>
     public sealed class Stats
     {
         private readonly SourceStats[] _sources = new SourceStats[SourceCount];
@@ -133,7 +119,6 @@ public sealed partial class PhysicsTrace
         public int Substeps { get; private set; }
         public double Seconds { get; private set; }
 
-        /// <summary>По источнику поправок.</summary>
         public SourceStats Source(PhysicsSource source) => _sources[(int)source];
 
         /// <summary>Наибольшая скорость тела на физике в конце подшага, м/с, и чья; наибольшая угловая, рад/с.</summary>
@@ -147,12 +132,6 @@ public sealed partial class PhysicsTrace
         /// <summary>Замеров скорости (тело·подшагов) и из них нечисловых.</summary>
         public long SpeedSamples { get; private set; }
         public int NonFinite { get; private set; }
-
-        /// <summary>Гистограмма скоростей тел на физике по подшагам (корзина <see cref="SpeedBin"/>).</summary>
-        public ReadOnlySpan<long> SpeedHistogram => _speedHistogram;
-
-        /// <summary>Гистограмма угловых скоростей (корзина <see cref="AngularBin"/>).</summary>
-        public ReadOnlySpan<long> AngularHistogram => _angularHistogram;
 
         /// <summary>Перцентиль скорости <paramref name="q"/> (0…1) — верхняя граница корзины, м/с.</summary>
         public float SpeedPercentile(float q) => Percentile(_speedHistogram, SpeedBin, q);
@@ -190,38 +169,27 @@ public sealed partial class PhysicsTrace
         public int FrictionHeld { get; private set; }
 
         /// <summary>
-        /// Рост энергии за подшаг (кинетическая + m·g·y), Дж: наибольший у сочленения, которое живые в подшаге не толкали и которое не
-        /// касалось другого тела на физике (инвариант <c>physics.energy</c>), и какого; наибольший у всех без толчков вместе (и
-        /// касавшихся); наибольший у толкаемого живыми (толчок вправе добавлять энергию).
+        /// Рост энергии за подшаг (кинетическая + m·g·y), Дж: у не толкаемого и не касавшегося трупов сочленения, у всех без
+        /// толчков вместе и у толкаемого живыми (толчок вправе добавлять энергию).
         /// </summary>
         public float EnergyGrowth { get; private set; }
         public ArticulationHandle EnergyArticulation { get; private set; }
         public float EnergyGrowthTotal { get; private set; }
         public float EnergyGrowthPushed { get; private set; }
 
-        /// <summary>
-        /// Рост энергии за подшаг у сочленения, касавшегося другого тела на физике (труп на трупе — энергия передаётся, рост одного —
-        /// не накачка), Дж, и какого; наибольший рост суммы всех касавшихся за подшаг (передача внутри суммы сокращается).
-        /// </summary>
+        /// <summary>Рост энергии у сочленения, касавшегося другого тела на физике, Дж; и рост суммы всех касавшихся (передача внутри сокращается).</summary>
         public float EnergyGrowthPaired { get; private set; }
         public ArticulationHandle EnergyPairedArticulation { get; private set; }
         public float EnergyGrowthPairedTotal { get; private set; }
 
-        /// <summary>
-        /// Рост энергии сочленения без толчков живых за фазу подшага <paramref name="phase"/>, Дж — наибольший (где энергия
-        /// появляется: суставы сводят разрыв, выталкивание, скоростной проход…), и у какого сочленения.
-        /// </summary>
+        /// <summary>Наибольший рост энергии сочленения без толчков за фазу <paramref name="phase"/>, Дж — где энергия появляется.</summary>
         public float PhaseGrowth(PhysicsPhase phase) => _phaseGrowth[(int)phase];
 
         public ArticulationHandle PhaseArticulation(PhysicsPhase phase) => _phaseArticulation[(int)phase];
 
-        /// <summary>
-        /// Сон: пробуждений спящих сочленений по причине; засыпаний; касаний спящего тела неспящим телом на физике в подшагах (спящее —
-        /// неподвижная опора); наибольшее число спящих на конец шага (у последнего тика — сейчас).
-        /// </summary>
+        /// <summary>Сон: пробуждений по причине; засыпаний; касаний спящего; наибольшее число спящих на конец шага.</summary>
         public int Wakes(WakeReason reason) => _wakes[(int)reason];
 
-        /// <summary>Пробуждений всего (все причины).</summary>
         public int WakesTotal
         {
             get
@@ -436,7 +404,7 @@ public sealed partial class PhysicsTrace
             return histogram.Length * bin;
         }
 
-        /// <summary>Сводка строками с приставкой <paramref name="prefix"/> (для агента и журнала; выделяет память).</summary>
+        /// <summary>Сводка строками с приставкой <paramref name="prefix"/> (для журнала; выделяет память).</summary>
         public string Summary(string prefix)
         {
             var inv = CultureInfo.InvariantCulture;

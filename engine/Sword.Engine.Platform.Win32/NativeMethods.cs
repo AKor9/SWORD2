@@ -45,11 +45,7 @@ internal struct POINT
     public int X, Y;
 }
 
-/// <summary>
-/// Сведения о мониторе. <c>rcMonitor</c> — экран целиком, <c>rcWork</c> —
-/// он же за вычетом панели задач. Полноэкранным оболочка считает окно,
-/// совпадающее с ПЕРВЫМ.
-/// </summary>
+/// <summary>Сведения о мониторе: <c>rcMonitor</c> — экран целиком, <c>rcWork</c> — без панели задач.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct MONITORINFO
 {
@@ -97,19 +93,14 @@ internal static class Win32
 
     public const uint WM_MBUTTONUP = 0x0208;
 
-    /// <summary>Курсор покинул клиентскую область. Приходит ОДИН раз и только
-    /// после заказа через <c>TrackMouseEvent</c>; каждый заказ одноразовый.</summary>
+    /// <summary>Курсор покинул клиентскую область; приходит один раз на каждый заказ <c>TrackMouseEvent</c>.</summary>
     public const uint WM_MOUSELEAVE = 0x02A3;
     public const uint TME_LEAVE = 0x00000002;
 
     /// <summary>wParam у <c>WM_SIZE</c>: окно свернули.</summary>
     public const int SIZE_MINIMIZED = 1;
 
-    /// <summary>
-    /// Флаги <c>SetThreadExecutionState</c>: держать дисплей включённым, пока
-    /// не отменят. Игровое окно во весь экран не должно гаснуть от
-    /// бездействия — в системе ничего не нажимают минутами, глядя на неё.
-    /// </summary>
+    /// <summary>Флаги <c>SetThreadExecutionState</c>: дисплей не гаснет от бездействия, пока не отменят.</summary>
     public const uint ES_CONTINUOUS = 0x80000000;
     public const uint ES_DISPLAY_REQUIRED = 0x00000002;
 
@@ -120,11 +111,7 @@ internal static class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
 
-    /// <summary>
-    /// Ожидание объекта ядра — для waitable object свопчейна. Ответы:
-    /// <c>WAIT_OBJECT_0</c> дождались, <c>WAIT_TIMEOUT</c> истёк срок,
-    /// <c>WAIT_FAILED</c> — отказ, причина в <c>GetLastWin32Error</c>.
-    /// </summary>
+    /// <summary>Ожидание объекта ядра (waitable object свопчейна); <c>WAIT_FAILED</c> — причина в <c>GetLastWin32Error</c>.</summary>
     public const uint WAIT_OBJECT_0 = 0x00000000;
     public const uint WAIT_TIMEOUT = 0x00000102;
     public const uint WAIT_FAILED = 0xFFFFFFFF;
@@ -146,26 +133,13 @@ internal static class Win32
     public const int IDC_ARROW = 32512;
 
     /// <summary>
-    /// Положить окно в САМЫЙ НИЗ порядка перекрытия.
-    ///
-    /// Показ без активации (<c>ShowWindow</c> с <c>SW_SHOWNOACTIVATE</c>)
-    /// фокуса не отбирает, но кладёт окно НАВЕРХ: проверочный прогон
-    /// не уводил клавиатуру и всё равно закрывал собой то, в чём в это время
-    /// работают. Отбирать фокус и перекрывать — два разных действия, и второе
-    /// гасится отдельно; поэтому окно показывает <c>SetWindowPos</c>, а обе
-    /// прежние объявления — и вызов, и номер команды — удалены как мёртвые.
+    /// Низ порядка перекрытия: показ без активации фокус не отбирает, но кладёт окно наверх, поэтому фоновое окно
+    /// показывается через <c>SetWindowPos</c> с этим значением.
     /// </summary>
     public static readonly nint HWND_BOTTOM = 1;
 
     /// <summary>
-    /// Окно БЕЗ РАМЫ: ни заголовка, ни кнопок, ни изменяемых краёв.
-    ///
-    /// Прежде здесь стоял <c>WS_OVERLAPPEDWINDOW</c>, и он давал сразу две
-    /// беды. Заголовок с кнопками — половина дюйма чужого интерфейса поверх
-    /// картинки, ради которой всё и считается. А панель задач оставалась
-    /// поверх окна: оболочка Windows убирает её только под окно, которое она
-    /// признала полноэкранным, а окно с рамой она таковым не признаёт никогда,
-    /// как бы точно оно ни совпадало с экраном.
+    /// Окно без рамы. Окно с рамой оболочка Windows не признаёт полноэкранным, и панель задач остаётся поверх него.
     /// </summary>
     public const uint WS_POPUP = 0x80000000;
 
@@ -180,25 +154,10 @@ internal static class Win32
     public static extern bool GetMonitorInfo(nint hMonitor, ref MONITORINFO lpmi);
 
     /// <summary>
-    /// Прямоугольник ОСНОВНОГО монитора целиком, в физических пикселях.
-    ///
-    /// Целиком, а не рабочая область (<c>rcWork</c>), и разница здесь и есть
-    /// вся суть: рабочая область — это экран МИНУС панель задач, и окно,
-    /// растянутое по ней, оставляет панель на виду. Полноэкранным оболочка
-    /// считает окно, совпадающее с <c>rcMonitor</c>.
-    ///
-    /// Физические пиксели — следствие того, что осведомлённость о масштабе
-    /// уже объявлена (<c>SetProcessDpiAwarenessContext</c>) до первого
-    /// обращения сюда. Без этого система вернула бы логический размер,
-    /// и на мониторе с масштабом 150 % окно накрыло бы две трети экрана.
+    /// Прямоугольник основного монитора целиком (<c>rcMonitor</c>, а не <c>rcWork</c>: иначе панель задач видна),
+    /// в физических пикселях — осведомлённость о DPI объявлена до первого вызова.
     /// </summary>
-    /// <returns>
-    /// Пустой прямоугольник, если монитора не нашлось. ПУСТОЙ, а не
-    /// правдоподобный: подставленное здесь 1920×1080 полный экран принял бы
-    /// за настоящий размер монитора и растянул бы по нему окно, то есть
-    /// придумало бы экран, которого нет. Пустой ответ вызывающий отличает
-    /// от настоящего и остаётся при том размере, о котором просили ключами.
-    /// </returns>
+    /// <returns>false и пустой прямоугольник, если монитора нет: вызывающий остаётся при размере из ключей.</returns>
     public static bool TryPrimaryMonitorRect(out RECT rect)
     {
         rect = default;
@@ -260,9 +219,7 @@ internal static class Win32
     public static extern void PostQuitMessage(int exitCode);
 
     /// <summary>
-    /// Захват мыши. Win32 доставляет сообщения мыши окну ПОД КУРСОРОМ, поэтому
-    /// без захвата отпускание кнопки за пределами клиентской области уходит
-    /// чужому окну — и кнопка залипает нажатой навсегда.
+    /// Захват мыши: без него отпускание кнопки за клиентской областью уходит чужому окну, и кнопка залипает.
     /// </summary>
     [DllImport("user32.dll")]
     public static extern nint SetCapture(nint hWnd);

@@ -65,4 +65,35 @@ public static class FireArea
 
     /// <summary>Поворот площадки из поворота камеры: default (камеры нет) — без поворота.</summary>
     public static Quaternion Plane(Quaternion camera) => camera == default ? Quaternion.Identity : camera;
+
+    /// <summary>
+    /// Площадка огня в <paramref name="center"/>: нормаль — к глазу <paramref name="eye"/>, y — проекция мировой вертикали на плоскость. Её «вверх»
+    /// на экране совпадает с мировым вверх в точке огня (в перспективе вертикали сходятся к надиру: у края кадра — до десятков градусов от «вверх
+    /// по экрану»), и пламя поднимается туда же, куда 3D-дым. Луч почти по вертикали (проекция короче <see cref="VerticalFade"/>) — переход
+    /// к площадке камеры; глаза нет — площадка камеры.
+    /// </summary>
+    public static Quaternion Plane(Quaternion camera, Vector3 eye, Vector3 center)
+    {
+        var basis = Plane(camera);
+        var ray = center - eye;
+        float length = ray.Length();
+        if (camera == default || length < 1e-4f) return basis;
+        var f = ray / length;
+        var up = Vector3.UnitY - f.Y * f;
+        float n = up.Length();
+        float t = Math.Clamp((n - 0.5f * VerticalFade) / (0.5f * VerticalFade), 0f, 1f);
+        if (t <= 0) return basis;
+        var y = up / n;
+        var z = -f;
+        var x = Vector3.Cross(y, z);
+        var facing = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(new Matrix4x4(
+            x.X, x.Y, x.Z, 0,
+            y.X, y.Y, y.Z, 0,
+            z.X, z.Y, z.Z, 0,
+            0, 0, 0, 1)));
+        return t >= 1 ? facing : Quaternion.Slerp(basis, facing, t);
+    }
+
+    /// <summary>Длина проекции вертикали на площадку (sin угла луча с вертикалью), ниже которой площадка переходит к площадке камеры.</summary>
+    public const float VerticalFade = 0.1f;
 }

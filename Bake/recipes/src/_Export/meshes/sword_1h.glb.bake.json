@@ -1,0 +1,10 @@
+{
+  "converter": "weapon",
+  "import": "1hm_sword",
+  "notes": "Меч пака (glb — tools/ue/export_meshes.py). Хват 9 см от навершия — как у сокета пака.",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "name": "sword_1h",
+    "grip": 9
+  }
+}

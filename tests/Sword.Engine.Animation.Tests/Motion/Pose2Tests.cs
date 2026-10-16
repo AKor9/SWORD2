@@ -3,10 +3,7 @@ using Sword.Engine.Animation.Motion;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Плоская система <see cref="Pose2"/>: соглашение осей и порядок умножения — те же, что у матриц
-/// <see cref="ClipLibrary.MotionMatrix"/> (вектор слева), <c>Compose∘Relative</c> — тождество, доля от тождества, заворот угла.
-/// </summary>
+/// <summary><see cref="Pose2"/>: оси и порядок умножения — как у <see cref="ClipLibrary.MotionMatrix"/>, <c>Compose∘Relative</c> — тождество.</summary>
 public sealed class Pose2Tests
 {
     private static readonly Pose2[] Poses =

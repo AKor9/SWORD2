@@ -6,9 +6,8 @@ using Sword.Engine.Platform.Win32;
 namespace Sword.Engine.Render.Tests;
 
 /// <summary>
-/// Асинхронное чтение хранилища (<see cref="GpuReadback"/>) на настоящем устройстве со слоем отладки и GPU-валидацией: данные кадра N — ровно
-/// то, что записал кадр N, приходят в начале кадра N + <see cref="GpuReadback.Latency"/> без ожидания GPU, по порядку кадров, каждый кадр —
-/// один раз; снятое чтение больше не приходит. Любое предупреждение отладочного слоя — провал.
+/// <see cref="GpuReadback"/>: данные кадра N — ровно записанное кадром N, приходят в начале кадра N + <see cref="GpuReadback.Latency"/>
+/// без ожидания GPU, по порядку, один раз; снятое чтение не приходит.
 /// </summary>
 [Collection("gpu")]
 [Trait("Category", "Gpu")]

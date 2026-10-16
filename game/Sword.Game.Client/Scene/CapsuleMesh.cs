@@ -11,13 +11,10 @@ public struct CapsuleVertex
     public float Cap;
 }
 
-/// <summary>Единичная капсула (перенос <c>SceneRenderer.BuildCapsule</c> SWORD 2eab13b): колонны, позже сегменты.</summary>
+/// <summary>Единичная капсула: колонны, позже сегменты.</summary>
 public static class CapsuleMesh
 {
-    /// <summary>
-    /// Кольца от нижнего полюса к верхнему. Экваториальных колец два — у нижней и верхней полусфер; между ними
-    /// шейдер растягивает цилиндр.
-    /// </summary>
+    /// <summary>Кольца от нижнего полюса к верхнему; два экваториальных кольца — между ними шейдер растягивает цилиндр.</summary>
     public static void Build(List<CapsuleVertex> verts, List<uint> idx, int around = 16, int ringsPerHemi = 5)
     {
         uint baseIndex = (uint)verts.Count;

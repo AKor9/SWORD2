@@ -2,10 +2,7 @@ using Sword.Game.App;
 
 namespace Sword.Game.Tests;
 
-/// <summary>
-/// Фокус окна Sword.exe: переменная <c>SWORD_NO_ACTIVATE</c> (её задают настройки Claude Code проекта — агентские запуски
-/// без фокуса) задаёт умолчание, ключи <c>--activate</c> / <c>--no-activate</c> главнее, последний из них действует.
-/// </summary>
+/// <summary>Фокус окна: <c>SWORD_NO_ACTIVATE</c> задаёт умолчание, ключи <c>--activate</c> / <c>--no-activate</c> главнее, действует последний.</summary>
 public class AppOptionsTests
 {
     [Theory]

@@ -3,9 +3,8 @@ using Sword.Engine.Ecs;
 namespace Sword.Game.Contracts;
 
 /// <summary>
-/// Стадии тика игры (раздел 7 плана) — раскладка <c>DuelArena.Tick</c> SWORD. После каждой стадии — барьер.
-/// Точки расширения для модулей: модуль встаёт в стадию и до или после метки ядра (<see cref="GameLabels"/>). Defense и Dismember —
-/// пустые точки протокола боя: блок (Guard) и расчленение (Cutting) отложены (решения 16, 17).
+/// Стадии тика игры; после каждой — барьер. Модуль встаёт в стадию до или после метки ядра (<see cref="GameLabels"/>).
+/// Defense и Dismember — пустые точки протокола боя: блок (Guard) и расчленение (Cutting) отложены.
 /// </summary>
 public static class GameStages
 {
@@ -27,38 +26,29 @@ public static class GameLabels
     public static readonly SystemLabel PlayerCommand = new("core.player-command");
 
     /// <summary>
-    /// Intent, до <see cref="PlayerCommand"/>, реактивная по <c>ResourceChanged&lt;CombatRules&gt;</c>: ручки «Бой» сменили правила
-    /// боя (команда ручки, система <c>tuning.combat</c> в Begin) — таймеры управления игрока прижимаются к новым пределам
-    /// (перезарядка и неуязвимость рывка не длиннее новых).
+    /// Intent, до <see cref="PlayerCommand"/>, по <c>ResourceChanged&lt;CombatRules&gt;</c>: таймеры управления игрока
+    /// прижимаются к новым пределам ручек «Бой».
     /// </summary>
     public static readonly SystemLabel CombatRules = new("core.combat-rules");
 
-    /// <summary>
-    /// Intent, после <see cref="PlayerCommand"/>: ИИ врагов (<c>EnemyAi.Think</c>) — намерение (<c>FighterCommand</c>) и
-    /// точка взгляда каждого врага по корням до движения тика.
-    /// </summary>
+    /// <summary>Intent, после <see cref="PlayerCommand"/>: ИИ врагов — намерение и точка взгляда по корням до движения тика.</summary>
     public static readonly SystemLabel EnemyAi = new("core.enemy-ai");
 
     /// <summary>
-    /// Begin, после <see cref="PrevTransform"/>: команды арены (<c>ArenaCommand</c>) — спаун и
-    /// удаление врагов, сброс, меч игрока. Новые и построенные заново бойцы появляются на барьере Begin со всеми компонентами
-    /// бойца — Intent того же тика (команда игрока, ИИ врагов) видит арену после команд, как <c>Think</c> SWORD после
-    /// <c>SetEnemyCount</c>/<c>Reset</c>; позу им заводит <see cref="FighterSetup"/>.
+    /// Begin, после <see cref="PrevTransform"/>: команды арены. Новые и построенные заново бойцы появляются на барьере Begin
+    /// со всеми компонентами — Intent того же тика видит арену после команд; позу им заводит <see cref="FighterSetup"/>.
     /// </summary>
     public static readonly SystemLabel ArenaCommand = new("core.arena-command");
 
     /// <summary>Gameplay: новому бойцу (<c>Added&lt;Fighter&gt;</c>) — поза в пуле поз (<c>PoseRef</c>).</summary>
     public static readonly SystemLabel FighterSetup = new("core.fighter-setup");
 
-    /// <summary>
-    /// Gameplay, до <see cref="RootSteer"/>: команды врагу тика (<c>EnemyCommand</c>) — намерение врага вместо ИИ поверх всего,
-    /// что записал Intent (ИИ и команда арены).
-    /// </summary>
+    /// <summary>Gameplay, до <see cref="RootSteer"/>: команды врагу тика — намерение вместо ИИ поверх всего, что записал Intent.</summary>
     public static readonly SystemLabel EnemyCommand = new("core.enemy-command");
 
     /// <summary>
-    /// Gameplay: курс и разгон корня (<c>KinematicSteer</c>) — до аниматора, который видит новую скорость; у врага (не-<c>Agile</c>)
-    /// здесь же начинается поворот на месте клипом.
+    /// Gameplay: курс и разгон корня — до аниматора, который видит новую скорость; у врага здесь же начинается поворот
+    /// на месте клипом.
     /// </summary>
     public static readonly SystemLabel RootSteer = new("core.root-steer");
 
@@ -88,34 +78,32 @@ public static class GameLabels
     public static readonly SystemLabel RootCollision = new("core.root-collision");
 
     /// <summary>
-    /// Gameplay, до <see cref="RootSteer"/>: построенному бойцу (<c>Added&lt;Fighter&gt;</c>) — форма тела и постановка капсул
-    /// без скорости по позе постройки в корне постройки (<c>Fighter.Build</c>, <c>PlaceBuilt</c> SWORD).
+    /// Gameplay, до <see cref="RootSteer"/>: построенному бойцу — форма тела и постановка капсул без скорости по позе
+    /// постройки.
     /// </summary>
     public static readonly SystemLabel BodySetup = new("core.body-setup");
 
     /// <summary>
-    /// PrePhysics: капсулы тела живого бойца — на суставы позы этого тика в корне после Movement (<c>PlaceBodies</c> SWORD),
-    /// скорости — разностью с прошлой постановкой.
+    /// PrePhysics: капсулы тела живого бойца — на суставы позы тика в корне после Movement, скорости — разностью с прошлой
+    /// постановкой.
     /// </summary>
     public static readonly SystemLabel KinematicPlacement = new("core.kinematic-placement");
 
     /// <summary>
-    /// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, после <see cref="BodySetup"/>: построенному бойцу — клинок по позе
-    /// постройки в корне постройки без прошлого (<c>PlaceBuilt</c> SWORD: первая постановка — <c>KinPrevBase = KinBase</c>).
+    /// Gameplay, по <c>Added&lt;Fighter&gt;</c>, после <see cref="BodySetup"/>: построенному бойцу — клинок по позе постройки
+    /// без прошлого (прошлое = нынешнему).
     /// </summary>
     public static readonly SystemLabel BladeSetup = new("core.blade-setup");
 
     /// <summary>
-    /// PrePhysics, после <see cref="KinematicPlacement"/>: клинок бойца — по модельной матрице кисти позы тика в мире бойца
-    /// (<c>anim.Blade</c> в <c>PlaceBodies</c> SWORD), прошлый — клинок прошлого тика (сменился меч — прошлое = нынешнему). Ставит и
-    /// тело клинка (тело 11 сочленения): кинематическая цель тика по кисти; сменился меч — новая форма и постановка без скорости.
+    /// PrePhysics, после <see cref="KinematicPlacement"/>: клинок бойца по кисти позы тика в мире бойца и тело клинка
+    /// (кинематическая цель); сменился меч — прошлое = нынешнему, новая форма без скорости.
     /// </summary>
     public static readonly SystemLabel BladePlacement = new("core.blade-placement");
 
     /// <summary>
-    /// Intent, до <see cref="PlayerCommand"/>: команды сцены тика по порядку (<c>SceneCommand</c>) — расстановка (постройка места
-    /// заново в точке), смерть без удара, сдвиг тел трупа, меч места. Видны с барьера Intent: Gameplay того же тика строит тело и клинок
-    /// поставленному и снимает привязку скина убитому.
+    /// Intent, до <see cref="PlayerCommand"/>: команды сцены тика по порядку (расстановка, смерть без удара, сдвиг тел трупа,
+    /// меч места). Gameplay того же тика строит тело и клинок поставленному и снимает привязку скина убитому.
     /// </summary>
     public static readonly SystemLabel SceneCommand = new("core.scene-command");
 
@@ -126,9 +114,8 @@ public static class GameLabels
     public static readonly SystemLabel SceneIntent = new("core.scene-intent");
 
     /// <summary>
-    /// Gameplay (до <see cref="RootSteer"/>) и Settle, реактивная по <c>Added&lt;Dead&gt;</c>: снимок привязки скина мёртвого
-    /// (<c>ISkinView</c>) по позе и телам момента смерти. В Gameplay — смерти командой сцены (Intent): тела ещё не двинулись; в Settle —
-    /// попадания и кровопотеря этого тика. Переход в труп встаёт после неё в обеих стадиях.
+    /// Gameplay (до <see cref="RootSteer"/>) и Settle, по <c>Added&lt;Dead&gt;</c>: снимок привязки скина мёртвого по позе
+    /// и телам момента смерти (Gameplay — смерти командой сцены, Settle — от ударов и кровопотери). Переход в труп — после неё.
     /// </summary>
     public static readonly SystemLabel SkinCapture = new("core.skin-capture");
 
@@ -143,9 +130,8 @@ public static class GameLabels
 
     /// <summary>
     /// Gameplay (после <see cref="SkinCapture"/>, до <see cref="RootSteer"/>) и Settle (после <see cref="SkinCapture"/>), реактивная
-    /// по <c>Added&lt;Dead&gt;</c>: переход в труп — скорости тел урезаны, суставы привязаны по позе смерти, сустав запястья выключен (меч
-    /// выпадает), все тела — на физике с профилем трупа. В Gameplay — смерти командой сцены (по телам прошлого тика), в Settle — от
-    /// ударов и кровопотери этого тика. Уже перешедших пропускает.
+    /// по <c>Added&lt;Dead&gt;</c>: переход в труп — скорости тел урезаны, суставы привязаны по позе смерти, запястье выключено
+    /// (меч выпадает), все тела на физике с профилем трупа. Уже перешедших пропускает.
     /// </summary>
     public static readonly SystemLabel DeathToRagdoll = new("core.death-to-ragdoll");
 
@@ -162,38 +148,33 @@ public static class GameLabels
     public static readonly SystemLabel BodyRebuild = new("core.body-rebuild");
 
     /// <summary>
-    /// PrePhysics, после <see cref="BladePlacement"/>: чем толкают тела живых в шаге физики — тело клинка бойца в ударе толкает
-    /// проходом, остальные тела — телом (<c>KinSource</c> SWORD); потенциал прохода бьющего — по скорости кончика клинка тика
-    /// (<c>PrepareKinematicContacts</c> SWORD).
+    /// PrePhysics, после <see cref="BladePlacement"/>: чем толкают тела живых в шаге физики — клинок в ударе проходом,
+    /// остальные телом; потенциал прохода — по скорости кончика клинка тика.
     /// </summary>
     public static readonly SystemLabel KinematicSource = new("core.kinematic-source");
 
-    /// <summary>
-    /// React: отдача толчков и ударов по трупам (накоплена физикой за тик) — горизонталью в скорость корня живого бойца
-    /// (<c>ApplyReactions</c> SWORD), затем конец тика проходов (<c>EndTick</c>).
-    /// </summary>
+    /// <summary>React: отдача толчков и ударов по трупам — горизонталью в скорость корня живого бойца, затем конец тика проходов.</summary>
     public static readonly SystemLabel RootRecoil = new("core.root-recoil");
 
     /// <summary>End: позы слоя действий снятого бойца возвращаются в пул поз.</summary>
     public static readonly SystemLabel ActionRelease = new("core.action-release");
 
     /// <summary>
-    /// Combat: проходы клинка (<c>KinematicStrikes</c> SWORD) — клинок бойца в ударе против капсул жертвы — живой или трупа
-    /// (пары игрок ↔ враг), касание — событие <c>StrikeContact</c>; затем пробы удара командой (<c>StrikeProbe</c>) тем же событием.
+    /// Combat: проходы клинка в ударе сквозь капсулы жертвы (пары игрок ↔ враг) — событие <c>StrikeContact</c>; затем пробы
+    /// удара командой (<c>StrikeProbe</c>) тем же событием.
     /// </summary>
     public static readonly SystemLabel StrikeDetection = new("core.strike-detection");
 
     /// <summary>
-    /// Resolve, реактивная по <c>Event&lt;StrikeContact&gt;</c> (<c>ApplyHits</c>, <c>ApplyHit</c> SWORD): урон и раны
-    /// (<c>Health</c>), смерть (<c>Dead</c>), события <c>Hit</c> и <c>SeverRequested</c>; попадания по трупам и импульс удара в
-    /// часть через физику (<c>HitImpulse</c>). Модули защиты (отложены — решение 16) встанут в стадию Defense между Combat и Resolve.
+    /// Resolve, по <c>Event&lt;StrikeContact&gt;</c>: урон и раны, смерть, события <c>Hit</c> и <c>SeverRequested</c>, импульс
+    /// удара в часть через физику. Модули защиты встанут в стадию Defense между Combat и Resolve.
     /// </summary>
     public static readonly SystemLabel HitApply = new("core.hit-apply");
 
     /// <summary>React, реактивная по <c>Event&lt;Hit&gt;</c>: реакция живой жертвы на последнее попадание тика.</summary>
     public static readonly SystemLabel HitReaction = new("core.hit-reaction");
 
-    /// <summary>Aftermath: кровопотеря живых (<c>Fighter.AfterTick</c> SWORD) — очки жизни, кровотечение, смерть.</summary>
+    /// <summary>Aftermath: кровопотеря живых — очки жизни, кровотечение, смерть.</summary>
     public static readonly SystemLabel Bleed = new("core.bleed");
 
     /// <summary>Aftermath, после <see cref="Bleed"/>: возрождение врага через 8 с после смерти — постройка места заново.</summary>

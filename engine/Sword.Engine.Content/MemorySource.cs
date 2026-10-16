@@ -1,9 +1,7 @@
 namespace Sword.Engine.Content;
 
-/// <summary>
-/// Контент в памяти: путь → байты (<c>MemorySource</c> SWORD). Тесты и сгенерированный контент — без диска и пака;
-/// пути и поиск — как у пака (<see cref="ContentPath"/>, без учёта регистра).
-/// </summary>
+/// <summary>Контент в памяти: путь → байты — тесты и сгенерированный контент без диска и пака; пути и поиск — как у пака
+/// (<see cref="ContentPath"/>, без учёта регистра).</summary>
 public sealed class MemorySource(string location = "память") : IContentSource
 {
     private readonly Dictionary<string, byte[]> _files = new(StringComparer.OrdinalIgnoreCase);

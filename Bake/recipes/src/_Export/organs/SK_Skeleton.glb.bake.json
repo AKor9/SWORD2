@@ -1,0 +1,19 @@
+{
+  "converter": "anatomy",
+  "import": "human_organs",
+  "notes": "SK_Skeleton на скелете UE4 Mannequin, LOD3 (~12 тыс. вершин). Экспорт tools/ue/export_organs.py → _Export/organs; bind-поза переносится на риг персонажа обработчиком anatomy.mesh. Секции — по слотам материалов пака.",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "skin": "${src}/_Export/meshes/manny.glb",
+    "materials": [
+      "Ribs",
+      "Spine",
+      "Thigh",
+      "Legs",
+      "Head",
+      "Hands",
+      "Wrist"
+    ],
+    "out": "meshes/characters/anatomy/skeleton.swmesh"
+  }
+}

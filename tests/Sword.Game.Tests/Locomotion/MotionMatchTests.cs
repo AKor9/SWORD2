@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Numerics;
-using System.Text.Json.Nodes;
 using Sword.Engine.Animation;
 using Sword.Engine.Animation.Motion;
 using Sword.Engine.Ecs;
@@ -14,21 +13,42 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Motion Matching игрока в тике (категория Content — клипы GASP есть только в паке; <c>locomotion.player = mm</c>): игрок на MM, враги на
-/// клипах; поиск по расписанию (целое число тиков) и по событиям (скачок цели, конец действия всем телом); предсказание траектории = N тиков
-/// настоящего контроллера ядра (одна правда — <see cref="SteerModel"/>); R, смерть и постройка заново — состояние с нуля, мёртвый не
-/// трогается; ошибка данных — ошибка старта; <c>clips</c> — ничего нового (побитово — <see cref="ReferenceReplaysTests"/>); повтор реплея — те
-/// же хеши; 0 Б в тике, пул не растёт на переходах; первый тик — поза постройки; сценарий «бег по кругу 8 направлений» — числа в вывод.
+/// Motion Matching игрока в тике (категория Content, <c>locomotion.player = mm</c>): поиск по расписанию и по событиям,
+/// предсказание = N тиков настоящего контроллера (<see cref="SteerModel"/>), сброс состояния, ошибка данных — ошибка старта,
+/// <c>clips</c> — ничего нового, реплей — те же хеши, 0 Б в тике, первый тик — поза постройки.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class MotionMatchTests(ITestOutputHelper output)
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    private static Animation.CharacterAssets Assets => FeatureManifestsTests.Reference.Value.Assets;
+    private static Animation.CharacterAssets Assets => TestContent.Reference.Value.Assets;
 
-    private static Simulation Create(params string[] sets) =>
-        SwordSimulation.Create(ConfigSet.Empty(["locomotion.player=mm", .. sets]), Assets);
+    private static Simulation Create(params string[] sets)
+    {
+        var probe = new Probe();
+        var sim = Simulation.Build(ConfigSet.Empty(["locomotion.player=mm", .. sets]), GameStages.All, b => GameCore.Configure(b, Assets),
+            [.. SwordSimulation.Modules(), probe], SwordSimulation.ClientModuleIds);
+        Probes.Add(sim, probe);
+        return sim;
+    }
+
+    /// <summary>Ресурсы-классы мира (пул поз, хранилище MM): наблюдателю симуляции не видны — берёт модуль-зонд при сборке мира.</summary>
+    private sealed class Probe : IModule
+    {
+        public PosePool? Pool;
+        public MotionMatchRuntime? Runtime;
+
+        public string Id => "mm_probe";
+
+        public void Configure(SimulationBuilder b) => b.OnWorldBuilt(w =>
+        {
+            Pool = w.Resource<PosePool>();
+            Runtime = w.Resource<MotionMatchRuntime>();
+        });
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Simulation, Probe> Probes = [];
 
     private static GaspMotionBase Base => GaspMotionBase.For(Assets.Clips);
 
@@ -203,10 +223,9 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Одна правда предсказания: модель контроллера тика (<see cref="SteerModel"/>, пишет <c>core.root-steer</c>) — это шаг настоящего
-    /// контроллера. При постоянном намерении (команда сцены: скорость и курс-цель) предсказание модели движка на N тиков от состояния после
-    /// тика — побитово корень, курс и скорость после N настоящих тиков <c>core.root-steer</c> + <c>core.root-control</c>; в моменты будущего
-    /// запроса (1/3, 2/3, 1 с) — тоже. Рывок, сдвиг клипом действия, столкновения и отдача — вне модели (здесь их нет).
+    /// Предсказание модели (<see cref="SteerModel"/>) на N тиков при постоянном намерении — побитово корень, курс и скорость после
+    /// N настоящих тиков <c>core.root-steer</c> + <c>core.root-control</c>, в том числе в моменты запроса. Рывок, клип действия,
+    /// столкновения и отдача — вне модели.
     /// </summary>
     [Fact]
     public void Prediction_EqualsRealController_NTicks()
@@ -279,9 +298,8 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// R, смерть командой сцены и постройка заново (<c>Added&lt;Fighter&gt;</c> на той же сущности) — состояние MM с нуля: проигрыватель
-    /// заново (тот же слот, поколение +1, кадр позы постройки, переходов 0), история корня — одна запись тика постройки, счётчики поиска с
-    /// нуля. Мёртвый не трогается: состояние, проигрыватель и история (участник <c>locomotion</c>) стоят.
+    /// R, смерть и постройка заново (<c>Added&lt;Fighter&gt;</c> на той же сущности) — состояние MM с нуля: проигрыватель в том же слоте
+    /// с поколением +1, история — одна запись, счётчики с нуля. Мёртвый не трогается.
     /// </summary>
     [Fact]
     public void ResetDeathRebuild_RestartState_DeadUntouched()
@@ -338,12 +356,10 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>Записей истории корня проигрывателя — из описания участника <c>locomotion</c> (как видит агент: <c>state.describe</c>).</summary>
-    private static int History(Simulation sim, MotionPlayerHandle player)
-    {
-        var d = JsonNode.Parse(sim.DescribeState("locomotion", new DescribeQuery($"{player.Index}v{player.Generation}:—", Take: 5)))!;
-        return d["items"]![0]!["history"]!.AsArray().Count;
-    }
+    /// <summary>Записей истории корня проигрывателя (хранилище MM — участник <c>locomotion</c>).</summary>
+    private static int History(Simulation sim, MotionPlayerHandle player) => Probes.TryGetValue(sim, out var p)
+        ? p.Runtime!.HistoryAt(player.Index)?.Count ?? 0
+        : throw new InvalidOperationException("симуляция не из Create");
 
     [Fact]
     public void DataError_IsStartError()
@@ -375,7 +391,8 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
     [Fact]
     public void Replay_WithMotionMatching_SameHashes()
     {
-        var a = Create("arena.enemies=2", "combat.enemiesAttack=false");
+        // Без зонда: модули симуляции пишутся в конфиг реплея.
+        var a = SwordSimulation.Create(ConfigSet.Empty("locomotion.player=mm", "arena.enemies=2", "combat.enemiesAttack=false"), Assets);
         var recorder = a.Record(new ReplayInfo("test", "tests", "reference"));
         for (int t = 0; t < 900; t++)
         {
@@ -399,10 +416,7 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
         Clean(a);
     }
 
-    /// <summary>
-    /// 0 Б в тике с MM после прогрева (поиски, переходы по поиску и по рёбрам графа, инерциализация): бег по кругу 8 направлений; пул поз и
-    /// хранилище проигрывателей не растут на переходах (ёмкость и запас те же).
-    /// </summary>
+    /// <summary>0 Б в тике с MM после прогрева на беге по кругу; пул поз и хранилище проигрывателей не растут.</summary>
     [Fact]
     public void SteadyTicks_DoNotAllocate_PoolDoesNotGrow()
     {
@@ -428,17 +442,18 @@ public sealed class MotionMatchTests(ITestOutputHelper output)
         Clean(sim);
     }
 
-    /// <summary>Ёмкость и запас участника (<c>state.describe</c>, сводка): у пула поз — capacity, reserved, jobsReserved; у проигрывателей — capacity, reserved.</summary>
+    /// <summary>Ёмкость и запас: у пула поз (<c>animation</c>) — ёмкость, запас слотов и очереди; у проигрывателей (<c>locomotion</c>) — ёмкость, запас.</summary>
     private static string Summary(Simulation sim, string part)
     {
-        var d = JsonNode.Parse(sim.DescribeState(part, new DescribeQuery("-", Take: 0)))!;
-        return $"{d["capacity"]} {d["reserved"]} {d["jobsReserved"]}";
+        var p = Probes.TryGetValue(sim, out var probe) ? probe : throw new InvalidOperationException("симуляция не из Create");
+        return part == "animation"
+            ? $"{p.Pool!.Capacity} {p.Pool.Reserved} {p.Pool.JobsReserved}"
+            : $"{p.Runtime!.Players.Capacity} {p.Runtime.Players.Reserved}";
     }
 
     /// <summary>
-    /// Сценарий «бег по кругу 8 направлений» (0,5 с на направление, взгляд вперёд, 3 круга): переходов и смен в секунду, доля тиков с
-    /// поиском — в вывод. Грубые рамки: поиск — в 8–12 % тиков (период 12 тиков и события), переходов — меньше 10 в
-    /// секунду.
+    /// Бег по кругу 8 направлений, 3 круга: переходы и смены в секунду, доля тиков с поиском — в вывод. Рамки: поиск — в 8–12 %
+    /// тиков, переходов — меньше 10 в секунду.
     /// </summary>
     [Fact]
     public void Circle8_TransitionsPerSecond()

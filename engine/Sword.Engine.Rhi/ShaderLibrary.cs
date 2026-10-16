@@ -7,35 +7,23 @@ namespace Sword.Engine.Rhi;
 public sealed record ShaderKey(string File, string Entry, DxcShaderStage Stage, string? Defines = null);
 
 /// <summary>
-/// Компиляция HLSL в DXIL в рантайме плюс горячая перезагрузка.
-///
-/// Директивы <c>#include</c> раскрываются текстуально своими силами, а не через
-/// <c>IDxcIncludeHandler</c>. Это не упрощение, а требование: перекомпилировать
-/// шейдер надо при изменении любого из его заголовков, а значит список файлов,
-/// от которых он зависит, всё равно нужно знать. Раскрывая включения самому,
-/// получаешь этот список бесплатно и точным.
+/// Компиляция HLSL в DXIL в рантайме и горячая перезагрузка. <c>#include</c> раскрывается своими силами, а не через
+/// <c>IDxcIncludeHandler</c>: так точный список зависимостей шейдера для перезагрузки достаётся бесплатно.
 /// </summary>
 public sealed class ShaderLibrary
 {
     private readonly string _root;
     private readonly Dictionary<ShaderKey, CompiledShader> _cache = [];
 
-    /// <summary>
-    /// Преамбула контракта: <c>#define</c> для всех чисел, объявленных в C#
-    /// и обязанных быть теми же в шейдере. Подклеивается к каждому шейдеру
-    /// перед компиляцией (собирает <c>ShaderContract</c> в Render).
-    /// </summary>
+    /// <summary>Преамбула контракта (<c>#define</c> чисел из C#), подклеивается к каждому шейдеру; собирает <c>ShaderContract</c>.</summary>
     private readonly string _preamble;
 
     /// <summary>Имена из преамбулы. Объявлять их в HLSL запрещено.</summary>
     private readonly HashSet<string> _contractNames;
 
     /// <summary>
-    /// Строгий IEEE обязателен для шейдеров симуляции: без него DXC волен свернуть
-    /// умножение со сложением в FMA, а это другое округление и другой результат.
-    /// Промежуточная арифметика в стероидах steering идёт во float, состояние
-    /// округляется обратно в Q22.10 каждый тик, и повторяемость держится именно
-    /// на том, что операции не переставляются между сборками.
+    /// Строгий IEEE для шейдеров симуляции: без него DXC волен свернуть умножение со сложением в FMA — другое
+    /// округление, и повторяемость между сборками теряется.
     /// </summary>
     private static readonly DxcCompilerOptions SimOptions = new()
     {
@@ -56,21 +44,6 @@ public sealed class ShaderLibrary
         AllResourcesBound = true,
     };
 
-    /// <summary>
-    /// Компилирует шейдер, заданный строкой прямо в коде. Нужен для того, что
-    /// не является частью игры и не подлежит правке на ходу, — сейчас это только
-    /// бэкенд интерфейса, чей шейдер зафиксирован форматом вершин Dear ImGui.
-    /// </summary>
-    public static ReadOnlyMemory<byte> CompileInline(string source, string entry, DxcShaderStage stage, string name)
-    {
-        using var result = DxcCompiler.Compile(stage, source, entry, RenderOptions, name);
-
-        if (result.GetStatus().Failure)
-            throw new InvalidOperationException($"Ошибка компиляции {name}:{entry}\n{result.GetErrors()}");
-
-        return result.GetObjectBytecodeMemory();
-    }
-
     /// <param name="preamble">Текст преамбулы контракта (<c>#define</c>), подклеивается к каждому шейдеру.</param>
     /// <param name="contractNames">Имена из преамбулы: объявлять их в HLSL запрещено.</param>
     public ShaderLibrary(string shaderRoot, string preamble = "", IReadOnlyCollection<string>? contractNames = null)
@@ -86,8 +59,6 @@ public sealed class ShaderLibrary
     public sealed class CompiledShader
     {
         public required ReadOnlyMemory<byte> Bytecode { get; init; }
-        public required IReadOnlyList<string> Dependencies { get; init; }
-        public required DateTime CompiledAt { get; init; }
     }
 
     public CompiledShader Get(ShaderKey key, bool simulation)
@@ -98,43 +69,15 @@ public sealed class ShaderLibrary
         return compiled;
     }
 
-    /// <summary>Возвращает ключи шейдеров, чьи исходники изменились с момента компиляции.</summary>
-    public List<ShaderKey> FindStale()
-    {
-        var stale = new List<ShaderKey>();
-        foreach (var (key, shader) in _cache)
-        {
-            foreach (var dep in shader.Dependencies)
-            {
-                if (!File.Exists(dep) || File.GetLastWriteTimeUtc(dep) > shader.CompiledAt)
-                {
-                    stale.Add(key);
-                    break;
-                }
-            }
-        }
-        return stale;
-    }
-
-    public void Invalidate(ShaderKey key) => _cache.Remove(key);
-
     private CompiledShader Compile(ShaderKey key, bool simulation)
     {
-        // Метка снимается ДО чтения исходников. Снятая после компиляции она
-        // была моложе файла, сохранённого во время самой компиляции (по F5
-        // это сотни миллисекунд на десятки конвейеров), и такая правка
-        // не считалась изменившейся до следующего сохранения.
-        DateTime compiledAt = DateTime.UtcNow;
-
         string path = Path.Combine(_root, key.File);
         var dependencies = new List<string>();
         string body = ExpandIncludes(path, dependencies, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
         CheckContractNotRedefined(key, body);
 
-        // Тело начинается с собственной «#line 1 "файл"» (см. ExpandIncludes),
-        // и она же гасит сдвиг, который вносит преамбула: без неё DXC считал
-        // бы строки от начала преамбулы.
+        // Тело начинается с «#line 1 "файл"» (см. ExpandIncludes) — она гасит сдвиг строк от преамбулы.
         string source = _preamble + body;
 
         int b0 = CountB0Declarations(source);
@@ -170,22 +113,12 @@ public sealed class ShaderLibrary
         return new CompiledShader
         {
             Bytecode = result.GetObjectBytecodeMemory(),
-            Dependencies = dependencies,
-            CompiledAt = compiledAt,
         };
     }
 
     /// <summary>
-    /// Ловит попытку объявить в HLSL имя, которое уже пришло из контракта.
-    ///
-    /// Это и есть то, чем единственность объявления держится. Пары «число
-    /// в C# и то же число в заголовке» связывались комментарием «обязано
-    /// совпадать» и расходились молча — комментарий не компилируется.
-    /// Теперь вторая половина пары не просто не нужна: её появление
-    /// останавливает сборку с указанием, где живёт первая.
-    ///
-    /// Проверка идёт по РАСКРЫТОМУ тексту, поэтому находит объявление в любом
-    /// из включённых заголовков, а не только в самом шейдере.
+    /// Ловит объявление в HLSL имени, которое уже пришло из контракта: вторая половина пары «C# — заголовок»
+    /// останавливает сборку. Проверка — по раскрытому тексту, то есть по всем включённым заголовкам.
     /// </summary>
     private void CheckContractNotRedefined(ShaderKey key, string expanded)
     {
@@ -212,20 +145,9 @@ public sealed class ShaderLibrary
     }
 
     /// <summary>
-    /// Сколько раз шейдер объявляет <c>register(b0)</c>.
-    ///
-    /// Регистр <c>b0</c> занимает корневой CBV — голый адрес без типа, куда
-    /// каждая сцена кладёт свою структуру. Два объявления в одном шейдере
-    /// означают включённый чужой <c>common.hlsli</c>: компилятор возьмёт первое
-    /// и не скажет ни слова, слой отладки тоже, а шейдер будет читать свои
-    /// константы как чужие.
-    ///
-    /// Комментарии отбрасываются, и это не педантизм: первая же версия проверки
-    /// споткнулась о собственное объяснение — фраза «считает объявления
-    /// register(b0)» в шапке заголовка системы засчиталась за объявление.
-    /// Проверка, которую ловит прозаический текст, ловит не то, что ищет.
-    /// Отбрасываются ОБА вида, и блочные тоже: построчный разбор видел
-    /// только «//», и та же фраза в «/* … */» считалась бы снова.
+    /// Сколько раз шейдер объявляет <c>register(b0)</c> (корневой CBV). Два объявления — включён чужой
+    /// <c>common.hlsli</c>, а компилятор и слой отладки молчат. Комментарии обоих видов отбрасываются, иначе
+    /// упоминание register(b0) в тексте засчиталось бы за объявление.
     /// </summary>
     private static int CountB0Declarations(string source)
     {
@@ -257,14 +179,8 @@ public sealed class ShaderLibrary
     }
 
     /// <summary>
-    /// Рекурсивно вклеивает <c>#include "..."</c>. Повторное включение одного файла
-    /// пропускается, поэтому защита от двойного включения в самих .hlsli не нужна.
-    ///
-    /// Каждый файл открывается директивой <c>#line 1 "имя"</c>, а после
-    /// включения ставится <c>#line N "имя"</c> обратно на следующую строку
-    /// включающего. Без этого ошибка внутри заголовка называла главный файл
-    /// и номер строки в СКЛЕЕННОМ тексте — искать её приходилось глазами.
-    /// Раз раскрытие своё, точные координаты достаются бесплатно.
+    /// Рекурсивно вклеивает <c>#include "..."</c>; повторное включение файла пропускается. Каждый файл открывается
+    /// <c>#line 1 "имя"</c>, после включения — <c>#line N "имя"</c>, чтобы ошибки указывали на настоящий файл и строку.
     /// </summary>
     private string ExpandIncludes(string path, List<string> dependencies, HashSet<string> visited)
     {

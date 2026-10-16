@@ -36,6 +36,12 @@ public sealed record FlameParams
     /// <summary>Синусная маска краёв площадки sin(πu)·sin(πv) (<c>EdgeMask</c> 1).</summary>
     public bool EdgeMask { get; init; } = true;
 
+    /// <summary>
+    /// Срез хвоста: альфа × saturate(k/это) — слабый хвост поля (k ≈ 0, вуаль цвета Color2) гаснет, светится только пламя; дым — 3D-газ.
+    /// 0 — выкл. (как <c>MI_Torch4</c>: альфа = ρ во всём поле).
+    /// </summary>
+    public float GlowCut { get; init; } = 0.1f;
+
     /// <summary>Факел LIVE-2 (<c>MI_Torch4</c>).</summary>
     public static FlameParams Torch4 { get; } = new();
 
@@ -78,9 +84,16 @@ public static class FlameMath
     /// <summary>Эмиссия max(Color2 + k·(Color1 − Color2), 0), k = DensityGain·n^FlowDensityPow·ρ^DensityPower.</summary>
     public static Vector3 Emission(float noise, float density, FlameParams p)
     {
-        float k = p.DensityGain * MathF.Pow(MathF.Max(noise, 0f), p.FlowDensityPow) * MathF.Pow(density, p.DensityPower);
+        float k = K(noise, density, p);
         return Vector3.Max(p.Colour2 + k * (p.Colour1 - p.Colour2), Vector3.Zero);
     }
+
+    /// <summary>k = DensityGain·n^FlowDensityPow·ρ^DensityPower — доля рампы Color2 → Color1.</summary>
+    public static float K(float noise, float density, FlameParams p) =>
+        p.DensityGain * MathF.Pow(MathF.Max(noise, 0f), p.FlowDensityPow) * MathF.Pow(density, p.DensityPower);
+
+    /// <summary>Срез хвоста: saturate(k/GlowCut), при GlowCut = 0 — 1.</summary>
+    public static float Glow(float k, FlameParams p) => p.GlowCut > 0 ? Math.Clamp(k / p.GlowCut, 0f, 1f) : 1f;
 
     /// <summary>Альфа saturate(ρ·sin(πu)·sin(πv)·fade): fade — мягкий край по глубине (0…1).</summary>
     public static float Alpha(float density, Vector2 uv, float fade, FlameParams p)
@@ -100,7 +113,7 @@ public static class FlameMath
         float rho = Density(field.Z);
         float n = noiseA + (noiseB - noiseA) * MathF.Abs(2 * phase - 1);
         var colour = Emission(n, rho, p) * (1 - fog) + fogColour * fog;
-        float alpha = Alpha(rho, uv, fade, p);
+        float alpha = Alpha(rho, uv, fade, p) * Glow(K(n, rho, p), p);
         return new Vector4(colour * alpha, alpha);
     }
 
@@ -149,17 +162,18 @@ internal struct FlameConstants
     public float VelocityClamp, FlowTile, DensityGain, NoisePower;
     public float DensityPower, EdgeMask; public Vector2 ViewDepth;
     public uint Field, Noise, NoiseLayer, SceneDepth;
+    public float GlowCut, Pad0, Pad1, Pad2;
 }
 
 /// <summary>
 /// Пламя огня (фаза Transparent, только с HDR): площадка сима — плоскость к камере в показанном центре огня, формула <c>MI_Torch4</c>
 /// (<see cref="FlameParams"/>, CPU-эталон — <see cref="FlameMath"/>) по выходу поля кадра и шуму <c>crumple</c>; смешивание
 /// «премультиплицированная альфа» поверх HDR-сцены, тест глубины сцены без записи, мягкий край по глубине сцены (SRV). Один проход на все
-/// площадки (<see cref="PassName"/>); слой снимка — тот же вклад в Rgba8 (цвет x/(1 + x), альфа). Кадр — 0 Б: массивы и делегат — поля.
+/// площадки (<see cref="PassName"/>); оверлей — тот же вклад в LDR (цвет x/(1 + x), альфа). Кадр — 0 Б: массивы и делегат — поля.
 /// </summary>
 internal sealed class FireFlame
 {
-    public const string ShaderFile = "fire/fire_flame.hlsl", PassName = "fire.flame", LayerPassName = "overlay.fire.flame";
+    public const string ShaderFile = "fire/fire_flame.hlsl", PassName = "fire.flame";
 
     private const int SlotData = 0, SlotIndex = 1;
 
@@ -229,6 +243,7 @@ internal sealed class FireFlame
                 VelocityClamp = p.VelocityClamp, FlowTile = p.FlowTile, DensityGain = p.DensityGain, NoisePower = p.FlowDensityPow,
                 DensityPower = p.DensityPower, EdgeMask = p.EdgeMask ? 1 : 0, ViewDepth = view.ViewDepth,
                 Field = (uint)g.SrvOf(q.Field), Noise = (uint)_noise, NoiseLayer = (uint)_noiseLayer, SceneDepth = (uint)frame.Scene.DepthSrv,
+                GlowCut = p.GlowCut,
             };
         }
         _count = count;
@@ -239,7 +254,7 @@ internal sealed class FireFlame
 
     /// <summary>
     /// Тот же вклад площадок этого кадра (после <see cref="Add"/>) в LDR-цель <paramref name="target"/>: цвет x/(1 + x), альфа —
-    /// слой снимка (Rgba8, очищен прозрачным) или экран поверх кадра (фаза Debug). Пламени в кадре нет — ничего.
+    /// экран поверх кадра (фаза Debug). Пламени в кадре нет — ничего.
     /// </summary>
     public void AddLayer(RenderFrame frame, RenderTexture target, FramePhase phase, string name, Vector4? clear)
     {

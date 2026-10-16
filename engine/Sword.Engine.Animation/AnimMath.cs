@@ -3,8 +3,8 @@ using System.Numerics;
 namespace Sword.Engine.Animation;
 
 /// <summary>
-/// Общая математика позы и пружин (<c>AnimMath</c> SWORD 2eab13b, без изменений) — одна реализация на игру, пекарню
-/// и тесты: ориентации капсул тела, двухзвенный IK, векторы поворота, критически демпфированные пружины.
+/// Общая математика позы и пружин — одна реализация на игру, пекарню и тесты: ориентации капсул, двухзвенный IK, векторы
+/// поворота, критически демпфированные пружины.
 /// </summary>
 public static class AnimMath
 {
@@ -39,22 +39,6 @@ public static class AnimMath
         return (s + dir * a * cosA + perp * a * sinA, end);
     }
 
-    /// <summary>Кратчайший поворот единичного направления <paramref name="from"/> в <paramref name="to"/>.</summary>
-    public static Quaternion FromTo(Vector3 from, Vector3 to)
-    {
-        from = Vector3.Normalize(from);
-        to = Vector3.Normalize(to);
-        float d = Vector3.Dot(from, to);
-        if (d < -0.9999f)
-        {
-            var axis = Vector3.Cross(from, Vector3.UnitX);
-            if (axis.LengthSquared() < 1e-6f) axis = Vector3.Cross(from, Vector3.UnitZ);
-            return Quaternion.CreateFromAxisAngle(Vector3.Normalize(axis), MathF.PI);
-        }
-        var c = Vector3.Cross(from, to);
-        return Quaternion.Normalize(new Quaternion(c, 1 + d));
-    }
-
     /// <summary>Вектор поворота (мир), переводящий from в to.</summary>
     public static Vector3 RotationVector(Quaternion from, Quaternion to) => ToRotationVector(to * Quaternion.Conjugate(from));
 
@@ -76,15 +60,6 @@ public static class AnimMath
 
     /// <summary>Коэффициент затухания критически демпфированной пружины по полупериоду, 1/с.</summary>
     public static float HalflifeToDamping(float halflife) => 4f * MathF.Log(2f) / (halflife + 1e-5f);
-
-    /// <summary>Точная критически демпфированная пружина к цели (Holden) — устойчива при любом dt.</summary>
-    public static void SpringDamperExact(ref float x, ref float v, float goal, float halflife, float dt)
-    {
-        float y = HalflifeToDamping(halflife) * 0.5f;
-        float j0 = x - goal, j1 = v + j0 * y, e = MathF.Exp(-y * dt);
-        x = e * (j0 + j1 * dt) + goal;
-        v = e * (v - j1 * y * dt);
-    }
 
     /// <summary>Затухание смещения инерциализации к нулю (вектор) — пружина с целью 0.</summary>
     public static void DecaySpring(ref Vector3 x, ref Vector3 v, float halflife, float dt)

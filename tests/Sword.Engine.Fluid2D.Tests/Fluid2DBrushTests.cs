@@ -386,4 +386,23 @@ public sealed class Fluid2DBrushTests(ITestOutputHelper output)
         Assert.True(bytes == 0, $"шаг кисти выделил {bytes / 100} Б");
         Assert.Equal(20 * 4, Marshal.SizeOf<Fluid2DBrushPoint>());
     }
+
+    /// <summary>
+    /// Контраст выхода ≤ 0 (pow(0, 0) на GPU — NaN, pow(0, &lt;0) — Inf) и размер направленного шума ≤ 0 (деление на ноль в масштабе шума)
+    /// отвергаются до создания ресурсов; малые положительные — допустимы.
+    /// </summary>
+    [Theory]
+    [InlineData(0f, 0.5f)]
+    [InlineData(-1f, 0.5f)]
+    [InlineData(float.NaN, 0.5f)]
+    [InlineData(1f, 0f)]
+    [InlineData(1f, -0.5f)]
+    [InlineData(1f, float.PositiveInfinity)]
+    public void Validate_RejectsNonPositiveContrastAndDirNoiseSize(float contrast, float dirNoiseSize)
+    {
+        var p = Torch() with { FluidDensityContrast = contrast, VeloDirNoiseSize = dirNoiseSize };
+        var error = Assert.Throws<ArgumentOutOfRangeException>(p.Validate);
+        Assert.Equal(contrast > 0 ? nameof(Fluid2DParams.VeloDirNoiseSize) : nameof(Fluid2DParams.FluidDensityContrast), error.ParamName);
+        (Torch() with { FluidDensityContrast = 0.01f, VeloDirNoiseSize = 0.001f }).Validate();
+    }
 }

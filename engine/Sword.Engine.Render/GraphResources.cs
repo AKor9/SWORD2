@@ -29,18 +29,13 @@ public enum TextureUsage
 }
 
 /// <summary>
-/// Временная текстура: формат, назначение, размер (0 — размер заднего буфера) и значение очистки. Цель создаётся с этим
-/// значением как оптимальным (D3D12 чистит им быстрее, а любым другим — медленно и с предупреждением отладочного слоя),
-/// поэтому проход чистит цель только им: <see cref="RenderGraph.RenderPassBuilder.Color"/> с другим цветом — ошибка.
-/// Глубина — <see cref="ClearDepth"/> (обратный Z: 0 — дальняя плоскость).
+/// Временная текстура: формат, назначение, размер (0 — заднего буфера) и значение очистки. Цель создаётся с ним как
+/// оптимальным, поэтому проход чистит её только им; глубина — <see cref="ClearDepth"/> (обратный Z).
 /// </summary>
 public readonly record struct TextureDesc(
     TextureFormat Format, TextureUsage Usage, int Width = 0, int Height = 0, Vector4 ClearColor = default, float ClearDepth = 0);
 
-/// <summary>
-/// Ресурс графа: текстура или буфер со своим состоянием D3D12. Состояние живёт между кадрами (у импортированных —
-/// у владельца, у временных — у записи пула), граф ставит переходы от него.
-/// </summary>
+/// <summary>Ресурс графа со своим состоянием D3D12; состояние живёт между кадрами, граф ставит переходы от него.</summary>
 internal sealed class GraphResource(string name, bool isBuffer)
 {
     public string Name = name;
@@ -64,9 +59,8 @@ internal sealed class GraphResource(string name, bool isBuffer)
 }
 
 /// <summary>
-/// Пул временных ресурсов графа: запись пула — ресурс с дескрипторами; в кадре одна запись выдаётся одному запросу
-/// (без алиасинга памяти). Запись, не выданная <see cref="KeepFrames"/> кадров подряд, освобождается отложенно — так
-/// после смены размера окна пул не держит цели прежнего размера.
+/// Пул временных ресурсов графа: в кадре одна запись — одному запросу (без алиасинга). Запись, не выданная
+/// <see cref="KeepFrames"/> кадров подряд, освобождается отложенно — после смены размера окна старые цели уходят.
 /// </summary>
 internal sealed class TransientPool(GraphicsDevice device) : IDisposable
 {
@@ -273,9 +267,8 @@ internal sealed class TransientPool(GraphicsDevice device) : IDisposable
 }
 
 /// <summary>
-/// Буфер-хранилище (<c>RWStructuredBuffer&lt;T&gt;</c>), живущий между кадрами: состояние GPU-симуляции, результаты
-/// вычислительных проходов. В кадр входит через <see cref="RenderGraph.Import(GpuStorage)"/>; содержимое переживает
-/// кадр, поэтому читать его можно и без записи в этом кадре. Создаёт <see cref="Renderer.CreateStorage{T}(string, uint)"/>.
+/// Буфер-хранилище (<c>RWStructuredBuffer&lt;T&gt;</c>) между кадрами: содержимое переживает кадр, читать можно и без записи
+/// в этом кадре. В кадр входит через <see cref="RenderGraph.Import(GpuStorage)"/>.
 /// </summary>
 public sealed class GpuStorage : IDisposable
 {

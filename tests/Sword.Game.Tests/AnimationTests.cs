@@ -1,21 +1,16 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Animation;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
-using Sword.Game.Agent;
 using Sword.Game.Contracts;
 using Sword.Game.Locomotion;
 
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Аниматор бойца и модуль Locomotion на тестовом контенте (<see cref="TestAssets"/>): выбор клипа по движению, поза —
-/// итог клипа, модуль выключен, позы возвращаются в пул, инструменты агента. На настоящем контенте — сценарии манифеста
-/// <c>animation</c> и эталон SWORD2 <c>animation.swreplay</c>.
+/// Аниматор бойца и модуль Locomotion на тестовом контенте: выбор клипа по движению, поза — итог клипа, позы возвращаются в
+/// пул. На настоящем контенте — эталон <c>animation.swreplay</c>.
 /// </summary>
 public sealed class AnimationTests
 {
@@ -90,10 +85,7 @@ public sealed class AnimationTests
         Assert.Equal(1, view.PoseCount);
     }
 
-    /// <summary>
-    /// Список Id модулей игры (<see cref="Bootstrap.SwordSimulation.ModuleIds"/>: секция модуля, которого нет в сборке, пропускается) знает
-    /// каждый модуль сборки: забытая строка у нового модуля уронила бы сборку без него на общем <c>sword.json</c> (шаг <c>without-modules</c>).
-    /// </summary>
+    /// <summary><see cref="Bootstrap.SwordSimulation.ModuleIds"/> знает каждый модуль сборки: иначе сборка без модуля упала бы на общем <c>sword.json</c>.</summary>
     [Fact]
     public void ModuleIds_ListEveryModuleOfTheBuild()
     {
@@ -101,10 +93,7 @@ public sealed class AnimationTests
         Assert.Equal(Bootstrap.SwordSimulation.ModuleIds.Count, Bootstrap.SwordSimulation.ModuleIds.Distinct().Count());
     }
 
-    /// <summary>
-    /// Ассеты анимации общие для всех симуляций (<see cref="Animation.CharacterAssets"/>): у их типов нет открытых путей
-    /// записи — ни изменяемых массивов наружу, ни открытых полей, ни сеттеров.
-    /// </summary>
+    /// <summary>Общие ассеты анимации (<see cref="Animation.CharacterAssets"/>) не дают путей записи: ни массивов наружу, ни полей, ни сеттеров.</summary>
     [Theory]
     [InlineData(typeof(Skeleton))]
     [InlineData(typeof(ClipLibrary))]
@@ -196,65 +185,4 @@ public sealed class AnimationTests
         }
     }
 
-    [Fact]
-    public async Task AgentTools_ShowPoseAndClips()
-    {
-        var sim = TestAssets.Simulation();
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject args)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            await Call("time.step", new JsonObject { ["ticks"] = 3 });
-            var pose = await Call("anim.pose", new JsonObject { ["joints"] = new JsonArray("pelvis", "foot_l") });
-            var pelvis = pose["joints"]![0]!;
-            Assert.Equal("pelvis", pelvis["joint"]!.GetValue<string>());
-            Assert.Equal(0.95, pelvis["model"]![1]!.GetValue<double>(), 3);
-            Assert.Equal(3, pose["pool"]!["poses"]!.GetValue<int>());
-
-            var clips = await Call("anim.clips", new JsonObject { ["filter"] = "runforward" });
-            var run = Assert.Single(clips["clips"]!.AsArray(), c => c!["name"]!.GetValue<string>() == "sword_1h/1HM_RunForward")!;
-            Assert.Equal(TestAssets.RunSpeed, run["rootSpeed"]!.GetValue<double>(), 3);
-            Assert.True(run["loop"]!.GetValue<bool>());
-            Assert.Equal(34, clips["total"]!.GetValue<int>());
-
-            // Страницы: 34 клипа (локомоция, поворот на месте, удары, уколы, уклонения, реакции) по 10 — продолжение у всех, кроме последней.
-            var first = await Call("anim.clips", new JsonObject { ["take"] = 10 });
-            Assert.Equal(10, first["clips"]!.AsArray().Count);
-            Assert.True(first["receipt"]!["truncated"]!.GetValue<bool>());
-            Assert.Equal("skip=10", first["receipt"]!["continuationToken"]!.GetValue<string>());
-            var second = await Call("anim.clips", new JsonObject { ["skip"] = 10, ["take"] = 10 });
-            Assert.Equal(10, second["clips"]!.AsArray().Count);
-            Assert.Equal(10, second["clips"]![0]!["index"]!.GetValue<int>());
-            Assert.Equal("skip=20", second["receipt"]!["continuationToken"]!.GetValue<string>());
-            var last = await Call("anim.clips", new JsonObject { ["skip"] = 30, ["take"] = 10 });
-            Assert.Equal(4, last["clips"]!.AsArray().Count);
-            Assert.False(last["receipt"]!["truncated"]!.GetValue<bool>());
-            Assert.Null(last["receipt"]!["continuationToken"]);
-        }
-        finally
-        {
-            stop.Cancel();
-            loop.Join();
-        }
-    }
 }

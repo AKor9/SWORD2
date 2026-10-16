@@ -6,23 +6,14 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Movement, после <c>core.root-collision</c> и до <c>locomotion.mm-history</c> (<c>locomotion.mm-events</c>): переходы проигрывателя
-/// тика — события <see cref="MotionTransition"/> (журнал ECS: <c>events.history</c>; экспорт клиенту). Пул исполнил задания тика
-/// (<c>core.animation-tick</c>), а вид состояния в компоненте ещё прошлого тика: переходов за тик — счётчик проигрывателя минус счётчик
-/// компонента. Запрошенный поиском (диагностика: тик и кадр запроса) — событие «поиск» (откуда — текущий кадр поиска, куда — кадр входа
-/// найденного, цены поиска, повод), запрошенный поворотом на месте — событие «поворот на месте» (откуда — текущий кадр, куда — первый кадр
-/// клипа поворота); остальные — рёбра графа (порядок в тике — как в задании: ребро при продвижении, затем запрос): откуда
-/// — кадр ребра от кадра прошлого тика вперёд по графу, куда — его вход, цена — кадр входа против признаков кадра ребра с весами поиска.
-/// В режиме причинности (<c>state.why</c>) родитель события — решение «MM: …» с поводом (корень). Мёртвого не касается; 0 Б.
+/// Movement, после <c>core.root-collision</c> и до <c>locomotion.mm-history</c>: переходы проигрывателя тика — события
+/// <see cref="MotionTransition"/>. Пул исполнил задания тика, а вид в компоненте ещё прошлого тика: переходов за тик —
+/// счётчик проигрывателя минус счётчик компонента. Запрос поиска — «поиск», поворота — «поворот на месте», остальные —
+/// рёбра графа (порядок — как в задании). Мёртвого не касается; 0 Б.
 /// </summary>
 public sealed class MotionMatchEventSystem(MotionMatchRuntime runtime) : IContinuousSystem
 {
     public static readonly SystemLabel Label = new("locomotion.mm-events");
-
-    /// <summary>Решения журнала причинности — пояснения (строки-константы: в тике не строятся).</summary>
-    public const string StartNote = "MM: первый поиск после постройки", ScheduleNote = "MM: поиск по расписанию",
-        GoalJumpNote = "MM: поиск — скачок цели скорости", AfterActionNote = "MM: поиск после действия всем телом",
-        EdgeNote = "MM: ребро графа — вход продолжения", TurnNote = "MM: поворот на месте — клип поворота";
 
     private Query _query = null!;
 
@@ -59,23 +50,22 @@ public sealed class MotionMatchEventSystem(MotionMatchRuntime runtime) : IContin
         {
             var (from, to) = Edge(runtime.Database, s.Frame);
             float cost = from >= 0 && to >= 0 ? runtime.Matcher.Cost(runtime.Database.FeatureRow(from), runtime.Weights, to, out _) : -1;
-            Send(ctx, e, MotionTransitionKind.Edge, MotionSearchReason.None, from, to, cost, -1, ++transitions, EdgeNote);
+            Send(ctx, e, MotionTransitionKind.Edge, MotionSearchReason.None, from, to, cost, -1, ++transitions);
         }
         if (turned)
-            Send(ctx, e, MotionTransitionKind.TurnInPlace, MotionSearchReason.None, turnFrom, st.Frame, -1, -1, st.Transitions, TurnNote);
+            Send(ctx, e, MotionTransitionKind.TurnInPlace, MotionSearchReason.None, turnFrom, st.Frame, -1, -1, st.Transitions);
         else if (requested)
         {
             var match = search!.Match;
             Send(ctx, e, MotionTransitionKind.Search, search.Reason, search.Current, st.Frame, match.Cost, match.ContinuationCost,
-                st.Transitions, Note(search.Reason));
+                st.Transitions);
         }
     }
 
     private void Send(in SystemContext ctx, Entity e, MotionTransitionKind kind, MotionSearchReason reason, int from, int to, float cost,
-        float continuation, int transitions, string note)
+        float continuation, int transitions)
     {
         var db = runtime.Database;
-        if (ctx.Causality is not null) ctx.Cause = ctx.Commands.Note(note, e, CauseId.None, to);
         ctx.Commands.Emit(new MotionTransition
         {
             Fighter = e, Kind = kind, Reason = reason, From = from, To = to,
@@ -85,18 +75,9 @@ public sealed class MotionMatchEventSystem(MotionMatchRuntime runtime) : IContin
         });
     }
 
-    private static string Note(MotionSearchReason reason) => reason switch
-    {
-        MotionSearchReason.Start => StartNote,
-        MotionSearchReason.GoalJump => GoalJumpNote,
-        MotionSearchReason.AfterAction => AfterActionNote,
-        _ => ScheduleNote,
-    };
-
     /// <summary>
-    /// Ребро графа, до которого проигрыватель дошёл от кадра <paramref name="frame"/> (прошлый тик): вперёд по <see cref="MotionDatabase.Next"/>
-    /// внутри клипа до первого ребра — следующий кадр в другом клипе (поза стояла на последнем кадре — откуда он) или кадр выхода
-    /// (<see cref="MotionDatabase.Entry"/> ≥ 0 — откуда он сам); куда — вход (цепочка входов — с предохранителем). Не нашлось — (−1, −1).
+    /// Ребро графа, до которого проигрыватель дошёл от кадра <paramref name="frame"/> прошлого тика вперёд по
+    /// <see cref="MotionDatabase.Next"/>; куда — вход (цепочка входов — с предохранителем). Не нашлось — (−1, −1).
     /// </summary>
     public static (int From, int To) Edge(MotionDatabase db, int frame)
     {

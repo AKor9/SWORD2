@@ -9,11 +9,9 @@ using Sword.Game.Locomotion.Motion;
 namespace Sword.Game.Locomotion;
 
 /// <summary>
-/// Секция конфига <c>locomotion</c>: уровень детализации походки игрока (<see cref="Player"/>: <c>clips</c> — клипами, как враги;
-/// <c>mm</c> — Motion Matching), отбор клипов базы MM (<see cref="Clips"/>) и ручки «Локомоция» (начальные значения; на ходу — команда
-/// ручки). В коде — <c>clips</c>: мир без <c>sword.json</c> (тесты, сценарии фич, эталоны SWORD2) — клипами; игра (<c>sword.json</c>) — на
-/// <c>mm</c>. Значения по умолчанию ручек — <see cref="GaspMotion"/> (одно место умолчаний; копий констант нет). Секция читается в обоих
-/// режимах (ключи строгие); базу MM строит только <c>mm</c>.
+/// Секция конфига <c>locomotion</c>: походка игрока (<see cref="Player"/>: <c>clips</c> или <c>mm</c>), отбор клипов базы MM
+/// и начальные значения ручек «Локомоция» (умолчания — <see cref="GaspMotion"/>). В коде умолчание — <c>clips</c> (тесты,
+/// эталоны), игра (<c>sword.json</c>) — на <c>mm</c>. Ключи строгие в обоих режимах; базу MM строит только <c>mm</c>.
 /// </summary>
 public sealed record LocomotionSettings
 {
@@ -65,8 +63,8 @@ public sealed record LocomotionSettings
 }
 
 /// <summary>
-/// Ручки «Локомоция»: ресурс мира из секции <c>locomotion</c>, поле — ручка <c>locomotion.&lt;ключ&gt;</c>; изменение на ходу
-/// — команда ручки (<c>TuningCommand</c>, система <c>tuning.locomotion</c> в Begin), в реплее. Есть только при <c>locomotion.player = mm</c>.
+/// Ручки «Локомоция»: ресурс мира из секции <c>locomotion</c>; изменение на ходу — команда ручки (в реплее). Есть только
+/// при <c>locomotion.player = mm</c>.
 /// </summary>
 public struct LocomotionRules
 {
@@ -214,10 +212,9 @@ public static class LocomotionKnobs
 }
 
 /// <summary>
-/// Модуль Locomotion (раздел 10 плана): локомоция клипами (<see cref="LegacyLocomotion"/>) у врагов всегда и у игрока при
-/// <c>locomotion.player = clips</c>; Motion Matching игрока — при <c>mm</c> (<see cref="MotionMatchSystems"/>). Без модуля ходьбы нет
-/// ни у кого: корень движется, поза бойца — поза привязки. <c>clips</c> регистрирует только локомоцию клипами (мир побитово тот же); системы,
-/// компоненты, ручки и участник хеша MM — только при <c>mm</c>.
+/// Модуль Locomotion: локомоция клипами у врагов и у игрока при <c>locomotion.player = clips</c>, Motion Matching игрока
+/// при <c>mm</c>. Без модуля ходьбы нет: корень движется, поза — поза привязки. <c>clips</c> регистрирует только локомоцию
+/// клипами (мир побитово тот же); всё MM — только при <c>mm</c>.
 /// </summary>
 public sealed class LocomotionModule : IModule
 {
@@ -232,8 +229,8 @@ public sealed class LocomotionModule : IModule
             .System(GameStages.Animation, new LegacyLocomotionSystem(player: !mm))
             .System(GameStages.End, new LegacyLocomotionReleaseSystem())
             .Invariant(new LocomotionPosesInvariant())
-            // Поза постройки бойца (FighterAnimator.Reset → Tick(0) SWORD) — начало слоя локомоции: стойка с нулевого момента
-            // (Start). По ней ядро ставит тело при постройке; без модуля — поза привязки. Игрок на MM строится по своей.
+            // Поза постройки бойца — стойка с нулевого момента: по ней ядро ставит тело при постройке; без модуля — поза привязки.
+            // Игрок на MM строится по своей.
             .OnWorldBuilt(w =>
             {
                 var start = LegacyLocomotion.Start(w.Resource<ActionTable>());
@@ -243,8 +240,8 @@ public sealed class LocomotionModule : IModule
     }
 
     /// <summary>
-    /// Motion Matching игрока: база на процесс и хранилище проигрывателей при сборке мира (ошибка данных — ошибка старта, без отката на
-    /// клипы — решение 9), компонент состояния, системы, ручки, участник хеша <c>locomotion</c>, инвариант <c>locomotion.mm</c>.
+    /// Motion Matching игрока: база и хранилище проигрывателей при сборке мира (ошибка данных — ошибка старта, без отката
+    /// на клипы), компонент, системы, ручки, участник хеша <c>locomotion</c>, инвариант <c>locomotion.mm</c>.
     /// </summary>
     private static void ConfigureMotionMatching(SimulationBuilder b, LocomotionSettings settings)
     {

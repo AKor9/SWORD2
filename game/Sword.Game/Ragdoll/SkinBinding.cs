@@ -10,13 +10,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Привязки скина мёртвых бойцов (<c>CaptureSkin</c>, <c>JointRel</c> SWORD 2eab13b — идея): данные симуляции вне ECS (по матрице
-/// на сустав — не компонент), по слоту сочленения тела бойца. Привязка сустава <c>j</c> — его мировая матрица по позе смерти в мире
-/// бойца, умноженная на обратную систему тела его сегмента в момент смерти: <c>binding[j] = модельная[j] · мир бойца · (тело)⁻¹</c>,
-/// поэтому <c>binding[j] · тело</c> — сустав, куда бы тело ни ушло (труп на физике, скин трупа). Запись — поколение
-/// сочленения, владелец (сущность) и время смерти; снимается один раз на смерть (<see cref="Has"/>), сбрасывается, когда метку смерти
-/// сняли (<see cref="Release"/>). Память — на слоты сочленений при сборке (33 бойца); рост — только при росте слотов физики. Снимок
-/// не выделяет памяти. Состояние хеширует участник <c>skin</c> (<see cref="SkinState"/>).
+/// Привязки скина мёртвых бойцов — данные симуляции вне ECS по слоту сочленения: <c>binding[j] = модельная[j] · мир бойца ·
+/// (тело сегмента)⁻¹</c> в момент смерти, поэтому <c>binding[j] · тело</c> — сустав, куда бы тело ни ушло. Снимается один раз на
+/// смерть, сбрасывается со снятием метки; снимок памяти не выделяет. Хеширует участник <c>skin</c>.
 /// </summary>
 public sealed class SkinBindings
 {
@@ -59,9 +55,8 @@ public sealed class SkinBindings
         && _time[body.Index].Equals(time);
 
     /// <summary>
-    /// Снимок привязки (тик смерти): тела сочленения <paramref name="body"/> (все <see cref="BodySegs.Bodies"/>) и модельные матрицы
-    /// позы <paramref name="model"/> в мире бойца <paramref name="fighterWorld"/> (<see cref="BodyPlacement.World"/>). Прежняя привязка
-    /// слота заменяется.
+    /// Снимок привязки (тик смерти) по телам <paramref name="body"/> и позе <paramref name="model"/> в мире бойца
+    /// <paramref name="fighterWorld"/>. Прежняя привязка слота заменяется.
     /// </summary>
     public void Capture(IPhysicsWorld physics, Entity owner, ArticulationHandle body, ReadOnlySpan<Matrix4x4> model, in Matrix4x4 fighterWorld,
         float time)
@@ -125,12 +120,9 @@ public sealed class SkinView(SkinBindings skins) : ISkinView
 }
 
 /// <summary>
-/// Gameplay и Settle (<see cref="GameLabels.SkinCapture"/>), реактивная по <c>Added&lt;Dead&gt;</c>: снимок привязки скина мёртвого
-/// бойца (<see cref="SkinBindings.Capture"/>) по его позе и телам сейчас — момента смерти: мёртвый замирает (поза, корень и тела не
-/// ставятся), поэтому в Gameplay у убитого командой сцены (Intent) — поза и тела прошлого тика, в Settle у убитого попаданием
-/// (Resolve) или кровопотерей (Aftermath) — этого тика. Каждая смерть снимается один раз (<see cref="SkinBindings.Has"/>: регистрация
-/// в Gameplay видит и смерти прошлого тика — их уже сняла регистрация в Settle). Уже ожившие, без живой позы или тела — пропускаются
-/// (их ловят <c>ragdoll.skin</c>, <c>animation.*</c>, <c>physics.bodyRefs</c>). Памяти не выделяет.
+/// Gameplay и Settle, реактивная по <c>Added&lt;Dead&gt;</c>: снимок привязки скина мёртвого (<see cref="SkinBindings.Capture"/>) по
+/// позе и телам момента смерти (мёртвый замирает). Каждая смерть снимается один раз (<see cref="SkinBindings.Has"/>); ожившие, без
+/// позы или тела — пропускаются. Памяти не выделяет.
 /// </summary>
 public sealed class SkinCaptureSystem(IPhysicsWorld physics, SkinBindings skins, bool gameplay) : IReactiveSystem<Added<Dead>>
 {
@@ -161,9 +153,8 @@ public sealed class SkinCaptureSystem(IPhysicsWorld physics, SkinBindings skins,
 }
 
 /// <summary>
-/// End (<see cref="GameLabels.SkinRelease"/>), реактивная по <c>Removed&lt;Dead&gt;</c>: метку смерти сняла постройка заново
-/// (возрождение, сброс, команда сцены) или боец ушёл вместе с ней — привязка скина сбрасывается. Умер снова в том же тике (ожил в
-/// Intent, убит в Resolve) — привязка уже новая, её не трогать.
+/// End, реактивная по <c>Removed&lt;Dead&gt;</c>: метку смерти сняли — привязка скина сбрасывается; умер снова в том же тике —
+/// привязка уже новая, её не трогать.
 /// </summary>
 public sealed class SkinReleaseSystem(SkinBindings skins) : IReactiveSystem<Removed<Dead>>
 {
@@ -178,9 +169,7 @@ public sealed class SkinReleaseSystem(SkinBindings skins) : IReactiveSystem<Remo
 }
 
 /// <summary>
-/// Участник хеша состояния <c>skin</c>: привязки скина по слотам сочленений — поколение (0 — нет), у снятой — владелец (номер и
-/// поколение сущности), время смерти и матрицы суставов (16 чисел на сустав). Привязка — данные симуляции вне ECS: по ней рисуется
-/// труп, и её можно сверить реплеем. <see cref="Describe"/> — те же поля: часть на привязку (<c>3v1</c> — сочленение), отбор — она.
+/// Участник хеша <c>skin</c>: привязки по слотам сочленений — поколение, владелец, время смерти и матрицы суставов.
 /// </summary>
 public sealed class SkinState(SkinBindings skins) : IStateContributor
 {
@@ -211,62 +200,11 @@ public sealed class SkinState(SkinBindings skins) : IStateContributor
             h.Add(m.M41); h.Add(m.M42); h.Add(m.M43); h.Add(m.M44);
         }
     }
-
-    public void Describe(StateWriter w, in DescribeQuery q)
-    {
-        string? filter = q.Filter is { Length: > 0 } f ? f : null;
-        int captured = 0;
-        for (int i = 0; i < skins.Capacity; i++)
-            if (skins.At(i).Generation != 0) captured++;
-        w.Summary("joints", skins.JointCount);
-        w.Summary("slots", skins.Capacity);
-        w.Summary("captured", captured);
-        int matched = 0;
-        for (int i = 0; i < skins.Capacity; i++)
-        {
-            var (generation, owner, time) = skins.At(i);
-            if (generation == 0) continue;
-            var binding = skins.BindingAt(i);
-            string id = new ArticulationHandle(i, generation).ToString();
-            if (filter is not null && id != filter) continue;
-            int at = matched++;
-            if (at < q.Skip || at >= q.Skip + q.Take) continue;
-            w.BeginItem(id);
-            w.Value("owner", owner.ToString());
-            w.Value("time", time);
-            for (int j = 0; j < binding.Length; j++)
-            {
-                var m = binding[j];
-                w.BeginObject(j.ToString(CultureInfo.InvariantCulture));
-                w.Value("segment", skins.Segment(j));
-                Row(w, "row1", m.M11, m.M12, m.M13, m.M14);
-                Row(w, "row2", m.M21, m.M22, m.M23, m.M24);
-                Row(w, "row3", m.M31, m.M32, m.M33, m.M34);
-                Row(w, "row4", m.M41, m.M42, m.M43, m.M44);
-                w.EndObject();
-            }
-            w.EndItem();
-        }
-        w.Matched = matched;
-    }
-
-    private static void Row(StateWriter w, string name, float x, float y, float z, float t)
-    {
-        w.BeginObject(name);
-        w.Value("x", x);
-        w.Value("y", y);
-        w.Value("z", z);
-        w.Value("w", t);
-        w.EndObject();
-    }
 }
 
 /// <summary>
-/// Инвариант <c>ragdoll.skin</c> (в конце End): у каждого мёртвого бойца с годным телом есть привязка скина его тела (снята в тик
-/// смерти, время — смерти), у живого — нет; привязка без мёртвого владельца — ошибка; матрицы привязок конечны. Ловит пропущенный
-/// снимок (новый путь смерти мимо <c>Added&lt;Dead&gt;</c>), несброшенную привязку ожившего, чужую привязку. Каждый тик: матрицы
-/// после снимка не меняются, поэтому они проверяются один раз на привязку (память — слот, поколение, владелец, время), а каждый тик —
-/// только владельцы: O(слотов) без матриц.
+/// Инвариант <c>ragdoll.skin</c> (в конце End): у мёртвого с годным телом есть привязка (время — смерти), у живого — нет; привязка
+/// без мёртвого владельца — ошибка; матрицы конечны (проверяются один раз на привязку — после снимка не меняются).
 /// </summary>
 public sealed class SkinInvariant(IPhysicsWorld physics, SkinBindings skins) : IInvariant
 {

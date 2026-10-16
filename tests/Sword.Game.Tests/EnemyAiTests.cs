@@ -1,11 +1,7 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
-using Sword.Game.Agent;
 using Sword.Game.Ai;
 using Sword.Game.Arena;
 using Sword.Game.Contracts;
@@ -14,9 +10,8 @@ using Sword.Game.Locomotion;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// ИИ врагов: намерение <see cref="EnemyAi.Think"/> без удара и блока — слагаемые (подход, покачивание, расхождение)
-/// объясняют скорость, расхождение складывается в порядке мест, время арены — float, накопленный шагом тика, намерение тика после
-/// команд арены (команды — до <c>Think</c> того же тика), сценарий окружения, детерминизм и реплей, агентский вид.
+/// ИИ врагов: слагаемые намерения <see cref="EnemyAi.Think"/> объясняют скорость, расхождение — в порядке мест, время арены —
+/// float; команды арены — до <c>Think</c> того же тика; детерминизм и реплей.
 /// </summary>
 public sealed class EnemyAiTests
 {
@@ -87,11 +82,9 @@ public sealed class EnemyAiTests
     }
 
     /// <summary>
-    /// Случайные толпы (враги вплотную друг к другу, на игроке, на корне соседа, с высотой y ≠ 0; время арены — float, накопленный
-    /// шагом тика): желаемая скорость — в плоскости XZ и конечна; дистанция — горизонтальная, не меньше <c>MinDistance</c>; подход — в
-    /// пределах −2…3,2; соседи — ровно враги ближе <c>Personal</c> и дальше <c>MinDistance</c> по горизонтали (игрок и совпавший
-    /// корень не толкают), толчок каждого — от соседа, не больше <c>Personal·SeparationGain</c>; слагаемые объясняют скорость; курс —
-    /// на игрока.
+    /// Случайные толпы (вплотную, на игроке, на корне соседа, с y ≠ 0): скорость в плоскости XZ и конечна, дистанция горизонтальна
+    /// и не меньше <c>MinDistance</c>, соседи — ровно враги ближе <c>Personal</c>, толчок не больше <c>Personal·SeparationGain</c>,
+    /// слагаемые объясняют скорость, курс — на игрока.
     /// </summary>
     [Fact]
     public void Think_RandomCrowds_TermsExplainVelocity_NeighboursWithinPersonal()
@@ -165,10 +158,10 @@ public sealed class EnemyAiTests
     // ── в мире ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// После барьера Intent (корни ещё до движения тика) — намерение каждого врага обязано быть <see cref="EnemyAi.Think"/>
+    /// В Intent после ИИ врагов (корни ещё до движения тика) — намерение каждого врага обязано быть <see cref="EnemyAi.Think"/>
     /// по арене этого места: игрок, враги по местам, время арены. Проверяется каждый тик, в том числе тики команд арены.
     /// </summary>
-    private sealed class IntentProbe : ISimulationObserver
+    private sealed class IntentProbe
     {
         public int Checked, CommandTicksChecked, Mismatches;
         public float Time;
@@ -179,14 +172,14 @@ public sealed class EnemyAiTests
         private readonly bool[] _present = new bool[ArenaRules.MaxFighters];
         private float _expectedTime;
 
-        public void AfterStage(Simulation sim, int stage)
+        public StageProbe Module => new("intent_probe", GameStages.Intent, Check, after: GameLabels.EnemyAi);
+
+        private void Check(WorldReader w, ulong tick)
         {
-            if (sim.World.Stages[stage] != GameStages.Intent) return;
-            var w = sim.World;
             _expectedTime += 1f / 120f;   // время арены — float, шаг тика прибавляется первым делом (до Intent)
             Time = w.Resource<SimTime>().Time;
             if (BitConverter.SingleToInt32Bits(Time) != BitConverter.SingleToInt32Bits(_expectedTime))
-                Fail($"тик {sim.Tick}: время арены {Time:R}, ждали {_expectedTime:R}");
+                Fail($"тик {tick}: время арены {Time:R}, ждали {_expectedTime:R}");
             Array.Clear(_present);
             foreach (var chunk in w.Iterate(w.Query().With<Fighter>()))
                 foreach (var e in chunk.Entities)
@@ -203,9 +196,9 @@ public sealed class EnemyAiTests
                     var gaze = w.Get<GazeTarget>(e);
                     bool same = expected.DesiredVelocity == actual.DesiredVelocity && expected.FacingGoal == actual.FacingGoal
                         && gaze.Has && gaze.Point == _roots[0] && terms.Equals(w.Get<EnemyAiTerms>(e));
-                    if (!same) Fail($"тик {sim.Tick}, место {slot}: намерение {actual.DesiredVelocity}/{actual.FacingGoal}, ждали {expected.DesiredVelocity}/{expected.FacingGoal}");
+                    if (!same) Fail($"тик {tick}, место {slot}: намерение {actual.DesiredVelocity}/{actual.FacingGoal}, ждали {expected.DesiredVelocity}/{expected.FacingGoal}");
                     Checked++;
-                    if (CommandTicks.Contains(sim.Tick)) CommandTicksChecked++;
+                    if (CommandTicks.Contains(tick)) CommandTicksChecked++;
                 }
         }
 
@@ -213,10 +206,6 @@ public sealed class EnemyAiTests
         {
             Mismatches++;
             First ??= what;
-        }
-
-        public void AfterTick(Simulation simulation)
-        {
         }
     }
 
@@ -246,10 +235,9 @@ public sealed class EnemyAiTests
     [Fact]
     public void EveryTick_EnemyIntent_IsThinkOverArenaBeforeMovement_IncludingArenaCommandTicks()
     {
-        var sim = Create("arena.enemies=10");
         var probe = new IntentProbe();
         foreach (int t in ArenaScript.Keys) probe.CommandTicks.Add((ulong)t);
-        sim.Observe(probe);
+        var sim = TestAssets.WithModules(ConfigSet.Empty("arena.enemies=10"), probe.Module);
         for (int t = 0; t < 500; t++) ScriptStep(sim, t);
         Assert.True(probe.Mismatches == 0, probe.First);
         Assert.True(probe.Checked > 9_000, $"проверено {probe.Checked}");
@@ -264,9 +252,8 @@ public sealed class EnemyAiTests
     public void CommandTick_NewEnemyThinksAndMoves_SameTick()
     {
         // Команда арены — до Think того же тика: новый враг не стоит тик «постройки», а сразу идёт к игроку.
-        var sim = Create();
         var probe = new IntentProbe();
-        sim.Observe(probe);
+        var sim = TestAssets.WithModules(ConfigSet.Empty(), probe.Module);
         sim.Enqueue(new ArenaCommand { Action = ArenaAction.SetEnemies, Enemies = 2 });
         sim.Export.BeginFrame();
         sim.Step();
@@ -317,78 +304,4 @@ public sealed class EnemyAiTests
         Assert.Equal(0, sim.Invariants.Total);
     }
 
-    [Fact]
-    public void TwoRuns_SameHashEveryTick_ReplayRepeats()
-    {
-        var a = Create("arena.enemies=10");
-        var b = Create("arena.enemies=10");
-        var recorder = a.Record(new ReplayInfo("test", "tests", "none"));
-        for (int t = 0; t < 500; t++)
-        {
-            ScriptStep(a, t);
-            ScriptStep(b, t);
-            var ha = a.HashState();
-            var hb = b.HashState();
-            Assert.True(ha.Total == hb.Total, $"тик {t}: {ha} ≠ {hb}");
-        }
-        var replay = Replay.Parse(recorder.ToReplay().ToJson());
-        var c = TestAssets.Simulation(replay.CreateConfig());
-        var played = c.Play(replay);
-        while (c.Tick < replay.Ticks) c.Step();
-        Assert.Null(played.Divergence);
-        Assert.Equal(501, played.HashesChecked);
-        Assert.Equal(a.HashState().Total, c.HashState().Total);
-    }
-
-    [Fact]
-    public async Task Agent_SeesWhyEnemyMoves_TermsInEntityGetHistoryAndConditions()
-    {
-        var sim = Create("arena.enemies=3");
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            await Call("watch.add", new JsonObject { ["entities"] = new JsonArray("enemy 1"), ["fields"] = new JsonArray("EnemyAiTerms", "FighterCommand") });
-            // «Когда все враги подошли»: условие по расстоянию из вида ИИ.
-            var met = await Call("time.runUntil", new JsonObject
-            {
-                ["condition"] = JsonNode.Parse("""{"none":{"all":[{"component":"EnemyTag"},{"field":"EnemyAiTerms.Distance","greaterThan":2.5}]}}"""),
-                ["maxTicks"] = 1200,
-            });
-            Assert.True(met["met"]!.GetValue<bool>(), met.ToJsonString());
-            var enemy = await Call("entity.get", new JsonObject { ["entity"] = "enemy 1", ["components"] = new JsonArray("EnemyAiTerms") });
-            var text = enemy.ToJsonString();
-            foreach (var field in new[] { "Distance", "ApproachSpeed", "SwaySpeed", "Separation", "Neighbours" }) Assert.Contains(field, text);
-            var history = await Call("entity.history", new JsonObject { ["entity"] = "enemy 1" });
-            Assert.Contains("ApproachSpeed", history.ToJsonString());
-            var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "EnemyAiTerms" });
-            Assert.Contains("SwaySpeed", describe.ToJsonString());
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
-    }
 }

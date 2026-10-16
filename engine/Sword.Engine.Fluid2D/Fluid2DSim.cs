@@ -143,6 +143,12 @@ public sealed class Fluid2DSim : IDisposable
     /// <summary>Сырые данные статистики последнего шага (<see cref="Fluid2DStats.Bytes"/> байт; <see cref="Fluid2DStats.Parse"/>).</summary>
     public GpuStorage StatsStorage => _stats;
 
+    /// <summary>
+    /// Поле C после Composite последнего шага (<c>StructuredBuffer&lt;uint2&gt;</c>: half vx, vy, ρ, wet; тексель (x, y) — элемент x + N·y, ряд 0 —
+    /// v = 0) — потребителю шага: читать проходом, зарегистрированным после шага; следующий шаг его перезапишет, <see cref="Load"/> меняет хранилище.
+    /// </summary>
+    public GpuStorage Composite => _composite;
+
     /// <summary>Обнулить поля и грид кисти: первым проходом следующего шага или экспорта (<c>fluid.clear</c>, <c>fluid.painter.clear</c>).</summary>
     public void Reset()
     {
@@ -330,7 +336,7 @@ public sealed class Fluid2DSim : IDisposable
         return output;
     }
 
-    // ── вне кадра: тесты и агент ────────────────────────────────────────────────────────────────────────────────
+    // ── вне кадра: тесты и отладка ────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Поля с GPU (ожидание GPU; между кадрами). После <see cref="Reset"/> без шага — нули.</summary>
     public Fluid2DFields ReadFields()
@@ -394,7 +400,7 @@ public sealed class Fluid2DSim : IDisposable
         return Fluid2DStats.Parse(raw);
     }
 
-    /// <summary>Снимок полей C и грида кисти (если был Painter) для агента (ожидание GPU; между кадрами): статистика — по полю на CPU.</summary>
+    /// <summary>Снимок полей C и грида кисти (если был Painter) для отладки (ожидание GPU; между кадрами): статистика — по полю на CPU.</summary>
     public Fluid2DSnapshot Snapshot()
     {
         var fields = ReadFields();

@@ -5,20 +5,12 @@ using Sword.Engine.Animation.Motion;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Поворот на месте игрока на Motion Matching. Курс корня ведёт контроллер ядра (быстро, к взгляду), а ноги стоя идут за своим курсом — курсом
-/// ног <see cref="MotionMatchState.FeetYaw"/>: он поворачивается только вместе с корнем проигрываемого клипа (у стойки — никак), поэтому
-/// опорная стопа в мире стоит. Расхождение δ = wrap(курс корня − курс ног) берёт скручивание позы (<see cref="PosePool.Twist"/> на −δ): ноги и таз
-/// — по курсу ног, корпус доворачивается суставами позвоночника (<see cref="GaspMotion.TwistSpine"/>), грудь, голова, руки и меч — по курсу
-/// корня. Большое расхождение (больше порога) или малое, но курс стоит дольше выдержки, — переход в первый кадр клипа
-/// <c>Stand_Turn_&lt;угол&gt;_&lt;L|R&gt;</c> (угол — ближайший к |δ|, сторона — знак δ: L — поворот к +X, δ &gt; 0); пока корень клипа
-/// поворачивается, курс ног идёт за ним с подгонкой k = δ / остаток поворота клипа (клип доворачивает ноги ровно к курсу корня), а поиск MM его
-/// не перебивает; дальше граф ведёт клип в стойку. Потолок δ — ноги подтягиваются (скользят). Пошёл — δ гаснет к 0 за <c>turnReturn</c>.
-/// Грудь стоя держит курс корня и тогда, когда клип сам уводит её от своего корня (клип поворота — до 23°): скручивание доворачивает её к
-/// курсу груди позы постройки (<see cref="MotionMatchState.Chest"/>, по выходу проигрывателя прошлого тика).
-///
-/// Заводится при сборке мира (<see cref="MotionMatchRuntime.Init"/>): скручивание в пуле поз, клипы поворота базы, остаток поворота корня по
-/// кадрам, курс груди позы постройки. Нет сустава — ошибка старта. Клипов поворота в отборе нет — ноги держит только скручивание и потолок.
-/// Тик — 0 Б.
+/// Поворот на месте игрока на Motion Matching. Курс корня ведёт контроллер ядра, ноги стоя — свой курс
+/// <see cref="MotionMatchState.FeetYaw"/>, который поворачивается только с корнем клипа: опорная стопа в мире стоит.
+/// Расхождение δ = wrap(курс корня − курс ног) берёт скручивание позвоночника (<see cref="PosePool.Twist"/> на −δ). Большое δ
+/// (или малое дольше выдержки) — переход в клип <c>Stand_Turn_&lt;угол&gt;_&lt;L|R&gt;</c> (L — к +X, δ &gt; 0), ноги идут
+/// за ним с подгонкой k = δ / остаток поворота клипа. Потолок δ — ноги скользят; пошёл — δ гаснет за <c>turnReturn</c>.
+/// Грудь стоя держит курс груди позы постройки. Тик — 0 Б.
 /// </summary>
 public sealed class TurnInPlace
 {
@@ -79,9 +71,6 @@ public sealed class TurnInPlace
     /// <summary>Скручивание позы бойца в пуле поз симуляции.</summary>
     public PoseTwist Twist { get; }
 
-    /// <summary>Курс груди позы постройки в модели, рад (+ от +Z к +X).</summary>
-    public float StandChest => _chest;
-
     /// <summary>Курс груди локальной позы в модели, рад: по паре ключиц (<see cref="GaspMotion.ChestLeft"/>, <see cref="GaspMotion.ChestRight"/>).</summary>
     public float ChestYaw(ReadOnlySpan<Quaternion> rot, ReadOnlySpan<Vector3> pos)
     {
@@ -110,10 +99,7 @@ public sealed class TurnInPlace
     /// <summary>Кадр базы — кадр клипа поворота на месте.</summary>
     public bool IsTurnFrame(int frame) => frame >= 0 && _isTurn[_db.ClipOf[frame]];
 
-    /// <summary>
-    /// Остаток поворота корня клипа поворота от кадра <paramref name="frame"/> до его выхода (кадр выхода или конец клипа), рад; не клип
-    /// поворота — 0.
-    /// </summary>
+    /// <summary>Остаток поворота корня клипа поворота от кадра <paramref name="frame"/> до его выхода, рад; не клип поворота — 0.</summary>
     public float Remaining(int frame) => frame >= 0 ? _remaining[frame] : 0;
 
     /// <summary>
@@ -145,10 +131,9 @@ public sealed class TurnInPlace
         && MathF.Abs(Remaining(current)) > GaspMotion.TurnDone;
 
     /// <summary>
-    /// Шаг поворота на месте в тике (до задания проигрывателя): курс ног, расхождение, выдержка, подгонка, выравнивание груди; стоя при большом
-    /// расхождении (или малом после выдержки) — вернёт кадр перехода в клип поворота, иначе −1. <paramref name="clipYaw"/> — поворот корня
-    /// клипа за прошлый шаг проигрывателя, <paramref name="lastFacing"/> — курс корня прошлого тика, <paramref name="current"/> — текущий кадр,
-    /// <paramref name="chestFix"/> — выравнивание груди выхода прошлого шага (<see cref="ChestFix"/>).
+    /// Шаг поворота на месте в тике (до задания проигрывателя); вернёт кадр перехода в клип поворота или −1.
+    /// <paramref name="clipYaw"/> — поворот корня клипа за прошлый шаг, <paramref name="chestFix"/> — выравнивание груди
+    /// выхода прошлого шага (<see cref="ChestFix"/>).
     /// </summary>
     public int Step(ref MotionMatchState s, float facing, float lastFacing, bool standing, int current, float clipYaw, float chestFix,
         in LocomotionRules rules, float dt)

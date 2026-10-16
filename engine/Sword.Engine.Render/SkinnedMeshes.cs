@@ -30,10 +30,7 @@ public struct GpuSkinInstance
     /// <summary>Первая матрица палитры экземпляра и их число (суставов меша).</summary>
     public uint Palette, Joints;
 
-    /// <summary>
-    /// Владелец (код игры, 0 — нет: ID-буфер снимка — <see cref="SkinnedMeshes.IdOf"/>) и флаги — их читают шейдеры игры и
-    /// модулей.
-    /// </summary>
+    /// <summary>Владелец (код игры, 0 — нет) и флаги — их читают шейдеры игры и модулей.</summary>
     public uint Owner, Flags;
 
     public Vector3 Colour;
@@ -44,43 +41,17 @@ public struct GpuSkinInstance
 public readonly record struct MeshPart(int Mesh, string Material);
 
 /// <summary>
-/// Скинированные меши — движковое подмножество <c>Render/SkinnedRenderer.cs</c> SWORD 2eab13b: вершины
-/// и индексы меша — один раз в память GPU; каждый кадр в кольца пишутся палитры (мировые матрицы скиннинга, уже
-/// интерполированные на CPU) и экземпляры; один <c>DrawIndexedInstanced</c> на меш. Меш с секциями разного цвета — по мешу на
-/// секцию (<see cref="LoadMeshSections"/>). Разрезы, материалы секций с текстурами, модули поверхности придут со своими фичами.
-///
-/// Слоты корневых констант и раскладки — <see cref="Contribute"/>; скиннинг в шейдере — common/skin.hlsli.
+/// Скинированные меши: вершины и индексы — один раз в память GPU; каждый кадр в кольца пишутся палитры (мировые
+/// матрицы скиннинга) и экземпляры, один <c>DrawIndexedInstanced</c> на меш. Скиннинг в шейдере — common/skin.hlsli.
 /// </summary>
 public sealed class SkinnedMeshes : IDisposable
 {
-    /// <summary>Матриц палитры и экземпляров на кадр (как в SWORD: 33 бойца с мечами и ~370 частей Manny).</summary>
+    /// <summary>Матриц палитры и экземпляров на кадр.</summary>
     public const uint MaxPalette = 1 << 16, MaxInstances = 512;
 
-    public const int SlotVerts = 13, SlotPalette = 14, SlotInstances = 15, SlotInstanceBase = 16, SlotJointParts = 17;
+    public const int SlotVerts = 13, SlotPalette = 14, SlotInstances = 15, SlotInstanceBase = 16;
 
-    /// <summary>
-    /// ID-буфер снимка (раздел 8 плана, диагностический режим): код пикселя — <c>владелец &lt;&lt; IdPartBits | часть</c>
-    /// (<see cref="IdOf"/>); владелец — <see cref="GpuSkinInstance.Owner"/> экземпляра, часть — по суставу вершины с наибольшим
-    /// весом (<see cref="SetJointParts"/>). 0 — не скинированный меш или экземпляр без владельца.
-    /// </summary>
-    public const int IdPartBits = 8;
-
-    /// <summary>Часть сустава, у которого части нет (меш без таблицы частей).</summary>
-    public const uint NoPart = (1u << IdPartBits) - 1;
-
-    /// <summary>
-    /// Наибольший владелец, который помещается в код ID-буфера (2²⁴ − 1): старшие биты больших при сдвиге теряются, и код
-    /// совпал бы с кодом другого владельца — такому экземпляру владелец не даётся (0).
-    /// </summary>
-    public const uint MaxOwner = (1u << (32 - IdPartBits)) - 1;
-
-    /// <summary>Код пикселя ID-буфера: владелец (1 … <see cref="MaxOwner"/>) и часть (0 … <see cref="NoPart"/>).</summary>
-    public static uint IdOf(uint owner, uint part) => owner == 0 ? 0 : owner << IdPartBits | (part & NoPart);
-
-    /// <summary>Владелец и часть кода пикселя ID-буфера (0 — ничего).</summary>
-    public static (uint Owner, uint Part) SplitId(uint id) => (id >> IdPartBits, id & NoPart);
-
-    private sealed class Mesh(string name, GpuData vertices, GpuIndices indices, int jointCount, Matrix4x4[] inverseBind, GpuData parts) : IDisposable
+    private sealed class Mesh(string name, GpuData vertices, GpuIndices indices, int jointCount, Matrix4x4[] inverseBind) : IDisposable
     {
         public readonly string Name = name;
         public readonly GpuData Vertices = vertices;
@@ -88,15 +59,12 @@ public sealed class SkinnedMeshes : IDisposable
         public readonly int JointCount = jointCount;
         /// <summary>Обратные bind-матрицы суставов (у статического меша — пусто).</summary>
         public readonly Matrix4x4[] InverseBind = inverseBind;
-        /// <summary>Часть на сустав для ID-буфера (<see cref="SetJointParts"/>; по умолчанию — <see cref="NoPart"/>).</summary>
-        public GpuData Parts = parts;
         public readonly List<int> Pending = [];
 
         public void Dispose()
         {
             Vertices.Dispose();
             Indices.Dispose();
-            Parts.Dispose();
         }
     }
 
@@ -127,21 +95,14 @@ public sealed class SkinnedMeshes : IDisposable
         c.AddSlot("R_SKINPAL", SlotPalette, "палитры");
         c.AddSlot("R_SKININST", SlotInstances, "экземпляры");
         c.AddSlot("R_SKINBASE", SlotInstanceBase, "первый экземпляр вызова");
-        c.AddSlot("R_SKINPARTS", SlotJointParts, "часть тела на сустав меша (ID-буфер)");
-        c.Add("SKIN_ID_PART_BITS", IdPartBits, "ID-буфер: код = владелец << бит | часть");
         c.AddSize<SkinVertex>("SKIN_VERTEX_SIZE");
         c.AddSize<GpuMat34>("SKIN_MAT_SIZE");
         c.AddSize<GpuSkinInstance>("SKIN_INSTANCE_SIZE");
     }
 
-    /// <summary>Экземпляров в текущем кадре.</summary>
-    public int InstanceCount => _instanceCount;
-
     /// <summary>
-    /// Меш из контента по пути ассета (.swmesh, например «characters/manny/mesh.swmesh»): прочитать, проверить,
-    /// загрузить в память GPU; вернёт номер для <see cref="Add"/>. Повторная загрузка того же файла — тот же номер, как бы
-    /// ни был записан путь («A\b.swmesh», «a/B.swmesh»).
-    /// Формат файла знает только рендер: вызывающему он не нужен.
+    /// Меш из контента по пути (.swmesh); вернёт номер для <see cref="Add"/>. Повторная загрузка того же файла
+    /// (путь без учёта регистра и разделителей) — тот же номер.
     /// </summary>
     /// <exception cref="ArgumentException">Путь не путь контента.</exception>
     /// <exception cref="FileNotFoundException">Нет пака или ассета.</exception>
@@ -162,10 +123,8 @@ public sealed class SkinnedMeshes : IDisposable
     }
 
     /// <summary>
-    /// Меш из контента по секциям материалов (оружие и реквизит, у которых части разного цвета): по мешу на секцию — вершины
-    /// меша целиком, индексы секции; цвет — у экземпляра каждой части (<see cref="Add"/>, <see cref="AddRigid"/>). Меш без секций —
-    /// одна часть без имени материала. Вершины копируются в каждую часть — для небольших мешей. Повторная загрузка того же файла —
-    /// те же номера.
+    /// Меш по секциям материалов: по мешу на секцию (вершины целиком, индексы секции), цвет — у экземпляра части.
+    /// Меш без секций — одна часть без имени материала. Вершины копируются в каждую часть — для небольших мешей.
     /// </summary>
     /// <exception cref="ArgumentException">Путь не путь контента.</exception>
     /// <exception cref="FileNotFoundException">Нет пака или ассета.</exception>
@@ -200,40 +159,18 @@ public sealed class SkinnedMeshes : IDisposable
         return parts;
     }
 
-    /// <summary>
-    /// Готовый меш в память GPU (сгенерированные и производные меши движка); вернёт номер для <see cref="Add"/>.
-    /// Снаружи меши грузят по пути — <see cref="LoadMesh"/>: формат меша наружу не выходит.
-    /// </summary>
+    /// <summary>Готовый меш в память GPU (сгенерированные меши движка); вернёт номер для <see cref="Add"/>.</summary>
     internal int AddMesh(string name, SkinnedMeshData data)
     {
-        int joints = Math.Max(data.JointCount, 1);
-        var parts = new uint[joints];
-        Array.Fill(parts, NoPart);
         var mesh = new Mesh(name,
             _renderer.CreateData<SkinVertex>(name + ".Vertices", data.Vertices),
             _renderer.CreateIndices(name + ".Indices", data.Indices),
-            joints, data.InverseBind, _renderer.CreateData<uint>(name + ".JointParts", parts));
+            Math.Max(data.JointCount, 1), data.InverseBind);
         _meshes.Add(mesh);
         return _meshes.Count - 1;
     }
 
     public int JointCount(int mesh) => _meshes[mesh].JointCount;
-
-    /// <summary>
-    /// Часть на каждый сустав меша для ID-буфера (у бойца — сегмент тела; 0 … <see cref="NoPart"/>): пиксель скинированного
-    /// меша получает часть сустава своей вершины с наибольшим весом. На старте, не в кадре (загрузка в память GPU).
-    /// </summary>
-    /// <exception cref="ArgumentException">Частей не столько, сколько суставов у меша, или часть больше <see cref="NoPart"/>.</exception>
-    public void SetJointParts(int mesh, ReadOnlySpan<uint> parts)
-    {
-        var m = _meshes[mesh];
-        if (parts.Length != m.JointCount) throw new ArgumentException($"{m.Name}: частей {parts.Length}, суставов {m.JointCount}", nameof(parts));
-        foreach (uint p in parts)
-            if (p > NoPart) throw new ArgumentException($"{m.Name}: часть {p} больше {NoPart}", nameof(parts));
-        var fresh = _renderer.CreateData<uint>(m.Name + ".JointParts", parts);
-        m.Parts.Dispose();   // отложенно: кадры в полёте ещё читают прежнюю таблицу
-        m.Parts = fresh;
-    }
 
     /// <summary>Начало кадра: экземпляры прошлого кадра забыты.</summary>
     public void Begin()
@@ -270,9 +207,8 @@ public sealed class SkinnedMeshes : IDisposable
     }
 
     /// <summary>
-    /// Экземпляр скинированного меша в позе: <paramref name="model"/> — модельные матрицы суставов (вектор слева, порядок
-    /// суставов меша), <paramref name="world"/> — мир экземпляра; палитра — InverseBind·Model·World
-    /// (<c>SkinnedCharacters.AddInstance</c> SWORD). Обратные bind-матрицы знает только рендер. false — места в кадре нет.
+    /// Экземпляр меша в позе: <paramref name="model"/> — модельные матрицы суставов (вектор слева), палитра —
+    /// InverseBind·Model·World. false — места в кадре нет.
     /// </summary>
     /// <exception cref="ArgumentException">Суставов в позе не столько, сколько в меше.</exception>
     public bool AddPosed(int mesh, ReadOnlySpan<Matrix4x4> model, in Matrix4x4 world, Vector3 colour, uint owner = 0, float glow = 0, uint flags = 0)
@@ -288,9 +224,7 @@ public sealed class SkinnedMeshes : IDisposable
     }
 
     /// <summary>
-    /// Экземпляр статического меша (без суставов: оружие, реквизит) — жёсткое вложение: палитра из одной матрицы — мир меша
-    /// (<c>SkinnedCharacters.Submit</c> SWORD 2eab13b: меч — <c>sword[0] = WeaponWorld</c>). Вершины статического меша
-    /// ведёт единственная матрица палитры при любых весах. false — места в кадре нет.
+    /// Экземпляр статического меша (оружие, реквизит): палитра из одной матрицы — мир меша. false — места в кадре нет.
     /// </summary>
     /// <exception cref="ArgumentException">У меша есть суставы: его рисуют позой (<see cref="AddPosed"/>).</exception>
     public bool AddRigid(int mesh, in Matrix4x4 world, Vector3 colour, uint owner = 0, float glow = 0, uint flags = 0)
@@ -320,7 +254,6 @@ public sealed class SkinnedMeshes : IDisposable
             int start = written;
             foreach (int i in m.Pending) gpu[written++] = _cpuInstances[i];
             ctx.SetConstant(SlotVerts, m.Vertices.Srv);
-            ctx.SetConstant(SlotJointParts, m.Parts.Srv);
             ctx.SetConstant(SlotInstanceBase, start);
             ctx.DrawIndexed(m.Indices, (uint)m.Pending.Count);
         }

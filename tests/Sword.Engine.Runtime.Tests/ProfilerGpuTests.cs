@@ -1,32 +1,15 @@
 using System.Diagnostics;
-using System.Text.Json.Nodes;
 using Sword.Engine.Diagnostics;
 
 namespace Sword.Engine.Runtime.Tests;
 
 /// <summary>
-/// GPU-время проходов в профайлере кадра без GPU: рендер пишет времена разобранного кадра зонами вида
-/// <see cref="ProfileZoneKind.Gpu"/> (<see cref="CpuProfiler.RecordGpu"/>) — они вне дерева CPU (своё время кадра, главная
-/// зона и сводка зон CPU их не видят), в отчёте — секция <c>frames.gpu</c> с отставанием, в сводке F2 — свои строки, в файле
-/// аномалии «ожидание GPU» — разбор по проходам; 0 байт на кадр. Время кадров — поддельные часы (<see cref="FakeProfileClock"/>):
-/// суд и разбор аномалии не зависят от нагрузки машины.
+/// GPU-время в профайлере: зоны <see cref="ProfileZoneKind.Gpu"/> (<see cref="CpuProfiler.RecordGpu"/>) вне дерева CPU, в отчёте —
+/// <c>frames.gpu</c> с отставанием, в сводке F2 — свои строки; 0 байт на кадр. Часы — <see cref="FakeProfileClock"/>.
 /// </summary>
-[Collection(RuntimeEventsCollection.Name)]
-public sealed class ProfilerGpuTests : IDisposable
+public sealed class ProfilerGpuTests
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "sword-gpu-profile-tests", Guid.NewGuid().ToString("N")[..8]);
     private readonly FakeProfileClock _clock = new();
-
-    public void Dispose()
-    {
-        try
-        {
-            if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
-    }
 
     private sealed record Zones(int Work, int Wait, int Frame, int A, int B);
 
@@ -119,38 +102,5 @@ public sealed class ProfilerGpuTests : IDisposable
         p.EndFrame(1, false);
         CpuProfiler.Off.RecordGpu(0, 100);
         Assert.Equal(1.5, p.Stats(ProfilePeriod.Frame).Single(s => s.Name == "gpu.a").MaxMs, 3);
-    }
-
-    [Fact]
-    public void GpuWaitAnomaly_GpuSection_ByPasses_OfFrameItWaitedFor()
-    {
-        var p = new CpuProfiler(64, _clock);
-        var anomalies = p.CaptureAnomalies(new AnomalyOptions { Directory = _dir });
-        p.SetEnabled(true);
-        var z = Register(p);
-        for (ulong f = 1; f <= 100; f++) Frame(p, z, f, gpu: true);
-        // Кадр 101 ждёт GPU 8 мс (ожидание внутри зоны ожидания), а разобранный в нём кадр 98 — долгий проход a.
-        Frame(p, z, 101, gpu: true, a: 6.5, wait: 8);
-        for (ulong f = 102; f <= 120; f++) Frame(p, z, f, gpu: true);
-        Assert.True(anomalies.Flush(TimeSpan.FromSeconds(10)));
-
-        var list = anomalies.List();
-        var x = Assert.Single(list);   // других аномалий нет (поддельные часы: и «машины»)
-        Assert.Equal(101ul, x.Number);
-        Assert.Equal(AnomalyClass.GpuWait, x.Class);
-        Assert.True(x.Causes.GpuWaitMs >= 7, $"ожидание GPU в разборе {x.Causes.GpuWaitMs} мс");
-        Assert.Equal(8, x.Causes.GpuWaitMs, 3);
-        Assert.DoesNotContain("gpu.", x.ZoneName);   // GPU-время — не главная зона CPU
-        Assert.Equal(AnomalyFile.Written, x.File);
-        var json = JsonNode.Parse(File.ReadAllText(x.Path!))!.AsObject();
-        Assert.DoesNotContain(json["zones"]!.AsArray(), n => n!["name"]!.GetValue<string>().StartsWith("gpu.", StringComparison.Ordinal));
-        var gpu = json["gpu"]!;
-        Assert.Equal(98ul, gpu["frame"]!.GetValue<ulong>());
-        Assert.Equal(3, gpu["lagFrames"]!.GetValue<int>());
-        Assert.Equal(7.0, gpu["frameMs"]!.GetValue<double>(), 3);
-        Assert.Equal("a", gpu["passes"]![0]!["name"]!.GetValue<string>());   // по лишнему времени — наверху
-        Assert.InRange(gpu["passes"]![0]!["excessMs"]!.GetValue<double>(), 4.9, 5.1);
-        Assert.Equal(98ul, json["header"]!["gpuFrame"]!.GetValue<ulong>());
-        anomalies.Dispose();
     }
 }

@@ -1,10 +1,7 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Animation;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
 using Sword.Game.Bodies;
@@ -15,12 +12,9 @@ using Sword.Game.Ragdoll;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Смерть и рэгдолл — свои тесты свойств (со SWORD не сравниваем): тело клинка (14-е тело, сегмент 11) — капсула
-/// на отрезке меча в руке от хвата до кончика, кинематическая каждый тик, смена меча меняет форму без скорости; массы и инерции всех
-/// тел; команды сцен (расстановка, смерть без удара, сдвиг тел трупа, меч места, намерение игрока) — в реплее с теми же хешами и по
-/// имени через <c>command.send</c>; причина смерти; привязка скина мёртвого: сустав × привязка = поза смерти, пока тела стоят, и идёт
-/// за телами; инвариант <c>ragdoll.skin</c> на неисправностях; <c>physics.bodies</c> — клинок, массы, привязка. Контент — синтетический
-/// (<see cref="TestAssets"/>: мечи sword_1h и katana разной длины).
+/// Смерть и рэгдолл: тело клинка (14-е, сегмент 11) — кинематическая капсула на мече в руке; массы и инерции тел; команды сцен
+/// в реплее с теми же хешами; причина смерти; скин мёртвого = сустав × привязка; инвариант <c>ragdoll.skin</c>. Контент —
+/// синтетический (<see cref="TestAssets"/>: sword_1h и katana разной длины).
 /// </summary>
 public sealed class RagdollSceneTests
 {
@@ -113,10 +107,8 @@ public sealed class RagdollSceneTests
     }
 
     /// <summary>
-    /// Капсула клинка лежит на отрезке меча в руке каждый тик: конец A — хват (начало кисти hand_r позы тика в мире бойца), конец B —
-    /// кончик клинка (<see cref="Blade.Tip"/>), основание клинка — на оси; форма — меча в руке (радиус 0,03, масса 1,4); тело
-    /// кинематическое, скорость — разность постановок. Смена меча (T игрока, меч места врагу) меняет полудлину в тот же тик и ставит тело
-    /// без скорости; дальше — снова разность.
+    /// Капсула клинка каждый тик на отрезке меча в руке: A — хват (начало кисти), B — кончик (<see cref="Blade.Tip"/>); радиус
+    /// 0,03, масса 1,4; скорость — разность постановок. Смена меча меняет полудлину в тот же тик и ставит тело без скорости.
     /// </summary>
     [Fact]
     public void BladeBody_LiesOnTheSwordInHand_EveryTick_ChangesFormWithWeapon()
@@ -382,7 +374,6 @@ public sealed class RagdollSceneTests
         Clean(sim);
     }
 
-    /// <summary>Сценарий из всех команд сцен — в реплей: воспроизведение даёт те же хеши каждого тика по всем участникам (и skin).</summary>
     [Fact]
     public void SceneCommands_RecordedInReplay_RepeatWithSameHashes()
     {
@@ -421,15 +412,14 @@ public sealed class RagdollSceneTests
     // ── привязка скина ──────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Привязка скина мёртвого (<see cref="ISkinView"/>): снята в тик смерти по позе и телам смерти — сустав × привязка (система тела его
-    /// сегмента в момент смерти) = сустав позы смерти в мире бойца (смерть командой — Gameplay: тела прошлого тика; пробой — Settle: тела этого
-    /// тика); тела трупа падают — скин идёт за ними (уходит от позы смерти), привязка не меняется; тела лежащего трупа сдвинуты — скин
-    /// сдвигается с ними; у живого привязки нет; ожил — сброшена. Хеш участника <c>skin</c> видит привязку.
+    /// Привязка скина мёртвого (<see cref="ISkinView"/>) снята в тик смерти: сустав × привязка = сустав позы смерти в мире бойца;
+    /// тела падают или сдвинуты — скин идёт за ними, привязка не меняется; у живого привязки нет, ожил — сброшена. Хеш
+    /// <c>skin</c> её видит.
     /// </summary>
     [Fact]
     public void SkinBinding_JointTimesBinding_IsDeathPose_AndFollowsBodies()
     {
-        var (sim, physics, _) = Create("arena.enemies=2");
+        var (sim, physics, bindings) = Create("arena.enemies=2");
         for (int t = 0; t < 30; t++)
         {
             sim.Enqueue(new PlayerCommand { Move = new Vector2(0, 1) });
@@ -494,8 +484,8 @@ public sealed class RagdollSceneTests
             moved = MathF.Max(moved, Vector3.Distance(after - before, shift));
         }
         Assert.True(moved < 0.01f, $"скин не пошёл за телами: {moved}");
-        var described = JsonNode.Parse(sim.DescribeState("skin", new DescribeQuery()))!;
-        Assert.Equal((2, poses.JointCount), (described["captured"]!.GetValue<int>(), described["joints"]!.GetValue<int>()));
+        int captured = Enumerable.Range(0, bindings.Capacity).Count(i => bindings.At(i).Generation != 0);
+        Assert.Equal((2, poses.JointCount), (captured, bindings.JointCount));
         Clean(sim);
 
         // Ожил — привязка сброшена (команда сцены), игрок — сброс R.
@@ -571,72 +561,5 @@ public sealed class RagdollSceneTests
         public void Setup(SystemSetup s) => s.Label(new SystemLabel("skin-living")).After(GameLabels.SkinRelease);
 
         public void Run(in SystemContext ctx) => (_inner ??= new SkinOnLiving(physics())).Run(ctx);
-    }
-
-    // ── агент ───────────────────────────────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Агент: команда сцены по имени (<c>command.send SceneCommand</c>), <c>physics.bodies</c> — тело клинка, массы и привязка скина
-    /// мёртвого (есть, время смерти, суставов; <c>drift</c> — насколько скин ушёл от позы бойца в нынешнем корне; труп на физике — не 0),
-    /// режим тел трупа — simulated.
-    /// </summary>
-    [Fact]
-    public async Task Agent_SceneCommandByName_PhysicsBodiesShowsBladeMassesAndSkin()
-    {
-        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=1"));
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        Agent.SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonNode> Call(string tool, JsonObject args)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args },
-                };
-                var result = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(result["isError"]?.GetValue<bool>() ?? false, result.ToJsonString());
-                return result["structuredContent"] ?? result;
-            }
-
-            await Call("time.step", new JsonObject { ["ticks"] = 5 });
-            await Call("command.send", new JsonObject { ["command"] = "SceneCommand", ["fields"] = new JsonObject { ["Action"] = "Kill", ["Slot"] = 1 } });
-            await Call("time.step", new JsonObject { ["ticks"] = 2 });
-            var dead = await Call("physics.bodies", new JsonObject { ["entity"] = "enemy 1", ["segments"] = new JsonArray("blade", "pelvis") });
-            var skin = dead["skin"]!;
-            Assert.True(skin["captured"]!.GetValue<bool>());
-            Assert.Equal(TestAssets.Joints.Length, skin["joints"]!.GetValue<int>());
-            Assert.True(skin["drift"]!.GetValue<double>() >= 0);   // труп на физике — скин уходит от позы бойца с первого шага
-            var blade = dead["capsules"]![0]!;
-            Assert.Equal(("blade", 1.4), (blade["name"]!.GetValue<string>(), blade["mass"]!.GetValue<double>()));
-            Assert.Equal(12, dead["capsules"]![1]!["mass"]!.GetValue<double>(), 4);
-
-            await Call("command.send", new JsonObject
-            {
-                ["command"] = "SceneCommand",
-                ["fields"] = new JsonObject { ["Action"] = "ShiftBodies", ["Slot"] = 1, ["Offset"] = new JsonObject { ["X"] = 0.3, ["Y"] = 0, ["Z"] = 0.4 } },
-            });
-            await Call("time.step", new JsonObject { ["ticks"] = 1 });
-            var shifted = await Call("physics.bodies", new JsonObject { ["entity"] = "enemy 1" });
-            Assert.True(shifted["skin"]!["drift"]!.GetValue<double>() >= 0);
-            Assert.Equal("simulated", shifted["capsules"]![0]!["mode"]!.GetValue<string>());
-            Assert.False((await Call("physics.bodies", new JsonObject { ["entity"] = "player" }))["skin"]!["captured"]!.GetValue<bool>());
-            var why = await Call("entity.get", new JsonObject { ["entity"] = "enemy 1", ["components"] = new JsonArray("Dead") });
-            Assert.Contains("Command", why.ToJsonString());
-        }
-        finally
-        {
-            stop.Cancel();
-            loop.Join();
-        }
     }
 }

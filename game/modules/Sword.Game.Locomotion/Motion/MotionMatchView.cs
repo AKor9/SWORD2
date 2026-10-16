@@ -7,11 +7,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Вид Motion Matching для наблюдателей (<see cref="IMotionMatchView"/> из <c>Game.Contracts</c> — клиент и агентская сборка модуль не
-/// видят): состояние бойца — компонент <see cref="MotionMatchState"/> и проигрыватель хранилища; последний поиск и траектории — диагностика
-/// (<see cref="MotionMatchDiagnostics"/>); история — история корня проигрывателя; замер тика — <see cref="MotionMatchProbe"/> (свой). Только
-/// читает; буферы ответов — свои, до следующего вызова. Мир — после сборки (<see cref="Attach"/>). Регистрирует модуль при
-/// <c>locomotion.player = mm</c>.
+/// Вид Motion Matching для наблюдателей (клиент модуль не видит): состояние бойца, последний поиск и траектории из
+/// диагностики, история корня, замер тика (свой <see cref="MotionMatchProbe"/>). Только читает; буферы ответов — до
+/// следующего вызова. Мир — после <see cref="Attach"/>.
 /// </summary>
 public sealed class MotionMatchView(MotionMatchRuntime runtime) : IMotionMatchView
 {

@@ -6,9 +6,8 @@ using Sword.Game.Locomotion.Motion;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Отбор, схема и база на процесс на синтетической библиотеке со скелетом из суставов UE5 Manny (<see cref="TestAssets.Joints"/>):
-/// отбор по источнику и регулярке, ошибки данных — с понятной причиной, постройка с политикой GASP (старт уходит в цикл шага, стоп — в
-/// стойку), кэш — одна база на библиотеку и отбор, другая библиотека — своя база, одновременные запросы — одна постройка.
+/// Отбор, схема и база на процесс на синтетической библиотеке со скелетом UE5 Manny: ошибки данных — с причиной, политика GASP,
+/// кэш — одна база на библиотеку и отбор, одновременные запросы — одна постройка.
 /// </summary>
 public sealed class GaspMotionBaseTests
 {
@@ -185,10 +184,7 @@ public sealed class GaspMotionBaseTests
         Assert.Same(a, b);
     }
 
-    /// <summary>
-    /// База на процесс и её части общие для симуляций и потоков: наружу — ни массивов, ни <see cref="Span{T}"/>, ни сеттеров, ни
-    /// изменяемых статических полей (как <c>AnimationTests.SharedAnimationAssets_ExposeNoWritableData</c>).
-    /// </summary>
+    /// <summary>База и её части общие для симуляций и потоков: ни массивов, ни <see cref="Span{T}"/>, ни сеттеров, ни изменяемой статики.</summary>
     [Theory]
     [InlineData(typeof(GaspMotionBase))]
     [InlineData(typeof(GaitSpeedModel))]

@@ -9,9 +9,8 @@ using Sword.Game.Data;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Правила боя тика — ресурс-значение (хешируется участником <c>ecs</c>) из секции конфига <c>combat</c> (ручки «Бой» и
-/// изменение командой): нападают ли враги, неуязвим ли игрок, рывок — пиковая прибавка скорости, время,
-/// перезарядка и неуязвимость; урон ударов игрока и острота его клинка.
+/// Правила боя тика — ресурс-значение (хешируется <c>ecs</c>) из секции <c>combat</c>: нападают ли враги, неуязвим ли игрок, рывок,
+/// урон ударов игрока и острота его клинка.
 /// </summary>
 public struct CombatRules
 {
@@ -54,23 +53,21 @@ public struct CombatRules
 }
 
 /// <summary>
-/// Управление игрока в симуляции (<c>PlayerController</c> SWORD 2eab13b — буферы и перезарядка, и рывок SWORD2): нажатие удара
-/// ждёт в буфере 0,3 с, рывка — 0,2 с, пока действие станет возможным (фронты команды — ровно в одном тике); перезарядка
-/// рывка; сам рывок — прибавка скорости в сторону хода, гаснущая за время рывка (корень ведёт контроллер, после рывка скорость
-/// — просто заданная WASD); неуязвимость рывка (таймер). Хешируется, виден агенту (<c>entity.get player</c>).
+/// Управление игрока в симуляции: нажатие удара ждёт в буфере 0,3 с, рывка — 0,2 с, пока действие станет возможным; перезарядка
+/// и неуязвимость рывка; рывок — прибавка скорости в сторону хода, гаснущая за время рывка. Хешируется.
 /// </summary>
 public struct PlayerControl
 {
-    /// <summary>Сколько ещё ждёт нажатие удара, с (<c>_swingBuffer</c>); 0 — не ждёт.</summary>
+    /// <summary>Сколько ещё ждёт нажатие удара, с; 0 — не ждёт.</summary>
     public float SwingBuffer;
 
-    /// <summary>Нажатие в буфере — укол (Q), а не рубящий (<c>_swingStab</c>).</summary>
+    /// <summary>Нажатие в буфере — укол (Q), а не рубящий.</summary>
     public bool SwingStab;
 
-    /// <summary>Жест нажатия — направление замаха в системе бойца (<c>_swingPressMouse</c>; SWORD2 — в системе бойца); ноль — связка.</summary>
+    /// <summary>Жест нажатия — направление замаха в системе бойца; ноль — связка.</summary>
     public Vector2 SwingGesture;
 
-    /// <summary>Сколько ещё ждёт нажатие рывка, с (<c>_lungeBuffer</c>), и перезарядка рывка, с (<c>_lungeCooldown</c>).</summary>
+    /// <summary>Сколько ещё ждёт нажатие рывка, с, и перезарядка рывка, с.</summary>
     public float DashBuffer, DashCooldown;
 
     /// <summary>Рывок идёт: сколько прошло, с, и его направление по земле (единичное, мир).</summary>
@@ -91,8 +88,7 @@ public struct PlayerControl
 }
 
 /// <summary>
-/// Состояние выбора удара игрока (<c>PlayerAttackPicker</c> SWORD 2eab13b): следующий удар связки, клип последнего удара и когда
-/// он начат. Постройка заново его не сбрасывает (в SWORD выбор — в контроллере, сброс арены его не трогает).
+/// Состояние выбора удара игрока: следующий удар связки, клип последнего удара и когда он начат. Постройка заново его не сбрасывает.
 /// </summary>
 public struct AttackCombo
 {
@@ -103,7 +99,7 @@ public struct AttackCombo
     public static readonly AttackCombo Start = new() { Next = 0, LastClip = -1, LastTime = -1e3f };
 }
 
-/// <summary>Константы управления игрока — <c>PlayerController</c> и <c>PlayerAttackPicker</c> SWORD 2eab13b.</summary>
+/// <summary>Константы управления игрока.</summary>
 public static class PlayerControlRules
 {
     /// <summary>Нажатие удара и рывка ждёт, с (<c>SwingBufferTime</c>, <c>LungeBufferTime</c>).</summary>
@@ -118,14 +114,13 @@ public static class PlayerControlRules
     /// <summary>Рывок по умолчанию (секция <c>combat</c>): прибавка 9,5 м/с за 0,3 с — 1,43 м, перезарядка 0,6 с, неуязвимость 0,3 с.</summary>
     public const float DashSpeed = 9.5f, DashTime = 0.3f, DashCooldown = 0.6f, DashInvulnerable = 0.3f;
 
-    /// <summary>Поток ГСЧ выбора укола игрока (<c>rng.Next(stabs.Length)</c> SWORD).</summary>
+    /// <summary>Поток ГСЧ выбора укола игрока.</summary>
     public static readonly uint PickStream = SimRandom.Stream("combat.player-pick");
 }
 
 /// <summary>
-/// Выбор удара игрока (<c>PlayerAttackPicker.Pick</c> SWORD 2eab13b): укол — только по намерению (Q), случайный из уколов;
-/// рубящий — жест выбирает ближайший по направлению замах (жест — в системе бойца, в SWORD — экран), без жеста — следующий удар
-/// связки slash1–4 по кругу; связка не повторяет клип подряд; пауза дольше 1,6 с — связка с начала.
+/// Выбор удара игрока: укол — только по намерению (Q), случайный; рубящий — жест выбирает ближайший по направлению замах, без
+/// жеста — следующий удар связки slash1–4 по кругу; клип подряд не повторяется; пауза дольше 1,6 с — связка с начала.
 /// </summary>
 public static class AttackPicker
 {
@@ -174,9 +169,8 @@ public static class AttackPicker
 }
 
 /// <summary>
-/// Действия игрока из команды тика (<c>PlayerController.HandleInput</c> и <c>Think</c> SWORD 2eab13b, часть боя): фронты — в
-/// буферы, таймеры — минус тик, рывок раньше удара (нажаты в одном тике — удар выходит из рывка, а не отменяется им), удар — когда
-/// слой действий позволяет (<see cref="ActionLayer.CanAttack"/>, <c>Agile</c>).
+/// Действия игрока из команды тика: фронты — в буферы, таймеры — минус тик, рывок раньше удара (удар выходит из рывка), удар — когда
+/// слой действий позволяет (<see cref="ActionLayer.CanAttack"/>).
 /// </summary>
 public static class PlayerActions
 {
@@ -199,9 +193,8 @@ public static class PlayerActions
     }
 
     /// <summary>
-    /// Тик управления (<c>Think</c>): перезарядка, буферы и неуязвимость — минус тик (не ниже 0); рывок из буфера, если
-    /// перезарядился (прерывает любое действие); удар из буфера, если слой действий позволяет. <paramref name="move"/> —
-    /// направление хода команды (мир); <paramref name="stabRoll"/> — случайный номер укола.
+    /// Тик управления: таймеры — минус тик (не ниже 0); рывок из буфера, если перезарядился; удар из буфера, если слой действий
+    /// позволяет. <paramref name="move"/> — направление хода (мир); <paramref name="stabRoll"/> — случайный номер укола.
     /// </summary>
     public static void Think(ref PlayerControl control, ref AttackCombo combo, ref AnimatorAction action, in Transform t, Vector3 move, float time,
         float dt, int stabRoll, in CombatRules rules, ReadOnlySpan<AttackInfo> attacks, int slashes, ClipLibrary clips, ActionTable actions)
@@ -225,8 +218,7 @@ public static class PlayerActions
     }
 
     /// <summary>
-    /// Рывок в сторону хода (без хода — назад от курса): направление, неуязвимость, вид — клип уклонения по ближайшей стороне в
-    /// системе бойца (<c>PlayerController.Evade</c> SWORD: вперёд, назад, влево, вправо).
+    /// Рывок в сторону хода (без хода — назад от курса): направление, неуязвимость, вид — клип уклонения по ближайшей стороне.
     /// </summary>
     public static void StartDash(ref PlayerControl control, ref AnimatorAction action, in Transform t, Vector3 move, in CombatRules rules,
         ClipLibrary clips, ActionTable actions)
@@ -246,9 +238,8 @@ public static class PlayerActions
     }
 
     /// <summary>
-    /// Прибавка скорости рывка на тик (Gameplay, с курсом и разгоном): пиковая скорость × <see cref="DashRules.Fade"/> по ходу
-    /// рывка; время рывка вышло — рывка нет, прибавка 0. Скорость хода (<see cref="RootVelocity"/>) рывок не трогает: после него
-    /// ход — заданный WASD, без провала и без инерции.
+    /// Прибавка скорости рывка на тик: пиковая × <see cref="DashRules.Fade"/>; время вышло — 0. Скорость хода рывок не трогает: после
+    /// него ход — заданный WASD, без инерции.
     /// </summary>
     public static void Boost(ref PlayerControl control, in CombatRules rules, float dt)
     {

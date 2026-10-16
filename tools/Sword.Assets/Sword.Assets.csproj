@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- sword-assets: менеджер игровых ресурсов на движке SWORD2 — дерево Content/ с флажком «в пак» (исключения
+       Bake/pak.json), предпросмотр по файлам Content/, «Собрать пак» в Content.swpak, окно пекарни (сырой файл →
+       конвертер → рецепт → «Испечь»); CLI pack и list. Окно Win32, рендер-граф и UI-проход, виджеты Sword.Engine.Ui. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Sword.Assets</RootNamespace>
+    <AssemblyName>sword-assets</AssemblyName>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Direct3D.D3D12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- пекарня: конвертеры, рецепты, корни; пекарь шрифтов окна, декодеры BC и шрифтов предпросмотра -->
+    <ProjectReference Include="..\Sword.Bake\Sword.Bake.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Animation\Sword.Engine.Animation.csproj" />
+    <ProjectReference Include="..\..\game\Sword.Game.Data\Sword.Game.Data.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Ui\Sword.Engine.Ui.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Client\Sword.Engine.Client.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Platform\Sword.Engine.Platform.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Platform.Win32\Sword.Engine.Platform.Win32.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Assets.Tests" />
+  </ItemGroup>
+
+  <!-- App-local Agility SDK — как у игры: D3D12Core.dll и слой отладки в D3D12\ рядом с exe. -->
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\D3D12Core.dll"
+          Link="D3D12\D3D12Core.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\d3d12SDKLayers.dll"
+          Link="D3D12\d3d12SDKLayers.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

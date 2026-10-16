@@ -19,7 +19,7 @@ namespace Sword.Game.Tests;
 
 /// <summary>
 /// Сим огня на шишке факела на настоящем устройстве и паке (слой отладки D3D12): клиент арены и модуль огня в одном кадре, как у
-/// <c>ClientHost</c>. Шаг — каждый второй тик; на бегу k = 0.35 и шлейф ρ позади головки, стоя — над ней, не вбок; поля не зависят от разбиения тиков по кадрам и
+/// <c>ClientHost</c>. Шаг — каждый второй тик; на бегу k = 1 (пламя стоит в мире) и шлейф ρ позади головки, стоя — над ней, не вбок; поля не зависят от разбиения тиков по кадрам и
 /// от кадров паузы (бит в бит); кадр модуля — 0 Б; горящего оружия нет в паке — ни сима, ни шумов, ни проходов. Категории Gpu и Content.
 /// </summary>
 [Collection("game-gpu")]
@@ -157,12 +157,15 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
             Assert.Equal(0, stats.NonFinite);
             Assert.True(stats.MaxDensity <= 1f && stats.MaxSpeed <= p.VelocityClamp * MathF.Sqrt(2), $"ρ {stats.MaxDensity}, |v| {stats.MaxSpeed}");
             Assert.True(stats.DensitySum > 50, $"Σρ {stats.DensitySum}");
-            // Центроид ρ от центра площадки (центр шишки шага) в осях вида, см: x — вправо (по бегу), y — вверх.
+            // Центроид ρ от центра площадки (центр шишки шага) в осях площадки, см: x — вправо, y — вверх.
             float x = (stats.Centroid.X - 0.5f) * p.Extents.X * 100f, y = -(stats.Centroid.Y - 0.5f) * p.Extents.Y * 100f;
-            var right = Vector3.Transform(Vector3.UnitX, sim.Rotation);
-            Assert.True(right.X > 0.99f, $"ось x площадки {right}");
-            output.WriteLine($"Σρ {stats.DensitySum:F1}, max|v| {stats.MaxSpeed:F3}, центроид {x:F1}, {y:F1} см, k {sim.K:F3}, Δ {sim.Delta * 100} см");
-            result = (-x, y, sim.K);
+            // Площадка — к глазу неподвижной камеры: у убежавшего игрока повёрнута, бег (мировая +x) на ней укорочен. Позади — вдоль проекции
+            // бега, деленное на её длину (длина шлейфа в мире); стоя у цели камеры площадка — как камера, проекция ≈ (1, 0).
+            var run = new Vector2(Vector3.Transform(Vector3.UnitX, sim.Rotation).X, Vector3.Transform(Vector3.UnitY, sim.Rotation).X);
+            Assert.True(run.Length() > 0.3f, $"бег на площадке {run}");
+            float behind = -Vector2.Dot(new Vector2(x, y), run) / run.LengthSquared();
+            output.WriteLine($"Σρ {stats.DensitySum:F1}, max|v| {stats.MaxSpeed:F3}, центроид {x:F1}, {y:F1} см, бег на площадке {run}, k {sim.K:F3}, Δ {sim.Delta * 100} см");
+            result = (behind, y, sim.K);
         });
         return result;
     }
@@ -177,7 +180,7 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
     public void Running_TrailBehindHead()
     {
         var run = Measure(RunX);
-        Assert.Equal(0.35f, run.K);
+        Assert.Equal(FireTuning.DefaultKMin, run.K);
         Assert.True(run.Behind > TrailCm, $"на бегу центроид ρ позади головки на {run.Behind:F1} см");
     }
 
@@ -215,8 +218,8 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
     [Fact]
     public void SteadyFrames_ModuleDoesNotAllocate_WithFieldViewAndOverlay()
     {
-        // Прогрев 60 кадров, затем 120 кадров бега с видом поля и оверлеем на экране: кадр модуля (наблюдатель, извлечение, шаги, выход поля,
-        // проходы вида) — 0 Б.
+        // Прогрев 60 кадров, затем 120 кадров бега с видом поля, оверлеем, дымом, его вкладом и окном 3D-дыма на экране: кадр модуля (наблюдатель,
+        // извлечение, шаги пламени и газа, выход поля, сетка занятости и марш дыма, проходы видов) — 0 Б.
         long bytes = -1;
         Run([], Enumerable.Repeat(2, 180), RunX, (_, modules, fire, counted) =>
         {
@@ -225,12 +228,21 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
             Assert.Contains("fluid.export", report.Passes);
             Assert.Contains("debug.fire.field", report.Passes);
             Assert.Contains(FireFlame.PassName, report.Passes);
+            Assert.Contains(FireSmoke.PassName, report.Passes);
+            Assert.Contains(FireSmoke.BricksPassName, report.Passes);
+            Assert.Contains("debug.fire.smoke", report.Passes);
+            Assert.Contains("debug.fire.gas", report.Passes);
+            Assert.Contains("gas.sources", report.Passes);
             Assert.Equal(1, fire.Flame!.LastQuads);
             Assert.Equal(1, fire.DrawnFields);
+            Assert.Equal(1, fire.Smoke!.LastVolumes);
+            Assert.Equal(180, fire.GasSims[0].GpuSteps);
         }, setup: fire =>
         {
             fire.FieldOverlay!.Shown = true;
             fire.Overlay!.Shown = true;
+            fire.SmokeOverlay!.Shown = true;
+            fire.GasOverlay!.Shown = true;
         }, countFrom: 60);
         output.WriteLine($"модуль за 120 кадров: {bytes} Б");
         Assert.Equal(0, bytes);
@@ -279,8 +291,8 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
     [Fact]
     public void Smoke_InHalfLayer_LightFunctionDoesNotReachIt_ZeroDensityLeavesFrame()
     {
-        // Факел стоя, 60 кадров по 2 тика: дым — один объём в слое ½ с источником огня (без LF) и статистикой марша. Мерцание света (LF)
-        // выключено — слой ½ дыма бит в бит тот же (LF — только поверхности); плотность 0 — HDR кадра бит в бит как без дыма.
+        // Факел стоя, 60 кадров по 2 тика: дым — одно окно газа в слое ½ с источником огня (без LF) и статистикой марша. Мерцание света (LF)
+        // выключено — слой ½ дыма бит в бит тот же (LF — только поверхности); плотность 0 — HDR кадра бит в бит как без дыма (выключен ручкой).
         string dir = Path.Combine(Path.GetTempPath(), $"sword-smoke-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
@@ -297,7 +309,8 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
                     Assert.Contains(FireSmoke.PassName, passes);
                     Assert.Contains(FireSmoke.StatsPassName, passes);
                     var stats = Assert.IsType<SmokeStats>(smoke.Stats);
-                    Assert.True(stats.Hit > 0 && stats.MaxSteps is > 0 and <= 196 && (stats.Coverage > 0 || fire.SmokeParams.Density == 0), $"статистика дыма: {stats}");
+                    Assert.True(stats.Hit > 0 && stats.MaxSteps is > 0 and <= 512 && stats.Bricks > 0 && stats.Bricks < stats.TotalBricks / 4 &&
+                        (stats.Coverage > 0 || fire.SmokeParams.Density == 0), $"статистика дыма: {stats}");
                 }, setup: setup, hdrShot: path);
                 string half = path + ".transparent.bin";
                 return (File.ReadAllBytes(path + ".hdr.bin"), File.Exists(half) ? File.ReadAllBytes(half) : null);
@@ -324,11 +337,14 @@ public sealed class FireSimGpuTests : IDisposable, ILogSink
         Run(["fire.weapons=[\"axe\"]"], Enumerable.Repeat(2, 10), Stand, (renderer, modules, fire, _) =>
         {
             Assert.Empty(fire.Sims);
+            Assert.Empty(fire.GasSims);
+            Assert.Null(fire.Smoke);
             Assert.Equal(["axe"], fire.Fires!.Missing);
-            Assert.DoesNotContain(renderer.Textures, t => t.Path.StartsWith("effects/fire", StringComparison.Ordinal));
+            Assert.DoesNotContain(renderer.Textures, t => t.Path.StartsWith("textures/fire", StringComparison.Ordinal));
             var report = Assert.Single(modules.Report());
             Assert.Empty(report.GpuSimulations);
             Assert.DoesNotContain(report.Passes, p => p.StartsWith("fluid.", StringComparison.Ordinal));
+            Assert.DoesNotContain(report.Passes, p => p.StartsWith("gas.", StringComparison.Ordinal) || p.Contains(".gas", StringComparison.Ordinal));
             Assert.Null(fire.Light);
             Assert.Equal(0, renderer.Lights.Report().Shown);
         });

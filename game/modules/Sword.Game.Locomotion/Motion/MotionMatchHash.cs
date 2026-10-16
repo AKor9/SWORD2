@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Numerics;
 using Sword.Engine.Animation.Motion;
 using Sword.Engine.Runtime;
@@ -6,12 +5,10 @@ using Sword.Engine.Runtime;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Участник хеша состояния <c>locomotion</c> (только при <c>locomotion.player = mm</c>): авторитетное состояние Motion Matching вне ECS —
-/// хранилище проигрывателей (по слотам по возрастанию: поколение, у живого — кадр, доля, переходов, есть ли выход, перенос корня последнего
-/// шага и восемь массивов суставов: смещения поворота и позиции и их скорости, скорости выхода, выход прошлого шага; затем порядок свободных
-/// слотов) и истории корня живых проигрывателей (записи по порядку: тик и корень). База в хеш не входит — производная контента, кода и
-/// конфига; её отпечаток — в описании (<see cref="Describe"/>) и в строке старта журнала. Скалярное состояние бойца (компонент
-/// <see cref="MotionMatchState"/>) хеширует участник <c>ecs</c>. Память не выделяет.
+/// Участник хеша <c>locomotion</c> (только при <c>locomotion.player = mm</c>): авторитетное состояние MM вне ECS —
+/// хранилище проигрывателей (по слотам, затем порядок свободных) и истории корня живых проигрывателей. База в хеш не
+/// входит — производная контента, кода и конфига; её отпечаток — в сведениях реплея. Компонент
+/// <see cref="MotionMatchState"/> хеширует <c>ecs</c>. Память не выделяет.
 /// </summary>
 public sealed class MotionMatchHash(MotionMatchRuntime runtime) : IStateContributor
 {
@@ -90,181 +87,5 @@ public sealed class MotionMatchHash(MotionMatchRuntime runtime) : IStateContribu
             h.Add(v.Y);
             h.Add(v.Z);
         }
-    }
-
-    /// <summary>
-    /// Сводка хранилища и части: <c>base</c> — база (сводка, отпечаток, отбор, кадр позы постройки; в хеш не входит; время постройки — в
-    /// строке старта журнала), проигрыватели <c>0v1</c> —
-    /// состояние, история корня и суставы (смещения, скорости, выход). Отбор: проигрыватель <c>0v1</c>, часть имени сустава (<c>foot</c>) или
-    /// оба через двоеточие (<c>0v1:foot</c>); <c>base</c> — только база.
-    /// </summary>
-    public void Describe(StateWriter w, in DescribeQuery q)
-    {
-        if (!runtime.Ready)
-        {
-            w.Summary("players", 0);
-            return;
-        }
-        string? playerFilter = null, jointFilter = null;
-        bool onlyBase = false;
-        if (q.Filter is { Length: > 0 } f)
-        {
-            int colon = f.IndexOf(':');
-            if (colon >= 0) (playerFilter, jointFilter) = (f[..colon], f[(colon + 1)..]);
-            else if (f == "base") onlyBase = true;
-            else if (f.Length > 1 && char.IsDigit(f[0]) && f.Contains('v')) playerFilter = f;
-            else jointFilter = f;
-        }
-        var players = runtime.Players;
-        w.Summary("players", players.Count);
-        w.Summary("capacity", players.Capacity);
-        w.Summary("reserved", players.Reserved);
-        w.Summary("freeSlots", players.FreeSlots.Length);
-        int matched = 0, skip = q.Skip, take = q.Take;
-        bool OnPage()
-        {
-            int at = matched++;
-            return at >= skip && at < skip + take;
-        }
-        if (playerFilter is null && jointFilter is null && OnPage()) DescribeBase(w);
-        if (!onlyBase)
-            for (int i = 0; i < players.Capacity; i++)
-            {
-                var player = players.HandleAt(i);
-                if (player.IsNone || playerFilter is not null && player.ToString() != playerFilter || !OnPage()) continue;
-                DescribePlayer(w, player, jointFilter);
-            }
-        w.Matched = matched;
-    }
-
-    private void DescribeBase(StateWriter w)
-    {
-        var db = runtime.Database;
-        var s = db.Summary;
-        w.BeginItem("base");
-        w.Value("clips", s.Clips);
-        w.Value("frames", s.Frames);
-        w.Value("searchable", s.Searchable);
-        w.Value("edges", s.Edges);
-        w.Value("earlyExits", s.EarlyExits);
-        w.Value("fingerprint", db.Fingerprint.ToString("X16", CultureInfo.InvariantCulture));
-        w.Value("pattern", runtime.Base.Pattern);
-        w.Value("startFrame", runtime.StartFrame);
-        w.EndItem();
-    }
-
-    private void DescribePlayer(StateWriter w, MotionPlayerHandle player, string? jointFilter)
-    {
-        var players = runtime.Players;
-        var db = runtime.Database;
-        var s = players.State(player);
-        w.BeginItem(player.ToString());
-        w.Value("frame", s.Frame);
-        if (s.Frame >= 0)
-        {
-            w.Value("clip", db.Library.Clips[db.Clips[db.ClipOf[s.Frame]].LibraryClip].Name);
-            w.Value("clipFrame", db.FrameInClip(s.Frame));
-        }
-        w.Value("alpha", s.Alpha);
-        w.Value("transitions", s.Transitions);
-        w.Value("hasOutput", s.HasOutput);
-        w.BeginObject("rootStep");
-        w.Value("x", s.RootStep.X);
-        w.Value("z", s.RootStep.Z);
-        w.Value("yaw", s.RootStep.Yaw);
-        w.EndObject();
-        var history = runtime.HistoryAt(player.Index);
-        w.BeginArray("history");
-        for (int k = 0, n = history?.Count ?? 0; k < n; k++)
-        {
-            var r = history![k];
-            w.BeginElement();
-            w.Value("tick", r.Tick);
-            w.Value("x", r.Root.X);
-            w.Value("z", r.Root.Z);
-            w.Value("yaw", r.Root.Yaw);
-            w.EndObject();
-        }
-        w.EndArray();
-        DescribeSearch(w, player);   // последний поиск
-        var names = db.Library.Skeleton.JointNames;
-        var rotOffset = players.RotationOffsets(player);
-        var rotOffsetVelocity = players.RotationOffsetVelocities(player);
-        var posOffset = players.PositionOffsets(player);
-        var posOffsetVelocity = players.PositionOffsetVelocities(player);
-        var angular = players.AngularVelocities(player);
-        var linear = players.LinearVelocities(player);
-        var outRot = players.OutputRotations(player);
-        var outPos = players.OutputPositions(player);
-        for (int j = 0; j < names.Length; j++)
-        {
-            if (jointFilter is not null && !names[j].Contains(jointFilter, StringComparison.OrdinalIgnoreCase)) continue;
-            w.BeginObject(names[j]);
-            Write(w, "rotOffset", rotOffset[j]);
-            Write(w, "rotOffsetVelocity", rotOffsetVelocity[j]);
-            Write(w, "posOffset", posOffset[j]);
-            Write(w, "posOffsetVelocity", posOffsetVelocity[j]);
-            Write(w, "angularVelocity", angular[j]);
-            Write(w, "linearVelocity", linear[j]);
-            Write(w, "outRot", outRot[j]);
-            Write(w, "outPos", outPos[j]);
-            w.EndObject();
-        }
-        w.EndItem();
-    }
-
-    /// <summary>
-    /// Последний поиск проигрывателя (диагностика — в хеш не входит, время поиска — нет: от машины): тик, повод, текущий кадр, найденный
-    /// кадр с клипом и кадром в клипе, цены и цены групп по именам схемы, осмотрено, сменил ли кадр, корень запроса. Поиска не было — нет.
-    /// </summary>
-    private void DescribeSearch(StateWriter w, MotionPlayerHandle player)
-    {
-        if (runtime.Diagnostics.Last(player) is not { } r) return;
-        var db = runtime.Database;
-        w.BeginObject("lastSearch");
-        w.Value("tick", r.Tick);
-        w.Value("reason", r.Reason.ToString());
-        w.Value("current", r.Current);
-        w.Value("frame", r.Match.Frame);
-        if (r.Match.Frame >= 0)
-        {
-            w.Value("clip", db.Library.Clips[db.Clips[db.ClipOf[r.Match.Frame]].LibraryClip].Name);
-            w.Value("clipFrame", db.FrameInClip(r.Match.Frame));
-        }
-        w.Value("cost", r.Match.Cost);
-        w.Value("continuationCost", r.Match.ContinuationCost);
-        w.Value("switched", r.Switched);
-        w.Value("blocks", r.Match.Blocks);
-        w.Value("frames", r.Match.Frames);
-        w.BeginObject("groups");
-        var costs = r.Match.Groups;
-        var groups = db.Schema.Groups;
-        for (int g = 0; g < groups.Length; g++) w.Value(groups[g].Name, ((ReadOnlySpan<float>)costs)[g]);
-        w.EndObject();
-        w.BeginObject("root");
-        w.Value("x", r.Root.X);
-        w.Value("z", r.Root.Z);
-        w.Value("yaw", r.Root.Yaw);
-        w.EndObject();
-        w.EndObject();
-    }
-
-    private static void Write(StateWriter w, string name, Quaternion q)
-    {
-        w.BeginObject(name);
-        w.Value("x", q.X);
-        w.Value("y", q.Y);
-        w.Value("z", q.Z);
-        w.Value("w", q.W);
-        w.EndObject();
-    }
-
-    private static void Write(StateWriter w, string name, Vector3 v)
-    {
-        w.BeginObject(name);
-        w.Value("x", v.X);
-        w.Value("y", v.Y);
-        w.Value("z", v.Z);
-        w.EndObject();
     }
 }

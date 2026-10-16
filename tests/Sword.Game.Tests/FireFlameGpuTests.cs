@@ -161,7 +161,7 @@ public sealed class FireFlameGpuTests : IDisposable, ILogSink
         var again = Shot(Vector3.Zero, 1000, 1000, 0, "black2");
         Assert.True(MemoryMarshal.AsBytes(black.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(again.AsSpan())), "тот же кадр дважды — HDR не бит в бит");
 
-        int compared = 0, outside = 0;
+        int compared = 0, outside = 0, tail = 0;
         float worst = 0, maxAlpha = 0, maxEmission = 0;
         for (int y = 2; y < H; y += 4)
             for (int x = 1; x < W; x += 3)
@@ -189,19 +189,23 @@ public sealed class FireFlameGpuTests : IDisposable, ILogSink
                 float rho = FlameMath.Density(s.Z);
                 float n = Ramp(a.X) + (Ramp(b.X) - Ramp(a.X)) * MathF.Abs(2 * Phase - 1);
                 float dk = p.DensityGain * (MathF.Pow(n + 0.004f, 3) - MathF.Pow(MathF.Max(n - 0.004f, 0), 3)) * MathF.Pow(rho, p.DensityPower);
+                // Срез хвоста saturate(k/GlowCut): тот же шум k переходит в альфу.
+                float da = p.GlowCut > 0 ? dk / p.GlowCut : 0;
+                var emission = FlameMath.Emission(n, rho, p);
                 for (int c = 0; c < 3; c++)
                 {
                     float got = black[i][c], want = expected[c];
-                    float tol = expected.W * (1 - fog) * dk * MathF.Abs(p.Colour1[c] - p.Colour2[c]) + 4e-3f * MathF.Abs(want) + 1e-3f;
+                    float tol = expected.W * (1 - fog) * dk * MathF.Abs(p.Colour1[c] - p.Colour2[c]) + da * emission[c] + 4e-3f * MathF.Abs(want) + 1e-3f;
                     worst = MathF.Max(worst, MathF.Abs(got - want) / tol);
                     Assert.True(MathF.Abs(got - want) <= tol, $"({x}, {y}) канал {c}: GPU {got}, CPU {want}, допуск {tol} (n {n}, ρ {rho})");
                 }
-                Assert.True(MathF.Abs(gpuAlpha - expected.W) <= 3e-3f, $"({x}, {y}): α GPU {gpuAlpha}, CPU {expected.W}");
+                Assert.True(MathF.Abs(gpuAlpha - expected.W) <= 3e-3f + da, $"({x}, {y}): α GPU {gpuAlpha}, CPU {expected.W}");
+                if (expected.W < 1e-3f) tail++;
                 maxEmission = MathF.Max(maxEmission, expected.X / MathF.Max(expected.W, 1e-6f));
                 compared++;
             }
-        _output.WriteLine($"сверено пикселей {compared}, вне ρ {outside}; худшее — {worst:0.00} допуска; max α {maxAlpha:0.000}, max эмиссии R {maxEmission:0.0}");
-        Assert.True(compared > 1000 && outside > 100, $"мало пикселей: {compared} сверено, {outside} вне ρ");
+        _output.WriteLine($"сверено пикселей {compared} (срезано хвостом {tail}), вне ρ {outside}; худшее — {worst:0.00} допуска; max α {maxAlpha:0.000}, max эмиссии R {maxEmission:0.0}");
+        Assert.True(compared > 1000 && outside > 100 && tail > 100, $"мало пикселей: {compared} сверено, {outside} вне ρ, {tail} срезано хвостом");
         Assert.True(maxEmission > 1, "в выборке нет ядра ярче 1");
         Assert.True(_d3d12.Count == 0, "сообщения отладочного слоя D3D12:\n" + string.Join("\n", _d3d12));
     }
@@ -210,10 +214,12 @@ public sealed class FireFlameGpuTests : IDisposable, ILogSink
     public void SoftEdge_FadesOverTenCentimetres_HiddenBehindWall()
     {
         // Стена по столбцам от D − 0.2 до D + 0.3 м: левее D — стена ближе площадки (не видно), дальше — мягкий край 10 см.
+        // Срез хвоста выключен: альфа по ρ = 1 зависит только от маски краёв и мягкого края, не от шума.
+        var p = FlameParams.Torch4 with { GlowCut = 0 };
+        _flame.Params = p;
         float z0 = QuadDepth - 0.2f, z1 = QuadDepth + 0.3f;
         var black = Shot(Vector3.Zero, z0, z1, 1, "edge-black");
         var white = Shot(Vector3.One, z0, z1, 1, "edge-white");
-        var p = FlameParams.Torch4;
         int hidden = 0, fading = 0, full = 0;
         int y = H / 2;
         for (int x = 0; x < W; x++)

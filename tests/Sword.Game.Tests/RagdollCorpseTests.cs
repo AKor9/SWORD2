@@ -1,8 +1,6 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
 using Sword.Engine.Content;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
 using Sword.Game.Animation;
@@ -15,12 +13,8 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Труп на физике, свои тесты свойств (со SWORD не сравниваем): переход в труп (режим, профиль, суставы,
-/// запястье — меч выпадает, скорости урезаны), покой и энергия трупа на ровной земле и на ступенях пирамиды, вывернутая в землю конечность,
-/// утопленный труп, два трупа внахлёст, возрождение, корень мёртвого за тазом, ручка «Рэгдолл» в реплее, пересборка нечислового трупа,
-/// инварианты-неисправности, вычисляемые поля трупа и 0 Б/тик на толпе трупов. Контент — синтетический (<see cref="TestAssets"/>: быстро,
-/// стопы скелета тестов — в земле на 4,5 см, поэтому труп на нём «выходит» из земли), трупы на ступенях — ещё и на эталонном паке
-/// (<see cref="RagdollCorpseContentTests"/>: настоящая поза стойки).
+/// Труп на физике. Контент — синтетический (<see cref="TestAssets"/>): стопы скелета тестов — в земле на 4,5 см, поэтому труп на нём
+/// «выходит» из земли.
 /// </summary>
 public sealed class RagdollCorpseTests(ITestOutputHelper output)
 {
@@ -74,7 +68,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
 
     internal static SceneCommand Shift(int slot, Vector3 offset) => new() { Action = SceneAction.ShiftBodies, Slot = slot, Offset = offset };
 
-    /// <summary>Итоги тела бойца (центр масс, скорость, энергии) — по виду тел, как вычисляемые поля агента.</summary>
+    /// <summary>Итоги тела бойца (центр масс, скорость, энергии) — по виду тел.</summary>
     internal static CorpseMetrics.Totals Totals(Simulation sim, Entity e) => CorpseMetrics.Of(sim.World.View<IBodyView>(), sim.World.Get<BodyRef>(e));
 
     /// <summary>Наибольшая скорость тел сочленения, м/с.</summary>
@@ -184,17 +178,14 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     // ── покой и энергия ─────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Покой трупа (окно 5 с после 2 с падения; замеры — docs/history/ragdoll.md, допуски ~2–4× к худшему): скорость центра масс, м/с (замер
-    /// ≤ 0,10 — синтетический труп на ровной земле ещё досыпает первые секунды окна, на ступенях пака ≤ 0,062); кинетическая энергия в конце
-    /// окна, Дж (замер ≤ 0,0102 — труп, вывернутый в землю, через 2 с после выхода); подъём полной энергии над началом окна, Дж (замер ≤ 0,012 — досыпание у кромки ступени; итог — убыль).
+    /// Покой трупа (окно 5 с после 2 с падения; допуски ~2–4× к худшему замеру): скорость центра масс, м/с; кинетическая энергия в конце
+    /// окна, Дж; подъём полной энергии над началом окна, Дж.
     /// </summary>
     internal const float RestComSpeed = 0.2f, RestKineticEnd = 0.03f, RestEnergyRise = 0.05f;
 
     /// <summary>
-    /// Труп на ровной земле: за 3 с ложится, дальше окно покоя 5 с — центр масс успокаивается, энергия в покое не растёт (<see cref="RestComSpeed"/>,
-    /// <see cref="RestKineticEnd"/>, <see cref="RestEnergyRise"/>), тела в земле — не глубже 1 см, суставы держат; инварианты чисты. Синтетический риг
-    /// (стопы в земле на 4,5 см) после падения перекатывается по земле до 2,25 с (разрыв суставов при ударе сводится не
-    /// быстрее <see cref="PhysicsSettings.JointPopSpeed"/>) — ложится за 3 с, окно покоя — после.
+    /// Труп на ровной земле: за 3 с ложится (синтетический риг перекатывается до 2,25 с: разрыв суставов сводится не быстрее
+    /// <see cref="PhysicsSettings.JointPopSpeed"/>), дальше 5 с покоя; тела не глубже 1 см, суставы держат, инварианты чисты.
     /// </summary>
     [Fact]
     public void Corpse_OnFlatGround_Settles_EnergyAtRestDoesNotGrow()
@@ -306,9 +297,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Кинетическая энергия трупа, когда из земли выходит вывернутое предплечье, Дж (замер — docs/history/ragdoll.md; лежащий
-    /// труп — ~0 до порчи). С самоколлизией вывернутые в землю конечности, выходя, толкают свой торс — выходит весь труп (замер
-    /// 28,6 Дж); весь труп со скоростью выталкивания 1 м/с — ½·74,8·1² ≈ 37 Дж: больше — разгон, не выход.
+    /// Предел кинетической энергии трупа при выходе вывернутой конечности из земли, Дж: с самоколлизией выходит весь труп, а весь труп
+    /// со скоростью выталкивания 1 м/с — ½·74,8·1² ≈ 37 Дж; больше — разгон, не выход.
     /// </summary>
     private const float LimbKinetic = 40;
 
@@ -321,10 +311,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Утопленный труп (лежащий труп сдвинут командой сцены на 0,3 м вниз, без скорости): выходит не быстрее скорости выталкивания — центр масс
-    /// поднимается за тик не больше <c>1,5 · PopSpeed · dt</c> (замер ≤ 1,33: земля выводит старую глубину тела не быстрее PopSpeed, а сустав,
-    /// тянущий соседа вниз, даёт «новую» глубину, которую земля решает целиком), выходит весь (глубина ≤ 1 см) и не подпрыгивает (после выхода
-    /// центр масс не выше, чем был до утопления, больше чем на 2 см); ручка «выталкивание» замедляет выход.
+    /// Утопленный на 0,3 м труп выходит не быстрее <c>1,5 · PopSpeed · dt</c> за тик (запас 1,5: сустав, тянущий соседа вниз, даёт новую
+    /// глубину, которую земля решает целиком), выходит весь и не подпрыгивает; ручка «выталкивание» замедляет выход.
     /// </summary>
     [Theory]
     [InlineData(1f)]
@@ -363,10 +351,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Сцена s4 — два трупа внахлёст: враги в (±0,36; 1,5) убиты, в следующем тике тела второго сдвинуты без скорости так, что тазы — в 0,2 м:
-    /// расходятся (выход — не быстрее скорости выталкивания): горизонтальная скорость центров масс друг относительно друга в первые 0,25 с — не
-    /// больше 1,5 · PopSpeed (замер ≤ 0,65 м/с при 1 м/с); без разлёта: тазы в конце — не дальше 2,5 м (трупы в рост 1,8 м падают в разные стороны:
-    /// замер 1,9 м), оба успокоились.
+    /// Два трупа внахлёст (тазы в 0,2 м): расходятся не быстрее 1,5 · PopSpeed, без разлёта (тазы в конце не дальше 2,5 м — трупы в рост
+    /// 1,8 м падают в разные стороны), оба успокоились.
     /// </summary>
     [Fact]
     public void TwoCorpsesOverlapping_SeparateCalmly_S4()
@@ -401,10 +387,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     // ── меч, возрождение, корень ────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Меч выпадает при каждой смерти: сустав запястья выключен, тело клинка — свободное тело трупа; через 3 с лежит (скорость ≤ 2 см/с) — на
-    /// земле или (самоколлизия) одним концом на земле, другим на своём трупе: нижний конец оси — у земли (не выше радиуса + 2 см), в тела
-    /// трупа клинок не вошёл глубже допуска <c>physics.selfContacts</c>; хват ушёл от кисти (от конца предплечья) — меч не держится в руке.
-    /// Клинок-отрезок мёртвого стоит, где был в тик смерти.
+    /// Меч выпадает при каждой смерти: через 3 с лежит нижним концом у земли, в тела трупа не вошёл глубже допуска <c>physics.selfContacts</c>,
+    /// хват ушёл от кисти; клинок-отрезок мёртвого стоит, где был в тик смерти.
     /// </summary>
     [Fact]
     public void Sword_DropsFromHand_LiesOnGround()
@@ -433,9 +417,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Возрождение возвращает кинематику: труп, построенный заново (команда сцены «поставить», сброс R, возрождение врага через 8 с) — все 14
-    /// тел кинематические, профиль по умолчанию, суставы (от прошлой смерти) включены, тела — по позе (инварианты чисты), без скачка скорости;
-    /// следующая смерть — снова труп.
+    /// Возрождение (команда «поставить», сброс R, враг через 8 с) возвращает кинематику: тела по позе, профиль по умолчанию, без скачка
+    /// скорости; следующая смерть — снова труп.
     /// </summary>
     [Fact]
     public void Revival_ReturnsKinematics_DefaultProfile_JointsEnabled()
@@ -505,9 +488,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     // ── ручки, реплей, пересборка ───────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Ручки «Рэгдолл» — секция ragdoll (значения по умолчанию — правила), система tuning.ragdoll в Begin; команда ручки посреди
-    /// прогона с трупами меняет правила (ресурс), настройки физики и профиль трупа до шага того же тика и воспроизводится реплеем — те же
-    /// хеши всех участников.
+    /// Команда ручки «Рэгдолл» посреди прогона с трупами меняет правила, настройки физики и профиль трупа до шага того же тика
+    /// и воспроизводится реплеем — те же хеши всех участников.
     /// </summary>
     [Fact]
     public void RagdollKnob_MidRun_ChangesPhysics_ReplaysWithSameHashes()
@@ -552,9 +534,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Пересборка нечислового трупа: тело трупа стало нечисловым (порча после шага) — <c>physics.finite</c> называет его в этом же тике, в
-    /// Aftermath труп строится заново на месте корня (живым), в следующем тике тела ставит постройка — всё конечно, кинематика. Живого с
-    /// нечисловым телом (ошибка выше физики) пересборка не чинит.
+    /// Нечисловой труп: <c>physics.finite</c> называет его в том же тике, в Aftermath он строится заново на месте корня (живым).
+    /// Живого с нечисловым телом (ошибка выше физики) пересборка не чинит.
     /// </summary>
     [Fact]
     public void NonFiniteCorpse_RebuiltAtRoot_AliveAndFinite()
@@ -584,9 +565,9 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
 
     // ── инварианты-неисправности ────────────────────────────────────────────────────────────────────────────────────
 
-    public enum CorpseFault { Modes, Speed, Joints, Ground, InArena, Energy, Pushes, DeadRoot, SelfTable }
+    public enum CorpseFault { Modes, Speed, Joints, Ground, InArena, DeadRoot, SelfTable }
 
-    /// <summary>Порча трупа в тике <paramref name="tick"/>: после шага (Physics), энергия — до шага, настройки толчков — в Settle.</summary>
+    /// <summary>Порча трупа в тике <paramref name="tick"/>: после шага (Physics).</summary>
     private sealed class Fault(CorpseFault fault, ulong tick, IPhysicsWorld[] physics) : IContinuousSystem
     {
         private Query _dead = null!;
@@ -595,8 +576,7 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         {
             s.Label(new SystemLabel("test.fault")).Writes<Transform>();
             _dead = s.Query().With<Dead>().Write<Transform>();
-            if (fault is CorpseFault.Energy) s.Before(GameLabels.PhysicsStep);
-            else if (fault is not CorpseFault.Pushes) s.After(GameLabels.CorpseRoot);
+            s.After(GameLabels.CorpseRoot);
         }
 
         public void Run(in SystemContext ctx)
@@ -615,8 +595,6 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
                 case CorpseFault.Joints: p.Place(head, s.Position + new Vector3(0, 0, 1), s.Rotation); break;
                 case CorpseFault.Ground: p.Place(head, s.Position with { Y = -1 }, s.Rotation); break;
                 case CorpseFault.InArena: p.Place(head, new Vector3(0, 1, 70), s.Rotation); break;
-                case CorpseFault.Energy: p.Place(head, s.Position - new Vector3(0, 1.5f, 0), s.Rotation); break;
-                case CorpseFault.Pushes: p.Settings = p.Settings with { HitDvShare = 1e-4f }; break;
                 case CorpseFault.SelfTable: p.SetSelfContacts(a, []); break;   // труп без самоколлизии
                 case CorpseFault.DeadRoot:
                     foreach (var chunk in ctx.Iterate(_dead))
@@ -629,36 +607,13 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>Удар по трупу в Resolve тика <paramref name="tick"/>: импульс в таз, Δv точки — в трассу этого тика.</summary>
-    private sealed class HitCorpse(ulong tick, IPhysicsWorld[] physics) : IContinuousSystem
-    {
-        public void Setup(SystemSetup s) => s.Label(new SystemLabel("test.hit"));
-
-        public void Run(in SystemContext ctx)
-        {
-            if (ctx.World.Resource<SimTime>().Tick != tick) return;
-            var p = physics[0];
-            var pelvis = p.Body(FighterBodies.Handle(ctx.World.Get<BodyRef>(FighterIn(ctx.World, 1))), BodySegs.Pelvis);
-            p.ApplyHit(pelvis, p.Get(pelvis).Position, new Vector3(0, 0, 30), 10, ArticulationHandle.None);
-        }
-    }
-
-    /// <summary>
-    /// Инварианты трупа ловят порчу на своём тике: режим тела трупа (<c>physics.modes</c>), скорость 100 м/с (<c>physics.simulatedSpeed</c>),
-    /// оторванная голова (<c>physics.joints</c>), тело в земле на метр (<c>physics.ground</c>), тело за стеной (<c>physics.inArena</c>), голова
-    /// на 1,5 м ниже шеи до шага — сустав рывком стягивает её в шаге (<c>physics.energy</c>, диагностический: включается явно вместе с режимом
-    /// <c>physics.trace</c>), доля Δv удара
-    /// выше настройки (удар по трупу в Resolve, настройки подменены в Settle — <c>physics.pushes</c>), корень мёртвого не за тазом (<c>combat.dead</c>),
-    /// у трупа нет пар самоколлизии (<c>physics.modes</c>). До порчи — чисто.
-    /// </summary>
+    /// <summary>Инварианты трупа ловят каждую порчу на её тике; до порчи — чисто.</summary>
     [Theory]
     [InlineData(CorpseFault.Modes, "physics.modes", GameStages.Physics)]
     [InlineData(CorpseFault.Speed, "physics.simulatedSpeed", GameStages.Physics)]
     [InlineData(CorpseFault.Joints, "physics.joints", GameStages.Physics)]
     [InlineData(CorpseFault.Ground, "physics.ground", GameStages.Physics)]
     [InlineData(CorpseFault.InArena, "physics.inArena", GameStages.Physics)]
-    [InlineData(CorpseFault.Energy, "physics.energy", GameStages.Physics)]
-    [InlineData(CorpseFault.Pushes, "physics.pushes", GameStages.End)]
     [InlineData(CorpseFault.DeadRoot, "combat.dead", GameStages.End)]
     [InlineData(CorpseFault.SelfTable, "physics.modes", GameStages.Physics)]
     public void CorpseInvariants_CatchFault_OnItsTick(CorpseFault fault, string id, string stage)
@@ -666,13 +621,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         var holder = new IPhysicsWorld[1];
         const ulong tick = 120;
         IContinuousSystem system = new Fault(fault, tick, holder);
-        var (sim, physics) = fault is CorpseFault.Pushes
-            ? Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Resolve, new HitCorpse(tick, holder)), (GameStages.Settle, system))
-            : Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Physics, system));
+        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Physics, system));
         holder[0] = physics;
-        sim.Invariants.SetEnabled("physics.energy", true);
-        sim.Invariants.SetEnabled("physics.pushes", true);
-        sim.Diagnostics.Set(IPhysicsDebugView.TraceMode, true);   // трасса физики — диагностический режим: по ней меряют energy и pushes
         Step(sim, Place(1, -6, -6, 0.4f));
         Step(sim, Kill(1));
         while (sim.Tick < tick) sim.Step();   // номер идущего тика (SimTime.Tick) — сыграно до него: следующий шаг — тик порчи
@@ -743,9 +693,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Прогрев шага физики (<see cref="PhysicsWarmup"/>): в игре он идёт в фоне, и его ошибка только пишется в журнал, — здесь на этом
-    /// потоке: синтетические трупы, «живой» с проходом, удар — шаги без исключений. 0,1 с — у трупов прогрева самоколлизия, а их
-    /// тела сложены плотно и в первые шаги почти все пары внахлёст (Debug, холодный JIT: 22 шага за 0,05 с).
+    /// Прогрев шага физики (<see cref="PhysicsWarmup"/>) на этом потоке — шаги без исключений (в игре он идёт в фоне, и ошибка только пишется
+    /// в журнал). 0,1 с — тела трупов прогрева сложены плотно, в первые шаги почти все пары самоколлизии внахлёст.
     /// </summary>
     [Fact]
     public void PhysicsWarmup_Runs_WithoutErrors()
@@ -755,107 +704,14 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         Assert.True(result.Steps > 30, result.ToString());
     }
 
-    // ── агент, хеш, память ──────────────────────────────────────────────────────────────────────────────────────────
+    // ── хеш, память ──────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Вычисляемые поля тела целиком (<see cref="Agent.BodyFields"/>: <c>Body.Com</c>, <c>Body.ComVelocity</c>, <c>Body.KineticEnergy</c>,
-    /// <c>Body.Energy</c>) — те же, что итоги по видам тел; условие языка наблюдений читает их полем сущности (проверки манифеста фичи).
+    /// Хеш <c>physics</c> видит суставы, их привязку и включённость и отдачу: переключение сустава трупа меняет хеш участника; суставы
+    /// трупа заведены (запястье выключено, колено — шарнир).
     /// </summary>
     [Fact]
-    public void Agent_CorpseFields_AndConditionsReadThem()
-    {
-        var (sim, _) = Create("arena.enemies=1;combat.enemiesAttack=false");
-        Step(sim, Place(1, 3, -3));
-        Step(sim, Kill(1));
-        for (int t = 0; t < 20; t++) sim.Step();
-        var e = Fighter(sim, 1);
-        var fields = new Agent.BodyFields();
-        var ctx = new ServiceContext(sim);
-        var totals = Totals(sim, e);
-        Assert.Equal(totals.Com.Y, fields.Compile("Body.Com.Y", "t")!(ctx, e), 5);
-        Assert.Equal(totals.ComVelocity.Length(), fields.Compile("Body.ComVelocity", "t")!(ctx, e), 5);
-        Assert.Equal(totals.KineticEnergy, fields.Compile("Body.KineticEnergy", "t")!(ctx, e), 4);
-        Assert.Equal(totals.Energy, fields.Compile("Body.Energy", "t")!(ctx, e), 3);
-        Assert.True(totals.KineticEnergy > 0 && totals.Energy > totals.KineticEnergy);
-        Assert.Throws<ArgumentException>(() => fields.Compile("Body.Com.Q", "t"));
-        var catalog = new Catalog(sim);
-        var names = new Agent.SwordAgent.ArenaNames();
-        var rising = ObservationPredicate.Compile(JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"field":"Body.Com.Y","lessThan":5}]}"""), ctx, catalog, names,
-            fields: fields);
-        Assert.True(rising.Evaluate(ctx));
-        var never = ObservationPredicate.Compile(JsonNode.Parse("""{"exists":{"all":[{"component":"EnemyTag"},{"field":"Body.Energy","greaterThan":1e6}]}}"""), ctx,
-            catalog, names, fields: fields);
-        Assert.False(never.Evaluate(ctx));
-        Assert.Throws<ArgumentException>(() => ObservationPredicate.Compile(JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"field":"Body.Energy","lessThan":1}]}"""),
-            ctx, catalog, names));   // без вычисляемых полей — не поле компонента
-    }
-
-    /// <summary>
-    /// Агент: «играть, пока труп не успокоится» — <c>time.runUntil</c> с условием по вычисляемому полю тела (<c>Body.KineticEnergy</c>) после
-    /// смерти командой сцены: встаёт после падения (труп сначала падает — кинетическая энергия растёт), <c>watch.add</c> + <c>entity.history</c>
-    /// показывают энергию трупа по тикам.
-    /// </summary>
-    [Fact]
-    public async Task Agent_RunUntilCorpseAtRest_ByComputedField()
-    {
-        var (sim, _) = Create("arena.enemies=1;combat.enemiesAttack=false");
-        Step(sim, Place(1, 3, -3));
-        var host = new Sword.Engine.Agent.AgentHost(new Sword.Engine.Agent.AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new Sword.Engine.Diagnostics.LogRing(16),
-            ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"), Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        Agent.SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => Sword.Engine.Agent.SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            await Call("watch.add", new JsonObject { ["entities"] = new JsonArray("enemy 1"), ["fields"] = new JsonArray("Body.KineticEnergy") });
-            await Call("command.send", new JsonObject { ["command"] = "SceneCommand", ["fields"] = JsonNode.Parse("""{"Action":"Kill","Slot":1}""") });
-            var falling = await Call("time.runUntil", new JsonObject
-            {
-                ["condition"] = JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"component":"Dead"},{"field":"Body.KineticEnergy","greaterThan":5}]}"""),
-                ["maxTicks"] = 240,
-            });
-            Assert.True(falling["met"]!.GetValue<bool>(), falling.ToJsonString());
-            var rest = await Call("time.runUntil", new JsonObject
-            {
-                ["condition"] = JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"component":"Dead"},{"field":"Body.KineticEnergy","lessThan":0.05}]}"""),
-                ["maxTicks"] = 1200,
-            });
-            Assert.True(rest["met"]!.GetValue<bool>(), rest.ToJsonString());
-            var rows = (await Call("entity.history", new JsonObject { ["entity"] = "enemy 1" }))["rows"]!.AsArray();
-            var energy = rows.Select(r => r!["values"]!["Body.KineticEnergy"]!.GetValue<double>()).ToArray();
-            Assert.True(energy.Max() > 30, string.Join(", ", energy.Take(10)));   // падение трупа — в истории наблюдения
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
-    }
-
-    /// <summary>
-    /// Хеш <c>physics</c> видит суставы, их привязку и включённость и отдачу: переключение сустава трупа меняет хеш участника, описание
-    /// показывает суставы трупа (описание, привязка, замер) и часть <c>passes</c>.
-    /// </summary>
-    [Fact]
-    public void PhysicsPart_HashesJoints_DescribeShowsThem()
+    public void PhysicsPart_HashesJoints()
     {
         var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false");
         Step(sim, Place(1, 3, 3));
@@ -866,20 +722,15 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         Assert.NotEqual(before, sim.HashState().Parts["physics"]);
         physics.SetJointEnabled(a, 0, true);
         Assert.Equal(before, sim.HashState().Parts["physics"]);
-        var corpse = JsonNode.Parse(sim.DescribeState("physics", new DescribeQuery(a.ToString())))!["items"]![0]!;
-        Assert.Equal(CorpseJoints.Count, corpse["jointCount"]!.GetValue<int>());
-        Assert.False(corpse["joint10"]!["enabled"]!.GetValue<bool>());   // запястье — меч выпал
-        Assert.Equal("Hinge", corpse["joint7"]!["kind"]!.GetValue<string>());   // колено левое
-        Assert.NotNull(corpse["joint7"]!["hingeAxis"]);
-        Assert.NotNull(corpse["joint0"]!["measure"]!["pointError"]);
-        Assert.NotNull(corpse["reaction"]);
-        var passes = JsonNode.Parse(sim.DescribeState("physics", new DescribeQuery("passes")))!["items"]![0]!;
-        Assert.Equal("passes", passes["id"]!.GetValue<string>());
+        Assert.Equal(CorpseJoints.Count, physics.JointCount(a));
+        Assert.False(physics.IsJointEnabled(a, 10));                     // запястье — меч выпал
+        Assert.Equal(JointKind.Hinge, physics.Joint(a, 7).Kind);         // колено левое
+        Assert.NotEqual(Vector3.Zero, physics.Joint(a, 7).HingeAxis);
+        Assert.True(float.IsFinite(physics.MeasureJoint(a, 0).PointError));
     }
 
     /// <summary>
-    /// Толпа 32 трупов (все враги убиты командой около игрока; синтетический контент): не разлетается (центры масс — в 8 м от игрока), через
-    /// 5 с — покой; 0 Б на тик 240 тиков после прогрева; время стадии Physics — в выводе (Debug, ориентир).
+    /// Толпа 32 трупов, убитых около игрока: не разлетается (центры масс — в 8 м от игрока), через 5 с — покой; 0 Б на тик после прогрева.
     /// </summary>
     [Fact]
     public void Crowd32Corpses_NoScatter_Settle_ZeroBytesPerTick()
@@ -893,24 +744,17 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         var center = sim.World.Get<Transform>(Fighter(sim, 0)).Position;
         float far = enemies.Max(e => Vector2.Distance(new Vector2(Totals(sim, e).Com.X, Totals(sim, e).Com.Z), new Vector2(center.X, center.Z)));
         float ke = enemies.Max(e => Totals(sim, e).KineticEnergy);
-        var timer = new StageTimer(sim);
-        sim.Observe(timer);
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int t = 0; t < 240; t++)
-        {
-            timer.Begin();
             sim.Step();
-        }
         long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
         double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds / 240;
-        double physicsMs = timer.MeanMilliseconds(timer.Stages.ToList().IndexOf(GameStages.Physics));
         foreach (var i in sim.Invariants.List().Where(i => i.Violations > 0)) output.WriteLine($"  нарушено {i.Id}: {i.Violations}");
         foreach (var v in sim.Invariants.Recent().Take(3)) output.WriteLine($"  {v}");
-        output.WriteLine(FormattableString.Invariant($"толпа 32 трупов: ЦМ до {far:F2} м от игрока, кинетическая ≤ {ke:F3} Дж через 5 с; тик {ms:F2} мс, стадия Physics {physicsMs:F2} мс (Debug, с инвариантами после барьера); {bytes} Б за 240 тиков"));
+        output.WriteLine(FormattableString.Invariant($"толпа 32 трупов: ЦМ до {far:F2} м от игрока, кинетическая ≤ {ke:F3} Дж через 5 с; тик {ms:F2} мс (Debug, с инвариантами после барьера); {bytes} Б за 240 тиков"));
         Assert.True(far <= 8, $"разлетелись: {far} м");
-        // 2,5 Дж — с самоколлизией трупы кучи лежат друг на друге, а не сложившись в себя: оседание дольше (замер через 5 с — 1,16 Дж у
-        // самого беспокойного; без самоколлизии — ≤ 1 Дж)
+        // 2,5 Дж — с самоколлизией трупы кучи лежат друг на друге, а не сложившись в себя: оседание дольше
         Assert.True(ke <= 2.5f, $"не успокоились: {ke} Дж");
         Assert.True(bytes == 0, $"240 тиков толпы трупов выделили {bytes} Б");
         Clean(sim);
@@ -918,13 +762,12 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
 }
 
 /// <summary>
-/// На паке игры (категория Content): оси шарниров Manny найдены по клипам (−Y кости); сцена s8 — труп на ступенях пирамиды в 5 местах
-/// (убит командой в стойке): через 2 с окно покоя 5 с — центр масс успокаивается, энергия в покое не растёт, суставы держат, глубина мала.
+/// На паке игры (категория Content): оси шарниров Manny найдены по клипам (−Y кости).
 /// </summary>
 [Trait("Category", "Content")]
-public sealed class RagdollCorpseContentTests(ITestOutputHelper output)
+public sealed class RagdollCorpseContentTests
 {
-    private static CharacterAssets Pak => FeatureManifestsTests.Reference.Value.Assets;
+    private static CharacterAssets Pak => TestContent.Reference.Value.Assets;
 
     [Fact]
     public void Hinges_FoundFromClips_OnManny()
@@ -935,23 +778,5 @@ public sealed class RagdollCorpseContentTests(ITestOutputHelper output)
             Assert.True(anatomy.Found(seg), BodySegs.Name(seg));
             Assert.True(Vector3.Dot(anatomy.Local(seg), -Vector3.UnitY) > 0.99f, $"{BodySegs.Name(seg)}: {anatomy.Local(seg)}");
         }
-    }
-
-    public static TheoryData<float, float> S8Places => new() { { -12.5f, 0 }, { -19f, 0 }, { -13f, 0 }, { -20.02f, 0 }, { -16f, -4f } };
-
-    [Theory]
-    [MemberData(nameof(S8Places))]
-    public void S8_CorpseOnPyramidSteps_Settles_EnergyAtRestDoesNotGrow(float x, float z)
-    {
-        var (sim, physics) = RagdollCorpseTests.Create(Pak, "arena.enemies=1;combat.enemiesAttack=false");
-        RagdollCorpseTests.Step(sim, RagdollCorpseTests.Place(1, x, z));
-        RagdollCorpseTests.Step(sim, RagdollCorpseTests.Kill(1));
-        var e = RagdollCorpseTests.Fighter(sim, 1);
-        var rest = RagdollCorpseTests.RestWindow(sim, physics, e, settle: 240, window: 600);
-        output.WriteLine(FormattableString.Invariant($"s8 ({x}; {z}): {rest}"));
-        Assert.True(rest.ComSpeed <= RagdollCorpseTests.RestComSpeed && rest.KineticEnd <= RagdollCorpseTests.RestKineticEnd, rest.ToString());
-        Assert.True(rest.EnergyRise <= RagdollCorpseTests.RestEnergyRise, rest.ToString());
-        Assert.True(rest.Depth <= 0.01f && rest.Point <= 0.01f, rest.ToString());
-        RagdollCorpseTests.Clean(sim);
     }
 }

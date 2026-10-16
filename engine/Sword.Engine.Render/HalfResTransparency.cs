@@ -3,8 +3,7 @@ using System.Numerics;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// Прозрачное на снимке: цель ½ (<see cref="HalfResTransparency"/>) этого кадра до композита — премультиплицированный цвет × экспозиция
-/// (яркость Rec.709; максимум, среднее), <see cref="Coverage"/> — средняя альфа (непрозрачность), пикселей с NaN или бесконечностью.
+/// Прозрачное на снимке: цель ½ до композита — яркость премультиплицированного цвета × экспозиция, покрытие, NaN/∞.
 /// </summary>
 /// <param name="Coverage">Средняя альфа цели ½: 0 — ничего не нарисовано, 1 — всё закрыто.</param>
 public sealed record TransparentCapture(int Width, int Height, float MaxLuminance, float MeanLuminance, float Coverage, int NonFinite)
@@ -17,18 +16,13 @@ public sealed record TransparentCapture(int Width, int Height, float MaxLuminanc
 }
 
 /// <summary>
-/// Цель ½ прозрачного этого кадра (<see cref="HalfResTransparency.Begin"/>): цвет RGBA16F (премультиплицированный цвет, альфа —
-/// непрозрачность; очищен нулём — проходы в неё не чистят) и глубина сцены ½ (D32, ближайшая глубина блока 2×2; как текстура —
-/// <c>Texture2D&lt;float&gt;</c> по <see cref="DepthSrv"/>, как глубина — только <see cref="DepthAccess.Read"/>). <see cref="ViewDepth"/> —
-/// параметры линейной глубины для <c>SceneViewDepth</c> (<c>common/gbuffer.hlsli</c>).
+/// Цель ½ прозрачного: цвет RGBA16F (премультиплицированный, очищен нулём — проходы не чистят) и глубина сцены ½
+/// (D32, ближайшая глубина блока 2×2; только чтение). <see cref="ViewDepth"/> — параметры для <c>SceneViewDepth</c>.
 /// </summary>
 public readonly record struct HalfResTarget(RenderTexture Color, RenderTexture Depth, int ColorSrv, int DepthSrv, int Width, int Height,
     Vector2 ViewDepth);
 
-/// <summary>
-/// Формулы прозрачного — CPU-эталон <c>common/gbuffer.hlsli</c> (<c>SceneViewDepth</c>, <c>DepthFade</c>) и <c>common/halfres.hlsl</c>
-/// (уменьшение глубины, апсемпл по глубине).
-/// </summary>
+/// <summary>CPU-эталон <c>common/gbuffer.hlsli</c> (<c>SceneViewDepth</c>, <c>DepthFade</c>) и <c>common/halfres.hlsl</c>.</summary>
 public static class TransparencyMath
 {
     /// <summary>
@@ -62,10 +56,8 @@ public static class TransparencyMath
     }
 
     /// <summary>
-    /// Апсемпл цели ½ в полный пиксель (<paramref name="x"/>, <paramref name="y"/>) с линейной глубиной <paramref name="viewDepth"/>:
-    /// из четырёх билинейных соседей — те, чья глубина ½ отличается не больше чем на <paramref name="tolerance"/> × глубину пикселя,
-    /// билинейные веса перенормированы; все согласованы — ровно билинейный; ни одного — сосед с ближайшей глубиной (первый при
-    /// равенстве, порядок: (I0, I0), (I1, I0), (I0, I1), (I1, I1)).
+    /// Апсемпл цели ½ в полный пиксель: из четырёх билинейных соседей — согласованные по глубине (в пределах
+    /// <paramref name="tolerance"/> × глубина пикселя) с перенормированными весами; ни одного — сосед с ближайшей глубиной.
     /// </summary>
     public static Vector4 Upsample(ReadOnlySpan<Vector4> color, ReadOnlySpan<float> halfViewDepth, int halfWidth, int halfHeight, int x, int y,
         float viewDepth, float tolerance)
@@ -96,18 +88,13 @@ public static class TransparencyMath
 }
 
 /// <summary>
-/// Прозрачное в ½ разрешения (<see cref="Renderer.HalfRes"/> = <see cref="RenderFrame.HalfRes"/>), фаза <see cref="FramePhase.Transparent"/>,
-/// раз за кадр, только с HDR:
-/// <see cref="Begin"/> — проход <c>transparent.halfres.depth</c>: глубина сцены ½ (ближайшая глубина блока 2×2) и очищенная цель ½;
-/// затем проходы вызывающего пишут в <see cref="HalfResTarget.Color"/> с <see cref="BlendMode.Premultiplied"/> (дым: рэймарч до
-/// <c>SceneViewDepth</c> глубины ½); <see cref="Composite"/> — проход <c>transparent.halfres.composite</c>: апсемпл по глубине
-/// (<see cref="TransparencyMath.Upsample"/>) и «поверх» в <see cref="RenderFrame.SceneColor"/>. Проходы исполняются в порядке
-/// регистрации внутри фазы: что до <see cref="Composite"/> — под слоем ½, что после (пламя по полной глубине) — поверх.
+/// Прозрачное в ½ разрешения, фаза Transparent, раз за кадр, только с HDR: <see cref="Begin"/> — глубина ½ и очищенная цель,
+/// проходы вызывающего пишут в цель (<see cref="BlendMode.Premultiplied"/>), <see cref="Composite"/> — апсемпл по глубине
+/// поверх <see cref="RenderFrame.SceneColor"/>. Что зарегистрировано после композита — ложится поверх слоя.
 /// </summary>
 /// <remarks>
-/// Глубина ½ — ближайшая, а не дальняя: марш обрезается ею и не проходит сквозь передний план, край которого попал в блок, — у переднего
-/// плана не бывает дыма из-за него. Фон у края находит в апсемпле соседа ½ со своей глубиной; не нашёл — берёт ближайшего по глубине и
-/// недобирает дым на пиксель у силуэта (светлый контур вместо ореола на персонаже). Кадр — 0 Б: делегаты проходов созданы один раз.
+/// Глубина ½ — ближайшая: марш не проходит сквозь передний план у края блока. Цена — светлый контур у силуэта, а не ореол.
+/// Кадр — 0 Б: делегаты проходов созданы один раз.
 /// </remarks>
 public sealed class HalfResTransparency
 {
@@ -158,18 +145,14 @@ public sealed class HalfResTransparency
         c.AddSlot("HALFRES_TOLERANCE", SlotTolerance, "допуск глубины, доля, float");
     }
 
-    /// <summary>
-    /// Допуск апсемпла: сосед ½ согласован с пикселем, если их линейные глубины отличаются не больше чем на эту долю глубины пикселя
-    /// (<see cref="DefaultDepthTolerance"/>; бесконечность — чистый билинейный). Берётся при <see cref="Composite"/>.
-    /// </summary>
+    /// <summary>Допуск апсемпла — доля линейной глубины пикселя; бесконечность — чистый билинейный.</summary>
     public float DepthTolerance { get; set; } = DefaultDepthTolerance;
 
     /// <summary>Цель ½ этого кадра; null — <see cref="Begin"/> в кадре не звали.</summary>
     public HalfResTarget? Current => _begun ? _target : null;
 
     /// <summary>
-    /// Начать слой ½ в этом кадре: проход уменьшения глубины (фаза Transparent, в порядке регистрации) и цель ½. Глубину сцены в кадре
-    /// должен записать непрозрачный проход. <paramref name="viewDepth"/> — <see cref="TransparencyMath.ViewDepthParams"/> проекции кадра.
+    /// Начать слой ½: проход уменьшения глубины и цель ½. Глубину сцены должен записать непрозрачный проход.
     /// </summary>
     /// <exception cref="InvalidOperationException">HDR в кадре выключен или слой ½ уже начат.</exception>
     public HalfResTarget Begin(Vector2 viewDepth)
@@ -191,10 +174,7 @@ public sealed class HalfResTransparency
         return _target;
     }
 
-    /// <summary>
-    /// Смешать слой ½ со сценой: проход композита — сейчас, в порядке регистрации фазы Transparent (после проходов в цель ½, до
-    /// прозрачного, которое должно лечь поверх).
-    /// </summary>
+    /// <summary>Смешать слой ½ со сценой — проход композита в порядке регистрации фазы Transparent.</summary>
     /// <exception cref="InvalidOperationException">Слой не начат или уже смешан.</exception>
     public void Composite()
     {

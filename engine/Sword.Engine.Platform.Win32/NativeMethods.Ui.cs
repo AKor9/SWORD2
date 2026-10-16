@@ -37,10 +37,7 @@ internal struct DEVMODE
     [FieldOffset(184)] public uint dmDisplayFrequency;
 }
 
-/// <summary>
-/// Вызовы Win32 для окон инструментов: рама, ожидание событий вместо кадров на всю мощность,
-/// форма курсора, буфер обмена, DPI, частота монитора. Отдельно от <see cref="Win32"/>: игре они не нужны.
-/// </summary>
+/// <summary>Вызовы Win32 для окон инструментов (рама, ожидание событий, курсор, буфер обмена, DPI); игре не нужны.</summary>
 internal static class Win32Ui
 {
     /// <summary>Сменился режим экрана (разрешение, частота) — частоту монитора окна перечитать.</summary>
@@ -66,9 +63,7 @@ internal static class Win32Ui
     public static extern bool EnumDisplaySettings(string lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
 
     /// <summary>
-    /// Частота обновления монитора (<c>MonitorFromWindow</c> окна — монитор, на котором большая часть окна), Гц: имя устройства
-    /// монитора → текущий режим экрана. 0 — не узнать (нет монитора, драйвер вернул 0 или 1 — «по умолчанию железа»). Выделяет
-    /// (имя устройства — строка): зовётся на событиях окна, не каждый кадр.
+    /// Частота обновления монитора, Гц; 0 — не узнать (нет монитора, драйвер вернул 0 или 1). Выделяет: только на событиях окна.
     /// </summary>
     public static int RefreshRate(nint monitor)
     {

@@ -1,0 +1,12 @@
+{
+  "converter": "anim",
+  "import": "1hm_sword",
+  "notes": "Экспорт skin_sword (export_config_skin.json), пальцы — skin_sword_ue4 (export_config_ue4src.json): после IK-ретаргета UE4→UE5 пястные кости сломаны.",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "fingerSrc": "${src}/_Export/skin_sword_ue4",
+    "sets": {
+      "sword_1h": []
+    }
+  }
+}

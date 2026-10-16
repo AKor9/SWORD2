@@ -14,10 +14,7 @@ using Xunit.Abstractions;
 
 namespace Sword.Game.Tests;
 
-/// <summary>
-/// Bloom на дневной арене (настоящее устройство с GPU-валидацией, Manny из пака, 1280×720): сцена почти вся ниже порога — добавка bloom
-/// ничтожна, кадр с bloom и без него (<see cref="Renderer.Bloom"/>) почти одинаков. Числа — в выводе теста. Категории Gpu и Content.
-/// </summary>
+/// <summary>Bloom на дневной арене (Gpu, Content): сцена почти вся ниже порога — кадр с bloom и без почти одинаков.</summary>
 [Collection("game-gpu")]
 [Trait("Category", "Gpu")]
 [Trait("Category", "Content")]

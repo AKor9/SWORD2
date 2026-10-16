@@ -1,17 +1,11 @@
 namespace Sword.Engine.Ecs;
 
-/// <summary>
-/// Вид только для чтения (<see cref="WorldBuilder.ReadView{TView}"/>, <see cref="WorldReader.View{TView}"/>): интерфейс,
-/// все члены которого только читают — значения, строки, <c>ReadOnlySpan</c> чистых данных; без сеттеров, массивов,
-/// <c>Span</c>, <c>ref</c> и ссылок на объекты. Проверка — <c>PublicSurfaceTests.ReadViews_OnlyRead</c>.
-/// </summary>
+/// <summary>Вид только для чтения: интерфейс, члены которого возвращают значения, строки и <c>ReadOnlySpan</c> чистых
+/// данных — без сеттеров, массивов, <c>Span</c>, <c>ref</c> и ссылок (<c>PublicSurfaceTests.ReadViews_OnlyRead</c>).</summary>
 public interface IReadView;
 
-/// <summary>
-/// Мир только для чтения — для тех, кто симуляцию наблюдает, но не исполняет (клиентская часть игры: Extract, камера;
-/// инструменты). Ни одного пути изменить мир: нет немедленных операций, тика, включения систем, записи колонок,
-/// журналов с курсорами; ресурсы — только значения. Меняют симуляцию команды тика у её владельца.
-/// </summary>
+/// <summary>Мир только для чтения — для наблюдателей симуляции (клиент, инструменты): ни одного пути изменить мир;
+/// меняют симуляцию только команды тика у её владельца.</summary>
 public readonly partial struct WorldReader
 {
     private readonly World _world;
@@ -24,25 +18,13 @@ public readonly partial struct WorldReader
     /// <summary>Стадии тика по порядку.</summary>
     public IReadOnlyList<string> Stages => _world.Stages;
 
-    /// <summary>Регистрации систем в порядке исполнения (описание мира для людей и агента).</summary>
+    /// <summary>Регистрации систем в порядке исполнения (описание мира для людей и инструментов).</summary>
     public IReadOnlyList<SystemInfo> Systems => _world.Systems;
 
-    /// <summary>Хуки времени жизни ресурсов подсистем: компонент, вид (<c>OnAdd</c>/<c>OnRemove</c>), модуль-владелец.</summary>
-    public IReadOnlyList<HookInfo> Hooks => _world.Hooks;
-
-    /// <summary>
-    /// Зарегистрирован ли компонент: его регистрирует модуль, и без модуля компонента в мире нет. Запрос и чтение
-    /// незарегистрированного компонента — исключение.
-    /// </summary>
+    /// <summary>Зарегистрирован ли компонент (без модуля его нет). Чтение незарегистрированного — исключение.</summary>
     public bool Knows<T>() where T : unmanaged => _world.Knows<T>();
 
     public bool IsAlive(Entity e) => _world.IsAlive(e);
-
-    /// <summary>
-    /// Журнал причинности (диагностический режим <c>state.why</c>); null — выключен. Наблюдателю — только чтение (записи, значения,
-    /// связи): мир и хеш от журнала не зависят.
-    /// </summary>
-    public CausalityLog? Causality => _world.Causality;
 
     public bool Has<T>(Entity e) where T : unmanaged => _world.Has<T>(e);
 
@@ -51,16 +33,11 @@ public readonly partial struct WorldReader
 
     public bool TryGet<T>(Entity e, out T value) where T : unmanaged => _world.TryGet(e, out value);
 
-    /// <summary>
-    /// Значение ресурса — копия чистых данных (<c>unmanaged</c>): ни ссылочный ресурс, ни структура со ссылкой внутри
-    /// (например, на общий список) через чтение не отдаются — иначе копия давала бы изменить симуляцию.
-    /// </summary>
+    /// <summary>Значение ресурса — копия чистых данных: ресурс со ссылкой внутри не отдаётся, иначе через копию можно
+    /// было бы изменить симуляцию.</summary>
     public T Resource<T>() where T : unmanaged => _world.Resource<T>();
 
-    /// <summary>
-    /// Вид только для чтения, который владелец мира зарегистрировал (<see cref="WorldBuilder.ReadView{TView}"/>): данные
-    /// подсистем вне ECS — например, позы. Нет такого вида — исключение.
-    /// </summary>
+    /// <summary>Вид, зарегистрированный владельцем мира (<see cref="WorldBuilder.ReadView{TView}"/>); нет — исключение.</summary>
     public TView View<TView>() where TView : class, IReadView =>
         _world.ViewOf(typeof(TView)) as TView
         ?? throw new InvalidOperationException($"вид {typeof(TView).FullName} не зарегистрирован (WorldBuilder.ReadView)");

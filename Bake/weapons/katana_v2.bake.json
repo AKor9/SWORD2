@@ -1,9 +1,0 @@
-{
-  "processor": "weapon.static",
-  "import": "combat_master",
-  "notes": "/Game/CombatMasterAnimBundle/Weapon/Katana/SM_Katana_V2 (геометрия как у SM_KatanaV3 и SM_Katana_DK — они отличаются материалом).",
-  "params": {
-    "mesh": "${src}/_Export/weapons/SM_Katana_V2.glb",
-    "skeleton": "skeletons/ue5_manny"
-  }
-}

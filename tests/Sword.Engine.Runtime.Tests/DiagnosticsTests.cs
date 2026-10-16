@@ -4,9 +4,8 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Runtime.Tests;
 
 /// <summary>
-/// Диагностические режимы симуляции (<see cref="SimulationDiagnostics"/>): регистрация ядром и модулем (Id по правилу инварианта,
-/// без повторов, только до сборки мира), список с владельцами, включение и выключение, сброс окна — только между тиками; неизвестный
-/// режим — ошибка со списком; включённый режим не меняет ни хеш, ни мир.
+/// Диагностические режимы (<see cref="SimulationDiagnostics"/>): регистрация ядром и модулем до сборки мира, включение, сброс
+/// окна, неизвестный режим — ошибка со списком; включённый режим не меняет ни хеш, ни мир.
 /// </summary>
 public sealed class DiagnosticsTests
 {
@@ -50,33 +49,11 @@ public sealed class DiagnosticsTests
         public void Run(in SystemContext ctx) => ctx.Commands.SetResource(new Counter { Value = ctx.World.Resource<Counter>().Value + 1 });
     }
 
-    /// <summary>Наблюдатель: пробует включить режим посреди тика.</summary>
-    private sealed class MidTick(string id) : ISimulationObserver
-    {
-        public Exception? Error;
-
-        public void AfterStage(Simulation simulation, int stage)
-        {
-            try
-            {
-                simulation.Diagnostics.Set(id, true);
-            }
-            catch (Exception e)
-            {
-                Error ??= e;
-            }
-        }
-
-        public void AfterTick(Simulation simulation)
-        {
-        }
-    }
-
     private static Simulation Build(IDiagnosticMode mode, Action<SimulationBuilder>? core = null, Action<SimulationBuilder>? more = null) =>
         Simulation.Build(ConfigSet.Empty(), ["A"], core, [new Module(mode, more)]);
 
     [Fact]
-    public void Modes_RegisteredListedSwitched_BetweenTicksOnly_HashUnchanged()
+    public void Modes_RegisteredListedSwitched_HashUnchanged()
     {
         var mode = new Mode("test.trace");
         var core = new Mode("core.mode");
@@ -107,13 +84,6 @@ public sealed class DiagnosticsTests
             Assert.Equal(plain.HashState().Total, sim.HashState().Total);
         }
 
-        // Посреди тика (наблюдатель после барьера) — нельзя.
-        var observer = new MidTick("core.mode");
-        sim.Observe(observer);
-        sim.Step();
-        Assert.IsType<InvalidOperationException>(observer.Error);
-        Assert.False(core.Enabled);
-        sim.Unobserve(observer);
         d.Set("test.trace", false);
         Assert.False(mode.Enabled);
     }

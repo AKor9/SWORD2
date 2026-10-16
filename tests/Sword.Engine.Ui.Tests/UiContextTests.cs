@@ -1,9 +1,8 @@
 namespace Sword.Engine.Ui.Tests;
 
 /// <summary>
-/// Виджеты без видеокарты и шрифтов (<c>UiContextTests</c> SWORD 2eab13b и логика виджетов): виджеты, которым нечего
-/// писать (пустые подписи), рисуют одни фигуры, а они шрифт не трогают. Ввод — <see cref="UiInput"/> от теста.
-/// Текст, поля ввода и подсказка — на шрифтах пака (<see cref="UiWidgetTextTests"/>).
+/// Виджеты без видеокарты и шрифтов: с пустыми подписями рисуют одни фигуры и шрифт не трогают; ввод — <see cref="UiInput"/>
+/// от теста. Текст и поля ввода — <see cref="UiWidgetTextTests"/>.
 /// </summary>
 public sealed class UiContextTests
 {
@@ -13,7 +12,7 @@ public sealed class UiContextTests
         return ui;
     }
 
-    // ── из SWORD ───────────────────────────────────────────────────────
+    // ── кадр, прогресс, всплывающий список ─────────────────────────────
 
     [Fact]
     public void FrameBrokenByExceptionDoesNotBreakTheNext()
@@ -149,7 +148,7 @@ public sealed class UiContextTests
     [Theory]
     [InlineData(false, 0f, 10f, 5f)]        // линейная шкала: середина — среднее
     [InlineData(true, 0.02f, 2f, 0.2f)]     // логарифмическая: середина — среднее геометрическое
-    [InlineData(true, 0f, 10f, 5f)]         // лог. шкала с min ≤ 0 — линейная (в SWORD так и было: иначе NaN)
+    [InlineData(true, 0f, 10f, 5f)]         // лог. шкала с min ≤ 0 — линейная (иначе NaN)
     public void Slider_ClickOnTrack_SetsValue(bool log, float min, float max, float expected)
     {
         var d = new UiDriver();

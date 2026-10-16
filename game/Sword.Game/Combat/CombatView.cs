@@ -3,9 +3,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Секция конфига <c>combat</c> (ручки «Бой»): меч в руке игрока при старте — имя меча пака
-/// (<c>SWORD_WEAPON</c> SWORD; без учёта регистра); неизвестное имя — ошибка конфига (в SWORD — сообщение и меч по умолчанию).
-/// Нападают ли враги, неуязвим ли игрок и рывок — в мир ресурсом <see cref="CombatRules"/>.
+/// Секция конфига <c>combat</c> (ручки «Бой»): меч в руке игрока при старте — имя меча пака без учёта регистра; неизвестное имя —
+/// ошибка конфига. Нападают ли враги, неуязвим ли игрок и рывок — в мир ресурсом <see cref="CombatRules"/>.
 /// </summary>
 public sealed record CombatSettings
 {
@@ -13,9 +12,8 @@ public sealed record CombatSettings
     public string PlayerWeapon { get; init; } = WeaponTable.DefaultName;
 
     /// <summary>
-    /// Оружие только игрока (<c>combat.playerOnlyWeapons</c>, по умолчанию факел — решение 5): враги не берут его случайно, у игрока оно
-    /// в инвентаре. Имена пака без расширения, регистр не важен; имени нет в паке — исключать нечего. Всё оружие только игрока — ошибка
-    /// конфига.
+    /// Оружие только игрока (по умолчанию факел): враги не берут его случайно. Имена пака без расширения, регистр не важен; всё оружие
+    /// только игрока — ошибка конфига.
     /// </summary>
     public string[] PlayerOnlyWeapons { get; init; } = ["torch"];
 
@@ -26,10 +24,8 @@ public sealed record CombatSettings
     public bool PlayerInvulnerable { get; init; }
 
     /// <summary>
-    /// Рывок (Пробел): пиковая прибавка скорости, м/с (<c>combat.dashSpeed</c>), время, с (<c>combat.dashTime</c>), перезарядка, с
-    /// (<c>combat.dashCooldown</c>), неуязвимость с начала рывка, с (<c>combat.dashInvulnerable</c>). По умолчанию — 9,5 м/с за 0,3 с:
-    /// прибавка на 1,43 м, как root motion клипов уклонения SWORD (1,29…1,61 м, в среднем 1,42), перезарядка 0,6 с (SWORD), неуязвим
-    /// весь рывок.
+    /// Рывок (Пробел): пиковая прибавка скорости, м/с, время, с, перезарядка, с, неуязвимость с начала рывка, с. По умолчанию — 9,5 м/с
+    /// за 0,3 с (прибавка на 1,43 м, как root motion клипов уклонения), перезарядка 0,6 с, неуязвим весь рывок.
     /// </summary>
     public float DashSpeed { get; init; } = PlayerControlRules.DashSpeed;
     public float DashTime { get; init; } = PlayerControlRules.DashTime;
@@ -37,8 +33,7 @@ public sealed record CombatSettings
     public float DashInvulnerable { get; init; } = PlayerControlRules.DashInvulnerable;
 
     /// <summary>
-    /// Урон ударов игрока — множитель (<c>combat.playerDamage</c>; <c>SWORD_PLAYER_CUT</c>, ручка «урон» SWORD — по умолчанию 2) и
-    /// острота клинка игрока (<c>combat.playerSharpness</c>, ручка «острота» — 1): порог отруба части делится на неё (не меньше 0,05).
+    /// Урон ударов игрока — множитель (по умолчанию 2) и острота клинка игрока (1): порог отруба части делится на неё (не меньше 0,05).
     /// </summary>
     public float PlayerDamage { get; init; } = DamageRules.PlayerDamage;
     public float PlayerSharpness { get; init; } = 1;

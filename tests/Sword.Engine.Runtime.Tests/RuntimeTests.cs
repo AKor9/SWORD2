@@ -179,31 +179,11 @@ public class SimulationTests
         Assert.Equal([(0ul, 1), (3ul, 3)], m.Seen);
         Assert.Throws<ArgumentOutOfRangeException>(() => sim.Enqueue(2, new Ping()));
         Assert.Equal(5ul, sim.Tick);
-        // DuelArena.Tick SWORD: Time += dt во float в начале тика — в последнем (4-м) тике сумма пяти шагов.
+        // Time += dt во float в начале тика — в последнем (4-м) тике сумма пяти шагов.
         float time = 0;
         for (int i = 0; i < 5; i++) time += sim.Dt;
         Assert.Equal(time, sim.World.Resource<SimTime>().Time);
         Assert.Equal(4ul, sim.World.Resource<SimTime>().Tick);
-    }
-
-    [Fact]
-    public void RawCommand_OfTool_ComesAfterClientCommands_OfItsTick()
-    {
-        // Путь инструментов (агент): команда байтами по типу. В тике она выдаётся после команд клиента — где действует
-        // последняя команда тика, побеждает инструмент.
-        var m = new PingModule();
-        var sim = Simulation.Build(ConfigSet.Empty(), Stages, [m]);
-        Assert.Equal([typeof(Ping)], sim.CommandTypes);
-        byte[] tool = BitConverter.GetBytes(99);
-        sim.EnqueueRaw(typeof(Ping), 0, tool);
-        sim.Enqueue(new Ping { Value = 1 });            // клиент — позже по времени постановки, но раньше в тике
-        sim.EnqueueRaw(typeof(Ping), 1, tool);
-        sim.Step();
-        sim.Step();
-        Assert.Equal([(0ul, 1), (0ul, 99), (1ul, 99)], m.Seen);
-        Assert.Throws<ArgumentOutOfRangeException>(() => sim.EnqueueRaw(typeof(Ping), 1, tool));        // тик прошёл
-        Assert.Throws<ArgumentException>(() => sim.EnqueueRaw(typeof(Ping), 5, new byte[3]));            // не тот размер
-        Assert.Throws<InvalidOperationException>(() => sim.EnqueueRaw(typeof(Pong), 5, new byte[8]));    // не команда
     }
 
     [Fact]

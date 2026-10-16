@@ -10,39 +10,27 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Инварианты трупа на физике: <c>physics.modes</c> (мёртвый ⇔ труп: тела на физике, профиль трупа, суставы,
-/// запястье выключено; живой ⇔ кинематика), <c>physics.simulatedSpeed</c> (скорости тел трупа — не выше потолков профиля), <c>physics.joints</c>
-/// (ошибка точки и выход за предел суставов после шага), <c>physics.ground</c> (глубина тел трупа в земле), <c>physics.inArena</c> (тела
-/// трупа — внутри стены и вне колонн), <c>physics.sleep</c> (спящий стоит: скорости 0, поза не меняется) и <c>physics.sleepContacts</c>
-/// (в спящий никто не вошёл глубже допуска — пробуждение не пропущено), <c>physics.selfContacts</c> (части трупа не входят друг в друга
-/// глубже допуска) — после стадии Physics; диагностические (по запросу — <c>invariant.enable</c>, манифест фичи; читают
-/// трассу физики — при включённом режиме <c>physics.trace</c>) — <c>physics.energy</c> (рост энергии трупа за подшаг) после Physics и <c>physics.pushes</c>
-/// (свойства толчков: доли бюджетов пары и прохода, выталкивание, Δv удара) в конце End. Допуски — по замерам (docs/history/ragdoll.md;
-/// текущие — README фичи, «Инварианты»), ~2× к худшему.
+/// Инварианты трупа на физике <c>physics.*</c> — после стадии Physics. Допуски — по замерам, ~2× к худшему (текущие — README
+/// фичи, «Инварианты»).
 /// </summary>
 public static class CorpseInvariants
 {
     /// <summary>
-    /// <c>physics.simulatedSpeed</c>: доля потолка профиля, до которой скорость тела на физике ещё не ошибка. Потолок режет скорость в
-    /// обновлении скоростей подшага, а скоростной проход контактов и расслабление суставов после него — проекции в метрике масс: энергии не
-    /// добавляют, но могут передать скорость лёгкому телу от тяжёлого. Угловая — поперёк оси капсулы (вращение вокруг своей оси капсулу не
-    /// сдвигает, а у клинка — r 3 см — от любого удара с плечом доходит до ×1,9 потолка). Замер — docs/history/ragdoll.md, допуск ~2× к худшему.
+    /// <c>physics.simulatedSpeed</c>: доля потолка профиля, до которой скорость тела ещё не ошибка: проходы контактов и суставов
+    /// после потолка передают скорость лёгкому телу от тяжёлого (клинок — до ×1,9 потолка).
     /// </summary>
     public const float SpeedSlack = 1.5f;
 
     /// <summary>
-    /// <c>physics.joints</c>: ошибка точки сустава после шага, м, и выход за предел, рад. Одна итерация решателя: при падении толпы трупов
-    /// друг на друга — до 28 мм и 0,66 рад (замер — docs/history/ragdoll.md; в цепочке до 6,4 мм и 0,33 рад, сведение: куча — 37 мм и 0,37 рад).
+    /// <c>physics.joints</c>: ошибка точки сустава после шага, м, и выход за предел, рад. Одна итерация решателя: толпа трупов
+    /// друг на друге — до 28 мм и 0,66 рад.
     /// </summary>
     public const float PointTolerance = 0.06f, ExcessTolerance = 1.2f;
 
     /// <summary>
-    /// <c>physics.ground</c>: глубина торца капсулы трупа в земле после шага, м, без проверки выхода. Мир после пар и трение,
-    /// не топящее застарелую глубину, — тело, зажатое кучей или живым, в землю не уходит: клинок под кучей тонул до 7,8 см, стопа в толпе
-    /// трупов — до 2,6 см (исправлено). Остаётся медленный выход клинка, зажатого между землёй и телом другого трупа (оба касания — застарелые:
-    /// земля выводит клинок, он входит в тело трупа, пара возвращает его — 0,4…1 мм за тик): до 2,7 см (толпа сценария «Бой»). Глубже допуска —
-    /// только выходя: не дольше, чем выход от глубины начала со скоростью ¼ <c>PopSpeed</c>, плюс <see cref="GroundExitGrace"/>, и никогда не
-    /// глубже <see cref="FreshGroundTolerance"/> (поза смерти: живой у кромки ступени держит стопу в подступенке — до 15 см; команда сцены).
+    /// <c>physics.ground</c>: глубина торца капсулы трупа в земле после шага, м. Клинок, зажатый между землёй и чужим трупом,
+    /// выходит медленно (до 2,7 см). Глубже допуска — только выходя (со скоростью ¼ <c>PopSpeed</c> плюс
+    /// <see cref="GroundExitGrace"/>) и никогда не глубже <see cref="FreshGroundTolerance"/>.
     /// </summary>
     public const float GroundTolerance = 0.03f;
 
@@ -50,56 +38,26 @@ public static class CorpseInvariants
     public const float FreshGroundTolerance = 0.3f;
 
     /// <summary>
-    /// <c>physics.ground</c>: запас времени на выход из земли, с, сверх <c>(глубина начала − допуск) / (¼ PopSpeed)</c>. Выход не монотонен:
-    /// труп, опрокидываясь через кромку ступени, в первые тики вдавливает стопу в подступенок ещё на 8…10 мм, и
-    /// правило «глубина уменьшилась за тик не меньше чем на ¼ <c>PopSpeed·dt</c>» ловило это у 28 мест трупа из 205 у
-    /// ступеней пирамиды пака. Замер проверки: без запаса — 2 места из 205 (выход дольше на 2…6 тиков), с 0,125 с — 0; толпа
-    /// сценария «Бой» (4 прогона по 3600 тиков) — 0, а в master (клинок под кучей тонет) — 294…658 нарушений на прогон у 3…9 тел.
+    /// <c>physics.ground</c>: запас времени на выход из земли, с, сверх <c>(глубина начала − допуск) / (¼ PopSpeed)</c>: выход не
+    /// монотонен — труп, опрокидываясь через кромку ступени, в первые тики вдавливает стопу ещё на 8…10 мм.
     /// </summary>
     public const float GroundExitGrace = 0.25f;
 
     /// <summary>
-    /// <c>physics.inArena</c>: выход торца капсулы за стену или в колонну, м, без проверки выхода. Больше — только если выходит: за тик
-    /// глубина уменьшилась не меньше чем на четверть <c>PopSpeed·dt</c> (в позе смерти меч или рука живого бывают в колонне — она выталкивает
-    /// их не быстрее скорости выталкивания).
+    /// <c>physics.inArena</c>: выход торца капсулы за стену или в колонну, м. Больше — только выходя: за тик глубина уменьшилась не
+    /// меньше чем на ¼ <c>PopSpeed·dt</c> (колонна выталкивает не быстрее скорости выталкивания).
     /// </summary>
     public const float ArenaTolerance = 0.01f;
 
     /// <summary>
-    /// <c>physics.energy</c>: рост энергии за подшаг трупа без толчков живых и без контакта с другим трупом, Дж (труп на трупе — энергия
-    /// передаётся, рост одного — не накачка). Всплески при ударе о землю малы: унаследованный разрыв сустава
-    /// сводится не быстрее <see cref="PhysicsSettings.JointPopSpeed"/>: замер (пак) — s8 ≤ 5,7 Дж (было до 17,3), s4 — 4,4, толпа 32 трупов — 6,2
-    /// (было 25 Дж допуска при замерах до 10,6); проверка: 205 мест трупа у ступеней — ≤ 8,2 Дж (p95 5,8), 40 вариантов толпы 32 трупов
-    /// (смерть на тиках 600…1185) — ≤ 8,9. Ловит «взрыв» и сустав, рывком стягивающий оторванное тело.
-    /// </summary>
-    public const float EnergyTolerance = 12.5f;
-
-    /// <summary>
-    /// <c>physics.energy</c>: рост за подшаг суммы энергий всех трупов, касавшихся другого трупа, Дж (передача внутри суммы сокращается). Замер
-    /// исполнителя — ≤ 3,3 Дж на сценарии <c>crowd32</c>; проверка на 40 вариантах толпы (смерть на тиках 600…1185) — до 14,6 Дж (с
-    /// допуском 12,5 — ложное нарушение у одного варианта из 40), наибольший рост одного трупа в контакте — до 11,3. Сумма — по всей арене, не по
-    /// группе касавшихся: рост одной группы может скрыть убыль другой (по группам — до 14,2 Дж). Допуск ~1,7× к худшему.
-    /// </summary>
-    public const float PairedEnergyTolerance = 25f;
-
-    /// <summary><c>physics.pushes</c>: запас над долей 1 бюджетов и над пределами скорости выталкивания и Δv (округление float).</summary>
-    public const float PushTolerance = 1e-3f;
-
-    /// <summary>
-    /// <c>physics.sleepContacts</c>: глубина, на которую тело живого или неспящее тело на физике входит в капсулу спящего тела после шага,
-    /// м. Проверка до подшагов будит спящее, в которое вошли глубже <see cref="PhysicsWorld.SleepSlop"/> (живое шаг не двигает — глубже допуска
-    /// его быть не может), неспящее тело шаг выталкивает из спящего, как из земли; запас 5 мм — выталкивание застарелой глубины не быстрее
-    /// <see cref="PhysicsSettings.PopSpeed"/>.
+    /// <c>physics.sleepContacts</c>: глубина входа живого или неспящего тела в капсулу спящего после шага, м: глубже
+    /// <see cref="PhysicsWorld.SleepSlop"/> спящее будят; запас 5 мм — выталкивание не быстрее <see cref="PhysicsSettings.PopSpeed"/>.
     /// </summary>
     public const float SleepContactTolerance = PhysicsWorld.SleepSlop + 0.005f;
 
     /// <summary>
-    /// <c>physics.selfContacts</c>: глубина пары самоколлизии трупа после шага, м (капсулы с толщиной самоколлизии), без проверки выхода.
-    /// Лежащий труп — доли миллиметра; держится глубже только лёгкая часть, зажатая тяжёлой: один проход решателя делит поправку по массам, а
-    /// земля (мир после пар) возвращает вдавленную часть обратно — клинок под своим торсом (1,4 кг против 20) стоит на 3…5 см, как клинок под
-    /// чужим трупом у земли (<see cref="GroundTolerance"/>); рука под ногой живого — выходя. Замер (пак, толпа «Боя» 20 с, 2e-6): клинок
-    /// в торсе — до 5,4 см, прочие пары через 1 с после смерти — до 3,4 см (рука в торсе под ногами живых — 7,1 см, выходя), лежащий на ровной
-    /// земле (синтетический риг) — 3,0 см (docs/history/ragdoll.md).
+    /// <c>physics.selfContacts</c>: глубина пары самоколлизии трупа после шага, м. Лёгкая часть, зажатая тяжёлой (клинок под своим
+    /// торсом), держится до 3…5 см: решатель делит поправку по массам, а земля возвращает вдавленную часть.
     /// </summary>
     public const float SelfTolerance = 0.06f;
 
@@ -109,7 +67,7 @@ public static class CorpseInvariants
     public static IEnumerable<IInvariant> For(IPhysicsWorld physics, int corpseProfile) =>
     [
         new Modes(physics, corpseProfile), new SimulatedSpeed(physics), new Joints(physics), new Ground(physics, ArenaGround.Instance),
-        new InArena(physics, ArenaGround.WallRadius, ArenaGround.Pillars.ToArray()), new Energy(physics), new Pushes(physics),
+        new InArena(physics, ArenaGround.WallRadius, ArenaGround.Pillars.ToArray()),
         new Sleep(physics), new SleepContacts(physics), new SelfContacts(physics),
     ];
 
@@ -127,10 +85,8 @@ public static class CorpseInvariants
         ReactIndex = StageIndex(GameStages.React), AftermathIndex = StageIndex(GameStages.Aftermath), IntentIndex = StageIndex(GameStages.Intent);
 
     /// <summary>
-    /// <c>physics.modes</c> (после Physics) — режимы тел согласованы со смертью: у мёртвого бойца все 14 тел на физике с профилем трупа, 13
-    /// суставов, сустав запястья выключен, прочие включены; у живого — все тела кинематические с профилем по умолчанию, суставы (если есть)
-    /// включены. Ловит смерть мимо перехода в труп, возрождение без возврата кинематики, выпавший меч у живого. Проверка «сейчас» посреди тика
-    /// знает, где переход ещё впереди: смерть этого тика до Settle (Intent — до Gameplay) и постройка заново до Gameplay следующего тика.
+    /// <c>physics.modes</c> — мёртвый: 14 тел на физике с профилем трупа, 13 суставов, запястье выключено; живой: всё кинематическое.
+    /// Проверка посреди тика учитывает переход, который ещё впереди (смерть до Settle, постройка до Gameplay следующего тика).
     /// </summary>
     private sealed class Modes(IPhysicsWorld physics, int corpseProfile) : IInvariant
     {
@@ -209,9 +165,8 @@ public static class CorpseInvariants
     }
 
     /// <summary>
-    /// <c>physics.simulatedSpeed</c> (после Physics) — скорость и угловая скорость поперёк оси каждого тела на физике не выше потолков его
-    /// профиля (<see cref="BodyDynamics.MaxSpeed"/>, <see cref="BodyDynamics.MaxAngularSpeed"/>) с запасом <see cref="SpeedSlack"/>. Ловит
-    /// «взрыв» решателя, который потолок не удержал, и тело с чужим профилем. Нечисловое — дело <c>physics.finite</c>.
+    /// <c>physics.simulatedSpeed</c> — скорость и угловая скорость поперёк оси тела на физике не выше потолков профиля с запасом
+    /// <see cref="SpeedSlack"/>: ловит «взрыв» решателя и чужой профиль.
     /// </summary>
     private sealed class SimulatedSpeed(IPhysicsWorld physics) : IInvariant
     {
@@ -244,9 +199,8 @@ public static class CorpseInvariants
     }
 
     /// <summary>
-    /// <c>physics.joints</c> (после Physics) — у сочленений с телами на физике каждый включённый сустав держит точку (ошибка ≤
-    /// <see cref="PointTolerance"/>) и пределы (выход ≤ <see cref="ExcessTolerance"/>) после шага. Один проход решателя держит их не точно
-    /// (docs/history/engine-physics.md): допуски — по замерам на трупах с землёй. Ловит разорванный сустав (тело унесло), привязку не по позе смерти.
+    /// <c>physics.joints</c> — включённые суставы трупа держат точку (≤ <see cref="PointTolerance"/>) и пределы
+    /// (≤ <see cref="ExcessTolerance"/>) после шага: ловит разорванный сустав.
     /// </summary>
     private sealed class Joints(IPhysicsWorld physics) : IInvariant
     {
@@ -289,12 +243,9 @@ public static class CorpseInvariants
     }
 
     /// <summary>
-    /// <c>physics.ground</c> (после Physics) — торцы капсул тел на физике (сферы концов оси, как их видит физика) не глубже
-    /// <see cref="GroundTolerance"/> в земле арены (<see cref="IGround.Touches"/>: наибольшая глубина по граням); глубже — только выходя:
-    /// эпизод «глубже допуска» (с проверки, где тело глубже допуска, а прошлая проверка того же тела — в допуске или её нет) длится не дольше
-    /// <c>(глубина начала − допуск) / (¼ PopSpeed) + </c><see cref="GroundExitGrace"/>; глубже <see cref="FreshGroundTolerance"/> — никогда.
-    /// Память — по слотам тел (поколение, тик, начало эпизода и его глубина). Ловит тело, провалившееся сквозь землю или ступень, и тело, которое
-    /// держит в земле (куча или живой вдавливает). Нечисловое — дело <c>physics.finite</c>.
+    /// <c>physics.ground</c> — торцы капсул тел на физике не глубже <see cref="GroundTolerance"/> в земле; глубже — эпизод выхода не
+    /// дольше <c>(глубина начала − допуск) / (¼ PopSpeed) + </c><see cref="GroundExitGrace"/>, глубже <see cref="FreshGroundTolerance"/> —
+    /// никогда. Память — по слотам тел.
     /// </summary>
     private sealed class Ground(IPhysicsWorld physics, IGround ground) : IInvariant
     {
@@ -353,13 +304,9 @@ public static class CorpseInvariants
     }
 
     /// <summary>
-    /// <c>physics.selfContacts</c> (после Physics) — части неспящего трупа не входят друг в друга: у каждой пары самоколлизии, где оба
-    /// тела на физике, глубина капсул (радиусы × <see cref="PhysicsSettings.SelfContactScale"/>) не больше <see cref="SelfTolerance"/>; глубже —
-    /// только выходя (как <c>physics.ground</c>): эпизод «глубже допуска» длится не дольше <c>(глубина начала − допуск) / (¼ PopSpeed) + </c>
-    /// <see cref="SelfExitGrace"/> (поза смерти бывает внахлёст — в позах живого клинок у головы, рука у торса до 15 см, 0,1…2 % поз; пара
-    /// расходится не быстрее скорости выталкивания). Порога «глубже — сразу», как у земли, нет: сумма радиусов пары трупа — не больше 0,28 м.
-    /// Самоколлизия выключена (толщина 0) — не проверяется. Память — по слотам сочленений × пары. Ловит руку или ногу, прошедшую сквозь своё
-    /// тело (пара пропущена, таблица пуста, самоколлизия не решается).
+    /// <c>physics.selfContacts</c> — части неспящего трупа не входят друг в друга глубже <see cref="SelfTolerance"/>; глубже — только
+    /// выходя, как <c>physics.ground</c>, с запасом <see cref="SelfExitGrace"/> (поза смерти бывает внахлёст). Самоколлизия выключена —
+    /// не проверяется. Память — по слотам сочленений × пары.
     /// </summary>
     private sealed class SelfContacts(IPhysicsWorld physics) : IInvariant
     {
@@ -421,10 +368,8 @@ public static class CorpseInvariants
     }
 
     /// <summary>
-    /// <c>physics.inArena</c> (после Physics) — тела на физике внутри стены арены (торцы капсулы — не дальше радиуса стены с радиусом тела) и
-    /// вне колонн (отрезок оси — не ближе радиуса колонны с радиусом тела): выход больше <see cref="ArenaTolerance"/> — только у тела, которое
-    /// выходит (с прошлой проверки глубина уменьшилась не меньше чем на четверть <c>PopSpeed·dt</c> за тик; первая проверка тела на физике —
-    /// без памяти). Память — по слотам тел (поколение, тик, выход). Ловит тело, пролетевшее сквозь стену или колонну или застрявшее в ней.
+    /// <c>physics.inArena</c> — тела на физике внутри стены и вне колонн; выход больше <see cref="ArenaTolerance"/> — только у тела,
+    /// которое выходит. Память — по слотам тел.
     /// </summary>
     private sealed class InArena(IPhysicsWorld physics, float wall, Pillar[] pillars) : IInvariant
     {
@@ -485,48 +430,8 @@ public static class CorpseInvariants
     }
 
     /// <summary>
-    /// <c>physics.energy</c> (после Physics; диагностический — по запросу) — энергия трупа (кинетическая + m·g·y) не растёт скачком за подшаг
-    /// внутри шага (честно, без передачи между трупами): (1) наибольший рост за подшаг у сочленения, которого в подшаге не толкали живые и
-    /// которое не касалось другого тела на физике (<see cref="PhysicsTrace.Stats.EnergyGrowth"/>), и (2) наибольший рост суммы всех касавшихся друг
-    /// друга трупов за подшаг (<see cref="PhysicsTrace.Stats.EnergyGrowthPairedTotal"/>: удар трупа о труп передаёт энергию — рост одного не
-    /// накачка, в сумме передача сокращается) — не больше <see cref="EnergyTolerance"/> и <see cref="PairedEnergyTolerance"/> соответственно.
-    /// Рост по фазам подшага — в сообщении (где энергия
-    /// появилась: суставы, пары, мир, скоростной проход). Меряет трасса физики — проверяется, пока включён диагностический режим
-    /// <c>physics.trace</c> (трасса у мира одна — инвариант её не включает и не выключает; манифест фичи включает режим ключом сценария
-    /// <c>diagnostics</c>, агент — <c>physics.bodies {trace:"on"}</c>); режим выключен — проверять нечего. Ловит «взрыв» решателя и сустав,
-    /// рывком стягивающий оторванное тело.
-    /// </summary>
-    private sealed class Energy(IPhysicsWorld physics) : IInvariant
-    {
-        public string Id => "physics.energy";
-        public InvariantCost Cost => InvariantCost.OnDemand;
-        public InvariantScope Scope => InvariantScope.Subsystem;
-        public string After => GameStages.Physics;
-
-        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
-        {
-            if (physics.Trace is not { } trace) return;   // режим physics.trace выключен
-            var last = trace.Last;
-            if (last.EnergyGrowth > EnergyTolerance)
-                violations.Report(Text($"рост энергии трупа {last.EnergyArticulation} за подшаг {last.EnergyGrowth:G4} Дж (допуск {EnergyTolerance}); {Phases(last)}"));
-            if (last.EnergyGrowthPairedTotal > PairedEnergyTolerance)
-                violations.Report(Text($"рост энергии трупов в контакте друг с другом (сумма) за подшаг {last.EnergyGrowthPairedTotal:G4} Дж (допуск {PairedEnergyTolerance}; наибольший у одного — {last.EnergyGrowthPaired:G4} Дж, {last.EnergyPairedArticulation}); {Phases(last)}"));
-        }
-
-        private static string Phases(PhysicsTrace.Stats s)
-        {
-            var sb = new System.Text.StringBuilder("по фазам:");
-            for (int p = 0; p < PhysicsTrace.PhaseCount; p++)
-                sb.Append(CultureInfo.InvariantCulture, $" {PhysicsTrace.PhaseName((PhysicsPhase)p)} {s.PhaseGrowth((PhysicsPhase)p):G3};");
-            return sb.ToString();
-        }
-    }
-
-    /// <summary>
-    /// <c>physics.sleep</c> (после Physics, тяжёлый) — спящий труп стоит: у каждого тела спящего сочленения скорость и угловая скорость —
-    /// ровно 0, прошлая поза и поза начала тика — ровно поза (клиент не качает его интерполяцией), тело — на физике; спал на прошлой проверке и
-    /// спит сейчас непрерывно (счётчик покоя не убывал) — поза бит в бит та же. Память — по слотам тел (поколение, тик, счётчик покоя, поза).
-    /// Ловит шаг, который двигает спящее, и сон без обнуления скоростей.
+    /// <c>physics.sleep</c> (тяжёлый) — спящий труп стоит: скорости ровно 0, прошлая поза и поза начала тика — ровно поза; при
+    /// непрерывном сне поза бит в бит та же.
     /// </summary>
     private sealed class Sleep(IPhysicsWorld physics) : IInvariant
     {
@@ -576,13 +481,9 @@ public static class CorpseInvariants
     }
 
     /// <summary>
-    /// <c>physics.sleepContacts</c> (после Physics, тяжёлый) — пробуждение не пропущено: тело живого (кинематическое) не входит в капсулу
-    /// тела спящего сочленения глубже <see cref="SleepContactTolerance"/> (проверка до подшагов будит спящее, в которое вошли глубже
-    /// <see cref="PhysicsWorld.SleepSlop"/>, а живое шаг не двигает — глубже быть не может); неспящее тело на физике — не две проверки подряд при
-    /// непрерывном сне (шаг выталкивает его из спящего, как из земли; зажатое между спящим и землёй или двумя спящими может остаться глубже до
-    /// конца шага — тогда его разбудит проверка до подшагов следующего). Отсев — по сферам сочленений из нынешних поз тел (границы физики — конца
-    /// шага, а тело могли поставить и после). Память — по слотам сочленений (поколение, тик проверки, счётчик покоя). Ловит «не разбудили»:
-    /// живой идёт сквозь спящий труп, труп лёг в спящий.
+    /// <c>physics.sleepContacts</c> (тяжёлый) — пробуждение не пропущено: живое тело не входит в спящее глубже
+    /// <see cref="SleepContactTolerance"/>; неспящее тело на физике — не две проверки подряд при непрерывном сне. Отсев — по сферам
+    /// сочленений из нынешних поз.
     /// </summary>
     private sealed class SleepContacts(IPhysicsWorld physics) : IInvariant
     {
@@ -681,34 +582,5 @@ public static class CorpseInvariants
         private static float Distance(in BodyState a, in BodyState b) => b.HalfLength < a.HalfLength
             ? MathF.Sqrt(Sword.Engine.Geometry.Segments.SegSeg(b.EndA, b.EndB, a.EndA, a.EndB, out _, out _))
             : MathF.Sqrt(Sword.Engine.Geometry.Segments.SegSeg(a.EndA, a.EndB, b.EndA, b.EndB, out _, out _));
-    }
-
-    /// <summary>
-    /// <c>physics.pushes</c> (конец End; диагностический — по запросу) — свойства толчков живых и ударов за последний тик (трасса физики
-    /// <see cref="PhysicsTrace.Last"/>): доля бюджета пары за подшаг и доля бюджета прохода — не больше 1; выталкивание точки сверх
-    /// толкающей — не больше <see cref="PhysicsSettings.PopSpeed"/>; Δv точки удара — не больше доли <see cref="PhysicsSettings.HitDvShare"/>
-    /// скорости удара. Проверяется, пока включён диагностический режим <c>physics.trace</c> (как <c>physics.energy</c>).
-    /// </summary>
-    private sealed class Pushes(IPhysicsWorld physics) : IInvariant
-    {
-        public string Id => "physics.pushes";
-        public InvariantCost Cost => InvariantCost.OnDemand;
-        public InvariantScope Scope => InvariantScope.Subsystem;
-        public string After => GameStages.End;
-
-        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
-        {
-            if (physics.Trace is not { } trace) return;   // режим physics.trace выключен
-            var last = trace.Last;
-            var settings = physics.Settings;
-            if (last.PairShare > 1 + PushTolerance)
-                violations.Report(Text($"толчок пары за подшаг — {last.PairShare:G4} бюджета (не больше 1)"));
-            if (last.PassShare > 1 + PushTolerance)
-                violations.Report(Text($"импульс прохода — {last.PassShare:G4} бюджета прохода (не больше 1)"));
-            if (last.PushPopSpeed > settings.PopSpeed + PushTolerance)
-                violations.Report(Text($"выталкивание толчком {last.PushPopSpeed:G4} м/с сверх толкающей точки (не больше {settings.PopSpeed})"));
-            if (last.HitDvShare > settings.HitDvShare + PushTolerance)
-                violations.Report(Text($"Δv удара — {last.HitDvShare:G4} скорости удара (не больше {settings.HitDvShare})"));
-        }
     }
 }

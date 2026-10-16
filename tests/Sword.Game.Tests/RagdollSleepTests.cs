@@ -1,8 +1,6 @@
 using System.Numerics;
 using System.Reflection;
-using System.Text.Json.Nodes;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
 using Sword.Game.Bodies;
@@ -14,10 +12,8 @@ using static Sword.Game.Tests.RagdollCorpseTests;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Сон трупа в игре, свои тесты свойств (синтетический риг тестов): трупы засыпают (ручки «Рэгдолл» — сон по умолчанию); сон и
-/// счётчик покоя — в хеше <c>physics</c> и описании участника, вычисляемые поля <c>Body.Asleep</c>, <c>Body.RestTime</c>; ручка, меняющая
-/// физику, будит спящие трупы в том же тике, ручка отдачи живому — нет; реплей с засыпаниями и пробуждениями — те же хеши; инварианты
-/// <c>physics.sleep</c> и <c>physics.sleepContacts</c> ловят неисправность на своём тике. На паке — сценарии манифеста (<c>RagdollFeatureVerifyTests</c>).
+/// Сон трупа в игре: трупы засыпают; сон и счётчик покоя — в хеше <c>physics</c>; ручка физики будит спящих в том же тике,
+/// ручка отдачи — нет; реплей — те же хеши; <c>physics.sleep</c> и <c>physics.sleepContacts</c> ловят неисправность.
 /// </summary>
 public sealed class RagdollSleepTests(ITestOutputHelper output)
 {
@@ -39,17 +35,11 @@ public sealed class RagdollSleepTests(ITestOutputHelper output)
         output.WriteLine($"три трупа уснули через {asleepAt / 120f:F2} с");
         Assert.True(asleepAt > 0, "три трупа не уснули за 10 с");
 
-        // хеш и описание: сон и счётчик покоя
+        // хеш: сон и счётчик покоя
         ulong before = sim.HashState().Parts["physics"];
-        var corpse = JsonNode.Parse(sim.DescribeState("physics", new DescribeQuery(bodies[0].ToString())))!["items"]![0]!;
-        Assert.True(corpse["asleep"]!.GetValue<bool>());
-        Assert.True(corpse["restTime"]!.GetValue<float>() >= physics.Settings.SleepTime);
-        Assert.Equal(3, JsonNode.Parse(sim.DescribeState("physics", new DescribeQuery("slots")))!["asleep"]!.GetValue<int>());   // сводка участника
-        var fields = new Agent.BodyFields();
-        var ctx = new ServiceContext(sim);
-        Assert.Equal(1, fields.Compile("Body.Asleep", "t")!(ctx, enemies[0]));
-        Assert.Equal(physics.RestTime(bodies[0]), fields.Compile("Body.RestTime", "t")!(ctx, enemies[0]), 5);
-        Assert.Equal(0, fields.Compile("Body.Asleep", "t")!(ctx, Fighter(sim, 0)));   // живой не спит
+        Assert.True(physics.IsAsleep(bodies[0]));
+        Assert.True(physics.RestTime(bodies[0]) >= physics.Settings.SleepTime);
+        Assert.Equal(3, physics.AsleepCount);
         sim.Step();
         Assert.NotEqual(before, sim.HashState().Parts["physics"]);   // спящий в хеше меняет только счётчик покоя
 
@@ -63,7 +53,6 @@ public sealed class RagdollSleepTests(ITestOutputHelper output)
         Assert.All(bodies, b => Assert.False(physics.IsAsleep(b), "ручка трения не разбудила"));
         Assert.Equal(3, physics.Trace!.Run.Wakes(WakeReason.Settings));
         physics.DisableTrace();
-        Assert.Equal(0, fields.Compile("Body.Asleep", "t")!(ctx, enemies[0]));
         for (int t = 0; t < 180; t++) sim.Step();   // до возрождения (8 с после смерти) — засыпают снова: разбуженные лежат, как лежали
         Assert.All(bodies, b => Assert.True(physics.IsAsleep(b), "после ручки трупы не уснули снова"));
 
@@ -79,9 +68,8 @@ public sealed class RagdollSleepTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Найдено проверкой: труп, уснувший на трупе, после постройки нижнего заново (возрождение, команда сцены «поставить», пересборка —
-    /// <c>Corpse.Revive</c> и постройка в другом месте в <c>core.body-setup</c>) висел в воздухе, пока его самого не возродят: цепочка в начале шага
-    /// шла от новой позы нижнего. Теперь запись тела будит лежавших на нём по позе до записи — верхний просыпается в тот же тик и ложится на землю.
+    /// Нижний труп построен заново в другом месте — запись тела будит лежавших на нём по позе до записи: верхний просыпается в тот
+    /// же тик и ложится на землю, а не висит в воздухе.
     /// </summary>
     [Fact]
     public void CorpseAsleepOnCorpse_BottomRebuiltElsewhere_TopWakesAndFalls()

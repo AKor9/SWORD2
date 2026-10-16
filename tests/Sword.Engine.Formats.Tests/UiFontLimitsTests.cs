@@ -8,7 +8,7 @@ public class UiFontLimitsTests
     [Fact]
     public void MaxGlyphs_RoundTrips()
     {
-        // Полос у MaxGlyphs glyph'ов — ровно MaxBands: заявленный предел glyph'ов достижим (в SWORD — только 62 500).
+        // Полос у MaxGlyphs glyph'ов — ровно MaxBands: заявленный предел glyph'ов достижим.
         Assert.Equal(UiVectorFontFormat.MaxGlyphs * 2 * UiVectorFontFormat.BandsPerAxis, UiVectorFontFormat.MaxBands);
         var font = UiFontFileTests.Font("cjk", UiVectorFontFormat.MaxGlyphs, "Body");
         var back = UiFontFile.Read(new MemoryStream(UiFontFileTests.Save(font)), "cjk");

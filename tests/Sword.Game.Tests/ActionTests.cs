@@ -1,12 +1,8 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Animation;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
-using Sword.Game.Agent;
 using Sword.Game.Ai;
 using Sword.Game.Animation;
 using Sword.Game.Bootstrap;
@@ -19,11 +15,8 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Удар и рывок: выбор удара (<see cref="AttackPicker"/>: связка, сброс через 1,6 с, жест, без повтора клипа), удар игрока
-/// командой (буфер 0,3 с, связка сразу после окна урона, ход не замедляется, хвост на бегу), снимок позы при прерывании, рывок (прибавка
-/// скорости без последствий для хода, назад без хода, перезарядка, неуязвимость), удар из рывка, удар ИИ по таймеру и командой врагу,
-/// мирные враги, инварианты слоя действий и управления на неисправностях, жест клиента (затухание по времени, удар по экрану),
-/// кончик клинка по тикам агенту. Контент — синтетический (<see cref="TestAssets"/>: удары — взмах плеча, уклонения — сдвиг корня).
+/// Удар и рывок: выбор удара, удар игрока командой (буфер, связка, ход не замедляется), рывок, удар из рывка, ИИ, инварианты на
+/// неисправностях, жест клиента. Контент — синтетический (<see cref="TestAssets"/>).
 /// </summary>
 public sealed class ActionTests
 {
@@ -56,7 +49,7 @@ public sealed class ActionTests
     private static AttackInfo A(string slot, int clip, float x, float y, bool thrust = false) =>
         new(slot, clip, -1, 1.2f, thrust, true, [new StrikeWindow(0.2f, 0.4f, 0.3f, 30f, Vector2.Normalize(new Vector2(x, y)))]);
 
-    /// <summary>Таблица как у пака: направления замаха SWORD (slash1–4), три укола одним клипом.</summary>
+    /// <summary>Таблица как у пака: направления замаха slash1–4, три укола одним клипом.</summary>
     private static readonly AttackInfo[] Table =
     [
         A("slash1", 10, -0.14f, -0.99f), A("slash2", 11, 0.97f, -0.26f), A("slash3", 12, 0.37f, -0.93f), A("slash4", 13, -0.92f, -0.40f),
@@ -347,9 +340,8 @@ public sealed class ActionTests
     // ── жест клиента ────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Затухание жеста — по времени: при 60 Гц — ×0,85 за кадр, как SWORD; при 120 Гц два кадра — как один кадр 60 Гц. Выбор — по
-    /// экрану: камера SWORD по умолчанию смотрит на бойца с курсом 0 сбоку, его «вправо» на экране — влево, поэтому жест мышью влево
-    /// выбирает замах вправо бойца (slash2), вправо — влево бойца (slash4); в SWORD (экран без камеры) было бы наоборот.
+    /// Затухание жеста — по времени: при 60 Гц ×0,85 за кадр, при 120 Гц два кадра — как один кадр 60 Гц. Выбор — по экрану: камера
+    /// по умолчанию смотрит на бойца с курсом 0 сбоку, поэтому жест мышью влево — замах вправо бойца (slash2), вправо — slash4.
     /// </summary>
     [Fact]
     public void Gesture_TimeDecay_StrikeNearestOnScreen()
@@ -372,75 +364,6 @@ public sealed class ActionTests
         // выбранное направление в команде выбирает тот же удар в симуляции
         var combo = AttackCombo.Start;
         Assert.Equal(1, AttackPicker.Pick(ref combo, 0, swings[1], false, 0, Table, 4));
-    }
-
-    // ── агент ───────────────────────────────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Кончик клинка по тикам удара агенту: <c>watch.add</c> по полям <c>Blade.Tip.*</c> и <c>AnimatorAction.*</c>, <c>entity.history</c> —
-    /// строка на тик, кончик движется в замахе; состояние удара и рывка — <c>entity.get</c> (<c>AnimatorAction</c>,
-    /// <c>PlayerControl</c>, <c>AttackCombo</c>); удар — <c>command.send</c> полем <c>Attack</c>.
-    /// </summary>
-    [Fact]
-    public async Task Agent_BladeTipByTick_AttackStateByEntityGet()
-    {
-        var sim = Create();
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            await Call("time.step", new JsonObject { ["ticks"] = 2 });
-            await Call("watch.add", new JsonObject
-            {
-                ["entities"] = new JsonArray("player"),
-                ["fields"] = new JsonArray("Blade.Tip.X", "Blade.Tip.Y", "Blade.Tip.Z", "AnimatorAction.Kind", "AnimatorAction.Time"),
-            });
-            await Call("command.send", new JsonObject { ["command"] = "PlayerCommand", ["fields"] = new JsonObject { ["Attack"] = true } });
-            await Call("time.step", new JsonObject { ["ticks"] = 30 });
-            var rows = (await Call("entity.history", new JsonObject { ["entity"] = "player" }))["rows"]!.AsArray();
-            Assert.Equal(30, rows.Count);
-            Assert.Equal((int)ActionKind.Attack, rows[0]!["values"]!["AnimatorAction.Kind"]!.GetValue<int>());
-            var tips = rows.Select(r => new Vector3((float)r!["values"]!["Blade.Tip.X"]!.GetValue<double>(),
-                (float)r["values"]!["Blade.Tip.Y"]!.GetValue<double>(), (float)r["values"]!["Blade.Tip.Z"]!.GetValue<double>())).ToArray();
-            Assert.True(Vector3.Distance(tips[0], tips[^1]) > 0.1f, $"кончик не двинулся: {tips[0]} → {tips[^1]}");
-
-            var state = await Call("entity.get", new JsonObject
-            {
-                ["entity"] = "player", ["components"] = new JsonArray("AnimatorAction", "PlayerControl", "AttackCombo"),
-            });
-            var text = state.ToJsonString();
-            Assert.Contains("AttackSerial", text);
-            Assert.Contains("SwingBuffer", text);
-            Assert.Contains("Next", text);
-            var pose = await Call("anim.pose", new JsonObject { ["entity"] = "player", ["joints"] = new JsonArray("hand_r") });
-            Assert.Equal("slash1", pose["action"]!["attack"]!.GetValue<string>());
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
     }
 }
 

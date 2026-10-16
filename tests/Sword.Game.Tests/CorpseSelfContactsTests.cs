@@ -1,7 +1,5 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Physics;
 using Sword.Engine.Runtime;
 using Sword.Game.Bodies;
@@ -13,18 +11,15 @@ using static Sword.Game.Tests.RagdollCorpseTests;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Самоколлизия трупа в игре (свои тесты свойств): таблица пар трупа (<see cref="CorpseJoints.SelfPairs"/> — все пары 14 тел, кроме
-/// связанных суставом и торса с бёдрами) ставится переходом в труп, входит в хеш <c>physics</c> и его описание; агенту — поле
-/// <c>Body.SelfDepth</c> и <c>physics.bodies</c> → <c>self</c>; инвариант <c>physics.selfContacts</c> ловит часть, удержанную в своём торсе, и
-/// не ловит выходящую; лежащий труп не сложен сам в себя, а без самоколлизии (ручка 0) — сложен. Контент — синтетический
-/// (<see cref="TestAssets"/>); на паке — сценарии <c>self-fold</c>, <c>self-fold-off</c> манифеста «Рэгдолл».
+/// Самоколлизия трупа в игре: таблица <see cref="CorpseJoints.SelfPairs"/> ставится переходом в труп и входит в хеш
+/// <c>physics</c>; инвариант <c>physics.selfContacts</c> ловит часть в своём торсе; лежащий труп не сложен, без самоколлизии —
+/// сложен. Контент — синтетический.
 /// </summary>
 public sealed class CorpseSelfContactsTests(ITestOutputHelper output)
 {
     /// <summary>
-    /// Таблица трупа: 76 пар — ни одной связанной суставом (родитель ↔ ребёнок, и клинок с предплечьем), ни торса с бёдрами; остальные пары 14 тел —
-    /// все, по номерам тел, без повторов. Переход в труп ставит её сочленению; хеш <c>physics</c> её видит (другая таблица — другой хеш),
-    /// описание показывает пары.
+    /// Таблица трупа: 76 пар — все пары 14 тел, кроме связанных суставом (и клинка с предплечьем) и торса с бёдрами, без повторов.
+    /// Переход в труп ставит её сочленению; хеш <c>physics</c> её видит, описание показывает.
     /// </summary>
     [Fact]
     public void SelfPairs_Table_SetOnDeath_HashedDescribed()
@@ -53,15 +48,14 @@ public sealed class CorpseSelfContactsTests(ITestOutputHelper output)
         Assert.NotEqual(before, sim.HashState().Parts["physics"]);
         physics.SetSelfContacts(a1, CorpseJoints.SelfPairs);
         Assert.Equal(before, sim.HashState().Parts["physics"]);
-        var corpse = JsonNode.Parse(sim.DescribeState("physics", new DescribeQuery(a1.ToString())))!["items"]![0]!;
-        Assert.Equal(76, corpse["selfContactCount"]!.GetValue<int>());
-        Assert.StartsWith("0-2,0-3,", corpse["selfContacts"]!.GetValue<string>());   // таз ↔ голова, таз ↔ плечо (таз ↔ торс — сустав)
+        var pairs76 = physics.SelfContacts(a1);
+        Assert.Equal(76, pairs76.Length);
+        Assert.Equal([new BodyPair(0, 2), new BodyPair(0, 3)], pairs76[..2].ToArray());   // таз ↔ голова, таз ↔ плечо (таз ↔ торс — сустав)
     }
 
     /// <summary>
-    /// Лежащий труп (синтетический риг, 4 с после смерти) не сложен сам в себя: самая глубокая пара — миллиметры; поле агента <c>Body.SelfDepth</c> и
-    /// вид <c>physics.bodies</c> → <c>self</c> показывают то же; без самоколлизии (ручка «самоколлизия» 0) тот же труп сложен —
-    /// часть в своём теле на сантиметры (замер — в выводе). Инварианты чисты.
+    /// Лежащий труп (4 с после смерти) не сложен сам в себя — самая глубокая пара в миллиметрах, вид физики показывает то же; без
+    /// самоколлизии тот же труп сложен на сантиметры. Инварианты чисты.
     /// </summary>
     [Fact]
     public void LyingCorpse_NotFoldedIntoItself_FieldAndView_WithoutSelfCollisionFolded()
@@ -78,15 +72,7 @@ public sealed class CorpseSelfContactsTests(ITestOutputHelper output)
             output.WriteLine($"[{sets}] самая глубокая пара {(r.A >= 0 ? $"{BodySegs.Name(r.A)}–{BodySegs.Name(r.B)}" : "—")} {r.Depth * 1000:F1} мм, пересеклось пар {r.Touching}");
             if (check)
             {
-                var ref_ = sim.World.Get<BodyRef>(e);
-                double field = new Agent.BodyFields().Compile("Body.SelfDepth", "t")!(new ServiceContext(sim), e);
-                Assert.Equal(r.Depth, field, 5);
-                var self = Agent.PhysicsDebugJson.Self(sim.World, ref_)!;
-                Assert.Equal(76, self["pairs"]!.GetValue<int>());
-                Assert.True(self["active"]!.GetValue<bool>());
-                Assert.Equal(1, self["scale"]!.GetValue<double>());
-                Assert.Equal(r.Touching, self["touching"]!.GetValue<int>());
-                Assert.Equal(0, new Agent.BodyFields().Compile("Body.SelfDepth", "t")!(new ServiceContext(sim), Fighter(sim, 0)));   // у живого пар нет
+                Assert.Equal(76, physics.SelfContacts(a).Length);
                 // Построенный заново (живой, тела кинематические) — таблица осталась, но не действует: «части в теле» нет, хотя
                 // капсулы стойки могут стоять внахлёст (замер — в выводе)
                 Step(sim, Place(1, 0, 4));
@@ -94,10 +80,6 @@ public sealed class CorpseSelfContactsTests(ITestOutputHelper output)
                 Assert.Equal(76, physics.SelfContacts(revived).Length);
                 var stance = SelfOverlap.Deepest(physics, revived, 1);
                 output.WriteLine($"построенный заново: пары таблицы в стойке — пересеклось {stance.Touching}, самая глубокая {stance.Depth * 1000:F1} мм; действующих — нет");
-                Assert.Equal(0, new Agent.BodyFields().Compile("Body.SelfDepth", "t")!(new ServiceContext(sim), Fighter(sim, 1)));
-                var selfRevived = Agent.PhysicsDebugJson.Self(sim.World, sim.World.Get<BodyRef>(Fighter(sim, 1)))!;
-                Assert.False(selfRevived["active"]!.GetValue<bool>());
-                Assert.Equal(0, selfRevived["touching"]!.GetValue<int>());
                 Clean(sim);
             }
             return r.Depth;
@@ -109,10 +91,9 @@ public sealed class CorpseSelfContactsTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// <c>physics.selfContacts</c>: левое предплечье трупа поставлено в торс (вдоль его оси, центр в центр — в торсе на 0,225 м, в тазу — на
-    /// ~0,1). Отпущенное выходит (самоколлизия выталкивает не быстрее <c>PopSpeed</c>) — нарушений нет; удержанное — нарушение по предплечью,
-    /// когда эпизод пары длится дольше <c>(глубина начала − допуск) / (¼ PopSpeed) + </c><see cref="CorpseInvariants.SelfExitGrace"/> — первым
-    /// у пары «таз — предплечье»: (0,1 − 0,06) / 0,25 + 0,25 ≈ 0,41 с (замер — тик 432 при порче с 360).
+    /// <c>physics.selfContacts</c>: предплечье поставлено в торс. Отпущенное выходит не быстрее <c>PopSpeed</c> — нарушений нет;
+    /// удержанное — нарушение, когда эпизод пары длится дольше <c>(глубина − допуск) / (¼ PopSpeed) + </c><see cref="CorpseInvariants.SelfExitGrace"/>:
+    /// у пары «таз — предплечье» (0,1 − 0,06) / 0,25 + 0,25 ≈ 0,41 с.
     /// </summary>
     [Theory]
     [InlineData(false)]

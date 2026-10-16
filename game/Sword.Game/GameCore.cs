@@ -14,73 +14,27 @@ using Sword.Game.Ragdoll;
 namespace Sword.Game;
 
 /// <summary>
-/// Ядро игры (принцип 4 плана: то, без чего игры нет, — одна реализация, не модуль и не выключается): компоненты и
-/// команда игрока из <c>Game.Contracts</c>, движение корня, аниматор бойца (поза в пуле поз, слой движения для
-/// локомоции), начальный мир — игрок в центре арены курсом 0 (<c>DuelArena.Reset</c> SWORD: <c>Build(Player, 0, 0)</c>)
-/// и <c>arena.enemies</c> врагов кольцом вокруг него; команды арены (<see cref="ArenaCommand"/>: число врагов, сброс);
-/// ИИ врагов (<see cref="EnemyAiSystem"/>); столкновения корней бойцов между собой
-/// (<see cref="RootCollisionSystem"/>, инвариант <see cref="RootOverlapInvariant"/>); слой действий аниматора — поворот
-/// врага на месте клипом (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>) и команда врагу (<see cref="EnemyCommand"/>);
-/// тело бойца — сочленение капсул в подсистеме Physics за <see cref="BodyRef"/>, время жизни — хуками ECS
-/// (<see cref="FighterBodies"/>, участник хеша <c>physics</c>, инварианты <c>physics.*</c>); форма тела и постановка
-/// при постройке (<see cref="BodySetupSystem"/>), капсулы по позе тика (<see cref="KinematicPlacementSystem"/>, PrePhysics),
-/// поза постройки (<see cref="StartPose"/>), вид тел <see cref="IBodyView"/>; тела бойцов сборки мира стоят до первого
-/// тика, вид тел отдаёт клиенту сегменты суставов скелета (ID-буфер). Бой: команды арены — в стадии Begin (Intent
-/// видит арену после них), слой действий у всех бойцов, оружие — таблица мечей пака и таблица ударов (<see cref="CharacterAssets"/>),
-/// меч в руке (<see cref="WeaponSlot"/>: враг — случайный, игрок — <c>combat.playerWeapon</c>), инвентарь игрока
-/// (<see cref="PlayerInventory"/>, T), клинок каждого тика (<see cref="Blade"/>: постройка — <see cref="BladeSetupSystem"/>,
-/// тик — <see cref="BladePlacementSystem"/> в PrePhysics), вид <see cref="ICombatView"/>, инварианты <c>combat.*</c>; удар
-/// и вид рывка в слое действий (<see cref="ActionLayer"/>; снимок позы — <see cref="ActionSnapshotSystem"/>, слой верха — маска
-/// пула <c>ActionRules.UpperMask</c>), бой игрока (<see cref="PlayerControl"/>, <see cref="AttackCombo"/>), удар ИИ
-/// (<see cref="EnemyAttack"/>), правила боя <see cref="CombatRules"/> из секции <c>combat</c>, инвариант <c>combat.control</c>;
-/// урон по протоколу боя — проходы клинка (<see cref="StrikeDetectionSystem"/>, Combat → <see cref="StrikeContact"/>; пары
-/// <see cref="StrikePairs"/>; проба <see cref="StrikeProbe"/>), урон и смерть (<see cref="HitApplySystem"/>, Resolve → <see cref="Health"/>,
-/// <see cref="Dead"/>, <see cref="Hit"/>, <see cref="SeverRequested"/>), реакции (<see cref="HitReactionSystem"/>, React: враг — действие,
-/// игрок — вздрагивание <see cref="Flinch"/>), кровопотеря и возрождение (<see cref="BleedSystem"/>, <see cref="RespawnSystem"/>, Aftermath),
-/// статистика (<see cref="ArenaStatsSystem"/>, Settle → <see cref="ArenaStats"/>); мёртвый замирает (системы ядра и модуль локомоции
-/// его пропускают); инварианты <c>combat.health</c>, <c>combat.dead</c>, <c>combat.hits</c>, <c>combat.respawn</c>; ручки «Бой»
-/// (<see cref="CombatKnobs"/>: поля <see cref="CombatRules"/>, команда ручки — система <c>tuning.combat</c> в Begin; смена правил —
-/// <see cref="CombatRulesChangeSystem"/>). Рэгдолл: тело бойца — 14 тел по номерам сегментов с массами (<see cref="FighterShape.Masses"/>),
-/// тело клинка по мечу в руке (<see cref="BladeBody"/>; постройка — <see cref="BladeSetupSystem"/>, тик — <see cref="BladePlacementSystem"/>);
-/// причина смерти (<see cref="DeathCause"/>); команды сцен (<see cref="SceneCommand"/>: <see cref="SceneCommandSystem"/> в Intent,
-/// <see cref="ScenePlayerIntentSystem"/> в Gameplay); привязка скина мёртвого (<see cref="SkinBindings"/>, снимок —
-/// <see cref="SkinCaptureSystem"/> в Gameplay и Settle, сброс — <see cref="SkinReleaseSystem"/> в End; вид <see cref="ISkinView"/>,
-/// участник хеша <c>skin</c>, инвариант <c>ragdoll.skin</c>); труп на физике — шаг физики (<see cref="PhysicsStepSystem"/>, Physics) с
-/// землёй, стеной и колоннами арены (<see cref="ArenaGround"/>), переход в труп (<see cref="DeathToRagdollSystem"/> в Gameplay и Settle: суставы
-/// <see cref="CorpseJoints"/>, меч выпадает, профиль трупа), возрождение — снова кинематика (<see cref="Corpse.Revive"/> в постройке тела),
-/// корень мёртвого за тазом (<see cref="CorpseRootSystem"/>), пересборка нечислового тела (<see cref="BodyRebuildSystem"/>, Aftermath), правила
-/// трупа и ручки «Рэгдолл» (<see cref="RagdollRules"/> из секции <c>ragdoll</c>, <see cref="RagdollKnobs"/>), инварианты трупа
-/// (<see cref="CorpseInvariants"/>). Регистрации ядра — без токена модуля.
-///
-/// Порядок <c>DuelArena.Tick</c> SWORD — по стадиям: команды арены (из цикла кадра SWORD до тика) — Begin; команда игрока и
-/// ИИ врагов — Intent. Порядок <c>KinematicBegin</c> — по стадиям: курс и разгон, у врага — начало поворота клипом (Gameplay) → аниматор
-/// без поз по новой скорости: слой движения и шаг действия (Gameplay) → слои позы (локомоция, действие) и прямая
-/// кинематика, пул поз исполняет задания (Animation) → поворот курса клипом, перенос корня и столкновения (Movement); затем
-/// <c>PlaceBodies</c> — капсулы тела и клинок по позе тика (PrePhysics).
+/// Ядро игры — то, без чего игры нет: одна реализация, не модуль и не выключается. Регистрации ядра — без токена
+/// модуля; устройство подсистем — в README игры.
 /// </summary>
 public static class GameCore
 {
     /// <summary>
-    /// Поз пула на бойца в худшем случае (запас пула): поза бойца, слой и снимок локомоции (модуль Locomotion), слой, снимок, две позы
-    /// памяти смешивания действий и две — перехода от снимка, две позы вздрагивания (игрок). У игрока на Motion Matching вместо слоя
-    /// и снимка локомоции — одна поза стойки руки с мечом: не больше 10.
+    /// Поз пула на бойца в худшем случае: поза бойца, слой и снимок локомоции, слой и снимок действия, по две позы памяти
+    /// смешивания, перехода от снимка и вздрагивания.
     /// </summary>
     public const int PosesPerFighter = 11;
 
     /// <summary>
-    /// Заданий пула на бойца за тик в худшем случае (запас очереди): локомоция — до 4 (снимок, сэмпл, переход, копия; у игрока на Motion
-    /// Matching — шаг проигрывателя, сэмпл стойки руки и смешивание по маске руки — до 3), действие — до 3 (сэмпл, смешивание, переход от
-    /// снимка), снимок — 1, вздрагивание — до 6 (два слота по 3), прямая кинематика — 1; с запасом — 16.
+    /// Заданий пула на бойца за тик в худшем случае: локомоция до 4, действие до 3, снимок 1, вздрагивание до 6, прямая
+    /// кинематика 1.
     /// </summary>
     public const int PoseJobsPerFighter = 16;
 
     /// <summary>
-    /// Запас пула поз на арену из <paramref name="enemies"/> врагов: (враги + игрок) × <see cref="PosesPerFighter"/> поз и
-    /// × <see cref="PoseJobsPerFighter"/> заданий — бой (действия, вздрагивания, снимки, память смешивания) не растит пул посреди игры, тик
-    /// боя — 0 Б. Зовут постройка симуляции (<c>arena.enemies</c>) и команда арены, прибавившая врагов (<see cref="ArenaCommandSystem"/>:
-    /// тик команды, до постройки новых бойцов). Раньше запас был на полную арену у каждой симуляции (33 бойца — 512 слотов, ~7,6 МБ на
-    /// настоящем паке: ветки fork, тесты, прогрев JIT); 10 врагов — 128 слотов. Логика пула (ёмкость, номера поз, хеш <c>animation</c>) от
-    /// запаса не зависит (<see cref="PosePool.Reserve"/>). Меньше заведённого — ничего.
+    /// Запас пула поз на арену из <paramref name="enemies"/> врагов: бой не растит пул посреди игры, тик боя — 0 Б. Зовут
+    /// постройка симуляции и команда арены, прибавившая врагов (до постройки новых бойцов). Логика пула от запаса не
+    /// зависит (<see cref="PosePool.Reserve"/>).
     /// </summary>
     public static void ReservePoses(PosePool poses, int enemies)
     {
@@ -102,19 +56,18 @@ public static class GameCore
         physics.SetPillars(ArenaGround.Pillars);
         int corpseProfile = physics.RegisterDynamics(ragdoll.Corpse());
         var corpseJoints = new CorpseJoints(assets.Hinges);
-        var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует (как CharacterRig)
-        var jointSegments = JointSegments.Build(assets.Clips.Skeleton);   // сустав скелета → сегмент тела (ID-буфер, привязка скина)
+        var joints = new BodyJoints(assets.Clips.Skeleton);   // суставы капсул тела: нет — игра не стартует
+        var jointSegments = JointSegments.Build(assets.Clips.Skeleton);   // сустав скелета → сегмент тела (привязка скина)
         var skins = new SkinBindings(jointSegments, ArenaRules.MaxFighters);   // привязки скина мёртвых — по слотам сочленений
         var start = new StartPoseModel(assets.Clips);   // поза постройки тела (общая и своя у бойца): сборка мира, постройка командой, инвариант
         var arena = b.Config.Section<ArenaSettings>("arena");
         if (arena.Enemies is < 0 or > ArenaState.MaxEnemies)
             throw new InvalidDataException($"arena.enemies = {arena.Enemies}: 0…{ArenaState.MaxEnemies}");
-        // Память пула — сразу на арену с боем из конфига (рост посреди боя выделял ~3,8 МБ на настоящем паке — 539 Б/тик бюджета толпы);
-        // прибавку врагов добирает команда арены.
+        // Память пула — сразу на арену с боем из конфига (рост посреди боя — аллокации в тике); прибавку врагов добирает команда арены.
         ReservePoses(poses, arena.Enemies);
         var weapons = assets.Weapons;
         var strikes = assets.Strikes;
-        var upper = poses.AddMask(ActionRules.UpperMask(assets.Clips.Skeleton));   // слой верха тела (удары): CharacterRig.UpperMask
+        var upper = poses.AddMask(ActionRules.UpperMask(assets.Clips.Skeleton));   // слой верха тела (удары)
         var full = poses.AddMask(Enumerable.Repeat(1f, assets.Clips.JointCount).ToArray());   // всё тело: переход от снимка с памятью
         var combat = b.Config.Section<CombatSettings>("combat");
         int playerWeapon = weapons.Find(combat.PlayerWeapon);
@@ -151,8 +104,7 @@ public static class GameCore
             .Invariants(DamageInvariants.For(physics))
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>()
-            // Бой: касания, попадания, заявки на отруб и смерти — клиенту (HUD; кровь отложена — решение 15) и агенту (events.history: без
-            // подписчика у события нет журнала).
+            // Бой: касания, попадания, заявки на отруб и смерти — клиенту (HUD; без подписчика у события нет журнала).
             .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>();
         FighterBodies.Register(b, physics);
         PhysicsDebug.Register(b, physics);   // вид суставов и трассы физики, режим physics.trace — мир, хеш и реплей не меняют
@@ -200,8 +152,7 @@ public static class GameCore
             .System(GameStages.End, new SkinReleaseSystem(skins));
 
         b.OnWorldBuilt(w => SpawnArena(w, arena.Enemies, enemyWeapons));
-        // Тела и клинки бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира: как PlaceBuilt
-        // SWORD после AttachRig, до первого тика.
+        // Тела и клинки бойцов сборки мира — по позе постройки, которую задаёт модуль при сборке мира, до первого тика.
         b.OnWorldReady(w =>
         {
             BodySetupSystem.PlaceWorldBuilt(w, physics, joints, start);
@@ -218,9 +169,8 @@ public static class GameCore
     }
 
     /// <summary>
-    /// Начальная арена (<c>DuelArena.Reset(enemies)</c> SWORD): игрок в центре курсом 0 (место 0), затем враги на местах
-    /// 1…<paramref name="enemies"/> кольцом вокруг него (<see cref="ArenaRules.Enemy"/>, партия 0 — сборка мира) со случайными
-    /// мечами из оружия врагов <paramref name="weapons"/> (номера таблицы).
+    /// Начальная арена: игрок в центре курсом 0 (место 0), враги на местах 1…<paramref name="enemies"/> кольцом вокруг
+    /// него (партия 0) со случайными мечами из <paramref name="weapons"/> (номера таблицы).
     /// </summary>
     public static void SpawnArena(World world, int enemies, ReadOnlySpan<int> weapons)
     {

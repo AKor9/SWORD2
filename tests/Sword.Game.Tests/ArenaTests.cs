@@ -1,13 +1,9 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Client;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Platform;
 using Sword.Engine.Runtime;
-using Sword.Game.Agent;
 using Sword.Game.Arena;
 using Sword.Game.Bootstrap;
 using Sword.Game.Client;
@@ -16,9 +12,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Арена и враги: спаун кольцом курсом на игрока (<c>DuelArena.Spawn</c> SWORD), число врагов в пределах
-/// (<c>SetEnemyCount</c>), сброс (<c>Reset</c>), клавиши PageUp/PageDown/R — команды арены ровно одним тиком и в реплее,
-/// детерминизм, инвариант мест, 0 байт на тик с 32 врагами, имена и команды агента.
+/// Арена и враги: спаун кольцом курсом на игрока, число врагов в пределах, сброс; PageUp/PageDown/R — команды арены одним тиком
+/// и в реплее; детерминизм, инвариант мест, 0 байт на тик с 32 врагами.
 /// </summary>
 public sealed class ArenaTests
 {
@@ -59,10 +54,9 @@ public sealed class ArenaTests
     private static readonly ArenaCommand Reset = new() { Action = ArenaAction.Reset };
 
     /// <summary>
-    /// Враги построены кольцом 5–9 м вокруг <paramref name="center"/>, курсом на него (курс — <c>Atan2</c> на центр, побитово). Точка
-    /// постройки — <see cref="PrevTransform"/>: построенный командой в тике враг уже сделал в нём шаг (ИИ), а
-    /// прошлый корень — точка постройки (<c>RenderPos = Pos</c>). <paramref name="thought"/> — тик уже сыгран: намерение —
-    /// ИИ на центр; нет (сборка мира) — «стоять курсом постройки» (<c>FacingGoal = facing</c>, <c>Fighter.Build</c>).
+    /// Враги кольцом 5–9 м вокруг <paramref name="center"/>, курсом на него (<c>Atan2</c>, побитово). Точка постройки —
+    /// <see cref="PrevTransform"/>: построенный командой враг уже сделал шаг. <paramref name="thought"/> — тик сыгран: намерение —
+    /// ИИ на центр; иначе — стоять курсом постройки.
     /// </summary>
     private static void AssertRing(IReadOnlyList<EnemyRow> enemies, Vector3 center, bool thought)
     {
@@ -220,13 +214,13 @@ public sealed class ArenaTests
         Assert.NotEqual(0, oldDir);   // бежит вбок от взгляда
 
         Step(sim, Reset);   // R, игрок стоит
-        // Тот же боец места 0 (Fighter.Build SWORD над тем же бойцом): имя и номер у агента прежние.
+        // Тот же боец места 0: имя и номер сущности прежние.
         var player = GameCore.Player(sim.World);
         Assert.Equal(oldPlayer, player);
         var root = sim.World.Get<Transform>(player);
         Assert.Equal(Vector3.Zero, root.Position);
         Assert.Equal(Vector3.Zero, sim.World.Get<RootVelocity>(player).Value);
-        // Точка взгляда контроллера (_cursor SWORD) сбросом не забыта: курс-цель — на неё, курс к ней поворачивает.
+        // Точка взгляда контроллера сбросом не забыта: курс-цель — на неё, курс к ней поворачивает.
         Assert.True(sim.World.Get<GazeTarget>(player).Has);
         Assert.Equal(MathF.Atan2(30, 30), sim.World.Get<FighterCommand>(player).FacingGoal);
         Assert.Equal(0, sim.World.Get<FighterSlot>(player).Index);
@@ -236,13 +230,13 @@ public sealed class ArenaTests
         Assert.All(enemies.Zip(oldEnemies), p => Assert.NotEqual(p.Second.Root.Position, p.First.Root.Position));
         AssertRing(enemies, Vector3.Zero, thought: true);
         Assert.Equal(6 * 3, sim.World.View<IAnimationView>().PoseCount);   // позы — прежние, ничего не утекло
-        // Локомоция — заново со стойки, как после FighterAnimator.Reset SWORD: без кроссфейда, время клипа — один тик.
+        // Локомоция — заново со стойки: без кроссфейда, время клипа — один тик.
         var loco = sim.World.Get<Locomotion.LegacyLocomotionState>(player);
         Assert.Equal((false, 1f, 1f / 120), (loco.Run, loco.Fade, loco.Time));
-        // …кроме стороны ходьбы: LegacyLocomotion.Reset SWORD не трогает _dir (найдено трассой толпы).
+        // …кроме стороны ходьбы: сброс не трогает Dir.
         Assert.Equal(oldDir, loco.Dir);
 
-        // Команда игрока тика сброса действует сразу (в SWORD Reset — до PlayerController.Think того же тика).
+        // Команда игрока тика сброса действует сразу: сброс — до мысли контроллера того же тика.
         sim.Enqueue(new PlayerCommand { Move = new Vector2(0, 1) });
         Step(sim, Reset);
         var moved = GameCore.Player(sim.World);
@@ -277,7 +271,7 @@ public sealed class ArenaTests
         Assert.True(arenaType >= 0, "команды арены нет в реплее");
         Assert.Equal(["Action:u8", "Enemies:i32", "Weapon:i32"], replay.CommandTypes[arenaType].Fields);   // меч для EquipWeapon
         var first = replay.CommandsAt(0).Where(c => c.Type == arenaType).Select(c => ((ArenaAction)c.Leaves[0], (int)c.Leaves[1])).ToList();
-        Assert.Equal([(ArenaAction.ChangeEnemies, 1), (ArenaAction.Reset, 0)], first);   // порядок SWORD: PageUp, затем R
+        Assert.Equal([(ArenaAction.ChangeEnemies, 1), (ArenaAction.Reset, 0)], first);   // порядок: PageUp, затем R
         for (ulong t = 1; t < 6; t++) Assert.DoesNotContain(replay.CommandsAt(t), c => c.Type == arenaType);
 
         var b = TestAssets.Simulation(replay.CreateConfig());
@@ -359,51 +353,6 @@ public sealed class ArenaTests
         Assert.Equal(0, sim.Invariants.Total);
     }
 
-    /// <summary>
-    /// Профайлер CPU на толпе 32 врагов с инвариантами: включённый — 0 байт на тик; хеш каждого тика — тот же, что
-    /// без профайлера (он только читает часы); в итогах — тик, стадии игры, каждая система ядра и модуля, инварианты.
-    /// </summary>
-    [Fact]
-    public void SteadyTick_With32Enemies_Profiled_DoesNotAllocate_SameHashes()
-    {
-        var plain = Create("arena.enemies=32");
-        var sim = Create("arena.enemies=32");
-        var profiler = new CpuProfiler();
-        sim.AttachProfiler(profiler);
-        profiler.SetEnabled(true);
-        var command = new PlayerCommand { Move = new Vector2(1, 1), HasGaze = true, Gaze = new Vector3(5, 0, 5) };
-        var a = new ulong[plain.StateParts.Count];
-        var b = new ulong[sim.StateParts.Count];
-        void Step(Simulation s)
-        {
-            s.Export.BeginFrame();
-            s.Enqueue(command);
-            s.Step();
-        }
-        for (int i = 0; i < 200; i++)
-        {
-            Step(plain);
-            Step(sim);
-            Assert.Equal(plain.HashState(a), sim.HashState(b));
-        }
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 600; i++) Step(sim);
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
-        for (int i = 0; i < 600; i++) Step(plain);
-        Assert.Equal(plain.HashState(a), sim.HashState(b));
-        Assert.Equal(0, sim.Invariants.Total);
-
-        Assert.Equal((800, 0), profiler.Count(ProfilePeriod.Tick));
-        var zones = profiler.Stats(ProfilePeriod.Tick).Select(z => z.Name).ToHashSet();
-        foreach (var system in sim.World.Systems)
-            Assert.Contains(system.Name, zones);
-        foreach (var invariant in sim.Invariants.List().Where(i => i.Enabled))
-            Assert.Contains("invariant." + invariant.Id, zones);
-        foreach (string stage in sim.World.Stages)
-            Assert.Contains("stage." + stage, zones);
-        Assert.Equal(0, profiler.Mismatches);
-    }
-
     /// <summary>Неисправность мест на тике <see cref="Tick"/> (Settle): снять врага места 3 мимо команды арены или дать ему место 2.</summary>
     private sealed class SlotFault(bool duplicate) : IModule
     {
@@ -456,55 +405,4 @@ public sealed class ArenaTests
         Assert.Contains(sim.Invariants.Recent(), v => v.Details.Contains(details));
     }
 
-    [Fact]
-    public async Task Agent_NamesEnemiesBySlot_SendsArenaCommand()
-    {
-        var sim = Create("arena.enemies=3");
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            var third = await Call("entity.get", new JsonObject { ["entity"] = "enemy 3", ["components"] = new JsonArray("FighterSlot") });
-            Assert.Equal("enemy 3", third["name"]!.GetValue<string>());
-            await Call("command.send", new JsonObject
-            {
-                ["command"] = "ArenaCommand", ["fields"] = new JsonObject { ["Action"] = "SetEnemies", ["Enemies"] = 7 },
-            });
-            await Call("time.step", new JsonObject { ["ticks"] = 1 });
-            var seventh = await Call("entity.get", new JsonObject { ["entity"] = "enemy 7" });
-            Assert.Equal("enemy 7", seventh["name"]!.GetValue<string>());
-            var arena = await Call("world.query", new JsonObject { ["with"] = new JsonArray("EnemyTag") });
-            Assert.Equal(7, arena["total"]!.GetValue<int>());
-            var hash = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "resource:" });
-            Assert.Contains("ArenaState", hash.ToJsonString());
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
-        var names = new SwordAgent.ArenaNames();
-        Assert.Contains("enemy <место 1…32>", names.Known);
-    }
 }

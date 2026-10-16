@@ -4,9 +4,8 @@ using System.Runtime.InteropServices;
 namespace Sword.Game.Client.Scene;
 
 /// <summary>
-/// Константы кадра сцены (<c>ConstantBuffer&lt;FrameConstants&gt; gFrame : register(b0)</c> в scene_common.hlsli; размер
-/// сверяет шейдер — FRAME_CONSTANTS_SIZE). Раскладка — как у <c>Sim/SimLayout.cs FrameConstants</c> SWORD 2eab13b:
-/// поля придут в дело вместе со своими фичами. Поля — строками по 16 байт.
+/// Константы кадра сцены (<c>gFrame : register(b0)</c> в scene_common.hlsli; размер сверяет шейдер — FRAME_CONSTANTS_SIZE).
+/// Поля — строками по 16 байт; часть полей придёт в дело вместе со своими фичами.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 public struct FrameConstants

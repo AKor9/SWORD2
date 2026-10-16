@@ -3,10 +3,7 @@ using Loop = Sword.Game.Locomotion.Motion.GaitSpeedModel.Loop;
 
 namespace Sword.Game.Tests;
 
-/// <summary>
-/// Модель скоростей данных: сектор — ближайший по направлению, среднее циклов сектора, пустой сектор — среднее ближайших
-/// заполненных с обеих сторон, линейная интерполяция между секторами, шаг или бег — по скорости ввода.
-/// </summary>
+/// <summary>Модель скоростей: ближайший сектор, пустой — среднее соседей, интерполяция между секторами, шаг или бег по скорости ввода.</summary>
 public sealed class GaitSpeedModelTests
 {
     private static float Deg(float degrees) => degrees * MathF.PI / 180;

@@ -1,11 +1,8 @@
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// Проходы bloom (<see cref="BloomKernel"/>) в фазе <see cref="FramePhase.Post"/> перед тонмапом: <c>post.bloom.setup</c> — порог и
-/// уменьшение сцены вдвое, <c>post.bloom.d4</c> … <c>d64</c> — цепочка уменьшений, затем от широкой ступени к узкой
-/// <c>post.bloom.x64</c>/<c>y64</c> … <c>x2</c>/<c>y2</c> — гауссиана по x во временную цель и по y с усилением ступени и прибавкой
-/// суммы более широких. Итог — <c>bloom.y2</c> (½ экрана, RGBA16F), его читает тонмап. Цели — временные из пула графа; делегаты
-/// проходов созданы один раз — кадр без выделений.
+/// Проходы bloom (<see cref="BloomKernel"/>) в фазе Post перед тонмапом: порог и уменьшение, цепочка уменьшений, затем
+/// гауссианы x/y от широкой ступени к узкой. Итог — <c>bloom.y2</c> (½ экрана, RGBA16F). Кадр без выделений.
 /// </summary>
 internal sealed class BloomChain
 {
@@ -61,10 +58,7 @@ internal sealed class BloomChain
         c.AddSlot("BLOOM_GAIN", SlotGain, "усиление ступени, float");
     }
 
-    /// <summary>
-    /// Проходы bloom над цветом сцены <paramref name="scene"/> (SRV <paramref name="sceneSrv"/>) — в фазу Post, после уже
-    /// зарегистрированных. Вернёт итог (½ экрана) — его читает тонмап в этом кадре.
-    /// </summary>
+    /// <summary>Проходы bloom над цветом сцены — в фазу Post; вернёт итог (½ экрана) для тонмапа этого кадра.</summary>
     public RenderTexture Add(RenderGraph graph, RenderTexture scene, int sceneSrv, float exposure, in BloomSettings bloom)
     {
         _sceneSrv = sceneSrv;

@@ -8,8 +8,7 @@ using Sword.Game.Data;
 namespace Sword.Game.Animation;
 
 /// <summary>
-/// Действие слоя действий аниматора (<c>FighterAnimator.ActionKind</c> SWORD 2eab13b; номера — те же): поворот
-/// на месте, удар, вид рывка, реакция врага на попадание; отбитого удара и блока нет — Guard отложен (решение 16).
+/// Действие слоя действий аниматора: поворот на месте, удар, вид рывка, реакция врага на попадание; отбитого удара и блока нет.
 /// </summary>
 public enum ActionKind : byte
 {
@@ -20,15 +19,14 @@ public enum ActionKind : byte
     Attack = 1,
 
     /// <summary>
-    /// Реакция врага на попадание (<c>HitReact</c> не-<c>Agile</c>): клип реакции (сзади — <c>hit_back</c>, спереди — <c>hit_front1</c>
-    /// или <c>hit_front2</c>), слой — слота; мягкий вход, отшатывание — root motion клипа; бить нельзя, ход — 0,15, поворот — 0,35.
-    /// Игрок не играет реакцию действием — он вздрагивает (<see cref="Flinch"/>), управление не отнимается.
+    /// Реакция врага на попадание: клип реакции (сзади или спереди), слой — слота; отшатывание — root motion клипа; бить нельзя,
+    /// ход — 0,15, поворот — 0,35. Игрок реакцию не играет — он вздрагивает (<see cref="Flinch"/>).
     /// </summary>
     HitReact = 4,
 
     /// <summary>
-    /// Вид рывка (на месте <c>Evade</c> SWORD, но не он): клип уклонения по направлению рывка всем телом, гаснет к концу
-    /// рывка; корень ведёт контроллер рывка (<c>PlayerControl</c>), root motion клипа не применяется.
+    /// Вид рывка: клип уклонения по направлению рывка всем телом, гаснет к концу рывка; корень ведёт контроллер рывка
+    /// (<c>PlayerControl</c>), root motion клипа не применяется.
     /// </summary>
     Dash = 5,
 
@@ -37,13 +35,8 @@ public enum ActionKind : byte
 }
 
 /// <summary>
-/// Слой действий аниматора бойца — состояние действия <c>FighterAnimator</c> SWORD 2eab13b (<c>Kind</c>, <c>_actionClip</c>,
-/// <c>ActionTime</c>, <c>_actionDuration</c>, <c>_actionWeight</c>, <c>_turnScale</c>, <c>Attack</c>, <c>_actionUpper</c>,
-/// <c>_cutRecovery</c>, <c>_snapFade</c>, <c>SnapCount</c>, <c>AttackSerial</c>) и его выход тика (<c>YawDelta</c>,
-/// <c>RootDelta</c>). Машина состояний боя — правило игры, поэтому она в ядре игры (раздел 6 плана: <c>FighterAnimator</c>
-/// остаётся в игре) компонентом бойца, а позы слоя и снимка — в пуле поз (<see cref="ActionPoses"/>). У всех бойцов: у
-/// игрока (<c>Agile</c>) — удары и вид рывка, у врагов — повороты и удары. Хешируется участником <c>ecs</c>; виден агенту
-/// (<c>entity.get</c>, условия, <c>anim.pose</c> — с именем клипа).
+/// Слой действий аниматора бойца — машина состояний боя (правило игры, поэтому в ядре) и её выход тика; позы слоя и снимка —
+/// в пуле поз (<see cref="ActionPoses"/>). Хешируется участником <c>ecs</c>.
 /// </summary>
 public struct AnimatorAction
 {
@@ -52,88 +45,82 @@ public struct AnimatorAction
     /// <summary>Клип действия (номер в библиотеке); −1 — действия нет.</summary>
     public int Clip;
 
-    /// <summary>Время клипа действия, с, и его длительность (<c>ActionTime</c>, <c>_actionDuration</c>); у рывка — отрезок клипа на рывок.</summary>
+    /// <summary>Время клипа действия, с, и его длительность; у рывка — отрезок клипа на рывок.</summary>
     public float Time, Duration;
 
-    /// <summary>Вес слоя 0…1: вход за 0,08 с (удар) или 0,15 с, выход за 0,2 с (<c>_actionWeight</c>); в позу — сглаженной ступенью.</summary>
+    /// <summary>Вес слоя 0…1: вход за 0,08 с (удар) или 0,15 с, выход за 0,2 с; в позу — сглаженной ступенью.</summary>
     public float Weight;
 
-    /// <summary>Во сколько раз yaw клипа поворота растянут до угла, на который надо повернуть (0,5…1,6 по модулю; <c>_turnScale</c>).</summary>
+    /// <summary>Во сколько раз yaw клипа поворота растянут до угла, на который надо повернуть (0,5…1,6 по модулю).</summary>
     public float TurnScale;
 
     /// <summary>
-    /// Выход тика: поворот курса, рад (+ — влево), из yaw клипа поворота — пока боец стоит (<c>YawDelta</c>); и сдвиг
-    /// корня клипом действия в системе бойца, м (<c>RootDelta</c>). Их применяет перенос корня (Movement).
+    /// Выход тика: поворот курса, рад (+ — влево), из yaw клипа поворота, пока боец стоит; сдвиг корня клипом действия в системе
+    /// бойца, м (<see cref="RootDelta"/>). Применяет перенос корня (Movement).
     /// </summary>
     public float YawDelta;
     public Vector3 RootDelta;
 
-    /// <summary>Удар — номер в таблице ударов (<see cref="ICombatView.Attacks"/>: slash1–4, stab1–3); −1 — не удар (<c>Attack</c> SWORD).</summary>
+    /// <summary>Удар — номер в таблице ударов (<see cref="ICombatView.Attacks"/>: slash1–4, stab1–3); −1 — не удар.</summary>
     public int Attack;
 
-    /// <summary>Действие — слой верха тела (<c>_actionUpper</c>): на ходу ноги у локомоции.</summary>
+    /// <summary>Действие — слой верха тела: на ходу ноги у локомоции.</summary>
     public bool Upper;
 
     /// <summary>
-    /// Доля клипа действия в суставах вне маски верха в этом тике (<c>CharacterRig.StandWeight</c> сглаженной скорости: стоя — 1,
-    /// на ходу — 0); у действия всем телом — 1. Её берёт смешивание по маске (<see cref="ActionLayer.Pose"/>).
+    /// Доля клипа действия в суставах вне маски верха в этом тике (от сглаженной скорости: стоя — 1, на ходу — 0); у действия
+    /// всем телом — 1.
     /// </summary>
     public float Stand;
 
-    /// <summary>Хвост удара обрезан — игрок побежал после окна урона, слой гаснет за 0,1 с (<c>_cutRecovery</c>, только <c>Agile</c>).</summary>
+    /// <summary>Хвост удара обрезан — игрок побежал после окна урона, слой гаснет за 0,1 с (только <c>Agile</c>).</summary>
     public bool CutRecovery;
 
     /// <summary>Скорость клипа действия (секунд клипа за секунду): 1; у рывка — отрезок клипа уклонения за время рывка.</summary>
     public float Rate;
 
     /// <summary>
-    /// Переход от снимка позы (<c>_snapFade</c>): 0 — только что снята, 1 — снимка нет. Растёт на 1/0,15 с за тик; поза бойца —
-    /// смешивание со снимком с весом сглаженной ступени от <c>1 − SnapFade</c>.
+    /// Переход от снимка позы: 0 — только что снята, 1 — снимка нет; растёт на 1/0,15 с за тик.
     /// </summary>
     public float SnapFade;
 
     /// <summary>
-    /// Снимков позы за жизнь бойца (<c>SnapCount</c>): растёт при прерывании видимого действия (вес больше 0,05) и при конце
-    /// клипа с видимым весом. Снимок — копия итоговой позы прошлого тика: запрос здесь, копия — в начале стадии Animation
-    /// (<see cref="ActionPoses.Snapped"/> догоняет это число).
+    /// Снимков позы за жизнь бойца: растёт при прерывании видимого действия и при конце клипа с видимым весом. Копия — в начале
+    /// стадии Animation (<see cref="ActionPoses.Snapped"/> догоняет это число).
     /// </summary>
     public int Snapshots;
 
-    /// <summary>Номер удара бойца — растёт с каждым ударом, постройка заново его не сбрасывает (<c>AttackSerial</c>).</summary>
+    /// <summary>Номер удара бойца — растёт с каждым ударом, постройка заново его не сбрасывает.</summary>
     public int AttackSerial;
 
     /// <summary>
-    /// Что прервало последнее начатое действие (для проверки и отладки): действие до него, его время и удар (−1 — не удар).
-    /// Удар начинается только из состояния, где боец может ударить (инвариант <c>animation.actions</c>).
+    /// Что прервало последнее начатое действие (для отладки): действие до него, его время и удар (−1 — не удар).
     /// </summary>
     public ActionKind From;
     public float FromTime;
     public int FromAttack;
 
-    /// <summary>Действие ведёт всё тело (<c>FullBodyAction</c>): локомоция под ним не ищет новый кадр.</summary>
+    /// <summary>Действие ведёт всё тело: локомоция под ним не ищет новый кадр.</summary>
     public readonly bool FullBody => Kind != ActionKind.None && !Upper;
 
-    /// <summary>Курс ведёт клип поворота — боец стоит (<c>TurnDrivesYaw</c>); пошёл — курс снова доворачивает контроллер.</summary>
+    /// <summary>Курс ведёт клип поворота — боец стоит; пошёл — курс снова доворачивает контроллер.</summary>
     public readonly bool TurnDrivesYaw(bool moving) => Kind == ActionKind.Turn && !moving;
 
-    /// <summary>Без действия — как после <c>FighterAnimator.Reset</c>.</summary>
+    /// <summary>Без действия.</summary>
     public static readonly AnimatorAction None = new()
     {
         Kind = ActionKind.None, Clip = -1, Attack = -1, Stand = 1, Rate = 1, SnapFade = 1, From = ActionKind.None, FromAttack = -1,
     };
 
     /// <summary>
-    /// Постройка заново (<c>FighterAnimator.Reset</c>): без действия и снимка, а номер удара и счёт снимков — прежние
-    /// (<c>Reset</c> SWORD их не сбрасывает; номер удара не убывает — инвариант).
+    /// Постройка заново: без действия и снимка; номер удара и счёт снимков — прежние (номер удара не убывает — инвариант).
     /// </summary>
     public readonly AnimatorAction Rebuilt() => None with { AttackSerial = AttackSerial, Snapshots = Snapshots };
 }
 
 /// <summary>
-/// Позы слоя действий в пуле поз: сэмпл клипа действия (<c>_actRot/_actPos</c> SWORD) и снимок итоговой позы
-/// (<c>_snapRot/_snapPos</c>). Отдельно от <see cref="AnimatorAction"/>: постройка бойца заново (сброс арены) обнуляет
-/// действие, а позы остаются его. Поза слоя берётся при первом действии бойца (<see cref="AnimatorPoseSystem"/>), снимка —
-/// при первом снимке (<see cref="ActionSnapshotSystem"/>); возвращаются, когда компонент снят (<see cref="ActionPoseReleaseSystem"/>).
+/// Позы слоя действий в пуле поз: сэмпл клипа действия и снимок итоговой позы. Отдельно от <see cref="AnimatorAction"/>:
+/// постройка заново обнуляет действие, а позы остаются; возвращает <see cref="ActionPoseReleaseSystem"/>.
 /// </summary>
 public struct ActionPoses
 {
@@ -146,33 +133,29 @@ public struct ActionPoses
     public int Snapped;
 
     /// <summary>
-    /// Память смешивания по маске (<c>PosePool.BlendMasked</c>): итог слоя верха прошлого тика и его итог по кратчайшей дуге —
-    /// сустав, у которого кратчайшая дуга перескочила (таз укола на полушаге), догоняет её не больше 8° за тик. Клип и время клипа,
-    /// при которых память записана: тот же клип дальше — память действует; −1 — смешивания по маске в прошлом тике не было.
+    /// Память смешивания по маске: итог слоя верха прошлого тика и его итог по кратчайшей дуге — перескочивший сустав догоняет
+    /// не больше 8° за тик. −1 у клипа — смешивания по маске в прошлом тике не было.
     /// </summary>
     public PoseHandle BlendOutput, BlendShortest;
     public int BlendClip;
     public float BlendTime;
 
     /// <summary>
-    /// Вздрагивание игрока (<see cref="Flinch"/>): первый кадр клипа реакции и его кадр в момент слота — отклонение второго от
-    /// первого добавляется к позе по маске верха. Общие для обоих слотов (задания пула исполняются по порядку); берутся при первом
-    /// вздрагивании.
+    /// Вздрагивание игрока (<see cref="Flinch"/>): первый кадр клипа реакции и кадр в момент слота — отклонение второго от первого
+    /// добавляется по маске верха. Общие для обоих слотов.
     /// </summary>
     public PoseHandle FlinchRef, FlinchPose;
 
     /// <summary>
-    /// Память перехода от снимка: итог перехода прошлого тика и его итог по кратчайшей дуге — как <see cref="BlendOutput"/>, но для
-    /// смешивания со снимком всем телом: снимок укола (таз и плечи до 165° от стойки) и поза реакции на попадание расходятся через 180°, и
-    /// кратчайшая дуга перескакивала посреди перехода (плечо 45…66 м/с за тик в толпе — <c>physics.kinematicSpeed</c>). Берутся при
-    /// первом переходе от снимка. <see cref="SnapBlend"/> — номер снимка (<see cref="Snapped"/>), чей переход смешан в прошлом тике; 0 —
-    /// перехода не было.
+    /// Память перехода от снимка всем телом — как <see cref="BlendOutput"/>: снимок укола и поза реакции расходятся через 180°, и
+    /// кратчайшая дуга перескакивала посреди перехода. <see cref="SnapBlend"/> — номер снимка, чей переход смешан в прошлом тике
+    /// (0 — не было).
     /// </summary>
     public PoseHandle SnapOutput, SnapShortest;
     public int SnapBlend;
 }
 
-/// <summary>Константы слоя действий — <c>FighterAnimator</c> и <c>CharacterRig</c> SWORD 2eab13b.</summary>
+/// <summary>Константы слоя действий.</summary>
 public static class ActionRules
 {
     /// <summary>Выход действия, с (<c>ActionOut</c>): вес гаснет за это время, выход начинается за столько до конца клипа.</summary>
@@ -194,7 +177,7 @@ public static class ActionRules
 
     /// <summary>
     /// Хвост удара на бегу (<c>Agile</c>): через 0,1 с после окна урона, если ноги у локомоции (доля клипа в ногах меньше 0,5), слой
-    /// гаснет за 0,1 с (<c>RecoveryCutAfter</c>, <c>ActionOutRun</c>).
+    /// гаснет за 0,1 с.
     /// </summary>
     public const float RecoveryCutAfter = 0.1f, ActionOutRun = 0.1f;
 
@@ -208,8 +191,7 @@ public static class ActionRules
     public const float HitReactMoveScale = 0.15f;
 
     /// <summary>
-    /// Слой верха: скорость (м/с), до которой действие играет всё тело, и с которой ноги полностью у локомоции
-    /// (<c>UpperStandSpeed</c>, <c>UpperMoveSpeed</c>).
+    /// Слой верха: скорость (м/с), до которой действие играет всё тело, и с которой ноги полностью у локомоции.
     /// </summary>
     public const float UpperStandSpeed = 0.3f, UpperMoveSpeed = 1.2f;
 
@@ -217,18 +199,16 @@ public static class ActionRules
     public const float TurnScaleMin = 0.5f, TurnScaleMax = 1.6f;
 
     /// <summary>
-    /// Клип поворачивает меньше — не клип поворота (0,3 рад); больше — разворот, годится в обе стороны (2,4 рад);
-    /// литералы <c>StartTurn</c>.
+    /// Клип поворачивает меньше — не клип поворота (0,3 рад); больше — разворот, годится в обе стороны (2,4 рад).
     /// </summary>
     public const float TurnClipMin = 0.3f, Turn180Min = 2.4f;
 
     /// <summary>
-    /// Вид рывка: отрезок клипа уклонения, с, который проигрывается за время рывка — шаг уклонения до момента, где его
-    /// рывок кончался в SWORD (<c>FindRecoverTime</c> на эталонном паке: 0,38…0,55 с, в среднем ≈ 0,45); короче клип — весь клип.
+    /// Вид рывка: отрезок клипа уклонения, с, проигрываемый за время рывка (шаг уклонения ≈ 0,45 с); короче клип — весь клип.
     /// </summary>
     public const float DashClipSpan = 0.45f;
 
-    /// <summary>Доля клипа действия в ногах при скорости <paramref name="speed"/> (<c>CharacterRig.StandWeight</c>): стоя — 1, на ходу — 0.</summary>
+    /// <summary>Доля клипа действия в ногах при скорости <paramref name="speed"/>: стоя — 1, на ходу — 0.</summary>
     public static float StandWeight(float speed)
     {
         float k = Math.Clamp((speed - UpperStandSpeed) / (UpperMoveSpeed - UpperStandSpeed), 0, 1);
@@ -236,8 +216,7 @@ public static class ActionRules
     }
 
     /// <summary>
-    /// Маска слоя верха тела (<c>CharacterRig.UpperMask</c>): spine_01 — 0,25, spine_02 — 0,5, spine_03 — 0,75, таз и ноги
-    /// (сегменты таза, бёдер, голеней, стоп — <see cref="JointSegments"/>) — 0, остальное (корпус, руки, голова) — 1.
+    /// Маска слоя верха тела: spine_01 — 0,25, spine_02 — 0,5, spine_03 — 0,75, таз и ноги — 0, остальное — 1.
     /// </summary>
     public static float[] UpperMask(Skeleton skeleton)
     {
@@ -258,22 +237,15 @@ public static class ActionRules
 }
 
 /// <summary>
-/// Логика слоя действий (<c>FighterAnimator</c> SWORD 2eab13b) без поз: начало поворота, удара и вида рывка, правила
-/// «можно ли действовать» и масштабы хода и поворота, шаг действия на тик. Позу по этому состоянию ставят
-/// <see cref="ActionSnapshotSystem"/> и <see cref="AnimatorPoseSystem"/> заданиями пулу поз. Порядок вычислений float — часть
-/// поведения (эталоны SWORD2 держат его хешами).
-///
-/// <c>agile</c> — игрок (<c>Agile = f.IsPlayer</c> SWORD). Отзывчивость SWORD2: у игрока ход при любом действии не
-/// замедляется, поворот — по правилам <c>Agile</c>, удар и рывок прерывают любое его действие (удар — удар только после окна
-/// урона: связка), у врагов — правила SWORD.
+/// Логика слоя действий без поз: начало действий, правила «можно ли действовать», масштабы хода и поворота, шаг на тик.
+/// Порядок вычислений float — часть поведения (эталоны держат его хешами). <c>agile</c> — игрок: ход при действии не
+/// замедляется, удар и рывок прерывают любое его действие (удар — только после окна урона: связка).
 /// </summary>
 public static class ActionLayer
 {
     /// <summary>
-    /// Поворот на месте на <paramref name="delta"/> рад (+ — влево; <c>StartTurn</c>): клип 90° в свою сторону или разворот,
-    /// ближайший по растяжению (|ln scale| меньше), yaw клипа растягивается до угла. Нет подходящего — false, действие не
-    /// меняется (курс доворачивает контроллер). Начинается только из покоя (<see cref="ActionKind.None"/>) — так зовёт
-    /// <c>KinematicSteer</c>; вес — прежний (0).
+    /// Поворот на месте на <paramref name="delta"/> рад (+ — влево): клип 90° или разворот, ближайший по растяжению, yaw клипа
+    /// растягивается до угла. Нет подходящего — false (курс доворачивает контроллер). Только из покоя.
     /// </summary>
     public static bool StartTurn(ref AnimatorAction a, float delta, ClipLibrary clips, ActionTable actions)
     {
@@ -308,8 +280,8 @@ public static class ActionLayer
     }
 
     /// <summary>
-    /// Удар <paramref name="attack"/> таблицы ударов (<c>StartAttack</c>): номер удара растёт, клип удара с начала, слой — слоя
-    /// слота. Зовущий проверяет <see cref="CanAttack"/>.
+    /// Удар <paramref name="attack"/> таблицы ударов: номер удара растёт, клип с начала, слой — слота. Зовущий проверяет
+    /// <see cref="CanAttack"/>.
     /// </summary>
     public static void StartAttack(ref AnimatorAction a, int attack, in AttackInfo info, ClipLibrary clips)
     {
@@ -318,16 +290,14 @@ public static class ActionLayer
     }
 
     /// <summary>
-    /// Реакция врага на попадание (<c>HitReact</c> SWORD не-<c>Agile</c> — <c>Begin(HitReact, clip, Upper(slot))</c>): клип реакции
-    /// с начала, слой — слоя слота; прерывает любое действие (снимок позы, если оно видно). Номер удара не меняется.
+    /// Реакция врага на попадание: клип реакции с начала, слой — слота; прерывает любое действие. Номер удара не меняется.
     /// </summary>
     public static void StartHitReact(ref AnimatorAction a, int clip, bool upper, ClipLibrary clips) =>
         Begin(ref a, ActionKind.HitReact, clip, upper, clips.Duration(clip), -1);
 
     /// <summary>
-    /// Вид рывка: клип уклонения <paramref name="clip"/> всем телом; его отрезок <see cref="ActionRules.DashClipSpan"/> (не
-    /// длиннее клипа) проигрывается за <paramref name="dashTime"/> с — время рывка; вес гаснет вместе с прибавкой скорости.
-    /// Прерывает любое действие (снимок позы, если оно видно).
+    /// Вид рывка: отрезок <see cref="ActionRules.DashClipSpan"/> клипа уклонения всем телом проигрывается за
+    /// <paramref name="dashTime"/> с; вес гаснет вместе с прибавкой скорости. Прерывает любое действие.
     /// </summary>
     public static void StartDash(ref AnimatorAction a, int clip, float dashTime, ClipLibrary clips)
     {
@@ -337,8 +307,8 @@ public static class ActionLayer
     }
 
     /// <summary>
-    /// Смена действия (<c>Begin</c>): прерывание видимого действия (вес больше 0,05) — снимок итоговой позы прошлого тика и вес
-    /// 1 (без снимка новый клип подставлялся за тик — суставы прыгали на 0,3–1 м); клип с начала.
+    /// Смена действия: прерывание видимого действия — снимок итоговой позы прошлого тика (без него суставы прыгали на 0,3–1 м за
+    /// тик); клип с начала.
     /// </summary>
     private static void Begin(ref AnimatorAction a, ActionKind kind, int clip, bool upper, float duration, int attack)
     {
@@ -371,16 +341,11 @@ public static class ActionLayer
     public static bool Striking(in AnimatorAction a, ReadOnlySpan<AttackInfo> attacks) =>
         a.Kind == ActionKind.Attack && attacks[a.Attack].InWindow(a.Time);
 
-    /// <summary>Удар прошёл окно урона — восстановление (<c>Recovering</c>).</summary>
-    public static bool Recovering(in AnimatorAction a, ReadOnlySpan<AttackInfo> attacks) =>
-        a.Kind == ActionKind.Attack && a.Time > attacks[a.Attack].ActiveEnd;
-
-    /// <summary>Занят действием, которое замедляет поворот не-<c>Agile</c> (<c>Busy</c>: удар, реакция на попадание; отбитого удара нет — решение 16).</summary>
+    /// <summary>Занят действием, которое замедляет поворот не-<c>Agile</c>: удар, реакция на попадание.</summary>
     public static bool Busy(in AnimatorAction a) => a.Kind is ActionKind.Attack or ActionKind.HitReact;
 
     /// <summary>
-    /// Можно начать новое действие (<c>CanAct</c>): свободен, поворот, удар после окна урона (связка: <c>Agile</c> — сразу,
-    /// иначе через 0,1 с), вид рывка (его прерывает любое действие).
+    /// Можно начать новое действие: свободен, поворот, удар после окна урона (<c>Agile</c> — сразу, иначе через 0,1 с), вид рывка.
     /// </summary>
     public static bool CanAct(in AnimatorAction a, bool agile, ReadOnlySpan<AttackInfo> attacks) => CanAct(a.Kind, a.Time, a.Attack, agile, attacks);
 
@@ -393,16 +358,14 @@ public static class ActionLayer
     public static bool CanAttack(in AnimatorAction a, bool agile, ReadOnlySpan<AttackInfo> attacks) => CanAct(a, agile, attacks);
 
     /// <summary>
-    /// Доля скорости поворота курса (<c>TurnScale</c>): занятый не-<c>Agile</c> (удар, реакция) — 0,35; <c>Agile</c> — удар доводится
-    /// мышью в замахе и восстановлении, замедляясь до 0,6 только в окне урона; иначе — 1.
+    /// Доля скорости поворота курса: занятый не-<c>Agile</c> — 0,35; <c>Agile</c> в окне урона — 0,6; иначе — 1.
     /// </summary>
     public static float TurnScale(in AnimatorAction a, bool agile, ReadOnlySpan<AttackInfo> attacks) =>
         !agile ? Busy(a) ? ActionRules.BusyTurnScale : 1
         : a.Kind == ActionKind.Attack ? Striking(a, attacks) ? ActionRules.StrikeTurnScale : 1 : 1;
 
     /// <summary>
-    /// Доля желаемой скорости хода (<c>MoveScale</c>): у игрока — 1 при любом действии (SWORD2: игрок управляет ходом всегда; в
-    /// SWORD у <c>Agile</c> — 1 только для слоя верха); у врага удар — 0,35, реакция на попадание — 0,15, остальное — 1.
+    /// Доля желаемой скорости хода: у игрока — 1 всегда; у врага удар — 0,35, реакция — 0,15, остальное — 1.
     /// </summary>
     public static float MoveScale(in AnimatorAction a, bool agile) =>
         agile ? 1 : a.Kind switch
@@ -413,12 +376,9 @@ public static class ActionLayer
         };
 
     /// <summary>
-    /// Шаг действия на тик (<c>TickActions</c> без позы) после слоя движения: <paramref name="moving"/> — «идёт» этого тика,
-    /// <paramref name="speed"/> — сглаженная скорость (для слоя верха). Время клипа, доля клипа в ногах, сдвиг корня клипом (с
-    /// весом слоя и долей в ногах до шага; у рывка — нет), поворот курса yaw клипа (пока стоит), обрезка хвоста удара на бегу
-    /// (<c>Agile</c>), вес — вход или выход (выход — за 0,2 с до конца клипа, пошёл во время поворота, обрезан хвост; у рывка —
-    /// вместе с прибавкой скорости); клип кончился или вес ушёл в ноль на выходе — действия нет (кончился с видимым весом —
-    /// снимок). Затем переход от снимка.
+    /// Шаг действия на тик после слоя движения: <paramref name="moving"/> — «идёт» этого тика, <paramref name="speed"/> —
+    /// сглаженная скорость. Время, вес (выход — за 0,2 с до конца клипа), сдвиг корня, поворот курса, обрезка хвоста удара на
+    /// бегу; кончился с видимым весом — снимок. Затем переход от снимка.
     /// </summary>
     public static void Tick(ref AnimatorAction a, bool moving, float speed, float dt, ClipLibrary clips, ReadOnlySpan<AttackInfo> attacks, bool agile)
     {
@@ -474,13 +434,9 @@ public static class ActionLayer
     public static float Smooth(float w) => w * w * (3 - 2 * w);
 
     /// <summary>
-    /// Задания пулу поз слоя действий бойца (<c>TickActions</c>: поверх локомоции, до прямой кинематики): идёт действие — сэмпл
-    /// клипа в позу слоя и смешивание в позу бойца со сглаженным весом — всем телом или по маске верха
-    /// (<paramref name="upper"/>, доля клипа вне маски — <see cref="AnimatorAction.Stand"/>; с памятью смешивания
-    /// <see cref="ActionPoses.BlendOutput"/> — отличие от SWORD: перескок кратчайшей дуги сустава доворачивается не больше 8° за тик);
-    /// затем переход от снимка позы — смешиванием по маске всего тела <paramref name="full"/> с памятью
-    /// (<see cref="ActionPoses.SnapOutput"/>: без перескока дуги — побитово как <c>PosePool.Blend</c>). Позы слоя и памяти берутся при
-    /// первом действии и первом переходе.
+    /// Задания пулу поз слоя действий (поверх локомоции, до прямой кинематики): сэмпл клипа и смешивание в позу бойца — всем телом
+    /// или по маске верха с памятью смешивания (перескок дуги — не больше 8° за тик); затем переход от снимка маской
+    /// <paramref name="full"/> с памятью (без перескока — побитово как <c>PosePool.Blend</c>).
     /// </summary>
     public static void Pose(in AnimatorAction a, ref ActionPoses poses, PoseHandle pose, PosePool pool, PoseMask upper, PoseMask full)
     {
@@ -529,8 +485,7 @@ public static class ActionLayer
 }
 
 /// <summary>
-/// Прибавка скорости рывка (новое — не <c>Evade</c> SWORD): доля от пиковой по ходу рывка <c>u</c> = 0…1 —
-/// <c>1 − smoothstep(u)</c>: сразу полная, к концу плавно в ноль (без рывка скорости в конце); её интеграл — ½, поэтому
+/// Прибавка скорости рывка: доля от пиковой по ходу рывка <c>u</c> = 0…1 — <c>1 − smoothstep(u)</c>; интеграл — ½, поэтому
 /// дистанция прибавки — скорость·время/2.
 /// </summary>
 public static class DashRules
@@ -543,11 +498,8 @@ public static class DashRules
 }
 
 /// <summary>
-/// Animation, первой (до слоёв позы): снимок позы (<c>FighterAnimator.Snapshot</c>) — у бойца, чей слой действий попросил снимок
-/// в этом тике (<see cref="AnimatorAction.Snapshots"/> больше <see cref="ActionPoses.Snapped"/>), итоговая поза прошлого тика
-/// копируется в позу снимка заданием пулу. Задание стоит в очереди первым: пул исполняет её по порядку, и в этот момент в
-/// позе бойца ещё поза прошлого тика (слои позы этого тика — задания после). Копия — здесь, а не там, где снимок запрошен
-/// (Intent, Gameplay): системы других стадий в пул посреди тика не лезут.
+/// Animation, первой: снимок позы — у бойца, чей слой действий попросил снимок, итоговая поза прошлого тика копируется заданием
+/// пулу; задание первое в очереди, поэтому в позе бойца ещё прошлый тик. Копия здесь: другие стадии в пул посреди тика не лезут.
 /// </summary>
 public sealed class ActionSnapshotSystem : IContinuousSystem
 {

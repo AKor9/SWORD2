@@ -4,9 +4,8 @@ using Sword.Game.Data;
 namespace Sword.Engine.Formats.Tests;
 
 /// <summary>
-/// Массив текстур <c>.swtex</c> (<see cref="TextureData"/>) и зоны крови оружия <c>.swblood</c> (<see cref="WeaponBloodData"/>):
-/// запись и чтение — те же данные и те же байты; обрезка в любом месте и испорченная длина — <see cref="InvalidDataException"/>.
-/// Байты эталонного пака — <see cref="ReferencePakWritersTests"/>.
+/// <c>.swtex</c> и <c>.swblood</c>: запись и чтение — те же данные и байты; обрезка и испорченная длина —
+/// <see cref="InvalidDataException"/>.
 /// </summary>
 public sealed class TextureAndBloodFilesTests
 {

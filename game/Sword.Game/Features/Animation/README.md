@@ -1,7 +1,7 @@
 # Анимация и локомоция клипами
 
 Персонаж ходит и бегает клипами: стойка, ходьба и бег в 8 сторон с кроссфейдом и темпом по скорости — как игрок SWORD
-без Motion Matching. Так ходят враги всегда и игрок при `locomotion.player = clips` (значение в коде: тесты, сценарии фич, эталоны); в игре
+без Motion Matching. Так ходят враги всегда и игрок при `locomotion.player = clips` (значение в коде: тесты, эталоны); в игре
 (`sword.json`) игрок — на Motion Matching (модуль Locomotion). Позы считает подсистема `Sword.Engine.Animation` (пул поз, задания пачкой), выбор клипа — модуль
 Locomotion, аниматор бойца (вход слоя движения, слой действий, итоговая поза) — ядро игры, отрисовка — клиент по позе тика.
 История (сверки со SWORD) — [docs/history/animation.md](../../../../docs/history/animation.md).
@@ -73,14 +73,13 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 
 ## Ограничения
 
-- Приёмка — манифест и `feature.verify`: сценарий `locomotion` и эталон SWORD2 проверяют своё поведение, не схожесть со SWORD.
+- Тесты и эталон SWORD2 проверяют своё поведение, не схожесть со SWORD.
 - Сэмплинг последовательный (7,9 мкс на бойца за тик при кроссфейде, 33 бойца — 0,26 мс; бенчмарк `PoseSampling`).
 - Отладочной отрисовки скелета (линии суставов поверх меша) нет.
 
 ## Что проверить в игре
 
-Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет). В игре (`sword.json`) игрок — на Motion
-Matching: пункты про игрока — с `--set locomotion.player=clips`; враги — клипами всегда.
+В игре (`sword.json`) игрок — на Motion Matching: пункты про игрока — с `--set locomotion.player=clips`; враги — клипами всегда.
 
 1. `Sword.exe` — Manny стоит в боевой стойке одноручного хвата (клип `1HM_Idle_Standing`, с мечом в руке), слегка
    покачивается, а не стоит в T-позе.
@@ -91,29 +90,14 @@ Matching: пункты про игрока — с `--set locomotion.player=clips
 5. Отпустить клавиши — за полсекунды возвращается в стойку, переход мягкий.
 6. Бег по кругу вокруг курсора — ноги переключаются между направлениями без дёрганья (гистерезис сторон).
 
-## Агентский доступ
-
-Приёмка — [feature.json](feature.json): сценарий `locomotion` (900 тиков командами) — проверки клипов (стойка, бег,
-стороны); эталон SWORD2 анимации (сценарий `reference` — хеши каждого тика); инварианты `animation.*`, `locomotion.poses`;
-виды сценария `locomotion` — стойка, бег, бег назад; бюджет стадии Animation. `Sword.Headless --feature animation` или
-`feature.verify {"id":"animation"}`; запись сценария — `artifacts/features/animation/scenario-locomotion.swreplay`.
-
-| что | чем агент это видит и проверяет |
-|---|---|
-| компоненты `PoseRef`, `AnimatorMotion`, `LegacyLocomotionState` (враги; игрок — при `locomotion.player = clips`), `MotionMatchState` (игрок на Motion Matching) | `entity.get` / `world.query` по имени (поля, хэндлы поз — номер и поколение) |
-| клип — номер в библиотеке | `anim.clips` (номер ↔ ID, длительность, цикл, скорость корня) |
-| слой действий | `anim.pose` — поле `action` (действие, клип с именем, время, вес, `yawDelta`, `rootDelta`); `entity.get` → `AnimatorAction`; инвариант `animation.actions` |
-| поза — данные подсистемы, не ECS | `anim.pose` (суставы в пространстве персонажа и в мире, счётчики пула) |
-| поза Manny на экране | `capture.bundle` (картинка кадра; оверлея скелета нет; игрок на MM — оверлей траекторий `mm`) |
-| Motion Matching игрока | `anim.pose` → `motionMatching` (клип, последний поиск, замер, траектории), `events.history {"types":["MotionTransition"]}`, поля `MotionMatch.FootSlide`/`JointJump`, инварианты `locomotion.mmDecay`/`mmContinuity`, зона `locomotion.search` — [README модуля](../../../modules/Sword.Game.Locomotion/README.md), «Агенту и на экран» |
-| порядок систем | `ecs.plan`, `ecs.explainSystem` (`core.root-steer` → `core.animator-input` → `locomotion.legacy` (и `locomotion.mm` игрока на MM) → `core.animator-pose` → `core.animation-tick`) |
-| регрессия | `feature.verify animation` (эталон SWORD2 `animation.swreplay`, сценарий `locomotion`), `replay.check` |
-| подсистема-участник | участник хеша `animation` (`AnimationState`, [Детерминизм](../Determinism/README.md)): пул поз в `state.hash`, позы по суставам — `state.describe`; инварианты — `animation.finite`, `animation.settled`, `animation.pool`, `animation.owners` (`AnimationInvariants`), у локомоции — `locomotion.poses`; API пула допускает второй экземпляр (дифференциальный прогон) |
-
-Инструменты агента `anim.pose`, `anim.clips` — тест `AnimationTests.AgentTools_ShowPoseAndClips`, строки в
-`docs/agent-playbook.md`, проверка в `verify.ps1` `agent-smoke`.
-
 ## Проверки
+
+- Порядок систем: `core.root-steer` → `core.animator-input` → `locomotion.legacy` (и `locomotion.mm` игрока на MM) →
+  `core.animator-pose` → `core.animation-tick`.
+- Участник хеша `animation` (`AnimationState`, [Детерминизм](../Determinism/README.md)): пул поз и позы по
+  суставам — в хеше; инварианты — `animation.finite`, `animation.settled`, `animation.pool`,
+  `animation.owners`, `animation.actions` (`AnimationInvariants`), у локомоции — `locomotion.poses`; API пула допускает
+  второй экземпляр (дифференциальный прогон).
 
 - `tests/Sword.Engine.Formats.Tests/AnimationFilesTests` — раскладка формата пака поле за полем (`Clip_LayoutV2_FieldByField`,
   `Skeleton_LayoutV1_FieldByField_AndRoundTrip`), обрезка, версия 1.
@@ -121,14 +105,14 @@ Matching: пункты про игрока — с `--set locomotion.player=clips
   пул поз: задания побитово равны последовательным вызовам, кинематика с родителем после ребёнка, поколения, поза
   привязки из меша, 0 байт на тик.
 - `tests/Sword.Game.Tests/AnimationTests` — выбор клипа по движению, поза = сэмпл клипа, модуль выключен, позы
-  возвращаются в пул (и при снятии бойца на барьере его появления), общие ассеты без путей записи, 0 байт на тик,
-  инструменты агента; `EnemyTurnTests`, `ActionTests` — слой действий. Эталон SWORD2 `animation.swreplay` —
+  возвращаются в пул (и при снятии бойца на барьере его появления), общие ассеты без путей записи, 0 байт на тик;
+  `EnemyTurnTests`, `ActionTests` — слой действий. Эталон SWORD2 `animation.swreplay` —
   `ReferenceReplaysTests`, `verify.ps1` `replay-smoke`.
 - `tests/Sword.Engine.Ecs.Tests/ReadViewTests`, `tests/Sword.Architecture.Tests/PublicSurfaceTests` — виды только для
   чтения.
 - `verify.ps1`: `headless-smoke` (бегущий игрок — не в позе привязки; модуль выключен конфигом — в ней),
   `without-modules` (сборка без модуля: без DLL, 10 с, корень идёт, поза привязки), `app-smoke` (Manny по позе под
-  GPU-валидацией), `agent-smoke`. Итог Headless `--json` несёт `pose`: суставов, наибольшее отклонение от позы привязки,
+  GPU-валидацией). Итог Headless `--json` несёт `pose`: суставов, наибольшее отклонение от позы привязки,
   `bindPose` (пустая поза — освобождённая или не выделенная — не поза привязки: проверки «без модуля» впустую не проходят).
 
 ## Решения и почему

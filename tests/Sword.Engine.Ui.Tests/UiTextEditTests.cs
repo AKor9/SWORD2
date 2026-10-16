@@ -1,6 +1,6 @@
 namespace Sword.Engine.Ui.Tests;
 
-/// <summary>Правка строки поля ввода без шрифтов (<c>UiTextEditTests</c> SWORD 2eab13b) и пары UTF-16.</summary>
+/// <summary>Правка строки поля ввода без шрифтов и пары UTF-16.</summary>
 public sealed class UiTextEditTests
 {
     [Fact]
@@ -71,7 +71,7 @@ public sealed class UiTextEditTests
         Assert.Equal(3, e.Anchor);
     }
 
-    // ── пары UTF-16 (отличие от SWORD) ─────────────────────────────────
+    // ── пары UTF-16 ────────────────────────────────────────────────────
 
     private const string Emoji = "ab😀c";   // пара — индексы 2 и 3
 

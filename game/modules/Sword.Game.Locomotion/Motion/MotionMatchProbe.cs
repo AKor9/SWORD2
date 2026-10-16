@@ -6,13 +6,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Замер тика по проигрывателю Motion Matching (<see cref="MotionMatchMeasure"/>): скольжение опорной стопы и скачок сустава — по
-/// выходу проигрывателя (поза Motion Matching без руки с мечом и слоя действий: рука, удар верхом и рывок её не трогают) и истории
-/// корня, без памяти между тиками. Выход прошлого тика восстанавливается из скоростей выхода (их задание пула считает разностью выхода тика
-/// и прошлого за dt: прошлый = выход − скорость·dt; у поворота — обратный поворот на вектор ω·dt), обе позы — прямой кинематикой скелета в
-/// пространство персонажа. Поэтому скачок, который сделало задание (переход, затухание, сэмпл), виден, а постройка заново (первый шаг —
-/// скорости клипа) скачком не считается. Корень прошлого тика — прошлая запись истории (история после постройки — одна запись: скольжения
-/// нет, NaN). Буферы — свои (у вида и у каждого инварианта — свой замер); 0 Б.
+/// Замер тика по выходу проигрывателя Motion Matching (без руки с мечом и слоя действий) и истории корня, без памяти между
+/// тиками: выход прошлого тика восстанавливается из скоростей выхода (выход − скорость·dt, у поворота — обратный поворот
+/// на ω·dt). Поэтому скачок задания виден, а постройка заново скачком не считается. Буферы свои; 0 Б.
 /// </summary>
 public sealed class MotionMatchProbe
 {
@@ -30,13 +26,7 @@ public sealed class MotionMatchProbe
     /// <summary>Модельные матрицы выхода тика последнего <see cref="Poses"/>.</summary>
     public ReadOnlySpan<Matrix4x4> Now => _now;
 
-    /// <summary>Модельные матрицы восстановленного выхода прошлого тика последнего <see cref="Poses"/>.</summary>
-    public ReadOnlySpan<Matrix4x4> Previous => _prev;
-
-    /// <summary>
-    /// Позы выхода тика и прошлого тика (<see cref="Now"/>, <see cref="Previous"/>) проигрывателя <paramref name="player"/>; выхода ещё нет
-    /// (не начат) — false.
-    /// </summary>
+    /// <summary>Позы выхода тика и прошлого тика (<see cref="Now"/> и прошлого); выхода ещё нет — false.</summary>
     public bool Poses(MotionPlayerHandle player, float dt)
     {
         var players = _runtime.Players;
@@ -69,7 +59,7 @@ public sealed class MotionMatchProbe
         }
     }
 
-    /// <summary>Наибольший скачок сустава между <see cref="Previous"/> и <see cref="Now"/>, м, и чей (после <see cref="Poses"/>).</summary>
+    /// <summary>Наибольший скачок сустава между прошлой позой и <see cref="Now"/>, м, и чей (после <see cref="Poses"/>).</summary>
     public (float Jump, int Joint) Jump()
     {
         float best = 0;
@@ -87,10 +77,9 @@ public sealed class MotionMatchProbe
     }
 
     /// <summary>
-    /// Замер тика проигрывателя <paramref name="player"/> (<paramref name="history"/> — его история корня, <paramref name="dt"/> — тик, с):
-    /// скачок сустава и скольжение опорной стопы — суставы контакта на земле по разметке кадра проигрывателя, горизонтальная скорость в
-    /// мире (корень тика и прошлого тика — две последние записи истории, подряд по тикам). Стопы — вне корпуса скручивания: в мире они по
-    /// курсу ног — курс корня − расхождение тика (<paramref name="twist"/>) и прошлого тика (<paramref name="twistBefore"/>).
+    /// Замер тика проигрывателя: скачок сустава и скольжение опорной стопы (суставы контакта по разметке кадра, скорость в
+    /// мире по двум последним записям <paramref name="history"/>). Стопы — по курсу ног: курс корня − <paramref name="twist"/>
+    /// (прошлый тик — <paramref name="twistBefore"/>).
     /// </summary>
     public MotionMatchMeasure Measure(MotionPlayerHandle player, RootHistory? history, float dt, float twist = 0, float twistBefore = 0)
     {

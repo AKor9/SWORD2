@@ -1,0 +1,13 @@
+{
+  "converter": "texture",
+  "import": "realistic_blood",
+  "notes": "Шумы для крови (подсыхание, края).",
+  "params": {
+    "layers": [
+      "${src}/_Export/blood/Noises/T_Noise_0?.png"
+    ],
+    "channel": "luma",
+    "size": 512,
+    "out": "textures/blood/noise.swtex"
+  }
+}

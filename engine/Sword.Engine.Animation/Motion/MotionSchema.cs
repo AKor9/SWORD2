@@ -1,11 +1,8 @@
 namespace Sword.Engine.Animation.Motion;
 
 /// <summary>
-/// Что измеряет группа признаков. Все признаки — в системе корня кадра (<see cref="Pose2"/>: +Z вперёд, +X влево). Три вида
-/// по источнику: траектория (<see cref="MotionSchema.IsTrajectory"/> — в базе по графу и политике прошлого, в запросе — из
-/// модели предсказания и истории корня; цена шва графа её не сравнивает), корень (<see cref="MotionSchema.IsRoot"/> — в базе
-/// из кинематики клипа, в запросе — из модели) и суставы (<see cref="MotionSchema.IsJoint"/> — в базе из кинематики, в запросе —
-/// признаки текущего кадра базы).
+/// Что измеряет группа признаков; всё — в системе корня кадра (+Z вперёд, +X влево). Три вида по источнику: траектория,
+/// корень и суставы (<see cref="MotionSchema.IsTrajectory"/>, <see cref="MotionSchema.IsRoot"/>, <see cref="MotionSchema.IsJoint"/>).
 /// </summary>
 public enum FeatureKind : byte
 {
@@ -27,41 +24,32 @@ public enum FeatureKind : byte
     /// <summary>Положение суставов группы (x, y, z), м — 3 на сустав.</summary>
     JointPosition,
 
-    /// <summary>Скорость суставов группы (мировая, выраженная в системе корня кадра) (x, y, z), м/с — 3 на сустав.</summary>
+    /// <summary>Скорость суставов группы (мировая, в системе корня кадра) (x, y, z), м/с — 3 на сустав.</summary>
     JointVelocity,
 
     /// <summary>
-    /// Курс по паре суставов «левый, правый» (суставы группы — пары подряд): горизонтальное «вперёд» — (левый − правый),
-    /// повёрнутое так, что +X (влево) переходит в +Z (вперёд), единичное, (x, z) — 2 на пару (курс таза по бёдрам, груди —
-    /// по ключицам).
+    /// Курс по паре суставов «левый, правый»: (левый − правый), повёрнутое +X → +Z, единичное, (x, z) — 2 на пару (таз по
+    /// бёдрам, грудь по ключицам).
     /// </summary>
     JointPairFacing,
 }
 
 /// <summary>
-/// Группа признаков — вход <see cref="MotionSchema"/>: имя (уникальное), что измеряет, вес по умолчанию (≥ 0) и пол разброса
-/// при нормализации <paramref name="MinStd"/> (&gt; 0, в единицах группы: база без поворотов иначе делила бы курс на ноль);
-/// <paramref name="Joints"/> — номера суставов скелета (только у видов суставов; массив копируется).
+/// Группа признаков — вход схемы: <paramref name="MinStd"/> — пол разброса при нормализации (&gt; 0: база без поворотов иначе
+/// делила бы курс на ноль); <paramref name="Joints"/> — суставы скелета (только у видов суставов; копируется).
 /// </summary>
 public readonly record struct FeatureGroupSpec(string Name, FeatureKind Kind, float DefaultWeight, float MinStd, int[]? Joints = null);
 
-/// <summary>
-/// Группа признаков схемы: имя, вид, смещение и число признаков в строке, вес по умолчанию, пол разброса. Суставы группы —
-/// <see cref="MotionSchema.GroupJoints"/>.
-/// </summary>
+/// <summary>Группа признаков схемы: смещение и число признаков в строке; суставы — <see cref="MotionSchema.GroupJoints"/>.</summary>
 public readonly record struct FeatureGroup(string Name, FeatureKind Kind, int Offset, int Size, float DefaultWeight, float MinStd)
 {
     public int End => Offset + Size;
 }
 
 /// <summary>
-/// Схема признаков Motion Matching — вход постройки базы (<see cref="MotionDatabase.Build"/>), а не константа движка: какие
-/// группы, в каком порядке, с какими суставами (номерами скелета), моменты будущего и прошлого траектории, суставы контактов.
-/// Движок не знает ни имён суставов, ни клипов — схему даёт модуль игры.
-///
-/// Группы лежат в строке признаков подряд в порядке задания; размер группы следует из вида (<see cref="SizeOf"/>).
-/// Противоречивая схема — <see cref="ArgumentException"/> при создании. Неизменяема: входные массивы копируются, наружу —
-/// только <see cref="ReadOnlySpan{T}"/> (её делят база и все симуляции).
+/// Схема признаков Motion Matching — вход постройки базы от модуля игры (движок не знает имён суставов и клипов). Группы
+/// лежат в строке подряд в порядке задания. Противоречивая схема — <see cref="ArgumentException"/>; неизменяема, делится
+/// базой и всеми симуляциями.
 /// </summary>
 public sealed class MotionSchema
 {
@@ -80,9 +68,8 @@ public sealed class MotionSchema
     private readonly int[] _joints;
     private readonly float[] _defaultWeights;
 
-    /// <param name="futureTimes">Моменты будущего траектории, с: больше 0, строго по возрастанию (у SWORD — 1/3, 2/3, 1).</param>
-    /// <param name="pastTimes">Моменты прошлого, с: меньше 0, от ближнего к дальнему (строго убывают; у SWORD — −1/3).</param>
-    /// <param name="groups">Группы в порядке строки признаков: от 1 до <see cref="MaxGroups"/>.</param>
+    /// <param name="futureTimes">Моменты будущего траектории, с: больше 0, строго по возрастанию.</param>
+    /// <param name="pastTimes">Моменты прошлого, с: меньше 0, строго убывают.</param>
     /// <param name="contactJoints">Суставы, у которых база размечает контакт с землёй (стопы): до <see cref="MaxContactJoints"/>, без повторов.</param>
     /// <exception cref="ArgumentException">Схема противоречива — сообщение называет, чем.</exception>
     public MotionSchema(ReadOnlySpan<float> futureTimes, ReadOnlySpan<float> pastTimes, ReadOnlySpan<FeatureGroupSpec> groups,
@@ -178,12 +165,10 @@ public sealed class MotionSchema
         }
     }
 
-    /// <summary>Признаков в строке — сумма размеров групп.</summary>
     public int FeatureCount { get; }
 
     public int GroupCount => _groups.Length;
 
-    /// <summary>Группы в порядке строки признаков.</summary>
     public ReadOnlySpan<FeatureGroup> Groups => _groups;
 
     /// <summary>Суставы группы <paramref name="group"/> — номера скелета в порядке задания (у пар — «левый, правый» подряд).</summary>
@@ -193,19 +178,16 @@ public sealed class MotionSchema
     /// <summary>Веса групп по умолчанию — в порядке групп (веса поиска — параметр вызова, это только исходные значения).</summary>
     public ReadOnlySpan<float> DefaultWeights => _defaultWeights;
 
-    /// <summary>Моменты будущего траектории, с (по возрастанию).</summary>
+    /// <summary>Моменты будущего траектории, с.</summary>
     public ReadOnlySpan<float> FutureTimes => _future;
 
-    /// <summary>Моменты прошлого, с (меньше 0, от ближнего к дальнему).</summary>
+    /// <summary>Моменты прошлого, с (меньше 0).</summary>
     public ReadOnlySpan<float> PastTimes => _past;
 
     /// <summary>Суставы контактов с землёй — номера скелета; бит i контактов кадра — сустав i этого списка.</summary>
     public ReadOnlySpan<int> ContactJoints => _contactJoints;
 
-    /// <summary>
-    /// Все суставы, которые база измеряет (признаки и контакты) — без повторов, в порядке первого появления: групп, затем
-    /// контактов. Кинематика клипов считает положения и скорости только их.
-    /// </summary>
+    /// <summary>Все измеряемые суставы (признаки и контакты), без повторов, в порядке появления — кинематика клипов считает только их.</summary>
     public ReadOnlySpan<int> Joints => _joints;
 
     /// <summary>Горизонт будущего, с — последний момент будущего (0 — будущего нет).</summary>
@@ -217,7 +199,6 @@ public sealed class MotionSchema
     /// <summary>Место сустава скелета <paramref name="joint"/> в <see cref="Joints"/>; не измеряется — −1.</summary>
     public int JointSlot(int joint) => Array.IndexOf(_joints, joint);
 
-    /// <summary>Группа по имени; нет — −1.</summary>
     public int Find(string name)
     {
         for (int g = 0; g < _groups.Length; g++)
@@ -242,7 +223,6 @@ public sealed class MotionSchema
     /// <summary>Суставы: в базе из кинематики клипа, в запросе — признаки текущего кадра базы.</summary>
     public static bool IsJoint(FeatureKind kind) => kind is FeatureKind.JointPosition or FeatureKind.JointVelocity or FeatureKind.JointPairFacing;
 
-    /// <summary>Признаков в группе вида <paramref name="kind"/>.</summary>
     public static int SizeOf(FeatureKind kind, int joints, int futureTimes, int pastTimes) => kind switch
     {
         FeatureKind.TrajectoryPosition or FeatureKind.TrajectoryDirection => 2 * futureTimes,

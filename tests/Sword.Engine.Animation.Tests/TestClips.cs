@@ -17,14 +17,11 @@ internal static class TestClips
         using var s = new MemoryStream();
         clip.Write(s);
         byte[] bytes = s.ToArray();
-        string path = $"anim/{source}/{name}.swclip";
+        string path = $"animations/{source}/{name}.swclip";
         return new ClipSource(path, () => new MemoryStream(bytes), "mem:" + path);
     }
 
-    /// <summary>
-    /// Клип <c>LibraryTests.WriteClip</c> SWORD: единичные повороты, смещение x = <paramref name="marker"/>, y — номер
-    /// ключа; корень едет вперёд на 0,1 м за кадр.
-    /// </summary>
+    /// <summary>Единичные повороты, смещение x = <paramref name="marker"/>, y — номер ключа; корень едет вперёд на 0,1 м за кадр.</summary>
     public static ClipSource Marked(string source, string name, int frames, float marker, string skeleton = "test",
         uint? hash = null, float rate = 30) => Source(source, name, new ClipFile
     {

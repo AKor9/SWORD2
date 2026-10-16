@@ -86,7 +86,7 @@ public sealed class TuningPanelLogicTests
         var bindings = InputBindings.Resolve([toggle], null);
         var state = new InputState();
         var held = new HashSet<string>(["tuning"]);
-        // Действие «нажато» — в первом кадре удержания заданием прогона (--hold tuning: так агент открывает панель).
+        // Действие «нажато» — в первом кадре удержания заданием прогона (--hold tuning: так прогон без клавиатуры открывает панель).
         var pressed = new FrameInput(state, bindings, held, heldPressed: true, mouseInside: true, 640, 480, 1f / 60);
         var idle = new FrameInput(state, bindings, null, heldPressed: false, mouseInside: true, 640, 480, 1f / 60);
 
@@ -100,10 +100,8 @@ public sealed class TuningPanelLogicTests
 }
 
 /// <summary>
-/// Панель ручек на шрифтах пака: строка числа (ползунок, поле, ПКМ по подписи — к значению по умолчанию, целое — округлено),
-/// флаг, кнопка, строка состояния, вкладки, подвал (сохранить и загрузить — делегаты хоста, ошибка — в строке состояния;
-/// сброс), подсказка строки в строке состояния, мышь у панели, кадр без выделений. Раскладка — SWORD: при масштабе 1,
-/// верхе 0 и высоте 600 строки идут с y 46: заголовок 22, строки по 24; подвал — y 556…582, строка состояния — 538…556.
+/// Панель ручек на шрифтах пака: числа, флаги, кнопки, вкладки, подвал, строка состояния, мышь у панели, кадр без выделений.
+/// Раскладка при масштабе 1, верхе 0 и высоте 600: строки с y 46 (заголовок 22, строки по 24), состояние 538…556, подвал 556…582.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>

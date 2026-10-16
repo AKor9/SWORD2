@@ -6,17 +6,14 @@ namespace Sword.Engine.Diagnostics;
 
 public sealed partial class CpuProfiler
 {
-    /// <summary>Формат отчёта (<c>profile.json</c>, секция <c>profile</c> в <c>--json</c>, <c>profile.stages</c>).</summary>
+    /// <summary>Формат отчёта (<c>profile.json</c>, секция <c>profile</c> в <c>--json</c>).</summary>
     public const string ReportFormat = "sword-profile";
 
-    /// <summary>
-    /// Отчёт профайлера (не горячий путь — выделяет память): по кадрам и по тикам — число периодов (и служебных кадров),
-    /// окно кольца, зоны (<see cref="Stats"/>: мс — среднее, медиана, p99, максимум, своё; байты и вызовы на период; доля
-    /// периодов) и последние периоды кольца (кадр — тики кадра и доля тика). Нет периодов вида — его секции нет.
-    /// </summary>
+    /// <summary>Отчёт профайлера (выделяет): по кадрам и тикам — периоды, окно кольца, зоны (<see cref="Stats"/>) и последние
+    /// периоды. Нет периодов вида — нет секции.</summary>
     /// <param name="history">Сколько последних периодов кольца выписать.</param>
     /// <param name="top">Сколько зон выписать (по среднему).</param>
-    /// <param name="prefix">Только зоны с именем с этого начала (<c>stage.</c>, <c>render.</c>…); null — все.</param>
+    /// <param name="prefix">Только зоны с этим началом имени (<c>stage.</c>, <c>render.</c>…); null — все.</param>
     public JsonObject Report(int history = int.MaxValue, int top = int.MaxValue, string? prefix = null)
     {
         var json = new JsonObject
@@ -28,28 +25,19 @@ public sealed partial class CpuProfiler
             ["timer"] = new JsonObject
             {
                 ["frequency"] = Stopwatch.Frequency, ["resolutionUs"] = Round(1e6 / Stopwatch.Frequency, 4),
-                ["tscMhz"] = Round(ThreadClock.CyclesPerSecond / 1e6, 1),
             },
             ["zones"] = _names.Count,
             ["mismatches"] = Mismatches,
             ["overflows"] = Overflows,
             ["abandoned"] = Abandoned,
-            ["counterReads"] = CounterReads,
         };
-        // Машина с начала окна (включение или сброс) — снимается здесь, на потоке владельца.
-        if (Machine() is { } machine) json["machine"] = machine.ToJson();
         if (PeriodJson(ProfilePeriod.Frame, history, top, prefix) is { } frames) json["frames"] = frames;
         if (PeriodJson(ProfilePeriod.Tick, history, top, prefix) is { } ticks) json["ticks"] = ticks;
-        if (_events is { } events) json["events"] = events.Summary(types: 40, recent: 100);
-        // Захваченные аномалии (порог, счёт, последние с классом, главной зоной и файлом).
-        if (_anomalies is { } anomalies) json["anomalies"] = anomalies.ToJson(max: 100);
         return json;
     }
 
-    /// <summary>
-    /// Коротко — для итога <c>--json</c>: периодов, служебных кадров и <paramref name="top"/> зон по среднему (кадра, если
-    /// кадры были, иначе тика) без дочерних подробностей.
-    /// </summary>
+    /// <summary>Коротко для итога <c>--json</c>: периоды, служебные кадры и <paramref name="top"/> зон по среднему (кадра,
+    /// иначе тика).</summary>
     public JsonObject Summary(int top = 10)
     {
         var period = Count(ProfilePeriod.Frame).Periods > 0 ? ProfilePeriod.Frame : ProfilePeriod.Tick;
@@ -59,7 +47,6 @@ public sealed partial class CpuProfiler
             ["enabled"] = Enabled,
             ["frames"] = frames,
             ["serviceFrames"] = service,
-            ["toolFrames"] = ToolFrames,
             ["ticks"] = Count(ProfilePeriod.Tick).Periods,
             ["mismatches"] = Mismatches,
             ["per"] = period == ProfilePeriod.Frame ? "frame" : "tick",
@@ -68,32 +55,9 @@ public sealed partial class CpuProfiler
                 ["name"] = z.Name, ["meanMs"] = Round(z.MeanMs, 5), ["p99Ms"] = Round(z.P99Ms, 5), ["selfMs"] = Round(z.SelfMs, 5),
                 ["bytes"] = Round(z.Bytes, 1),
             })]),
-            // Среда за период (CPU потока против настенного, GC, JIT) — коротко.
-            ["runtime"] = RuntimeJson(RuntimeStats(period)),
         };
         // GPU-время кадра и главные проходы (мс на кадр) — рядом с зонами CPU.
         if (period == ProfilePeriod.Frame && GpuJson(Stats(period), top: 5) is { } gpu) json["gpu"] = gpu;
-        if (_events is { } events)
-        {
-            var summary = events.Summary(types: 5, recent: 3);
-            json["events"] = new JsonObject
-            {
-                ["received"] = summary["received"]?.DeepClone(), ["late"] = summary["late"]?.DeepClone(),
-                ["alloc"] = summary["alloc"]?["types"]?.DeepClone(), ["jit"] = summary["jit"]?.DeepClone(), ["gc"] = summary["gc"]?.DeepClone(),
-            };
-        }
-        if (_anomalies is { } anomalies)
-        {
-            // Аномалии коротко — сколько, по классам, последние пять.
-            var a = anomalies.ToJson(max: 5);
-            json["anomalies"] = new JsonObject
-            {
-                ["detected"] = a["detected"]?.DeepClone(), ["sinceReset"] = a["sinceReset"]?.DeepClone(), ["written"] = a["written"]?.DeepClone(),
-                ["byClass"] = a["byClass"]?.DeepClone(), ["noticeable"] = a["noticeable"]?.DeepClone(), ["display"] = a["display"]?.DeepClone(),
-                ["threshold"] = a["threshold"]?.DeepClone(), ["limits"] = a["limits"]?.DeepClone(), ["directory"] = a["directory"]?.DeepClone(),
-                ["last"] = a["list"]?.DeepClone(),
-            };
-        }
         return json;
     }
 
@@ -109,49 +73,28 @@ public sealed partial class CpuProfiler
         {
             ["count"] = count,
             ["window"] = window,
-            ["runtime"] = RuntimeJson(RuntimeStats(period)),
             ["zones"] = new JsonArray([.. zones.Select(z => (JsonNode?)ZoneJson(z))]),
         };
-        if (period == ProfilePeriod.Frame)
-        {
-            json.Insert(1, "service", service);
-            json.Insert(2, "toolFrames", ToolFrames);   // из служебных — кадры инструментов (запросы агента)
-        }
+        if (period == ProfilePeriod.Frame) json.Insert(1, "service", service);
         // GPU-время кадра и проходов (зоны вида Gpu) — своей секцией рядом с зонами CPU.
         if (period == ProfilePeriod.Frame && GpuJson(stats, top) is { } gpu) json["gpu"] = gpu;
-        json["history"] = new JsonArray([.. recent.Select(h =>
-        {
-            var entry = period == ProfilePeriod.Frame
-                ? new JsonObject
-                {
-                    ["frame"] = h.Number,
-                    ["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks),
-                    ["alpha"] = Round(h.Alpha, 4), ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes, ["service"] = h.Service,
-                    ["gpuFrame"] = h.GpuFrame == ulong.MaxValue ? null : h.GpuFrame,
-                    ["tools"] = h.Tools ? true : null,   // кадр инструментов — почему служебный
-                }
-                : new JsonObject
-                {
-                    ["tick"] = h.Number, ["frame"] = h.Frame == ulong.MaxValue ? null : h.Frame, ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes,
-                };
-            // Время потока на CPU, выделения процесса, сборки, пауза, JIT периода.
-            var c = h.Counters;
-            entry["cpuMs"] = Round(c.CpuMs, 5);
-            entry["processBytes"] = c.ProcessBytes;
-            entry["gc"] = c.Collections;
-            entry["pauseMs"] = Round(c.PauseMs, 4);
-            entry["jit"] = c.JitMethods;
-            entry["jitProcess"] = c.JitProcess;
-            if (c.JitProcessTicks > 0) entry["jitMs"] = Round(c.JitProcessMs, 4);
-            return (JsonNode?)entry;
-        })]);
+        json["history"] = new JsonArray([.. recent.Select(h => (JsonNode?)(period == ProfilePeriod.Frame
+            ? new JsonObject
+            {
+                ["frame"] = h.Number,
+                ["ticks"] = new JsonArray(h.Ticks > 0 ? h.FirstTick : null, h.Ticks),
+                ["alpha"] = Round(h.Alpha, 4), ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes, ["service"] = h.Service,
+                ["gpuFrame"] = h.GpuFrame == ulong.MaxValue ? null : h.GpuFrame,
+            }
+            : new JsonObject
+            {
+                ["tick"] = h.Number, ["frame"] = h.Frame == ulong.MaxValue ? null : h.Frame, ["ms"] = Round(Ms(h.Time), 5), ["bytes"] = h.Bytes,
+            }))]);
         return json;
     }
 
-    /// <summary>
-    /// Секция <c>gpu</c> кадров: кадр целиком (<c>gpu.frame</c>) и проходы (<c>gpu.&lt;проход&gt;</c>) — мс на кадр:
-    /// среднее, медиана, p99, максимум (<c>presence</c> — доля кадров с данными); отставание данных. Нет — null.
-    /// </summary>
+    /// <summary>Секция <c>gpu</c>: <c>gpu.frame</c> и проходы — мс на кадр (среднее, медиана, p99, максимум, доля кадров с
+    /// данными) и отставание. Нет — null.</summary>
     private JsonObject? GpuJson(IReadOnlyList<ProfileZoneStats> stats, int top)
     {
         var gpu = stats.Where(z => z.Kind == ProfileZoneKind.Gpu).ToList();
@@ -191,14 +134,10 @@ public sealed partial class CpuProfiler
     /// <summary>NaN (нет окна кольца) — null, а не число: JSON не знает NaN.</summary>
     private static JsonNode? Round(double v, int digits) => double.IsFinite(v) ? JsonValue.Create(Math.Round(v, digits)) : null;
 
-    /// <summary>
-    /// Записать отчёт (<see cref="Report"/>) в <paramref name="path"/> с отступами; <paramref name="header"/> — поля прогона
-    /// (процесс, сборка, ключи) в начале объекта. Каталог создаётся.
-    /// </summary>
+    /// <summary>Записать <see cref="Report"/> в <paramref name="path"/>; <paramref name="header"/> — поля прогона в начале.
+    /// Каталог создаётся.</summary>
     public string Write(string path, JsonObject? header = null)
     {
-        FlushEvents();   // события среды приходят с задержкой: отчёт — после хвоста
-        FlushAnomalies(TimeSpan.FromSeconds(2));   // файлы аномалий — дописаны: в отчёте их пути
         var report = Report();
         if (header is not null)
         {
@@ -218,32 +157,20 @@ public sealed partial class CpuProfiler
         return full;
     }
 
-    /// <summary>
-    /// Кольцо профайлера — в Chrome Trace Event JSON (<see cref="ChromeTrace"/>: Perfetto, <c>chrome://tracing</c>): кадры
-    /// и тики кольца с настоящим временем и зонами (суммой вызовов за период), в диагностическом режиме — события среды окна. Не
-    /// горячий путь (выделяет, пишет файл); только на потоке владельца. Каталог создаётся.
-    /// </summary>
+    /// <summary>Кольцо в Chrome Trace Event JSON (<see cref="ChromeTrace"/>). Не горячий путь, только на потоке владельца;
+    /// каталог создаётся.</summary>
     public string WriteTrace(string path, IReadOnlyDictionary<string, string>? meta = null)
     {
-        FlushEvents();
         int zones = _names.Count;
         var parent = new int[zones];
         Array.Copy(_parent, parent, zones);
-        long from = Math.Min(Oldest(_frames), Oldest(_ticks));
-        var data = new TraceData
-        {
-            Name = SharedName, Parent = parent, Zones = zones, Meta = meta,
-            Events = _events is { } events && from != long.MaxValue ? [.. events.Recent().Where(e => e.Time >= from)] : null,
-        };
+        var data = new TraceData { Name = NameOf, Parent = parent, Zones = zones, Meta = meta };
         AddRing(data, _frames, tick: false);
         AddRing(data, _ticks, tick: true);
         string full = Path.GetFullPath(path);
         ChromeTrace.Write(full, data);
         return full;
     }
-
-    /// <summary>Начало самого старого периода кольца; пусто — <see cref="long.MaxValue"/>.</summary>
-    private static long Oldest(Series s) => s.Headers is null || s.Filled == 0 ? long.MaxValue : s.RingStart![(s.Next - s.Filled + s.Capacity) % s.Capacity];
 
     private static void AddRing(TraceData data, Series s, bool tick)
     {
@@ -252,7 +179,7 @@ public sealed partial class CpuProfiler
         {
             int slot = (s.Next - s.Filled + i + s.Capacity) % s.Capacity;
             var h = s.Headers[slot];
-            data.Periods.Add(new TracePeriod(tick, h.Number, s.RingStart![slot], h, s.RingTime, s.RingCalls, slot * s.Stride, false));
+            data.Periods.Add(new TracePeriod(tick, h.Number, s.RingStart![slot], h, s.RingTime, s.RingCalls, slot * s.Stride));
         }
     }
 }

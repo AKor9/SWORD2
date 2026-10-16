@@ -13,15 +13,14 @@ using Sword.Game.Data;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Оружие только игрока (<c>combat.playerOnlyWeapons</c>, по умолчанию факел — решение 5): враги берут случайное из оружия врагов — номеров
-/// таблицы без него; факел — последний по алфавиту, поэтому выбор врагов среди остальных тот же, что у пака без факела (та же выборка ГСЧ,
-/// те же номера); у игрока оно в инвентаре, T доходит до него и дальше к первому.
+/// Оружие только игрока (<c>combat.playerOnlyWeapons</c>, по умолчанию факел): враги берут из остальных; факел последний по
+/// алфавиту, поэтому выбор врагов тот же, что у пака без факела; у игрока он в инвентаре, T доходит до него и дальше к первому.
 /// </summary>
 public sealed class TorchTests
 {
-    private static WeaponInfo Info(string name) => new(name, $"weapons/{name}.swmesh", Vector3.UnitY * 0.22f, Vector3.UnitY);
+    private static WeaponInfo Info(string name) => new(name, $"meshes/weapons/{name}.swmesh", Vector3.UnitY * 0.22f, Vector3.UnitY);
 
-    /// <summary>Пак из шести мечей SWORD и факела — по алфавиту, как список контента.</summary>
+    /// <summary>Пак из шести мечей и факела — по алфавиту, как список контента.</summary>
     private static readonly WeaponTable Seven = new(
         [Info("combat_sword"), Info("katana"), Info("katana_v2"), Info("powerful_sword"), Info("sword_1h"), Info("sword_dss"), Info("torch")]);
 
@@ -104,7 +103,7 @@ public sealed class TorchTests
         NoEnemyHasIt();
         // Возрождение убитого врага (через 8 с) — тоже из оружия врагов.
         for (int t = 0; t < 8 * 120 + 60; t++) sim.Step();
-        Assert.False(sim.World.Has<Dead>(CausalityTests.Enemy(sim, 3)));
+        Assert.False(sim.World.Has<Dead>(RagdollCorpseTests.Fighter(sim, 3)));
         NoEnemyHasIt();
         sim.Enqueue(new ArenaCommand { Action = ArenaAction.NextWeapon });
         sim.Step();
@@ -129,13 +128,7 @@ public sealed class TorchContentTests
         int[] enemies = table.EnemyWeapons(new CombatSettings().PlayerOnlyWeapons);
         Assert.Equal(Enumerable.Range(0, table.Count - 1), enemies);
 
-        string? reference = FindUp(ContentLocator.ReferencePakName);
-        Assert.True(reference is not null, $"нет эталонного пака {ContentLocator.ReferencePakName}");
-        using (var refPak = PakSource.Open(reference))
-        {
-            var before = WeaponTable.Load(refPak);
-            Assert.Equal(before.Weapons.ToArray().Select(w => w.Name), enemies.Select(w => table.Weapons[w].Name));
-        }
+        Assert.Equal(["combat_sword", "katana", "katana_v2", "powerful_sword", "sword_1h", "sword_dss"], enemies.Select(w => table.Weapons[w].Name));
 
         var torch = table.Weapons[^1];
         SkinnedMeshData mesh;
@@ -154,12 +147,5 @@ public sealed class TorchContentTests
         Assert.InRange(Vector3.Distance(bottom, centre), 0.795f, 0.815f);
         Assert.InRange(bottom.Length(), 0.05f, 0.2f);
         Assert.InRange(torch.Length, 0.45f, 0.6f);   // клинок — от 22 см от кисти до кончика
-    }
-
-    private static string? FindUp(string name)
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, name))) return Path.Combine(dir.FullName, name);
-        return null;
     }
 }

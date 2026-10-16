@@ -96,20 +96,16 @@ public sealed class PakTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// Хеш контента — по файлам игры: те же файлы с другими сведениями пекарни (<c>.bake/build.json</c> — время сборки)
-    /// дают тот же хеш, другой файл — другой.
-    /// </summary>
+    /// <summary>Хеш контента — по оглавлению: те же файлы в другом паке — тот же хеш, другой файл — другой.</summary>
     [Fact]
-    public void ContentHash_IgnoresBakeInfo_ChangesWithAnyFile()
+    public void ContentHash_SameFilesSameHash_ChangesWithAnyFile()
     {
-        string Write(string name, byte[] skeleton, string buildJson)
+        string Write(string name, byte[] skeleton)
         {
             string path = Path.Combine(_dir, name + PakFormat.Extension);
             using var w = new PakWriter(path);
             w.Add("data/a.txt", new MemoryStream("a"u8.ToArray()));
             w.Add("skeletons/manny.skel", new MemoryStream(skeleton));
-            w.Add(PakBuildInfo.EntryPath, new MemoryStream(System.Text.Encoding.UTF8.GetBytes(buildJson)));
             w.Commit();
             return path;
         }
@@ -120,9 +116,9 @@ public sealed class PakTests : IDisposable
             return pak.ContentHash;
         }
 
-        string first = Hash(Write("first", [1, 2, 3], """{"builtUtc":"2026-09-25T10:00:00Z"}"""));
-        string rebaked = Hash(Write("rebaked", [1, 2, 3], """{"builtUtc":"2026-09-25T11:30:00Z","assets":{}}"""));
-        string other = Hash(Write("other", [1, 2, 4], """{"builtUtc":"2026-09-25T10:00:00Z"}"""));
+        string first = Hash(Write("first", [1, 2, 3]));
+        string rebaked = Hash(Write("rebaked", [1, 2, 3]));
+        string other = Hash(Write("other", [1, 2, 4]));
 
         Assert.Equal(first, rebaked);
         Assert.NotEqual(first, other);

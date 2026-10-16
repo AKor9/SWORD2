@@ -1,12 +1,9 @@
 namespace Sword.Game.Contracts;
 
 /// <summary>
-/// Сегменты тела бойца — номера SWORD 2eab13b (<c>Sword.Combat.BodySegs</c>, константы <c>Fighter</c>). Номер сегмента —
-/// идентификатор для всех, кто говорит о части тела: тела сочленения (<see cref="BodyRef"/>), позже маска отрубленного,
-/// попадания, ID-буфер снимка. Номера не сдвигаются. У каждого сегмента своё тело: сочленение бойца — <see cref="Bodies"/>
-/// тел, тело <c>i</c> — сегмент <c>i</c> (<see cref="Segment"/>, <see cref="Body"/> — тождество). 11 — клинок (<c>Weapon</c>
-/// SWORD): капсула по мечу в руке (<see cref="BladeBody"/>), кинематическая, как тела живого; целью ударов и
-/// ран она не бывает (<see cref="IsFlesh"/>): отрезок клинка удара — <see cref="Blade"/>.
+/// Сегменты тела бойца. Номер сегмента — идентификатор части тела для всех (тела сочленения, попадания, ID-буфер снимка);
+/// номера не сдвигаются. Тело <c>i</c> сочленения — сегмент <c>i</c>. 11 — клинок: кинематическая капсула по мечу в руке
+/// (<see cref="BladeBody"/>), целью ударов и ран не бывает (<see cref="IsFlesh"/>).
 /// </summary>
 public static class BodySegs
 {
@@ -14,12 +11,12 @@ public static class BodySegs
         ThighL = 7, ShinL = 8, ThighR = 9, ShinR = 10, FootL = 12, FootR = 13;
 
     /// <summary>
-    /// Клинок (<c>Fighter.Weapon</c> SWORD): тело 11 сочленения бойца, капсула от хвата до кончика меча в руке
-    /// (<see cref="BladeBody"/>; хват — конец A оси, точка сустава запястья трупа); отрезок удара — <see cref="Blade"/>, меч на экране.
+    /// Клинок: тело 11 сочленения бойца, капсула от хвата (конец A оси, точка сустава запястья трупа) до кончика меча
+    /// (<see cref="BladeBody"/>); отрезок удара — <see cref="Blade"/>.
     /// </summary>
     public const int Weapon = 11;
 
-    /// <summary>Номеров сегментов — 0…13, как <c>BodySegs.Count</c> SWORD (с номером клинка 11).</summary>
+    /// <summary>Номеров сегментов — 0…13 (с номером клинка 11).</summary>
     public const int Count = 14;
 
     /// <summary>Тел в сочленении бойца: по телу на сегмент, клинок — тоже.</summary>
@@ -39,7 +36,7 @@ public static class BodySegs
     /// <summary>Сегмент плоти (0…13, не клинок): цель ударов и проб, у него рана (клинок — тело, но не часть тела бойца).</summary>
     public static bool IsFlesh(int segment) => (uint)segment < Count && segment != Weapon;
 
-    /// <summary>Имя сегмента для людей и агента (<c>pelvis</c>, <c>forearm.l</c>…); нет такого сегмента — номер.</summary>
+    /// <summary>Имя сегмента для людей и журнала (<c>pelvis</c>, <c>forearm.l</c>…); нет такого сегмента — номер.</summary>
     public static string Name(int segment) => segment switch
     {
         Pelvis => "pelvis",
@@ -67,7 +64,7 @@ public static class BodySegs
         return -1;
     }
 
-    /// <summary>Название сегмента по-русски для людей (агент, ID-буфер: «левое предплечье врага 3»); нет такого — номер.</summary>
+    /// <summary>Название сегмента по-русски для людей; нет такого — номер.</summary>
     public static string Title(int segment) => segment switch
     {
         Pelvis => "таз",

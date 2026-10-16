@@ -6,13 +6,9 @@ namespace Sword.Engine.Animation.Motion;
 public readonly record struct TrajectoryState(Pose2 Root, Vector3 Velocity);
 
 /// <summary>
-/// Модель контроллера корня на тик — то, чем игра ведёт корень, чтобы будущее траектории запроса предсказывалось
-/// той же моделью (одна правда): курс поворачивает к цели <see cref="GoalYaw"/> кратчайшим путём не быстрее
-/// <see cref="TurnRate"/> (рад/с), скорость идёт к цели <see cref="GoalVelocity"/> экспоненциально с темпом <see cref="Rate"/>
-/// (1/с) — по тикам: <c>v += (цель − v)·min(1, Rate·dt)</c>, затем корень — на новую скорость·dt. Параметры и цели — от
-/// вызывающего (в игре — действующая модель контроллера бойца на этот тик, с масштабами действия). Без состояния: шаг и
-/// предсказание возвращают новое состояние, исходное не меняется. Курс не заворачивается (цепочка шагов непрерывна, как
-/// <c>Transform.Facing</c> игры и <see cref="Pose2.Compose"/>). Память не выделяет.
+/// Модель контроллера корня на тик — та же, что ведёт корень в игре (одна правда для предсказания): курс к <see cref="GoalYaw"/>
+/// не быстрее <see cref="TurnRate"/>, скорость к <see cref="GoalVelocity"/>: <c>v += (цель − v)·min(1, Rate·dt)</c>. Без
+/// состояния; курс не заворачивается (цепочка шагов непрерывна). Память не выделяет.
 /// </summary>
 /// <param name="Rate">Темп разгона к целевой скорости, 1/с (≥ 0).</param>
 /// <param name="TurnRate">Предел скорости поворота курса, рад/с (≥ 0).</param>
@@ -21,10 +17,8 @@ public readonly record struct TrajectoryState(Pose2 Root, Vector3 Velocity);
 public readonly record struct TrajectoryModel(float Rate, float TurnRate, Vector3 GoalVelocity, float GoalYaw)
 {
     /// <summary>
-    /// Один шаг на <paramref name="dt"/>: курс — на <c>clamp(IEEERemainder(GoalYaw − курс, 2π), ±TurnRate·dt)</c>, скорость —
-    /// <c>v + (GoalVelocity − v)·min(1, Rate·dt)</c> (Y = 0), корень — на новую скорость·dt. Выражения и их порядок — как у
-    /// контроллера игры (<c>RootSteerSystem.Steer</c>, <c>RootControlSystem.Move</c>): при тех же числах — побитово тот же шаг,
-    /// в том числе ровно на полуобороте (остаток −π — поворот к −, +π — к +; <see cref="Pose2.Wrap"/> повернул бы −π к +).
+    /// Шаг на <paramref name="dt"/>: курс — на <c>clamp(IEEERemainder(GoalYaw − курс, 2π), ±TurnRate·dt)</c>, скорость — к цели,
+    /// корень — на новую скорость·dt. Выражения и порядок — как у контроллера игры: побитово тот же шаг, в том числе на полуобороте.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">dt не больше 0 или не конечен, темп или предел поворота меньше 0 или не число.</exception>
     public TrajectoryState Step(in TrajectoryState state, float dt)
@@ -33,10 +27,7 @@ public readonly record struct TrajectoryModel(float Rate, float TurnRate, Vector
         return Advance(state, TurnRate * dt, MathF.Min(1, Rate * dt), Goal, dt);
     }
 
-    /// <summary>
-    /// Состояние через <c>n = round(t / dt)</c> шагов по <paramref name="dt"/> (t ≥ 0) — побитово то же, что n вызовов
-    /// <see cref="Step"/>; <paramref name="state"/> не меняется. Будущее траектории запроса.
-    /// </summary>
+    /// <summary>Состояние через <c>round(t / dt)</c> шагов — побитово то же, что столько вызовов <see cref="Step"/>.</summary>
     /// <exception cref="ArgumentOutOfRangeException">t меньше 0 или не число, dt не больше 0, темп или предел поворота меньше 0.</exception>
     public TrajectoryState Predict(in TrajectoryState state, float t, float dt)
     {
@@ -50,9 +41,8 @@ public readonly record struct TrajectoryModel(float Rate, float TurnRate, Vector
     }
 
     /// <summary>
-    /// Предсказание в несколько моментов одним проходом (запрос, оверлей): <paramref name="into"/>[i] — состояние через
-    /// <c>round(times[i] / dt)</c> шагов, побитово то же, что <see cref="Predict(in TrajectoryState, float, float)"/> с
-    /// <c>times[i]</c>; шагов всего — по дальнему моменту. Моменты — по неубыванию (у схемы — по возрастанию). Память не выделяет.
+    /// Предсказание в несколько моментов одним проходом: <paramref name="into"/>[i] — побитово как
+    /// <see cref="Predict(in TrajectoryState, float, float)"/> с <c>times[i]</c>. Моменты — по неубыванию. Память не выделяет.
     /// </summary>
     /// <exception cref="ArgumentException">Длины не сходятся, моменты убывают, момент меньше 0, dt не больше 0, темп или предел поворота меньше 0.</exception>
     public void Predict(in TrajectoryState state, ReadOnlySpan<float> times, float dt, Span<TrajectoryState> into)
@@ -80,7 +70,6 @@ public readonly record struct TrajectoryModel(float Rate, float TurnRate, Vector
         return Turn(state.Root.Yaw, TurnRate * dt) / dt;
     }
 
-    /// <summary>Цель скорости на земле (Y = 0) — как желаемая скорость у контроллера игры.</summary>
     private Vector3 Goal => new(GoalVelocity.X, 0, GoalVelocity.Z);
 
     /// <summary>Поворот курса за шаг — выражение контроллера игры: остаток <c>IEEERemainder</c> (в [−π, π]), зажатый пределом.</summary>

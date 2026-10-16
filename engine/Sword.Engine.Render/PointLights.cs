@@ -7,8 +7,7 @@ namespace Sword.Engine.Render;
 public enum LightFalloff
 {
     /// <summary>
-    /// «Экспонента» UE: (1 − saturate(d²/R²))^<see cref="PointLight.Exponent"/>, без обратного квадрата; интенсивность безразмерная
-    /// (unitless UE без обратного квадрата — множитель цвета как есть).
+    /// UE «экспонента»: (1 − saturate(d²/R²))^<see cref="PointLight.Exponent"/>, без обратного квадрата; интенсивность безразмерная.
     /// </summary>
     Exponent,
 
@@ -19,10 +18,8 @@ public enum LightFalloff
 }
 
 /// <summary>
-/// Точечный источник кадра (<see cref="PointLights.Add"/>): позиция (м, мировые оси), линейный цвет, интенсивность, радиус R (за ним
-/// вклад 0), затухание. Дальность показа — как UE MaxDrawDistance / MaxDistanceFadeRange: камера дальше
-/// <see cref="MaxDrawDistance"/> — источника нет, в полосе <see cref="FadeRange"/> перед ней — линейно гаснет; 0 — без предела.
-/// <see cref="Function"/> — индекс light function этого кадра (<see cref="PointLights.AddFunction"/>), −1 — без неё.
+/// Точечный источник кадра: позиция (м, мировые оси), линейный цвет, интенсивность, радиус R (за ним вклад 0), затухание.
+/// Дальность показа — как UE MaxDrawDistance / MaxDistanceFadeRange.
 /// </summary>
 /// <param name="Exponent">Показатель режима <see cref="LightFalloff.Exponent"/> (UE FalloffExponent, по умолчанию 8).</param>
 public readonly record struct PointLight(Vector3 Position, Vector3 Color, float Intensity, float Radius, LightFalloff Falloff,
@@ -38,31 +35,25 @@ public readonly record struct PointLight(Vector3 Position, Vector3 Color, float 
     public int Function { get; init; } = -1;
 
     /// <summary>
-    /// Множитель света в рассеянии объёмов (UE <c>VolumetricScatteringIntensity</c>, по умолчанию 1): вклад в объёмный дым — цвет ×
-    /// интенсивность × затухание × этот множитель, без light function (в UE она действует только на поверхности). Поверхности его не
-    /// видят — в буфер кадра не пишется; берёт тот, кто рисует объём.
+    /// Множитель света в рассеянии объёмов (UE <c>VolumetricScatteringIntensity</c>): берёт тот, кто рисует объём;
+    /// light function на него не действует, в буфер кадра не пишется.
     /// </summary>
     public float VolumetricScattering { get; init; } = 1;
 
     /// <summary>
-    /// Тестовый источник «факел LIVE-2»: цвет (1, 0.038, 0), интенсивность 100, экспонента 400, R 20 м, рассеяние в объёмах 0.15. Без
-    /// дальности показа: в LIVE-2 она 12 м (полоса 5 м), а камера арены по умолчанию в 24 м — источник бы скрылся.
+    /// Тестовый источник «факел LIVE-2». Без дальности показа: в LIVE-2 она 12 м, а камера арены по умолчанию в 24 м.
     /// </summary>
     public static PointLight Torch(Vector3 position) =>
         new(position, new Vector3(1f, 0.038204f, 0f), 100f, 20f, LightFalloff.Exponent, 400f) { VolumetricScattering = 0.15f };
 }
 
 /// <summary>
-/// Light function точечного источника — «две шумовые текстуры» (как материал <c>M_LightFunction1</c> LIVE-2):
+/// Light function точечного источника — две шумовые текстуры (как <c>M_LightFunction1</c> LIVE-2):
 /// LF = A.r(UV·<see cref="ScaleA"/> + sin(2π·t)·<see cref="WobbleA"/>) + B.r(UV·<see cref="ScaleB"/> + t·<see cref="VelocityB"/>),
-/// затем к <see cref="DisabledBrightness"/> по расстоянию от камеры (UE LightFunctionFadeDistance: полоса — последние 20 %) и в
-/// пределах 0…1. UV — сферические углы направления от источника в осях LF (<see cref="Rotation"/>; <see cref="PointLightMath.LightFunctionUv"/>).
-/// Текстуры — bindless-индексы
-/// SRV <c>Texture2DArray</c> (текстура пака <see cref="GpuTexture"/> или картинка рендера <see cref="GpuImage"/>; берётся слой 0, канал
-/// r), выборка билинейная с повтором, мип 0. Умолчания — числа LIVE-2.
+/// затем к <see cref="DisabledBrightness"/> в последних 20 % <see cref="FadeDistance"/> и в пределах 0…1.
+/// UV — сферические углы направления в осях LF (<see cref="PointLightMath.LightFunctionUv"/>). Текстуры — bindless SRV
+/// <c>Texture2DArray</c>, слой 0, канал r, билинейно с повтором, мип 0.
 /// </summary>
-/// <param name="TextureA">SRV узора (в LIVE-2 — T_Noise3).</param>
-/// <param name="TextureB">SRV бегущего шума (в LIVE-2 — T_NoiseTemplate2).</param>
 public readonly record struct LightFunction(int TextureA, int TextureB)
 {
     /// <summary>Шумы из текстур пака (<see cref="Renderer.LoadTexture(string)"/>): слой 0.</summary>
@@ -80,8 +71,8 @@ public readonly record struct LightFunction(int TextureA, int TextureB)
     public double Time { get; init; }
 
     /// <summary>
-    /// Поворот осей LF в мир (в UE — поворот источника: LF берёт направление в его осях); по умолчанию — оси мира. Шов развёртки
-    /// (u = 0 | 1) — полуплоскость −Y осей LF, полюса — ±Z: поворотом их уводят туда, где поверхностей нет.
+    /// Поворот осей LF в мир. Шов развёртки (u = 0 | 1) — полуплоскость −Y осей LF, полюса — ±Z: поворотом их уводят
+    /// туда, где поверхностей нет.
     /// </summary>
     public Quaternion Rotation { get; init; } = Quaternion.Identity;
 
@@ -104,9 +95,8 @@ public readonly record struct LightFunction(int TextureA, int TextureB)
 }
 
 /// <summary>
-/// Формулы точечного света — CPU-эталон <c>common/lights.hlsli</c> (UE 5.8: RadialAttenuation, GetLocalLightAttenuation, Lambert
-/// default lit, GetLightFadeFactor, LightFunctionCommon / LightFunctionPixelShader). Вклад в поверхность — диффузный цвет × сумма
-/// <see cref="Diffuse"/>; specular нет (у сцены нет шероховатости и блика солнца).
+/// Формулы точечного света — CPU-эталон <c>common/lights.hlsli</c> (UE 5.8: RadialAttenuation, GetLocalLightAttenuation,
+/// Lambert, GetLightFadeFactor, LightFunctionPixelShader). Только диффуз: specular нет.
 /// </summary>
 public static class PointLightMath
 {
@@ -134,25 +124,20 @@ public static class PointLightMath
     }
 
     /// <summary>
-    /// Угасание по дальности показа (UE GetLightFadeFactor, без угасания по размеру на экране): камера на расстоянии
-    /// <paramref name="cameraDistance"/> от источника — clamp((MaxDrawDistance − расстояние) / FadeRange, 0, 1); предела нет — 1.
+    /// Угасание по дальности показа (UE GetLightFadeFactor): clamp((MaxDrawDistance − d) / FadeRange, 0, 1); предела нет — 1.
     /// </summary>
     public static float DistanceFade(float cameraDistance, float maxDrawDistance, float fadeRange) =>
         maxDrawDistance > 0 ? Math.Clamp((maxDrawDistance - cameraDistance) / MathF.Max(fadeRange, 1e-5f), 0, 1) : 1;
 
     /// <summary>
-    /// UV light function по единичному направлению <paramref name="dir"/> от источника к точке (оси SWORD2: +X влево, +Y вверх, +Z
-    /// вперёд). UE берёт вектор в осях источника (у нас — мировые), переставляет xyz → zyx и даёт ((atan2(y, x) + π)/2π, acos(z)/π);
-    /// оси UE (x, y, z) = SWORD2 (z, −x, y), поэтому u = (atan2(−dir.x, dir.y) + π)/2π, v = acos(dir.z)/π: полюса — ±Z SWORD2 (вперёд
-    /// UE), шов u = 0 | 1 — вниз (−Y).
+    /// UV light function по единичному направлению от источника (оси SWORD2: +X влево, +Y вверх, +Z вперёд). Оси UE
+    /// (x, y, z) = SWORD2 (z, −x, y), поэтому u = (atan2(−dir.x, dir.y) + π)/2π, v = acos(dir.z)/π.
     /// </summary>
     public static Vector2 LightFunctionUv(Vector3 dir) =>
         new((MathF.Atan2(-dir.X, dir.Y) + MathF.PI) / (2 * MathF.PI), MathF.Acos(Math.Clamp(dir.Z, -1, 1)) / MathF.PI);
 
     /// <summary>
-    /// Сумма текстур light function <paramref name="function"/> (до угасания и зажима) по единичному направлению <paramref name="dir"/> от
-    /// источника (мировые оси) — CPU-эталон выборки шейдера: UV направления в осях LF, A.r(UV·ScaleA + OffsetA) + B.r(UV·ScaleB + OffsetB),
-    /// билинейно с повтором, мип 0.
+    /// Сумма текстур light function по единичному направлению от источника (до угасания и зажима) — CPU-эталон выборки шейдера.
     /// </summary>
     public static float LightFunctionSum(in LightFunction function, TextureTexels a, TextureTexels b, Vector3 dir)
     {
@@ -161,9 +146,8 @@ public static class PointLightMath
     }
 
     /// <summary>
-    /// Значение light function из суммы текстур <paramref name="sum"/>: к <paramref name="disabled"/> в последних 20 % дальности
-    /// <paramref name="fadeDistance"/> от камеры (<paramref name="viewDistance"/> — от камеры до точки), затем в пределах 0…1
-    /// (UE кладёт LF в 8-битный буфер: сумма двух текстур насыщается до 1). Дальность 0 — всюду <paramref name="disabled"/>.
+    /// Значение LF из суммы текстур: к <paramref name="disabled"/> в последних 20 % <paramref name="fadeDistance"/>, затем
+    /// в пределах 0…1 (UE кладёт LF в 8-битный буфер). Дальность 0 — всюду <paramref name="disabled"/>.
     /// </summary>
     public static float LightFunctionValue(float sum, float viewDistance, float fadeDistance, float disabled)
     {
@@ -174,9 +158,8 @@ public static class PointLightMath
     }
 
     /// <summary>
-    /// Диффузный вклад источника в точку <paramref name="point"/> с нормалью <paramref name="normal"/> — множитель диффузного
-    /// цвета поверхности (Ламберт UE: цвет/π): цвет × интенсивность × затухание × N·L × <paramref name="fade"/> ×
-    /// <paramref name="lightFunction"/> / π. Точка в самом источнике — 0 (направления нет).
+    /// Диффузный вклад источника — множитель диффузного цвета: цвет × интенсивность × затухание × N·L × fade × LF / π.
+    /// Точка в самом источнике — 0.
     /// </summary>
     public static Vector3 Diffuse(in PointLight light, Vector3 point, Vector3 normal, float fade = 1, float lightFunction = 1)
     {
@@ -192,15 +175,12 @@ public static class PointLightMath
 /// <summary>Источник в кадре (отчёт): параметры, угасание по дальности показа, LF (−1 — нет).</summary>
 public readonly record struct ShownPointLight(PointLight Light, float Fade);
 
-/// <summary>
-/// Точечный свет последнего кадра: показано (≤ <see cref="PointLights.MaxLights"/>), отброшено сверх предела, скрыто дальностью показа
-/// (или без света: интенсивность, цвет, радиус 0), light functions (отброшено сверх <see cref="PointLights.MaxFunctions"/>).
-/// </summary>
+/// <summary>Точечный свет последнего кадра: показано, отброшено сверх предела, скрыто дальностью показа, light functions.</summary>
 public sealed record PointLightsReport(int Shown, int Dropped, int Hidden, int Functions, int DroppedFunctions, IReadOnlyList<ShownPointLight> Lights);
 
 /// <summary>
-/// Раскладка источника для шейдера (<c>PointLightData</c> в <c>common/lights.hlsli</c>): строки по 16 байт. Элемент 0 — заголовок:
-/// в <see cref="Count"/> — число источников, они — элементы 1…Count.
+/// Раскладка источника для шейдера (<c>PointLightData</c> в <c>common/lights.hlsli</c>), строки по 16 байт.
+/// Элемент 0 — заголовок с числом источников в <see cref="Count"/>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 internal struct GpuPointLight
@@ -216,12 +196,8 @@ internal struct GpuPointLight
 }
 
 /// <summary>
-/// Точечные источники кадра (<see cref="Renderer.Lights"/>, <see cref="RenderFrame.Lights"/>): кто строит кадр, добавляет источники
-/// (<see cref="Add"/>) и light functions (<see cref="AddFunction"/>) — список живёт один кадр; рендер после построения кадра
-/// отбрасывает скрытые дальностью показа (от <see cref="ViewOrigin"/>), первые <see cref="MaxLights"/> видимых пишет в буфер кадра
-/// (<see cref="Srv"/>: <c>StructuredBuffer&lt;PointLightData&gt;</c>, элемент 0 — заголовок с числом), остальные отброшены
-/// (<see cref="Report"/>). Шейдер сцены берёт буфер по <see cref="Srv"/> и зовёт <c>PointLightsDiffuse</c> (<c>common/lights.hlsli</c>).
-/// Кадр без источников — буфер с нулём в заголовке. Без выделений в кадре.
+/// Точечные источники кадра: список живёт один кадр; после построения кадра скрытые дальностью показа отбрасываются,
+/// первые <see cref="MaxLights"/> видимых пишутся в буфер (<see cref="Srv"/>), остальные — в отчёт. Без выделений в кадре.
 /// </summary>
 public sealed class PointLights : IDisposable
 {
@@ -359,7 +335,7 @@ public sealed class PointLights : IDisposable
         return g;
     }
 
-    /// <summary>Источники последнего записанного кадра (выделяет: для отчёта и агента, не для кадра).</summary>
+    /// <summary>Источники последнего записанного кадра (выделяет: для отчёта, не для кадра).</summary>
     public PointLightsReport Report() =>
         new(_shownCount, _shownDropped, _shownHidden, _shownFunctions, _shownDroppedFunctions, _shown.AsSpan(0, _shownCount).ToArray());
 
@@ -367,10 +343,8 @@ public sealed class PointLights : IDisposable
     public int Shown => _shownCount;
 
     /// <summary>
-    /// Оверлей источников этого кадра, добавленных к вызову, отрезками (фаза Debug — проход рисования вызывающего): те, что пойдут в
-    /// буфер (видимые, первые <see cref="MaxLights"/>), — крест в позиции, круги радиуса R в трёх плоскостях и горизонтальный круг, где
-    /// затухание падает вдвое от максимума у источника (экспонента) — видимое пятно; с <paramref name="labels"/> — подпись
-    /// «интенсивность, R» (строка выделяется: только для слоя снимка). Вернёт, сколько источников нарисовано.
+    /// Оверлей источников кадра отрезками: крест, круги радиуса R и круг половинного затухания; с <paramref name="labels"/> —
+    /// подпись (выделяет строку). Вернёт, сколько нарисовано.
     /// </summary>
     public int DrawOverlay(DebugDraw debug, bool labels = false)
     {

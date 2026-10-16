@@ -1,20 +1,15 @@
-using System.Buffers;
 using System.Collections.Concurrent;
-using System.Globalization;
 using System.Numerics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Text.Json;
 using Sword.Engine.Ecs;
 
 namespace Sword.Engine.Runtime;
 
 /// <summary>
-/// Хеш состояния (раздел 7 плана): 64 бита, зависит от порядка добавления. Числа добавляются значениями, а не сырыми
-/// байтами структур: float и double — с приведением <c>-0</c> к <c>+0</c> и любого NaN к одному, bool — к 0/1. Раунд —
-/// как у xxHash64 (умножение, поворот, умножение), итог — его же перемешивание; структура-значение, память не выделяет.
+/// Хеш состояния, 64 бита, зависит от порядка. Числа — значениями: <c>-0</c> → <c>+0</c>, любой NaN — один, bool — 0/1.
+/// Раунд и перемешивание — как у xxHash64; без выделений.
 /// </summary>
 public struct StateHasher
 {
@@ -81,12 +76,8 @@ public struct StateHasher
     }
 }
 
-/// <summary>
-/// Участник хеша состояния (раздел 7 плана): подсистема, чьё авторитетное состояние лежит вне ECS (в ECS — только хэндлы),
-/// добавляет его в хеш и описывает для людей и агента. <see cref="Describe"/> описывает ровно то, что хешируется: при
-/// расхождении хешей сравниваются два описания. Регистрирует его игра или модуль (<see cref="SimulationBuilder.StateContributor"/>);
-/// участник <c>ecs</c> (сущности, компоненты, ресурсы-значения) Runtime заводит сам.
-/// </summary>
+/// <summary>Участник хеша: подсистема, чьё авторитетное состояние лежит вне ECS (в ECS — только хэндлы). Участник
+/// <c>ecs</c> Runtime заводит сам.</summary>
 public interface IStateContributor
 {
     /// <summary>Стабильный Id — строчная латиница, цифры и <c>_</c>: <c>animation</c>, <c>physics</c>…</summary>
@@ -94,120 +85,11 @@ public interface IStateContributor
 
     /// <summary>Полное авторитетное состояние в стабильном порядке хэндлов. Вызывается между тиками; память не выделять.</summary>
     void AppendHash(ref StateHasher hasher);
-
-    /// <summary>То же состояние по частям с отбором и страницами (<see cref="DescribeQuery"/>).</summary>
-    void Describe(StateWriter writer, in DescribeQuery query);
 }
 
 /// <summary>
-/// Отбор описания участника: <see cref="Filter"/> — смысл задаёт участник (у <c>ecs</c> — сущность <c>12v3</c> или часть
-/// имени компонента; у <c>animation</c> — поза <c>2v1</c>); части по порядку, страницей <see cref="Skip"/>/<see cref="Take"/>.
-/// </summary>
-public readonly record struct DescribeQuery(string? Filter = null, int Skip = 0, int Take = 50);
-
-/// <summary>
-/// Описание состояния участника — JSON: части (<see cref="BeginItem"/>) с полями и вложенными объектами. Сколько частей
-/// подошло под отбор всего, участник пишет в <see cref="Matched"/> (для страниц).
-/// </summary>
-public sealed class StateWriter
-{
-    private readonly ArrayBufferWriter<byte> _buffer = new();
-    private readonly Utf8JsonWriter _json;
-    private bool _started, _items;
-
-    public StateWriter() => _json = new Utf8JsonWriter(_buffer, new JsonWriterOptions { Indented = false });
-
-    /// <summary>Частей, подошедших под отбор (не только на этой странице).</summary>
-    public int Matched { get; set; }
-
-    /// <summary>Частей на странице.</summary>
-    public int Written { get; private set; }
-
-    /// <summary>Сведения участника вне частей (счётчики и т. п.) — до первой части.</summary>
-    public void Summary(string name, double value)
-    {
-        if (_items) throw new InvalidOperationException("сводка — до частей");
-        Start();
-        Number(name, value);
-    }
-
-    /// <summary>Часть: объект с именем <paramref name="id"/> (сущность, поза…) — до <see cref="EndItem"/>.</summary>
-    public void BeginItem(string id)
-    {
-        Start();
-        if (!_items)
-        {
-            _json.WriteStartArray("items");
-            _items = true;
-        }
-        _json.WriteStartObject();
-        _json.WriteString("id", id);
-        Written++;
-    }
-
-    public void EndItem() => _json.WriteEndObject();
-
-    public void BeginObject(string name) => _json.WriteStartObject(name);
-    public void EndObject() => _json.WriteEndObject();
-
-    /// <summary>Массив объектов: <see cref="BeginArray"/>, в нём <see cref="BeginElement"/> … <see cref="EndObject"/>.</summary>
-    public void BeginArray(string name) => _json.WriteStartArray(name);
-    public void EndArray() => _json.WriteEndArray();
-    public void BeginElement() => _json.WriteStartObject();
-
-    /// <summary>Массив чисел (номера по порядку).</summary>
-    public void Values(string name, ReadOnlySpan<int> values)
-    {
-        _json.WriteStartArray(name);
-        foreach (int v in values) _json.WriteNumberValue(v);
-        _json.WriteEndArray();
-    }
-
-    public void Value(string name, string value) => _json.WriteString(name, value);
-    public void Value(string name, bool value) => _json.WriteBoolean(name, value);
-    public void Value(string name, long value) => _json.WriteNumber(name, value);
-    public void Value(string name, ulong value) => _json.WriteNumber(name, value);
-
-    /// <summary>Число с точностью до бита (float — 9 значащих цифр); NaN и бесконечности — строками.</summary>
-    public void Value(string name, float value)
-    {
-        if (float.IsFinite(value)) _json.WriteNumber(name, double.Parse(value.ToString("R", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
-        else _json.WriteString(name, value.ToString(CultureInfo.InvariantCulture));
-    }
-
-    public void Value(string name, double value) => Number(name, value);
-
-    private void Number(string name, double value)
-    {
-        if (double.IsFinite(value)) _json.WriteNumber(name, value);
-        else _json.WriteString(name, value.ToString(CultureInfo.InvariantCulture));
-    }
-
-    private void Start()
-    {
-        if (_started) return;
-        _json.WriteStartObject();
-        _started = true;
-    }
-
-    /// <summary>Готовый JSON: <c>{сводка…, "items": [...], "matched": N}</c>.</summary>
-    public string ToJson()
-    {
-        Start();
-        if (!_items) _json.WriteStartArray("items");
-        _json.WriteEndArray();
-        _json.WriteNumber("matched", Matched);
-        _json.WriteEndObject();
-        _json.Flush();
-        return Encoding.UTF8.GetString(_buffer.WrittenSpan);
-    }
-}
-
-/// <summary>
-/// План полей типа чистых данных: листья (примитивы, перечисления, <see cref="Entity"/>) с путём и смещением в значении.
-/// Хеш и описание идут по одним и тем же листьям прямо из байтов значения — padding не участвует, описание ровно то,
-/// что хешируется. Смещения среда считает сама: поле заполняется меткой в упакованной копии и ищется в её байтах.
-/// Встроенные массивы (<c>[InlineArray]</c>, <c>fixed</c>) — листья <c>имя[i]</c>. Указатели и ссылки — ошибка.
+/// План полей типа чистых данных: листья (примитивы, перечисления, <see cref="Entity"/>, <c>имя[i]</c> встроенных
+/// массивов) с путём и смещением; padding не участвует. Смещения ищутся меткой в упакованной копии. Указатели и ссылки — ошибка.
 /// </summary>
 public sealed class FieldLayout
 {
@@ -233,13 +115,6 @@ public sealed class FieldLayout
     /// <exception cref="ArgumentException">Тип со ссылками, указателями или Nullable — не чистые данные.</exception>
     public static FieldLayout Of(Type type) => Cache.GetOrAdd(type, Build);
 
-    /// <summary>
-    /// План без поля верхнего уровня <paramref name="field"/> и его листьев: запись журнала без причины (<c>Cause</c>) — причина
-    /// диагностика (<c>state.why</c>), а не состояние: хеш и описание — только данные записи.
-    /// </summary>
-    public FieldLayout Without(string field) =>
-        new(Type, Size, [.. _leaves.Where(l => l.Path != field && !l.Path.StartsWith(field + ".", StringComparison.Ordinal))]);
-
     private static FieldLayout Build(Type type)
     {
         var leaves = new List<Leaf>();
@@ -260,10 +135,8 @@ public sealed class FieldLayout
     public static Kind? KindOf(string name) =>
         Enum.GetValues<Kind>().Cast<Kind?>().FirstOrDefault(k => KindName(k!.Value) == name);
 
-    /// <summary>
-    /// Лист <paramref name="leaf"/> значения — 64 битами: знаковые — с расширением знака, bool — 0/1, float и double — их
-    /// биты, <see cref="Entity"/> — индекс в младших 32 битах, поколение в старших. Обратное — <see cref="SetBits"/>.
-    /// </summary>
+    /// <summary>Лист значения 64 битами: знаковые — с расширением знака, bool — 0/1, float — биты, <see cref="Entity"/> —
+    /// индекс в младших 32, поколение в старших. Обратное — <see cref="SetBits"/>.</summary>
     public ulong Bits(ReadOnlySpan<byte> bytes, int leaf)
     {
         var l = _leaves[leaf];
@@ -319,32 +192,6 @@ public sealed class FieldLayout
                     h.Add(e.Index);
                     h.Add(e.Generation);
                     break;
-            }
-        }
-    }
-
-    /// <summary>Листья значения — полями <c>путь: значение</c> (сущность — <c>12v3</c>).</summary>
-    public void Describe(ReadOnlySpan<byte> bytes, StateWriter w)
-    {
-        foreach (var leaf in _leaves)
-        {
-            var b = bytes[leaf.Offset..];
-            string name = leaf.Path.Length == 0 ? "value" : leaf.Path;
-            switch (leaf.Kind)
-            {
-                case Kind.Bool: w.Value(name, b[0] != 0); break;
-                case Kind.I8: w.Value(name, (sbyte)b[0]); break;
-                case Kind.U8: w.Value(name, b[0]); break;
-                case Kind.I16: w.Value(name, MemoryMarshal.Read<short>(b)); break;
-                case Kind.U16: w.Value(name, MemoryMarshal.Read<ushort>(b)); break;
-                case Kind.Char: w.Value(name, ((char)MemoryMarshal.Read<ushort>(b)).ToString()); break;
-                case Kind.I32: w.Value(name, MemoryMarshal.Read<int>(b)); break;
-                case Kind.U32: w.Value(name, MemoryMarshal.Read<uint>(b)); break;
-                case Kind.I64: w.Value(name, MemoryMarshal.Read<long>(b)); break;
-                case Kind.U64: w.Value(name, MemoryMarshal.Read<ulong>(b)); break;
-                case Kind.F32: w.Value(name, MemoryMarshal.Read<float>(b)); break;
-                case Kind.F64: w.Value(name, MemoryMarshal.Read<double>(b)); break;
-                case Kind.Entity: w.Value(name, MemoryMarshal.Read<Entity>(b).ToString()); break;
             }
         }
     }
@@ -443,25 +290,17 @@ public sealed class FieldLayout
 }
 
 /// <summary>
-/// Участник <c>ecs</c> — всё, что мир переносит из тика в тик: живые сущности по возрастанию индекса (индекс и поколение),
-/// у каждой — компоненты по стабильному имени (подпись имени, затем листья полей; тег — только подпись); ресурсы-значения
-/// по имени; слоты сущностей (число, поколения свободных слотов, порядок свободных номеров — от них зависят номера
-/// будущих сущностей); журналы по имени (записи последнего оборота тика с возрастом в барьерах — их ещё прочтут
-/// системы следующего тика); регистрации систем в порядке исполнения (включена ли, сколько записей каждого журнала не
-/// прочла). Номера записей и барьеров не входят: хеш не зависит от того, сколько тиков сыграно. Ресурсы со ссылками
-/// (пулы подсистем, ассеты) сюда не входят: их авторитетное состояние — у своих участников; у записи журнала со
-/// ссылками хешируется только возраст. Причина записи (<c>Cause</c>) не входит: её заполняет только диагностический
-/// режим причинности, а он хеш не меняет.
+/// Участник <c>ecs</c> — всё, что мир переносит из тика в тик: живые сущности по индексу с компонентами по стабильному
+/// имени, ресурсы-значения, слоты и порядок свободных номеров, журналы (записи с возрастом), регистрации систем
+/// (включена, сколько не прочла). Номера записей и барьеров не входят — хеш не зависит от числа сыгранных тиков.
+/// Ресурсы со ссылками хешируют свои участники.
 /// </summary>
 internal sealed class EcsStateContributor(WorldReader world) : IStateContributor
 {
-    /// <summary>Поле причины в записях журналов (<c>Added</c>, <c>Removed</c>, <c>Changed</c>, <c>Event</c>, <c>ResourceChanged</c>).</summary>
-    internal const string CauseField = "Cause";
-
-    private (int Id, ulong Name, FieldLayout Layout, string Title)[]? _components;
-    private (int Id, ulong Name, FieldLayout Layout, string Title)[]? _resources;
-    private (ulong Name, FieldLayout? Layout, string Title)[]? _journals;
-    private (ulong Name, string Title)[]? _systems;
+    private (int Id, ulong Name, FieldLayout Layout)[]? _components;
+    private (int Id, ulong Name, FieldLayout Layout)[]? _resources;
+    private (ulong Name, FieldLayout? Layout)[]? _journals;
+    private ulong[]? _systems;
 
     public string Id => "ecs";
 
@@ -469,12 +308,11 @@ internal sealed class EcsStateContributor(WorldReader world) : IStateContributor
     {
         if (_components is not null) return;
         _components = [.. world.Components.OrderBy(c => c.Name, StringComparer.Ordinal)
-            .Select(c => (c.Id, StateHasher.Of(c.Name), FieldLayout.Of(c.Type), c.Name))];
+            .Select(c => (c.Id, StateHasher.Of(c.Name), FieldLayout.Of(c.Type)))];
         _resources = [.. world.Resources.Where(r => r.Size > 0).OrderBy(r => r.Name, StringComparer.Ordinal)
-            .Select(r => (r.Id, StateHasher.Of(r.Name), FieldLayout.Of(r.Type), r.Name))];
-        // Запись журнала — без причины: причина есть только в диагностическом режиме, и хеш от него не зависит.
-        _journals = [.. world.Journals.Select(j => (StateHasher.Of(j.Name), j.EntrySize > 0 ? FieldLayout.Of(j.EntryType).Without(CauseField) : null, j.Name))];
-        _systems = [.. world.Systems.Select(s => (StateHasher.Of(s.Name), s.Name))];
+            .Select(r => (r.Id, StateHasher.Of(r.Name), FieldLayout.Of(r.Type)))];
+        _journals = [.. world.Journals.Select(j => (StateHasher.Of(j.Name), j.EntrySize > 0 ? FieldLayout.Of(j.EntryType) : null))];
+        _systems = [.. world.Systems.Select(s => StateHasher.Of(s.Name))];
     }
 
     public void AppendHash(ref StateHasher h)
@@ -528,7 +366,7 @@ internal sealed class EcsStateContributor(WorldReader world) : IStateContributor
 
         for (int s = 0; s < _systems!.Length; s++)
         {
-            h.Add(_systems[s].Name);
+            h.Add(_systems[s]);
             h.Add(world.SystemActive(s));
             int cursors = world.CursorCount(s);
             h.Add(cursors);
@@ -538,118 +376,5 @@ internal sealed class EcsStateContributor(WorldReader world) : IStateContributor
                 h.Add(journal);
             }
         }
-    }
-
-    /// <summary>
-    /// Части в порядке хеша: сущности (<c>12v3</c>), ресурсы (<c>resource:Имя</c>), <c>slots</c>, журналы
-    /// (<c>journal:Added&lt;Имя&gt;</c>), системы (<c>system:метка@стадия</c>). Отбор — сущность (только она) или часть
-    /// имени: у сущностей — компонента, у остальных частей — их id.
-    /// </summary>
-    public void Describe(StateWriter w, in DescribeQuery q)
-    {
-        Prepare();
-        Entity? only = q.Filter is { } f && TryEntity(f, out var parsed) ? parsed : null;
-        string? name = only is null ? q.Filter : null;
-        int skip = q.Skip, take = q.Take;
-        int matched = 0;
-        int slots = world.EntitySlots;
-        w.Summary("entities", world.EntityCount);
-        for (int i = 0; i < slots; i++)
-        {
-            var e = world.EntityAt(i);
-            if (e.IsNull) continue;
-            if (only is { } o && o != e) continue;
-            if (name is not null && !_components!.Any(c => c.Title.Contains(name, StringComparison.OrdinalIgnoreCase) && world.TryRead(e, c.Id, out _)))
-                continue;
-            int at = matched++;
-            if (at < skip || at >= skip + take) continue;
-            w.BeginItem(e.ToString());
-            foreach (var c in _components!)
-            {
-                if (!world.TryRead(e, c.Id, out var bytes)) continue;
-                if (name is not null && !c.Title.Contains(name, StringComparison.OrdinalIgnoreCase)) continue;
-                w.BeginObject(c.Title);
-                c.Layout.Describe(bytes, w);
-                w.EndObject();
-            }
-            w.EndItem();
-        }
-        if (only is null)
-        {
-            // Часть подходит под отбор — считается; на странице ли она.
-            bool OnPage(string id)
-            {
-                if (name is not null && !id.Contains(name, StringComparison.OrdinalIgnoreCase)) return false;
-                int at = matched++;
-                return at >= skip && at < skip + take;
-            }
-
-            foreach (var r in _resources!)
-            {
-                if (!world.TryReadResource(r.Id, out var bytes) || !OnPage("resource:" + r.Title)) continue;
-                w.BeginItem("resource:" + r.Title);
-                r.Layout.Describe(bytes, w);
-                w.EndItem();
-            }
-
-            if (OnPage("slots"))
-            {
-                w.BeginItem("slots");
-                w.Value("count", slots);
-                w.BeginObject("freeGenerations");
-                for (int i = 0; i < slots; i++)
-                    if (world.EntityAt(i).IsNull) w.Value(i.ToString(CultureInfo.InvariantCulture), world.GenerationAt(i));
-                w.EndObject();
-                w.Values("free", world.FreeIndices);
-                w.EndItem();
-            }
-
-            for (int j = 0; j < _journals!.Length; j++)
-            {
-                var journal = _journals[j];
-                if (!OnPage("journal:" + journal.Title)) continue;
-                int count = world.JournalLength(j);
-                w.BeginItem("journal:" + journal.Title);
-                if (journal.Layout is null) w.Value("fields", "не хешируются: запись со ссылками");
-                w.BeginArray("entries");
-                for (int i = 0; i < count; i++)
-                {
-                    var bytes = world.JournalEntry(j, i, out long age);
-                    w.BeginElement();
-                    w.Value("age", age);
-                    journal.Layout?.Describe(bytes, w);
-                    w.EndObject();
-                }
-                w.EndArray();
-                w.EndItem();
-            }
-
-            for (int s = 0; s < _systems!.Length; s++)
-            {
-                if (!OnPage("system:" + _systems[s].Title)) continue;
-                w.BeginItem("system:" + _systems[s].Title);
-                w.Value("active", world.SystemActive(s));
-                w.BeginObject("unread");
-                for (int i = 0, n = world.CursorCount(s); i < n; i++)
-                {
-                    int unread = world.CursorUnread(s, i, out int journal);
-                    w.Value(_journals[journal].Title, unread);
-                }
-                w.EndObject();
-                w.EndItem();
-            }
-        }
-        w.Matched = matched;
-    }
-
-    private static bool TryEntity(string text, out Entity e)
-    {
-        e = default;
-        int v = text.IndexOf('v');
-        if (v <= 0 || !int.TryParse(text.AsSpan(0, v), NumberStyles.None, CultureInfo.InvariantCulture, out int index)
-            || !int.TryParse(text.AsSpan(v + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int generation))
-            return false;
-        e = new Entity(index, generation);
-        return true;
     }
 }

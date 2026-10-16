@@ -5,13 +5,9 @@ using static Sword.Engine.Physics.Tests.TestBodies;
 namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
-/// Суставы, решатель: пределы держатся после шагов (шарнир в диапазоне и только в анатомическую сторону, люфт оси, эллипс
-/// наклона, скручивание), податливость предела, выключенный сустав не держит, кинематические тела суставы не двигают, журнал
-/// срабатываний, расслабление гасит относительную скорость точек и отскок от предела без прироста энергии, висящая цепочка и
-/// падающий боец держат суставы и не набирают энергию, 0 Б на подшаг. Шаг — настоящий <see cref="PhysicsWorld.Step"/> в мире без
-/// земли, стены, колонн и пар (одно сочленение или сочленения порознь): в подшаге действуют только интеграция, суставы, обновление
-/// скоростей и расслабление. Проход суставов и расслабление по отдельности — шагом из одного подшага (<see cref="OneSubstep"/>),
-/// где до расслабления действует известное (<see cref="BindAfterIntegration"/>, <see cref="BeforeRelax"/>).
+/// Решатель суставов: пределы держатся, податливость, выключенный сустав, кинематика не двигается, журнал, расслабление без
+/// прироста энергии, 0 Б на подшаг. Шаг — настоящий <see cref="PhysicsWorld.Step"/> без земли и пар; проход суставов и
+/// расслабление по отдельности — шагом из одного подшага (<see cref="OneSubstep"/>, <see cref="BindAfterIntegration"/>, <see cref="BeforeRelax"/>).
 /// </summary>
 public class JointsSolverTests(ITestOutputHelper output)
 {
@@ -565,9 +561,8 @@ public class JointsSolverTests(ITestOutputHelper output)
     }
 
     // Долгие прогоны (10 с): боец без земли и гравитации, случайные толчки. Суставы — связи без работы, пределы — неупругие:
-    // энергия может только убывать. Предел, поправляемый не вдоль градиента своей меры, совершает работу по замкнутому пути
-    // (коническое движение руки) — так было до поправки скручивания и наклона вдоль градиента (docs/history/engine-physics.md: рост в
-    // 4 из 20 прогонов, до ×13; у руки «плечо — локоть — клинок» — в 29 из 40).
+    // энергия может только убывать. Предел, поправляемый не вдоль градиента своей меры, совершал бы работу по замкнутому пути
+    // (коническое движение руки).
 
     [Fact]
     public void FreeFighter_10s_NoGravityNoDamping_NoEnergyGain()
@@ -662,10 +657,7 @@ public class JointsSolverTests(ITestOutputHelper output)
         Assert.True(float.IsFinite(sink));
     }
 
-    /// <summary>
-    /// Место под суставы дерева (тел − 1) и журнал — за слотом с создания сочленения: первый <c>SetJoints</c> бойца посреди игры (первая
-    /// смерть на этом слоте) и шаги с его суставами на физике не выделяют памяти; суставов у созданного сочленения по-прежнему нет.
-    /// </summary>
+    /// <summary>Место под суставы и журнал — за слотом с создания: первый <c>SetJoints</c> посреди игры и шаги с суставами не выделяют.</summary>
     [Fact]
     public void FirstSetJoints_OfTree_AfterCreation_DoesNotAllocate()
     {
@@ -692,10 +684,7 @@ public class JointsSolverTests(ITestOutputHelper output)
     /// </summary>
     private const float StopOvershoot = 0.05f;
 
-    /// <summary>
-    /// Откат от жёсткого упора после захода, рад: подход 6 рад/с — замер меньше 1e-5 (у схемы «точка, затем предел» и расслабления
-    /// только угловой скорости сгиб падал от упора 2,5 до 0,97).
-    /// </summary>
+    /// <summary>Откат от жёсткого упора после захода, рад: подход 6 рад/с — замер меньше 1e-5.</summary>
     private const float StopRebound = 1e-3f;
 
     /// <summary>Ошибка точки сустава у пары с неподвижным родителем, м (замер ≤ 1e-5).</summary>
@@ -728,16 +717,10 @@ public class JointsSolverTests(ITestOutputHelper output)
     /// </summary>
     private const float ChainPoint = 0.02f, ChainExcess = 0.2f;
 
-    /// <summary>
-    /// Падающий боец с пределами по умолчанию (наклон-скручивание мягкий): ошибка точки, м (замер ≤ 0,0033), выход, рад (≤ 0,132; до
-    /// поправки вдоль градиента — 0,198).
-    /// </summary>
+    /// <summary>Падающий боец с пределами по умолчанию: ошибка точки, м (замер ≤ 0,0033), выход, рад (≤ 0,132).</summary>
     private const float FighterPoint = 7e-3f, FighterExcess = 0.3f;
 
-    /// <summary>
-    /// Долгий прогон (10 с, пределы по умолчанию): выход, рад — замер ≤ 0,144 (рука), ≤ 0,143 (толчки до 25 рад/с с демпфированием);
-    /// до поправки вдоль градиента — до 1,01.
-    /// </summary>
+    /// <summary>Долгий прогон (10 с, пределы по умолчанию): выход, рад — замер ≤ 0,144 (рука), ≤ 0,143 (толчки до 25 рад/с).</summary>
     private const float LongExcess = 0.3f;
 
     private static float RelativeAnchorSpeed(PhysicsWorld w, ArticulationHandle art)
@@ -763,11 +746,9 @@ public class JointsSolverTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Сустав <paramref name="joint"/> — с привязкой по позе после интеграции подшага: тела ставятся в позу, в которую их приведёт
-    /// интеграция шага (<see cref="Dynamics.Integrate"/> — та же функция, профиль и h), ребёнок ещё повёрнут на
-    /// <paramref name="turn"/>⁻¹ вокруг точки сустава; привязка; затем тела — в исходную позу со скоростями. <c>Step(H)</c> мира
-    /// <see cref="OneSubstep"/> приводит их в позу привязки: точка сустава сведена (проход суставов её не двигает), отклонение
-    /// ребёнка от позы покоя — ровно <paramref name="turn"/> (предел срабатывает только на нём).
+    /// Привязать <paramref name="joint"/> по позе, в которую тела приведёт интеграция подшага (<see cref="Dynamics.Integrate"/>), с
+    /// ребёнком, ещё повёрнутым на <paramref name="turn"/>⁻¹; затем вернуть исходную позу. После <c>Step(H)</c> мира
+    /// <see cref="OneSubstep"/> точка сведена, а выход за предел — ровно <paramref name="turn"/>.
     /// </summary>
     private static void BindAfterIntegration(PhysicsWorld w, ArticulationHandle art, BodyState parent, BodyState child, JointDesc joint, Quaternion turn)
     {
@@ -790,9 +771,8 @@ public class JointsSolverTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Состояние тела на входе расслабления последнего подшага шага <see cref="OneSubstep"/> без контактов: обновление скоростей
-    /// по сдвигу подшага (<see cref="Dynamics.UpdateVelocity"/>) из итоговой позы — расслабление меняет только скорости, поза и
-    /// прошлая поза после шага те же, что у обновления скоростей.
+    /// Состояние на входе расслабления подшага <see cref="OneSubstep"/>: скорости по сдвигу (<see cref="Dynamics.UpdateVelocity"/>)
+    /// из итоговой позы — расслабление меняет только скорости.
     /// </summary>
     private static BodyState BeforeRelax(PhysicsWorld w, BodyState after)
     {

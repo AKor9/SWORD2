@@ -6,11 +6,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion;
 
 /// <summary>
-/// <c>locomotion.poses</c> — позы слоя и снимка локомоции (<see cref="LegacyLocomotionState.Layer"/>,
-/// <see cref="LegacyLocomotionState.From"/>) живые, свои у каждого бойца и не совпадают с его итоговой позой
-/// (<see cref="PoseRef"/>). В конце тика: поза снятого состояния к этому времени возвращена. Пул модуль видит только
-/// через вид <see cref="IAnimationView"/> (живая поза — непустые модельные матрицы). Позы ядра проверяет
-/// <c>animation.owners</c>.
+/// <c>locomotion.poses</c> — позы слоя и снимка локомоции живые, свои у каждого бойца и не совпадают с его итоговой
+/// позой; в конце тика поза снятого состояния возвращена. Пул — только через <see cref="IAnimationView"/>.
 /// </summary>
 public sealed class LocomotionPosesInvariant : IInvariant
 {

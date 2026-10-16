@@ -31,16 +31,6 @@
     <DefineConstants>$(DefineConstants);WITHOUT_FIRE</DefineConstants>
   </PropertyGroup>
 
-  <!-- Агентский доступ (раздел 8): в сборке без агента (-p:WithoutAgent=true) его нет. -->
-  <ItemGroup Condition="'$(WithoutAgent)' != 'true'">
-    <ProjectReference Include="..\..\engine\Sword.Engine.Agent\Sword.Engine.Agent.csproj" />
-    <ProjectReference Include="..\..\engine\Sword.Engine.Agent.Client\Sword.Engine.Agent.Client.csproj" />
-    <ProjectReference Include="..\Sword.Game.Agent\Sword.Game.Agent.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(WithoutAgent)' == 'true'">
-    <Compile Remove="AgentMode.cs" />
-  </ItemGroup>
-
   <!-- Инструменты разработчика (панели DevTools, раздел 4): в сборке без них (-p:WithoutDevTools=true) их нет. -->
   <ItemGroup Condition="'$(WithoutDevTools)' != 'true'">
     <ProjectReference Include="..\..\engine\Sword.Engine.DevTools\Sword.Engine.DevTools.csproj" />

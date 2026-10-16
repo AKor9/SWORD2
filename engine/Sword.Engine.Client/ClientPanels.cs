@@ -4,34 +4,24 @@ using Sword.Engine.Ui;
 namespace Sword.Engine.Client;
 
 /// <summary>
-/// Панель интерфейса поверх кадра (DevTools: ручки F3; позже — панели игры): её ведёт клиент движка (<see cref="ClientPanels"/>,
-/// <see cref="ClientHost.AddPanel"/>). Кадр панели — в шаге ввода кадра, до ввода игры: <see cref="Update"/> (клавиша
-/// открытия) → <see cref="Draw"/> в общем <see cref="UiContext"/> → квады идут UI-проходом поверх проходов игры. Мышь у
-/// панели и клавиатура у её поля ввода в игру не уходят (<see cref="FrameInput.UiMouse"/>, <see cref="FrameInput.UiKeyboard"/>).
+/// Панель интерфейса поверх кадра (DevTools). Кадр панели — в шаге ввода, до ввода игры: <see cref="Update"/> →
+/// <see cref="Draw"/> в общем <see cref="UiContext"/> → квады UI-проходом поверх игры. Мышь и клавиатура у панели в игру не уходят.
 /// </summary>
 public interface IClientPanel
 {
     /// <summary>Действия ввода панели (клавиша открытия) — привязываются вместе с действиями игры (секция <c>input</c>).</summary>
     IReadOnlyList<InputAction> Actions => [];
 
-    /// <summary>
-    /// Ввод кадра — до интерфейса и до ввода игры (фронты действий панели): открыть, закрыть. Истина — панель видна в этом
-    /// кадре и рисуется (<see cref="Draw"/>); закрытая панель больше ничего не стоит.
-    /// </summary>
+    /// <summary>Открыть или закрыть по фронтам действий панели. Истина — панель видна и рисуется; закрытая ничего не стоит.</summary>
     bool Update(in FrameInput input);
 
-    /// <summary>
-    /// Кадр видимой панели — между <c>BeginFrame</c> и <c>EndFrame</c> общего <see cref="UiContext"/>. Истина — мышь у панели
-    /// (курсор над ней или тянут её виджет): мышь в этом кадре не уходит игре.
-    /// </summary>
+    /// <summary>Кадр видимой панели между <c>BeginFrame</c> и <c>EndFrame</c>. Истина — мышь у панели и игре не уходит.</summary>
     bool Draw(UiContext ui);
 }
 
 /// <summary>
-/// Слой панелей клиента: общий <see cref="UiContext"/> панелей, ввод интерфейса из ввода окна (<see cref="UiInputSource"/>) и
-/// кадр панелей (<see cref="Frame"/>) — до ввода игры, чтобы игра в том же кадре знала, что мышь или клавиатура у интерфейса.
-/// Все панели закрыты — ни заполнения ввода, ни кадра интерфейса, ни прохода (0 работы, кроме опроса <see cref="IClientPanel.Update"/>).
-/// Без окна и GPU: квады — <see cref="UiContext.Output"/>, в UI-проход их отдаёт <see cref="ClientHost"/>.
+/// Слой панелей клиента: общий <see cref="UiContext"/>, ввод интерфейса и кадр панелей — до ввода игры, чтобы игра в том
+/// же кадре знала, что мышь или клавиатура у интерфейса. Все закрыты — 0 работы, кроме опроса <see cref="IClientPanel.Update"/>.
 /// </summary>
 public sealed class ClientPanels
 {
@@ -43,11 +33,8 @@ public sealed class ClientPanels
     private UiContext? _ui;
     private ulong _shown;
 
-    /// <param name="fonts">
-    /// Шрифты интерфейса (<c>Renderer.Ui.Fonts</c>) — берутся, когда панель впервые видна: пока все закрыты, UI-проход не
-    /// заводится (Sword.exe <c>--no-hud</c> без открытых панелей — без шрифтов в видеопамяти); null или шрифтов нет —
-    /// только фигуры (тесты логики).
-    /// </param>
+    /// <param name="fonts">Шрифты интерфейса — берутся, когда панель впервые видна (пока все закрыты, шрифтов в видеопамяти
+    /// нет); null — только фигуры (тесты логики).</param>
     public ClientPanels(Func<UiFonts?>? fonts = null)
     {
         _fonts = fonts ?? (() => null);
@@ -83,12 +70,9 @@ public sealed class ClientPanels
         _panels.Add(panel);
     }
 
-    /// <summary>
-    /// Кадр панелей: <see cref="IClientPanel.Update"/> у всех, затем — если хоть одна видна — ввод интерфейса из
-    /// <paramref name="state"/>, <c>BeginFrame</c>, <see cref="IClientPanel.Draw"/> видимых, <c>EndFrame</c>. Панель закрылась —
-    /// фокус клавиатуры и захват мыши снимаются (её поле не держит клавиатуру закрытым — <c>ToolsModule.Keys</c> SWORD).
-    /// </summary>
-    /// <returns>Ввод кадра для игры: с отметками «мышь у интерфейса» и «клавиатура у интерфейса».</returns>
+    /// <summary>Кадр панелей: <see cref="IClientPanel.Update"/> у всех, затем, если хоть одна видна, — ввод, <c>BeginFrame</c>,
+    /// <see cref="IClientPanel.Draw"/> видимых, <c>EndFrame</c>. Закрытая панель отпускает фокус клавиатуры и захват мыши.</summary>
+    /// <returns>Ввод кадра для игры с отметками «мышь у интерфейса» и «клавиатура у интерфейса».</returns>
     public FrameInput Frame(in FrameInput input, InputState state, bool mouseInside, double time)
     {
         ulong shown = 0;

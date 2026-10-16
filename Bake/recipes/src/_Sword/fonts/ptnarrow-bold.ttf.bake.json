@@ -1,0 +1,14 @@
+{
+  "converter": "font",
+  "import": "pt_sans_narrow",
+  "notes": "PT Sans Narrow Bold — подписи кнопок, вкладок и секций; с ним в пак идёт лицензия гарнитуры.",
+  "params": {
+    "name": "label",
+    "roles": [
+      "Label"
+    ],
+    "extra": [
+      "${src}/_Sword/fonts/OFL-PTSansNarrow.txt"
+    ]
+  }
+}

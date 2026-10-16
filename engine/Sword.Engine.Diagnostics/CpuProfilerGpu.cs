@@ -4,11 +4,9 @@ using System.Runtime.CompilerServices;
 namespace Sword.Engine.Diagnostics;
 
 /// <summary>
-/// GPU-время проходов в профайлере кадра: рендер пишет в открытый кадр времена кадра, разобранного в нём
-/// (таймстемпы D3D12 — Rhi и Render, профайлер о GPU не знает), зонами вида <see cref="ProfileZoneKind.Gpu"/>: <c>gpu.frame</c>
-/// — кадр целиком, <c>gpu.&lt;проход&gt;</c> — проходы. Итоги, кольцо, медиана и p99 — как у зон CPU, но вне дерева CPU (родителя
-/// нет): в своё время кадра, главную зону аномалии и сводку зон CPU они не входят. Отставание — в заголовке кадра
-/// (<see cref="ProfileHeader.GpuFrame"/>): в кадре N — времена кадра N − 3.
+/// GPU-время проходов: рендер пишет в открытый кадр времена разобранного кадра зонами <see cref="ProfileZoneKind.Gpu"/>
+/// (<c>gpu.frame</c>, <c>gpu.&lt;проход&gt;</c>) — вне дерева CPU. Отставание — <see cref="ProfileHeader.GpuFrame"/>
+/// (в кадре N — кадр N − 3).
 /// </summary>
 public sealed partial class CpuProfiler
 {
@@ -18,10 +16,7 @@ public sealed partial class CpuProfiler
     /// <summary>Префикс зон GPU-времени проходов.</summary>
     public const string GpuPrefix = "gpu.";
 
-    /// <summary>
-    /// GPU-время <paramref name="ms"/> зоны <paramref name="zone"/> (вида <see cref="ProfileZoneKind.Gpu"/>) — в открытый кадр:
-    /// вызов зоны с этим временем, 0 байт. Выключенный профайлер и вне кадра — ничего.
-    /// </summary>
+    /// <summary>GPU-время зоны — в открытый кадр как вызов с 0 байт. Выключенный и вне кадра — ничего.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void RecordGpu(int zone, double ms)
     {
@@ -35,10 +30,8 @@ public sealed partial class CpuProfiler
         _frames.Add(zone, (long)(ms * Stopwatch.Frequency / 1000.0), 0);
     }
 
-    /// <summary>
-    /// GPU-времена, записанные в открытый кадр, — кадра на <paramref name="lag"/> раньше этого (обычно 3: кадры в полёте; 0 —
-    /// разобраны ожиданием простоя GPU). Выключенный профайлер и вне кадра — ничего.
-    /// </summary>
+    /// <summary>GPU-времена открытого кадра — кадра на <paramref name="lag"/> раньше (обычно 3; 0 — после ожидания простоя
+    /// GPU). Выключенный и вне кадра — ничего.</summary>
     public void NoteGpuFrame(int lag)
     {
         if (!_enabled || _frameAt < 0) return;

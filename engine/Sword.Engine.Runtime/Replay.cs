@@ -24,10 +24,8 @@ public sealed record ReplayCommandType(string Name, IReadOnlyList<string> Fields
 /// <summary>Команда в реплее: номер типа в <see cref="Replay.CommandTypes"/> и листья — 64 битами (<see cref="FieldLayout.Bits"/>).</summary>
 public sealed record ReplayCommand(int Type, ulong[] Leaves);
 
-/// <summary>
-/// Тики <see cref="First"/> … <see cref="First"/> + <see cref="Count"/> − 1 с одним и тем же списком команд — всеми
-/// командами тика по порядку выдачи. Тик без команд в реплее не записан.
-/// </summary>
+/// <summary>Тики <see cref="First"/> … <see cref="First"/> + <see cref="Count"/> − 1 с одним списком команд (по порядку
+/// выдачи). Тик без команд не записан.</summary>
 public sealed record ReplayRun(ulong First, int Count, IReadOnlyList<ReplayCommand> Commands)
 {
     public ulong End => First + (ulong)Count;
@@ -37,12 +35,9 @@ public sealed record ReplayRun(ulong First, int Count, IReadOnlyList<ReplayComma
 public sealed record ReplayHash(ulong Tick, ulong[] Parts);
 
 /// <summary>
-/// Реплей (раздел 7 плана): всё, что нужно, чтобы симуляция повторилась бит в бит, — сборка, контент, частота тиков,
-/// зерно, итоговый конфиг запуска, модули, команды по тикам (все типы: игрок, арена, ручки, модули) — и хеш состояния
-/// по участникам каждые <see cref="HashEvery"/> тиков, по которому воспроизведение находит первое расхождение.
-/// Файл — JSON (<see cref="Extension"/>, CRLF): команды — по строке на отрезок тиков, поля — значениями по видам листьев
-/// (float — точной записью, <c>-0</c> и не-числа — битами <c>"0x…"</c>). Реплей без хешей и заголовка — сценарий:
-/// команды по тикам, конфиг — значения в коде; его хеши даёт перезапись (<c>--replay сценарий --record реплей</c>).
+/// Реплей: всё, чтобы симуляция повторилась бит в бит (сборка, контент, частота тиков, зерно, конфиг, модули, команды по
+/// тикам), и хеш по участникам каждые <see cref="HashEvery"/> тиков — для поиска первого расхождения. Файл — JSON, CRLF;
+/// float — точной записью, <c>-0</c> и не-числа — битами <c>"0x…"</c>. Без хешей и заголовка — сценарий.
 /// </summary>
 public sealed class Replay
 {
@@ -79,10 +74,8 @@ public sealed class Replay
     /// <summary>Участники хеша по Id — порядок значений в <see cref="ReplayHash.Parts"/>.</summary>
     public IReadOnlyList<string> Parts { get; init; } = [];
 
-    /// <summary>
-    /// Сведения ядра и модулей при записи (<see cref="Simulation.Facts"/>: отпечаток базы Motion Matching — <c>locomotion.base</c>) по
-    /// имени; null — сведений не было (ключа <c>facts</c> в файле нет). Воспроизведение сверяет их с симуляцией.
-    /// </summary>
+    /// <summary>Сведения ядра и модулей при записи (<see cref="Simulation.Facts"/>); null — их не было. Воспроизведение
+    /// сверяет их с симуляцией.</summary>
     public IReadOnlyDictionary<string, string>? Facts { get; init; }
 
     public IReadOnlyList<ReplayCommandType> CommandTypes { get; init; } = [];
@@ -121,10 +114,9 @@ public sealed class Replay
     }
 
     /// <summary>
-    /// Таймлайн: <paramref name="head"/> до тика <paramref name="at"/> и продолжение <paramref name="tail"/> с него
-    /// (перемотка назад во время воспроизведения: сыгранное — из записи, будущее — из файла). Заголовок и конфиг — от
-    /// <paramref name="head"/>; типы команд <paramref name="tail"/> — по именам, поля — по путям (нет поля — ноль); хеши
-    /// <paramref name="tail"/> после <paramref name="at"/> — если участники те же.
+    /// Таймлайн: <paramref name="head"/> до тика <paramref name="at"/> и <paramref name="tail"/> с него (перемотка назад при
+    /// воспроизведении). Заголовок и конфиг — от <paramref name="head"/>; команды <paramref name="tail"/> — по именам и путям
+    /// (нет поля — ноль), его хеши — если участники те же.
     /// </summary>
     public static Replay Splice(Replay head, Replay tail, ulong at)
     {
@@ -173,9 +165,8 @@ public sealed class Replay
     }
 
     /// <summary>
-    /// Начало реплея — первые <paramref name="at"/> тиков: команды тиков до <paramref name="at"/>, хеши после не больше
-    /// <paramref name="at"/> тиков (<paramref name="hashes"/> false — без хешей: замеры времени, где сверка хешей каждого тика
-    /// мерила бы хеш, а не игру), заголовок и конфиг — те же (ветка эксперимента, которая дальше идёт своими командами).
+    /// Первые <paramref name="at"/> тиков: команды и хеши до <paramref name="at"/>, заголовок и конфиг те же (ветка
+    /// эксперимента). <paramref name="hashes"/> false — без хешей: для замеров времени, чтобы не мерить хеш.
     /// </summary>
     public Replay Head(ulong at, bool hashes = true)
     {
@@ -453,16 +444,13 @@ public sealed class Replay
 public sealed record ReplayPartDiff(string Part, ulong Expected, ulong Actual);
 
 /// <summary>
-/// Первое расхождение с реплеем: после <see cref="Tick"/> тиков хеши участников <see cref="Parts"/> не те; последний
-/// совпавший хеш — после <see cref="LastMatch"/> тиков (расхождение возникло в тиках <see cref="LastMatch"/> …
-/// <see cref="Tick"/> − 1; при хеше каждый тик — ровно в тике <see cref="Tick"/> − 1). null — совпадений не было.
+/// Первое расхождение: после <see cref="Tick"/> тиков хеши участников <see cref="Parts"/> не те; расхождение возникло
+/// в тиках <see cref="LastMatch"/> … <see cref="Tick"/> − 1. <see cref="LastMatch"/> null — совпадений не было.
 /// </summary>
 public sealed record ReplayDivergence(ulong Tick, ulong? LastMatch, IReadOnlyList<ReplayPartDiff> Parts)
 {
-    /// <summary>
-    /// Вероятная причина: сведения реплея не те, что у симуляции (<see cref="Replay.Facts"/> — другая база Motion Matching: контент,
-    /// код, отбор или класс процессора); null — сведения совпали или их нет.
-    /// </summary>
+    /// <summary>Вероятная причина: сведения реплея (<see cref="Replay.Facts"/>) не те, что у симуляции; null — совпали
+    /// или их нет.</summary>
     public string? Cause { get; init; }
 
     public override string ToString() =>
@@ -471,10 +459,8 @@ public sealed record ReplayDivergence(ulong Tick, ulong? LastMatch, IReadOnlyLis
 }
 
 /// <summary>
-/// Запись реплея (<see cref="Simulation.Record"/>): каждая выданная команда тика (из очередей клиента, инструментов и
-/// реплея) — листьями полей; тики с одинаковыми списками команд подряд сливаются в отрезок; хеш по участникам — на тике 0
-/// и каждые <see cref="HashEvery"/> тиков. Однообразный ввод (удержание клавиши) памяти не выделяет;
-/// хеши — 8 байт на тик и участника (плюс тик) каждые <see cref="HashEvery"/> тиков.
+/// Запись реплея: каждая выданная команда тика листьями полей, одинаковые тики подряд — одним отрезком; хеш по
+/// участникам на тике 0 и каждые <see cref="HashEvery"/> тиков. Однообразный ввод памяти не выделяет.
 /// </summary>
 public sealed class ReplayRecorder : ICommandSink
 {
@@ -508,11 +494,6 @@ public sealed class ReplayRecorder : ICommandSink
 
     /// <summary>Записано тиков.</summary>
     public ulong Ticks => _sim.Tick;
-
-    public int HashCount => _hashCount;
-
-    /// <summary>Отрезков с командами.</summary>
-    public int RunCount => _runs.Count;
 
     void ICommandSink.Command(ulong tick, int type, ReadOnlySpan<byte> command)
     {
@@ -599,10 +580,9 @@ public sealed class ReplayRecorder : ICommandSink
 }
 
 /// <summary>
-/// Воспроизведение реплея (<see cref="Simulation.Play"/>): команды реплея выдаются в каждом тике первыми (команды
-/// клиента и инструментов того же тика — после них: ветвление), хеши сверяются по участникам, первое расхождение —
-/// <see cref="Divergence"/>. Привязка — по стабильным именам типов команд и путям полей: поле реплея, которого нет в
-/// команде, — ошибка; поле команды, которого нет в реплее, — ноль и предупреждение.
+/// Воспроизведение реплея: его команды — первыми в тике (команды клиента — после: ветвление), хеши сверяются по
+/// участникам (<see cref="Divergence"/>). Привязка по именам типов и путям полей: лишнее поле реплея — ошибка,
+/// недостающее — ноль и предупреждение.
 /// </summary>
 public sealed class ReplayPlayer : IReplaySource
 {
@@ -734,9 +714,8 @@ public sealed class ReplayPlayer : IReplaySource
 }
 
 /// <summary>
-/// Сравнение двух реплеев (<c>replay.diff</c>): заголовки, первый тик с разными командами, первый хеш с разными участниками; по каждому
-/// общему участнику — первый общий хеш, где он разный, по всем общим хешам (<see cref="Result.PartFirstTicks"/>: null — не разошёлся ни разу;
-/// так видно, что перезаписанный эталон разошёлся только участником, которого касалось изменение).
+/// Сравнение двух реплеев: заголовки, первый тик с разными командами, первый разный хеш и по каждому общему участнику —
+/// первый тик, где он разошёлся (<see cref="Result.PartFirstTicks"/>, null — ни разу).
 /// </summary>
 public static class ReplayDiff
 {

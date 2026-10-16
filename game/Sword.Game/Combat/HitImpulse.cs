@@ -7,11 +7,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Импульс удара в тело бойца (<c>HitImpulse</c> SWORD 2eab13b — источник идей): последний приложенный — какое попадание, кто бил, в
-/// какую часть, точка, приложенный импульс, Н·с, сколько хотел удар, скорость удара и Δv точки вдоль удара, м/с; часть на физике (труп —
-/// из прохода, с отдачей атакующему) или кинематическая (смертельный удар по живому — до перехода в труп). Реактивный: меняется только
-/// <c>Set</c> в Resolve (<c>core.hit-apply</c>) с причиной — попаданием (<c>state.why</c>: «импульс ← Hit ← касание ← начало удара»).
-/// Постройка бойца — <see cref="None"/>.
+/// Импульс удара в тело бойца — последний приложенный: попадание, кто бил, часть, точка, импульс, Н·с, желаемый, скорость удара и
+/// Δv точки, м/с. Реактивный: <c>Set</c> в Resolve с причиной-попаданием. Постройка бойца — <see cref="None"/>.
 /// </summary>
 [Reactive]
 public struct HitImpulse
@@ -43,26 +40,21 @@ public struct HitImpulse
 }
 
 /// <summary>
-/// Импульс удара в часть через физику (<c>HitImpulse</c>, путь трупа в <c>ApplyHit</c> SWORD 2eab13b — источник идей, research-arena-tick
-/// §4, §3.1). Модуль — <c>min(урон · <see cref="DamageShare"/>, <see cref="Max"/>)</c> Н·с вдоль движения кончика (<see cref="StrikeContact.Dir"/>)
-/// в точке касания. Часть трупа (на физике): засчитанное попадание открывает проход пары атакующий → труп (<see cref="IPhysicsWorld.PassHit"/>),
-/// импульс — с потолком Δv точки (<see cref="PhysicsSettings.HitDvShare"/> скорости удара) и списанием из прохода, минус приложенный — отдача
-/// атакующему (<see cref="IPhysicsWorld.ApplyHit"/>): контакт клинка в подшагах и попадание тратят один бюджет прохода. Часть живого, которого
-/// удар убил (ещё кинематическая — переход в труп в Settle): тот же импульс с потолком Δv, без прохода и отдачи — труп падает со скоростью
-/// удара. Живого, которого удар не убил, импульс не двигает (тело ставит поза). Проба командой (скорость удара 0) импульса не даёт.
+/// Импульс удара в часть через физику: <c>min(урон · <see cref="DamageShare"/>, <see cref="Max"/>)</c> Н·с вдоль
+/// <see cref="StrikeContact.Dir"/>. Труп — проход пары (<see cref="IPhysicsWorld.PassHit"/>) с потолком Δv и отдачей атакующему;
+/// убитый этим ударом живой — тот же импульс без прохода. Не убитого живого и пробу импульс не двигает.
 /// </summary>
 public static class HitImpulses
 {
-    /// <summary>Доля урона в импульс, Н·с на единицу урона, и наибольший импульс удара, Н·с (отправные — SWORD).</summary>
+    /// <summary>Доля урона в импульс, Н·с на единицу урона, и наибольший импульс удара, Н·с.</summary>
     public const float DamageShare = 0.25f, Max = 12f;
 
     /// <summary>Сколько хочет удар, Н·с.</summary>
     public static float Wanted(float damage) => float.IsFinite(damage) ? Math.Clamp(damage * DamageShare, 0, Max) : 0;
 
     /// <summary>
-    /// Импульс касания <paramref name="c"/> в часть жертвы <paramref name="victim"/> от атакующего <paramref name="attacker"/>: труп
-    /// (<paramref name="corpse"/>) или живой, убитый этим касанием (<paramref name="killed"/>). Приложено — true и запись для
-    /// <see cref="HitImpulse"/> (приложенный импульс может быть нулём — проход исчерпан); не прикладывается — false.
+    /// Импульс касания <paramref name="c"/> в часть жертвы: труп (<paramref name="corpse"/>) или убитый этим касанием
+    /// (<paramref name="killed"/>). true — приложено (импульс может быть нулём — проход исчерпан).
     /// </summary>
     public static bool Apply(IPhysicsWorld physics, ArticulationHandle attacker, ArticulationHandle victim, in StrikeContact c, bool corpse, bool killed,
         out HitImpulse record)

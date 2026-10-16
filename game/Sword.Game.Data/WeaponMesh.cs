@@ -7,22 +7,19 @@ namespace Sword.Game.Data;
 public readonly record struct WeaponBlade(Vector3 Base, Vector3 Tip, int Vertices);
 
 /// <summary>
-/// Меш оружия (<c>weapons/имя.swmesh</c>, печёт weapon.static) → клинок — <c>CharacterRig.MakeWeapon</c> SWORD 2eab13b: кончик —
-/// самая дальняя от кисти (начала координат меша) вершина, основание — <see cref="BaseOffset"/> от кисти по той же оси.
-/// Меш — формат <c>.swmesh</c> без суставов: вершины уже в системе кисти (формат знает только эта сборка данных и рендер —
-/// игре он не виден, раздел 4 плана).
+/// Меш оружия (<c>meshes/weapons/имя.swmesh</c>, без суставов, вершины в системе кисти) → клинок: кончик — самая дальняя от кисти вершина,
+/// основание — <see cref="BaseOffset"/> от кисти по той же оси.
 /// </summary>
 public static class WeaponMesh
 {
     /// <summary>Каталог оружия в контенте и расширение: по файлу на меч, имя файла — имя меча (<c>WeaponDir</c>, <c>WeaponExt</c>).</summary>
-    public const string Dir = "weapons", Ext = ".swmesh";
+    public const string Dir = "meshes/weapons", Ext = ".swmesh";
 
     /// <summary>Основание клинка — на таком расстоянии от кисти, м (у гарды).</summary>
     public const float BaseOffset = 0.22f;
 
     /// <exception cref="InvalidDataException">
-    /// Не .swmesh или испорчен; у меша есть суставы (оружие — жёсткое вложение в кисть); все вершины в кисти — клинка нет (в
-    /// SWORD — NaN в основании).
+    /// Не .swmesh или испорчен; у меша есть суставы; все вершины в кисти — клинка нет.
     /// </exception>
     public static WeaponBlade Read(Stream mesh, string name)
     {

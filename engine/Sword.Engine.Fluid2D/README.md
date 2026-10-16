@@ -47,7 +47,7 @@ FMA) и совпадают до округления в half.
 Σρ, max|v|, max ρ, Σwet, тексели с Inf/NaN, центроид ρ (UV) — 64 Б в `StatsStorage`, разбор `Fluid2DStats.Parse`. Асинхронно —
 `Renderer.CreateReadback` / `GpuSimContext.Readback` (задержка 3 кадра); синхронно — `ReadStats()`; по полю на CPU — `Fluid2DStats.Compute`.
 
-**Вне кадра** (ожидание GPU; тесты и агент): `ReadFields()` / `Load(Fluid2DFields)` — все четыре грида в half, `ReadBrush()` / `LoadBrush` —
+**Вне кадра** (ожидание GPU; тесты и снимки): `ReadFields()` / `Load(Fluid2DFields)` — все четыре грида в half, `ReadBrush()` / `LoadBrush` —
 грид кисти, `Snapshot()` → `Save(prefix)`: `.density.png` (ρ), `.velocity.png` (vx, vy вокруг 0.5 в пределах ±VelocityClamp; B — wet), `.bin`
 (N × N × 4 half C); если был Painter — `.brush.density.png`, `.brush.velocity.png` (±BVC·VMXY; B — слой 6), `.brush.bin` (BN × BN × 8 half).
 
@@ -76,7 +76,7 @@ FMA) и совпадают до округления в half.
   отсеяна. Сверх `BrushMaxPoints` остаются меньшие ключи («отброшено»). Точки сортируются по ключу.
 - Бининг (решение (d)): ячейка — m×m тайлов 8×8 текселей (тайл = группа Painter), m ≥ радиуса 4σ·stretch в тайлах, не больше 32 ячеек по оси;
   записей больше `BrushMaxEntries` — ячейки вдвое крупнее (переполнения нет). Слово ячейки — начало | число << 16; в ячейке — порядок ключа.
-- Кадр — 0 Б после прогрева. Для агента: `Points` (ключ, голова и хвост в UV, UV-скорость, s, σ см, есть ли отрезок), `Stats` (добавлено,
+- Кадр — 0 Б после прогрева. Для наблюдения: `Points` (ключ, голова и хвост в UV, UV-скорость, s, σ см, есть ли отрезок), `Stats` (добавлено,
   осталось, отсеяно, отброшено, записей, ячейка в текселях).
 
 **GPU — `fluid.painter`** (`CsPainter`, тексель грида кисти; шаг кисти — слова в `FrameData<uint>` кадра, буфер растёт при новом максимуме):
@@ -141,9 +141,9 @@ DensityAccumulation 0.9, EdgeMaskWidth/Pow 0.05/0.5, SimEdgeBounciness 0.1, Wetm
 
 Render (граф, хранилища, `FrameData`, текстуры), Formats (PNG снимка). Клиентская сторона.
 
-## Агентский доступ
+## Наблюдение
 
-- Проходы `fluid.*` в `render.graph` / `report.passes` и GPU-время `gpu.fluid.*` (профайлер).
+- Проходы `fluid.*` в `report.passes` и GPU-время `gpu.fluid.*` (профайлер).
 - API видов потребителя: `Fluid2DStats` (асинхронно или `ReadStats`), `Snapshot().Save` (поля и грид кисти), `ReadFields`, точки кисти шага
   `Fluid2DBrush.Points` (ключ, UV, UV-скорость, σ) и `Fluid2DBrush.Stats`. Модуль огня выводит их в `--json` (`fire.sims`, `fire.metrics`),
   снимок `<снимок>.fire.*` и оверлеи `fire`, `fire.field` ([README модуля](../../game/modules/Sword.Game.Fire.Client/README.md)).

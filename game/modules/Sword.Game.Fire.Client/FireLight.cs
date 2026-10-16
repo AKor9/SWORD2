@@ -81,7 +81,7 @@ public static class FireLightMath
 public sealed class FireLight(int maxFires)
 {
     /// <summary>Шумы LF: T_Noise3 (sRGB) и T_NoiseTemplate2 (линейная, её же берёт кисть).</summary>
-    public const string NoisePathA = "effects/fire/light_noise.swtex", NoisePathB = FireModule.BrushNoisePath;
+    public const string NoisePathA = "textures/fire/light_noise.swtex", NoisePathB = FireModule.BrushNoisePath;
 
     private readonly PointLight[] _lights = new PointLight[maxFires];
     private readonly float[] _fades = new float[maxFires];

@@ -8,19 +8,11 @@ using Sword.Game.Data;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Рука с мечом игрока на Motion Matching: клипы GASP — без меча, руки в них нейтральные, поэтому поверх позы MM
-/// правая рука берёт стойку оружия — клип слота <c>idle</c> таблицы действий (<see cref="ActionTable.Idle"/>) в момент <see cref="StanceTime"/> —
-/// смешиванием по маске руки (<see cref="Root"/> и всё его поддерево: ключица, плечо, предплечье, кисть, пальцы, скрутки и корректоры, сустав
-/// оружия) с весом ручки <c>locomotion.armWeight</c>. Порядок заданий тика: шаг MM (<c>locomotion.mm</c>) → рука (<c>locomotion.mm-arm</c>) →
-/// слой действий ядра (<c>core.animator-pose</c>): удар и рывок перекрывают руку, как раньше. Стойка — одна на все мечи (слот <c>idle</c> таблицы
-/// действий не зависит от оружия): смена меча (T, инвентарь) меняет клинок, а не позу руки; сменится клип стойки — поза стойки берётся заново.
-///
-/// Поза постройки игрока (<see cref="FighterStartPose"/>) несёт руку слоем поверх с тем же весом, с каким её выведет первый тик после постройки
-/// (<see cref="Init"/>): капсулы и клинок встают по позе постройки, и первый тик не даёт скачка (<c>physics.kinematicSpeed</c>) и прохода клинка.
-/// Вес руки — состояние бойца (<see cref="MotionMatchArm.Weight"/>): после постройки — вес позы постройки, дальше идёт к ручке не быстрее
-/// <see cref="WeightRate"/> в секунду (ручка на ходу не дёргает руку за тик).
-///
-/// Знание о скелете UE5 Manny (имена суставов) и умолчания руки — здесь, одно место (копий констант нет).
+/// Рука с мечом игрока на Motion Matching: клипы GASP без меча, поэтому поверх позы MM правая рука смешивается по маске
+/// (поддерево <see cref="Root"/>) со стойкой оружия — клипом <see cref="ActionTable.Idle"/> в момент <see cref="StanceTime"/>,
+/// с весом ручки <c>locomotion.armWeight</c>. Порядок: шаг MM → рука → слой действий ядра (удар и рывок перекрывают руку).
+/// Стойка одна на все мечи. Поза постройки несёт руку с тем же весом, что выведет первый тик, — без скачка капсул и
+/// прохода клинка; дальше вес идёт к ручке не быстрее <see cref="WeightRate"/>/с. Имена суставов UE5 Manny — только здесь.
 /// </summary>
 public sealed class SwordArm
 {
@@ -63,8 +55,8 @@ public sealed class SwordArm
             hint: "стойка оружия в правой руке поверх позы Motion Matching (клипы GASP — без меча): 1 — держит меч, как в стойке, 0 — рука клипа; на ходу — плавно, 0→1 за 0,25 с");
 
     /// <summary>
-    /// Сборка мира (после <see cref="MotionMatchRuntime.Init"/>, до постановки игроку позы постройки): маска руки в пуле, поза постройки MM со
-    /// слоем руки (стойка, сустав, вес ручки при сборке) и состояние руки игрокам сборки мира.
+    /// Сборка мира (после <see cref="MotionMatchRuntime.Init"/>): маска руки в пуле, поза постройки MM со слоем руки и
+    /// состояние руки игрокам.
     /// </summary>
     /// <exception cref="InvalidDataException">В скелете нет сустава руки или он не в поддереве <see cref="Root"/>.</exception>
     public void Init(World world, MotionMatchRuntime runtime)
@@ -100,9 +92,8 @@ public sealed class SwordArm
 }
 
 /// <summary>
-/// Состояние руки с мечом бойца на Motion Matching (компонент модуля — хеширует участник <c>ecs</c>, видно <c>entity.get</c>,
-/// <c>watch.add</c>, <c>replay.observe</c>): поза стойки в пуле (источник смешивания по маске руки), её клип, действующий вес. Есть только у
-/// игрока на MM (<c>locomotion.player = mm</c>).
+/// Состояние руки с мечом бойца на Motion Matching (хеширует участник <c>ecs</c>): поза стойки в пуле, её клип,
+/// действующий вес. Есть только у игрока на MM.
 /// </summary>
 public struct MotionMatchArm
 {
@@ -123,9 +114,8 @@ public struct MotionMatchArm
 }
 
 /// <summary>
-/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c> игрока (<c>locomotion.mm-arm-setup</c>): построенный (заново) игрок начинает руку с
-/// постройки — флаг <see cref="MotionMatchArm.Restart"/> (как <c>locomotion.mm-setup</c> у состояния MM); игроку без руки (создан командой) —
-/// состояние командой. Две записи одного бойца за срабатывание — одна команда.
+/// Gameplay, по <c>Added&lt;Fighter&gt;</c> игрока: построенный (заново) игрок начинает руку с постройки — флаг
+/// <see cref="MotionMatchArm.Restart"/>; игроку без руки (создан командой) — состояние командой.
 /// </summary>
 public sealed class SwordArmSetupSystem : IReactiveSystem<Added<Fighter>>
 {
@@ -139,7 +129,6 @@ public sealed class SwordArmSetupSystem : IReactiveSystem<Added<Fighter>>
         {
             var e = added[i].Entity;
             if (!world.IsAlive(e) || !world.Has<PlayerTag>(e) || Later(added, i)) continue;
-            ctx.Cause = added[i].Cause;   // причина постройки бойца — родитель состояния руки (state.why)
             if (world.TryGet<MotionMatchArm>(e, out var arm))
             {
                 arm.Restart = true;
@@ -158,11 +147,9 @@ public sealed class SwordArmSetupSystem : IReactiveSystem<Added<Fighter>>
 }
 
 /// <summary>
-/// Animation, после шага MM (<c>locomotion.mm</c> — он пишет позу бойца целиком) и до слоя действий ядра (<c>core.animator-pose</c>)
-/// (<c>locomotion.mm-arm</c>): рука с мечом живого бойца на MM — смешивание позы стойки в его позу по маске руки (доля вне маски 0) с
-/// действующим весом. После постройки вес — вес слоя позы постройки (<see cref="FighterStartPose.LayerWeight"/>; нет слоя — 0), иначе — к
-/// ручке <c>locomotion.armWeight</c> не быстрее <see cref="SwordArm.WeightRate"/>/с. Поза стойки берётся (сэмпл клипа слота <c>idle</c>) при
-/// постройке и при смене клипа стойки; вес 0 — задания смешивания нет. Мёртвого не трогает. Память не выделяет (поза — из запаса пула).
+/// Animation, после шага MM и до слоя действий ядра: смешивание позы стойки в позу живого бойца по маске руки
+/// с действующим весом (после постройки — <see cref="FighterStartPose.LayerWeight"/>, затем к ручке). Поза стойки берётся
+/// при постройке и при смене клипа стойки; вес 0 — задания нет. Память не выделяет.
 /// </summary>
 public sealed class SwordArmSystem(SwordArm arm) : IContinuousSystem
 {
@@ -230,9 +217,8 @@ public sealed class SwordArmReleaseSystem : IReactiveSystem<Removed<MotionMatchA
 }
 
 /// <summary>
-/// <c>locomotion.mmArm</c> (лёгкий — каждый тик, после End): у бойца на Motion Matching есть рука с мечом; её вес конечен и в 0…1, клип
-/// стойки — клип библиотеки или −1; поза стойки живая, своя (не у двух бойцов) и не итоговая поза бойца (<see cref="PoseRef"/>). Пул — только
-/// через вид <see cref="IAnimationView"/>. Бойцы на постройке заново (<see cref="MotionMatchArm.Restart"/>) — не проверяются.
+/// <c>locomotion.mmArm</c> (лёгкий, после End): вес руки конечен и в 0…1, клип стойки — из библиотеки или −1, поза стойки
+/// живая, своя и не итоговая поза бойца. Бойцы на постройке заново не проверяются.
 /// </summary>
 public sealed class SwordArmInvariant : IInvariant
 {

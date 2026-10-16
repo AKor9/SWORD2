@@ -5,11 +5,7 @@ using static Sword.Engine.Animation.Tests.MotionFixtures;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// База Motion Matching из готовых массивов (без постройки из клипов): общая и
-/// неизменяемая — наружу ничего записываемого, вход копируется; строки поиска, блоки, отпечаток и сводка выводятся из данных;
-/// противоречивые данные отвергаются.
-/// </summary>
+/// <summary>База из готовых массивов: неизменяема, вход копируется, производные выводятся из данных, противоречия отвергаются.</summary>
 public sealed class MotionDatabaseTests
 {
     /// <summary>Как <c>AnimationTests.SharedAnimationAssets_ExposeNoWritableData</c>: ни изменяемых массивов наружу, ни открытых полей, ни сеттеров.</summary>

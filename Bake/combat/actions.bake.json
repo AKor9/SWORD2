@@ -1,9 +1,0 @@
-{
-  "processor": "file.copy",
-  "import": "sword",
-  "notes": "Действия боя → клипы и слои (читает Game.Data, ActionTable). Правится исходник, пак обновляет сборка.",
-  "params": {
-    "from": "${src}/_Sword/anim/actions.json",
-    "to": "combat/actions.json"
-  }
-}

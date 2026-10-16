@@ -4,29 +4,24 @@ using Sword.Engine.Ecs;
 
 namespace Sword.Engine.Runtime;
 
-/// <summary>
-/// Время тика — ресурс мира: номер тика, фиксированный шаг, время симуляции. <see cref="Time"/> — как
-/// <c>DuelArena.Time</c> SWORD: <c>+= dt</c> во float в начале тика, поэтому в тике k это сумма k+1 шагов (с округлением
-/// float, на котором держатся таймеры SWORD).
-/// </summary>
+/// <summary>Время тика — ресурс мира. <see cref="Time"/> копится <c>+= dt</c> во float в начале тика: в тике k — сумма
+/// k+1 шагов с округлением float, на котором держатся таймеры.</summary>
 public readonly record struct SimTime(ulong Tick, float Dt, float Time);
 
 /// <summary>Настройки симуляции (секция <c>sim</c>).</summary>
 public sealed record SimSettings
 {
-    /// <summary>Тиков в секунду; SWORD по умолчанию — 120 (<c>Fighter.FastTick</c>).</summary>
+    /// <summary>Тиков в секунду.</summary>
     public int TickRate { get; init; } = 120;
 
-    /// <summary>Потолок тиков за кадр клиента (<c>Program.MaxTicksPerFrame</c> SWORD): дальше симуляция отстаёт от часов.</summary>
+    /// <summary>Потолок тиков за кадр клиента: дальше симуляция отстаёт от часов.</summary>
     public int MaxTicksPerFrame { get; init; } = 8;
 
     /// <summary>Главное зерно счётчикового ГСЧ (<see cref="SimRandom"/>); пишется в реплей.</summary>
     public ulong Seed { get; init; } = 1;
 
-    /// <summary>
-    /// Кодовые инварианты проверяются (раздел 8 плана): в тестах, verify и игре — да; в бенче — нет (их стоимость меряется
-    /// отдельно). Выключенные включает агент (<c>invariant.enable</c>); на состояние и хеш не влияет.
-    /// </summary>
+    /// <summary>Кодовые инварианты проверяются (в бенче — нет: их стоимость меряется отдельно). На состояние и хеш не
+    /// влияет.</summary>
     public bool Invariants { get; init; } = true;
 }
 
@@ -37,16 +32,12 @@ public sealed record ModuleSettings
     public bool Enabled { get; init; } = true;
 }
 
-/// <summary>
-/// Модуль симуляции (раздел 7 плана): сборка симуляции, подключённая к exe статически. Неактивный модуль
-/// (<c>modules.&lt;id&gt;.enabled=false</c>) не регистрирует ничего.
-/// </summary>
+/// <summary>Модуль симуляции, подключённый к exe статически; неактивный (<c>modules.&lt;id&gt;.enabled=false</c>) не
+/// регистрирует ничего.</summary>
 public interface IModule
 {
-    /// <summary>
-    /// Ключ конфига (<c>modules.&lt;id&gt;</c>, <c>SWORD_MODULES_&lt;ID&gt;_ENABLED</c>), логи, реестр, токен регистраций —
-    /// поэтому только <see cref="IdRule"/>: без точки (она делит путь конфига), регистра и не-латиницы.
-    /// </summary>
+    /// <summary>Id — ключ конфига, логов, реестра и токена регистраций, поэтому только <see cref="IdRule"/>: без точки
+    /// (она делит путь конфига), регистра и не-латиницы.</summary>
     string Id { get; }
 
     const string IdRule = "строчная латиница, цифры и '_', первой — буква";
@@ -63,10 +54,8 @@ public interface IModule
 }
 
 /// <summary>
-/// Симуляция без окна (раздел 7): мир ECS со стадиями, фиксированный тик, команды тика, модули, конфиг, экспорт тика.
-/// Всё, что меняет симуляцию на ходу, — команда с номером тика (<see cref="Enqueue{T}(in T)"/>): она становится
-/// событием в служебной стадии до стадий игры своего тика; мир снаружи — только для чтения (<see cref="World"/>). Собирается <see cref="Build"/> из списка стадий и модулей — у App и Headless
-/// один и тот же вызов (композиция в <c>Sword.Game.Bootstrap</c>).
+/// Симуляция без окна: мир ECS со стадиями, фиксированный тик, модули, конфиг, экспорт тика. Всё, что меняет её на ходу, —
+/// команда с номером тика (<see cref="Enqueue{T}(in T)"/>), событие служебной стадии до стадий игры своего тика.
 /// </summary>
 public sealed class Simulation
 {
@@ -82,10 +71,6 @@ public sealed class Simulation
     {
         _state = state;
         Invariants = invariants;
-        invariants.Violated = v =>
-        {
-            for (int i = 0; i < _observers.Count; i++) _observers[i].OnViolation(this, v);
-        };
         _afterBarrier = AfterBarrier;
         StateParts = [.. state.Select(c => c.Id)];
         _hashParts = new ulong[state.Length];
@@ -99,10 +84,7 @@ public sealed class Simulation
         Config = config;
     }
 
-    /// <summary>
-    /// Мир — только для чтения, и у владельца симуляции тоже: всё, что меняет симуляцию на ходу, — команды тика
-    /// (<see cref="Enqueue{T}(in T)"/>); отдельных «тихих» путей нет (раздел 7 плана).
-    /// </summary>
+    /// <summary>Мир только для чтения и у владельца: менять симуляцию — только командами тика.</summary>
     public WorldReader World => _world.Reader;
 
     public SimSettings Settings { get; }
@@ -117,10 +99,8 @@ public sealed class Simulation
     public IReadOnlyList<string> ActiveModules { get; }
     public IReadOnlyList<string> InactiveModules { get; }
 
-    /// <summary>
-    /// Модули без части симуляции — только клиентские (огонь): включённые и выключенные <c>modules.&lt;id&gt;.enabled</c>. Симуляция их не
-    /// исполняет, в состав реплея (<see cref="ActiveModules"/>) и хеш они не входят; включение читает клиент. Секция выключенного пропущена.
-    /// </summary>
+    /// <summary>Модули только с клиентской частью (огонь): симуляция их не исполняет, в реплей и хеш они не входят;
+    /// включение читает клиент.</summary>
     public IReadOnlyList<string> ClientOnlyModules { get; private init; } = [];
     public IReadOnlyList<string> InactiveClientOnlyModules { get; private init; } = [];
 
@@ -130,26 +110,17 @@ public sealed class Simulation
     /// <summary>Секции конфига движка — симуляции и клиента: Id модуля (имя его секции) с ними совпадать не может.</summary>
     public static readonly IReadOnlyList<string> EngineSections = ["sim", "modules", .. ConfigSet.ClientSections];
 
-    /// <summary>
-    /// Служебные стадии Runtime вокруг стадий игры: команды тика — до первой (их события видят все стадии игры в том же
-    /// тике), экспорт — после барьера последней (в экспорт тика попадают записи всех стадий этого тика).
-    /// </summary>
+    /// <summary>Служебные стадии: команды тика — до стадий игры (их события видны всем в том же тике), экспорт — после
+    /// барьера последней.</summary>
     public const string CommandStage = "runtime.commands", ExportStage = "runtime.export";
 
     /// <summary>
-    /// Собрать симуляцию: секция <c>sim</c>, ядро, модули (активные — по <c>modules.&lt;id&gt;.enabled</c>, по умолчанию
-    /// все), мир со стадиями игры <paramref name="stages"/> между служебными <see cref="CommandStage"/> и
-    /// <see cref="ExportStage"/>. Неизвестные секции конфига здесь не проверяются: секции читает и клиент, поэтому
-    /// проверку делает exe в конце композиции (<see cref="ConfigSet.Complete"/>).
+    /// Собрать симуляцию: секция <c>sim</c>, ядро, активные модули, мир со стадиями <paramref name="stages"/> между
+    /// <see cref="CommandStage"/> и <see cref="ExportStage"/>. Неизвестные секции проверяет exe
+    /// (<see cref="ConfigSet.Complete"/>): их читает и клиент.
     /// </summary>
-    /// <param name="core">
-    /// Ядро (принцип 4 плана): то, без чего игры нет, — одна реализация, не модуль и не выключается; его регистрации
-    /// без токена модуля. Null — без ядра (тесты движка).
-    /// </param>
-    /// <param name="clientModules">
-    /// Id модулей без части симуляции (только клиентские): группа <c>modules.&lt;id&gt;</c> их знает, включение — в
-    /// <see cref="ClientOnlyModules"/>; Id не совпадает ни с модулем симуляции, ни с секцией движка.
-    /// </param>
+    /// <param name="core">Ядро — не модуль, не выключается, регистрирует без токена. Null — без ядра (тесты движка).</param>
+    /// <param name="clientModules">Id модулей только с клиентской частью (<see cref="ClientOnlyModules"/>).</param>
     public static Simulation Build(ConfigSet config, IReadOnlyList<string> stages, Action<SimulationBuilder>? core,
         IEnumerable<IModule> modules, IReadOnlyList<string>? clientModules = null) =>
         Build(config, stages, core, modules, new WorldOptions(), clientModules);
@@ -238,7 +209,7 @@ public sealed class Simulation
         // Мир наполнен ядром и модулями: то, что зависит от их начального наполнения (тело бойца по позе постройки,
         // которую задаёт модуль), — после всех OnWorldBuilt.
         foreach (var init in b.WorldReady) init(built);
-        // Участники хеша — по Id (раздел 7 плана): порядок не зависит от порядка регистрации.
+        // Участники хеша — по Id: порядок не зависит от порядка регистрации.
         IStateContributor[] state = [.. b.Contributors.Append(new EcsStateContributor(built.Reader)).OrderBy(c => c.Id, StringComparer.Ordinal)];
         // Инварианты: базовые движка, затем ядра и модулей в порядке регистрации.
         var invariants = new SimulationInvariants(built.Reader, settings.Invariants,
@@ -255,26 +226,18 @@ public sealed class Simulation
             // Сведения реплея — после начального наполнения мира: модуль строит то, от чего они (база MM), в OnWorldBuilt.
             Facts = b.Facts.Select(f => (f.Name, f.Value())).OrderBy(f => f.Name, StringComparer.Ordinal).ToDictionary(f => f.Name, f => f.Item2),
         };
-        sim.Diagnostics = new SimulationDiagnostics(b.Diagnostics, () => sim.Stage);
+        sim.Diagnostics = new SimulationDiagnostics(b.Diagnostics);
         return sim;
     }
 
-    /// <summary>
-    /// Ручки симуляции (ядра и активных модулей) по порядку регистрации (<see cref="SimulationBuilder.Tuning{T}"/>): значение —
-    /// в ресурсе мира (<see cref="TuningKnob.Read"/>), изменение — команда <see cref="TuningCommand"/>.
-    /// </summary>
+    /// <summary>Ручки симуляции по порядку регистрации: значение — в ресурсе мира, изменение — <see cref="TuningCommand"/>.</summary>
     public IReadOnlyList<TuningKnob> Tuning { get; private init; } = [];
 
-    /// <summary>
-    /// Сведения ядра и модулей для реплея (<see cref="SimulationBuilder.ReplayFact"/>) по имени: запись кладёт их в заголовок
-    /// (<see cref="Replay.Facts"/>), воспроизведение сверяет. Пусто — сведений нет (заголовок реплея прежний).
-    /// </summary>
+    /// <summary>Сведения ядра и модулей для реплея (<see cref="Replay.Facts"/>): запись кладёт в заголовок, воспроизведение
+    /// сверяет.</summary>
     public IReadOnlyDictionary<string, string> Facts { get; private init; } = new Dictionary<string, string>();
 
-    /// <summary>
-    /// Диагностические режимы (<see cref="SimulationBuilder.Diagnostic"/>): включает владелец или агент между тиками — мир,
-    /// хеш и реплей от них не зависят (трасса физики игры, позже другие).
-    /// </summary>
+    /// <summary>Диагностические режимы: включает владелец между тиками; мир, хеш и реплей от них не зависят.</summary>
     public SimulationDiagnostics Diagnostics { get; private set; } = null!;
 
     /// <summary>Ручка по полному имени «секция.ключ» (регистр не важен); нет — null.</summary>
@@ -285,96 +248,33 @@ public sealed class Simulation
     /// </summary>
     public bool Accepts<T>() where T : unmanaged => _commands.Accepts<T>();
 
-    /// <summary>Команда на следующий тик (<see cref="NextCommandTick"/>).</summary>
-    public void Enqueue<T>(in T command) where T : unmanaged => _commands.Enqueue(NextCommandTick, command);
+    /// <summary>Команда на следующий тик (<see cref="Tick"/>).</summary>
+    public void Enqueue<T>(in T command) where T : unmanaged => _commands.Enqueue(Tick, command);
 
-    /// <summary>Команда на тик <paramref name="tick"/> (не раньше <see cref="NextCommandTick"/>).</summary>
+    /// <summary>Команда на тик <paramref name="tick"/> (не раньше <see cref="Tick"/>).</summary>
     public void Enqueue<T>(ulong tick, in T command) where T : unmanaged
     {
-        if (tick < NextCommandTick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл или идёт (ближайший — {NextCommandTick})");
+        if (tick < Tick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл (ближайший — {Tick})");
         _commands.Enqueue(tick, command);
     }
 
-    /// <summary>
-    /// Ближайший тик, на который ещё можно поставить команду: между тиками — <see cref="Tick"/>; посреди тика (наблюдатель
-    /// после барьера стадии, останов агента) — следующий: команды идущего тика уже выданы.
-    /// </summary>
-    public ulong NextCommandTick => Stage is null ? Tick : Tick + 1;
-
-    /// <summary>
-    /// Стадия, после барьера которой сейчас вызван наблюдатель (<see cref="ISimulationObserver.AfterStage"/>); null — между
-    /// тиками. Посреди тика <see cref="Tick"/> — номер идущего тика (сыграно тиков до него).
-    /// </summary>
-    public string? Stage { get; private set; }
-
-    private readonly List<ISimulationObserver> _observers = [];
     private readonly Action<int> _afterBarrier;
 
-    /// <summary>Инварианты (раздел 8 плана): проверяются после барьеров своих стадий, до наблюдателей.</summary>
+    /// <summary>Инварианты: проверяются после барьеров своих стадий.</summary>
     public SimulationInvariants Invariants { get; }
 
-    /// <summary>
-    /// Наблюдатель тиков (агент, инструменты): после барьера каждой стадии и после тика — только читает мир (<see cref="World"/>)
-    /// и ставит команды на будущие тики. Подключает владелец симуляции; в хеш состояния и реплей наблюдатель не входит.
-    /// </summary>
-    public void Observe(ISimulationObserver observer)
-    {
-        ArgumentNullException.ThrowIfNull(observer);
-        if (!_observers.Contains(observer)) _observers.Add(observer);
-    }
+    private void AfterBarrier(int stage) => Invariants.AfterBarrier(stage, Tick, Dt);
 
-    public void Unobserve(ISimulationObserver observer) => _observers.Remove(observer);
-
-    private void AfterBarrier(int stage)
-    {
-        Stage = _world.Stages[stage];
-        try
-        {
-            // Инварианты — первыми: наблюдатель (останов агента) видит нарушения этого барьера.
-            if (Invariants.Active) Invariants.AfterBarrier(stage, Tick, Dt);
-            if (_observers.Count > 0)
-            {
-                _profiler.Begin(_observersZone);
-                for (int i = 0; i < _observers.Count; i++) _observers[i].AfterStage(this, stage);
-                _profiler.End(_observersZone);
-            }
-        }
-        finally
-        {
-            Stage = null;
-        }
-    }
-
-    /// <summary>Типы команд тика (их регистрируют ядро и модули) — для инструментов и агента.</summary>
+    /// <summary>Типы команд тика (их регистрируют ядро и модули) в порядке регистрации.</summary>
     public IReadOnlyList<Type> CommandTypes => _commands.Types;
-
-    /// <summary>
-    /// Команда тика байтами (<see cref="CommandTypes"/>; размер — <c>sizeof</c> типа) на тик <paramref name="tick"/>
-    /// (не раньше следующего): путь инструментов и агента, которые собирают команду по полям, не зная типа. Как и
-    /// <see cref="Enqueue{T}(ulong, in T)"/> — только с потока владельца симуляции, между тиками. Команды этого пути в тике
-    /// выдаются после поставленных <see cref="Enqueue{T}(ulong, in T)"/> того же типа: где действует последняя команда
-    /// тика своего типа, побеждает инструмент (агент), а не ввод клиента того же тика. Между типами порядок — порядок
-    /// регистрации типов. <paramref name="repeat"/> — та же команда на столько тиков подряд, одной постановкой (очередь
-    /// не сдвигается на каждый тик диапазона).
-    /// </summary>
-    public void EnqueueRaw(Type type, ulong tick, ReadOnlySpan<byte> command, int repeat = 1)
-    {
-        if (tick < NextCommandTick) throw new ArgumentOutOfRangeException(nameof(tick), tick, $"тик {tick} уже прошёл или идёт (ближайший — {NextCommandTick})");
-        if (repeat < 1 || ulong.MaxValue - tick < (ulong)(repeat - 1))
-            throw new ArgumentOutOfRangeException(nameof(repeat), repeat, "повторов — от 1, последний тик — в пределах ulong");
-        _commands.EnqueueRaw(type, tick, command, repeat);
-    }
 
     /// <summary>Участники хеша состояния по Id (<c>ecs</c> и зарегистрированные <see cref="SimulationBuilder.StateContributor"/>).</summary>
     public IReadOnlyList<string> StateParts { get; }
 
-    /// <summary>
-    /// Хеш состояния между тиками (раздел 7 плана): в <paramref name="parts"/> — хеш каждого участника в порядке
-    /// <see cref="StateParts"/>, итог — хеш хешей участников. Память не выделяет.
-    /// </summary>
-    // Без PGO: по профилю вызовов JIT от запуска к запуску угадывал разный тип участника и иногда встраивал сюда его обход
-    // (позы анимации) — тот же хеш толпы шёл в 1,5 раза дольше (1,8 мс на тик против 1,2), и кадр сверки реплея в App
-    // зависел от запуска. Здесь только вызовы участников — их собственный код остаётся с PGO.
+    /// <summary>Хеш состояния между тиками: <paramref name="parts"/> — хеш каждого участника в порядке
+    /// <see cref="StateParts"/>, итог — хеш хешей. Без выделений.</summary>
+    // Без PGO: JIT по профилю встраивал сюда обход одного из участников, и хеш толпы от запуска к запуску шёл
+    // в 1,5 раза дольше (1,8 мс против 1,2). Здесь только вызовы — код участников остаётся с PGO.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public ulong HashState(Span<ulong> parts)
     {
@@ -390,23 +290,12 @@ public sealed class Simulation
         return total.Value;
     }
 
-    /// <summary>Хеш состояния с участниками по Id — для инструментов и тестов (выделяет память).</summary>
+    /// <summary>Хеш состояния с участниками по Id — для тестов и сверки (выделяет память).</summary>
     public StateHash HashState()
     {
         var parts = new ulong[_state.Length];
         ulong total = HashState(parts);
         return new StateHash(Tick, total, StateParts.Select((id, i) => (id, parts[i])).ToDictionary(p => p.id, p => p.Item2));
-    }
-
-    /// <summary>Описание состояния участника <paramref name="part"/> — то, что он хеширует (JSON).</summary>
-    /// <exception cref="ArgumentException">Нет такого участника.</exception>
-    public string DescribeState(string part, in DescribeQuery query)
-    {
-        var contributor = _state.FirstOrDefault(c => c.Id == part)
-            ?? throw new ArgumentException($"нет участника хеша «{part}»: {string.Join(", ", StateParts)}", nameof(part));
-        var w = new StateWriter();
-        contributor.Describe(w, query);
-        return w.ToJson();
     }
 
     /// <summary>Запись реплея (<see cref="Record"/>); null — не пишется.</summary>
@@ -415,10 +304,8 @@ public sealed class Simulation
     /// <summary>Воспроизводимый реплей (<see cref="Play"/>); null — нет.</summary>
     public ReplayPlayer? Player { get; private set; }
 
-    /// <summary>
-    /// Писать реплей с начала (раздел 7 плана): все выданные команды тиков и хеш по участникам на тике 0 и каждые
-    /// <paramref name="hashEvery"/> тиков. Только до первого тика: реплей начинается с мира, собранного из конфига.
-    /// </summary>
+    /// <summary>Писать реплей: все команды тиков и хеш по участникам на тике 0 и каждые <paramref name="hashEvery"/>
+    /// тиков. Только до первого тика.</summary>
     public ReplayRecorder Record(ReplayInfo info, int hashEvery = 1)
     {
         if (Tick != 0) throw new InvalidOperationException($"реплей пишется с начала, а сыграно {Tick} тиков");
@@ -431,11 +318,8 @@ public sealed class Simulation
         return Recorder;
     }
 
-    /// <summary>
-    /// Воспроизводить реплей с начала: его команды — первыми в каждом тике (команды клиента и инструментов — после:
-    /// ветвление), хеши сверяются по участникам (<see cref="ReplayPlayer.Divergence"/>). Симуляция должна быть собрана
-    /// из конфига реплея (<see cref="Replay.CreateConfig"/>). Только до первого тика.
-    /// </summary>
+    /// <summary>Воспроизводить реплей: его команды — первыми в тике (команды клиента — после: ветвление), хеши сверяются
+    /// по участникам. Симуляция собрана из <see cref="Replay.CreateConfig"/>; только до первого тика.</summary>
     /// <exception cref="InvalidDataException">Команды реплея не привязываются к командам симуляции.</exception>
     public ReplayPlayer Play(Replay replay)
     {
@@ -453,51 +337,21 @@ public sealed class Simulation
     }
 
     private CpuProfiler _profiler = CpuProfiler.Off;
-    private int _recordZone, _observersZone;
+    private int _recordZone;
 
     /// <summary>Профайлер CPU тиков (<see cref="AttachProfiler"/>); <see cref="CpuProfiler.Off"/> — не подключён.</summary>
     public CpuProfiler Profiler => _profiler;
 
-    /// <summary>Журнал причинности — диагностический режим <c>state.why</c>; null — выключен (по умолчанию).</summary>
-    public CausalityLog? Causality => _world.Causality;
-
     /// <summary>
-    /// Включить диагностический режим причинности (только владелец, между тиками; ключ <c>--causality</c> Headless и App,
-    /// <c>session.start {causality}</c>): команды, события, решения и записи <c>Set/Add/Remove</c> получают причину, родителя, тик,
-    /// стадию, регистрацию и источник в кольцо <paramref name="log"/> (null — новое по умолчанию). Состояние и хеш не меняются
-    /// (причина — вне хеша записей журналов), реплей — тоже: это диагностика, не команда симуляции.
-    /// </summary>
-    public CausalityLog EnableCausality(CausalityLog? log = null)
-    {
-        if (Stage is not null) throw new InvalidOperationException("журнал причинности включается между тиками");
-        log ??= _world.Causality ?? new CausalityLog();
-        _world.SetCausality(log);
-        return log;
-    }
-
-    /// <summary>Выключить диагностический режим причинности (между тиками): записи команд снова без причины, журнал отпускается.</summary>
-    public void DisableCausality()
-    {
-        if (Stage is not null) throw new InvalidOperationException("журнал причинности выключается между тиками");
-        _world.SetCausality(null);
-    }
-
-    /// <summary>
-    /// Подключить профайлер CPU (только владелец, между тиками): тик — период профайлера (зона <c>tick</c>), в нём
-    /// зоны стадий, систем и барьеров мира (<see cref="Ecs.World.AttachProfiler"/>), проверок инвариантов
-    /// (<c>invariant.&lt;id&gt;</c>), наблюдателей (<c>sim.observers</c>) и записи или сверки реплея с хешем
-    /// (<c>sim.record</c>). Номера зон заводятся здесь. Профайлер только читает часы: состояние, хеш и реплей от него не
-    /// зависят (тест — хеши с ним и без совпадают); включает и выключает его владелец (ключ запуска, инструмент агента), а
-    /// не команда симуляции.
+    /// Подключить профайлер (владелец, между тиками): зона <c>tick</c> — период, в ней стадии, системы, барьеры,
+    /// <c>invariant.&lt;id&gt;</c> и <c>sim.record</c>. Профайлер только читает часы: состояние, хеш и реплей от него не зависят.
     /// </summary>
     public void AttachProfiler(CpuProfiler profiler)
     {
         ArgumentNullException.ThrowIfNull(profiler);
-        if (Stage is not null) throw new InvalidOperationException("профайлер подключается между тиками");
         _world.AttachProfiler(profiler);
         Invariants.AttachProfiler(profiler);
         _recordZone = profiler.Zone("sim.record");
-        _observersZone = profiler.Zone("sim.observers");
         _profiler = profiler;
     }
 
@@ -508,7 +362,7 @@ public sealed class Simulation
         profiler.BeginTick(Tick);
         _time += Dt;
         _world.SetResourceImmediate(new SimTime(Tick, Dt, _time));
-        _world.RunTick(Tick, _observers.Count > 0 || Invariants.Active ? _afterBarrier : null);
+        _world.RunTick(Tick, Invariants.Active ? _afterBarrier : null);
         Tick++;
         if (Recorder is not null || Player is not null)
         {
@@ -523,42 +377,12 @@ public sealed class Simulation
             }
             profiler.End(_recordZone);
         }
-        if (_observers.Count > 0)
-        {
-            profiler.Begin(_observersZone);
-            for (int i = 0; i < _observers.Count; i++) _observers[i].AfterTick(this);
-            profiler.End(_observersZone);
-        }
         profiler.EndTick();
     }
 }
 
-/// <summary>
-/// Наблюдатель симуляции (<see cref="Simulation.Observe"/>): агентский слой — история наблюдений, условия, останов посреди
-/// тика. Вызывается на потоке симуляции: после барьера каждой стадии (<see cref="Simulation.Stage"/> — её имя, мир
-/// согласован) и после тика (между тиками). Мир — только для чтения; менять симуляцию — только командами на будущий тик.
-/// </summary>
-public interface ISimulationObserver
-{
-    /// <summary>После барьера стадии <paramref name="stage"/> (номер в <see cref="WorldReader.Stages"/>) идущего тика.</summary>
-    void AfterStage(Simulation simulation, int stage);
-
-    /// <summary>После тика: сыграно <see cref="Simulation.Tick"/> тиков.</summary>
-    void AfterTick(Simulation simulation);
-
-    /// <summary>
-    /// Нарушение инварианта (<see cref="Simulation.Invariants"/>) после барьера стадии — до <see cref="AfterStage"/> этого
-    /// барьера.
-    /// </summary>
-    void OnViolation(Simulation simulation, in InvariantViolation violation)
-    {
-    }
-}
-
-/// <summary>
-/// Построитель симуляции для модулей: компоненты, события, ресурсы, команды тика, системы по стадиям (с токеном модуля),
-/// настройки из конфига, экспорт срабатываний клиенту, начальное наполнение мира.
-/// </summary>
+/// <summary>Построитель симуляции для модулей: регистрации с токеном модуля, настройки, экспорт клиенту, начальное
+/// наполнение.</summary>
 public sealed class SimulationBuilder
 {
     private readonly WorldBuilder _world;
@@ -594,17 +418,11 @@ public sealed class SimulationBuilder
         return this;
     }
 
-    /// <summary>
-    /// Настройки модуля — секция с его <c>Id</c> (<c>"cutting": { … }</c>): у выключенного модуля она пропускается
-    /// (<see cref="ConfigSet.Skip"/>), поэтому модуль читает только её.
-    /// </summary>
+    /// <summary>Секция конфига с <c>Id</c> модуля; у выключенного модуля она пропущена.</summary>
     public T Settings<T>() where T : new() =>
         Open().Module is { } id ? Config.Section<T>(id) : throw new InvalidOperationException("Settings<T>() — только в Configure модуля");
 
-    /// <summary>
-    /// Участник хеша состояния (раздел 7 плана): подсистема, чьё состояние лежит вне ECS. Id — как у модуля
-    /// (<see cref="IModule.IsValidId"/>), не <c>ecs</c> (его заводит Runtime) и не повторяется.
-    /// </summary>
+    /// <summary>Участник хеша состояния — подсистема с состоянием вне ECS. Id — как у модуля, не <c>ecs</c>, без повторов.</summary>
     public SimulationBuilder StateContributor(IStateContributor contributor)
     {
         Open();
@@ -616,10 +434,8 @@ public sealed class SimulationBuilder
         return this;
     }
 
-    /// <summary>
-    /// Инвариант (раздел 8 плана) ядра или модуля: проверяется после барьера своей стадии (<see cref="IInvariant.After"/> —
-    /// стадия игры или <see cref="Simulation.ExportStage"/>, конец тика). Id — <see cref="IInvariant.IdRule"/>, без повторов.
-    /// </summary>
+    /// <summary>Инвариант ядра или модуля: проверяется после барьера стадии <see cref="IInvariant.After"/> (или
+    /// <see cref="Simulation.ExportStage"/> — конец тика). Id — <see cref="IInvariant.IdRule"/>, без повторов.</summary>
     public SimulationBuilder Invariant(IInvariant invariant)
     {
         Open();
@@ -634,10 +450,7 @@ public sealed class SimulationBuilder
 
     internal readonly List<(IDiagnosticMode Mode, string Owner)> Diagnostics = [];
 
-    /// <summary>
-    /// Диагностический режим ядра или модуля (<see cref="IDiagnosticMode"/>): выключен до включения владельцем или агентом
-    /// (<see cref="Simulation.Diagnostics"/>); мир, хеш и реплей от него не зависят. Id — <see cref="IInvariant.IdRule"/>, без повторов.
-    /// </summary>
+    /// <summary>Диагностический режим: выключен, пока не включит владелец; мир, хеш и реплей от него не зависят.</summary>
     public SimulationBuilder Diagnostic(IDiagnosticMode mode)
     {
         Open();
@@ -651,10 +464,8 @@ public sealed class SimulationBuilder
     internal readonly List<(string Name, Func<string> Value)> Facts = [];
 
     /// <summary>
-    /// Сведение ядра или модуля для реплея (<see cref="Replay.Facts"/>): производное контента, кода и конфига, от которого зависит
-    /// воспроизведение, но которого нет в хеше (отпечаток базы Motion Matching). Значение считается один раз — после сборки и начального
-    /// наполнения мира; запись реплея кладёт его в заголовок, воспроизведение сверяет: другое — предупреждение и причина в тексте
-    /// расхождения, а не только «первое расхождение на тике N». Имя — <see cref="IInvariant.IdRule"/>, без повторов.
+    /// Сведение для реплея: производное контента, кода и конфига, которого нет в хеше (отпечаток базы MM). Считается раз
+    /// после наполнения мира; воспроизведение сверяет и при отличии называет причину расхождения. Имя — <see cref="IInvariant.IdRule"/>.
     /// </summary>
     public SimulationBuilder ReplayFact(string name, Func<string> value)
     {
@@ -691,24 +502,21 @@ public sealed class SimulationBuilder
         return this;
     }
 
-    /// <summary>
-    /// Хук добавления компонента — время жизни ресурса подсистемы (<see cref="WorldBuilder.OnAdd{T}"/>: на барьере после
-    /// журналов, структуру мира не меняет). Владелец — ядро или настраиваемый модуль.
-    /// </summary>
+    /// <summary>Хук добавления компонента (<see cref="WorldBuilder.OnAdd{T}"/>).</summary>
     public SimulationBuilder OnAdd<T>(AddHook<T> hook) where T : unmanaged
     {
-        Open()._world.OnAdd(hook, Module);
+        Open()._world.OnAdd(hook);
         return this;
     }
 
     /// <summary>Хук снятия компонента — освободить ресурс подсистемы (<see cref="WorldBuilder.OnRemove{T}"/>).</summary>
     public SimulationBuilder OnRemove<T>(RemoveHook<T> hook) where T : unmanaged
     {
-        Open()._world.OnRemove(hook, Module);
+        Open()._world.OnRemove(hook);
         return this;
     }
 
-    /// <summary>Вид только для чтения для наблюдателей симуляции (клиент, агент) — <see cref="WorldBuilder.ReadView{TView}"/>.</summary>
+    /// <summary>Вид только для чтения для наблюдателей симуляции (клиент, инструменты) — <see cref="WorldBuilder.ReadView{TView}"/>.</summary>
     public SimulationBuilder ReadView<TView>(TView view) where TView : class, IReadView
     {
         Open()._world.ReadView(view);
@@ -724,7 +532,7 @@ public sealed class SimulationBuilder
     }
 
     /// <summary>Система в стадию игры (служебные стадии Runtime модулям недоступны).</summary>
-    /// <remarks>Место регистрации (файл и строка вызова) попадает в описание системы — карта архитектуры агента.</remarks>
+    /// <remarks>Место регистрации (файл и строка вызова) попадает в описание системы.</remarks>
     public SimulationBuilder System(string stage, ISystem system,
         [System.Runtime.CompilerServices.CallerFilePath] string file = "", [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
     {
@@ -738,10 +546,8 @@ public sealed class SimulationBuilder
     private readonly HashSet<string> _tuningSections = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Ручки секции конфига <paramref name="section"/> над ресурсом мира <typeparamref name="T"/> (раздел 7 плана, «Конфигурация»):
-    /// ручка — поле ресурса (значение в мире — ресурс, собранный из секции конфига при композиции), изменение на ходу —
-    /// команда <see cref="TuningCommand"/> (заводится с первой секцией ручек), её применяет система секции
-    /// <c>tuning.&lt;секция&gt;</c> в первой стадии игры (владелец — настраиваемый модуль или ядро). Секция — один раз.
+    /// Ручки секции конфига <paramref name="section"/> над полями ресурса <typeparamref name="T"/>: изменение на ходу —
+    /// <see cref="TuningCommand"/>, его применяет система <c>tuning.&lt;секция&gt;</c> в первой стадии игры. Секция — один раз.
     /// </summary>
     public TuningSection<T> Tuning<T>(string section) where T : unmanaged
     {
@@ -775,11 +581,8 @@ public sealed class SimulationBuilder
         return this;
     }
 
-    /// <summary>
-    /// Начальное наполнение, которому нужен мир после всех <see cref="OnWorldBuilt"/> ядра и модулей (по порядку
-    /// регистрации): ядро ставит по ресурсу, который задаёт модуль при сборке мира, — например, тело бойца по позе
-    /// постройки. Тоже немедленные изменения до первого тика.
-    /// </summary>
+    /// <summary>Наполнение после всех <see cref="OnWorldBuilt"/> (по порядку регистрации) — когда нужен ресурс, заданный
+    /// модулем, например тело бойца по позе. Немедленные изменения до первого тика.</summary>
     public SimulationBuilder OnWorldReady(Action<World> init)
     {
         Open().WorldReady.Add(init);

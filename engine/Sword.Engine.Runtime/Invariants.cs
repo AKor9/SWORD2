@@ -4,59 +4,43 @@ using Sword.Engine.Ecs;
 
 namespace Sword.Engine.Runtime;
 
-/// <summary>Чего касается инвариант (для людей и агента): сущности, системы, подсистемы, мира, клиента.</summary>
+/// <summary>Чего касается инвариант (для людей и инструментов): сущности, системы, подсистемы, мира, клиента.</summary>
 public enum InvariantScope { Entity, System, Subsystem, World, Client }
 
 /// <summary>
-/// Класс стоимости инварианта: проверять каждый тик (<see cref="EveryTick"/>), раз в N тиков (<see cref="Every"/>) или
-/// только по запросу (<see cref="OnDemand"/> — тяжёлые и советующие: <c>invariant.run</c>, <c>invariant.enable</c>).
-/// Решение пользователя: период кодового инварианта действует только в живой игре
-/// (<see cref="SimulationInvariants.LivePeriods"/> — Sword.exe); в тестах, verify, Headless и при сверке реплея кодовые проверяются
-/// каждый тик. Тяжёлые по замеру цены в тике толпы — <see cref="Heavy"/> (раз в <see cref="HeavyPeriod"/> тика в живой игре).
-/// Инвариант агента (<c>invariant.define every</c>) держит свой период всегда.
+/// Класс стоимости инварианта: каждый тик или раз в N тиков. Период действует только в живой игре
+/// (<see cref="SimulationInvariants.LivePeriods"/>); в тестах, verify, Headless и сверке реплея — каждый тик.
 /// </summary>
 public readonly record struct InvariantCost
 {
     private InvariantCost(int period) => Period = period;
 
-    /// <summary>Период в тиках; 0 — по запросу.</summary>
+    /// <summary>Период в тиках.</summary>
     public int Period { get; }
 
-    public bool IsOnDemand => Period == 0;
-
     public static InvariantCost EveryTick => new(1);
-    public static InvariantCost OnDemand => new(0);
 
     /// <summary>Период тяжёлых кодовых инвариантов в живой игре, тиков: нарушение, которое держится, видно не позже чем через 3 тика.</summary>
     public const int HeavyPeriod = 4;
 
-    /// <summary>
-    /// Тяжёлый кодовый инвариант (цена в тике толпы — от ~2 % тика, docs/history/profiler.md): в живой
-    /// игре — раз в <see cref="HeavyPeriod"/> тика, иначе — каждый тик.
-    /// </summary>
+    /// <summary>Тяжёлый кодовый инвариант (от ~2 % тика толпы): в живой игре — раз в <see cref="HeavyPeriod"/> тика.</summary>
     public static InvariantCost Heavy => new(HeavyPeriod);
 
     public static InvariantCost Every(int ticks) =>
         ticks >= 1 ? new(ticks) : throw new ArgumentOutOfRangeException(nameof(ticks), ticks, "период — от 1 тика");
 
-    /// <summary>
-    /// Проверять на тике <paramref name="tick"/> (номер идущего тика), если включён: «по запросу» сам не включён, а включённый
-    /// явно (<c>invariant.enable</c>) проверяется каждый тик.
-    /// </summary>
+    /// <summary>Проверять на тике <paramref name="tick"/> (номер идущего тика), если включён.</summary>
     public bool Due(ulong tick) => Period <= 1 || tick % (ulong)Period == 0;
 
     public override string ToString() => Period switch
     {
-        0 => "по запросу",
         1 => "каждый тик",
         _ => $"раз в {Period} {(Period % 10 is >= 2 and <= 4 && Period % 100 is < 12 or > 14 ? "тика" : "тиков")}",
     };
 }
 
-/// <summary>
-/// Где проверяется инвариант: мир после барьера стадии <see cref="Stage"/> идущего тика <see cref="Tick"/> (мир согласован,
-/// записи стадии в журналах). Только чтение.
-/// </summary>
+/// <summary>Мир после барьера стадии <see cref="Stage"/> тика <see cref="Tick"/> (согласован, записи стадии в
+/// журналах). Только чтение.</summary>
 public readonly struct InvariantContext(WorldReader world, ulong tick, string stage, float dt)
 {
     public WorldReader World { get; } = world;
@@ -72,10 +56,8 @@ public readonly struct InvariantContext(WorldReader world, ulong tick, string st
 }
 
 /// <summary>
-/// Инвариант (раздел 8 плана): свойство, которое должно держаться всегда. Реализуют Runtime (базовые инварианты движка),
-/// игра, модули и подсистемы (<see cref="SimulationBuilder.Invariant"/>), агент — условиями (<c>invariant.define</c>).
-/// Проверяется после барьера стадии <see cref="After"/> на потоке симуляции; ничего не меняет, в хеш состояния не входит;
-/// его стоимость измеряется. Проверка без нарушений не выделяет памяти.
+/// Инвариант — свойство, которое держится всегда. Проверяется после барьера стадии <see cref="After"/> на потоке
+/// симуляции, ничего не меняет и в хеш не входит; без нарушений не выделяет памяти.
 /// </summary>
 public interface IInvariant
 {
@@ -114,10 +96,7 @@ public readonly record struct InvariantViolation(string Id, ulong Tick, string S
         $"{Id}: тик {Tick} после {Stage}" + (Entity is { } e ? $", сущность {e}" : "") + $" — {Details}";
 }
 
-/// <summary>
-/// Куда инвариант пишет нарушения (<see cref="IInvariant.Evaluate"/>): не больше <see cref="Limit"/> подробностей за
-/// проверку, остальные только считаются (<see cref="Full"/> — дальше можно не искать).
-/// </summary>
+/// <summary>Приёмник нарушений: не больше <see cref="Limit"/> подробностей за проверку, остальные только считаются.</summary>
 public ref struct ViolationSink
 {
     /// <summary>Подробностей за одну проверку не больше.</summary>
@@ -138,7 +117,7 @@ public ref struct ViolationSink
     /// <summary>Нарушений за проверку (и сверх <see cref="Limit"/>).</summary>
     public int Count { get; private set; }
 
-    /// <summary>Подробности больше не записываются — искать дальше незачем, кроме подсчёта.</summary>
+    /// <summary>Подробности не записываются — дальше только подсчёт.</summary>
     public readonly bool Full => Count >= Limit;
 
     public void Report(string details) => Add(null, details);
@@ -151,19 +130,14 @@ public ref struct ViolationSink
     }
 }
 
-/// <summary>
-/// Инвариант в симуляции наружу (<see cref="SimulationInvariants.List"/>): описание, включён ли и итоги проверок;
-/// <paramref name="Every"/> — как часто проверяется сейчас, тиков (период кодового — только в живой игре,
-/// <see cref="SimulationInvariants.LivePeriods"/>; 1 — каждый тик).
-/// </summary>
+/// <summary>Инвариант наружу: описание, включён ли, итоги проверок; <paramref name="Every"/> — нынешний период
+/// проверки, тиков (1 — каждый тик).</summary>
 public sealed record InvariantInfo(string Id, string Owner, InvariantScope Scope, InvariantCost Cost, string After, bool Enabled,
     long Evaluations, long Violations, double MeanMicroseconds, InvariantViolation? Last, int Every = 1);
 
 /// <summary>
-/// Инварианты симуляции (раздел 8 плана): реестр, проверка после барьеров, учёт нарушений и стоимости. Кодовые инварианты
-/// регистрируют Runtime (базовые движка), ядро и модули (<see cref="SimulationBuilder.Invariant"/>); при
-/// <c>sim.invariants = false</c> они выключены (бенч), кроме тех, что включат явно. «По запросу» сами не проверяются.
-/// Всё — на потоке симуляции: между тиками или в точке обслуживания посреди тика.
+/// Инварианты симуляции: реестр, проверка после барьеров, учёт нарушений и стоимости — на потоке симуляции. При
+/// <c>sim.invariants = false</c> (бенч) кодовые выключены, кроме включённых явно.
 /// </summary>
 public sealed class SimulationInvariants
 {
@@ -173,14 +147,12 @@ public sealed class SimulationInvariants
     /// <summary>Нарушений одного инварианта в журнале (дальше — только счёт).</summary>
     private const int LoggedPerInvariant = 5;
 
-    private sealed class Entry(IInvariant invariant, string owner, int stage, bool enabled, bool code)
+    private sealed class Entry(IInvariant invariant, string owner, int stage, bool enabled)
     {
         public readonly IInvariant Invariant = invariant;
         public readonly string Owner = owner;
         public readonly int Stage = stage;
         public readonly InvariantCost Cost = invariant.Cost;
-        /// <summary>Кодовый (Runtime, ядро, модуль — при сборке), а не добавленный агентом (<see cref="Add"/>).</summary>
-        public readonly bool Code = code;
         public bool Enabled = enabled;
         public long Evaluations, Violations, Ticks;
         public int Logged;
@@ -191,10 +163,7 @@ public sealed class SimulationInvariants
 
     private CpuProfiler _profiler = CpuProfiler.Off;
 
-    /// <summary>
-    /// Профайлер CPU: каждая проверка — зона <c>invariant.&lt;id&gt;</c>, заведённая здесь и при добавлении
-    /// инварианта (<see cref="Add"/>), а не в тике.
-    /// </summary>
+    /// <summary>Профайлер CPU: каждая проверка — зона <c>invariant.&lt;id&gt;</c>, заведённая здесь, а не в тике.</summary>
     internal void AttachProfiler(CpuProfiler profiler)
     {
         foreach (var e in _entries) e.Zone = profiler.Zone("invariant." + e.Invariant.Id);
@@ -213,23 +182,18 @@ public sealed class SimulationInvariants
         _world = world;
         EnabledByConfig = enabled;
         _byStage = new Entry[world.Stages.Count][];
-        foreach (var (invariant, owner) in registered) AddEntry(invariant, owner, enabled && !invariant.Cost.IsOnDemand, code: true);
+        foreach (var (invariant, owner) in registered) AddEntry(invariant, owner, enabled);
         Rebuild();
     }
 
     /// <summary>
-    /// Живая игра (решение пользователя): кодовые инварианты с периодом (<see cref="InvariantCost.Heavy"/>)
-    /// проверяются раз в свой период; false (по умолчанию: тесты, <c>feature.verify</c>, Headless, сверка реплея) — каждый тик.
-    /// Задаёт владелец (Sword.exe без <c>--replay</c>); на состояние и хеш не влияет. Нарушение, которое держится, в живой игре
-    /// видно не позже чем через период − 1 тиков; нарушение, которое держится меньше периода, может не попасть в проверку.
+    /// Живая игра: кодовые инварианты с периодом проверяются раз в период; false (тесты, Headless, сверка реплея) — каждый
+    /// тик. На состояние и хеш не влияет; нарушение короче периода может не попасть в проверку.
     /// </summary>
     public bool LivePeriods { get; set; }
 
-    /// <summary>Как часто проверяется инвариант сейчас, тиков (1 — каждый; «по запросу» включённый явно — тоже каждый).</summary>
-    private int EveryOf(Entry e) => e.Cost.Period <= 1 || e.Code && !LivePeriods ? 1 : e.Cost.Period;
-
-    /// <summary>Нарушение найдено (после записи в кольцо) — симуляция передаёт наблюдателям.</summary>
-    internal Action<InvariantViolation>? Violated;
+    /// <summary>Как часто проверяется инвариант сейчас, тиков (1 — каждый).</summary>
+    private int EveryOf(Entry e) => LivePeriods ? e.Cost.Period : 1;
 
     /// <summary><c>sim.invariants</c>: кодовые инварианты включены по умолчанию.</summary>
     public bool EnabledByConfig { get; }
@@ -245,8 +209,6 @@ public sealed class SimulationInvariants
     /// <summary>Инварианты по порядку регистрации.</summary>
     public IReadOnlyList<InvariantInfo> List() => [.. _entries.Select(Info)];
 
-    public InvariantInfo? Find(string id) => _entries.FirstOrDefault(e => e.Invariant.Id == id) is { } e ? Info(e) : null;
-
     private InvariantInfo Info(Entry e) =>
         new(e.Invariant.Id, e.Owner, e.Invariant.Scope, e.Cost, e.Invariant.After, e.Enabled, e.Evaluations, e.Violations,
             e.Evaluations == 0 ? 0 : e.Ticks * 1e6 / Stopwatch.Frequency / e.Evaluations, e.Last, EveryOf(e));
@@ -259,7 +221,8 @@ public sealed class SimulationInvariants
         return list;
     }
 
-    /// <summary>Включить или выключить инвариант (поток симуляции, между тиками или в точке обслуживания).</summary>
+    /// <summary>Включить или выключить инвариант (владелец, между тиками) — например, в тесте, который подставляет данные
+    /// мимо систем.</summary>
     /// <exception cref="ArgumentException">Нет такого.</exception>
     public void SetEnabled(string id, bool enabled)
     {
@@ -267,31 +230,10 @@ public sealed class SimulationInvariants
         Rebuild();
     }
 
-    /// <summary>
-    /// Добавить инвариант в собранную симуляцию (агент, <c>invariant.define</c>; поток симуляции): сразу включён, «по
-    /// запросу» — выключен.
-    /// </summary>
-    public void Add(IInvariant invariant, string owner)
-    {
-        AddEntry(invariant, owner, !invariant.Cost.IsOnDemand, code: false);
-        Rebuild();
-    }
-
-    /// <summary>Убрать инвариант, добавленный <see cref="Add"/> (кодовые только выключаются).</summary>
-    public bool Remove(string id, string owner)
-    {
-        var e = _entries.FirstOrDefault(x => x.Invariant.Id == id);
-        if (e is null) return false;
-        if (e.Owner != owner) throw new ArgumentException($"инвариант {id} — {e.Owner}, а не {owner}: его можно только выключить");
-        _entries.Remove(e);
-        Rebuild();
-        return true;
-    }
-
     private Entry Get(string id) => _entries.FirstOrDefault(e => e.Invariant.Id == id)
         ?? throw new ArgumentException($"нет инварианта «{id}»; есть: {string.Join(", ", _entries.Select(e => e.Invariant.Id))}");
 
-    private void AddEntry(IInvariant invariant, string owner, bool enabled, bool code)
+    private void AddEntry(IInvariant invariant, string owner, bool enabled)
     {
         ArgumentNullException.ThrowIfNull(invariant);
         if (!IInvariant.IsValidId(invariant.Id)) throw new InvalidOperationException($"инвариант «{invariant.Id}»: нужно {IInvariant.IdRule}");
@@ -299,7 +241,7 @@ public sealed class SimulationInvariants
         int stage = IndexOf(_world.Stages, invariant.After);
         if (stage < 0)
             throw new InvalidOperationException($"инвариант {invariant.Id}: нет стадии «{invariant.After}»; есть: {string.Join(", ", _world.Stages)}");
-        _entries.Add(new Entry(invariant, owner, stage, enabled, code) { Zone = _profiler.Zone("invariant." + invariant.Id) });
+        _entries.Add(new Entry(invariant, owner, stage, enabled) { Zone = _profiler.Zone("invariant." + invariant.Id) });
     }
 
     private static int IndexOf(IReadOnlyList<string> list, string value)
@@ -327,8 +269,8 @@ public sealed class SimulationInvariants
         bool live = LivePeriods;
         foreach (var e in entries)
         {
-            // Период кодового инварианта — только в живой игре; инвариант агента держит свой всегда.
-            if ((live || !e.Code) && !e.Cost.Due(tick)) continue;
+            // Период — только в живой игре.
+            if (live && !e.Cost.Due(tick)) continue;
             int found = Evaluate(e, ctx, _found);
             if (found == 0) continue;
             Record(e, found);
@@ -383,17 +325,13 @@ public sealed class SimulationInvariants
             {
                 Log.Warning("invariant", $"нарушен {v}");
                 if (++e.Logged == LoggedPerInvariant)
-                    Log.Warning("invariant", $"{e.Invariant.Id}: дальше нарушения — без журнала (invariant.list, events.history)");
+                    Log.Warning("invariant", $"{e.Invariant.Id}: дальше нарушения — без журнала");
             }
-            Violated?.Invoke(v);
         }
     }
 
-    /// <summary>
-    /// Проверить сейчас (<c>invariant.run</c>; поток симуляции, точка обслуживания): инварианты <paramref name="ids"/> (null —
-    /// все, в том числе выключенные и «по запросу») на мире как он есть — между тиками стадия <c>—</c>. Нарушения только
-    /// возвращаются: в кольцо и историю идут нарушения тиков.
-    /// </summary>
+    /// <summary>Проверить сейчас (между тиками) <paramref name="ids"/> (null — все, и выключенные). Нарушения только
+    /// возвращаются, в историю не идут.</summary>
     public IReadOnlyList<(string Id, int Violations, IReadOnlyList<InvariantViolation> Details)> Run(IReadOnlyCollection<string>? ids,
         ulong tick, string stage, float dt)
     {

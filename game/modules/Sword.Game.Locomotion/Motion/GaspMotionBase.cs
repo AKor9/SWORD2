@@ -7,14 +7,9 @@ using Sword.Engine.Animation.Motion;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// База Motion Matching на процесс: отбор клипов GASP, база (<see cref="MotionDatabase"/>) с политикой GASP, модель скоростей данных,
-/// счёт политики. Неизменяема и общая — её делят все симуляции процесса (как <see cref="ClipLibrary"/>).
-///
-/// Кэш — по экземпляру <see cref="ClipLibrary"/> (<see cref="ConditionalWeakTable{TKey, TValue}"/>: библиотека не держится кэшем) и
-/// регулярке отбора; постройка ленивая и потокобезопасная (<see cref="Lazy{T}"/>, одна на ключ даже при одновременных запросах).
-/// Модуль берёт библиотеку из ресурса <see cref="PosePool"/> мира (<see cref="PosePool.Clips"/> — у всех симуляций процесса один
-/// экземпляр <c>CharacterAssets.Clips</c>): две симуляции строят базу один раз. Ошибка данных тоже запоминается — повторный запрос
-/// бросает то же исключение, не строя заново (данные те же — итог тот же).
+/// База Motion Matching на процесс: неизменяема, её делят все симуляции процесса. Кэш — по экземпляру
+/// <see cref="ClipLibrary"/> (слабо) и регулярке отбора; постройка ленивая и потокобезопасная, одна на ключ. Ошибка данных
+/// тоже запоминается: повторный запрос бросает то же исключение, не строя заново.
 /// </summary>
 public sealed class GaspMotionBase
 {
@@ -64,7 +59,7 @@ public sealed class GaspMotionBase
     public ReadOnlySpan<int> WithoutContinuation => _withoutContinuation;
 
     /// <summary>
-    /// База для библиотеки и отбора — из кэша процесса, при первом запросе строится (<see cref="Build"/>). <paramref name="pattern"/> null —
+    /// База для библиотеки и отбора — из кэша процесса (при первом запросе строится); <paramref name="pattern"/> null —
     /// <see cref="GaspMotion.DefaultClips"/>.
     /// </summary>
     /// <exception cref="InvalidDataException">Данные не дают базы (нет клипов, нет сустава, имя не разбирается…) — с понятной причиной.</exception>
@@ -77,10 +72,7 @@ public sealed class GaspMotionBase
         return byPattern.GetOrAdd(key, k => new Lazy<GaspMotionBase>(() => Build(library, k), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
-    /// <summary>
-    /// Постройка без кэша: отбор (<see cref="GaspMotion.Select"/>), схема GASP (<see cref="GaspMotion.Schema"/>), политика
-    /// (<see cref="GaspGraphPolicy"/>), параметры (<see cref="GaspMotion.BuildParams"/>), модель скоростей. Игра зовёт <see cref="For"/>.
-    /// </summary>
+    /// <summary>Постройка без кэша (игра зовёт <see cref="For"/>).</summary>
     /// <exception cref="InvalidDataException">Данные не дают базы — с понятной причиной.</exception>
     /// <exception cref="ArgumentException">Отбор — не регулярка.</exception>
     public static GaspMotionBase Build(ClipLibrary library, string? pattern = null)
@@ -103,10 +95,7 @@ public sealed class GaspMotionBase
         return new GaspMotionBase(selection, database, speeds, policy.Stats);
     }
 
-    /// <summary>
-    /// Строка старта (журнал): клипов, кадров, искомых, рёбер, ранних выходов, время постройки, отпечаток, отбор; клипы без продолжения —
-    /// если есть.
-    /// </summary>
+    /// <summary>Строка старта для журнала.</summary>
     public string StartLine()
     {
         var s = Database.Summary;

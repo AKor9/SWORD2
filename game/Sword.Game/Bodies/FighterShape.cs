@@ -6,55 +6,43 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Форма тела бойца при постройке — радиусы <c>Fighter.Radii</c> и полудлины капсул из <c>Fighter.Build</c> SWORD
-/// 2eab13b: полудлина — половина расстояния между концами сегмента в процедурной позе постройки
-/// (<c>Fighter.ComputeTargets</c> от корня на высоте земли). Длины считаются в мировых координатах от точки постройки, поэтому
-/// последние биты формы зависят от места и курса спауна — от них зависят концы капсул и побитовые удары.
-///
-/// Из живого рэгдолла взято ровно это вычисление — концы сегментов <c>_a/_b</c> в <c>ComputeTargets</c> и опора стоп
-/// <c>IdealFoot(leg, 0)</c> — с состоянием бойца сразу после <c>Build</c>: курс постройки, наклоны, поворот торса и
-/// опережение верха — 0, цель кисти <c>HandLocal</c> (0,25; 1,3; 0,35), клинок <c>BladeDir</c> — норма (0,1; 0,9; 0,4),
-/// двуручный хват, стопы в опоре (фаза <c>Stance</c>) с курсом постройки, скорость корня и план шага — 0. Ориентации целей
-/// мышц (<c>TargetRot</c>), мышцы, суставы, сглаживание, шаги и равновесие — не переносятся (решение 2): форма только
-/// задаёт капсулы, ставит их аниматор (<see cref="BodyPlacement"/>).
+/// Форма тела бойца при постройке — радиусы и полудлины капсул: полудлина — половина расстояния между концами сегмента в
+/// процедурной позе постройки. Длины считаются в мировых координатах от точки постройки, поэтому последние биты формы зависят от
+/// места и курса спауна. Форма только задаёт капсулы, ставит их аниматор (<see cref="BodyPlacement"/>).
 /// </summary>
 public static class FighterShape
 {
     /// <summary>
-    /// Радиусы капсул по номерам сегментов 0…13 (<c>Fighter.Radii</c>; 11 — клинок: его тело — <see cref="BladeBody.Radius"/>). Массив, а
-    /// не выражение коллекции в свойстве: в Debug оно выделяло новый массив на каждое чтение (216 Б на постройку бойца — возрождения толпы).
+    /// Радиусы капсул по номерам сегментов 0…13 (11 — клинок: его тело — <see cref="BladeBody.Radius"/>). Массив, а не выражение
+    /// коллекции: в Debug оно выделяло бы массив на каждое чтение.
     /// </summary>
     public static ReadOnlySpan<float> Radii => RadiiValues;
 
     private static readonly float[] RadiiValues = [.15f, .17f, .13f, .065f, .055f, .065f, .055f, .09f, .07f, .09f, .07f, BladeBody.Radius, .045f, .045f];
 
     /// <summary>
-    /// Массы тел по номерам сегментов 0…13, кг (<c>Fighter.Masses</c> SWORD — отправная точка): таз 12, торс 20, голова 5, плечо 2,5,
-    /// предплечье 2, бедро 8, голень 4,5, стопа 1,2; клинок — <see cref="BladeBody.Mass"/> (1,4 для всех мечей). Всего
-    /// 74,8 кг. Живому бойцу масса ничего не делает (тела кинематические); её берут труп и толчки.
+    /// Массы тел по номерам сегментов 0…13, кг: таз 12, торс 20, голова 5, плечо 2,5, предплечье 2, бедро 8, голень 4,5, стопа 1,2;
+    /// клинок — <see cref="BladeBody.Mass"/>. Живому масса ничего не делает; её берут труп и толчки.
     /// </summary>
     public static ReadOnlySpan<float> Masses => MassValues;
 
     private static readonly float[] MassValues = [12f, 20f, 5f, 2.5f, 2f, 2.5f, 2f, 8f, 4.5f, 8f, 4.5f, BladeBody.Mass, 1.2f, 1.2f];
 
-    // Fighter SWORD: рост таза; Fighter.Locomotion: голеностоп, стопа, развод носков; SwordBody: звенья ноги.
+    // Рост таза, голеностоп, стопа, развод носков, звенья ноги.
     private const float StandHeight = 0.95f;
     private const float AnkleY = 0.09f, FootLength = 0.2f, ToeOut = 0.12f;
     private const float MaxLead = 0.3f, StrideGrowth = 0.08f, LateralLead = 0.6f, StepReach = 0.55f;
     private const float ThighLength = 0.45f, ShinLength = 0.45f;
 
-    // Состояние живого рэгдолла сразу после Fighter.Build (у кинематического бойца оно дальше не меняется: BeginTick
-    // живого рэгдолла у него не идёт): наклоны и их скорости, опережение верха, поворот торса — 0; цель кисти, клинок и
-    // двуручный хват — значения Build и поля по умолчанию.
+    // Процедурная поза постройки: наклоны, опережение верха, поворот торса — 0; цель кисти, клинок и двуручный хват — постоянные.
     private const float LeanFwd = 0, LeanSide = 0, UpperLead = 0, TorsoYaw = 0;
     private const bool TwoHanded = true;
     private static readonly Vector3 HandLocal = new(0.25f, 1.3f, 0.35f);
     private static readonly Vector3 BladeDir = Vector3.Normalize(new Vector3(0.1f, 0.9f, 0.4f));
 
     /// <summary>
-    /// Полудлины капсул бойца, построенного в <paramref name="position"/> (y не важен — корень на земле) курсом
-    /// <paramref name="facing"/>, по номерам сегментов (<paramref name="halfLength"/> — не меньше <see cref="BodySegs.Count"/>;
-    /// клинку — 0: форма его тела — по мечу в руке, <see cref="BladeBody"/>).
+    /// Полудлины капсул бойца, построенного в <paramref name="position"/> курсом <paramref name="facing"/>, по номерам сегментов
+    /// (клинку — 0: форма его тела — по мечу в руке).
     /// </summary>
     public static void HalfLengths(Vector3 position, float facing, Span<float> halfLength)
     {
@@ -70,8 +58,7 @@ public static class FighterShape
     private static Vector3 Mirror(Vector3 v) => new(-v.X, v.Y, v.Z);
 
     /// <summary>
-    /// Концы сегментов процедурной позы постройки (<c>Fighter.Build</c>: корень, земля под ним, опоры стоп —
-    /// <c>IdealFoot(leg, 0)</c>, затем <c>ComputeTargets(корень на высоте земли)</c>) — выражения SWORD в том же порядке.
+    /// Концы сегментов процедурной позы постройки: корень, земля под ним, опоры стоп, затем цели сегментов от корня на высоте земли.
     /// </summary>
     private static void Targets(Vector3 pos, float facing, Span<Vector3> _a, Span<Vector3> _b)
     {
@@ -140,9 +127,7 @@ public static class FighterShape
     }
 
     /// <summary>
-    /// Опора стопы под телом с упреждением 0 (<c>Fighter.IdealFoot(leg, 0)</c> сразу после <c>Build</c>): план шага и
-    /// скорость корня — 0, сдвиг захвата — 0, поэтому вынос нулевой; точка — корень плюс полшага вбок по курсу, на высоте
-    /// земли плюс голеностоп.
+    /// Опора стопы под телом с упреждением 0: корень плюс полшага вбок по курсу, на высоте земли плюс голеностоп.
     /// </summary>
     private static Vector3 IdealFoot(Vector3 root, float facing, int leg)
     {

@@ -3,9 +3,7 @@ using Sword.Engine.Formats;
 namespace Sword.Engine.Ui;
 
 /// <summary>
-/// Шрифты интерфейса, склеенные в общие таблицы для видеокарты: у текста любым шрифтом один набор буферов, и весь
-/// интерфейс рисуется без переключений. Роль <see cref="UiFace"/> указывает на шрифт, взявший её. Перенос
-/// <c>UiVectorFontData.Merge</c> SWORD 2eab13b.
+/// Шрифты интерфейса, склеенные в общие таблицы: весь интерфейс рисуется одним набором буферов без переключений.
 /// </summary>
 public sealed class UiFontTables
 {
@@ -49,8 +47,7 @@ public sealed class UiFontTables
     }
 
     /// <summary>
-    /// Склеить шрифты. Каждая роль должна принадлежать ровно одному шрифту; шрифты без ролей не загружаются. Каждый
-    /// шрифт проверяется (<see cref="UiFontFile.Validate"/>): собранный в памяти мог не пройти через чтение.
+    /// Склеить шрифты: каждая роль — ровно у одного шрифта, шрифты без ролей не загружаются; каждый шрифт проверяется.
     /// </summary>
     /// <exception cref="InvalidDataException">Противоречивый шрифт, неизвестная роль, роль у двух шрифтов или без шрифта.</exception>
     public static UiFontTables Merge(IReadOnlyList<UiFontFile> files)
@@ -70,7 +67,7 @@ public sealed class UiFontTables
         var missing = Enumerable.Range(0, roleCount).Where(i => owner[i] is null).Select(i => ((UiFace)i).ToString()).ToList();
         if (missing.Count > 0)
             throw new InvalidDataException(
-                $"нет шрифта для ролей {string.Join(", ", missing)} — роли задаются полем roles манифеста шрифта пекарни; " +
+                $"нет шрифта для ролей {string.Join(", ", missing)} — роли задаются полем roles рецепта шрифта пекарни; " +
                 $"загружены: {(files.Count == 0 ? "ничего" : string.Join(", ", files.Select(f => $"{f.Name} [{string.Join(", ", f.Roles)}]")))}");
 
         var fonts = files.Where(f => owner.Contains(f)).ToList();

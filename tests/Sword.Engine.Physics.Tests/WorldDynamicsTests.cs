@@ -3,10 +3,7 @@ using static Sword.Engine.Physics.Tests.TestBodies;
 
 namespace Sword.Engine.Physics.Tests;
 
-/// <summary>
-/// Динамика тел в мире: форма с массой, режим, профили динамики, запись и чтение состояния целиком, настройки, поза
-/// начала тика, толчок кинематического тела; слот не наследует динамику прошлого тела; 0 Б на примитивы и запись.
-/// </summary>
+/// <summary>Динамика тел в мире: форма, режим, профили, запись и чтение состояния, поза начала тика; слот не наследует; 0 Б.</summary>
 public class WorldDynamicsTests
 {
     private static (PhysicsWorld World, BodyHandle Body) One()

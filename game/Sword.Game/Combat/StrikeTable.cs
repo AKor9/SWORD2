@@ -7,11 +7,9 @@ using Sword.Game.Data;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Таблица ударов — <c>CharacterRig.ApplySlots</c>/<c>Analyse</c>/<c>Tips</c> SWORD 2eab13b: удары слотов slash1–4
-/// (рубящие, связка) и stab1–3 (уколы) по клипам таблицы действий (<see cref="ActionTable"/>: клип и слой верха слота), их окна
-/// урона — по траектории кончика клинка меча по умолчанию (<see cref="WeaponTable.Default"/>) для всех мечей
-/// (<see cref="StrikeWindows.Find"/>; у укола — только самый быстрый удар), клип отбитого удара «имя_Blocked», длительность.
-/// Неизменяемый ассет симуляции (считается при загрузке ассетов бойца), наружу — <see cref="ReadOnlySpan{T}"/>.
+/// Таблица ударов: slash1–4 (рубящие, связка) и stab1–3 (уколы) по клипам таблицы действий; окна урона — по траектории кончика
+/// меча по умолчанию для всех мечей (<see cref="StrikeWindows.Find"/>; у укола — только самый быстрый удар). Неизменяемый ассет,
+/// считается при загрузке ассетов бойца.
 /// </summary>
 public sealed class StrikeTable
 {
@@ -36,8 +34,7 @@ public sealed class StrikeTable
     }
 
     /// <summary>
-    /// Разметка ударов (<c>ApplySlots</c>: <c>Analyse(S(n), thrust, Upper(n))</c>) по клипам таблицы действий; кончик — клинок
-    /// <paramref name="bladeTip"/> в системе сустава <paramref name="hand"/>.
+    /// Разметка ударов по клипам таблицы действий; кончик — клинок <paramref name="bladeTip"/> в системе сустава <paramref name="hand"/>.
     /// </summary>
     public static StrikeTable Analyse(ClipLibrary clips, ActionTable actions, int hand, Vector3 bladeTip)
     {
@@ -57,8 +54,7 @@ public sealed class StrikeTable
     }
 
     /// <summary>
-    /// Кончик клинка по кадрам клипа в пространстве персонажа (<c>CharacterRig.Tips</c>): поза кадра <c>f / SampleRate</c>,
-    /// прямая кинематика, кончик в системе сустава кисти.
+    /// Кончик клинка по кадрам клипа в пространстве персонажа: поза кадра <c>f / SampleRate</c>, прямая кинематика, кончик в системе кисти.
     /// </summary>
     public static Vector3[] Tips(ClipLibrary clips, int clip, int hand, Vector3 bladeTip)
     {
@@ -77,7 +73,7 @@ public sealed class StrikeTable
         return tips;
     }
 
-    /// <summary>Разметка словами для журнала (<c>CharacterRig.Describe</c>): клип, длительность, окна, пик и замах.</summary>
+    /// <summary>Разметка словами для журнала: клип, длительность, окна, пик и замах.</summary>
     public string Describe(ClipLibrary clips) => string.Join("; ", _attacks.Select(a => string.Create(CultureInfo.InvariantCulture,
         $"{a.Slot} {clips.Clips[a.Clip].ShortName}: {a.Duration:F2} с, ударов {a.Windows.Length}: ") + string.Join(", ",
         a.Windows.ToArray().Select(w => string.Create(CultureInfo.InvariantCulture,

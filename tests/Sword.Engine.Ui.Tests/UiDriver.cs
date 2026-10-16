@@ -3,9 +3,8 @@ using System.Numerics;
 namespace Sword.Engine.Ui.Tests;
 
 /// <summary>
-/// Кадры виджетов в тесте: ввод кадра (<see cref="UiInput"/>) заполняет тест так же, как клиент — адаптер окна;
-/// <see cref="Frame"/> — BeginFrame → виджеты → EndFrame, затем события кадра сбрасываются, зажатые кнопки остаются,
-/// время идёт на 1/60 с.
+/// Кадры виджетов в тесте: ввод кадра заполняет тест, как клиент — адаптер окна; <see cref="Frame"/> — BeginFrame → виджеты →
+/// EndFrame, затем события кадра сбрасываются, время идёт на 1/60 с.
 /// </summary>
 internal sealed class UiDriver(UiFonts? fonts = null, int width = 200, int height = 200)
 {

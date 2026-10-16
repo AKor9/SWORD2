@@ -3,10 +3,7 @@ using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Client.Tests;
 
-/// <summary>
-/// Фронты ввода до тика (раздел 7 плана): нажатие и отпускание достаются ровно одному тику — первому после кадра, где
-/// случились; кадр без тиков их не теряет, кадр из нескольких тиков не повторяет.
-/// </summary>
+/// <summary>Нажатие и отпускание достаются ровно одному тику — первому после кадра: кадр без тиков их не теряет, из нескольких — не повторяет.</summary>
 public class InputEdgesTests
 {
     private static readonly InputAction Attack = new("attack", "Space");

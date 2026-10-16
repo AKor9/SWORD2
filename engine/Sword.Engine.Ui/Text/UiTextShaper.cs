@@ -4,9 +4,7 @@ using Sword.Engine.Formats;
 namespace Sword.Engine.Ui;
 
 /// <summary>
-/// OpenType shaping поверх тех же ttf, из которых пекарня подготовила GPU-контуры (ttf лежит в самом .swfont).
-/// HarfBuzz выбирает glyph ID, kerning, ligatures и положение combining marks;
-/// растеризацией он не занимается. Перенос <c>Text/UiTextShaper.cs</c> SWORD 2eab13b.
+/// OpenType shaping HarfBuzz поверх ttf из .swfont: glyph ID, kerning, лигатуры, combining marks; без растеризации.
 /// </summary>
 internal sealed class UiTextShaper : IDisposable
 {
@@ -54,9 +52,8 @@ internal sealed class UiTextShaper : IDisposable
     }
 
     /// <summary>
-    /// Blob над копией файла в неуправляемой памяти; память освобождает сам HarfBuzz вместе с blob.
-    /// Face читает таблицы (cmap, GSUB) лениво, при каждом shaping, поэтому данные должны жить столько же,
-    /// сколько blob: <c>Blob.FromStream</c> такого не обещает — число glyph'ов проверялось, а shaping давал .notdef.
+    /// Blob над копией файла в неуправляемой памяти (освобождает HarfBuzz): Face читает таблицы лениво при каждом shaping,
+    /// а <c>Blob.FromStream</c> не обещает, что данные доживут.
     /// </summary>
     private static unsafe Blob NativeBlob(byte[] data)
     {
@@ -73,10 +70,8 @@ internal sealed class UiTextShaper : IDisposable
         _buffer.Reset();
         _buffer.AddUtf16(text);
         _buffer.GuessSegmentProperties();
-        // Передача Feature[] через HarfBuzzSharp создаёт временный native-массив
-        // примерно на 56 Б вызов. Разрядка применяется нами между glyph-кластерами,
-        // а HUD использует короткие русские подписи без лигатур, поэтому штатный
-        // набор OpenType-фич даёт тот же результат и остаётся без аллокации.
+        // Feature[] через HarfBuzzSharp выделяет ~56 Б на вызов; разрядка — наша, лигатур в подписях нет, поэтому штатный
+        // набор фич даёт тот же результат без выделения.
         _fonts[font].Shape(_buffer);
 
         ReadOnlySpan<GlyphInfo> infos = _buffer.GetGlyphInfoSpan();

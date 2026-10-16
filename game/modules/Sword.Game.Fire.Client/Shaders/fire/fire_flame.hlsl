@@ -17,6 +17,7 @@ struct FlameConstants
     float velocityClamp; float flowTile; float densityGain; float noisePower;
     float densityPower; float edgeMask; float2 viewDepth;   // viewDepth - k of SceneViewDepth
     uint field; uint noise; uint noiseLayer; uint sceneDepth;
+    float glowCut; float3 pad;               // glowCut - k of the full alpha (0 - off)
 };
 _Static_assert(sizeof(FlameConstants) == FIRE_FLAME_CONSTANTS_SIZE, "FlameConstants differs from C# FlameConstants");
 
@@ -75,7 +76,9 @@ float4 FlameShade(FlameVs i)
     float edge = c.edgeMask > 0.5 ? sin(FlamePi * i.uv.x) * sin(FlamePi * i.uv.y) : 1.0;
     Texture2D<float> depth = ResourceDescriptorHeap[c.sceneDepth];
     float fade = DepthFade(SceneViewDepth(depth.Load(int3(i.pos.xy, 0)), c.viewDepth), SceneViewDepth(i.pos.z, c.viewDepth), c.fadeDistance);
-    float alpha = saturate(rho * edge * fade);
+    // Tail cut: the weak tail of the sim (k near 0 - Colour2 veil) fades out; the smoke is the 3D gas.
+    float glow = c.glowCut > 0.0 ? saturate(k / c.glowCut) : 1.0;
+    float alpha = saturate(rho * edge * fade) * glow;
 
     // Scene fog, linear by distance as Shade: lerp(emis, fog, f).
     float fog = saturate((distance(i.world, c.eye) - c.fogStart) / c.fogRange);

@@ -9,17 +9,9 @@ namespace Sword.Engine.Ui;
 public readonly record struct UiBatch(int Start, int Count, bool Vector, int X0, int Y0, int X1, int Y1);
 
 /// <summary>
-/// Список квадов интерфейса за кадр: аналитические фигуры (поле расстояний)
-/// и GPU-векторный текст (Slug-подобный обход контуров, из Star2).
-/// Одна запись на квад, шесть вершин разворачивает вершинный шейдер.
-/// Горячий путь без выделений: строки собираются в <c>Span&lt;char&gt;</c>.
-///
-/// Обрезка — стек прямоугольников (<see cref="PushClip"/>): список запоминает, с какого квада действует
-/// какой прямоугольник (<see cref="ClipRuns"/>), рендерер ставит по ним scissor. Квады целиком вне
-/// текущей обрезки не записываются вовсе.
-///
-/// Перенос <c>Ui/UiDrawList.cs</c> SWORD 2eab13b. Отличие: шрифты не обязательны — список только фигур (тесты,
-/// инструменты без контента) текст не рисует и не меряет (<see cref="InvalidOperationException"/>).
+/// Список квадов интерфейса за кадр: аналитические фигуры (поле расстояний) и GPU-векторный текст; одна запись на квад.
+/// Без выделений: строки — в <c>Span&lt;char&gt;</c>. Обрезка — стек прямоугольников, смены пишутся в <see cref="ClipRuns"/>;
+/// квады целиком вне обрезки не записываются. Без шрифтов текст — <see cref="InvalidOperationException"/>.
 /// </summary>
 public sealed class UiDrawList
 {
@@ -104,10 +96,7 @@ public sealed class UiDrawList
         return x0 < c.X1 && x1 > c.X0 && y0 < c.Y1 && y1 > c.Y0;
     }
 
-    /// <summary>
-    /// Дописать квады другого списка поверх своих (слой всплывающих окон), с его обрезками.
-    /// После них снова действует текущая обрезка этого списка.
-    /// </summary>
+    /// <summary>Дописать квады другого списка поверх своих (слой всплывающих окон) с его обрезками.</summary>
     /// <exception cref="ArgumentException">У <paramref name="other"/> другие шрифты: номера glyph'ов его текста — чужих таблиц.</exception>
     public void Append(UiDrawList other)
     {
@@ -225,9 +214,8 @@ public sealed class UiDrawList
     }
 
     /// <summary>
-    /// Картинка — слой <paramref name="slice"/> массива текстур с bindless-индексом <paramref name="srv"/>, мип
-    /// <paramref name="mip"/>, участок <paramref name="uv0"/>…<paramref name="uv1"/>. <paramref name="nearest"/> — тексели
-    /// квадратами (увеличение), иначе линейная выборка. Цвет умножается на <paramref name="tint"/>.
+    /// Картинка — слой <paramref name="slice"/> массива текстур (bindless <paramref name="srv"/>), мип, участок uv;
+    /// <paramref name="nearest"/> — тексели квадратами. Цвет умножается на <paramref name="tint"/>.
     /// </summary>
     public void Image(UiRect r, int srv, Vector2 uv0, Vector2 uv1, uint tint, float mip = 0, int slice = 0, bool nearest = false)
     {
@@ -351,9 +339,8 @@ public sealed class UiDrawList
     // ── вызовы рисования ───────────────────────────────────────────────
 
     /// <summary>
-    /// Вызовы рисования списка (<c>UiRenderer.Record</c> SWORD): подряд квады одного конвейера (текст или фигуры) под
-    /// одной обрезкой; обрезка — целочисленный scissor в пределах цели <paramref name="width"/>×<paramref name="height"/>,
-    /// дробные края наружу; обрезка вне цели — вызова нет. <paramref name="batches"/> очищается.
+    /// Вызовы рисования: подряд квады одного конвейера под одной обрезкой; обрезка — целочисленный scissor в пределах цели,
+    /// дробные края наружу; вне цели — вызова нет. <paramref name="batches"/> очищается.
     /// </summary>
     public void Split(int width, int height, List<UiBatch> batches)
     {

@@ -6,10 +6,8 @@ using Sword.Engine.Runtime;
 namespace Sword.Engine.Client.Tests;
 
 /// <summary>
-/// Клиентские модули без окна и GPU (раздел 7 плана): наблюдатель тиков — каждый тик ровно раз, по порядку, с миром после своего тика, при
-/// 0, 1, 2, 3 и 8 тиках за кадр и на паузе; тики кадра и заявки GPU-симуляции (<see cref="SimFrame"/>) — шаг «каждый второй тик» через
-/// границы кадров; выключенный модуль не регистрирует ничего; Id, которого симуляция не знает, — ошибка; исключение при освобождении
-/// ресурса модуля не мешает освободить остальные; кадр модулей — 0 Б.
+/// Клиентские модули без окна и GPU: наблюдатель тиков — каждый тик ровно раз, по порядку, при 0…8 тиках за кадр; заявки
+/// GPU-симуляции через границы кадров; выключенный модуль не регистрирует ничего; кадр модулей — 0 Б.
 /// </summary>
 public sealed class ClientModulesTests
 {
@@ -23,13 +21,8 @@ public sealed class ClientModulesTests
         public void Configure(SimulationBuilder b) { }
     }
 
-    /// <summary>Ворота тиков теста: число тиков каждого кадра — из очереди (0 — пауза).</summary>
-    private sealed class Gate(Queue<int> frames) : ITickGate
-    {
-        public int? Override(int maxPerFrame) => frames.Dequeue();
-
-        public void Ran(ulong tick) { }
-    }
+    /// <summary>Шаг кадра, с, ровно на <paramref name="ticks"/> тиков (накопитель — в точном шаге тика: тики не теряются).</summary>
+    private static double Ticks(Simulation sim, int ticks) => ticks / (double)sim.Settings.TickRate;
 
     /// <summary>Заявка теста: номер тика, который её добавил.</summary>
     private struct Request
@@ -105,10 +98,7 @@ public sealed class ClientModulesTests
         return (sim, modules, clock, probe, config);
     }
 
-    /// <summary>
-    /// Кадр хоста: начало кадра модулей, тики, шаг GPU-симуляции включённого модуля без рендера — с тиками и заявками кадра, как в
-    /// <see cref="ClientModules.BuildFrame"/> (<see cref="ClientModules.Frame"/>).
-    /// </summary>
+    /// <summary>Кадр хоста без рендера, как <see cref="ClientModules.BuildFrame"/>: начало кадра модулей, тики, шаг GPU-симуляции.</summary>
     private static int Frame(Simulation sim, ClientModules modules, SimulationClock clock, Probe probe, double seconds = 0)
     {
         modules.BeginFrame(sim.Tick);
@@ -118,15 +108,14 @@ public sealed class ClientModulesTests
     }
 
     [Fact]
-    public void Observer_EveryTickOnce_InOrder_WorldAfterItsTick_AtZeroToEightTicksAndPause()
+    public void Observer_EveryTickOnce_InOrder_WorldAfterItsTick_AtZeroToEightTicks()
     {
         var (sim, modules, clock, probe, _) = Create();
         int[] counts = [0, 1, 2, 8, 3, 0, 1];
-        clock.Gate = new Gate(new Queue<int>(counts));
         var frames = new List<(ulong First, int Ticks)>();
         foreach (int n in counts)
         {
-            Assert.Equal(n, Frame(sim, modules, clock, probe));
+            Assert.Equal(n, Frame(sim, modules, clock, probe, Ticks(sim, n)));
             var f = modules.Frame();
             frames.Add((f.FirstTick, f.Ticks));
         }
@@ -134,11 +123,10 @@ public sealed class ClientModulesTests
         Assert.Equal(total, sim.Tick);
         // Каждый тик — ровно раз, по порядку; мир — после своего тика: SimTime того же тика, сыграно тиков — на один больше.
         Assert.Equal(Enumerable.Range(0, (int)total).Select(t => ((ulong)t, (ulong)t, (ulong)t + 1)).ToArray(), probe.Seen);
-        // Тики кадра: первый и сколько; пауза (0) — тик, который будет следующим.
+        // Тики кадра: первый и сколько; кадр без тиков — тик, который будет следующим.
         Assert.Equal(new (ulong, int)[] { (0, 0), (0, 1), (1, 2), (3, 8), (11, 3), (14, 0), (14, 1) }, frames);
 
-        // По часам: кадр 0,25 с — упор в sim.maxTicksPerFrame (8), наблюдатель — на каждом.
-        clock.Gate = null;
+        // Кадр 0,25 с — упор в sim.maxTicksPerFrame (8), наблюдатель — на каждом.
         int before = probe.Seen.Count;
         Assert.Equal(8, Frame(sim, modules, clock, probe, SimulationClock.MaxFrameSeconds));
         Assert.Equal(Enumerable.Range(15, 8).Select(t => (ulong)t).ToArray(), probe.Seen.Skip(before).Select(s => s.Tick).ToArray());
@@ -150,8 +138,7 @@ public sealed class ClientModulesTests
     {
         var (sim, modules, clock, probe, _) = Create();
         int[] counts = [3, 0, 1, 2, 8, 5, 0];
-        clock.Gate = new Gate(new Queue<int>(counts));
-        foreach (int _ in counts) Frame(sim, modules, clock, probe);
+        foreach (int n in counts) Frame(sim, modules, clock, probe, Ticks(sim, n));
         int total = counts.Sum();
         Assert.Empty(probe.Simulation.Problems);
         Assert.Equal(counts.Length, probe.Simulation.Frames);
@@ -173,9 +160,8 @@ public sealed class ClientModulesTests
         Assert.Empty(modules.Overlays);
         Assert.Empty(modules.TuningGroups);
         Assert.Equal(["fx"], sim.InactiveClientOnlyModules);
-        clock.Gate = new Gate(new Queue<int>([3, 8]));
-        Frame(sim, modules, clock, probe);
-        Frame(sim, modules, clock, probe);
+        Frame(sim, modules, clock, probe, Ticks(sim, 3));
+        Frame(sim, modules, clock, probe, Ticks(sim, 8));
         Assert.Empty(probe.Seen);
         var report = Assert.Single(modules.Report());
         Assert.False(report.Enabled);
@@ -188,8 +174,7 @@ public sealed class ClientModulesTests
     public void EnabledModule_Report_ListsItsRegistrations()
     {
         var (sim, modules, clock, probe, _) = Create();
-        clock.Gate = new Gate(new Queue<int>([2]));
-        Frame(sim, modules, clock, probe);
+        Frame(sim, modules, clock, probe, Ticks(sim, 2));
         var report = Assert.Single(modules.Report());
         Assert.True(report.Enabled);
         Assert.Equal(["fx"], report.Overlays);
@@ -275,8 +260,7 @@ public sealed class ClientModulesTests
     public void ModulesFrame_SteadyState_DoesNotAllocate()
     {
         var (sim, modules, clock, probe, _) = Create();
-        clock.Gate = new Gate(new Queue<int>(Enumerable.Repeat(4, 400)));
-        for (int i = 0; i < 100; i++) Frame(sim, modules, clock, probe);
+        for (int i = 0; i < 100; i++) Frame(sim, modules, clock, probe, Ticks(sim, 4));
         probe.Seen.Clear();
         probe.Seen.Capacity = 2000;   // списки теста — не часть кадра
         probe.Simulation.Steps.Capacity = 2000;

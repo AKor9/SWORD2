@@ -7,9 +7,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Суставы скелета, на которые встают капсулы тела (<c>CharacterRig</c> SWORD 2eab13b: <c>Pelvis, Spine, Neck, Head, UArmL,
-/// LArmL, HandL, UArmR, LArmR, Hand, ThighL, CalfL, FootL, BallL, ThighR, CalfR, FootR, BallR</c>). Без любого из них игра не
-/// стартует (как <c>CharacterRig</c>: «в скелете нет …»).
+/// Суставы скелета, на которые встают капсулы тела (таз, позвоночник, шея, голова, руки, ноги). Без любого из них игра не стартует.
 /// </summary>
 public sealed class BodyJoints
 {
@@ -36,14 +34,12 @@ public sealed class BodyJoints
 }
 
 /// <summary>
-/// Постановка капсул тела на позу (<c>DuelArena.PlaceBodies</c> SWORD 2eab13b без клинка, <c>BodyPlacer</c>, фиксации стоп и
-/// визуального смещения): мир бойца — поворот на курс и перенос в корень на высоте рельефа под корнем
-/// (<c>KinWorld</c>); сустав в мире — перенос модельной матрицы в мир бойца; капсула — между двумя точками: центр — середина,
-/// поворот — <see cref="AnimMath.FromBasis"/>(направление, «вправо» бойца). Выражения и порядок — SWORD.
+/// Постановка капсул тела на позу: мир бойца — поворот на курс и перенос в корень на высоте рельефа под корнем; капсула — между
+/// двумя суставами: центр — середина, поворот — <see cref="AnimMath.FromBasis"/>(направление, «вправо» бойца).
 /// </summary>
 public static class BodyPlacement
 {
-    /// <summary>Мировая система скелета (<c>DuelArena.KinWorld</c>): поворот на курс, перенос в корень, высота — земля под корнем.</summary>
+    /// <summary>Мировая система скелета: поворот на курс, перенос в корень, высота — земля под корнем.</summary>
     public static Matrix4x4 World(Vector3 root, float facing)
     {
         var m = Matrix4x4.CreateFromQuaternion(Quaternion.CreateFromAxisAngle(Vector3.UnitY, facing));
@@ -55,9 +51,8 @@ public static class BodyPlacement
     public static Vector3 Right(float facing) => Vector3.Transform(new Vector3(-1, 0, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitY, facing));
 
     /// <summary>
-    /// Постановка 13 капсул плоти бойца (тела сочленения по номерам сегментов, <see cref="BodySegs.Body"/>; место клинка — тело 11 — не
-    /// трогается: его ставит клинок, <c>Combat.BladePlacement</c>) по модельным матрицам позы <paramref name="model"/> в корне
-    /// <paramref name="root"/> курсом <paramref name="facing"/>: центры и повороты.
+    /// Постановка 13 капсул плоти бойца по позе <paramref name="model"/> в корне <paramref name="root"/> курсом <paramref name="facing"/>;
+    /// тело клинка (11) не трогается — его ставит клинок.
     /// </summary>
     public static void Capsules(ReadOnlySpan<Matrix4x4> model, BodyJoints j, Vector3 root, float facing, Span<Vector3> position,
         Span<Quaternion> rotation)
@@ -96,8 +91,7 @@ public static class BodyPlacement
     }
 
     /// <summary>
-    /// Точки, между которыми стоит капсула сегмента <paramref name="segment"/> (для проверок: инвариант
-    /// <c>physics.kinematicPose</c>, агент) — те же, что в <see cref="Capsules"/>.
+    /// Точки, между которыми стоит капсула сегмента <paramref name="segment"/>, — те же, что в <see cref="Capsules"/> (для инварианта).
     /// </summary>
     public static (Vector3 A, Vector3 B) Ends(ReadOnlySpan<Matrix4x4> model, BodyJoints j, in Matrix4x4 world, int segment)
     {
@@ -123,10 +117,8 @@ public static class BodyPlacement
     }
 
     /// <summary>
-    /// Постройка бойца (<c>Fighter.Build</c> → <c>PlaceBuilt</c> SWORD): форма тела с массой от места и курса постройки
-    /// (<see cref="FighterShape"/>: радиусы, полудлины, массы) и капсулы плоти без скорости (<see cref="IPhysicsWorld.Place"/>) по
-    /// позе постройки <paramref name="startModel"/> в корне постройки. Тело клинка (11) — по мечу в руке, его строит клинок
-    /// (<c>Combat.BladeSetupSystem</c>).
+    /// Постройка бойца: форма тела от места и курса постройки (<see cref="FighterShape"/>) и капсулы плоти без скорости по позе
+    /// постройки <paramref name="startModel"/>. Тело клинка строит клинок.
     /// </summary>
     public static void Build(IPhysicsWorld physics, ArticulationHandle body, ReadOnlySpan<Matrix4x4> startModel, BodyJoints joints,
         Vector3 root, float facing)

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ядро 3D-газа (дым в мире): сетка, выровненная по осям мира и едущая за целью целыми ячейками, стадии шага на GPU,
+       CPU-эталон, статистика, срезы для агента. Игру не знает; пишет только через рендер-граф (README.md). -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Engine.Fluid3D.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+  </ItemGroup>
+
+  <!-- Шейдеры газа: в выходе — Shaders/fluid3d/…, рядом с общими шейдерами движка. -->
+  <ItemGroup>
+    <None Update="Shaders\**\*.hlsl;Shaders\**\*.hlsli">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

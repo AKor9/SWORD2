@@ -4,9 +4,8 @@ using Sword.Engine.Formats;
 namespace Sword.Engine.Ui;
 
 /// <summary>
-/// Шрифты интерфейса без GPU: склеенные таблицы контуров (<see cref="Tables"/> — их загружает в видеопамять UI-проход
-/// рендера), shaping HarfBuzz и метрики. Файлы читает вызывающий (<see cref="UiFontFile.Read"/>: из пака — рендер).
-/// Перенос CPU-части <c>Text/UiVectorFont.cs</c> SWORD 2eab13b; GPU-часть — в Render.
+/// Шрифты интерфейса без GPU: склеенные таблицы контуров (<see cref="Tables"/>), shaping HarfBuzz и метрики.
+/// GPU-часть — в Render.
 /// </summary>
 public sealed class UiFonts : IDisposable
 {

@@ -28,8 +28,8 @@
 клипа читается одним блоком, счётчик кадров сверяется с длиной потока до выделения памяти. Хеш скелета — FNV-1a SWORD
 (`SkeletonFile.ComputeHash`): по нему клипы пака находят свой скелет. Формат `.swskel` не перенесён — в паке его нет.
 
-Писатели = байты эталона: `ReferencePakWritersTests` (категория Content) — каждый `.swclip`, `.swskeleton`, `.swmesh`,
-`.swfont`, `.swtex` и `.swblood` (`Game.Data`) эталонного пака, прочитанный и записанный форматом SWORD2, — те же байты.
+Писатели = байты пака: `GamePakWritersTests` (категория Content) — каждый `.swclip`, `.swskeleton`, `.swmesh`,
+`.swfont`, `.swtex` и `.swblood` (`Game.Data`) пака игры, прочитанный и записанный заново, — те же байты.
 Новый формат пака — со своей строкой в этом тесте.
 
 Проверка: `tests/Sword.Engine.Formats.Tests`.

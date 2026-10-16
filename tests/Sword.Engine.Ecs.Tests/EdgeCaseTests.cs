@@ -109,10 +109,7 @@ public class EdgeCaseTests
         Assert.Equal(entities, w.EntityCount);
     }
 
-    /// <summary>
-    /// Запас буфера команд (<see cref="SystemSetup.ReserveCommands"/>) — первый пик (много Set и событий за один запуск после долгой тишины)
-    /// не растит буфер посреди игры; без запаса тот же пик выделяет. Результат барьера тот же.
-    /// </summary>
+    /// <summary>Запас буфера команд (<see cref="SystemSetup.ReserveCommands"/>): пик после тишины не растит буфер; без запаса — выделяет.</summary>
     [Fact]
     public void ReserveCommands_PeakAfterQuietTicks_DoesNotGrowBuffer()
     {

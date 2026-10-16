@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection.Emit;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 
@@ -74,11 +75,7 @@ public sealed class SpinModule(ulong throwTick = ulong.MaxValue) : IModule
         Simulation.Build(ConfigSet.Empty(), ["A", "B"], [new SpinModule(throwTick)]);
 }
 
-/// <summary>
-/// Профайлер CPU: зоны и их вложенность, периоды кадра и тика, кольцо, включение на границе периода,
-/// несогласованный конец зоны, 0 байт включённого, тик симуляции с профайлером — те же хеши, зоны стадий, систем, барьеров,
-/// инвариантов; исключение в системе бросает тик, следующий — чистый.
-/// </summary>
+/// <summary>Профайлер CPU: зоны, периоды кадра и тика, кольцо, 0 байт; тик с профайлером — те же хеши; исключение бросает только свой тик.</summary>
 public class ProfilerTests
 {
     private static void Busy(double microseconds)
@@ -105,10 +102,7 @@ public class ProfilerTests
         Assert.Throws<InvalidOperationException>(() => CpuProfiler.Off.SetEnabled(true));
     }
 
-    /// <summary>
-    /// Общий <see cref="CpuProfiler.Off"/> не пишется и периодами: его делят потоки (ветки <c>experiment.fork</c> — Parallel.For,
-    /// у каждой симуляции без своего профайлера — Off). Поля периода — закрытые, поэтому через отражение.
-    /// </summary>
+    /// <summary>Общий <see cref="CpuProfiler.Off"/> не пишется и периодами — его делят потоки; поля периода закрытые, поэтому через отражение.</summary>
     [Fact]
     public void Off_PeriodsDoNotWriteSharedState()
     {
@@ -231,7 +225,7 @@ public class ProfilerTests
         int z = p.Zone("z");
         p.BeginFrame(1);
         p.Begin(z);
-        p.SetEnabled(true);          // посреди кадра (точка обслуживания агента) — со следующего кадра
+        p.SetEnabled(true);          // посреди кадра (точка обслуживания инструмента) — со следующего кадра
         Assert.False(p.Enabled);
         Assert.True(p.Requested);
         p.End(z);
@@ -358,5 +352,38 @@ public class ProfilerTests
         Assert.Equal(0, p.Mismatches);
         Assert.Equal(0, p.Depth);
         Assert.Equal((6, 0), p.Count(ProfilePeriod.Tick));
+    }
+
+    /// <summary>
+    /// Прогрев до затишья JIT — шаги, пока методы процесса компилируются, затем ещё <c>quietMs</c> тишины; JIT не утихает (каждый шаг —
+    /// новый метод) — упор в предел по времени; шагов нет — сразу, «не утих».
+    /// </summary>
+    [Fact]
+    public void JitWarmup_WaitsForQuietJit_StopsAtLimit()
+    {
+        int compiled = 0;
+        var busy = JitWarmup.Run(() =>
+        {
+            var method = new DynamicMethod($"warm{compiled++}", typeof(int), Type.EmptyTypes);   // новый метод — JIT на каждом шаге
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4, compiled);
+            il.Emit(OpCodes.Ret);
+            ((Func<int>)method.CreateDelegate(typeof(Func<int>)))();
+            return true;
+        }, quietMs: 1000, maxSeconds: 0.3);
+        Assert.False(busy.Settled);
+        Assert.InRange(busy.Seconds, 0.3, 5);
+        Assert.True(busy.Steps > 1);
+
+        var quiet = JitWarmup.Run(() =>
+        {
+            Thread.Sleep(1);
+            return true;
+        }, quietMs: 60, maxSeconds: 5);
+        Assert.True(quiet.Settled, quiet.ToString());
+        Assert.InRange(quiet.Seconds, 0.06, 5);
+
+        var none = JitWarmup.Run(() => false);
+        Assert.Equal((0, false), (none.Steps, none.Settled));
     }
 }

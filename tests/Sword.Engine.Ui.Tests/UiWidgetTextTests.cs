@@ -26,9 +26,8 @@ public sealed class PakFonts : IDisposable
 }
 
 /// <summary>
-/// Виджеты с текстом на шрифтах пака: поле ввода (набор, слова, буфер обмена, двойной щелчок), числовое поле
-/// (Enter, Escape, щелчок мимо, мусор), подсказка, строка-сведение, кадр панели без выделений.
-/// Категория Content: нужен пак (<see cref="ContentLocator"/>); <c>verify.ps1 -SkipReference</c> их не запускает.
+/// Виджеты с текстом на шрифтах пака: поле ввода, числовое поле, подсказка, кадр панели без выделений. Категория Content:
+/// нужен пак (<see cref="ContentLocator"/>); <c>verify.ps1 -SkipReference</c> их не запускает.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class UiWidgetTextTests(PakFonts pak) : IClassFixture<PakFonts>
@@ -133,15 +132,14 @@ public sealed class UiWidgetTextTests(PakFonts pak) : IClassFixture<PakFonts>
         d.Frame(Widgets);
         Assert.True(changed);
         Assert.Equal(10f, value);
-        // поле правки — ID «подпись#edit», как в SWORD, но без склейки строк в кадре
+        // поле правки — ID «подпись#edit», без склейки строк в кадре
         Assert.Equal(UiEditExit.Commit, d.Ui.State<UiTextEdit>(d.Ui.Id("dmg#edit")).LastExit);
     }
 
     [Fact]
     public void NumberField_WithSliderOfSameLabel_EditSurvivesFrames()
     {
-        // Состояния ползунка, числа и его поля правки — под разными ID: в SWORD число и поле правки делили один ID,
-        // и State<T> каждый кадр подменял одно другим.
+        // Состояния ползунка, числа и его поля правки — под разными ID: с общим ID State<T> каждый кадр подменял бы одно другим.
         var d = Driver();
         float value = 1f;
         void Widgets(UiContext ui)

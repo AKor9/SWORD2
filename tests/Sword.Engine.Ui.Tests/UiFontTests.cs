@@ -4,7 +4,7 @@ using Sword.Engine.Formats;
 
 namespace Sword.Engine.Ui.Tests;
 
-/// <summary>Склейка шрифтов в общие таблицы (<c>UiFontMergeTests</c> SWORD 2eab13b) на синтетических шрифтах.</summary>
+/// <summary>Склейка шрифтов в общие таблицы на синтетических шрифтах.</summary>
 public sealed class UiFontMergeTests
 {
     private const int Bands = UiVectorFontFormat.BandsPerAxis;
@@ -77,7 +77,7 @@ public sealed class UiFontMergeTests
     [Fact]
     public void RoleList_IsNotARole_AndRoleLimitIsFaceCount()
     {
-        // SWORD: Enum.TryParse складывал «Label,Head» в NumLight (2 | 1) — опечатка давала шрифту чужую роль.
+        // Enum.TryParse сложил бы «Label,Head» в NumLight (2 | 1) — опечатка дала бы шрифту чужую роль.
         Assert.False(UiFaces.TryParse("Label,Head", out _));
         Assert.False(UiFaces.TryParse("Body, Head", out _));
         Assert.False(UiFaces.TryParse("", out _));
@@ -113,8 +113,8 @@ public sealed class UiFontMergeTests
 }
 
 /// <summary>
-/// Текст на шрифтах пака контента (эталонный пак SWORD): shaping HarfBuzz, метрики, квады текста, кадр без выделений.
-/// Категория Content: нужен пак (<see cref="ContentLocator"/>); <c>verify.ps1 -SkipReference</c> их не запускает.
+/// Текст на шрифтах пака: shaping HarfBuzz, метрики, квады, кадр без выделений. Категория Content: нужен пак
+/// (<see cref="ContentLocator"/>); <c>verify.ps1 -SkipReference</c> их не запускает.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class UiTextTests : IDisposable

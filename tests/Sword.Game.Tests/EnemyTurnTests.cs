@@ -1,12 +1,8 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Animation;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
-using Sword.Game.Agent;
 using Sword.Game.Ai;
 using Sword.Game.Animation;
 using Sword.Game.Contracts;
@@ -16,10 +12,8 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Поворот врага на месте — слой действий аниматора (<see cref="AnimatorAction"/>, <see cref="ActionLayer"/>),
-/// ветка не-<c>Agile</c> <c>KinematicSteer</c> (<see cref="RootSteerSystem.SteerSteady"/>), команда врагу
-/// (<see cref="EnemyCommand"/>), инвариант <c>animation.actions</c>. Тестовый контент: клипы поворота — 90° влево и вправо,
-/// разворот, 1 с, корень чуть вперёд (<see cref="TestAssets"/>). На паке контента — сценарий <c>turn</c> манифеста <c>enemies</c>.
+/// Поворот врага на месте — слой действий (<see cref="ActionLayer"/>), ветка не-<c>Agile</c> (<see cref="RootSteerSystem.SteerSteady"/>),
+/// команда врагу, инвариант <c>animation.actions</c>. Клипы поворота — 90° влево, вправо и разворот (<see cref="TestAssets"/>).
 /// </summary>
 public sealed class EnemyTurnTests
 {
@@ -369,71 +363,5 @@ public sealed class EnemyTurnTests
         var first = sim.Invariants.Recent()[0];
         Assert.Equal(("animation.actions", 25ul), (first.Id, first.Tick));
         Assert.Contains(expected, first.Details);
-    }
-
-    // ── агент ───────────────────────────────────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task Agent_DrivesEnemy_SeesTurnInPoseEntityGetAndConditions()
-    {
-        var sim = Create();
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            var before = await Call("entity.get", new JsonObject { ["entity"] = "enemy 1", ["components"] = new JsonArray("Transform", "AnimatorAction") });
-            Assert.Contains("\"Kind\":\"None\"", before.ToJsonString());
-            float facing = before["components"]!["Transform"]!["Facing"]!.GetValue<float>();
-            // Разворот врага руками: курс-цель на 3 рад, стоять — 60 тиков.
-            await Call("command.send", new JsonObject
-            {
-                ["command"] = "EnemyCommand",
-                ["fields"] = new JsonObject { ["Slot"] = 1, ["FacingGoal"] = facing + 3 },
-                ["repeat"] = 60,
-            });
-            var met = await Call("time.runUntil", new JsonObject
-            {
-                ["condition"] = JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"field":"AnimatorAction.Kind","equals":"Turn"},{"field":"AnimatorAction.Weight","greaterThan":0.5}]}"""),
-                ["maxTicks"] = 60,
-            });
-            Assert.True(met["met"]!.GetValue<bool>(), met.ToJsonString());
-            var pose = await Call("anim.pose", new JsonObject { ["entity"] = "enemy 1", ["joints"] = new JsonArray("pelvis") });
-            var action = pose["action"]!;
-            Assert.Equal("Turn", action["kind"]!.GetValue<string>());
-            Assert.Equal("sword_1h/1HM_Turn180", action["clipName"]!.GetValue<string>());
-            Assert.True(action["yawDelta"]!.GetValue<double>() > 0);
-            Assert.InRange(action["weight"]!.GetValue<double>(), 0.5, 1);
-            var player = await Call("anim.pose", new JsonObject { ["joints"] = new JsonArray("pelvis") });
-            Assert.Equal("None", player["action"]!["kind"]!.GetValue<string>());   // слой у игрока есть, действий нет
-            var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "AnimatorAction" });
-            Assert.Contains("YawDelta", describe.ToJsonString());
-            Assert.Contains("animation.actions", (await Call("invariant.list")).ToJsonString());
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
     }
 }

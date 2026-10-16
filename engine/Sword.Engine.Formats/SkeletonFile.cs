@@ -3,11 +3,8 @@ using System.Text;
 namespace Sword.Engine.Formats;
 
 /// <summary>
-/// Скелет библиотеки анимаций (.swskeleton, в паке — <c>skeletons/&lt;id&gt;.swskeleton</c>): имена и родители суставов.
-/// Клипы ссылаются на скелет по id и хешу (<see cref="Hash"/>) — клип чужого скелета не загрузится молча.
-///
-/// Формат байт в байт — <c>SkeletonAsset</c> SWORD 2eab13b: «SWSN», версия 1, id, число суставов, на сустав — имя и
-/// родитель, «NSWS». Строки — как у <see cref="BinaryWriter.Write(string)"/> (длина 7-битным кодом, UTF-8).
+/// Скелет библиотеки анимаций (.swskeleton): имена и родители суставов. Клипы ссылаются на скелет по id и <see cref="Hash"/> —
+/// клип чужого скелета не загрузится молча. Формат: «SWSN», версия 1, id, суставы (имя, родитель), «NSWS».
 /// </summary>
 public sealed class SkeletonFile
 {
@@ -20,7 +17,7 @@ public sealed class SkeletonFile
     public string[] JointNames = [];
     public int[] JointParents = [];
 
-    /// <summary>FNV-1a по именам и родителям (<c>SkeletonAsset.ComputeHash</c> SWORD) — по нему клип узнаёт свой скелет.</summary>
+    /// <summary>FNV-1a по именам и родителям — по нему клип узнаёт свой скелет.</summary>
     public uint Hash => ComputeHash(JointNames, JointParents);
 
     public static uint ComputeHash(string[] names, int[] parents)

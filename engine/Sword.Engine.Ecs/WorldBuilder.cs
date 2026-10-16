@@ -3,14 +3,9 @@ using System.Reflection;
 namespace Sword.Engine.Ecs;
 
 /// <summary>
-/// Сборка мира: компоненты, события, ресурсы, стадии и системы по стадиям. Регистрация явная; номера типов — по
-/// полному имени типа, от порядка регистрации не зависят. При <see cref="Build"/> планировщик:
-/// <list type="bullet">
-/// <item>заводит журналы только для срабатываний, на которые кто-то подписан;</item>
-/// <item>проверяет каждую пару производитель → потребитель: производитель в той же или более поздней стадии, чем
-/// потребитель, — ошибка, если потребитель не объявил <see cref="SystemSetup.NextTickOk{TTrigger}"/>;</item>
-/// <item>упорядочивает системы стадии по <c>After/Before</c> (порядок регистрации — только развязка), цикл — ошибка.</item>
-/// </list>
+/// Сборка мира. При <see cref="Build"/> планировщик заводит журналы только под подписки, проверяет пары
+/// производитель → потребитель (производитель не раньше потребителя без <see cref="SystemSetup.NextTickOk{TTrigger}"/> —
+/// ошибка) и упорядочивает системы стадии по <c>After/Before</c> (цикл — ошибка).
 /// </summary>
 public sealed class WorldBuilder
 {
@@ -51,9 +46,8 @@ public sealed class WorldBuilder
     }
 
     /// <summary>
-    /// Вид только для чтения на данные владельца мира, которых нет в ECS (пул поз подсистемы и т. п.): наблюдатели
-    /// симуляции получают его через <see cref="WorldReader.View{TView}"/>. Тип вида — интерфейс, и его члены обязаны
-    /// только читать (значения и <c>ReadOnlySpan</c>): так <see cref="WorldReader"/> остаётся без путей изменить мир.
+    /// Вид только для чтения на данные владельца мира вне ECS (пул поз и т. п.) — для <see cref="WorldReader.View{TView}"/>.
+    /// Тип вида — интерфейс, члены которого только читают: так <see cref="WorldReader"/> не может изменить мир.
     /// </summary>
     public WorldBuilder ReadView<TView>(TView view) where TView : class, IReadView
     {
@@ -69,23 +63,21 @@ public sealed class WorldBuilder
     private readonly List<Action<World>> _hooks = [];
 
     /// <summary>
-    /// Хук добавления компонента <typeparamref name="T"/> (раздел 5 плана): завести ресурс подсистемы, когда компонент
-    /// появился у сущности, и записать его хэндл в компонент. Только время жизни ресурсов: зовётся на барьере после
-    /// журналов, структуру мира не меняет, повторный вход — исключение (WorldHooks.cs). Один на тип: у ресурса один владелец.
+    /// Хук добавления <typeparamref name="T"/>: завести ресурс подсистемы и записать хэндл в компонент. Зовётся на барьере
+    /// после журналов, структуру мира не меняет. Один на тип: у ресурса один владелец.
     /// </summary>
-    /// <param name="module">Модуль-владелец (описание мира); null — ядро.</param>
-    public WorldBuilder OnAdd<T>(AddHook<T> hook, string? module = null) where T : unmanaged
+    public WorldBuilder OnAdd<T>(AddHook<T> hook) where T : unmanaged
     {
         ArgumentNullException.ThrowIfNull(hook);
-        _hooks.Add(w => w.SetHook<T>(hook, null, module));
+        _hooks.Add(w => w.SetHook<T>(hook, null));
         return this;
     }
 
     /// <summary>Хук снятия компонента <typeparamref name="T"/> (снят командой или сущность удалена): освободить ресурс подсистемы.</summary>
-    public WorldBuilder OnRemove<T>(RemoveHook<T> hook, string? module = null) where T : unmanaged
+    public WorldBuilder OnRemove<T>(RemoveHook<T> hook) where T : unmanaged
     {
         ArgumentNullException.ThrowIfNull(hook);
-        _hooks.Add(w => w.SetHook<T>(null, hook, module));
+        _hooks.Add(w => w.SetHook<T>(null, hook));
         return this;
     }
 
@@ -141,10 +133,8 @@ public sealed class WorldBuilder
         return world;
     }
 
-    /// <summary>
-    /// Номера типов — по полному имени: одинаковые при любом порядке регистрации. Два разных типа с одним полным именем
-    /// (из разных сборок) — ошибка: номер зависел бы от порядка регистрации, а стабильное имя было бы неоднозначным.
-    /// </summary>
+    /// <summary>Номера типов — по полному имени. Два типа с одним полным именем из разных сборок — ошибка: номер зависел бы
+    /// от порядка регистрации.</summary>
     private static DataType[] Number(IEnumerable<DataType> types, string kind)
     {
         var sorted = types.OrderBy(t => t.StableName, StringComparer.Ordinal).ToArray();
@@ -182,13 +172,11 @@ public sealed class WorldBuilder
 
     private static void RunContinuous(World world, Registration r, ulong tick)
     {
-        r.Buffer.Cause = CauseId.None;
         ((IContinuousSystem)r.System).Run(new SystemContext(world, r, tick));
-        r.Buffer.Cause = CauseId.None;
         r.AdvanceCursors();
     }
 
-    private static void RunReactive<TTrigger>(World world, Registration r, ulong tick) where TTrigger : struct, ICaused
+    private static void RunReactive<TTrigger>(World world, Registration r, ulong tick) where TTrigger : struct
     {
         var c = r.Cursors[0];
         var triggers = ((Journal<TTrigger>)c.Journal).Since(c.Cursor);
@@ -199,17 +187,12 @@ public sealed class WorldBuilder
             if (r.Cursors.Count > 1) r.AdvanceCursors();
             return;
         }
-        // Причина по умолчанию: одно срабатывание — его причина; несколько — система ставит ctx.Cause сама на каждое.
-        r.Buffer.Cause = world.Causality is not null && triggers.Length == 1 ? triggers[0].Cause : CauseId.None;
         ((IReactiveSystem<TTrigger>)r.System).React(new SystemContext(world, r, tick), triggers);
-        r.Buffer.Cause = CauseId.None;
         r.AdvanceCursors();
     }
 
-    /// <summary>
-    /// Пара производитель → потребитель: стадия производителя раньше стадии потребителя — реакция в том же тике;
-    /// иначе — в следующем, и без <c>NextTickOk</c> это ошибка сборки мира.
-    /// </summary>
+    /// <summary>Стадия производителя раньше стадии потребителя — реакция в том же тике; иначе в следующем, и без
+    /// <c>NextTickOk</c> это ошибка сборки.</summary>
     private void CheckProducers(World world, List<Registration> registrations)
     {
         var errors = new List<string>();

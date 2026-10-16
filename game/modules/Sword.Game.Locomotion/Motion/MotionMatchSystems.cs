@@ -8,17 +8,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Системы Motion Matching игрока (<c>locomotion.player = mm</c>): корень и курс ведёт контроллер ядра, MM выбирает и проигрывает позу.
-/// <list type="table">
-/// <item><term>сборка мира</term><description>игроку — состояние MM, модель контроллера (<see cref="SteerModel"/>) и своя поза постройки
-/// (<see cref="FighterStartPose"/> — кадр стойки базы): ядро ставит его капсулы и клинок по ней (<see cref="MotionMatchSetupSystem.PlaceWorldBuilt"/>).</description></item>
-/// <item><term>Gameplay</term><description><c>locomotion.mm-setup</c> — по <c>Added&lt;Fighter&gt;</c> игрока: состояние с нуля.</description></item>
-/// <item><term>Animation</term><description><c>locomotion.mm</c> — после <c>core.action-snapshot</c>, до <c>core.animator-pose</c>: темп,
-/// поиск по расписанию или сразу, задание пулу — шаг проигрывателя прямо в позу бойца (<see cref="PoseRef"/>).</description></item>
-/// <item><term>Movement</term><description><c>locomotion.mm-history</c> — после <c>core.root-collision</c>: корень тика в историю, вид
-/// состояния после шага.</description></item>
-/// <item><term>End</term><description><c>locomotion.mm-release</c> — снятое состояние возвращает проигрыватель.</description></item>
-/// </list>
+/// Системы Motion Matching игрока (<c>locomotion.player = mm</c>): корень и курс ведёт контроллер ядра, MM выбирает
+/// и проигрывает позу. Порядок: mm-setup (Gameplay) → mm (Animation) → mm-history (Movement) → mm-release (End).
 /// </summary>
 public static class MotionMatchSystems
 {
@@ -27,12 +18,9 @@ public static class MotionMatchSystems
 }
 
 /// <summary>
-/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c> игрока (<c>locomotion.mm-setup</c>): построенный (заново) игрок начинает Motion Matching
-/// с нуля — флаг <see cref="MotionMatchState.Restart"/> (проигрыватель и историю заводит заново <c>locomotion.mm</c> этого же тика: хэндлы
-/// берёт не реакция — иначе снятый на барьере появления боец терял бы их). Сброс — по событию постройки (R, команда сцены, пересборка трупа,
-/// сборка мира), а не по «телепорту». Мёртвого реакция не касается: он оживает только постройкой. Игроку, созданному командой (сборка мира
-/// ставит всё сразу; игрока никто не удаляет, поэтому командой он не создаётся), — состояние, модель контроллера и поза постройки командой:
-/// его тела в тике создания встали бы ещё по общей позе постройки.
+/// Gameplay, по <c>Added&lt;Fighter&gt;</c> игрока: построенный (заново) игрок начинает MM с нуля — флаг
+/// <see cref="MotionMatchState.Restart"/>; хэндлы берёт <c>locomotion.mm</c> этого же тика, не реакция (иначе снятый на барьере
+/// появления боец терял бы их). Игроку, созданному командой, ставит и модель контроллера, и позу постройки.
 /// </summary>
 public sealed class MotionMatchSetupSystem(MotionMatchRuntime runtime) : IReactiveSystem<Added<Fighter>>
 {
@@ -47,7 +35,6 @@ public sealed class MotionMatchSetupSystem(MotionMatchRuntime runtime) : IReacti
             var e = added[i].Entity;
             // Боец построен дважды за срабатывание (сборка мира и сброс в тике 0) — одна команда, по последней записи.
             if (!world.IsAlive(e) || !world.Has<PlayerTag>(e) || Later(added, i)) continue;
-            ctx.Cause = added[i].Cause;   // причина постройки бойца — родитель состояния MM (state.why)
             if (world.TryGet<MotionMatchState>(e, out var old))
             {
                 old.Restart = true;
@@ -68,9 +55,8 @@ public sealed class MotionMatchSetupSystem(MotionMatchRuntime runtime) : IReacti
     }
 
     /// <summary>
-    /// Сборка мира (<c>OnWorldBuilt</c> модуля — после бойцов ядра, до <c>OnWorldReady</c>, где ядро ставит тела по позе постройки): игроку —
-    /// состояние MM с нуля, модель контроллера (её пишет <c>core.root-steer</c> с первого тика) и своя поза постройки — кадр
-    /// <see cref="MotionMatchRuntime.StartFrame"/>: первый шаг проигрывателя выводит ровно его, капсулы в первом тике не прыгают.
+    /// Сборка мира (до <c>OnWorldReady</c>, где ядро ставит тела по позе постройки): игроку — состояние MM, модель контроллера
+    /// и поза постройки — кадр <see cref="MotionMatchRuntime.StartFrame"/>, чтобы капсулы в первом тике не прыгали.
     /// </summary>
     public static void PlaceWorldBuilt(World world, MotionMatchRuntime runtime)
     {
@@ -88,20 +74,11 @@ public sealed class MotionMatchSetupSystem(MotionMatchRuntime runtime) : IReacti
 }
 
 /// <summary>
-/// Animation, после <c>core.action-snapshot</c> (снимок позы прошлого тика — первым в очереди) и до <c>core.animator-pose</c> (слой действий
-/// поверх): шаг Motion Matching бойца с <see cref="MotionMatchState"/> — одно задание пулу поз (<see cref="PosePool.Motion"/>) прямо в его
-/// позу <see cref="PoseRef"/> (своих поз у MM нет: выход и скорости выхода держит проигрыватель). Мёртвого не трогает (<c>Without&lt;Dead&gt;</c>).
-///
-/// Шаг: построен (заново) — проигрыватель заново, история пуста, кадр позы постройки без инерциализации (выход — поза постройки); иначе —
-/// темп (скорость корня / скорость корня клипа текущего кадра, 1 ± размах, сглаживание <see cref="GaspMotion.RateHalflife"/>), поиск (раз в
-/// <c>round(период × частота)</c> тиков, сразу — при скачке цели и в первом тике после действия всем телом; под действием всем телом —
-/// без поиска), переход — если нашёлся не текущий кадр дешевле продолжения больше чем на порог смены (<see cref="Switches"/>); задание:
-/// продвижение на dt × темп, запрошенный переход.
-///
-/// Запрос: «сейчас» — корень в конце тика по модели контроллера (корень после прошлого тика + скорость тика·dt, курс тика: прибавка рывка,
-/// сдвиг клипом действия и столкновения — вне модели), будущее — модель контроллера тика (<see cref="SteerModel"/> → <see cref="TrajectoryModel"/>),
-/// прошлое — история корня после столкновений, масштаб данных — <see cref="MotionMatchRuntime.DataScale"/>. Текущий кадр — ближний к
-/// проигрывателю, кадр выхода — его вход. Память не выделяет.
+/// Animation, после <c>core.action-snapshot</c> и до <c>core.animator-pose</c>: шаг MM — одно задание пулу поз
+/// (<see cref="PosePool.Motion"/>) прямо в <see cref="PoseRef"/> бойца; мёртвого не трогает. Шаг: темп, поиск (по расписанию,
+/// сразу — при скачке цели и после действия всем телом), переход по порогу (<see cref="Switches"/>), продвижение на dt × темп.
+/// Запрос: «сейчас» — корень в конце тика по модели контроллера, будущее — <see cref="SteerModel"/>, прошлое — история корня.
+/// Память не выделяет.
 /// </summary>
 public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousSystem
 {
@@ -177,8 +154,8 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
     }
 
     /// <summary>
-    /// Постройка (заново): проигрыватель заново (тот же слот — поколение +1: свободный выдаётся первым), история пуста, счётчики с нуля; кадр
-    /// позы постройки без инерциализации — выход тика ровно поза постройки. Поиск — в следующем тике (счётчик «просрочен»).
+    /// Постройка (заново): проигрыватель заново (тот же слот, поколение +1), история пуста; кадр позы постройки без
+    /// инерциализации. Поиск — в следующем тике.
     /// </summary>
     private void Restart(ref MotionMatchState s, float facing, in AnimatorMotion motion, PoseHandle pose, PosePool pool, in LocomotionRules rules,
         int period, float dt)
@@ -196,8 +173,8 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
     }
 
     /// <summary>
-    /// Поиск: запрос по модели контроллера и истории, лучший кадр (без скидки продолжению); сменяет текущий по порогу смены
-    /// (<see cref="Switches"/>) — переход (кадр), иначе −1. Стоя клип поворота на месте поиск не выбирает — его ставит поворот на месте.
+    /// Поиск: лучший кадр по запросу; переход (кадр), если сменяет текущий по <see cref="Switches"/>, иначе −1. Стоя клип
+    /// поворота на месте поиск не выбирает — его ставит поворот на месте.
     /// </summary>
     private int Search(ref MotionMatchState s, in Transform t, Vector3 velocity, in SteerModel steer, int current, in LocomotionRules rules,
         in SimTime time, bool standing)
@@ -229,9 +206,8 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
     }
 
     /// <summary>
-    /// Темп: скорость корня / скорость корня клипа в текущем кадре в 1 ± <paramref name="range"/> (хоть одна медленнее
-    /// <see cref="GaspMotion.StandSpeed"/> — 1), к нему — экспонентой с полупериодом <see cref="GaspMotion.RateHalflife"/>, итог — в тех же
-    /// пределах (ручка размаха могла сузиться).
+    /// Темп: скорость корня / скорость корня клипа в 1 ± <paramref name="range"/> (хоть одна медленнее
+    /// <see cref="GaspMotion.StandSpeed"/> — 1), к нему — экспонентой с полупериодом <see cref="GaspMotion.RateHalflife"/>.
     /// </summary>
     public static float Rate(float rate, Vector3 velocity, Vector3 clipVelocity, float range, float dt)
     {
@@ -243,8 +219,8 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
     }
 
     /// <summary>
-    /// Смена кадра (один механизм — порог смены): нашёлся кадр, не текущий, и текущий не искомый (у него нет полного будущего — поиск
-    /// уводит из него) или найденный дешевле продолжения больше чем на <paramref name="gain"/>. Ничья и выигрыш не больше порога — остаться.
+    /// Смена кадра: найден не текущий и текущий не искомый (нет полного будущего) или найденный дешевле продолжения больше
+    /// чем на <paramref name="gain"/>.
     /// </summary>
     public static bool Switches(in MotionMatch match, int current, bool currentSearchable, float gain) =>
         match.Frame >= 0 && match.Frame != current && (!currentSearchable || match.Cost < match.ContinuationCost - gain);
@@ -266,10 +242,8 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
 }
 
 /// <summary>
-/// Movement, после <c>core.root-collision</c> (<c>locomotion.mm-history</c>): корень живого бойца на MM после столкновений — окончательный за
-/// тик (отдача меняет только скорость следующего тика) — в историю корня под номером тика; прибавка рывка в нём есть (положение), отдачи —
-/// нет (она в <see cref="RootVelocity"/> следующего тика). Затем вид состояния после шага (кадр, клип, доля, переходы — пул исполнил задания
-/// в <c>core.animation-tick</c>).
+/// Movement, после <c>core.root-collision</c>: окончательный корень тика живого бойца (с рывком, без отдачи) — в историю
+/// корня под номером тика; затем вид состояния после шага.
 /// </summary>
 public sealed class MotionMatchHistorySystem(MotionMatchRuntime runtime) : IContinuousSystem
 {

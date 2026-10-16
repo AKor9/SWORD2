@@ -261,6 +261,10 @@ public sealed record Fluid2DParams
         if (!(Extents.X > 0 && Extents.Y > 0 && Extents.Z >= 0)) throw new ArgumentOutOfRangeException(nameof(Extents), Extents, "площадка > 0");
         if (!(BrushSize > 0)) throw new ArgumentOutOfRangeException(nameof(BrushSize), BrushSize, "размер кисти > 0");
         if (!(BrushVelocityClamp >= 0)) throw new ArgumentOutOfRangeException(nameof(BrushVelocityClamp), BrushVelocityClamp, "предел толчка ≥ 0");
+        if (!(FluidDensityContrast > 0) || !float.IsFinite(FluidDensityContrast))
+            throw new ArgumentOutOfRangeException(nameof(FluidDensityContrast), FluidDensityContrast, "контраст выхода > 0 (pow(0, 0) на GPU — NaN)");
+        if (!(VeloDirNoiseSize > 0) || !float.IsFinite(VeloDirNoiseSize))
+            throw new ArgumentOutOfRangeException(nameof(VeloDirNoiseSize), VeloDirNoiseSize, "размер направленного шума > 0");
         if (BrushMaxPoints is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(BrushMaxPoints), BrushMaxPoints, "точек кисти 1…4096");
         if (BrushMaxEntries < BrushMaxPoints || BrushMaxEntries > 65535)
             throw new ArgumentOutOfRangeException(nameof(BrushMaxEntries), BrushMaxEntries, "записей бининга — от числа точек до 65535");

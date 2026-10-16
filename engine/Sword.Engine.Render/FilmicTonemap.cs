@@ -4,9 +4,8 @@ using System.Numerics;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// S-кривая Filmic в log10: носок и плечо — логистические участки, между ними прямая с наклоном <see cref="Slope"/>, склейка
-/// smoothstep; вход 0.18 даёт 0.18. Умолчания — UE 5.8 (<see cref="Default"/>); рендер рисует ими, другие кривые — только
-/// CPU-эталону (<see cref="FilmicTonemap.Display"/>). Точки стыка выводятся здесь, шейдер тонмапа получает их корневыми константами.
+/// S-кривая Filmic в log10: носок и плечо — логистические участки, между ними прямая, склейка smoothstep; 0.18 → 0.18.
+/// Умолчания — UE 5.8; точки стыка выводятся здесь и уходят в шейдер корневыми константами.
 /// </summary>
 public readonly record struct FilmicCurve(float Slope, float Toe, float Shoulder, float BlackClip, float WhiteClip)
 {
@@ -14,10 +13,7 @@ public readonly record struct FilmicCurve(float Slope, float Toe, float Shoulder
     public static FilmicCurve Default => new(0.88f, 0.55f, 0.26f, 0f, 0.04f);
 
     /// <summary>Точки стыка и масштабы участков — ровно те числа, что уходят в шейдер.</summary>
-    /// <exception cref="ArgumentException">
-    /// Вырожденная кривая (иначе в точках стыка — NaN или бесконечность): число не конечно, наклон ≤ 0, масштаб носка
-    /// 1 + BlackClip − Toe или плеча 1 + WhiteClip − Shoulder ≤ 0, носок не может провести 0.18 в 0.18.
-    /// </exception>
+    /// <exception cref="ArgumentException">Вырожденная кривая: в точках стыка вышли бы NaN или бесконечность.</exception>
     internal Constants Derive()
     {
         double slope = Slope, toe = Toe, shoulder = Shoulder, black = BlackClip, white = WhiteClip;
@@ -56,15 +52,10 @@ public readonly record struct FilmicCurve(float Slope, float Toe, float Shoulder
 }
 
 /// <summary>
-/// Тонмап Filmic по описанию цепочки UE 5.8 (artifacts/research/fluidninja/fire-smoke-research.md §3.10а), CPU-эталон шейдера
-/// <c>common/post.hlsl</c>: те же шаги в том же порядке и те же числа во float (матрицы и константы уходят в шейдер из
-/// <see cref="Contribute"/>). Вход — линейный цвет сцены (Rec.709, D65) × экспозиция, выход — sRGB-кодированный цвет 0…1.
-///
-/// Шаги: вход зажат в 0…65504 (предел half; NaN — 0) → AP1 (с переходом D65 → D60 по Брэдфорду) → расширение гаммы
-/// (яркие насыщенные — к гамме между P3 и AP1, ExpandGamut 1) → синяя коррекция 0.6 → кривая (в AP0: «glow» и «red
-/// modifier» ACES; в AP1: обрезка ≥ 0, десатурация к яркости AP1 0.96, S-кривая по каналам, десатурация 0.93, обрезка ≥ 0)
-/// с долей ToneCurveAmount 1 → обратная синяя коррекция → sRGB (обрезка ≥ 0) → кодирование sRGB. Баланс белого 6500 K и
-/// цветокоррекция с умолчаниями — тождество, их шагов нет.
+/// Тонмап Filmic по цепочке UE 5.8 — CPU-эталон <c>common/post.hlsl</c>: те же шаги и те же числа во float.
+/// Вход — линейный цвет сцены (Rec.709, D65) × экспозиция, выход — sRGB-кодированный 0…1.
+/// Шаги: зажим 0…65504 (NaN — 0) → AP1 (D65 → D60 по Брэдфорду) → расширение гаммы → синяя коррекция → кривая
+/// (AP0: «glow», «red modifier»; AP1: десатурации и S-кривая) → обратная синяя коррекция → sRGB → кодирование sRGB.
 /// </summary>
 public static class FilmicTonemap
 {
@@ -89,8 +80,7 @@ public static class FilmicTonemap
     /// <summary>Нижний предел канала под log10 кривой: у нуля логарифма нет, а носок там и так ноль.</summary>
     private const float LogFloor = 1e-10f;
 
-    // Числа ACES: пределы насыщенности у нуля (каналы, делитель), сигмоида доли «glow» по насыщенности (середина, ширина), тон —
-    // градусы в радиане и √3. Литералы те же, что стояли в шейдере: так его код не меняется.
+    // Числа ACES: пределы насыщенности у нуля, сигмоида доли «glow», градусы в радиане и √3 — те же литералы, что в шейдере.
     private const float AcesTiny = 1e-10f, AcesSaturationFloor = 1e-2f, GlowSaturationMid = 0.4f, GlowSaturationWidth = 0.2f;
     private const float DegreesPerRadian = 57.29577951f, Sqrt3 = 1.7320508f;
 
@@ -191,10 +181,8 @@ public static class FilmicTonemap
     }
 
     /// <summary>
-    /// Линейный цвет сцены, который цепочка выведет на экран цветом <paramref name="display"/> (sRGB-кодированный, 0…1) — обратная
-    /// задача методом Ньютона по логарифму цвета (шаг не больше e раз). Канал 0 на экране допустим: сцена в нём — малое положительное
-    /// число (логарифм идёт вниз, пока экран не сойдётся). Для переноса цветов, подобранных под экран (очистка, фон и туман ночи), в
-    /// линейную сцену.
+    /// Линейный цвет сцены, который цепочка выведет цветом <paramref name="display"/> — обратная задача Ньютоном по логарифму.
+    /// Для переноса цветов, подобранных под экран, в линейную сцену.
     /// </summary>
     public static Vector3 SceneFor(Vector3 display, float exposure, FilmicCurve? curve = null)
     {
@@ -313,8 +301,7 @@ public static class FilmicTonemap
         yc <= 2f / 3f * GlowMid ? gain : yc >= 2 * GlowMid ? 0 : gain * (GlowMid / yc - 0.5f);
 
     /// <summary>
-    /// Тон в градусах, отсчитанный от красного (−180…180); у серого — 0. Перевода «> 180 → −360» ACES нет: atan2 уже в [−π, π], а
-    /// округление float даёт за 180 не больше ULP — там вес красного (от |тон|) и так 0 (он нулевой с |тон| ≥ 67.5°).
+    /// Тон в градусах от красного (−180…180); у серого — 0. Перевод «> 180 → −360» не нужен: atan2 уже в [−π, π].
     /// </summary>
     private static float CenteredHue(Vector3 c)
     {

@@ -1,10 +1,7 @@
 namespace Sword.Engine.Content;
 
-/// <summary>
-/// Запечённый контент: пак (<see cref="PakSource"/>) у игры, каталог (<see cref="DirectorySource"/>) у инструментов
-/// и тестов.
-/// Пути — относительные, через «/» (<see cref="ContentPath"/>), одинаковые для всех вариантов.
-/// </summary>
+/// <summary>Запечённый контент: пак (<see cref="PakSource"/>) у игры, каталог (<see cref="DirectorySource"/>) у
+/// инструментов и тестов. Пути — относительные, через «/» (<see cref="ContentPath"/>).</summary>
 public interface IContentSource
 {
     /// <summary>Каталог или файл пака — для сообщений.</summary>

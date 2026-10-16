@@ -115,10 +115,8 @@ public sealed class PoseTests
     }
 
     /// <summary>
-    /// Память смешивания по маске: повороты сустава в двух позах расходятся через 180° при частичном весе — кратчайшая дуга
-    /// (без памяти) перескакивает ((1 − вес)·360° = 36° при весе 0,9 за задание), с памятью итог доворачивает не больше
-    /// <see cref="PosePool.MaxArcStep"/> за задание и догоняет кратчайшую дугу; до перескока и при быстром, но непрерывном движении
-    /// (вход веса от 0 до 1 за 4 задания) — побитово как без памяти.
+    /// Повороты в двух позах расходятся через 180° при частичном весе: без памяти кратчайшая дуга перескакивает, с памятью итог
+    /// доворачивает не больше <see cref="PosePool.MaxArcStep"/> за задание; без перескока — побитово как без памяти.
     /// </summary>
     [Fact]
     public void BlendMasked_Memory_ArcFlipFollowedByStep_SameOtherwise()
@@ -199,10 +197,7 @@ public sealed class PoseTests
         }
     }
 
-    /// <summary>
-    /// Переход от снимка — смешивание по маске всего тела (вес 1 у каждого сустава) с памятью: без перескока дуги — побитово как
-    /// <see cref="PosePool.Blend"/> на гаснущем весе перехода.
-    /// </summary>
+    /// <summary>Переход от снимка — смешивание по маске всего тела с памятью: без перескока дуги — побитово <see cref="PosePool.Blend"/>.</summary>
     [Fact]
     public void BlendMasked_FullMaskWithMemory_EqualsBlend_BitForBit()
     {
@@ -463,10 +458,7 @@ public sealed class PoseTests
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
 
-    /// <summary>
-    /// Запас памяти пула (<see cref="PosePool.Reserve"/>) — рост посреди игры (выдача, освобождение, удвоение ёмкости, очередь заданий) не
-    /// выделяет памяти, а логика та же, что без запаса: ёмкость, номера и поколения поз, порядок свободных слотов — шаг в шаг.
-    /// </summary>
+    /// <summary>Рост пула с запасом (<see cref="PosePool.Reserve"/>) не выделяет, а логика та же: ёмкость, номера, поколения, свободные слоты.</summary>
     [Fact]
     public void Reserve_GrowthWithoutAllocations_SameLogicAsWithout()
     {

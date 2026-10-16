@@ -4,8 +4,8 @@ using System.Numerics;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// Настройки bloom (<see cref="Renderer.Bloom"/>): включён ли, интенсивность (BloomIntensity UE) и порог (BloomThreshold UE — яркость
-/// входа тонмапа, с которой пиксель начинает светиться; −1 и меньше — без порога, светится всё). Интенсивность 0 — как выключен.
+/// Настройки bloom: интенсивность (UE BloomIntensity; 0 — как выключен) и порог по яркости входа тонмапа
+/// (UE BloomThreshold; −1 и меньше — без порога).
 /// </summary>
 public readonly record struct BloomSettings(bool Enabled, float Intensity, float Threshold)
 {
@@ -19,10 +19,7 @@ public readonly record struct BloomSettings(bool Enabled, float Intensity, float
     public bool Active => Enabled && Intensity > 0;
 }
 
-/// <summary>
-/// Bloom на снимке: настройки кадра и добавка bloom ко входу тонмапа (цвет bloom × экспозиция, яркость Rec.709) по цели ½ экрана —
-/// максимум, среднее, пикселей с NaN или бесконечностью.
-/// </summary>
+/// <summary>Bloom на снимке: настройки и яркость добавки bloom ко входу тонмапа по цели ½ экрана.</summary>
 public sealed record BloomCapture(BloomSettings Settings, int Width, int Height, float MaxLuminance, float MeanLuminance, int NonFinite)
 {
     /// <summary>Добавка в ложных цветах той же шкалы, что карта HDR (<see cref="HdrCapture.Path"/>), ½ экрана; null — не заказана.</summary>
@@ -33,11 +30,8 @@ public sealed record BloomCapture(BloomSettings Settings, int Width, int Height,
 }
 
 /// <summary>
-/// Bloom методом UE 5.8 «сумма гауссиан» (SOG) — числа и CPU-эталон шейдеров <c>common/post.hlsl</c> (проходы — <c>BloomChain</c>).
-/// Цепочка: порог по яркости входа тонмапа (<see cref="Amount"/>) на уровне ½ экрана (среднее блока 4×4) → уменьшения вдвое до 1/64
-/// (тот же блок 4×4) → шесть гауссиан, ступень <c>s</c> — на уровне <c>s</c> (0 — ½ экрана, самая узкая; 5 — 1/64, самая широкая),
-/// от широкой к узкой: по x, затем по y с усилением ступени (<see cref="Gain"/>) и прибавкой суммы более широких ступеней (билинейно
-/// из уровня вдвое меньше). Итог — цель ½ экрана; тонмап прибавляет её к цвету сцены до экспозиции.
+/// Bloom UE 5.8 «сумма гауссиан» — числа и CPU-эталон <c>common/post.hlsl</c>. Порог на ½ экрана → уменьшения вдвое до 1/64 →
+/// шесть гауссиан от широкой к узкой: по x, затем по y с усилением ступени и прибавкой суммы более широких. Итог — ½ экрана.
 /// </summary>
 public static class BloomKernel
 {
@@ -54,8 +48,8 @@ public static class BloomKernel
     public const float Falloff = 16.7f;
 
     /// <summary>
-    /// Предел радиуса ядра, тексели уровня: 127 — предел UE с динамическим циклом (<c>r.Filter.LoopMode</c> 1). По умолчанию UE
-    /// режет на 31, и с ширины экрана ~1550 px две широкие ступени перестают расти с экраном; здесь гало в долях экрана то же до 4K.
+    /// Предел радиуса ядра, тексели уровня: 127 — предел UE с динамическим циклом; при умолчании UE (31) широкие ступени
+    /// перестают расти с экраном от ~1550 px.
     /// </summary>
     public const int MaxRadius = 127;
 
@@ -84,8 +78,8 @@ public static class BloomKernel
     }
 
     /// <summary>
-    /// Радиус ядра ступени <paramref name="stage"/>, тексели её уровня (ширина уровня <paramref name="levelWidth"/>): ширина × размер ×
-    /// <see cref="SizeScale"/> × 0.01 (проценты) × 0.5 (диаметр → радиус), в пределах <see cref="MinRadius"/>…<see cref="MaxRadius"/>.
+    /// Радиус ядра ступени, тексели её уровня: ширина × размер × <see cref="SizeScale"/> × 0.01 × 0.5, в пределах
+    /// <see cref="MinRadius"/>…<see cref="MaxRadius"/>.
     /// </summary>
     public static float Radius(int levelWidth, int stage) =>
         Math.Clamp(levelWidth * Sizes[stage] * SizeScale * 0.01f * 0.5f, MinRadius, MaxRadius);
@@ -111,16 +105,13 @@ public static class BloomKernel
         return MathF.Exp(-Falloff * t * t);
     }
 
-    /// <summary>
-    /// Доля цвета, идущая в bloom: saturate((яркость входа тонмапа − порог) · 0.5); порог −1 и меньше — всё.
-    /// <paramref name="luminance"/> — яркость Rec.709 цвета сцены × экспозиция.
-    /// </summary>
+    /// <summary>Доля цвета в bloom: saturate((яркость входа тонмапа − порог) · 0.5); порог −1 и меньше — всё.</summary>
     public static float Amount(float luminance, float threshold) =>
         threshold > -1 ? Math.Clamp((luminance - threshold) * 0.5f, 0f, 1f) : 1f;
 
     /// <summary>
-    /// Выборки одномерного ядра радиуса <paramref name="radius"/> — как у шейдера: пары текселей (i, i + 1) одной билинейной выборкой
-    /// со сдвигом i + w₁/(w₀ + w₁), последний тексель (i = N) — один; веса нормированы (сумма 1). Вернёт число выборок (N + 1).
+    /// Выборки ядра, как у шейдера: пары текселей одной билинейной выборкой, последний тексель — один; веса нормированы.
+    /// Вернёт число выборок (N + 1).
     /// </summary>
     public static int Taps(float radius, Span<float> offsets, Span<float> weights)
     {

@@ -3,10 +3,7 @@ using static Sword.Engine.Physics.Tests.ContactsKit;
 
 namespace Sword.Engine.Physics.Tests;
 
-/// <summary>
-/// Стена арены и колонны: вся капсула остаётся внутри стены и снаружи колонн (торцы у стены, ближайшая точка оси у колонны),
-/// скорость внутрь гасится, утопленное тело выходит не быстрее скорости выталкивания, проверки аргументов.
-/// </summary>
+/// <summary>Стена арены и колонны: капсула целиком внутри стены и снаружи колонн, скорость внутрь гасится, выход не быстрее выталкивания.</summary>
 public class ContactsWallTests
 {
     private const float WallRadius = 10, R = 0.08f, Half = 0.25f;

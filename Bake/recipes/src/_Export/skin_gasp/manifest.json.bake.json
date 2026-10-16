@@ -1,0 +1,11 @@
+{
+  "converter": "anim",
+  "import": "gasp",
+  "notes": "Локомоция GASP (Idle/Walk/Run): retarget_gasp.py (UEFN → UE5 Manny), экспорт export_config_gasp_skin.json → skin_gasp.",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "sets": {
+      "locomotion": []
+    }
+  }
+}

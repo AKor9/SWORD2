@@ -66,8 +66,6 @@ Minus, `camera_orbit` MouseMiddle, `camera_pan_up/down/left/right` — стре�
 
 ## Что проверить в игре
 
-Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет).
-
 1. `Sword.exe` — WASD: Manny бежит относительно камеры (W — от камеры), Shift с WASD — шагом.
 2. Курсор над землёй — Manny поворачивается к нему и следит, пока бежит; курсор ушёл с окна — смотрит на прежнюю точку.
 3. Колесо — плавный зум ближе/дальше (+/− — то же клавишами; с зажатым Ctrl колесо не зумит); Z/C — поворот камеры,
@@ -76,11 +74,7 @@ Minus, `camera_orbit` MouseMiddle, `camera_pan_up/down/left/right` — стре�
 5. Плавность при любой частоте кадров: `Sword.exe`, `Sword.exe --vsync`, `Sword.exe --max-fps 30`,
    `Sword.exe --max-fps 45` — Manny, кольцо и тень идут ровно, без рывков (при 30 кадрах картинка реже, но не дёргается).
 
-## Агентский доступ
-
-Приёмка — [feature.json](feature.json): эталон прототипа (запись Sword.exe с клавиатуры) — ввод дал бег, шаг
-и взгляд, игрок ушёл из центра; виды — кадры Sword.exe по той же записи (камера SWORD, хеши App совпадают).
-`Sword.Headless --feature control` или `feature.verify {"id":"control"}`.
+## Ключи запуска для проверки
 
 - `Sword.exe --json`: итог — `player` (симуляция на последнем тике; нет игрока — null), `shown` (показанный кадром,
   интерполированный), `camera` (режим, поворот, наклон, дистанция, цель), `input` (привязки), `report.alpha` (доля тика
@@ -90,8 +84,6 @@ Minus, `camera_orbit` MouseMiddle, `camera_pan_up/down/left/right` — стре�
 - `Sword.exe --hold move_forward,walk …` — действия удерживаются весь прогон (действия, а не клавиши: привязки не
   участвуют; в первом кадре действие ещё и нажато) — управление проверяется без клавиатуры.
 - `Sword.exe --max-fps N` — ограничитель кадров: плавность при низкой частоте вживую.
-- Агент: ввод на ходу — `command.send` (`PlayerCommand` на будущий тик; в тике с командой клавиатуры побеждает команда
-  агента), пауза и шаги — `time.*`, снимок по запросу — `capture.bundle`; рецепты — `docs/agent-playbook.md`.
 
 ## Проверки
 

@@ -2,10 +2,7 @@ using Sword.Engine.Animation.Motion;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Схема признаков — вход постройки: описывает раскладку любой игры (в том числе 45 признаков, какими искал SWORD), считает
-/// смещения групп, отвергает противоречивую схему и неизменяема.
-/// </summary>
+/// <summary>Схема признаков: раскладка любой игры (в том числе 45 признаков), смещения групп, отказ противоречивой схеме.</summary>
 public sealed class MotionSchemaTests
 {
     // номера суставов ue5_manny (research-mm-data §1.4) — движку они только числа
@@ -46,7 +43,7 @@ public sealed class MotionSchemaTests
         Assert.Equal(-1, schema.JointSlot(6));
         Assert.Equal(1f, schema.Horizon);
         Assert.Equal(1f / 3, schema.PastDepth);
-        // шов графа сравнивает «позу» — всё, кроме траектории: у SWORD — с 14-го признака
+        // шов графа сравнивает «позу» — всё, кроме траектории: с 14-го признака
         Assert.Equal(14, schema.Groups.ToArray().Where(g => !MotionSchema.IsTrajectory(g.Kind)).Min(g => g.Offset));
         Assert.Equal(3, schema.Find(FeatureKind.RootVelocity));
     }

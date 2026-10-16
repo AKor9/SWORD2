@@ -23,8 +23,8 @@
   удвоением) и заданий тика (с 8г — и таблица заданий Motion Matching на столько же мест); логическая ёмкость, номера поз, свободные
   слоты и поколения — те же, что без запаса (хеш `animation` не
   меняется; тест `Reserve_GrowthWithoutAllocations_SameLogicAsWithout`). Игра заводит запас на арену из конфига и добирает его командой
-  арены, прибавившей врагов (`GameCore.ReservePoses`, доводка 6ж; было — на полную арену у каждой симуляции). Запас виден агенту:
-  сводка `state.describe animation` — `reserved`, `jobsReserved` (в хеш не входят).
+  арены, прибавившей врагов (`GameCore.ReservePoses`, доводка 6ж; было — на полную арену у каждой симуляции). Запас — `PosePool.Reserved`,
+  `JobsReserved` (в хеш не входят).
 - Память смешивания по маске (`BlendMasked` с `BlendMemory`, 6в): без перескока дуги — побитово как без неё (и по маске всего тела —
   как `Blend`); смешивание погасло посреди догона — владелец продолжает его с весом 0, пока `PosePool.Following` (6ж: переход от снимка).
 - Прямая кинематика — в заранее посчитанном порядке «родитель раньше ребёнка»: у экспорта UE родитель бывает после
@@ -61,5 +61,5 @@
   `MotionSchema.cs`, `Pose2.cs`, `PosePool.cs`) — отдельным маленьким коммитом через оркестратора.
 
 Проверка: `tests/Sword.Engine.Animation.Tests` (библиотека, сэмплинг, кинематика, пул, математика; `Motion/` — Motion Matching);
-`tests/Sword.Game.Tests/AnimationTests`, эталоны SWORD2 (`ReferenceReplaysTests`, сценарии манифеста `animation`);
+`tests/Sword.Game.Tests/AnimationTests`, эталоны SWORD2 (`ReferenceReplaysTests`);
 `tests/Sword.Benchmarks` (`-Bench`).

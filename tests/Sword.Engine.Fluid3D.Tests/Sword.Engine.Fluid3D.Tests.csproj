@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Тесты ядра 3D-газа: CPU-эталон (свойства шага: окно, давление, плавучесть, вихри), GPU = эталон по стадиям на настоящем
+       устройстве D3D12 (скрытое окно, отладочный слой, GPU-валидация), детерминизм, статистика, срезы, 0 Б на кадр, GPU-время.
+       GPU-тесты — категория Gpu. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.Direct3D.D3D12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\engine\Sword.Engine.Fluid3D\Sword.Engine.Fluid3D.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Platform\Sword.Engine.Platform.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Platform.Win32\Sword.Engine.Platform.Win32.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+  <!-- App-local Agility SDK — как у игры: D3D12Core.dll и слой отладки в D3D12\ рядом с тестами. -->
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\D3D12Core.dll"
+          Link="D3D12\D3D12Core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.direct3d.d3d12\$(AgilitySdkVersion)\build\native\bin\x64\d3d12SDKLayers.dll"
+          Link="D3D12\d3d12SDKLayers.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

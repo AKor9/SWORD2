@@ -1,0 +1,9 @@
+{
+  "converter": "weapon",
+  "import": "combat_master",
+  "notes": "/Game/CombatMasterAnimBundle/Weapon/Katana/SM_Katana_V2 (геометрия как у SM_KatanaV3 и SM_Katana_DK — они отличаются материалом).",
+  "params": {
+    "rig": "${src}/_Export/meshes/skeleton.json",
+    "name": "katana_v2"
+  }
+}

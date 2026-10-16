@@ -11,9 +11,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Инварианты урона (раздел 8 плана), их регистрирует ядро: <c>combat.health</c> и <c>combat.dead</c> — в конце End (здоровье
-/// согласовано, мёртвый не действует, корень — за тазом трупа), <c>combat.hits</c> — после Resolve (попадания тика по правилам прохода
-/// клинка), <c>combat.respawn</c> — в конце End (мёртвый враг не лежит дольше 8 с).
+/// Инварианты урона: <c>combat.health</c>, <c>combat.dead</c>, <c>combat.respawn</c> — в конце End; <c>combat.hits</c> — после Resolve.
 /// </summary>
 public static class DamageInvariants
 {
@@ -22,9 +20,8 @@ public static class DamageInvariants
     private static string Text(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// <c>combat.health</c> — у каждого бойца есть <see cref="Health"/>; очки жизни и кровотечение конечны, кровотечение не меньше 0, раны —
-    /// 0…1,5; у живого очки жизни больше 0 и рана торса меньше 1,4 (иначе он мёртв — <c>ApplyHit</c>, <c>AfterTick</c>); у мёртвого время
-    /// смерти конечно и не позже нынешнего. В конце End.
+    /// <c>combat.health</c> — у каждого бойца есть <see cref="Health"/>; числа конечны, раны 0…1,5; у живого очки жизни больше 0 и
+    /// рана торса меньше 1,4; у мёртвого время смерти не позже нынешнего.
     /// </summary>
     private sealed class HealthState : IInvariant
     {
@@ -75,10 +72,8 @@ public static class DamageInvariants
     }
 
     /// <summary>
-    /// <c>combat.dead</c> — мёртвый не действует (в конце End): с конца тика смерти у него те же курс, действие (вид, время, вес, номер
-    /// удара) и клинок-отрезок, пока метку не снимет постройка заново; корень мёртвого не стоит, а идёт за тазом трупа — (x, z) корня
-    /// равны (x, z) тела таза (<c>core.corpse-root</c> после шага физики; со следующего тика после смерти: смерть от удара переходит в труп в
-    /// Settle, и таз двинется в следующем шаге). Память — по номеру сущности.
+    /// <c>combat.dead</c> — мёртвый не действует: с конца тика смерти курс, действие и клинок-отрезок те же, пока его не построят заново;
+    /// (x, z) корня равны (x, z) таза трупа со следующего тика после смерти. Память — по номеру сущности.
     /// </summary>
     private sealed class DeadFrozen(IPhysicsWorld physics) : IInvariant
     {
@@ -166,13 +161,9 @@ public static class DamageInvariants
     }
 
     /// <summary>
-    /// <c>combat.hits</c> — попадания тика (<see cref="Hit"/>, после Resolve) по правилам: атакующий касания клинком — не труп; жертва — живая
-    /// (могла умереть этим попаданием — тогда оно последнее по ней в тике и единственное убившее) или труп (мёртвая до тика: попадание
-    /// по трупу, <see cref="Hit.Corpse"/>, никого не убивает); жертва не неуязвима
-    /// (<c>combat.playerInvulnerable</c>, неуязвимость рывка). Касание клинка (не проба): пара игрок ↔ враг (враг не бьёт врага),
-    /// атакующий — в ударе; проход клинка засчитан этим тиком (пара врага <see cref="StrikePairs"/>: клинок в теле, касание сейчас,
-    /// номер удара — атакующего), а в прошлом тике клинок был вне тела или удар был другой, и прошлое касание пары — не ближе 0,1 с.
-    /// Память пар — с прошлого тика (пропуск тиков — без сверки с прошлым).
+    /// <c>combat.hits</c> — попадания тика по правилам: атакующий — не труп; жертва живая (убившее попадание — последнее по ней) или
+    /// труп (никого не убивает), не неуязвима. Касание клинком: пара игрок ↔ враг, атакующий в ударе, проход засчитан этим тиком
+    /// (в прошлом клинок был вне тела или удар другой) и прошлое касание пары — не ближе 0,1 с.
     /// </summary>
     internal sealed class Hits : IInvariant
     {
@@ -254,8 +245,7 @@ public static class DamageInvariants
         }
 
         /// <summary>
-        /// Жертва — труп для попаданий этого тика: мертва до Resolve — смерть прошлых тиков или команда сцены этого тика (Intent), а не
-        /// попадание этого тика (<paramref name="killed"/>).
+        /// Жертва — труп для попаданий этого тика: мертва до Resolve, а не от попадания этого тика (<paramref name="killed"/>).
         /// </summary>
         internal static bool IsCorpse(WorldReader world, Entity victim, float now, List<Entity> killed) =>
             world.TryGet<Dead>(victim, out var dead) && (dead.Time < now || !killed.Contains(victim));
@@ -296,8 +286,7 @@ public static class DamageInvariants
     }
 
     /// <summary>
-    /// <c>combat.respawn</c> — мёртвый враг не лежит дольше 8 с: возрождение — в тике, где с его смерти прошло больше 8 с
-    /// (<c>Time − DeadTime &gt; 8</c>), поэтому в конце любого тика у мёртвого врага прошло не больше 8 с. В конце End.
+    /// <c>combat.respawn</c> — мёртвый враг не лежит дольше 8 с (возрождение — в тике, где прошло больше 8 с). В конце End.
     /// </summary>
     private sealed class Respawn : IInvariant
     {

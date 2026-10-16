@@ -78,8 +78,6 @@ struct SkinVs
     float3 normal : TEXCOORD1;
     nointerpolation float3 colour : COLOR0;
     nointerpolation float glow : TEXCOORD2;
-    // ID-буфер (PsSkinId): владелец экземпляра и сустав вершины с наибольшим весом; PsSkin их не читает.
-    nointerpolation uint2 owner : TEXCOORD3;
 };
 
 SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
@@ -91,7 +89,6 @@ SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.pos = mul(gFrame.viewProj, float4(o.world, 1));
     o.colour = inst.colour;
     o.glow = inst.glow;
-    o.owner = uint2(inst.owner, SkinDominantJoint(v, inst));
     return o;
 }
 
@@ -100,12 +97,6 @@ SceneOut PsSkin(SkinVs i)
     float3 n = normalize(i.normal);
     float3 c = Shade(i.colour, n, i.world, 1) + i.glow * float3(0.5, 0.15, 0.1);
     return Scene(c, n, false);
-}
-
-// ID-буфер снимка (диагностический режим, ArenaClient): тот же VsSkin, тест по глубине сцены — код бойца и сегмента тела.
-uint PsSkinId(SkinVs i) : SV_Target0
-{
-    return SkinId(i.owner.x, i.owner.y);
 }
 
 // ── пол ───────────────────────────────────────────────────────────────────

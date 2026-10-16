@@ -16,10 +16,8 @@ internal sealed class Chunk
     }
 }
 
-/// <summary>
-/// Архетип — набор компонентов; его сущности лежат в чанках плотно: удаление строки переносит на её место последнюю
-/// строку архетипа. Размер чанка — настройка мира (<see cref="WorldOptions.ChunkBytes"/>), не контракт.
-/// </summary>
+/// <summary>Архетип: сущности лежат в чанках плотно, удаление строки переносит на её место последнюю. Размер чанка —
+/// настройка (<see cref="WorldOptions.ChunkBytes"/>).</summary>
 internal sealed class Archetype
 {
     public readonly int Id;
@@ -36,10 +34,7 @@ internal sealed class Archetype
     public readonly Dictionary<int, Archetype> AddEdge = [];
     public readonly Dictionary<int, Archetype> RemoveEdge = [];
     public int Count;
-    /// <summary>
-    /// Опустевшие чанки про запас — все: число сущностей колеблется (в том числе больше чем на чанк за тик), и чанки не
-    /// выделяются заново. Память держится на уровне наибольшего числа сущностей архетипа.
-    /// </summary>
+    /// <summary>Опустевшие чанки держатся про запас все: число сущностей колеблется, чанки не выделяются заново.</summary>
     private readonly Stack<Chunk> _spares = new();
 
     public Archetype(int id, int[] components, DataType[] types, int chunkBytes)
@@ -84,10 +79,7 @@ internal sealed class Archetype
         return Chunks[chunk].Columns[column].AsSpan(row * size, size);
     }
 
-    /// <summary>
-    /// Убрать строку: на её место — последняя строка архетипа. Вернёт сущность, переехавшую на это место
-    /// (<see cref="Entity.Null"/> — удалялась сама последняя строка).
-    /// </summary>
+    /// <summary>Убрать строку (на её место — последняя). Вернёт переехавшую сущность или <see cref="Entity.Null"/>.</summary>
     public Entity RemoveRow(int chunk, int row)
     {
         var lastChunk = Chunks[^1];

@@ -3,10 +3,8 @@ using Sword.Engine.Render;
 namespace Sword.Engine.Client;
 
 /// <summary>
-/// Клиентская часть игры, которую ведёт <see cref="ClientHost"/>. Кадр (раздел 7 плана): <see cref="Input"/> — ввод и
-/// камера, намерения игрока на тики кадра → тики, перед каждым — <see cref="BeforeTick"/> (команды) → <see cref="Extract"/>
-/// — мир представления из симуляции и очереди кадра, с интерполяцией → <see cref="BuildFrame"/> — проходы кадра только из
-/// мира представления.
+/// Клиентская часть игры. Кадр: <see cref="Input"/> (ввод, камера) → тики, перед каждым <see cref="BeforeTick"/> →
+/// <see cref="Extract"/> (мир представления с интерполяцией) → <see cref="BuildFrame"/> (проходы только из мира представления).
 /// </summary>
 public interface IClientGame : IDisposable
 {
@@ -22,10 +20,8 @@ public interface IClientGame : IDisposable
     /// <summary>Ввод кадра, до его тиков: камера, намерения игрока на тики этого кадра.</summary>
     void Input(in FrameInput input);
 
-    /// <summary>
-    /// Перед каждым тиком кадра: команды на этот тик. Удерживаемое — в каждый тик (из <see cref="Input"/>); нажатия и
-    /// отпускания — из <paramref name="input"/>: они достаются ровно одному тику, первому после кадра, где случились.
-    /// </summary>
+    /// <summary>Команды на тик: удерживаемое — в каждый тик, нажатия и отпускания из <paramref name="input"/> — ровно одному
+    /// тику.</summary>
     void BeforeTick(SimulationLink simulation, in TickInput input);
 
     /// <summary>После тиков кадра: мир представления — из симуляции и очереди кадра, с интерполяцией по доле тика.</summary>

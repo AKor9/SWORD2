@@ -14,9 +14,8 @@ using Sword.Game.Movement;
 namespace Sword.Game.Headless;
 
 /// <summary>
-/// Симуляция SWORD без окна и D3D12 — та же композиция, что у игры (<see cref="SwordSimulation"/>). Прогон
-/// заданного числа тиков с постоянной командой игрока и итог — где игрок, куда смотрит, с какой скоростью.
-/// <c>--agent</c> — сервер MCP на stdio для агента (AgentMode.cs; в сборке без агента его нет).
+/// Симуляция игры без окна и D3D12 — та же композиция, что у игры (<see cref="SwordSimulation"/>). Прогон заданного числа тиков
+/// с постоянной командой игрока и итог — где игрок, куда смотрит, с какой скоростью.
 /// </summary>
 public static partial class Program
 {
@@ -39,54 +38,18 @@ public static partial class Program
                               тик и участник, код выхода 3. С --record — перезапись (новые хеши тех же команд: эталон
                               после намеренного изменения, хеши сценария без хешей; на другом паке — с предупреждением,
                               хеши сверяются; на эталонном паке вместо пака игры — отказ); --set поверх — эксперимент
-          --json              итог — одной строкой JSON в stdout (для агента)
+          --json              итог — одной строкой JSON в stdout
           --profile           профайлер CPU: время и выделения тика, стадий, систем, барьеров, инвариантов (после
-                              прогрева — 120 тиков); на тик — CPU потока, GC, JIT; отчёт — artifacts/profile/<прогон>/
-                              profile.json, в --json — секция profile; с --agent — включён с начала сеанса
-                              (profile.stages), отчёт — при выходе
-          --profile runtime   то же и диагностический режим: события среды (выделения по типам, сборки, JIT с
-                              уровнями) с тиком и зоной — секция events отчёта; дорогой (JIT медленнее)
-          --profile-threshold MS  порог аномалии тика, мс (без ключа — медиана последних 128 тиков + max(1 мс,
-                              0.75 медианы)); аномалии — файлы artifacts/profile/<прогон>/anomaly-tick-N.json и строки журнала
+                              прогрева — 120 тиков); отчёт — artifacts/profile/<прогон>/profile.json, в --json — секция profile
           --profile-trace     то же, что --profile, и кольцо профайлера в Chrome Trace (trace.json рядом с
                               profile.json: Perfetto, chrome://tracing)
-                              Без ключа итог --json всё равно несёт machine: машина за тики после прогрева (поток на
-                              CPU, загрузка системы другими процессами, частота, GC, JIT) и вердикт «код или машина»
-          --agent             сервер MCP на stdio для агента (Claude Code, Codex): симуляция на паузе, время
-                              двигает агент; stdout — только протокол, журнал — в stderr. Выход: конец stdin,
-                              конец процесса-родителя (обёртки клиента), session.stop, простой (--idle-exit)
-          --causality         диагностический режим причинности (state.why): команды, события, решения и Set/Add/Remove
-                              получают причину, родителя, систему и источник в кольцо (65 536 записей); хеш и реплей не
-                              меняет; с --agent — у всех симуляций сеанса (session.start {causality:false} — выключить)
-          --idle-exit MIN     с --agent: выйти, если MIN минут не было вызовов инструментов (по умолчанию 15;
-                              0 — не выходить): клиент держит сервер, пока открыт его сеанс; вызов после выхода
-                              клиент (Claude Code, Codex) запускает на новом сервере — сеанс с тика 0, реплей прежнего
-                              — в его артефактах
-          --feature ID|all    приёмка фичи по манифесту feature.json (feature.verify): сценарии, инварианты,
-                              метрики, бюджеты, виды (кадры Sword.exe --replay); артефакты — artifacts/features/ID;
-                              код выхода 4 — провал. --no-views — без видов, --no-budgets — без бюджетов
         """;
-
-    /// <summary>
-    /// Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.
-    /// <paramref name="build"/> — симуляция из конфига той же композицией (<c>session.start</c>, <c>time.seek</c> назад).
-    /// </summary>
-    static partial void RunAgent(Simulation sim, Func<ConfigSet, Simulation> build, bool profile, bool profileEvents, double profileThreshold,
-        double idleMinutes, ref int? exit);
-
-    /// <summary>Простой сервера агента без вызовов, после которого он выходит (<c>--idle-exit</c>), мин.</summary>
-    private const double DefaultIdleExitMinutes = 15;
-
-    /// <summary>Приёмка фич (<c>--feature</c>, AgentMode.cs); в сборке без агента вызова нет — <paramref name="exit"/> остаётся null.</summary>
-    static partial void RunFeatures(string which, Func<ConfigSet, Simulation> build, string content, bool views, bool budgets, bool json,
-        ref int? exit);
 
     /// <summary>Тиков прогрева перед замером выделений: ёмкости журналов, буферов и очередей выросли.</summary>
     private const int WarmupTicks = 120;
 
     /// <summary>
-    /// С какого числа тиков прогон греет JIT до замера (<see cref="JitWarmup"/>): прогрев тиками и окно замера — не меньше
-    /// 120 тиков каждое; короче (<c>--ticks 1</c> проверок конфига) — без прогрева.
+    /// С какого числа тиков прогон греет JIT до замера: прогрев и окно замера — не меньше 120 тиков каждое; короче — без прогрева.
     /// </summary>
     private const int JitWarmupMinTicks = 2 * WarmupTicks;
 
@@ -96,11 +59,8 @@ public static partial class Program
         int ticks = 600, sample = 60, hashEvery = 1;
         bool ticksSet = false, commandSet = false;
         var command = new PlayerCommand();
-        bool json = false, agent = false, profile = false, profileEvents = false, profileTrace = false, causality = false;
-        double profileThreshold = 0, idleExit = DefaultIdleExitMinutes;
-        bool idleExitSet = false;
-        string? record = null, replayPath = null, feature = null;
-        bool views = true, budgets = true;
+        bool json = false, profile = false, profileTrace = false;
+        string? record = null, replayPath = null;
         var sets = new List<string>();
         try
         {
@@ -135,45 +95,15 @@ public static partial class Program
                     case "--set": sets.Add(Next()); break;
                     case "--units": sets.Add(UnitsSet(a, Next())); break;
                     case "--json": json = true; break;
-                    case "--agent": agent = true; break;
-                    case "--causality": causality = true; break;
-                    case "--profile":
-                        profile = true;
-                        if (i + 1 < args.Length && args[i + 1] == "runtime")
-                        {
-                            profileEvents = true;
-                            i++;
-                        }
-                        break;
+                    case "--profile": profile = true; break;
                     case "--profile-trace":
                         profile = true;
                         profileTrace = true;
                         break;
-                    case "--profile-threshold":
-                        if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out profileThreshold)
-                            || !(profileThreshold >= 0 && profileThreshold <= 60_000))
-                            throw new ArgumentException($"{a}: ожидается порог в мс 0…60000 (0 — по медиане)");
-                        break;
-                    case "--idle-exit":
-                        if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out idleExit)
-                            || !(idleExit >= 0 && idleExit <= 24 * 60))
-                            throw new ArgumentException($"{a}: ожидаются минуты 0…1440 (0 — не выходить)");
-                        idleExitSet = true;
-                        break;
-                    case "--feature": feature = Next(); break;
-                    case "--no-views": views = false; break;
-                    case "--no-budgets": budgets = false; break;
                     default: throw new ArgumentException($"неизвестный ключ {a}");
                 }
             }
             if (replayPath is not null && commandSet) throw new ArgumentException("--replay: команды — из реплея; --move, --walk, --gaze нельзя");
-            if (agent && (replayPath is not null || record is not null))
-                throw new ArgumentException("--agent: реплеи — инструментами агента (session.start, replay.save), не ключами");
-            if (feature is not null && (agent || replayPath is not null || record is not null || commandSet || sets.Count > 0 || profile || causality))
-                throw new ArgumentException("--feature: сценарии и конфиг — из манифеста; --agent, --replay, --record, --move, --set, --units, --profile, --causality нельзя " +
-                    "(время систем бюджеты мерят сами — отдельным прогоном с профайлером)");
-            if (feature is null && (!views || !budgets)) throw new ArgumentException("--no-views и --no-budgets — только с --feature");
-            if (idleExitSet && !agent) throw new ArgumentException("--idle-exit — только с --agent");
         }
         catch (ArgumentException ex)
         {
@@ -183,7 +113,7 @@ public static partial class Program
             return 2;
         }
 
-        if (json || agent) Log.SetSinks(new ConsoleLogSink(allToStandardError: true));
+        if (json) Log.SetSinks(new ConsoleLogSink(allToStandardError: true));
         try
         {
             string content = ContentHash();
@@ -201,36 +131,17 @@ public static partial class Program
                 c.Complete();             // композиция закончена: неизвестная секция конфига — ошибка
                 return s;
             }
-            if (feature is not null)
-            {
-                int? done = null;
-                RunFeatures(feature, Build, content, views, budgets, json, ref done);
-                if (done is { } code) return code;
-                Log.Error("headless", "--feature: сборка без агента (-p:WithoutAgent=true) — приёмка фич — инструмент агента");
-                return 2;
-            }
             var sim = Build(config);
-            if (causality) sim.EnableCausality();   // диагностика — хеш и реплей те же
             var playback = replay is null ? null : sim.Play(replay);
             if (playback is not null) warnings.AddRange(playback.Warnings);
             foreach (var w in warnings) Log.Warning("replay", w);
             var recorder = record is null ? null : sim.Record(ReplayInfo.Current(content), hashEvery);
             if (replay is not null && !ticksSet) ticks = checked((int)replay.Ticks);
-            if (agent)
-            {
-                int? exit = null;
-                RunAgent(sim, Build, profile, profileEvents, profileThreshold, idleExit, ref exit);
-                if (exit is { } code) return code;
-                Log.Error("headless", "--agent: сборка без агента (-p:WithoutAgent=true)");
-                return 2;
-            }
             var trajectory = new List<object>();
-            // Выделения — только тиков (без записи траектории) и после прогрева: раздел 12 плана — 0 байт на тик.
+            // Выделения — только тиков (без записи траектории) и после прогрева: 0 байт на тик.
             int warmup = Math.Min(WarmupTicks, ticks / 2);
-            // Сначала JIT утихает на отдельной симуляции той же композиции (тот же конфиг и та же команда): прогрев 120 тиков — ~15 мс,
-            // а фоновая перекомпиляция идёт ~100 мс спустя, и её разовое выделение среды попадало в замер. Замеряемая симуляция, её тики и
-            // хеши — те же. Только там, где 0 Б/тик установившегося режима что-то значит, — без --replay (сверка хешей реплея
-            // выделения не судит) и от JitWarmupMinTicks тиков (иначе окна замера после прогрева почти нет).
+            // Сначала JIT утихает на отдельной симуляции той же композиции: фоновая перекомпиляция идёт ~100 мс спустя, и её разовое
+            // выделение попадало бы в замер. Без --replay (сверка хешей выделения не судит) и от JitWarmupMinTicks тиков.
             JitWarmupResult? jitWarmup = replay is null && ticks >= JitWarmupMinTicks
                 ? WarmJit(ConfigSet.Load(AppContext.BaseDirectory, sets), Build, command) : null;
             // Профайлер CPU: итоги — тики после прогрева, как байты на тик; байты тика с ним — те же 0.
@@ -239,29 +150,13 @@ public static partial class Program
             if (profiler is not null)
             {
                 sim.AttachProfiler(profiler);
-                // Захват аномалий тика: файлы — в каталог прогона профайлера, рядом с profile.json.
-                profiler.CaptureAnomalies(new AnomalyOptions
-                {
-                    Directory = profileDir, AbsoluteMs = profileThreshold,
-                    Run = new Dictionary<string, string>
-                    {
-                        ["process"] = "headless", ["args"] = string.Join(" ", args), ["runtime"] = Environment.Version.ToString(),
-                    },
-                });
                 profiler.SetEnabled(true);
-                if (profileEvents) profiler.SetEvents(true);
             }
             long allocated = 0;
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
-            // Машина за тики после прогрева: снимки — на границах, вне байтов тиков.
-            MachineSample? machineStart = null;
             for (int t = 0; t < ticks; t++)
             {
-                if (t == warmup)
-                {
-                    profiler?.Reset();
-                    machineStart = MachineSample.Take();
-                }
+                if (t == warmup) profiler?.Reset();
                 long before = GC.GetAllocatedBytesForCurrentThread();
                 // Клиента нет — очередь кадра экспорта тика живёт один тик и не растёт.
                 sim.Export.BeginFrame();
@@ -271,17 +166,15 @@ public static partial class Program
                 if ((t + 1) % sample == 0 || t + 1 == ticks) trajectory.Add(State(sim));
             }
             double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-            var machine = machineStart is { } m0 ? MachineReport.Between(m0, MachineSample.Take(), computeBound: true) : null;
             Replay? recorded = recorder?.ToReplay();
             recorded?.Save(record!);
             string? profileFile = profiler?.Write(Path.Combine(profileDir, "profile.json"), ProfileHeader("headless", args));
             if (profileFile is not null && !json) Log.Info("profile", $"профайлер: {profileFile}");
-            // Кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
+            // Кольцо в Chrome Trace (--profile-trace).
             string? traceFile = profileTrace
                 ? profiler!.WriteTrace(Path.Combine(profileDir, "trace.json"), new Dictionary<string, string> { ["process"] = "headless" })
                 : null;
             if (traceFile is not null && !json) Log.Info("profile", $"трасса (Perfetto, chrome://tracing): {traceFile}");
-            if (profiler?.Anomalies is { Detected: > 0 } anomalies && !json) Log.Info("profile", anomalies.Summary());
 
             var report = new
             {
@@ -305,7 +198,7 @@ public static partial class Program
                     enabled = sim.Invariants.List().Count(i => i.Enabled),
                     violations = sim.Invariants.Total,
                     first = sim.Invariants.Recent().Take(5).Select(v => v.ToString()),
-                    // Стоимость (раздел 8 плана: инвариант ничего не меняет, его стоимость измеряется) — мкс на проверку.
+                    // Стоимость инварианта — мкс на проверку.
                     microseconds = sim.Invariants.List().Where(i => i.Evaluations > 0)
                         .ToDictionary(i => i.Id, i => Math.Round(i.MeanMicroseconds, 3)),
                 },
@@ -317,10 +210,6 @@ public static partial class Program
                 warnings,
                 // Профайлер (--profile): файл отчёта и главные зоны тика; без ключа — null.
                 profile = profiler is null ? null : ProfileJson(profiler, profileFile!, traceFile),
-                // Причинность (--causality): записей журнала и ёмкость кольца; без ключа — null.
-                causality = sim.Causality is { } log ? new { written = log.Written, capacity = log.Capacity } : null,
-                // Машина за тики после прогрева: поток на CPU, загрузка системы, частота, GC, JIT и вердикт.
-                machine,
                 trajectory,
                 modules = sim.ActiveModules,
                 inactiveModules = sim.InactiveModules,
@@ -329,13 +218,11 @@ public static partial class Program
                 config = sim.Config.Effective,
                 configSources = sim.Config.Sources,
             };
-            profiler?.StopAnomalies();   // писатель аномалий — дописан (Write ждал его) и остановлен
             if (json) Console.WriteLine(JsonSerializer.Serialize(report, JsonOptions));
             else
             {
                 Log.Info("headless", $"{sim.Tick} тиков ({report.seconds} с): игрок в ({Fmt(report.player.x)}, {Fmt(report.player.z)}), " +
-                    $"курс {Fmt(report.player.facing)} рад, скорость {Fmt(report.player.speed)} м/с; {report.msPerTick} мс/тик" +
-                    (machine is not null ? $"; {machine.Text}" : ""));
+                    $"курс {Fmt(report.player.facing)} рад, скорость {Fmt(report.player.speed)} м/с; {report.msPerTick} мс/тик");
                 if (playback is not null)
                     Log.Info("replay", playback.Divergence is { } d ? d.ToString()
                         : playback.Replay.Hashes.Count == 0 ? "в реплее нет хешей (сценарий) — сверять нечего; хеши даёт --record"
@@ -354,11 +241,8 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Реплей подходит этой сборке: модули реплея в ней есть (иначе команды и конфиг не привяжутся), контент тот же
-    /// (иначе хеши не значат ничего); другая сборка — предупреждение (хеши скажут, изменилась ли логика). Перезапись
-    /// (<paramref name="rerecord"/>: --replay с --record) на другом контенте — предупреждение: хеши по-прежнему сверяются,
-    /// совпадение тик в тик доказывает, что на новом паке симуляция та же. Кроме эталонного пака, взятого вместо пака игры
-    /// (пака пекарни нет): перезапись на нём переписала бы эталоны на чужом контенте — отказ с командой выпечки.
+    /// Реплей подходит этой сборке: модули реплея есть, контент тот же (иначе хеши не значат ничего); другая сборка — предупреждение.
+    /// Перезапись (<paramref name="rerecord"/>) на другом контенте — предупреждение, на эталонном паке вместо пака игры — отказ.
     /// </summary>
     private static void CheckReplay(Replay replay, string content, bool rerecord, List<string> warnings)
     {
@@ -369,13 +253,7 @@ public static partial class Program
         if (replay.Content != "none" && content != "none" && replay.Content != content)
         {
             string text = $"реплей записан на контенте {replay.Content}, а пак здесь — {content}";
-            string? pak = Sword.Engine.Content.ContentLocator.Find();
-            string? fallback = pak is null ? null : Sword.Engine.Content.ContentLocator.ReferenceWarning(pak);
-            if (!rerecord || fallback is not null)
-            {
-                string why = rerecord ? "перезаписывать на эталонном паке вместо пака игры нельзя" : "хеши сравнивать бессмысленно";
-                throw new InvalidDataException($"{text}: {why}{(fallback is null ? "" : $" ({fallback})")}");
-            }
+            if (!rerecord) throw new InvalidDataException($"{text}: хеши сравнивать бессмысленно");
             warnings.Add($"{text}: перезапись на этом паке — хеши сверяются, совпадение тик в тик значит, что симуляция та же");
         }
         var current = ReplayInfo.Current(content).Build;
@@ -410,9 +288,8 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Каталог прогона профайлера (<c>--profile</c>): <c>artifacts/profile/&lt;дата-время старта&gt;-&lt;процесс&gt;-&lt;pid&gt;</c>
-    /// в корне репозитория, вне репозитория — рядом с exe: файлы аномалий (по ходу), <c>profile.json</c> и <c>trace.json</c> (в конце).
-    /// Создаётся при первой записи.
+    /// Каталог прогона профайлера (<c>--profile</c>): <c>artifacts/profile/&lt;дата-время&gt;-&lt;процесс&gt;-&lt;pid&gt;</c> в корне
+    /// репозитория, вне его — рядом с exe. Создаётся при первой записи.
     /// </summary>
     internal static string ProfileDir(string process) =>
         Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "profile",
@@ -430,7 +307,7 @@ public static partial class Program
             .OfType<System.Diagnostics.DebuggableAttribute>().FirstOrDefault()?.IsJITOptimizerDisabled != true,
     };
 
-    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта, трасса и коротко — главные зоны, аномалии.</summary>
+    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта, трасса и коротко — главные зоны.</summary>
     internal static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file, string? trace)
     {
         var json = profiler.Summary(12);
@@ -439,7 +316,7 @@ public static partial class Program
         return json;
     }
 
-    /// <summary>Отпечаток пака, если он есть (симуляции контент не нужен, реплей и квитанции называют его всё равно).</summary>
+    /// <summary>Отпечаток пака, если он есть (симуляции контент не нужен, реплей называет его всё равно).</summary>
     internal static string ContentHash()
     {
         try
@@ -471,9 +348,8 @@ public static partial class Program
             ? n : throw new ArgumentException($"{key}: ожидается целое число не меньше {min}");
 
     /// <summary>
-    /// Прогрев JIT до прогона (<see cref="JitWarmup"/>): отдельная симуляция той же композиции — тот же конфиг и команда игрока
-    /// каждый тик — играет до затишья JIT (не дольше <see cref="JitWarmup.MaxSeconds"/>); одна и та же, дальше конца прогона, без
-    /// постройки заново. Замеряемая симуляция её не видит.
+    /// Прогрев JIT до прогона: отдельная симуляция той же композиции играет до затишья JIT (не дольше
+    /// <see cref="JitWarmup.MaxSeconds"/>). Замеряемая симуляция её не видит.
     /// </summary>
     private static JitWarmupResult WarmJit(ConfigSet config, Func<ConfigSet, Simulation> build, PlayerCommand command)
     {
@@ -488,8 +364,7 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Корень игрока после тика. Игрока ищем каждый раз, а не держим сущность с начала прогона (сброс арены — команда R
-    /// в реплее — строит его заново, сейчас на той же сущности).
+    /// Корень игрока после тика. Игрока ищем каждый раз: сброс арены строит его заново.
     /// </summary>
     private static PlayerState State(Simulation sim)
     {
@@ -502,12 +377,8 @@ public static partial class Program
     private sealed record PlayerState(ulong tick, float x, float z, float facing, float speed);
 
     /// <summary>
-    /// Арена после прогона: заданное число врагов, бойцов в мире и враги по местам — корень, курс, расстояние
-    /// до игрока (кольцо спауна 5–9 м); скорость корня и ИИ последнего тика: подход и покачивание, м/с, соседей
-    /// ближе 1,4 м (<see cref="EnemyAiTerms"/>); толчки столкновений последнего тика (<see cref="RootContacts"/>:
-    /// пар, сдвиг корня парами и от игрока, м, наибольшее перекрытие и с кем) и ближайшая пара бойцов на арене
-    /// (<c>closestPair</c>: расстояние корней, м, и места; ближе 0,7 м — перекрытие, инвариант <c>movement.rootOverlap</c>);
-    /// слой действий последнего тика (<see cref="AnimatorAction"/>: действие, вес, поворот курса клипом за тик).
+    /// Арена после прогона: враги по местам — корень, курс, расстояние до игрока, скорость, ИИ (<see cref="EnemyAiTerms"/>), толчки
+    /// (<see cref="RootContacts"/>), слой действий (<see cref="AnimatorAction"/>); ближайшая пара бойцов (<c>closestPair</c>).
     /// </summary>
     private static object ArenaJson(Simulation sim)
     {
@@ -553,14 +424,14 @@ public static partial class Program
         };
     }
 
-    /// <summary><c>--units N</c> SWORD: врагов при старте, в пределах 0…32 (<c>Math.Clamp</c>, как <c>Program.cs</c> SWORD).</summary>
+    /// <summary><c>--units N</c>: врагов при старте, в пределах 0…32.</summary>
     internal static string UnitsSet(string key, string text) =>
         int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int n)
             ? $"arena.enemies={Math.Clamp(n, 0, ArenaState.MaxEnemies)}" : throw new ArgumentException($"{key}: ожидается целое число");
 
     /// <summary>
-    /// Поза игрока на последнем тике: суставов, наибольшее отклонение сустава от позы привязки (м) и признак «поза
-    /// привязки» — без модуля локомоции поза остаётся ею, с модулем — нет (проверка verify.ps1).
+    /// Поза игрока на последнем тике: суставов, наибольшее отклонение от позы привязки (м) и признак «поза привязки» — без модуля
+    /// локомоции поза остаётся ею (проверка verify.ps1).
     /// </summary>
     private static PoseState? Pose(Simulation sim, Sword.Engine.Ecs.Entity player)
     {

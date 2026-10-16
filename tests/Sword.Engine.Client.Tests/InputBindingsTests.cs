@@ -2,7 +2,7 @@ using Sword.Engine.Runtime;
 
 namespace Sword.Engine.Client.Tests;
 
-/// <summary>Привязки действий ввода (раздел 7 плана: привязки клавиш к действиям — в конфиге).</summary>
+/// <summary>Привязки клавиш к действиям ввода — из конфига.</summary>
 public class InputBindingsTests
 {
     private static readonly InputAction Forward = new("move_forward", "W");

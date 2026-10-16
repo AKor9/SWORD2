@@ -2,11 +2,11 @@
 
 Игровые данные и форматы (раздел 9 плана): то, что читают и игра, и модули, и (позже) пекарня. Сейчас — таблица
 действий бойца: слоты (`ActionSlots`: ключи `combat/actions.json`, подписи, клипы по умолчанию, слои) и их клипы для
-библиотеки (`ActionTable.Resolve`); с 6б — клинок меча по его мешу (`WeaponMesh.Read`: `weapons/*.swmesh` — статический
+библиотеки (`ActionTable.Resolve`); с 6б — клинок меча по его мешу (`WeaponMesh.Read`: `meshes/weapons/*.swmesh` — статический
 `.swmesh` в системе кисти, кончик — самая дальняя вершина, основание — 22 см по той же оси; `CharacterRig.MakeWeapon` SWORD).
 Формат меша (`Sword.Engine.Formats`) наружу не выходит: вызывающий даёт поток, получает `WeaponBlade`. Формат зон крови
-оружия `.swblood` (`WeaponBloodData`, рядом с `weapons/*.swmesh`) — пишет пекарня (`Sword.Bake.Game`), байт в байт эталон
-(`ReferencePakWritersTests` Formats); игра его пока не читает (кровь отложена, решение 15). Логика —
+оружия `.swblood` (`WeaponBloodData`, `data/weapons/*.swblood`) — пишет пекарня (конвертер weapon `tools/Sword.Bake`);
+игра его пока не читает (кровь отложена, решение 15). Логика —
 `CharacterRig` SWORD 2eab13b (слоты, `LoadActions`); запись выбора (`SaveActions`) — с редактором анимаций (этап 14).
 
 - Без логики игры и без движка анимации: клип ищет переданная функция, таблица — только имена и номера.

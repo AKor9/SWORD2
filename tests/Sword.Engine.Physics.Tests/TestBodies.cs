@@ -36,7 +36,6 @@ internal static class TestBodies
 
     public static Vector3 RandomUnit(Random rng) => Vector3.Normalize(new Vector3(Gauss(rng), Gauss(rng), Gauss(rng)));
 
-    /// <summary>Случайный вектор длиной не больше <paramref name="max"/>.</summary>
     public static Vector3 RandomVector(Random rng, float max) => RandomUnit(rng) * (rng.NextSingle() * max);
 
     /// <summary>Угол между поворотами, рад (0…π).</summary>

@@ -1,13 +1,10 @@
 using System.Globalization;
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Animation;
 using Sword.Engine.Animation.Motion;
 using Sword.Engine.Client;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
 using Sword.Game.Arena;
 using Sword.Game.Bootstrap;
@@ -20,20 +17,16 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Motion Matching игрока — агенту и на экран (категория Content — клипы GASP есть только в паке): вид <see cref="IMotionMatchView"/>
-/// отдаёт осмысленное (кадр в базе, траектории конечны, цены групп в сумме — цена), при <c>clips</c> вида нет; события переходов
-/// <see cref="MotionTransition"/> сходятся со счётчиками (поиском — смены, всего — переходы) и с графом базы; тяжёлые инварианты
-/// <c>locomotion.mmDecay</c> и <c>locomotion.mmContinuity</c> ловят неисправность на её тике и в живой игре — раз в 4 тика; замеры
-/// скольжения опорной стопы и скачка сустава на сценариях — числа в вывод, скачок ниже предела инварианта; зона профайлера
-/// <c>locomotion.search</c>; сведение реплея <c>locomotion.base</c> — отпечаток базы, другая база — причина расхождения; агенту —
-/// <c>anim.pose</c> (раздел MM), <c>events.history</c> и <c>state.why {cause}</c>, поля <c>MotionMatch.*</c>; вкладка F3 «Локомоция».
+/// Motion Matching на экран (категория Content): вид <see cref="IMotionMatchView"/> осмыслен, события <see cref="MotionTransition"/>
+/// сходятся со счётчиками и графом, тяжёлые инварианты MM ловят неисправность, замеры скольжения и скачка — в вывод, зона
+/// <c>locomotion.search</c>, отпечаток базы в реплее, вкладка F3 «Локомоция».
 /// </summary>
 [Trait("Category", "Content")]
-public sealed class MotionMatchAgentTests(ITestOutputHelper output)
+public sealed class MotionMatchViewTests(ITestOutputHelper output)
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    private static Animation.CharacterAssets Assets => FeatureManifestsTests.Reference.Value.Assets;
+    private static Animation.CharacterAssets Assets => TestContent.Reference.Value.Assets;
 
     private static Simulation Create(params string[] sets) =>
         SwordSimulation.Create(ConfigSet.Empty(["locomotion.player=mm", .. sets]), Assets);
@@ -82,10 +75,8 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
     // ── вид ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Вид на паке: игрок бежит, затем поворачивает — состояние (кадр в базе, клип базы, кадр в клипе, темп в пределах, счётчики как в
-    /// компоненте), последний поиск (кадр в базе, цены конечны, сумма цен групп — цена, повод), траектории (прошлое, «сейчас», три точки
-    /// будущего — конечны и по времени; «сейчас» — корень поиска), история (записи по тикам, последняя — корень тика), замер (скачок конечен
-    /// и в пределе инварианта), база (отпечаток — базы процесса); у врага и при <c>clips</c> — ничего.
+    /// Вид на паке: игрок бежит и поворачивает — состояние, последний поиск (цены конечны, сумма групп — цена), траектории конечны
+    /// и по времени, история по тикам, скачок в пределе инварианта, отпечаток базы процесса; у врага и при <c>clips</c> — ничего.
     /// </summary>
     [Fact]
     public void View_OnPack_GivesMeaningfulData()
@@ -163,11 +154,9 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
     // ── события переходов ────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Сценарии замеров (12 с каждый: круг 8 направлений, зигзаг, шаг ↔ бег, старт и стоп, разворот, стрейф, бег с ударами и рывками):
-    /// события <see cref="MotionTransition"/> (экспорт тика) — поиском ровно столько, сколько смен, всего — сколько переходов проигрывателя;
-    /// счётчик события растёт на 1; у поиска — повод, кадр входа найденного (вход кадра итога поиска), цена не больше цены продолжения без
-    /// порога; у ребра — кадр ребра и его вход по графу, клипы — клипы кадров. На всех сценариях есть и смены по скачку цели, и рёбра графа
-    /// (круг 8 направлений — только поиском: ребро не успевает).
+    /// На сценариях замеров события <see cref="MotionTransition"/>: поиском — столько, сколько смен, всего — сколько переходов; у
+    /// поиска — повод, вход найденного кадра, цена не больше цены продолжения; у ребра — кадр и вход по графу. На круге 8
+    /// направлений — только поиском: ребро не успевает.
     /// </summary>
     [Fact]
     public void Transitions_AreEvents_MatchCountersAndGraph()
@@ -314,10 +303,8 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
     // ── замеры: скольжение опорной стопы и скачок сустава ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Сценарии (12 с каждый, 1 с на разгон не считается): скольжение опорной стопы (среднее и p95 по тикам со стопой на земле) и
-    /// наибольший скачок сустава за тик — по виду (<see cref="IMotionMatchView.Measure"/>: те же числа, что у полей агента
-    /// <c>MotionMatch.FootSlide</c>, <c>MotionMatch.JointJump</c>), переходов в секунду — числа в вывод (база метрик и порога инварианта
-    /// скачка). Скачок — ниже предела <see cref="MotionMatchContinuityInvariant.Limit"/>, инварианты чисты.
+    /// Сценарии по 12 с: скольжение опорной стопы (среднее, p95), наибольший скачок сустава (<see cref="IMotionMatchView.Measure"/>),
+    /// переходы в секунду — в вывод; скачок ниже <see cref="MotionMatchContinuityInvariant.Limit"/>, инварианты чисты.
     /// </summary>
     [Fact]
     public void Measures_FootSlideAndJointJump_OnScenarios()
@@ -360,7 +347,7 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
 
     // ── профайлер ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Зона <c>locomotion.search</c> (<c>profile.stages</c>): под <c>locomotion.mm@Animation</c>, вызовов — сколько поисков; хеши с профайлером те же.</summary>
+    /// <summary>Зона <c>locomotion.search</c>: под <c>locomotion.mm@Animation</c>, вызовов — сколько поисков; хеши с профайлером те же.</summary>
     [Fact]
     public void ProfilerZone_Search_UnderMotionMatchSystem()
     {
@@ -423,115 +410,11 @@ public sealed class MotionMatchAgentTests(ITestOutputHelper output)
         Assert.Empty(SwordSimulation.Create(ConfigSet.Empty(), Assets).Facts);
     }
 
-    // ── агенту ──────────────────────────────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Агенту (Headless, режим причинности): <c>anim.pose</c> — раздел <c>motionMatching</c> (клип с именем, последний поиск с группами по
-    /// именам, замер, траектории, отпечаток); у врага его нет; <c>events.history {"types":["MotionTransition"]}</c> — переходы с причиной;
-    /// <c>state.why {"cause"}</c> — цепочка события до решения «MM: …» (корень); поля <c>MotionMatch.FootSlide</c>, <c>JointJump</c> — в
-    /// <c>watch.add</c>/<c>entity.history</c>; <c>state.describe</c> участника <c>locomotion</c> — последний поиск; инварианты в списке.
-    /// </summary>
-    [Fact]
-    public async Task Agent_AnimPose_EventsWithCauses_Fields_Describe()
-    {
-        var sim = Create("arena.enemies=1", "combat.enemiesAttack=false");
-        sim.EnableCausality();
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(10),
-        });
-        Agent.SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonNode> Raw(string tool, JsonObject? args)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                return JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-            }
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var r = await Raw(tool, args);
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            await Call("watch.add", new() { ["entities"] = new JsonArray("player"), ["fields"] = new JsonArray("MotionMatch.FootSlide", "MotionMatch.JointJump") });
-            await Call("command.send", new() { ["command"] = "PlayerCommand", ["fields"] = new JsonObject { ["Move"] = new JsonObject { ["X"] = 0, ["Y"] = 1 } }, ["repeat"] = 150 });
-            await Call("time.step", new() { ["ticks"] = 150 });
-            await Call("command.send", new() { ["command"] = "PlayerCommand", ["fields"] = new JsonObject { ["Move"] = new JsonObject { ["X"] = -1, ["Y"] = 0 } }, ["repeat"] = 60 });
-            await Call("time.step", new() { ["ticks"] = 60 });
-
-            var pose = await Call("anim.pose", new() { ["entity"] = "player" });
-            var mm = pose["motionMatching"]!;
-            Assert.StartsWith("locomotion/", mm["clipName"]!.GetValue<string>());
-            Assert.Equal(GaspMotion.WeightKeys.Count, mm["lastSearch"]!["groups"]!.AsObject().Count);
-            Assert.Contains(GaspMotion.Groups[0].Name, mm["lastSearch"]!["groups"]!.AsObject().Select(p => p.Key));
-            Assert.Equal(5, mm["desired"]!.AsArray().Count);
-            Assert.Equal(4, mm["desired"]![0]!.AsArray().Count);
-            Assert.True(mm["history"]!.AsArray().Count > 30);
-            Assert.Matches("^[0-9A-F]{16}$", mm["base"]!["fingerprint"]!.GetValue<string>());
-            Assert.NotNull(mm["measure"]!["jointJump"]);
-            Assert.Null((await Call("anim.pose", new() { ["entity"] = "enemy 1" }))["motionMatching"]);
-
-            var history = await Call("events.history", new() { ["types"] = new JsonArray("MotionTransition") });
-            var rows = history["events"]!.AsArray();
-            Assert.NotEmpty(rows);
-            var row = rows.First(r => r!["fields"]!.ToJsonString().Contains("\"Search\""))!;
-            Assert.Equal(("Event<MotionTransition>", "Movement"), (row["type"]!.GetValue<string>(), row["stage"]!.GetValue<string>()));
-            Assert.Equal("locomotion.mm-events@Movement", row["cause"]!["system"]!.GetValue<string>());
-            int eventCause = row["cause"]!["id"]!.GetValue<int>(), decision = row["cause"]!["parent"]!.GetValue<int>();
-
-            var why = (await Call("state.why", new() { ["cause"] = eventCause }))["cause"]!;
-            Assert.Equal("Event", why["kind"]!.GetValue<string>());
-            Assert.Equal("MotionTransition", why["type"]!.GetValue<string>());
-            Assert.True(why["complete"]!.GetValue<bool>());
-            Assert.Equal("Decision", why["root"]!.GetValue<string>());
-            Assert.StartsWith("MM: ", why["chain"]![0]!["note"]!.GetValue<string>());
-            Assert.Contains("MotionTransition", why["summary"]!.GetValue<string>());
-            output.WriteLine(why["summary"]!.GetValue<string>());
-            var root = (await Call("state.why", new() { ["cause"] = decision }))["cause"]!;
-            Assert.Equal(("Decision", decision), (root["kind"]!.GetValue<string>(), root["id"]!.GetValue<int>()));
-            var noCause = await Raw("state.why", new() { ["entity"] = "player" });
-            Assert.True(noCause["isError"]!.GetValue<bool>());
-
-            var fields = (await Call("entity.history", new() { ["entity"] = "player" }))["rows"]!.AsArray();
-            Assert.Contains(fields, r => r!["values"]!["MotionMatch.JointJump"] is JsonValue);
-            Assert.Contains(fields, r => r!["values"]!["MotionMatch.FootSlide"] is JsonValue);
-
-            var handle = (await Call("entity.get", new() { ["entity"] = "player", ["components"] = new JsonArray("MotionMatchState") }))["components"]!["MotionMatchState"]!["Player"]!;
-            string slot = $"{handle["Index"]}v{handle["Generation"]}";
-            var described = await Call("state.describe", new() { ["part"] = "locomotion", ["filter"] = slot + ":—" });
-            var search = described["items"]![0]!["lastSearch"]!;
-            Assert.Equal(GaspMotion.WeightKeys.Count, search["groups"]!.AsObject().Count);
-            Assert.NotNull(search["reason"]);
-
-            var invariants = (await Call("invariant.list", new() { ["filter"] = "locomotion" }))["invariants"]!.AsArray().Select(i => i!["id"]!.GetValue<string>());
-            Assert.Contains("locomotion.mmDecay", invariants);
-            Assert.Contains("locomotion.mmContinuity", invariants);
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
-    }
-
     // ── F3 ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Вкладка F3 «Локомоция» (клиент модуль не видит — ручки по секции): 22 ручки (поиск и переход, 12 весов, вес руки, 5 ручек поворота на
-    /// месте) по порядку регистрации, строки состояния по виду — клип, поиск, время поиска, переходов/с, поворот на месте — пишут текст на
-    /// стек без выделений; при <c>clips</c> вкладки нет.
+    /// Вкладка F3 «Локомоция»: 22 ручки по порядку регистрации, строки состояния по виду пишут текст на стек без выделений; при
+    /// <c>clips</c> вкладки нет.
     /// </summary>
     [Fact]
     public void TuningGroup_KnobsAndRows_NoAllocations()

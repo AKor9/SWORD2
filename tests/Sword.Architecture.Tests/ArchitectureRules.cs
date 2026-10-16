@@ -1,14 +1,13 @@
 namespace Sword.Architecture.Tests;
 
-/// <summary>Нарушение правила архитектуры.</summary>
 public sealed record Violation(string Rule, string Project, string Message)
 {
     public override string ToString() => $"[{Rule}] {Project}: {Message}";
 }
 
 /// <summary>
-/// Правила ссылок между проектами — раздел 4 ARCHITECTURE_PLAN.md. Слой и сторону проверяет ещё и сборка
-/// (Directory.Build.targets, SWORD001–003); здесь — полная матрица, транзитивные правила, пакеты и модули.
+/// Правила ссылок между проектами. Слой и сторону проверяет ещё и сборка (Directory.Build.targets, SWORD001–003); здесь —
+/// полная матрица, транзитивные правила, пакеты и модули.
 /// </summary>
 public static class ArchitectureRules
 {
@@ -16,12 +15,12 @@ public static class ArchitectureRules
         Formats = "Sword.Engine.Formats", Platform = "Sword.Engine.Platform", Ecs = "Sword.Engine.Ecs",
         Content = "Sword.Engine.Content", Physics = "Sword.Engine.Physics", Animation = "Sword.Engine.Animation",
         Ui = "Sword.Engine.Ui", Rhi = "Sword.Engine.Rhi", Render = "Sword.Engine.Render", Fluid2D = "Sword.Engine.Fluid2D",
+        Fluid3D = "Sword.Engine.Fluid3D",
         Win32 = "Sword.Engine.Platform.Win32", Runtime = "Sword.Engine.Runtime", Client = "Sword.Engine.Client",
-        Introspection = "Sword.Engine.Introspection", Agent = "Sword.Engine.Agent", AgentClient = "Sword.Engine.Agent.Client",
         DevTools = "Sword.Engine.DevTools",
         Contracts = "Sword.Game.Contracts", Data = "Sword.Game.Data", Game = "Sword.Game", GameClient = "Sword.Game.Client",
-        Bootstrap = "Sword.Game.Bootstrap", GameAgent = "Sword.Game.Agent", GameDevTools = "Sword.Game.DevTools",
-        Bake = "Sword.Bake", BakeEngine = "Sword.Bake.Engine", BakeGame = "Sword.Bake.Game";
+        Bootstrap = "Sword.Game.Bootstrap", GameDevTools = "Sword.Game.DevTools",
+        Bake = "Sword.Bake";
 
     /// <summary>Любой проект продукта (не тест) — для exe, которые собирают композицию.</summary>
     private const string AnyProduct = "*";
@@ -30,8 +29,7 @@ public static class ArchitectureRules
     private const string SimulationModules = "@simulation-modules";
 
     /// <summary>
-    /// Матрица прямых ссылок — таблица раздела 4 ARCHITECTURE_PLAN.md. <c>Sword.Engine.Core</c> разрешён всем неявно.
-    /// Новый проект без строки здесь — нарушение: матрица обновляется вместе с решением.
+    /// Матрица прямых ссылок; <c>Sword.Engine.Core</c> разрешён всем неявно. Новый проект без строки здесь — нарушение.
     /// </summary>
     private static readonly Dictionary<string, string[]> Matrix = new()
     {
@@ -48,50 +46,38 @@ public static class ArchitectureRules
         [Rhi] = [Diag, Platform],
         [Render] = [Diag, Geometry, Rhi, Formats, Content, Ui],
         [Fluid2D] = [Render, Formats, Diag],
+        [Fluid3D] = [Render, Formats, Diag],
         [Win32] = [Diag, Platform],
         [Runtime] = [Diag, Ecs, Content],
         [Client] = [Runtime, Ecs, Platform, Rhi, Render, Ui, Diag],
-        [Introspection] = [Diag, Ecs, Runtime],
-        [Agent] = [Introspection, Runtime, Ecs, Diag],
-        [AgentClient] = [Agent, Introspection, Client, Render, Runtime, Ecs],
-        [DevTools] = [Client, Ui, Ecs, Introspection, Diag],
+        [DevTools] = [Client, Ui, Ecs, Diag],
 
         [Contracts] = [Ecs],
         [Data] = [Formats],
         [Game] = [Contracts, Data, Runtime, Physics, Animation, Geometry, Ecs, Content, Diag],
         [GameClient] = [Game, Contracts, Data, Client, Render, Ui, Geometry, Ecs, Diag],
         [Bootstrap] = [Game, Runtime, Contracts, Data, Diag, SimulationModules],
-        [GameAgent] = [Game, Contracts, Data, Agent, Introspection, Ecs],
         [GameDevTools] = [Game, GameClient, DevTools],
         ["Sword.Game.App"] = [AnyProduct],
         ["Sword.Game.Headless"] = [AnyProduct],
 
-        [Bake] = [Content],
-        [BakeEngine] = [Bake, Content, Formats, Animation],
-        [BakeGame] = [Bake, BakeEngine, Content, Formats, Data],
-        ["Sword.Bake.Cli"] = [Bake, Content],
-        ["Sword.Bake.Studio"] = [Bake, Content, Formats, Diag, Platform, Client, Render, Ui, Win32],
+        [Bake] = [Content, Formats, Animation, Data],
+        ["Sword.Assets"] = [Bake, Content, Formats, Animation, Data, Diag, Platform, Client, Render, Ui, Win32],
     };
 
     /// <summary>Модуль симуляции: то же, что ядру игры, кроме самого Sword.Game.</summary>
     private static readonly string[] SimulationModuleAllowed = [Contracts, Data, Runtime, Physics, Animation, Geometry, Ecs, Content, Diag];
 
     /// <summary>Клиентская часть модуля: свой модуль симуляции (проверяется отдельно) и клиентские сборки движка.</summary>
-    private static readonly string[] ClientModuleAllowed = [Contracts, Data, Client, Render, Fluid2D, Ui, Diag];
+    private static readonly string[] ClientModuleAllowed = [Contracts, Data, Client, Render, Fluid2D, Fluid3D, Ui, Diag];
 
     /// <summary>Где можно ссылаться на пакеты Vortice.</summary>
     private static readonly HashSet<string> VorticeOwners = [Rhi, Render];
 
-    /// <summary>Временные исключения для Vortice. Список может только сокращаться (раздел 4).</summary>
+    /// <summary>Временные исключения для Vortice. Список может только сокращаться.</summary>
     private static readonly HashSet<string> VorticeExceptions = [];
 
-    /// <summary>Сборки агента: на них ссылаются только exe (и они друг на друга).</summary>
-    private static readonly HashSet<string> AgentFamily = [Agent, AgentClient, GameAgent];
-
-    /// <summary>
-    /// Сборки инструментов разработчика: на них ссылаются только exe (и они друг на друга) — иначе сборка без DevTools
-    /// (<c>-p:WithoutDevTools=true</c>) не смогла бы их убрать.
-    /// </summary>
+    /// <summary>Сборки DevTools: на них ссылаются только exe (и они друг на друга), иначе сборка без DevTools их не уберёт.</summary>
     public static readonly IReadOnlySet<string> DevToolsFamily = new HashSet<string>([DevTools, GameDevTools]);
 
     public static IReadOnlyList<Violation> Check(IReadOnlyList<ProjectNode> projects)
@@ -125,10 +111,7 @@ public static class ArchitectureRules
         return violations;
     }
 
-    /// <summary>
-    /// Ссылки собранной сборки проекта <paramref name="from"/> (из метаданных .dll) — по тем же правилам, что ссылки
-    /// .csproj. Ловят то, чего .csproj не видит: типы транзитивно доступной сборки, использованные напрямую.
-    /// </summary>
+    /// <summary>Ссылки собранной .dll проекта — по правилам .csproj; ловят типы транзитивно доступной сборки, использованные напрямую.</summary>
     public static IReadOnlyList<Violation> CheckCompiled(ProjectNode from, IEnumerable<string> referencedAssemblies,
         IReadOnlyList<ProjectNode> projects)
     {
@@ -183,9 +166,6 @@ public static class ArchitectureRules
 
         if (to.Name == Win32 && !from.IsExe)
             violations.Add(new("win32-exe-only", from.Name, $"{edge}: Platform.Win32 — только из exe"));
-
-        if (AgentFamily.Contains(to.Name) && !from.IsExe && !AgentFamily.Contains(from.Name))
-            violations.Add(new("agent-exe-only", from.Name, $"{edge}: сборки агента — только из exe"));
 
         if (DevToolsFamily.Contains(to.Name) && !from.IsExe && !DevToolsFamily.Contains(from.Name))
             violations.Add(new("devtools-exe-only", from.Name, $"{edge}: сборки DevTools — только из exe"));

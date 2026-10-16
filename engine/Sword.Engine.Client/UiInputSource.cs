@@ -5,18 +5,12 @@ using Sword.Engine.Ui;
 namespace Sword.Engine.Client;
 
 /// <summary>
-/// Адаптер ввода интерфейса: состояние ввода окна за кадр (<see cref="InputState"/> платформы) → снимок
-/// <see cref="UiInput"/> для виджетов <see cref="UiContext"/>; курсор, который просят виджеты, → курсор окна.
-/// Клиент движка заполняет им ввод панелей (<see cref="IClientPanel"/>) раз в кадр; тест — без окна.
-///
-/// Перенос <c>Platform/UiInputWin32.cs</c> SWORD 2eab13b (в SWORD он жил в Win32 и знал UI; здесь платформа UI не знает —
-/// раздел 6 плана): те же клавиши (<see cref="UiKey"/> — нажатие или автоповтор удержания), кнопки, колесо, символы,
-/// модификаторы, признак «в кадре был ввод»; буфер обмена окна ставит хост (<see cref="UiInput.GetClipboard"/>). Отличие:
-/// без выделений в кадре — символы выгребаются заранее созданным делегатом (в SWORD — замыкание на каждый вызов).
+/// Адаптер ввода интерфейса: <see cref="InputState"/> окна за кадр → <see cref="UiInput"/> виджетов, курсор виджетов →
+/// курсор окна. Платформа UI не знает. Без выделений в кадре: символы выгребаются заранее созданным делегатом.
 /// </summary>
 public sealed class UiInputSource
 {
-    /// <summary>Клавиши виджетов и их клавиши платформы — набор <c>UiInputWin32.Keys</c> SWORD.</summary>
+    /// <summary>Клавиши виджетов и их клавиши платформы.</summary>
     private static readonly (Key Key, UiKey Ui)[] Keys =
     [
         (Key.Tab, UiKey.Tab), (Key.Enter, UiKey.Enter), (Key.Escape, UiKey.Escape),
@@ -39,12 +33,8 @@ public sealed class UiInputSource
     /// <summary>Снимок ввода интерфейса; заполняется <see cref="Fill"/> раз в кадр.</summary>
     public UiInput Input { get; } = new();
 
-    /// <summary>
-    /// Ввод кадра окна → <see cref="Input"/>: события прошлого кадра сбрасываются, зажатые кнопки берутся заново.
-    /// Зовётся после прокачки сообщений окна; выгребает введённые символы (другим потребителям их не остаётся).
-    /// </summary>
-    /// <param name="mouseInside">Курсор над клиентской областью окна.</param>
-    /// <param name="time">Секунды с запуска — мигание каретки, двойной щелчок, подсказки.</param>
+    /// <summary>Ввод кадра окна → <see cref="Input"/>, после прокачки сообщений; выгребает введённые символы.</summary>
+    /// <param name="time">Секунды с запуска — каретка, двойной щелчок, подсказки.</param>
     public void Fill(InputState state, bool mouseInside, double time)
     {
         var ui = Input;
@@ -78,7 +68,7 @@ public sealed class UiInputSource
         ui.HadEvents = events || ui.Typed.Length > 0;
     }
 
-    /// <summary>Курсор интерфейса → курсор окна (<c>UiInputWin32.Cursor</c> SWORD).</summary>
+    /// <summary>Курсор интерфейса → курсор окна.</summary>
     public static CursorShape Cursor(UiCursor cursor) => cursor switch
     {
         UiCursor.IBeam => CursorShape.IBeam,

@@ -13,10 +13,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Оверлей <c>mm</c> на настоящем устройстве (слой отладки D3D12 с GPU-валидацией) и настоящем контенте: игрок на Motion Matching бежит
-/// за камерой — слой снимка <c>mm</c> снят без заметки (траектории: запрос, найденный кадр, история, стопы), M переключает оверлей на экране,
-/// кадр с ним (снятие в Extract и построение) — 0 Б; вкладка F3 «Локомоция» есть; при <c>clips</c> — слой пуст с заметкой, вкладки нет.
-/// Любое предупреждение D3D12 — провал.
+/// Оверлей <c>mm</c> на устройстве и настоящем контенте: M переключает оверлей (запрос, найденный кадр, история, стопы), кадр
+/// с ним — 0 Б; вкладка F3 «Локомоция» есть; при <c>clips</c> — оверлей пуст, вкладки нет. Любое предупреждение D3D12 — провал.
 /// </summary>
 [Collection("game-gpu")]
 [Trait("Category", "Gpu")]
@@ -59,7 +57,7 @@ public sealed class MotionMatchGpuTests : IDisposable, ILogSink
     private static readonly PlayerCommand Run = new() { Move = new Vector2(0.6f, 1), HasGaze = true, Gaze = new Vector3(20, 0, 200) };
 
     [Fact]
-    public void MotionOverlay_LayerAndKey_ZeroBytesPerFrame()
+    public void MotionOverlay_Key_ZeroBytesPerFrame()
     {
         var assets = CharacterAssets.LoadFromPak();
         var sim = SwordSimulation.Create(ConfigSet.Empty("locomotion.player=mm", "arena.enemies=0"), assets);
@@ -84,26 +82,18 @@ public sealed class MotionMatchGpuTests : IDisposable, ILogSink
                 }
             }
             Frames(240);
-            Assert.False(arena.Motion.Available);   // не показан и не заказан — не снимается
+            Assert.False(arena.Motion.Available);   // не показан — не снимается
 
-            string Layer(string name) => Path.Combine(_dir, name + ".png");
-            var capture = new FrameCapture(Path.Combine(_dir, "color.png")) { Layers = [new CaptureLayer(ArenaClient.MotionOverlay, Layer("mm"))] };
-            arena.Input(Pressed());
-            arena.Extract(new FrameView(1, 0, 0, default) { Capture = capture });
+            // M — оверлей на экране: траектории и стопы игрока; кадр с ним (снятие и построение) — без выделений.
+            arena.Input(Pressed(ArenaInput.DebugMotion));
+            Assert.True(arena.ShowMotion);
+            arena.Extract(new FrameView(1, 0, 0, default));
             _window.PumpMessages();
-            renderer.Render(arena.BuildFrame, vsync: false, capture);
-            var result = renderer.LastCapture!;
-            var layer = Assert.Single(result.Layers);
-            Assert.True(File.Exists(layer.Path));
-            Assert.DoesNotContain(result.Notes, n => n.StartsWith("mm:", StringComparison.Ordinal));
+            renderer.Render(arena.BuildFrame, vsync: false);
             Assert.True(arena.Motion.Available);
             Assert.True(arena.Motion.Points >= 5 + 5 + 30, $"точек {arena.Motion.Points}");
             Assert.Equal(4, arena.Motion.Feet);
             Assert.True(arena.DrawnMotion > 30, $"примитивов {arena.DrawnMotion}");
-
-            // M — оверлей на экране; кадр с ним (снятие и построение) — без выделений.
-            arena.Input(Pressed(ArenaInput.DebugMotion));
-            Assert.True(arena.ShowMotion);
             long bytes = 0;
             void Measured(RenderFrame frame)
             {
@@ -128,7 +118,7 @@ public sealed class MotionMatchGpuTests : IDisposable, ILogSink
             arena.Input(Pressed(ArenaInput.DebugMotion));
             Assert.False(arena.ShowMotion);
 
-            // Игрок клипами (locomotion.player = clips): вида нет — оверлей не снимается (слой — пуст с заметкой NoMotionNote), вкладки F3 нет.
+            // Игрок клипами (locomotion.player = clips): вида нет — оверлей пуст, вкладки F3 нет.
             var plain = new SimulationLink(SwordSimulation.Create(ConfigSet.Empty("arena.enemies=0"), assets));
             var shown = new ArenaView(Sword.Game.Arena.ArenaTerrain.Height);
             shown.Extract(plain, 1);

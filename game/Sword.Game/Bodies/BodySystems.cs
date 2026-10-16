@@ -8,20 +8,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Модельные матрицы позы постройки <see cref="StartPose"/> (<c>FighterAnimator.Reset</c> → <c>Tick(0)</c> SWORD 2eab13b):
-/// клип в момент, −1 — поза привязки. Считаются своим маленьким пулом поз теми же заданиями, что поза тика (сэмпл клипа и
-/// прямая кинематика), — один раз на значение; общий пул поз не трогается (его хеширует участник <c>animation</c>).
-/// Один на симуляцию: его берут постройка сборки мира (<see cref="BodySetupSystem.PlaceWorldBuilt"/>), постройка командой
-/// (<see cref="BodySetupSystem"/>) и инвариант <c>physics.kinematicPose</c> до первого тика.
-///
-/// Поза постройки бойца — своя (<see cref="FighterStartPose"/>, её ставит модуль игроку на Motion Matching) или общая (ресурс
-/// <see cref="StartPose"/>) — <see cref="For(WorldReader, Entity)"/>. Значений бывает несколько (у игрока на MM — своя, у врагов — общая),
-/// поэтому матрицы хранятся по значению — до <see cref="Cached"/> значений, каждое считается один раз (сброс арены, где бойцы строятся
-/// вперемешку, не пересчитывает позы на каждого). Больше значений — старейшее считается заново на месте нового.
-///
-/// У своей позы постройки бывает слой поверх (<see cref="FighterStartPose.LayerWeight"/> больше 0 — рука с мечом игрока на MM): клип слоя
-/// в свою позу и смешивание по маске поддерева сустава (<see cref="Skeleton.SubtreeMask"/>, доля вне маски 0) — те же задания, что ставит
-/// модуль в тике, поэтому первый тик после постройки выводит ту же позу. Маска поддерева заводится в своём пуле один раз на сустав.
+/// Модельные матрицы позы постройки — клип в момент, −1 — поза привязки. Считаются своим маленьким пулом теми же заданиями,
+/// что поза тика (общий пул, который хеширует <c>animation</c>, не трогается); хранятся по значению — до <see cref="Cached"/>
+/// значений, каждое считается один раз. Слой поверх своей позы — те же задания, что ставит модуль в тике.
 /// </summary>
 public sealed class StartPoseModel(ClipLibrary clips)
 {
@@ -36,8 +25,7 @@ public sealed class StartPoseModel(ClipLibrary clips)
     private int _count, _next;
 
     /// <summary>
-    /// Поза постройки бойца <paramref name="e"/>: своя (<see cref="FighterStartPose"/>, со слоем поверх), нет — общая (ресурс
-    /// <see cref="StartPose"/>, без слоя).
+    /// Поза постройки бойца <paramref name="e"/>: своя (<see cref="FighterStartPose"/>), нет — общая (<see cref="StartPose"/>, без слоя).
     /// </summary>
     public static FighterStartPose For(WorldReader world, Entity e) =>
         world.TryGet<FighterStartPose>(e, out var own) ? own : Common(world.Resource<StartPose>());
@@ -111,17 +99,9 @@ public sealed class StartPoseModel(ClipLibrary clips)
 }
 
 /// <summary>
-/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, до курса и разгона (<see cref="GameLabels.BodySetup"/>): построенному
-/// бойцу — форма тела и капсулы без скорости по позе постройки (<c>Fighter.Build</c> → <c>PlaceBuilt</c> SWORD 2eab13b: тела
-/// переставляются, а не создаются — у бойца, построенного заново, те же тела). Корень и курс — постройки: <see cref="Transform"/>
-/// до <c>core.root-steer</c> этого тика. Поза постройки — своя у бойца (<see cref="FighterStartPose"/>) или общая <see cref="StartPose"/>
-/// (<see cref="StartPoseModel"/>). Построенный заново
-/// труп сначала снова живой (<see cref="Ragdoll.Corpse.Revive"/>: кинематика, профиль по умолчанию, суставы включены).
-///
-/// Бойцов сборки мира ставит сборка мира (<see cref="PlaceWorldBuilt"/>, после наполнения мира модулями, как SWORD
-/// после <c>AttachRig</c>). Их записи <c>Added</c> система видит в тике 1 (записи сборки мира доставляются первому
-/// срабатыванию) и ставит их ещё раз теми же значениями — корень, курс и поза постройки до <c>core.root-steer</c> тика 1 те
-/// же, а <c>Place</c> переписывает все поля постановки: итог тот же, что без повтора.
+/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, до курса и разгона: построенному бойцу — форма тела и капсулы без скорости
+/// по позе постройки (тела переставляются, а не создаются); построенный заново труп сначала снова живой. Бойцов сборки мира
+/// ставит <see cref="PlaceWorldBuilt"/>; их записи <c>Added</c> в тике 1 ставят их ещё раз теми же значениями — итог тот же.
 /// </summary>
 public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, StartPoseModel start) : IReactiveSystem<Added<Fighter>>
 {
@@ -147,9 +127,8 @@ public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, St
     }
 
     /// <summary>
-    /// Постройка бойцов сборки мира (<c>OnWorldReady</c> ядра — после <c>OnWorldBuilt</c> ядра и модулей: позу постройки
-    /// задаёт модуль Locomotion при сборке мира): форма и капсулы без скорости по позе постройки в корне и курсом постройки,
-    /// как <c>PlaceBuilt</c> SWORD сразу после <c>Reset</c>/<c>AttachRig</c>. До первого тика тело бойца уже стоит.
+    /// Постройка бойцов сборки мира (<c>OnWorldReady</c> — после того, как модуль задал позу постройки): форма и капсулы без скорости.
+    /// До первого тика тело бойца уже стоит.
     /// </summary>
     public static void PlaceWorldBuilt(World world, IPhysicsWorld physics, BodyJoints joints, StartPoseModel start)
     {
@@ -169,13 +148,9 @@ public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, St
 }
 
 /// <summary>
-/// PrePhysics, непрерывная (<see cref="GameLabels.KinematicPlacement"/>): капсулы тела каждого бойца — на суставы позы этого
-/// тика в корне после Movement (<c>DuelArena.PlaceBodies</c> SWORD 2eab13b после <c>ResolveRoots</c>; без клинка,
-/// <c>BodyPlacer</c>/<c>PinFeet</c> — этап 9, визуального смещения нет (не переносится), пропуска отрубленных нет — Cutting отложен, решение 17): кинематическая
-/// цель тика (<see cref="IPhysicsWorld.SetKinematicTarget"/>) — скорость — разность с прошлой постановкой за тик, угловая —
-/// <c>RotationVector</c>/dt. Первая постановка без скорости — при постройке (<see cref="BodySetupSystem"/>). Боец без позы
-/// (не заведена) или с негодным телом пропускается — его ловят инварианты <c>animation.*</c>, <c>physics.bodyRefs</c>.
-/// Памяти не выделяет.
+/// PrePhysics: капсулы тела каждого бойца — на суставы позы этого тика в корне после Movement; кинематическая цель
+/// (<see cref="IPhysicsWorld.SetKinematicTarget"/>): скорость — разность с прошлой постановкой за тик, угловая —
+/// <c>RotationVector</c>/dt. Боец без позы или с негодным телом пропускается. Памяти не выделяет.
 /// </summary>
 public sealed class KinematicPlacementSystem(IPhysicsWorld physics, BodyJoints joints) : IContinuousSystem
 {

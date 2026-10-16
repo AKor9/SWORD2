@@ -4,9 +4,8 @@ using static Sword.Engine.Physics.Tests.TestBodies;
 namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
-/// Динамика тела-капсулы — свойства, а не повтор формул: свободное падение с ошибкой шага, демпфирование и потолки
-/// скоростей, трение о землю останавливает скольжение, инерция капсулы, поворот с обрезкой угла, коррекция и импульс в
-/// точке, конечность, кинетическая энергия.
+/// Динамика капсулы — свойства, а не повтор формул: падение, демпфирование и потолки скоростей, трение о землю, инерция,
+/// поворот, импульс в точке, конечность.
 /// </summary>
 public class BodyDynamicsTests
 {
@@ -124,7 +123,7 @@ public class BodyDynamicsTests
     [Theory]
     [InlineData(0.05f, 0.2f)]
     [InlineData(0.15f, 0.1f)]
-    [InlineData(0.15f, 0.02f)]   // короче 0,37 r: у формулы цилиндра SWORD ось здесь была бы не наименьшей
+    [InlineData(0.15f, 0.02f)]   // короче 0,37 r: у формулы цилиндра ось здесь была бы не наименьшей
     [InlineData(0.065f, 0.14f)]
     [InlineData(0.03f, 0.575f)]
     public void CapsuleInertia_AlongAxisSmallest_SymmetricAcross_ScalesWithMass(float radius, float half)
@@ -236,8 +235,8 @@ public class BodyDynamicsTests
             s => s with { PrevPosition = s.PrevPosition with { Z = float.PositiveInfinity } },
             s => s with { StartPosition = s.StartPosition with { X = float.NaN } },
             s => s with { Velocity = s.Velocity with { X = float.NegativeInfinity } },
-            s => s with { AngularVelocity = s.AngularVelocity with { Z = float.NaN } },   // у SWORD не проверялась
-            s => s with { Rotation = s.Rotation with { X = float.NaN } },                 // у SWORD — только W
+            s => s with { AngularVelocity = s.AngularVelocity with { Z = float.NaN } },
+            s => s with { Rotation = s.Rotation with { X = float.NaN } },
             s => s with { PrevRotation = s.PrevRotation with { W = float.NaN } },
             s => s with { StartRotation = s.StartRotation with { Y = float.NaN } },
         };
@@ -258,7 +257,6 @@ public class BodyDynamicsTests
     }
 }
 
-/// <summary>Сравнение векторов покомпонентно с допуском.</summary>
 internal sealed class Vector3Comparer(float tolerance) : IEqualityComparer<Vector3>
 {
     public bool Equals(Vector3 a, Vector3 b) =>

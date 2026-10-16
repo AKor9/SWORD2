@@ -5,9 +5,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Диагностика физики для наблюдателей: вид <see cref="IPhysicsDebugView"/> (суставы сочленений и трасса физики) и
-/// диагностический режим трассы <see cref="PhysicsTraceMode"/>. Ни то ни другое не меняет ни мир, ни хеш, ни реплей: систем,
-/// команд и ресурсов-значений нет — регистрация в <c>GameCore.Configure</c> одной строкой.
+/// Диагностика физики для наблюдателей: вид <see cref="IPhysicsDebugView"/> и режим трассы <see cref="PhysicsTraceMode"/>. Ни мир,
+/// ни хеш, ни реплей не меняют.
 /// </summary>
 public static class PhysicsDebug
 {
@@ -20,10 +19,8 @@ public static class PhysicsDebug
 }
 
 /// <summary>
-/// Диагностический режим <c>physics.trace</c>: трасса физики мира (<see cref="IPhysicsWorld.EnableTrace"/>) — включить и
-/// выключить между тиками, начать окно заново. Трасса одна на мир: режим — её выключатель (выключает и трассу, включённую иначе).
-/// Объект трассы один на режим: повторное включение не выделяет памяти (пока не выросли слоты мира) и начинает накопление заново —
-/// «прогон» трассы — с включения.
+/// Диагностический режим <c>physics.trace</c>: трасса физики мира (<see cref="IPhysicsWorld.EnableTrace"/>) — выключатель, одна на
+/// мир. Повторное включение памяти не выделяет и начинает накопление заново.
 /// </summary>
 public sealed class PhysicsTraceMode(IPhysicsWorld physics) : IDiagnosticMode
 {
@@ -52,10 +49,8 @@ public sealed class PhysicsTraceMode(IPhysicsWorld physics) : IDiagnosticMode
 }
 
 /// <summary>
-/// Вид <see cref="IPhysicsDebugView"/> — чтение подсистемы Physics: суставы (<see cref="IPhysicsWorld.Joint"/>,
-/// <see cref="IPhysicsWorld.Binding"/>, <see cref="IPhysicsWorld.MeasureJoint"/>) и трасса (<see cref="IPhysicsWorld.Trace"/>):
-/// хэндлы тел — в сочленение (<see cref="BodyRef"/>) и номер тела в нём. Контакты переписываются в свой буфер (растёт удвоением —
-/// установившийся кадр без выделений).
+/// Вид <see cref="IPhysicsDebugView"/> — чтение суставов и трассы физики; хэндлы тел — в сочленение (<see cref="BodyRef"/>) и номер
+/// тела. Контакты — в свой буфер (растёт удвоением, установившийся кадр без выделений).
 /// </summary>
 public sealed class PhysicsDebugView(IPhysicsWorld physics) : IPhysicsDebugView
 {

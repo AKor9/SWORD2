@@ -1,7 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text.Json.Nodes;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
 
@@ -99,14 +98,6 @@ public sealed class Box : IStateContributor
     public int Value;
 
     public void AppendHash(ref StateHasher h) => h.Add(Value);
-
-    public void Describe(StateWriter w, in DescribeQuery q)
-    {
-        w.BeginItem("value");
-        w.Value("value", Value);
-        w.EndItem();
-        w.Matched = 1;
-    }
 }
 
 public class StateHashTests
@@ -138,20 +129,14 @@ public class StateHashTests
         var value = new Mixed { Flag = true, F = 1.5f, B = 9, V = new Vector3(1, 2, 3), Mood = Mood.Angry, Target = new Entity(4, 2), D = -2.25, C = 'Ж' };
         value.Arr[0] = 5;
         value.Arr[2] = -7;
-        var w = new StateWriter();
-        w.BeginItem("x");
-        layout.Describe(Bytes(value), w);
-        w.EndItem();
-        var o = JsonNode.Parse(w.ToJson())!["items"]![0]!;
-        Assert.True(o["Flag"]!.GetValue<bool>());
-        Assert.Equal(1.5, o["F"]!.GetValue<double>());
-        Assert.Equal(9, o["B"]!.GetValue<int>());
-        Assert.Equal(3.0, o["V.Z"]!.GetValue<double>());
-        Assert.Equal(7, o["Mood"]!.GetValue<int>());
-        Assert.Equal("4v2", o["Target"]!.GetValue<string>());
-        Assert.Equal(-2.25, o["D"]!.GetValue<double>());
-        Assert.Equal(-7, o["Arr[2]"]!.GetValue<int>());
-        Assert.Equal("Ж", o["C"]!.GetValue<string>());
+        var bytes = Bytes(value);
+        int Leaf(string path) => layout.Leaves.Select((l, i) => (l, i)).Single(p => p.l.Path == path).i;
+        Assert.Equal(1UL, layout.Bits(bytes, Leaf("Flag")));
+        Assert.Equal(BitConverter.SingleToUInt32Bits(1.5f), layout.Bits(bytes, Leaf("F")));
+        Assert.Equal(7UL, layout.Bits(bytes, Leaf("Mood")));
+        Assert.Equal(4UL | 2UL << 32, layout.Bits(bytes, Leaf("Target")));
+        Assert.Equal(BitConverter.DoubleToUInt64Bits(-2.25), layout.Bits(bytes, Leaf("D")));
+        Assert.Equal('Ж', (char)layout.Bits(bytes, Leaf("C")));
 
         Assert.Equal(["Values[0]", "Values[1]"], FieldLayout.Of(typeof(WithFixed)).Leaves.Select(l => l.Path));
     }
@@ -239,9 +224,6 @@ public class StateHashTests
         var twin = Wanderers(extra: new Box { Id = "box2" });
         Assert.NotEqual(before.Parts["box"], twin.HashState().Parts["box2"]);
 
-        var json = JsonNode.Parse(sim.DescribeState("box", default))!;
-        Assert.Equal(42, json["items"]![0]!["value"]!.GetValue<int>());
-        Assert.Throws<ArgumentException>(() => sim.DescribeState("nope", default));
     }
 
     [Theory]
@@ -256,38 +238,6 @@ public class StateHashTests
         Assert.Throws<InvalidOperationException>(() => Simulation.Build(ConfigSet.Empty(), ["S"],
             b => b.StateContributor(new Box()).StateContributor(new Box()), []));
 
-    [Fact]
-    public void EcsDescribe_EntitiesAndResources_FilterAndPages()
-    {
-        var sim = Wanderers();
-        sim.Step();
-        var all = JsonNode.Parse(sim.DescribeState("ecs", new DescribeQuery(Take: 100)))!;
-        Assert.Equal(5, all["entities"]!.GetValue<int>());
-        var items = all["items"]!.AsArray();
-        Assert.Equal("0v1", items[0]!["id"]!.GetValue<string>());
-        var wander = items[0]![typeof(Wander).FullName!]!;
-        Assert.NotEqual(0.0, wander["Position.X"]!.GetValue<double>());
-        Assert.Contains(items, i => i!["id"]!.GetValue<string>() == "resource:" + typeof(SimRandom).FullName);
-        Assert.Contains(items, i => i!["id"]!.GetValue<string>() == "resource:" + typeof(SimTime).FullName);
-
-        var one = JsonNode.Parse(sim.DescribeState("ecs", new DescribeQuery("3v1")))!;
-        Assert.Equal(1, one["matched"]!.GetValue<int>());
-        Assert.Equal("3v1", one["items"]![0]!["id"]!.GetValue<string>());
-
-        // «Wander» — пять сущностей по компоненту и система wander.walk по id
-        var page = JsonNode.Parse(sim.DescribeState("ecs", new DescribeQuery("Wander", Skip: 2, Take: 2)))!;
-        Assert.Equal(6, page["matched"]!.GetValue<int>());
-        Assert.Equal(["2v1", "3v1"], page["items"]!.AsArray().Select(i => i!["id"]!.GetValue<string>()));
-
-        // после сущностей и ресурсов — слоты, журналы, системы (порядок хеша)
-        Assert.Equal(["slots", "journal:Event<" + typeof(Nudge).FullName + ">", "system:runtime.commands@runtime.commands",
-                "system:wander.walk@S", "system:runtime.export@runtime.export"],
-            items.Select(i => i!["id"]!.GetValue<string>()).Where(id => id is "slots" || id.StartsWith("journal:") || id.StartsWith("system:")));
-        var slots = JsonNode.Parse(sim.DescribeState("ecs", new DescribeQuery("slots")))!["items"]![0]!;
-        Assert.Equal(5, slots["count"]!.GetValue<int>());
-        Assert.Empty(slots["free"]!.AsArray());
-    }
-
     private static Simulation WithSetup(Action<World> setup) =>
         Simulation.Build(ConfigSet.Empty(), ["S"], null, [new WanderModule(), new SetupModule(setup)]);
 
@@ -298,9 +248,8 @@ public class StateHashTests
         var a = WithSetup(w => { w.DestroyImmediate(new Entity(0, 1)); w.DestroyImmediate(new Entity(1, 1)); });
         var b = WithSetup(w => { w.DestroyImmediate(new Entity(1, 1)); w.DestroyImmediate(new Entity(0, 1)); });
         Assert.NotEqual(a.HashState().Parts["ecs"], b.HashState().Parts["ecs"]);
-        var slots = JsonNode.Parse(a.DescribeState("ecs", new DescribeQuery("slots")))!["items"]![0]!;
-        Assert.Equal([0, 1], slots["free"]!.AsArray().Select(n => n!.GetValue<int>()));
-        Assert.Equal(2, slots["freeGenerations"]!["0"]!.GetValue<int>());
+        Assert.Equal([0, 1], a.World.FreeIndices.ToArray());
+        Assert.Equal(2, a.World.GenerationAt(0));
 
         // тот же набор свободных слотов, но у одного другое поколение
         var c = WithSetup(w =>
@@ -321,13 +270,13 @@ public class StateHashTests
         a.Enqueue(new Nudge { X = 0 });
         a.Step();
         b.Step();
-        var journal = "journal:Event<" + typeof(Nudge).FullName + ">";
-        Assert.Equal(DescribeWander(a), DescribeWander(b));
+        int journal = a.World.Journals.Single(j => j.Name == "Event<" + typeof(Nudge).FullName + ">").Id;
+        Assert.Equal(Wanders(a), Wanders(b));
         Assert.NotEqual(a.HashState().Parts["ecs"], b.HashState().Parts["ecs"]);
-        var entries = JsonNode.Parse(a.DescribeState("ecs", new DescribeQuery(journal)))!["items"]![0]!["entries"]!.AsArray();
-        Assert.Single(entries);
-        Assert.Equal(0.0, entries[0]!["Value.X"]!.GetValue<double>());
-        Assert.True(entries[0]!["age"]!.GetValue<long>() > 0);
+        Assert.Equal(1, a.World.JournalLength(journal));
+        var entry = a.World.JournalEntry(journal, 0, out long age);
+        Assert.Equal(0f, MemoryMarshal.Read<Event<Nudge>>(entry).Value.X);
+        Assert.True(age > 0);
 
         // оборот тика — запись ушла, курсоры дочитаны: состояния снова равны (хеш не помнит номеров записей и барьеров)
         a.Step();
@@ -338,13 +287,13 @@ public class StateHashTests
         var off = WithSetup(w => w.SetActive("wander.walk@S", false));
         var on = WithSetup(_ => { });
         Assert.NotEqual(off.HashState().Parts["ecs"], on.HashState().Parts["ecs"]);
-        var system = JsonNode.Parse(off.DescribeState("ecs", new DescribeQuery("system:wander")))!["items"]![0]!;
-        Assert.False(system["active"]!.GetValue<bool>());
-        Assert.Equal(0, system["unread"]![journal[8..]]!.GetValue<int>());
+        int system = off.World.Systems.ToList().FindIndex(x => x.Label == "wander.walk");   // номер — место в порядке исполнения
+        Assert.False(off.World.SystemActive(system));
+        Assert.True(on.World.SystemActive(system));
     }
 
-    private static string DescribeWander(Simulation sim) =>
-        JsonNode.Parse(sim.DescribeState("ecs", new DescribeQuery("Wander", Take: 5)))!["items"]!.ToJsonString();
+    private static Wander[] Wanders(Simulation sim) =>
+        [.. Enumerable.Range(0, sim.World.EntitySlots).Select(sim.World.EntityAt).Where(e => !e.IsNull).Select(sim.World.Get<Wander>)];
 
     [Fact]
     public void HashState_DoesNotAllocate()

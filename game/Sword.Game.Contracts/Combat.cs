@@ -4,10 +4,8 @@ using Sword.Engine.Ecs;
 namespace Sword.Game.Contracts;
 
 /// <summary>
-/// Оружие в руке бойца (<c>Fighter.WeaponKind</c> SWORD 2eab13b): номер в таблице оружия (<see cref="ICombatView.Weapons"/>,
-/// мечи пака по алфавиту). Враг получает случайный меч при каждой постройке (<c>DuelArena.Spawn</c>), игрок — меч инвентаря
-/// (<see cref="PlayerInventory.Equipped"/>: конфиг <c>combat.playerWeapon</c>, T — следующий). Клинок меча — в
-/// <see cref="Blade"/>.
+/// Оружие в руке бойца: номер в таблице оружия (<see cref="ICombatView.Weapons"/>, мечи пака по алфавиту). Враг получает
+/// случайный меч при каждой постройке, игрок — меч инвентаря (<see cref="PlayerInventory.Equipped"/>).
 /// </summary>
 public struct WeaponSlot
 {
@@ -15,13 +13,10 @@ public struct WeaponSlot
 }
 
 /// <summary>
-/// Клинок бойца в мире после постановки тела тика (<c>KinBase</c>, <c>KinTip</c>, <c>KinPrevBase</c>, <c>KinPrevTip</c> SWORD
-/// 2eab13b; PrePhysics): основание (у гарды, 22 см от кисти) и кончик клинка меча <see cref="WeaponSlot"/>, как
-/// показан боец — модельная матрица кисти (hand_r) позы тика в мире бойца (корень, курс, высота рельефа — тот же мир, что у
-/// капсул тела), — и их положение прошлого тика: отрезок, который клинок заметает за тик (проходы клинка). У клинка
-/// есть и тело — капсула 11 сочленения бойца от хвата до кончика (<see cref="BladeBody"/>), её ставят вместе с этим отрезком.
-/// Постройка бойца и смена меча — прошлое равно нынешнему (<see cref="Weapon"/> — меч, которым клинок посчитан): прохода между
-/// разными клинками нет (в SWORD смена меча давала один такой фантомный проход); тело клинка тогда — новой формы, без скорости.
+/// Клинок бойца в мире после постановки тела тика (PrePhysics): основание (22 см от кисти) и кончик, как показан боец
+/// (кисть hand_r позы тика в мире бойца), и их положение прошлого тика — отрезок, который клинок заметает за тик.
+/// Тело клинка — капсула 11 сочленения (<see cref="BladeBody"/>). При постройке и смене меча прошлое равно нынешнему
+/// (<see cref="Weapon"/> — меч расчёта): фантомного прохода между разными клинками нет.
 /// </summary>
 public struct Blade
 {
@@ -36,10 +31,8 @@ public struct Blade
 }
 
 /// <summary>
-/// Инвентарь игрока (<c>WeaponInventory</c> SWORD 2eab13b) — ресурс-значение (хешируется): доступное оружие — битами номеров
-/// таблицы оружия (пока всё оружие пака сразу, как <c>DuelArena.AttachRig</c>; до 64 мечей) и выбранное — меч в руке игрока
-/// (<see cref="WeaponSlot"/> игрока равен ему; постройка игрока заново — с ним). Меняют его команды арены
-/// (<see cref="ArenaAction.NextWeapon"/>, <see cref="ArenaAction.EquipWeapon"/>: T; панель инвентаря клиента, I, 1–9 и щелчок).
+/// Инвентарь игрока — ресурс-значение (хешируется): доступное оружие битами номеров таблицы (до 64 мечей) и выбранное —
+/// меч в руке игрока. Меняют его команды арены (<see cref="ArenaAction.NextWeapon"/>, <see cref="ArenaAction.EquipWeapon"/>).
 /// </summary>
 public struct PlayerInventory
 {
@@ -57,10 +50,7 @@ public struct PlayerInventory
     /// <summary>Сколько оружия доступно.</summary>
     public readonly int Count => BitOperations.PopCount(Owned);
 
-    /// <summary>
-    /// Оружие <paramref name="index"/>-е по порядку получения (<c>Owned[index]</c> SWORD: строка панели инвентаря и клавиша 1–9)
-    /// — номер в таблице; такого нет — −1.
-    /// </summary>
+    /// <summary>Оружие <paramref name="index"/>-е по порядку получения (строка панели и клавиша 1–9) — номер в таблице; нет — −1.</summary>
     public readonly int OwnedAt(int index)
     {
         ulong rest = Owned;
@@ -77,10 +67,7 @@ public struct PlayerInventory
         return true;
     }
 
-    /// <summary>
-    /// Следующее доступное оружие по кругу (<c>WeaponInventory.EquipNext</c>: за выбранным в порядке получения, после
-    /// последнего — первое); выбранное недоступно — первое доступное; инвентарь пуст — ничего.
-    /// </summary>
+    /// <summary>Следующее доступное оружие по кругу; выбранное недоступно — первое доступное; инвентарь пуст — ничего.</summary>
     public void EquipNext()
     {
         if (Owned == 0) return;
@@ -99,10 +86,8 @@ public struct PlayerInventory
 }
 
 /// <summary>
-/// Оружие таблицы (<c>CharacterRig.Weapon</c> SWORD 2eab13b): имя (файл пака без расширения), путь меша в контенте
-/// (<c>weapons/имя.swmesh</c>: статический меш, вершины в системе кисти hand_r) и клинок в системе кисти — кончик — самая
-/// дальняя от кисти вершина меша, основание — 22 см от кисти по той же оси (<c>MakeWeapon</c>). Тело клинка меча —
-/// <see cref="Body"/>.
+/// Оружие таблицы: имя (файл пака без расширения), меш (<c>weapons/имя.swmesh</c>, вершины в системе кисти hand_r)
+/// и клинок в системе кисти: кончик — дальняя от кисти вершина, основание — 22 см от кисти по той же оси.
 /// </summary>
 public readonly record struct WeaponInfo(string Name, string Mesh, Vector3 BladeBase, Vector3 BladeTip)
 {
@@ -114,20 +99,16 @@ public readonly record struct WeaponInfo(string Name, string Mesh, Vector3 Blade
 }
 
 /// <summary>
-/// Тело клинка меча (не как в SWORD — там капсула 0,575 м при любом мече) — тело 11 сочленения бойца
-/// (<see cref="BodySegs.Weapon"/>) в системе кисти hand_r: ось капсулы (локальная Y тела) — отрезок от **хвата** до кончика клинка
-/// (<see cref="WeaponInfo.BladeTip"/>). Хват — начало системы кисти (сустав hand_r: там же конец предплечья, <c>lowerarm_r → hand_r</c>),
-/// в системе тела — нижний конец оси (<see cref="GripLocal"/>, конец A капсулы): точка сустава запястья трупа. Центр — середина
-/// отрезка; локальная X тела — <see cref="XHint"/> (ось кисти, самая поперечная к клинку, без продольной части): поворот тела клинка
-/// относительно кисти постоянен, по нему меч рисуется на теле клинка. Масса и радиус — одни для всех мечей (<see cref="Mass"/>,
-/// <see cref="Radius"/>: массы в паке нет); смена меча меняет форму капсулы.
+/// Тело клинка — тело 11 сочленения (<see cref="BodySegs.Weapon"/>) в системе кисти hand_r: ось (локальная Y) — от хвата
+/// (начало системы кисти, конец A — точка сустава запястья трупа) до кончика. Локальная X — <see cref="XHint"/>, поворот
+/// относительно кисти постоянен. Масса и радиус одни для всех мечей; смена меча меняет форму капсулы.
 /// </summary>
 public readonly record struct BladeBody(Vector3 Center, Vector3 Axis, Vector3 XHint, float HalfLength)
 {
-    /// <summary>Масса тела клинка, кг (решение 3: 1,4 кг для всех мечей, как <c>Fighter.Masses[Weapon]</c> SWORD).</summary>
+    /// <summary>Масса тела клинка, кг (одна для всех мечей).</summary>
     public const float Mass = 1.4f;
 
-    /// <summary>Радиус капсулы клинка, м (как <c>Fighter.Radii[Weapon]</c> SWORD — отправная точка, есть ручка).</summary>
+    /// <summary>Радиус капсулы клинка, м (отправная точка, есть ручка).</summary>
     public const float Radius = 0.03f;
 
     /// <summary>Хват в системе кисти — её начало: точка сустава запястья трупа.</summary>
@@ -137,9 +118,8 @@ public readonly record struct BladeBody(Vector3 Center, Vector3 Axis, Vector3 XH
     public Vector3 GripLocal => new(0, -HalfLength, 0);
 
     /// <summary>
-    /// Тело клинка по кончику <paramref name="tip"/> в системе кисти: ось — от хвата (0) к кончику, центр — середина, полудлина —
-    /// половина расстояния; опорная X — ось кисти (X, Y или Z — самая поперечная к клинку, первая при равенстве) без продольной
-    /// части. Кончик в хвате (длины нет) — ось Y кисти, полудлина 0.
+    /// Тело клинка по кончику <paramref name="tip"/>: ось — от хвата (0) к кончику; опорная X — самая поперечная к клинку ось
+    /// кисти без продольной части. Кончик в хвате — ось Y кисти, полудлина 0.
     /// </summary>
     public static BladeBody Of(Vector3 tip)
     {
@@ -153,16 +133,15 @@ public readonly record struct BladeBody(Vector3 Center, Vector3 Axis, Vector3 XH
 }
 
 /// <summary>
-/// Окно урона одного удара в клипе (<c>StrikeWindow</c> SWORD 2eab13b): время, с, пиковая скорость кончика, м/с, её время и
-/// направление замаха (x — вправо бойца, y — вверх).
+/// Окно урона одного удара в клипе: время, с, пиковая скорость кончика, м/с, её время и направление замаха
+/// (x — вправо бойца, y — вверх).
 /// </summary>
 public readonly record struct StrikeWindow(float Start, float End, float PeakTime, float PeakSpeed, Vector2 SwingDir);
 
 /// <summary>
-/// Удар из таблицы ударов (<c>AttackInfo</c> SWORD 2eab13b: <c>CharacterRig.Analyse</c>) — слот (slash1–4, stab1–3), его клип,
-/// клип отбитого удара (<c>имя_Blocked</c>, −1 — нет), длительность, укол, слой верха тела и окна урона по кончику клинка меча
-/// по умолчанию (хотя бы одно; связка — несколько). Неизменяем: таблица — ассет симуляции; значение, а не ссылка на объект —
-/// его отдаёт вид только для чтения (<see cref="ICombatView"/>, тест <c>ReadViews_OnlyRead</c>), окна — только <see cref="ReadOnlySpan{T}"/>.
+/// Удар из таблицы ударов: слот (slash1–4, stab1–3), клип, клип отбитого (−1 — нет), длительность, укол, слой верха
+/// и окна урона по кончику меча по умолчанию (хотя бы одно). Неизменяемое значение: его отдаёт вид только для чтения
+/// (<see cref="ICombatView"/>), окна — только <see cref="ReadOnlySpan{T}"/>.
 /// </summary>
 public readonly struct AttackInfo(string slot, int clip, int blockedClip, float duration, bool thrust, bool upper, StrikeWindow[] windows)
 {
@@ -178,8 +157,6 @@ public readonly struct AttackInfo(string slot, int clip, int blockedClip, float 
     public bool Upper { get; } = upper;
     public ReadOnlySpan<StrikeWindow> Windows => _windows;
 
-    /// <summary>Начало первого окна и конец последнего: связка занята от первого удара до последнего.</summary>
-    public float ActiveStart => _windows[0].Start;
     public float ActiveEnd => _windows[^1].End;
 
     /// <summary>Направление замаха первого удара — по нему жест выбирает клип.</summary>
@@ -205,10 +182,7 @@ public readonly struct AttackInfo(string slot, int clip, int blockedClip, float 
     }
 }
 
-/// <summary>
-/// Оружие и удары для наблюдателей симуляции (клиент — меч в руке, агент — <c>combat.weapons</c>): вид только для чтения на
-/// неизменяемые ассеты боя — таблицу оружия (мечи пака по алфавиту) и таблицу ударов.
-/// </summary>
+/// <summary>Оружие и удары для наблюдателей симуляции: вид только для чтения на таблицу оружия и таблицу ударов.</summary>
 public interface ICombatView : IReadView
 {
     /// <summary>Оружие таблицы по номеру (<see cref="WeaponSlot.Index"/>).</summary>

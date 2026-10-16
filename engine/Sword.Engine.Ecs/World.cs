@@ -9,10 +9,8 @@ public sealed record WorldOptions
     /// <summary>Байт на чанк (старт — 16 КБ; настройка, а не контракт).</summary>
     public int ChunkBytes { get; init; } = 16 * 1024;
 
-    /// <summary>
-    /// Проверки мира: необъявленное производство, черновик чужого буфера, отложенное значение мимо команд, запись в
-    /// реактивный компонент мимо <c>Set</c>, <c>Add</c> уже имеющегося компонента. По умолчанию — в Debug.
-    /// </summary>
+    /// <summary>Проверки мира: необъявленное производство, чужой черновик, отложенное значение мимо команд, запись в
+    /// реактивный компонент мимо <c>Set</c>, повторный <c>Add</c>. По умолчанию — в Debug.</summary>
     public bool Checks { get; init; } = DefaultChecks;
 
 #if DEBUG
@@ -23,12 +21,8 @@ public sealed record WorldOptions
 }
 
 /// <summary>
-/// Мир ECS (раздел 5 плана): сущности в архетипах и чанках, ресурсы, журналы срабатываний, стадии и барьеры.
-/// Системы меняют мир только командами (<see cref="CommandBuffer"/>) и записью колонок на месте; команды применяются
-/// на барьере после стадии: проигрывание буферов в порядке систем (черновики становятся сущностями, разрешитель
-/// подставляет их в поля), нормализация срабатываний компонентов (таблица раздела 5), хуки времени жизни ресурсов
-/// подсистем, затем события в том же порядке.
-/// Исполнение последовательное (v0). Собирает мир <see cref="WorldBuilder"/>.
+/// Мир ECS: сущности в архетипах и чанках, ресурсы, журналы, стадии и барьеры. Системы меняют мир только командами
+/// (<see cref="CommandBuffer"/>) и записью колонок на месте; команды применяются на барьере после стадии.
 /// </summary>
 public sealed partial class World
 {
@@ -80,8 +74,6 @@ public sealed partial class World
         public int Type;
         public bool Before, Removed, Set;
         public int FirstRemoval, LastRemoval;
-        // Причины раздельно: удаление в начале барьера и итоговое добавление или изменение приходят от разных команд.
-        public CauseId FirstRemovalCause, LastRemovalCause, Cause;
     }
 
     internal World(WorldOptions options, DataType[] types, DataType[] events, string[] stages)
@@ -116,31 +108,9 @@ public sealed partial class World
     /// <summary>Живых сущностей.</summary>
     public int EntityCount { get; private set; }
 
-    /// <summary>
-    /// Номер барьера: растёт на каждом барьере стадии. Немедленные изменения вне тика его не двигают — их записи
-    /// числятся за ближайшим барьером, поэтому срок жизни записей всегда ровно один оборот тика.
-    /// </summary>
+    /// <summary>Номер барьера. Немедленные изменения вне тика его не двигают — их записи числятся за ближайшим барьером,
+    /// поэтому записи живут ровно один оборот тика.</summary>
     public long Barrier => _barrier;
-
-    /// <summary>
-    /// Журнал причинности — диагностический режим <c>state.why</c>; null — выключен (по умолчанию): записи команд и событий
-    /// несут в <see cref="CauseId"/> то, что задала система, и ничего не стоят.
-    /// </summary>
-    public CausalityLog? Causality { get; private set; }
-
-    /// <summary>
-    /// Включить (<paramref name="log"/>) или выключить (null) журнал причинности — между тиками. Состояние мира и хеш от него
-    /// не зависят: причина в журналах срабатываний вне хеша записей, журнал — не ресурс.
-    /// </summary>
-    public void SetCausality(CausalityLog? log)
-    {
-        NotInTick(nameof(SetCausality));
-        log?.Attach(_types.Length, _registrations.Count);
-        Causality = log;
-    }
-
-    /// <summary>Номер идущего (или последнего сыгранного) тика — для записей журнала причинности.</summary>
-    internal ulong CurrentTick;
 
     /// <summary>Команд, отброшенных на барьере: цель к тому времени удалена, <c>Set</c> несуществующего компонента.</summary>
     public long IgnoredCommands { get; private set; }
@@ -337,7 +307,7 @@ public sealed partial class World
         NotInTick(nameof(SetResourceImmediate));
         var slot = ResourceSlotOf<T>(out _);
         slot.Value = value;
-        slot.Journal?.Append(new ResourceChanged<T>(value, CauseId.None), _barrier);
+        slot.Journal?.Append(new ResourceChanged<T>(value), _barrier);
     }
 
     private void ApplyImmediate()
@@ -362,17 +332,13 @@ public sealed partial class World
     /// <summary>Тик: стадии по порядку, после каждой — барьер.</summary>
     public void RunTick(ulong tick) => RunTick(tick, null);
 
-    /// <summary>
-    /// Тик с наблюдателем барьеров: <paramref name="afterBarrier"/> получает номер стадии после её барьера — мир
-    /// согласован, записи стадии в журналах (останов посреди тика у агента). Наблюдатель только читает: немедленные
-    /// операции во время тика — исключение, как и всегда.
-    /// </summary>
+    /// <summary>Тик с проверкой: <paramref name="afterBarrier"/> получает номер стадии после её барьера (мир согласован).
+    /// Проверка только читает.</summary>
     public void RunTick(ulong tick, Action<int>? afterBarrier)
     {
         NotInTick(nameof(RunTick));
         _inTick = true;
-        CurrentTick = tick;
-        // Профайлер: зоны стадии (системы, барьер и наблюдатель после него), каждой регистрации и барьера — по
+        // Профайлер: зоны стадии (системы, барьер и проверка после него), каждой регистрации и барьера — по
         // номерам, заведённым в AttachProfiler; выключенный — проверка флага на зону.
         var profiler = _profiler;
         try
@@ -410,11 +376,8 @@ public sealed partial class World
         }
     }
 
-    /// <summary>
-    /// Тик прерван исключением: несыгранные команды и события, отслеживание и отложенные значения барьера отбрасываются —
-    /// иначе следующий тик доставил бы их с опозданием или повторял бы ту же ошибку каждый тик. Сыгранное до ошибки
-    /// остаётся в мире: тик, прерванный исключением, — ошибка программы, а не откатываемая транзакция.
-    /// </summary>
+    /// <summary>Тик прерван исключением: несыгранные команды, события и отложенное барьера отбрасываются, чтобы не
+    /// доставить их следующим тиком. Сыгранное до ошибки остаётся — это не транзакция.</summary>
     private void AbortBarrier()
     {
         foreach (var r in _registrations) r.Buffer.Clear();
@@ -426,10 +389,8 @@ public sealed partial class World
         for (int i = 0; i < _resources.Count; i++) _resources[i].ClearStaged();
     }
 
-    /// <summary>
-    /// Системы меняют мир только командами своего буфера: немедленная операция посреди тика обошла бы объявления,
-    /// барьер и нормализацию. Проверка — одно сравнение, поэтому действует и без <see cref="Checks"/>.
-    /// </summary>
+    /// <summary>Немедленная операция посреди тика обошла бы объявления и барьер; проверка дешёвая и действует без
+    /// <see cref="Checks"/>.</summary>
     private void NotInTick(string operation)
     {
         NotInHooks(operation);
@@ -437,10 +398,8 @@ public sealed partial class World
             throw new InvalidOperationException($"World.{operation} во время тика: системы меняют мир только командами (ctx.Commands)");
     }
 
-    /// <summary>
-    /// Включить или выключить регистрацию. Выключенная не исполняется и журналы не держит; при включении её курсоры
-    /// ставятся на конец журналов — прошлое не проигрывается.
-    /// </summary>
+    /// <summary>Включить или выключить регистрацию; при включении курсоры ставятся на конец журналов — прошлое не
+    /// проигрывается.</summary>
     public void SetActive(string registrationName, bool active)
     {
         NotInTick(nameof(SetActive));
@@ -485,12 +444,8 @@ public sealed partial class World
     /// <summary>Профайлер CPU тиков этого мира; <see cref="CpuProfiler.Off"/> — не подключён.</summary>
     public CpuProfiler Profiler => _profiler;
 
-    /// <summary>
-    /// Подключить профайлер CPU (между тиками): его зоны заводятся здесь, заранее — стадия
-    /// <c>stage.&lt;стадия&gt;</c> (системы, барьер и наблюдатель после барьера), регистрация системы <c>метка@стадия</c>
-    /// (<see cref="SystemInfo.Name"/>, по номеру регистрации), барьер <c>barrier.&lt;стадия&gt;</c>. Мир профайлер не меняет:
-    /// он только читает часы и счётчик выделений.
-    /// </summary>
+    /// <summary>Подключить профайлер (между тиками): зоны <c>stage.&lt;стадия&gt;</c>, <c>метка@стадия</c>,
+    /// <c>barrier.&lt;стадия&gt;</c> заводятся здесь, заранее. Мир профайлер не меняет.</summary>
     public void AttachProfiler(CpuProfiler profiler)
     {
         ArgumentNullException.ThrowIfNull(profiler);
@@ -518,8 +473,6 @@ public sealed partial class World
         _registrations.Add(r);
         r.Buffer = new CommandBuffer(this, _registrations.Count, r);
     }
-
-    internal IReadOnlyList<Registration> Registrations => _registrations;
 
     internal void SetOrder(int stage, List<Registration> order) => _order[stage] = order;
 
@@ -666,11 +619,8 @@ public sealed partial class World
 
     // ── барьер ─────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Барьер: 1) команды буферов по порядку (черновики → сущности, разрешитель, отслеживание срабатываний и очередь
-    /// хуков); 2) нормализованные срабатывания компонентов в журналы; 3) хуки времени жизни по порядку команд
-    /// (WorldHooks.cs); 4) события буферов в том же порядке.
-    /// </summary>
+    /// <summary>Барьер: 1) команды буферов по порядку (черновики, разрешитель, срабатывания, очередь хуков);
+    /// 2) нормализованные срабатывания в журналы; 3) хуки времени жизни; 4) события буферов в том же порядке.</summary>
     private void PlayBuffers(IReadOnlyList<Registration> order) => PlayBuffers(order, useRegistrations: true, null);
 
     private void PlayBuffers(CommandBuffer[] buffers) => PlayBuffers(null, useRegistrations: false, buffers);
@@ -701,8 +651,7 @@ public sealed partial class World
                 var t = _eventTypes[ev.Type];
                 var payload = b.Payload.AsSpan(ev.PayloadOffset, ev.PayloadSize);
                 Resolve(b, t, payload);
-                Causality?.Values(ev.Cause, default, false, payload, true);
-                t.Writer?.Event(payload, ev.Cause, _barrier);
+                t.Writer?.Event(payload, _barrier);
             }
             b.Clear();
         }
@@ -710,21 +659,18 @@ public sealed partial class World
 
     private void Play(CommandBuffer b, ref CommandRecord c)
     {
-        var log = Causality;
         if (c.Op == CommandOp.Create)
         {
             b.Drafts[c.Target.DraftIndex] = AllocateEntity();
-            log?.Resolve(c.Cause, b.Drafts[c.Target.DraftIndex]);
             return;
         }
         if (c.Op == CommandOp.SetResource)
         {
-            _resources[c.Type].ApplyStaged(c.PayloadOffset, c.Cause, _barrier);
+            _resources[c.Type].ApplyStaged(c.PayloadOffset, _barrier);
             return;
         }
 
         var e = c.Target.IsDeferred ? b.Drafts[c.Target.DraftIndex] : c.Target;
-        if (log is not null && c.Target.IsDeferred) log.Resolve(c.Cause, e);
         if (!IsAlive(e))
         {
             IgnoredCommands++;
@@ -736,7 +682,7 @@ public sealed partial class World
             case CommandOp.Destroy:
                 foreach (int type in a.Components)
                 {
-                    if (_tracked[type]) NoteRemoval(e, type, c.Cause);
+                    if (_tracked[type]) NoteRemoval(e, type);
                     if (_hooked[type]) NoteHookRemoval(e, type);
                 }
                 Unplace(e);
@@ -760,13 +706,11 @@ public sealed partial class World
                 {
                     if (Checks)
                         throw new InvalidOperationException($"Add<{t.Type.Name}>({e}): компонент уже есть — замена только командой Set");
-                    log?.Values(c.Cause, t.IsTag ? [] : CellOf(e, t), true, payload, true);
                     if (!t.IsTag) payload.CopyTo(CellOf(e, t));
-                    if (_tracked[t.Id]) NoteSet(e, t.Id, c.Cause);
+                    if (_tracked[t.Id]) NoteSet(e, t.Id);
                     break;
                 }
-                if (_tracked[t.Id]) Touch(e, t.Id).Cause = c.Cause;
-                log?.Values(c.Cause, default, false, payload, true);
+                if (_tracked[t.Id]) Touch(e, t.Id);
                 Move(e, WithType(a, t.Id));
                 if (!t.IsTag) payload.CopyTo(CellOf(e, t));
                 if (_hooked[t.Id]) NoteHookAdd(e, t.Id);
@@ -777,8 +721,7 @@ public sealed partial class World
             {
                 var t = _types[c.Type];
                 if (!a.Has[t.Id]) break;
-                log?.Values(c.Cause, t.IsTag ? [] : CellOf(e, t), true, default, false);
-                if (_tracked[t.Id]) NoteRemoval(e, t.Id, c.Cause);
+                if (_tracked[t.Id]) NoteRemoval(e, t.Id);
                 if (_hooked[t.Id]) NoteHookRemoval(e, t.Id);
                 Move(e, WithoutType(a, t.Id));
                 break;
@@ -794,9 +737,8 @@ public sealed partial class World
                 }
                 var payload = b.Payload.AsSpan(c.PayloadOffset, c.PayloadSize);
                 Resolve(b, t, payload);
-                log?.Values(c.Cause, t.IsTag ? [] : CellOf(e, t), true, payload, true);
                 if (!t.IsTag) payload.CopyTo(CellOf(e, t));
-                if (_tracked[t.Id]) NoteSet(e, t.Id, c.Cause);
+                if (_tracked[t.Id]) NoteSet(e, t.Id);
                 break;
             }
         }
@@ -831,14 +773,12 @@ public sealed partial class World
         return ref CollectionsMarshal.AsSpan(_tracks)[i];
     }
 
-    private void NoteSet(Entity e, int type, CauseId cause)
+    private void NoteSet(Entity e, int type)
     {
-        ref var t = ref Touch(e, type);
-        t.Set = true;
-        t.Cause = cause;
+        Touch(e, type).Set = true;
     }
 
-    private void NoteRemoval(Entity e, int type, CauseId cause)
+    private void NoteRemoval(Entity e, int type)
     {
         ref var t = ref Touch(e, type);
         var dt = _types[type];
@@ -849,13 +789,8 @@ public sealed partial class World
             CellOf(e, dt).CopyTo(_removedValues.AsSpan(offset, dt.Size));
             _removedUsed += dt.Size;
         }
-        if (t.FirstRemoval < 0)
-        {
-            t.FirstRemoval = offset;
-            t.FirstRemovalCause = cause;
-        }
+        if (t.FirstRemoval < 0) t.FirstRemoval = offset;
         t.LastRemoval = offset;
-        t.LastRemovalCause = cause;
         t.Removed = true;
     }
 
@@ -872,14 +807,14 @@ public sealed partial class World
             {
                 if (t.Removed)
                 {
-                    w.Removed(t.Entity, Removal(t.FirstRemoval), t.FirstRemovalCause, _barrier);
-                    w.Added(t.Entity, t.Cause, _barrier);
+                    w.Removed(t.Entity, Removal(t.FirstRemoval), _barrier);
+                    w.Added(t.Entity, _barrier);
                 }
                 else if (t.Set && dt.Reactive)
-                    w.Changed(t.Entity, dt.IsTag ? [] : CellOf(t.Entity, dt), t.Cause, _barrier);
+                    w.Changed(t.Entity, dt.IsTag ? [] : CellOf(t.Entity, dt), _barrier);
             }
-            else if (t.Before) w.Removed(t.Entity, Removal(t.LastRemoval), t.LastRemovalCause, _barrier);
-            else if (after) w.Added(t.Entity, t.Cause, _barrier);
+            else if (t.Before) w.Removed(t.Entity, Removal(t.LastRemoval), _barrier);
+            else if (after) w.Added(t.Entity, _barrier);
         }
         _tracks.Clear();
         _trackIndex.Clear();

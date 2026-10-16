@@ -314,3 +314,30 @@ Matching будут проблемы). Исходники выпечки на м
 
 Б1–Б6 сделаны (2026-09-25; журнал — `docs/history/baker.md`): ядро, CLI и `bake diff`, плагины `Bake.Engine` и `Bake.Game`, проект
 `Bake/`; полная выпечка сверена с эталоном без расхождений (раздел 11), игра остаётся на эталонном паке. Впереди — Б7 (Studio).
+
+## Упрощение: пекарня и менеджер ресурсов, шаги 1–3 — 2026-10-17
+
+План и решения — `artifacts/plans/baker/PLAN.md`. **Сделано.** Конвертеры `Sword.Bake.Engine` и `Sword.Bake.Game` — папки
+одного проекта `tools/Sword.Bake` (exe `sword-bake`): таблица видов файлов (`Baker.Converters`, 8 конвертеров), рецепт на
+сырой файл `Bake/recipes/<корень>/<путь>.bake.json`, CLI `ФАЙЛ | --all | --kinds`. Studio → `tools/Sword.Assets` (exe
+`sword-assets`): дерево `Content/` с флажками (`Bake/pak.json`), предпросмотр по файлам `Content/`, «Собрать пак», окно
+пекарни, CLI `pack`/`list`. **Удалено:** плагины (`PluginLoader`, `IBakeCommand`, тестовые плагины A/B), актуальность
+(`Builder`, `LocalCache`, MVID, хеши параметров, инкрементальный импорт клипов), `ContentCatalog`, `DeclareOutputs`,
+`[AssetRef]`, `diff`/`PakDiff`/`DiffExpectations`/`IContentComparer`/`ClipComparer`, `inspect`, `reference.expect.json`,
+`bake.project.json`, 34 манифеста (→ 34 рецепта, `bake.imports.json` → `imports.json`), `Sword.Bake.Cli`, тесты Source
+со сверкой с эталоном. **Числа.** Строк C# в `tools/Sword.Bake*` 13 290 → 7 937 (`Sword.Bake` 4 793, из них конвертеры ~4,4 тыс.; `Sword.Assets` 3 144);
+тестов 4 535 → 2 056. `sword-bake --all` — 1088 файлов за 46 с (Debug), `sword-assets pack` — 1088 файлов, 423 МБ за 0,8 с.
+**Разовая сверка переезда** (не сохраняется): все 1088 файлов `Content/` равны байтами файлам нынешнего `Content.swpak`
+с точностью до путей (клипы тоже: `SourceHash` без MVID был и раньше). **Решения:** риг — рецепт `skeleton.json`, остальные
+ссылаются на него полем `rig`; у glTF три конвертера — выбор в рецепте; клип, пропавший из выгрузки, не удаляется (без
+отслеживания чужие клипы набора не отличить). **Агентские инструменты:** хватает — коды выхода CLI, `--kinds`,
+`sword-assets list`, `--shot` обоих вкладок.
+
+**Шаги 4–5 (2026-10-17).** Игра и движок — пути `Content/`: `ClipLibrary.AnimDir` = `animations`, `UiVectorFontFormat.Dir` =
+`fonts`, `WeaponMesh.Dir` = `meshes/weapons`, меш персонажа `meshes/characters/manny.swmesh`, действия
+`data/combat/actions.json`, текстуры огня `textures/fire/`; конвертеры берут эти константы. Удалены `PakBuildInfo`
+(и `.bake/` в хеше контента), запасной эталонный пак в `ContentLocator`, `reference.ps1`, `tests/reference/reference.json`,
+шаг `reference`, тесты `ReferenceBuildInfoTests`; `ReferencePakWritersTests` → `GamePakWritersTests` (пак игры). Шаг
+`content` — `sword-assets check` (пак собран из текущего `Content/` и `pak.json`); `line-endings` не смотрит `Content\`.
+Эталонные реплеи перезаписаны на новом паке (хеш контента 98AB5160D3C85657 → 29924E88F6564C6B): контрольные хеши
+всех четырёх совпали тик в тик — изменился только заголовок (`content`, `build`, `recordedUtc`).

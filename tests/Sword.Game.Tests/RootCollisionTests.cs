@@ -1,11 +1,7 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
-using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
-using Sword.Game.Agent;
 using Sword.Game.Animation;
 using Sword.Game.Arena;
 using Sword.Game.Contracts;
@@ -15,10 +11,8 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Столкновения корней бойцов: <see cref="RootCollision.Resolve"/> на случайных толпах — пары, колонны и край арены
-/// объясняют сдвиг корня, после разрешения корни вне колонн и внутри арены, скорость внутрь препятствия погашена; в мире — порядок
-/// мест и вид толчков <see cref="RootContacts"/>; толпа из 32 врагов (замер перекрытия для инварианта <c>movement.rootOverlap</c>);
-/// игрок упирается в толпу и расталкивает её; 0 байт на тик; агентский вид.
+/// Столкновения корней: <see cref="RootCollision.Resolve"/> на случайных толпах, порядок мест и вид толчков <see cref="RootContacts"/>,
+/// толпа из 32 врагов (замер перекрытия), игрок расталкивает толпу; 0 байт на тик.
 /// </summary>
 public sealed class RootCollisionTests(ITestOutputHelper output)
 {
@@ -75,11 +69,9 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Случайные толпы (кучки, колонны, край, совпавшие корни, дыры в местах): пары и препятствия вместе объясняют весь сдвиг корня
-    /// (вид толчков), пустые места не трогаются; после разрешения каждый корень вне колонн (не ближе радиуса колонны плюс радиус корня) и
-    /// внутри арены (не дальше <c>ArenaRadius − EdgeMargin</c>): последним корень бойца двигает его собственный проход препятствий.
-    /// Скорость только гасится (снимается составляющая по нормали контакта): не растёт, у бойца без пар и препятствий — та же, на
-    /// поверхности колонны — не внутрь колонны, на краю арены — не наружу.
+    /// Случайные толпы: пары и препятствия вместе объясняют весь сдвиг корня, пустые места не трогаются; после разрешения корень вне
+    /// колонн и внутри <c>ArenaRadius − EdgeMargin</c> (последним его двигает свой проход препятствий). Скорость только гасится:
+    /// не внутрь колонны, не наружу арены.
     /// </summary>
     [Fact]
     public void Resolve_RandomCrowds_ContactsExplainShift_RootsOutsidePillarsInsideArena()
@@ -229,12 +221,11 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
     // ── в мире ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Каждый тик: корни и скорости по местам после Animation → перенос (<see cref="RootControlSystem.Move"/>) и
-    /// <see cref="RootCollision.Resolve"/> обязаны дать ровно корни, скорости и виды толчков мира после Movement.
-    /// Заодно — замер перекрытия корней после Movement: худшее за прогон и сколько тиков подряд пара перекрыта больше
-    /// допуска инварианта.
+    /// Каждый тик: корни и скорости до Movement → <see cref="RootControlSystem.Move"/> и <see cref="RootCollision.Resolve"/> дают
+    /// ровно корни, скорости и толчки мира после столкновений. Заодно — замер перекрытия: худшее и сколько тиков подряд пара
+    /// перекрыта больше допуска инварианта.
     /// </summary>
-    internal sealed class MovementProbe : ISimulationObserver
+    internal sealed class MovementProbe
     {
         public int Checked, Mismatches, LongestRun, LongestHardRun;
         public string? First;
@@ -249,30 +240,34 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         private readonly Vector3[] _lastRoot = new Vector3[ArenaRules.MaxFighters];
         private readonly ulong[] _built = new ulong[ArenaRules.MaxFighters];
 
-        public void AfterStage(Simulation sim, int stage)
+        public IModule[] Modules =>
+        [
+            new StageProbe("movement_before", GameStages.Movement, Before, before: GameLabels.RootControl),
+            new StageProbe("movement_after", GameStages.Movement, After, after: GameLabels.RootCollision),
+        ];
+
+        private void Before(WorldReader w, ulong tick)
         {
-            var w = sim.World;
-            string name = w.Stages[stage];
-            if (name == GameStages.Animation)
-            {
-                Array.Clear(_present);
-                foreach (var chunk in w.Iterate(w.Query().With<Fighter>()))
-                    foreach (var e in chunk.Entities)
-                    {
-                        int s = w.Get<FighterSlot>(e).Index;
-                        var t = w.Get<Transform>(e);
-                        var v = w.Get<RootVelocity>(e).Value;
-                        if (w.TryGet<AnimatorAction>(e, out var action)) RootControlSystem.Move(ref t, v, action, sim.Dt);   // враг: поворот и сдвиг клипом
-                        else RootControlSystem.Move(ref t, v, sim.Dt);
-                        (_roots[s], _velocities[s], _present[s], _owner[s]) = (t.Position, v, true, e);
-                        // Постройка — новая сущность места или прыжок корня (сброс строит на той же сущности).
-                        if (_last[s] != e || Vector3.Distance(_lastRoot[s], t.Position) > 0.5f) _built[s] = sim.Tick;
-                        _last[s] = e;
-                    }
-                RootCollision.Resolve(_roots, _velocities, _present, _contacts);
-                return;
-            }
-            if (name != GameStages.Movement) return;
+            float dt = w.Resource<SimTime>().Dt;
+            Array.Clear(_present);
+            foreach (var chunk in w.Iterate(w.Query().With<Fighter>()))
+                foreach (var e in chunk.Entities)
+                {
+                    int s = w.Get<FighterSlot>(e).Index;
+                    var t = w.Get<Transform>(e);
+                    var v = w.Get<RootVelocity>(e).Value;
+                    if (w.TryGet<AnimatorAction>(e, out var action)) RootControlSystem.Move(ref t, v, action, dt);   // враг: поворот и сдвиг клипом
+                    else RootControlSystem.Move(ref t, v, dt);
+                    (_roots[s], _velocities[s], _present[s], _owner[s]) = (t.Position, v, true, e);
+                    // Постройка — новая сущность места или прыжок корня (сброс строит на той же сущности).
+                    if (_last[s] != e || Vector3.Distance(_lastRoot[s], t.Position) > 0.5f) _built[s] = tick;
+                    _last[s] = e;
+                }
+            RootCollision.Resolve(_roots, _velocities, _present, _contacts);
+        }
+
+        private void After(WorldReader w, ulong tick)
+        {
             for (int s = 0; s < ArenaRules.MaxFighters; s++)
             {
                 if (!_present[s])
@@ -287,7 +282,7 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
                 if (!same)
                 {
                     Mismatches++;
-                    First ??= $"тик {sim.Tick}, место {s}: {w.Get<Transform>(e).Position} ≠ {_roots[s]}";
+                    First ??= $"тик {tick}, место {s}: {w.Get<Transform>(e).Position} ≠ {_roots[s]}";
                 }
                 Checked++;
                 _lastRoot[s] = _roots[s];
@@ -302,17 +297,13 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
                     float overlap = 2 * MovementRules.RootRadius - (_roots[s] - _roots[o]).Length();
                     Worst = MathF.Max(Worst, overlap);
                     // «Установившееся» — оба бойца построены не меньше трёх тиков назад.
-                    if (sim.Tick >= _built[s] + 3 && sim.Tick >= _built[o] + 3) WorstSteady = MathF.Max(WorstSteady, overlap);
+                    if (tick >= _built[s] + 3 && tick >= _built[o] + 3) WorstSteady = MathF.Max(WorstSteady, overlap);
                     _runs[pair] = overlap > RootOverlapInvariant.Tolerance ? _runs[pair] + 1 : 0;
                     _hardRuns[pair] = overlap > 2 * MovementRules.RootRadius - RootOverlapInvariant.HardLimit ? _hardRuns[pair] + 1 : 0;
                     LongestRun = Math.Max(LongestRun, _runs[pair]);
                     LongestHardRun = Math.Max(LongestHardRun, _hardRuns[pair]);
                 }
             }
-        }
-
-        public void AfterTick(Simulation simulation)
-        {
         }
     }
 
@@ -372,10 +363,8 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
 
     internal static Simulation EdgeSim(int seed, out MovementProbe probe)
     {
-        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"));
         probe = new MovementProbe();
-        sim.Observe(probe);
-        return sim;
+        return TestAssets.WithModules(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"), probe.Modules);
     }
 
     /// <summary>
@@ -391,9 +380,8 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         [InlineData(4)]
         public void Crowd32_EveryTickIsResolveRoots_OverlapWithinInvariant(int seed)
         {
-            var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"));
             var probe = new MovementProbe();
-            sim.Observe(probe);
+            var sim = TestAssets.WithModules(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"), probe.Modules);
             for (int t = 0; t < CrowdTicks; t++) CrowdStep(sim, t);
             output.WriteLine($"sim.seed={seed}: перекрытие худшее {probe.Worst:0.0000} м, установившееся {probe.WorstSteady:0.0000} м, " +
                 $"больше {RootOverlapInvariant.Tolerance} м подряд — {probe.LongestRun} тиков");
@@ -414,10 +402,8 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
     public sealed class EdgeTheory(ITestOutputHelper output)
     {
         /// <summary>
-        /// У края арены с частыми командами арены (<see cref="EdgeStep"/>) — худшие случаи замера: новые враги появляются прямо
-        /// в толпе, прижатой к игроку. Зёрна и образцы — самые длинные перекрытия замера на 40 зёрнах (история фичи «Враги»,
-        /// docs/history/enemies.md, «Инвариант перекрытия: замер»): ближе радиуса корня — до 2 тиков подряд, больше 0,02 м — до 12.
-        /// Нарушений инварианта нет, запас до порогов — вдвое.
+        /// У края арены с частыми командами (<see cref="EdgeStep"/>) — худшие случаи замера на 40 зёрнах: новые враги появляются в
+        /// толпе, прижатой к игроку. Нарушений инварианта нет, запас до порогов — вдвое.
         /// </summary>
         [Theory]
         [InlineData("A", 19, false)]
@@ -450,9 +436,8 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         var worst = new float[4];
         for (int seed = 1; seed <= 400; seed++)
         {
-            var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"));
             var probe = new MovementProbe();
-            sim.Observe(probe);
+            var sim = TestAssets.WithModules(ConfigSet.Empty("arena.enemies=32", $"sim.seed={seed}"), probe.Modules);
             for (int t = 0; t < worst.Length; t++)
             {
                 probe.Worst = 0;
@@ -515,82 +500,4 @@ public sealed class RootCollisionTests(ITestOutputHelper output)
         Assert.True(allocated == 0, $"590 тиков выделили {allocated} Б");
     }
 
-    [Fact]
-    public async Task Agent_SeesWhoPushedWhom_ContactsInEntityGetConditionsAggregates()
-    {
-        var sim = TestAssets.Simulation(ConfigSet.Empty("arena.enemies=32"));
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            var invariants = (await Call("invariant.list")).ToJsonString();
-            Assert.Contains("movement.rootOverlap", invariants);
-            await Call("time.runUntil", new JsonObject { ["tick"] = 600 });
-            await Call("command.send", new JsonObject
-            {
-                ["command"] = "PlayerCommand", ["fields"] = JsonNode.Parse("""{"Move":{"X":1,"Y":0}}"""), ["repeat"] = 480,
-            });
-            // «Когда игрок толкнул врага»: условие по виду толчков.
-            var met = await Call("time.runUntil", new JsonObject
-            {
-                ["condition"] = JsonNode.Parse("""{"exists":{"all":[{"component":"EnemyTag"},{"field":"RootContacts.DeepestWith","equals":0}]}}"""),
-                ["maxTicks"] = 480,
-            });
-            Assert.True(met["met"]!.GetValue<bool>(), met.ToJsonString());
-            var pushed = await Call("world.query", new JsonObject
-            {
-                ["with"] = new JsonArray("EnemyTag"), ["where"] = JsonNode.Parse("""{"field":"RootContacts.DeepestWith","equals":0}"""),
-                ["fields"] = new JsonArray("RootContacts", "FighterSlot"),
-            });
-            var text = pushed.ToJsonString();
-            foreach (var field in new[] { "Contacts", "Push", "FromPlayer", "Deepest", "DeepestWith" }) Assert.Contains(field, text);
-            var sum = await Call("world.query", new JsonObject
-            {
-                ["with"] = new JsonArray("EnemyTag"), ["aggregate"] = new JsonArray("RootContacts.FromPlayer.X", "RootContacts.Deepest"), ["take"] = 0,
-            });
-            Assert.Contains("FromPlayer", sum.ToJsonString());
-            var describe = await Call("state.describe", new JsonObject { ["part"] = "ecs", ["filter"] = "RootContacts" });
-            Assert.Contains("DeepestWith", describe.ToJsonString());
-
-            // Препятствия — «врага 1 сдвинул край арены» (командой врагу гоним его к краю).
-            await Call("command.send", new JsonObject
-            {
-                ["command"] = "EnemyCommand", ["fields"] = JsonNode.Parse("""{"Slot":1,"Velocity":{"X":0,"Y":-30},"FacingGoal":3.14}"""), ["repeat"] = 900,
-            });
-            var edge = await Call("time.runUntil", new JsonObject
-            {
-                ["condition"] = JsonNode.Parse("""{"all":[{"entity":"enemy 1"},{"any":[{"field":"RootContacts.Obstacle.X","notEquals":0},{"field":"RootContacts.Obstacle.Z","notEquals":0}]}]}"""),
-                ["maxTicks"] = 900,
-            });
-            Assert.True(edge["met"]!.GetValue<bool>(), edge.ToJsonString());
-            var enemy = await Call("entity.get", new JsonObject { ["entity"] = "enemy 1", ["components"] = new JsonArray("RootContacts", "Transform") });
-            Assert.Contains("Obstacle", enemy.ToJsonString());
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
-    }
 }

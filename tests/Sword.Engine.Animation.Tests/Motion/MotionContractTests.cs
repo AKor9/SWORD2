@@ -4,10 +4,7 @@ using Sword.Engine.Animation.Motion;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Значения контракта Motion Matching, которые игра хранит в компонентах (компоненты ECS — только <c>unmanaged</c>): итог
-/// поиска с ценами по группам, хэндл, состояние и шаг проигрывателя, модель и состояние предсказания, запись истории.
-/// </summary>
+/// <summary>Значения контракта MM, которые игра хранит в компонентах, — <c>unmanaged</c>.</summary>
 public sealed class MotionContractTests
 {
     [Theory]

@@ -14,10 +14,8 @@ public abstract class TuningItem
 /// <summary>Заголовок раздела группы.</summary>
 public sealed class TuningHeader : TuningItem;
 
-/// <summary>
-/// Число с диапазоном [<see cref="Min"/>, <see cref="Max"/>]. <see cref="Key"/> — имя значения в словаре группы
-/// (<see cref="TuningGroup.Values"/>, <see cref="TuningGroup.Apply"/>); пусто — значение не сохраняется.
-/// </summary>
+/// <summary>Число с диапазоном [<see cref="Min"/>, <see cref="Max"/>]. <see cref="Key"/> — имя в словаре группы; пусто —
+/// не сохраняется.</summary>
 public sealed class TuningFloat : TuningItem
 {
     public required string Key { get; init; }
@@ -64,10 +62,8 @@ public sealed class TuningButton : TuningItem
     public required Action Click { get; init; }
 }
 
-/// <summary>
-/// Текст строки состояния: пишет его в <paramref name="destination"/> и возвращает длину (не влезло — обрезает сам).
-/// Число форматируется на стеке (<c>value.TryFormat(destination, out int n)</c>) — кадр панели без выделений.
-/// </summary>
+/// <summary>Текст строки состояния в <paramref name="destination"/>, вернуть длину (не влезло — обрезать). Число —
+/// <c>TryFormat</c> на стеке: кадр панели без выделений.</summary>
 public delegate int TuningText(Span<char> destination);
 
 /// <summary>Строка состояния: счётчики модуля; пересчитывается каждый кадр, пока группа видна.</summary>
@@ -77,18 +73,9 @@ public sealed class TuningInfo : TuningItem
 }
 
 /// <summary>
-/// Группа ручек (вкладка панели F3): модуль описывает свои параметры — живые делегаты чтения и записи, — панель рисует их и
-/// ничего о модуле не знает. Откуда значение и куда уходит запись, решает тот, кто собирает группу: при композиции ручки
-/// привязываются к объектам настроек, изменение на ходу — команда симуляции (раздел 7 плана, «Конфигурация»).
-///
-/// Значения по умолчанию и сброс — здесь (<see cref="ResetAll"/>, <see cref="Changed"/>); сохранение — словарём
-/// ключ → число (<see cref="Values"/>, <see cref="Apply"/>): файл пишет и читает хост (<c>sword.user.json</c>).
-///
-/// Перенос <c>Diagnostics/Tuning.cs</c> SWORD 2eab13b. Отличия: <see cref="Save"/>/<see cref="Load"/> файла
-/// <c>Tuning/&lt;Id&gt;.json</c> нет (решение пользователя: ручки сохраняются в <c>sword.user.json</c>) — вместо них словарь;
-/// ключи в группе уникальны (в SWORD второй ключ молча перезаписывал первый в файле); значение по умолчанию можно задать
-/// (в SWORD — всегда значение при создании группы); строка состояния пишет текст на стек (<see cref="TuningText"/>), а не
-/// строкой каждый кадр; элементы — только через методы группы.
+/// Группа ручек (вкладка панели F3): живые делегаты чтения и записи — панель о модуле не знает. Значения по умолчанию и
+/// сброс — здесь; сохранение — словарём ключ → число (<see cref="Values"/>, <see cref="Apply"/>), файл пишет хост
+/// (<c>sword.user.json</c>). Ключи в группе уникальны.
 /// </summary>
 public sealed class TuningGroup
 {
@@ -117,7 +104,7 @@ public sealed class TuningGroup
         return this;
     }
 
-    /// <param name="defaultValue">Значение сброса; null — текущее (<paramref name="get"/> при создании), как в SWORD.</param>
+    /// <param name="defaultValue">Значение сброса; null — текущее (<paramref name="get"/> при создании).</param>
     public TuningGroup Float(string key, string label, Func<float> get, Action<float> set, float min, float max, bool log = false,
         string format = "0.###", string? hint = null, float? defaultValue = null)
     {
@@ -166,10 +153,8 @@ public sealed class TuningGroup
         return this;
     }
 
-    /// <summary>
-    /// Строка состояния строкой, как в SWORD: удобно, но <paramref name="text"/> выделяет строку каждый кадр, пока группа
-    /// видна; для кадра без выделений — <see cref="Info(string, TuningText, string?)"/>.
-    /// </summary>
+    /// <summary>Строка состояния строкой: <paramref name="text"/> выделяет каждый кадр, пока группа видна; без выделений —
+    /// <see cref="Info(string, TuningText, string?)"/>.</summary>
     public TuningGroup Info(string label, Func<string> text, string? hint = null) => Info(label, destination =>
     {
         var s = text().AsSpan();
@@ -203,11 +188,8 @@ public sealed class TuningGroup
         return n;
     }
 
-    /// <summary>
-    /// Значения с ключами — словарём ключ → число (флаг — 1 или 0), для записи в конфиг. Число float — в кратчайшей записи,
-    /// которая читается обратно тем же float (0,3f → 0,3, а не 0,30000001192092896). <paramref name="changedOnly"/> —
-    /// только отличные от значений по умолчанию.
-    /// </summary>
+    /// <summary>Значения с ключами словарём (флаг — 1 или 0); float — кратчайшей записью, читаемой обратно тем же float
+    /// (0,3 а не 0,30000001192092896). <paramref name="changedOnly"/> — только отличные от умолчания.</summary>
     public Dictionary<string, double> Values(bool changedOnly = false)
     {
         var values = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -230,10 +212,8 @@ public sealed class TuningGroup
         return values;
     }
 
-    /// <summary>
-    /// Применить значения словаря (из конфига): незнакомые ключи пропускаются (и попадают в <paramref name="unknown"/>),
-    /// не числа — тоже, числа прижимаются к диапазону ручки (<see cref="TuningFloat.Clamp"/>), флаг — «не ноль».
-    /// </summary>
+    /// <summary>Применить словарь из конфига: незнакомые ключи (в <paramref name="unknown"/>) и не числа пропускаются, числа
+    /// прижимаются к диапазону, флаг — «не ноль».</summary>
     /// <returns>Сколько значений применено.</returns>
     public int Apply(IReadOnlyDictionary<string, double> values, ICollection<string>? unknown = null)
     {

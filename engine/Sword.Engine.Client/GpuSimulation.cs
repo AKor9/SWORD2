@@ -5,11 +5,9 @@ using Sword.Engine.Render;
 namespace Sword.Engine.Client;
 
 /// <summary>
-/// GPU-симуляция клиентского модуля (раздел 6 плана, «GPU-симуляции»): представление, вне симуляции, хеша и реплея. Хост создаёт её,
-/// когда рендер готов (<see cref="Create"/>), каждый кадр — в фазе <see cref="FramePhase.Simulation"/> — отдаёт ей тики кадра с их заявками
-/// (<see cref="AddPasses"/>), а данные асинхронного чтения — с задержкой <see cref="GpuReadback.Latency"/> кадров (<see cref="OnReadback"/>).
-/// Шаг решает сама симуляция по <see cref="SimFrame"/>: по тикам кадра или по заявкам своих тиков (огонь — заявка на каждый второй
-/// <c>TickId</c>, 60 Гц при 120 тиках/с); кадр без тиков (пауза, перетаскивание рамки) — ни одного шага.
+/// GPU-симуляция клиентского модуля — представление вне симуляции, хеша и реплея. Каждый кадр в фазе
+/// <see cref="FramePhase.Simulation"/> получает тики кадра с заявками (<see cref="AddPasses"/>), чтение — с задержкой
+/// <see cref="GpuReadback.Latency"/> кадров. Шаг решает сама (огонь — каждый второй <c>TickId</c>); кадр без тиков — без шага.
 /// </summary>
 public interface IGpuSimulation
 {
@@ -22,10 +20,7 @@ public interface IGpuSimulation
     /// <summary>Проходы кадра — только фазы <see cref="FramePhase.Simulation"/>: шаги на тиках <paramref name="sim"/> с заявками своих тиков.</summary>
     void AddPasses(RenderFrame frame, in SimFrame sim);
 
-    /// <summary>
-    /// Данные чтения (<see cref="GpuSimContext.Readback"/>) кадра, отправленного <see cref="GpuReadback.Latency"/> кадров назад: только
-    /// представление и диагностика — на авторитетную симуляцию не влияют никогда.
-    /// </summary>
+    /// <summary>Данные чтения кадра <see cref="GpuReadback.Latency"/> кадров назад: только представление и диагностика.</summary>
     void OnReadback(ReadOnlySpan<byte> data);
 }
 
@@ -61,11 +56,7 @@ public sealed class GpuSimContext
     }
 }
 
-/// <summary>
-/// Тики кадра для GPU-симуляции: <c>TickId</c> первого (номер сыгранного тика — как <c>SimTime.Tick</c> в системах и записи очереди кадра,
-/// с 0), сколько их (0 — кадр без тиков: пауза, перетаскивание рамки) и заявки CPU тиков кадра (<see cref="SimRequests"/>). Шаг тика —
-/// <c>ClientBuilder.TickDt</c> при настройке модуля.
-/// </summary>
+/// <summary>Тики кадра для GPU-симуляции: <c>TickId</c> первого (с 0), сколько (0 — пауза), заявки CPU (<see cref="SimRequests"/>).</summary>
 public readonly struct SimFrame(ulong firstTick, int ticks, SimRequests? requests = null)
 {
     /// <summary><c>TickId</c> первого тика кадра; без тиков — тика, который будет следующим.</summary>
@@ -78,10 +69,9 @@ public readonly struct SimFrame(ulong firstTick, int ticks, SimRequests? request
 }
 
 /// <summary>
-/// Заявки CPU одной GPU-симуляции на тики кадра (спаун капли, точка кисти): добавляет наблюдатель тиков модуля с <c>TickId</c> своего
-/// тика — не меньше прошлого; симуляция в кадре берёт все по порядку тиков (<see cref="SimFrame.Requests{T}()"/>) и сама сопоставляет заявку
-/// своему шагу (огонь — по <c>TickId</c> в заявке). Кадр начинается — пусто. Тип заявки один на симуляцию (размер проверяется). Без выделений
-/// в установившемся режиме: буфер растёт удвоением.
+/// Заявки CPU одной GPU-симуляции на тики кадра: наблюдатель добавляет по неубывающему <c>TickId</c>, симуляция берёт все
+/// по порядку (<see cref="SimFrame.Requests{T}()"/>). Тип заявки один на симуляцию; буфер растёт удвоением, без выделений
+/// в установившемся режиме.
 /// </summary>
 public sealed class SimRequests
 {

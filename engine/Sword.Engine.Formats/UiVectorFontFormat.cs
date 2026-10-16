@@ -6,7 +6,7 @@ using System.Text;
 namespace Sword.Engine.Formats;
 
 /// <summary>
-/// Файл одного шрифта интерфейса — <c>ui/fonts/&lt;шрифт&gt;.swfont</c>: заранее подготовленные контуры для GPU-векторного
+/// Файл одного шрифта интерфейса — <c>fonts/&lt;шрифт&gt;.swfont</c>: заранее подготовленные контуры для GPU-векторного
 /// текста и исходный ttf для HarfBuzz. Порядок байтов — little-endian, строки — как у <c>BinaryWriter</c>.
 /// <code>
 /// "SWFONT" 0 версия         8 Б
@@ -21,8 +21,8 @@ namespace Sword.Engine.Formats;
 /// ttf                       длина int32, байты
 /// "TNFW"
 /// </code>
-/// Номера полос, индексов и кривых — от начала СВОЕГО файла: интерфейс склеивает шрифты в общие таблицы и сдвигает их.
-/// Формат байт в байт — <c>UiVectorFontFormat</c> SWORD 2eab13b (версия 3, его читает эталонный пак).
+/// Номера полос, индексов и кривых — от начала своего файла: интерфейс склеивает шрифты в общие таблицы и сдвигает их.
+/// Версия 3; её же читает эталонный пак.
 /// </summary>
 public static class UiVectorFontFormat
 {
@@ -34,19 +34,15 @@ public static class UiVectorFontFormat
     public static ReadOnlySpan<byte> EndMagic => "TNFW"u8;
 
     /// <summary>Каталог шрифтов в контенте.</summary>
-    public const string Dir = "ui/fonts";
+    public const string Dir = "fonts";
     public const string Extension = ".swfont";
 
-    /// <summary>
-    /// Полос на ось у каждого glyph'а. ЕДИНСТВЕННОЕ объявление: по нему пишет пекарь, по нему же читает шейдер — число
-    /// уезжает в контракт шейдеров как <c>UI_VECTOR_BANDS</c>.
-    /// </summary>
+    /// <summary>Полос на ось у glyph'а — единственное объявление: пекарь, шейдер (<c>UI_VECTOR_BANDS</c> контракта).</summary>
     public const int BandsPerAxis = 16;
 
     /// <summary>
-    /// Пределы, за которыми файл считается испорченным, а не большим (SWORD). Ролей — не больше числа ролей интерфейса
-    /// (<c>UiFace.Count</c> в Sword.Engine.Ui; равенство проверяет тест Ui). Полос — ровно столько, сколько их у
-    /// <see cref="MaxGlyphs"/> glyph'ов (в SWORD — 2 000 000, и шрифт больше 62 500 glyph'ов не проходил).
+    /// Пределы, за которыми файл считается испорченным, а не большим. Ролей — не больше числа ролей интерфейса
+    /// (<c>UiFace.Count</c>, равенство проверяет тест Ui); полос — ровно столько, сколько у <see cref="MaxGlyphs"/> glyph'ов.
     /// </summary>
     public const int MaxRoles = 5, MaxGlyphs = 65536, MaxCurves = 2_000_000, MaxBands = MaxGlyphs * 2 * BandsPerAxis,
         MaxIndices = 20_000_000, MaxTtfBytes = 64 << 20, MaxStringBytes = 4096;
@@ -54,14 +50,11 @@ public static class UiVectorFontFormat
     private static readonly string[] Roles = ["Body", "Head", "Label", "NumLight", "Num"];
 
     /// <summary>
-    /// Имена ролей интерфейса по номерам — <c>UiFace</c> Sword.Engine.Ui (номер роли — место в списке; совпадение
-    /// с перечислением проверяет тест Ui). Здесь, а не в Ui: роли манифеста шрифта проверяет пекарь, а пекарня Ui не видит.
+    /// Имена ролей интерфейса по номерам (<c>UiFace</c>, совпадение проверяет тест Ui). Здесь, а не в Ui: роли проверяет пекарь.
     /// </summary>
     public static IReadOnlyList<string> RoleNames => Roles;
 
-    /// <summary>
-    /// Номер роли по имени — точное имя без учёта регистра; не роль (число, <c>Count</c>, список «A,B») — false.
-    /// </summary>
+    /// <summary>Номер роли по имени без учёта регистра; не роль (число, <c>Count</c>, список «A,B») — false.</summary>
     public static bool TryParseRole(string name, out int role)
     {
         role = Array.FindIndex(Roles, r => string.Equals(r, name, StringComparison.OrdinalIgnoreCase));
@@ -99,10 +92,7 @@ public struct VectorBand
     public uint Offset;
 }
 
-/// <summary>
-/// Один проверенный файл шрифта (<see cref="UiVectorFontFormat"/>); номера — от начала файла. Чтение и запись — потоком:
-/// откуда поток, решает вызывающий (пак, пекарня, память теста). Роли — строки: их смысл знает интерфейс.
-/// </summary>
+/// <summary>Один проверенный файл шрифта; номера — от начала файла, чтение и запись — потоком.</summary>
 public sealed class UiFontFile
 {
     public required string Name { get; init; }
@@ -249,9 +239,8 @@ public sealed class UiFontFile
     }
 
     /// <summary>
-    /// Проверить шрифт целиком: число ролей, метрики, размеры таблиц и все ссылки — полос на индексы, индексов на
-    /// кривые, glyph'ов на полосы. Чтение проверяет им каждый файл; шрифт, собранный в памяти, проверяется тем же перед
-    /// записью и склейкой — в видеопамять не уходит таблица со ссылками за границы.
+    /// Проверить шрифт целиком — число ролей, метрики, размеры таблиц и все ссылки между ними. Им проверяется каждый
+    /// прочитанный файл и шрифт из памяти перед записью и склейкой.
     /// </summary>
     /// <exception cref="InvalidDataException">Что именно не так — с <see cref="Path"/>.</exception>
     public void Validate()

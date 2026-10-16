@@ -6,16 +6,15 @@ using Sword.Engine.Formats;
 namespace Sword.Benchmarks;
 
 /// <summary>
-/// Сэмплинг поз (раздел 12 плана): тик пула поз на самом дорогом пути локомоции клипами — кроссфейд. На бойца —
-/// сэмпл клипа в слой, смешивание со снимком, копия в позу бойца, прямая кинематика; скелет — 161 сустав (Manny
-/// эталонного пака). Цель — 0 байт на тик; время — для сравнения будущих SoA/SIMD-версий (дифференциальный прогон).
+/// Тик пула поз на самом дорогом пути — кроссфейд: сэмпл клипа, смешивание со снимком, копия в позу, FK; скелет — 161 сустав.
+/// Цель — 0 байт на тик; время — для сравнения будущих SoA/SIMD-версий.
 /// </summary>
 [MemoryDiagnoser]
 public class PoseSampling
 {
     public const int Joints = 161, Frames = 31;
 
-    /// <summary>Один боец и предел SWORD (33 бойца).</summary>
+    /// <summary>Один боец и предельная толпа (33 бойца).</summary>
     [Params(1, 33)]
     public int Fighters { get; set; }
 
@@ -42,7 +41,7 @@ public class PoseSampling
             using var s = new MemoryStream();
             file.Write(s);
             byte[] bytes = s.ToArray();
-            return new ClipSource($"anim/bench/{name}.swclip", () => new MemoryStream(bytes), name);
+            return new ClipSource($"animations/bench/{name}.swclip", () => new MemoryStream(bytes), name);
         }
         _pool = new PosePool(ClipLibrary.Load(skeleton, [Clip("a", 0), Clip("b", 1)])!);
         _pose = new PoseHandle[Fighters];

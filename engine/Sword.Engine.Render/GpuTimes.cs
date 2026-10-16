@@ -3,15 +3,9 @@ using Sword.Engine.Rhi;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// GPU-время последнего разобранного кадра: кадр целиком и его проходы — таймстемпы, которые рендер-граф
-/// ставит вокруг каждого прохода сам. Разбор — после ожидания слота кадра в начале следующего кадра с тем же слотом, без стойла:
-/// в кадре <c>N</c> видны времена кадра <c>N − 3</c> (<see cref="Lag"/>); после <see cref="Renderer.WaitForIdle"/> (смена
-/// размера, снимок, конец прогона) — последнего отправленного (<see cref="Lag"/> = 0). Брошенный кадр не публикуется, номер
-/// (<see cref="Frame"/>) только растёт. Данные обновляются на месте (0 байт на кадр): читать на потоке кадра, копировать —
-/// если нужны позже.
-///
-/// Точность: тики GPU по <see cref="TimestampFrequency"/> (обычно 10 МГц — 0,1 мкс и лучше); частота GPU плавает (простаивающий
-/// GPU сбрасывает частоту — лёгкий кадр на нём дольше), сопоставления часов CPU и GPU нет (этап 14).
+/// GPU-время последнего разобранного кадра: кадр целиком и его проходы. В кадре N видны времена кадра N − 3
+/// (<see cref="Lag"/>), после <see cref="Renderer.WaitForIdle"/> — последнего отправленного. Данные обновляются на месте
+/// (0 Б/кадр): читать на потоке кадра. Частота GPU плавает, сопоставления часов CPU и GPU нет.
 /// </summary>
 public sealed class GpuFrameTimes
 {
@@ -29,10 +23,7 @@ public sealed class GpuFrameTimes
     /// <summary>Номер кадра рендера (<see cref="RenderFrame.Number"/>), чьи это времена.</summary>
     public ulong Frame => Timer.Frame;
 
-    /// <summary>
-    /// Сколько кадров отправлено после кадра <see cref="Frame"/>: в установившемся режиме — 3 (кадры в полёте), после ожидания
-    /// простоя GPU — 0. Кадр клиента, которому принадлежат времена, — показанный минус <see cref="Lag"/>.
-    /// </summary>
+    /// <summary>Кадров отправлено после <see cref="Frame"/>: обычно 3, после ожидания простоя — 0.</summary>
     public int Lag => Valid ? (int)(_device.FrameNumber - 1 - Timer.Frame) : 0;
 
     /// <summary>Кадр целиком на GPU, мс: от начала списка команд до конца (проходы, барьеры между ними, копии снимка).</summary>
@@ -54,18 +45,14 @@ public sealed class GpuFrameTimes
     /// <summary>Частота таймстемпов GPU, Гц.</summary>
     public double TimestampFrequency => Timer.Frequency;
 
-    /// <summary>
-    /// Таймстемпы ставятся (по умолчанию — да; действует со следующего кадра). Выключатель — для замера их цены.
-    /// </summary>
+    /// <summary>Таймстемпы ставятся (по умолчанию — да, со следующего кадра); выключатель — для замера их цены.</summary>
     public bool Enabled
     {
         get => Timer.Enabled;
         set => Timer.Enabled = value;
     }
 
-    /// <summary>
-    /// Время прохода <paramref name="name"/> (<paramref name="occurrence"/>-го с этим именем в кадре, с 0), мс; нет такого — null.
-    /// </summary>
+    /// <summary>Время <paramref name="occurrence"/>-го прохода с именем <paramref name="name"/>, мс; нет такого — null.</summary>
     public double? MillisecondsOf(string name, int occurrence = 0)
     {
         var timer = Timer;
@@ -97,7 +84,7 @@ public sealed class GpuFrameTimes
         : null;
 }
 
-/// <summary>Проход кадра с GPU-временем — для итогов прогона и агента (не для каждого кадра: <see cref="RenderPassReport"/>).</summary>
+/// <summary>Проход кадра с GPU-временем — для итогов прогона (не для каждого кадра: <see cref="RenderPassReport"/>).</summary>
 /// <param name="GpuMs">GPU-время прохода, мс, из <see cref="GpuFrameTimes"/>; null — прохода в том кадре нет или времён нет.</param>
 public sealed record RenderPassSummary(
     string Name,

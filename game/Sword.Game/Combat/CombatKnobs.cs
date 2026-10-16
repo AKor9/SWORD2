@@ -5,12 +5,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Ручки «Бой» (<c>CombatTuning</c> SWORD 2eab13b — вкладка «Бой» панели F3): поля правил боя <see cref="CombatRules"/> —
-/// ресурса мира, собранного из секции конфига <c>combat</c>. Ручка — ключ секции (<c>combat.playerDamage</c>): её значение в мире —
-/// ресурс, изменение на ходу — команда ручки (<see cref="TuningCommand"/>, система <c>tuning.combat</c> в Begin), значение по
-/// умолчанию — значение в коде (<see cref="CombatSettings"/>). Урон и острота — диапазоны и шкала SWORD (0,2…5 и 0,1…3,
-/// логарифмические); нападают ли враги, неуязвим ли игрок и рывок — новые (решение пользователя, docs/history/stage-6.md).
-/// Диапазоны — внутри проверок конфига (<see cref="CombatRules.From"/>): время рывка больше 0, остальное не меньше 0.
+/// Ручки «Бой» (вкладка панели F3): поля правил боя <see cref="CombatRules"/> — ресурса мира из секции <c>combat</c>. Изменение на
+/// ходу — команда ручки (<see cref="TuningCommand"/>, система <c>tuning.combat</c> в Begin); урон и острота — логарифмические
+/// шкалы 0,2…5 и 0,1…3. Диапазоны — внутри проверок конфига (<see cref="CombatRules.From"/>).
 /// </summary>
 public static class CombatKnobs
 {
@@ -50,11 +47,8 @@ public static class CombatKnobs
 }
 
 /// <summary>
-/// Intent, до <c>core.player-command</c>, реактивная по <c>ResourceChanged&lt;CombatRules&gt;</c>: ручки «Бой» сменили правила боя
-/// (ресурс заменила система ручек в Begin этого тика) — таймеры управления игрока, отмеренные по прежним правилам, прижимаются к
-/// новым: перезарядка рывка не длиннее новой перезарядки, неуязвимость — не длиннее новой неуязвимости рывка (иначе остаток
-/// прежнего таймера жил бы дольше, чем разрешают правила, — инвариант <c>combat.control</c>). Идущий рывок доигрывается по новым
-/// правилам (прибавка — по новой скорости и времени). Без смены правил не стоит ничего.
+/// Intent, реактивная по <c>ResourceChanged&lt;CombatRules&gt;</c>: таймеры управления игрока прижимаются к новым правилам
+/// (перезарядка и неуязвимость рывка — не длиннее новых; инвариант <c>combat.control</c>). Идущий рывок доигрывается по новым.
 /// </summary>
 public sealed class CombatRulesChangeSystem : IReactiveSystem<ResourceChanged<CombatRules>>
 {

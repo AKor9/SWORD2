@@ -3,10 +3,8 @@ using System.Text.Json;
 namespace Sword.Game.Data;
 
 /// <summary>
-/// Слоты действий бойца — <c>CharacterRig</c> SWORD 2eab13b: ключ слота в <c>combat/actions.json</c>, подпись для
-/// просмотрщика, клип пака по умолчанию, можно ли играть слоем верха тела и слой по умолчанию. Порядок слотов — порядок
-/// SWORD: стойка, ходьба в 8 сторон, бег в 8 сторон, удары, уколы, блоки, реакции, уклонения, повороты. Таблицы общие
-/// для всех симуляций — наружу только <see cref="ReadOnlySpan{T}"/>.
+/// Слоты действий бойца: ключ слота в <c>combat/actions.json</c>, подпись для просмотрщика, клип пака по умолчанию, можно ли
+/// играть слоем верха и слой по умолчанию. Таблицы общие для всех симуляций — наружу только <see cref="ReadOnlySpan{T}"/>.
 /// </summary>
 public static class ActionSlots
 {
@@ -18,9 +16,6 @@ public static class ActionSlots
 
     private static readonly string[] AllNames, AllTitles, AllDefaults;
     private static readonly bool[] AllLayerable, AllDefaultUpper;
-
-    /// <summary>Стороны ходьбы и бега по порядку: 0 — вперёд, дальше по часовой стрелке через 45° (вправо — 2).</summary>
-    public static ReadOnlySpan<string> Dirs => AllDirs;
 
     /// <summary>Ключи слотов (в actions.json), подписи и клипы пака по умолчанию.</summary>
     public static ReadOnlySpan<string> Names => AllNames;
@@ -37,20 +32,19 @@ public static class ActionSlots
     public static int Walk(int dir) => 1 + dir;
     public static int Run(int dir) => 9 + dir;
 
-    /// <summary>Слоты поворота на месте (<c>CharacterRig.TurnLeft/TurnRight/Turn180</c> SWORD): 90° влево, вправо, разворот.</summary>
+    /// <summary>Слоты поворота на месте: 90° влево, вправо, разворот.</summary>
     public static int TurnLeft { get; }
     public static int TurnRight { get; }
     public static int Turn180 { get; }
 
-    /// <summary>Слоты уклонения (<c>CharacterRig.EvadeForward/Back/Left/Right</c> SWORD): в SWORD2 — вид рывка.</summary>
+    /// <summary>Слоты уклонения — вид рывка.</summary>
     public static int EvadeForward { get; }
     public static int EvadeBack { get; }
     public static int EvadeLeft { get; }
     public static int EvadeRight { get; }
 
     /// <summary>
-    /// Слоты реакции на попадание (<c>CharacterRig.HitFront1/HitFront2/HitBack</c> SWORD): спереди — два клипа (выбор — ГСЧ),
-    /// сзади — один; враг играет реакцию действием (слой — слота), игрок — вздрагиванием (добавка поворотов по маске верха).
+    /// Слоты реакции на попадание: спереди — два клипа (выбор — ГСЧ), сзади — один.
     /// </summary>
     public static int HitFront1 { get; }
     public static int HitFront2 { get; }
@@ -95,15 +89,13 @@ public static class ActionSlots
 }
 
 /// <summary>
-/// Клипы слотов действий для одной библиотеки клипов (<c>CharacterRig</c>: <c>SlotClip</c>, <c>SlotUpper</c>, конструктор
-/// и <c>LoadActions</c> SWORD): сначала клип по умолчанию (нет — клип 0 с предупреждением), поверх — выбор из
-/// <c>combat/actions.json</c> (ключ слота → ID клипа; «ключ.layer» → «upper»/«full»). Неизвестный ключ, отсутствующий клип
-/// и неверный слой — предупреждения, прежнее значение остаётся. Библиотеку таблица не знает: клип ищет переданная функция.
+/// Клипы слотов действий для одной библиотеки клипов: клип по умолчанию (нет — клип 0 с предупреждением), поверх — выбор из
+/// <c>combat/actions.json</c>. Ошибки выбора — предупреждения, прежнее значение остаётся. Клип ищет переданная функция.
 /// </summary>
 public sealed class ActionTable
 {
-    /// <summary>Выбор действий в контенте (печёт file.copy по манифесту Bake/combat/actions.bake.json).</summary>
-    public const string ActionsFile = "combat/actions.json";
+    /// <summary>Выбор действий в контенте (копия <c>_Sword/anim/actions.json</c>, рецепт <c>Bake/recipes/src/_Sword/anim/actions.json.bake.json</c>).</summary>
+    public const string ActionsFile = "data/combat/actions.json";
 
     private const string LayerSuffix = ".layer";
 
@@ -121,7 +113,7 @@ public sealed class ActionTable
     public int Walk(int dir) => Clip[ActionSlots.Walk(dir)];
     public int Run(int dir) => Clip[ActionSlots.Run(dir)];
 
-    /// <summary>Клипы поворота на месте: 90° влево, вправо и разворот (из них выбирает <c>FighterAnimator.StartTurn</c>).</summary>
+    /// <summary>Клипы поворота на месте: 90° влево, вправо и разворот.</summary>
     public int TurnLeft => Clip[ActionSlots.TurnLeft];
     public int TurnRight => Clip[ActionSlots.TurnRight];
     public int Turn180 => Clip[ActionSlots.Turn180];
@@ -129,7 +121,6 @@ public sealed class ActionTable
     /// <param name="findClip">Клип по ID («источник/имя» или имя, если оно одно); −1 — нет.</param>
     /// <param name="clipName">Имя клипа по номеру — для предупреждений.</param>
     /// <param name="actionsJson">Содержимое actions.json; null — только клипы по умолчанию.</param>
-    /// <param name="warnings">Куда писать предупреждения.</param>
     /// <exception cref="InvalidDataException">actions.json — не объект «строка → строка».</exception>
     public static ActionTable Resolve(Func<string, int> findClip, Func<int, string> clipName, string? actionsJson, ICollection<string> warnings)
     {

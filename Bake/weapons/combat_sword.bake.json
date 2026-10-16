@@ -1,9 +1,0 @@
-{
-  "processor": "weapon.static",
-  "import": "combat_master",
-  "notes": "/Game/CombatMasterAnimBundle/Weapon/Sword/SM_CombatSword.",
-  "params": {
-    "mesh": "${src}/_Export/weapons/SM_CombatSword.glb",
-    "skeleton": "skeletons/ue5_manny"
-  }
-}

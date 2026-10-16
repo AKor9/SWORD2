@@ -117,7 +117,10 @@ public sealed class GpuImage : IDisposable
     {
         var format = srgb ? Format.R8G8B8A8_UNorm_SRgb : Format.R8G8B8A8_UNorm;
         var desc = ResourceDescription.Texture2D(format, (uint)width, (uint)height, 1, (ushort)levels.Length);
-        var resource = gd.Device.CreateCommittedResource(HeapType.Default, HeapFlags.None, desc, ResourceStates.CopyDest);
+        // Создаётся и остаётся в COMMON: копия продвигает её в COPY_DEST неявно, барьер возвращает в COMMON, чтение шейдером продвигает
+        // неявно (текстура только для чтения). Состояние после заливки равно состоянию создания: откат отслеживаемого состояния к состоянию
+        // создания (так бывает у GPU-валидации под нагрузкой GPU) не превращается в «чтение из COPY_DEST».
+        var resource = gd.Device.CreateCommittedResource(HeapType.Default, HeapFlags.None, desc, ResourceStates.Common);
         resource.Name = name;
         int srv = -1;
         try
@@ -144,8 +147,7 @@ public sealed class GpuImage : IDisposable
                 {
                     for (uint i = 0; i < count; i++)
                         list.CopyTextureRegion(new TextureCopyLocation(resource, i), 0, 0, 0, new TextureCopyLocation(upload, layouts[i]), null);
-                    list.ResourceBarrierTransition(resource, ResourceStates.CopyDest,
-                        ResourceStates.PixelShaderResource | ResourceStates.NonPixelShaderResource);
+                    list.ResourceBarrierTransition(resource, ResourceStates.CopyDest, ResourceStates.Common);
                 });
             }
 

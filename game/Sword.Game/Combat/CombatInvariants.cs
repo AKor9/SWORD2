@@ -10,9 +10,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Инварианты боя (раздел 8 плана), их регистрирует ядро: <c>combat.blade</c> — после PrePhysics (клинок на кисти),
-/// <c>combat.weapons</c> — в конце End (меч и клинок у каждого бойца, инвентарь игрока согласован), <c>combat.control</c> —
-/// в конце End (управление игрока, рывок и таймер удара врага конечны и в своих пределах).
+/// Инварианты боя: <c>combat.blade</c> — после PrePhysics; <c>combat.weapons</c> и <c>combat.control</c> — в конце End.
 /// </summary>
 public static class CombatInvariants
 {
@@ -23,13 +21,9 @@ public static class CombatInvariants
         [new BladeOnHand(poses, weapons, hand, start), new Weapons(weapons), new Control(strikes)];
 
     /// <summary>
-    /// <c>combat.blade</c> — «клинок на кисти» (после PrePhysics): у бойца с живой позой клинок (<see cref="Blade"/>) посчитан мечом
-    /// в руке (<see cref="Blade.Weapon"/> = <see cref="WeaponSlot"/>), все четыре точки конечны, а основание и кончик — это клинок
-    /// меча в системе кисти hand_r позы тика в мире бойца (<see cref="BladePlacement.Of"/>). Ловит постановку, которая не прошла
-    /// (клинок остался на прошлой позе, корне или мече), клинок чужого бойца, сдвинутый после постановки, нечисловой. Посреди
-    /// тика до PrePhysics (проверка «сейчас») — не проверяется: клинок ещё прошлого тика; до первого тика — сверка с позой постройки
-    /// (клинки бойцов сборки мира поставила сборка мира, как тела). Мёртвые — нет: их клинок-отрезок стоит, где был в тик смерти (это
-    /// держит <c>combat.dead</c>), а корень мёртвого идёт за тазом трупа.
+    /// <c>combat.blade</c> — у бойца с живой позой клинок посчитан мечом в руке, точки конечны, основание и кончик — клинок меча в
+    /// системе кисти позы тика (<see cref="BladePlacement.Of"/>). Посреди тика до PrePhysics не проверяется; до первого тика —
+    /// сверка с позой постройки; мёртвые — нет (их держит <c>combat.dead</c>).
     /// </summary>
     private sealed class BladeOnHand(PosePool poses, WeaponTable weapons, int hand, StartPoseModel start) : IInvariant
     {
@@ -140,12 +134,8 @@ public static class CombatInvariants
     }
 
     /// <summary>
-    /// <c>combat.control</c> — управление боем согласовано (в конце End): у игрока есть управление (<see cref="PlayerControl"/>)
-    /// и связка (<see cref="AttackCombo"/>), у врага — таймер удара (<see cref="EnemyAttack"/>); буферы — 0…0,3 и 0…0,2 с,
-    /// перезарядка — 0…<c>combat.dashCooldown</c>, неуязвимость — 0…<c>combat.dashInvulnerable</c>, рывок конечен: идёт — время
-    /// 0…<c>combat.dashTime</c>, направление единичное по земле, прибавка не больше <c>combat.dashSpeed</c>, не идёт — прибавки нет
-    /// (кроме последнего тика рывка: время вышло, прибавка тика ещё есть);
-    /// следующий удар связки — рубящий таблицы; таймер врага конечен и не меньше 0.
+    /// <c>combat.control</c> — у игрока есть управление и связка, у врага — таймер удара; буферы, перезарядка, неуязвимость, время и
+    /// прибавка рывка — конечны и в пределах правил <c>combat</c>; следующий удар связки — рубящий; таймер врага не меньше 0.
     /// </summary>
     private sealed class Control(StrikeTable strikes) : IInvariant
     {
@@ -231,10 +221,10 @@ public static class CombatInvariants
     }
 }
 
-/// <summary>Где в тике проверка «сейчас» (<c>invariant.run</c>): посреди тика — стадия игры, между тиками — нет.</summary>
+/// <summary>Где в тике проверка «сейчас»: посреди тика — стадия игры, между тиками — нет.</summary>
 internal static class Stages
 {
-    /// <summary>Посреди тика до стадии <paramref name="stage"/> (после <c>time.break</c>): её постановка ещё прошлого тика.</summary>
+    /// <summary>Посреди тика до стадии <paramref name="stage"/> (останов после барьера): её постановка ещё прошлого тика.</summary>
     public static bool MidTickBefore(in InvariantContext ctx, string stage)
     {
         var stages = GameStages.All;

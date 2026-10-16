@@ -5,13 +5,9 @@ using Sword.Game.Data;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Таблица оружия (<c>CharacterRig.Weapons</c> SWORD 2eab13b): все мечи пака (<c>weapons/*.swmesh</c>) в порядке
-/// списка контента — по алфавиту без учёта регистра, номер меча — номер в таблице (<see cref="WeaponSlot.Index"/>); клинок
-/// каждого — по его мешу (<see cref="WeaponMesh"/>: <c>MakeWeapon</c>). Меч по умолчанию — <see cref="DefaultName"/>, нет его —
-/// первый: по его клинку размечены окна ударов (<see cref="StrikeTable"/>). Ассет симуляции: неизменяема, общая для всех
-/// симуляций процесса, наружу — только <see cref="ReadOnlySpan{T}"/>. Без оружия игра не стартует (как <c>TryLoad</c> SWORD).
-/// В ней и тело клинка каждого меча (<see cref="Bodies"/>: капсула от хвата до кончика, <see cref="BladeBody"/>), посчитанное
-/// один раз при загрузке.
+/// Таблица оружия: все мечи пака в порядке списка контента (по алфавиту без учёта регистра), номер меча — номер в таблице;
+/// клинок и тело клинка (<see cref="Bodies"/>) каждого — по его мешу, один раз при загрузке. Меч по умолчанию —
+/// <see cref="DefaultName"/> (по его клинку размечены окна ударов). Неизменяема, общая для симуляций процесса; без оружия игра не стартует.
 /// </summary>
 public sealed class WeaponTable
 {
@@ -40,7 +36,7 @@ public sealed class WeaponTable
         Default = Math.Max(0, Find(DefaultName));
     }
 
-    /// <summary>Номер меча по имени без учёта регистра (<c>DuelArena.Weapon</c> SWORD); нет — −1.</summary>
+    /// <summary>Номер меча по имени без учёта регистра; нет — −1.</summary>
     public int Find(string name)
     {
         for (int i = 0; i < _weapons.Length; i++)
@@ -49,9 +45,8 @@ public sealed class WeaponTable
     }
 
     /// <summary>
-    /// Оружие врагов: номера таблицы по возрастанию без оружия только игрока (<paramref name="playerOnly"/> — имена, регистр не важен;
-    /// имени нет в таблице — исключать нечего). Порядок и номера — таблицы: оружие только игрока в конце таблицы (факел — последний по
-    /// алфавиту) не меняет выбор врагов среди остальных.
+    /// Оружие врагов: номера таблицы по возрастанию без оружия только игрока (<paramref name="playerOnly"/> — имена, регистр не важен).
+    /// Оружие только игрока в конце таблицы не меняет выбор врагов среди остальных.
     /// </summary>
     /// <exception cref="InvalidDataException">Врагам не осталось оружия.</exception>
     public int[] EnemyWeapons(IEnumerable<string> playerOnly)
@@ -66,7 +61,7 @@ public sealed class WeaponTable
     /// <summary>Имена мечей через запятую — для сообщений.</summary>
     public string Names => string.Join(", ", _weapons.Select(w => w.Name));
 
-    /// <summary>Все мечи пака (<c>CharacterRig.TryLoad</c>: <c>content.List(WeaponDir, WeaponExt)</c> → <c>MakeWeapon</c>).</summary>
+    /// <summary>Все мечи пака (<c>content.List(WeaponDir, WeaponExt)</c>).</summary>
     /// <exception cref="FileNotFoundException">В контенте нет ни одного меча.</exception>
     /// <exception cref="InvalidDataException">Меш меча испорчен, со суставами или без клинка; мечей больше 64.</exception>
     public static WeaponTable Load(IContentSource content)

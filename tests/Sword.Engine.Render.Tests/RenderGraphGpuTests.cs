@@ -10,10 +10,8 @@ namespace Sword.Engine.Render.Tests;
 public sealed class GpuCollection;
 
 /// <summary>
-/// Рендер-граф v0 на настоящем устройстве (скрытое окно, отладочный слой D3D12 с GPU-валидацией): временные текстуры и
-/// буферы из пула,
-/// вычислительные проходы на graphics-очереди, переходы и барьеры UAV, инварианты. Результат GPU читается обратно через
-/// хранилище; любое предупреждение или ошибка отладочного слоя — провал.
+/// Рендер-граф на устройстве: временные ресурсы из пула, compute на graphics-очереди, переходы и барьеры UAV, инварианты.
+/// Результат читается обратно; любое сообщение отладочного слоя — провал.
 /// </summary>
 [Collection("gpu")]
 [Trait("Category", "Gpu")]
@@ -194,11 +192,8 @@ public sealed class RenderGraphGpuTests : IDisposable, ILogSink
     }
 
     /// <summary>
-    /// Кадр графа (docs/history/profiler.md) — compute → графика с очисткой →
-    /// compute через временные текстуры, переходы и барьеры UAV, проверка инвариантов, привязка целей — 0 байт на кадр (было
-    /// ~290 Б на такой кадр: отчёт прохода, списки имён, <c>bool[]</c>, массивы барьеров и дескрипторов). Отчёт
-    /// <see cref="RenderGraph.LastFrame"/> строится по запросу — тот же, что строился каждый кадр, один на кадр;
-    /// <see cref="RenderGraph.LastFrameDraws"/> — без отчёта.
+    /// Кадр графа (compute → графика → compute через временные текстуры, барьеры, инварианты) — 0 байт. Отчёт
+    /// <see cref="RenderGraph.LastFrame"/> строится по запросу, один на кадр; <see cref="RenderGraph.LastFrameDraws"/> — без отчёта.
     /// </summary>
     [Fact]
     public void SteadyFrame_AllocatesNothing_ReportOnRequest()
@@ -277,7 +272,7 @@ public sealed class RenderGraphGpuTests : IDisposable, ILogSink
     [Fact]
     public void FrameCapture_ColorAndDepth_UnderGpuValidation_StateRestored()
     {
-        // Снимок агента (capture.bundle): цвет и глубина сцены кадра — копии из заднего буфера и из глубины графа;
+        // Снимок инструмента: цвет и глубина сцены кадра — копии из заднего буфера и из глубины графа;
         // состояние глубины после копии — прежнее, следующий кадр граф ведёт без переходов вслепую.
         string dir = Path.Combine(Path.GetTempPath(), $"sword-capture-{Guid.NewGuid():N}");
         void Scene(RenderFrame f) => f.Graph.AddPass("test.scene")

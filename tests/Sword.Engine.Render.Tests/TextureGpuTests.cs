@@ -9,11 +9,9 @@ using Xunit.Abstractions;
 namespace Sword.Engine.Render.Tests;
 
 /// <summary>
-/// Текстуры пака в видеопамяти (<see cref="Renderer.LoadTexture(string)"/>) на настоящем устройстве со слоем отладки и GPU-валидацией:
-/// тексели мипа 0 и последнего мипа, прочитанные шейдером (<c>Load</c> и выборка), совпадают с декодом файла на CPU по спецификации D3D
-/// (<see cref="TextureDecode"/>) в пределах 1/255 (BCn — в пределах точности декода железом, <see cref="TextureDecode.Tolerance"/>) — для каждого формата, который пишет пекарня, и для каждой текстуры пака; sRGB при
-/// выборке — линейное значение; нет файла или битый — исключение с путём; кадр с текстурой — 0 Б; освобождение — после кадров в полёте.
-/// Пак берётся как у игры (<see cref="ContentLocator"/>, в том числе <c>SWORD_CONTENT</c>): так же проверяется временный пак выпечки.
+/// Текстуры пака на устройстве (<see cref="Renderer.LoadTexture(string)"/>): тексели первого и последнего мипа совпадают с декодом
+/// на CPU (<see cref="TextureDecode"/>) в допуске <see cref="TextureDecode.Tolerance"/> для каждого формата пекарни и текстуры пака;
+/// sRGB — линейно; битый файл — исключение с путём; 0 Б на кадр. Пак — как у игры (<see cref="ContentLocator"/>).
 /// </summary>
 [Collection("gpu")]
 [Trait("Category", "Gpu")]
@@ -251,10 +249,10 @@ public sealed class TextureGpuTests : IDisposable, ILogSink
     [Trait("Category", "Content")]
     public void MissingOrBrokenFile_ThrowsWithPath()
     {
-        var missing = Assert.Throws<FileNotFoundException>(() => _renderer.LoadTexture("effects/nothing/here.swtex"));
-        Assert.Contains("effects/nothing/here.swtex", missing.Message);
+        var missing = Assert.Throws<FileNotFoundException>(() => _renderer.LoadTexture("textures/nothing/here.swtex"));
+        Assert.Contains("textures/nothing/here.swtex", missing.Message);
         using var pak = ContentLocator.Open();
-        string font = pak.List("ui/fonts", ".swfont")[0];
+        string font = pak.List("fonts", ".swfont")[0];
         var notTexture = Assert.Throws<InvalidDataException>(() => _renderer.LoadTexture(font));
         Assert.Contains(font, notTexture.Message);
 

@@ -3,10 +3,7 @@ using Vortice.DXGI;
 
 namespace Sword.Engine.Rhi;
 
-/// <summary>
-/// Неизменяемые данные в UPLOAD-куче со SRV: сетки, таблицы. Видеокарта читает
-/// их напрямую, копии в DEFAULT для нескольких килобайт не нужны.
-/// </summary>
+/// <summary>Неизменяемые данные в UPLOAD-куче со SRV: для нескольких килобайт копия в DEFAULT не нужна.</summary>
 public sealed unsafe class StaticBuffer : IDisposable
 {
     private readonly GraphicsDevice _gd;
@@ -59,11 +56,7 @@ public sealed unsafe class StaticBuffer : IDisposable
     }
 }
 
-/// <summary>
-/// Структурированный буфер в UPLOAD-куче со SRV, переписываемый каждый кадр:
-/// слот на кадр в полёте, постоянно отображён. Для динамической геометрии,
-/// которую вершинный шейдер читает напрямую.
-/// </summary>
+/// <summary>Структурированный буфер в UPLOAD-куче со SRV, переписываемый каждый кадр: слот на кадр в полёте.</summary>
 public sealed unsafe class MappedStructuredRing : IDisposable
 {
     private readonly GraphicsDevice _gd;
@@ -116,9 +109,8 @@ public sealed unsafe class MappedStructuredRing : IDisposable
 }
 
 /// <summary>
-/// Кольцо константных буферов в UPLOAD-куче, постоянно отображённое.
-/// Слоты на кадр × <see cref="GraphicsDevice.FrameCount"/>: CPU не пишет
-/// в память, которую ещё читает прошлый кадр.
+/// Кольцо константных буферов в UPLOAD-куче: слоты × <see cref="GraphicsDevice.FrameCount"/>, чтобы CPU не писал
+/// в память, которую читает прошлый кадр.
 /// </summary>
 public sealed unsafe class ConstantRing : IDisposable
 {

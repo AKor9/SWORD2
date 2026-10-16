@@ -3,7 +3,6 @@ using Sword.Engine.Ecs;
 
 namespace Sword.Engine.Ecs.Tests;
 
-/// <summary>Граничные тесты журналов — обязательный список раздела 5 плана.</summary>
 public class JournalTests
 {
     // ── порядок стадий производителя и потребителя ─────────────────────────
@@ -298,18 +297,15 @@ public class JournalTests
     }
 
     [Fact]
-    public void RemovedAndReAdded_GivesRemovedOldThenAdded_EachWithItsCause()
+    public void RemovedAndReAdded_GivesRemovedOldThenAdded()
     {
         var p = new Probe();
         Entity e = default;
         var w = p.Build((in SystemContext ctx) =>
         {
             if (ctx.Tick != 1) return;
-            ctx.Commands.Cause = new CauseId(1);
             ctx.Commands.Remove<Health>(e);
-            ctx.Commands.Cause = new CauseId(2);
             ctx.Commands.Add(e, new Health { Value = 9 });
-            ctx.Commands.Cause = CauseId.None;
         });
         e = w.CreateImmediate();
         w.AddImmediate(e, new Health { Value = 3 });
@@ -318,29 +314,23 @@ public class JournalTests
         w.RunTick(1);
         var removed = Assert.Single(p.Removed.Seen).Trigger;
         Assert.Equal(3, removed.Value.Value);
-        Assert.Equal(new CauseId(1), removed.Cause);
         var added = Assert.Single(p.Added.Seen).Trigger;
         Assert.Equal(e, added.Entity);
-        Assert.Equal(new CauseId(2), added.Cause);
         Assert.Empty(p.Changed.Seen);
         Assert.Equal(9, w.Get<Health>(e).Value);
     }
 
     [Fact]
-    public void RemovedReAddedRemoved_RemovedCarriesLastRemovalAndItsCause()
+    public void RemovedReAddedRemoved_RemovedCarriesLastRemoval()
     {
         var p = new Probe();
         Entity e = default;
         var w = p.Build((in SystemContext ctx) =>
         {
             if (ctx.Tick != 1) return;
-            ctx.Commands.Cause = new CauseId(1);
             ctx.Commands.Remove<Health>(e);
-            ctx.Commands.Cause = new CauseId(2);
             ctx.Commands.Add(e, new Health { Value = 9 });
-            ctx.Commands.Cause = new CauseId(3);
             ctx.Commands.Remove<Health>(e);
-            ctx.Commands.Cause = CauseId.None;
         });
         e = w.CreateImmediate();
         w.AddImmediate(e, new Health { Value = 3 });
@@ -349,7 +339,6 @@ public class JournalTests
         w.RunTick(1);
         var removed = Assert.Single(p.Removed.Seen).Trigger;
         Assert.Equal(9, removed.Value.Value);
-        Assert.Equal(new CauseId(3), removed.Cause);
         Assert.Empty(p.Added.Seen);
     }
 

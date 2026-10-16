@@ -1,7 +1,7 @@
 # Sword.Engine.Render — правила
 
-Рендер движка: граф, фазы кадра, HDR и тонмап, bloom, точечный свет, прозрачное, текстуры, скин, UI, отладка, снимок. Устройство,
-числа и агентский доступ — [README.md](README.md), раздел 6 плана.
+Рендер движка: граф, фазы кадра, HDR и тонмап, bloom, точечный свет, прозрачное, текстуры, скин, UI, отладка, снимок. Устройство
+и числа — [README.md](README.md), раздел 6 плана.
 
 Инварианты:
 - Публичный API — без типов Vortice, Rhi, Formats, Content (`PublicSurfaceTests`, `CompiledAssemblies_FollowArchitecture`).

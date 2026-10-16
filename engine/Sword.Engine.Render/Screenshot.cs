@@ -35,10 +35,7 @@ internal static class Screenshot
         return readback;
     }
 
-    /// <summary>
-    /// Глубина сцены в буфер чтения (R32, reversed-Z: 0 — дальняя плоскость и очистка, 1 — ближняя). Состояние ресурса
-    /// после копии — прежнее: граф его не заметит.
-    /// </summary>
+    /// <summary>Глубина сцены в буфер чтения (R32, обратный Z: 0 — дальняя плоскость); состояние ресурса после копии прежнее.</summary>
     public static ID3D12Resource? RecordDepthCapture(GraphicsDevice gd, ID3D12GraphicsCommandList list, GraphResource depth,
         out int width, out int height, out int rowPitch)
     {
@@ -60,10 +57,7 @@ internal static class Screenshot
         return readback;
     }
 
-    /// <summary>
-    /// Цель графа (ID-буфер R32Uint, слой Rgba8 — 4 байта на пиксель; цвет HDR-сцены RGBA16F — 8) в буфер чтения. Состояние
-    /// ресурса после копии — прежнее: граф его не заметит.
-    /// </summary>
+    /// <summary>Цель графа (RGBA16F, 8 Б на пиксель) в буфер чтения; состояние ресурса после копии прежнее.</summary>
     public static ID3D12Resource RecordTextureCapture(GraphicsDevice gd, ID3D12GraphicsCommandList list, GraphResource texture,
         out int width, out int height, out int rowPitch)
     {
@@ -85,106 +79,13 @@ internal static class Screenshot
         return readback;
     }
 
-    /// <summary>Цвет кода ID-буфера для глаз: 0 — чёрный, иначе яркий цвет по хешу кода (соседние коды — разные цвета).</summary>
-    public static (byte R, byte G, byte B) IdColour(uint id)
-    {
-        if (id == 0) return (0, 0, 0);
-        uint x = id * 0x9E3779B1u;
-        x ^= x >> 15;
-        x *= 0x85EBCA77u;
-        x ^= x >> 13;
-        return ((byte)(64 + (x & 0xBF)), (byte)(64 + (x >> 8 & 0xBF)), (byte)(64 + (x >> 16 & 0xBF)));
-    }
-
     /// <summary>
-    /// ID-буфер: PNG для глаз (<see cref="IdColour"/>), сырые коды (uint32 LE на пиксель, строки сверху вниз) и сводка по
-    /// кодам — пикселей и рамка каждого (кроме 0), по возрастанию кода.
+    /// Глубина в PNG: ближе — светлее, дальняя плоскость — чёрная, яркость растянута на найденный диапазон.
+    /// Возвращает диапазон глубины и долю пикселей с геометрией.
     /// </summary>
     /// <remarks>
-    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
-    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
-    /// </remarks>
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe IReadOnlyList<IdCoverage> SaveIds(ID3D12Resource readback, string pngPath, string rawPath, int width, int height, int rowPitch)
-    {
-        byte* source = readback.Map<byte>(0);
-        try
-        {
-            var raw = new byte[width * height * 4];
-            var rgb = new byte[width * height * 3];
-            var found = new Dictionary<uint, (int Pixels, int X0, int Y0, int X1, int Y1)>();
-            for (int y = 0; y < height; y++)
-            {
-                var row = new ReadOnlySpan<uint>(source + (long)y * rowPitch, width);
-                row.CopyTo(System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(raw.AsSpan(y * width * 4, width * 4)));
-                for (int x = 0; x < width; x++)
-                {
-                    uint id = row[x];
-                    if (id == 0) continue;
-                    var (r, g, b) = IdColour(id);
-                    int i = (y * width + x) * 3;
-                    rgb[i] = r;
-                    rgb[i + 1] = g;
-                    rgb[i + 2] = b;
-                    found[id] = found.TryGetValue(id, out var c)
-                        ? (c.Pixels + 1, Math.Min(c.X0, x), Math.Min(c.Y0, y), Math.Max(c.X1, x + 1), Math.Max(c.Y1, y + 1))
-                        : (1, x, y, x + 1, y + 1);
-                }
-            }
-            File.WriteAllBytes(pngPath, Png.Encode(rgb, width, height));
-            File.WriteAllBytes(rawPath, raw);
-            return [.. found.OrderBy(kv => kv.Key).Select(kv => new IdCoverage(kv.Key, kv.Value.Pixels, kv.Value.X0, kv.Value.Y0, kv.Value.X1, kv.Value.Y1))];
-        }
-        finally
-        {
-            readback.Unmap(0);
-        }
-    }
-
-    /// <summary>
-    /// Слой снимка (Rgba8, цвет умножен на альфу) поверх цвета кадра <paramref name="under"/> (RGB по строкам; null — на
-    /// чёрном) в PNG: <c>слой + цвет · (1 − альфа слоя)</c>.
-    /// </summary>
-    /// <remarks>
-    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
-    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
-    /// </remarks>
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe void SaveLayer(ID3D12Resource readback, string path, int width, int height, int rowPitch, byte[]? under)
-    {
-        byte* source = readback.Map<byte>(0);
-        try
-        {
-            var rgb = new byte[width * height * 3];
-            for (int y = 0; y < height; y++)
-            {
-                byte* src = source + (long)y * rowPitch;
-                for (int x = 0; x < width; x++)
-                {
-                    int i = (y * width + x) * 3;
-                    int keep = 255 - src[x * 4 + 3];
-                    for (int c = 0; c < 3; c++)
-                        rgb[i + c] = (byte)Math.Min(255, src[x * 4 + c] + (under is null ? 0 : (under[i + c] * keep + 127) / 255));
-                }
-            }
-            File.WriteAllBytes(path, Png.Encode(rgb, width, height));
-        }
-        finally
-        {
-            readback.Unmap(0);
-        }
-    }
-
-    /// <summary>
-    /// Глубина в PNG для глаз (и модели): ближе — светлее, дальняя плоскость — чёрная; яркость растянута на найденный
-    /// диапазон. Возвращает диапазон глубины и долю пикселей с геометрией.
-    /// </summary>
-    /// <remarks>
-    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
-    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
+    /// <c>AggressiveOptimization</c>: иначе OSR пиксельного цикла — 4…5 мс на главном потоке; вынос тела в метод на строку
+    /// не спасает (строка сама долгий цикл), PGO перекладке байтов не нужен.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe (float Min, float Max, float Coverage) SaveDepth(ID3D12Resource readback, string path, int width, int height, int rowPitch)
@@ -252,14 +153,10 @@ internal static class Screenshot
     }
 
     /// <summary>
-    /// Цвет HDR-сцены (RGBA16F) из буфера чтения: яркость входа тонмапа (× <paramref name="exposure"/>, Rec.709) по кадру и, если
-    /// заданы пути, карта в ложных цветах (<see cref="HdrColour"/>) и сырой цвет (<c>.bin</c>, half RGBA на пиксель);
-    /// <paramref name="meanAlpha"/> — средняя альфа (у цели ½ прозрачного — непрозрачность).
+    /// Цвет HDR-сцены из буфера чтения: яркость входа тонмапа (× <paramref name="exposure"/>, Rec.709), средняя альфа и,
+    /// если заданы пути, карта в ложных цветах (<see cref="HdrColour"/>) и сырой цвет (<c>.bin</c>, half RGBA).
     /// </summary>
-    /// <remarks>
-    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR на главном потоке в кадре снимка); PGO переводу half и сумме не нужен.
-    /// </remarks>
+    /// <remarks><c>AggressiveOptimization</c>: иначе OSR пиксельного цикла на главном потоке; PGO здесь не нужен.</remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe HdrCapture SaveHdr(ID3D12Resource readback, float exposure, int width, int height, int rowPitch, string? pngPath,
         string? rawPath, out float meanAlpha)
@@ -316,12 +213,8 @@ internal static class Screenshot
         }
     }
 
-    /// <summary>Записать снятый кадр: расширение .bmp — BMP, иначе PNG; вернёт цвет кадра (RGB по строкам) — под слои снимка.</summary>
-    /// <remarks>
-    /// Пиксельный цикл по всему кадру — сразу оптимизированным (<c>AggressiveOptimization</c>): иначе многоуровневый JIT заменял
-    /// его на ходу (OSR 4…5 мс на главном потоке в кадре снимка — docs/history/profiler.md). Вынос тела
-    /// в метод на строку не спасает — строка шире 1000 пикселей сама долгий цикл; динамический PGO перекладке байтов не нужен.
-    /// </remarks>
+    /// <summary>Записать снятый кадр: расширение .bmp — BMP, иначе PNG; вернёт цвет кадра (RGB по строкам).</summary>
+    /// <remarks><c>AggressiveOptimization</c> — по той же причине, что у <see cref="SaveDepth"/>.</remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static unsafe byte[] Save(ID3D12Resource readback, string path, int width, int height, int rowPitch)
     {

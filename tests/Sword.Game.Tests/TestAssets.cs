@@ -4,21 +4,18 @@ using Sword.Engine.Formats;
 using Sword.Engine.Runtime;
 using Sword.Game.Animation;
 using Sword.Game.Bootstrap;
+using Sword.Game.Contracts;
 
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Контент тестов игры в памяти: скелет «ue5_manny» из синтетических суставов (<c>SynthSkeleton</c> тестов SWORD), меш с
-/// его bind-матрицами и клипы по именам пака по умолчанию: локомоция — стойка, ходьба и бег в 8 сторон с корневым
-/// движением <see cref="WalkSpeed"/> и <see cref="RunSpeed"/> м/с, и поворот на месте (90° влево, вправо, разворот).
-/// У каждого клипа своя поза (номер клипа — в наклоне бедра), чтобы по позе было видно, какой клип играет.
+/// Контент тестов игры в памяти: скелет «ue5_manny» из синтетических суставов, меш и клипы по именам пака — стойка, ходьба и
+/// бег в 8 сторон (<see cref="WalkSpeed"/>, <see cref="RunSpeed"/> м/с), поворот на месте. У каждого клипа своя поза (номер
+/// клипа — в наклоне бедра), чтобы по позе было видно, какой клип играет.
 /// </summary>
 public static class TestAssets
 {
-    /// <summary>
-    /// Суставы: ноги, позвоночник и ключицы и в конце — суставы капсул тела (<c>spine_01</c>, шея, голова,
-    /// руки; номера прежних суставов не сдвинуты).
-    /// </summary>
+    /// <summary>Суставы: ноги, позвоночник, ключицы, в конце — суставы капсул тела (номера прежних не сдвинуты).</summary>
     public static readonly string[] Joints =
     [
         "root", "pelvis", "thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r", "spine_05", "clavicle_l", "clavicle_r",
@@ -135,10 +132,7 @@ public static class TestAssets
         };
     }
 
-    /// <summary>
-    /// Контент: скелет, меш, клипы, мечи (<paramref name="weapons"/> false — без них); <paramref name="actionsJson"/> —
-    /// combat/actions.json (null — нет файла).
-    /// </summary>
+    /// <summary>Контент: скелет, меш, клипы, мечи (если <paramref name="weapons"/>); <paramref name="actionsJson"/> — data/combat/actions.json.</summary>
     public static MemorySource Content(string? actionsJson = null, bool weapons = true)
     {
         var content = new MemorySource("тест");
@@ -153,34 +147,34 @@ public static class TestAssets
             InverseBind = model.Select(m => Matrix4x4.Invert(m, out var inv) ? inv : throw new InvalidOperationException()).ToArray(),
         }.Write);
         int n = 0;
-        content.Add("anim/sword_1h/1HM_Idle_Standing.swclip", Clip(n++, Vector3.Zero).Write);
+        content.Add("animations/sword_1h/1HM_Idle_Standing.swclip", Clip(n++, Vector3.Zero).Write);
         string[] dirs = ["Forward", "ForwardRight", "Right", "BackRight", "Back", "BackLeft", "Left", "ForwardLeft"];
-        for (int d = 0; d < 8; d++) content.Add($"anim/sword_1h/1HM_Walk{dirs[d]}.swclip", Clip(n++, Dir(d) * WalkSpeed).Write);
-        for (int d = 0; d < 8; d++) content.Add($"anim/sword_1h/1HM_Run{dirs[d]}.swclip", Clip(n++, Dir(d) * RunSpeed).Write);
-        content.Add("anim/sword_1h/1HM_TurnLeft90.swclip", TurnClip(n++, TurnLeftYaw).Write);
-        content.Add("anim/sword_1h/1HM_TurnRight90.swclip", TurnClip(n++, TurnRightYaw).Write);
-        content.Add("anim/sword_1h/1HM_Turn180.swclip", TurnClip(n++, Turn180Yaw).Write);
+        for (int d = 0; d < 8; d++) content.Add($"animations/sword_1h/1HM_Walk{dirs[d]}.swclip", Clip(n++, Dir(d) * WalkSpeed).Write);
+        for (int d = 0; d < 8; d++) content.Add($"animations/sword_1h/1HM_Run{dirs[d]}.swclip", Clip(n++, Dir(d) * RunSpeed).Write);
+        content.Add("animations/sword_1h/1HM_TurnLeft90.swclip", TurnClip(n++, TurnLeftYaw).Write);
+        content.Add("animations/sword_1h/1HM_TurnRight90.swclip", TurnClip(n++, TurnRightYaw).Write);
+        content.Add("animations/sword_1h/1HM_Turn180.swclip", TurnClip(n++, Turn180Yaw).Write);
         // Бой: удары slash1–4 и уколы stab1–3 — взмах плеча (у удара есть окно урона), уклонения в 4 стороны. Свой источник —
         // после «sword_1h» по алфавиту: номера прежних клипов в библиотеке не сдвигаются.
-        for (int k = 0; k < 4; k++) content.Add($"anim/test_combat/1HM_Slash0{k + 1}.swclip", SwingClip(n++, SlashAxes[k]).Write);
-        for (int k = 0; k < 3; k++) content.Add($"anim/test_combat/1HM_Stab0{k + 1}.swclip", SwingClip(n++, Vector3.UnitX).Write);
+        for (int k = 0; k < 4; k++) content.Add($"animations/test_combat/1HM_Slash0{k + 1}.swclip", SwingClip(n++, SlashAxes[k]).Write);
+        for (int k = 0; k < 3; k++) content.Add($"animations/test_combat/1HM_Stab0{k + 1}.swclip", SwingClip(n++, Vector3.UnitX).Write);
         string[] evades = ["Forward", "Back", "Left", "Right"];
         Vector3[] evadeDirs = [Dir(0), Dir(4), Dir(6), Dir(2)];
         for (int k = 0; k < 4; k++)
         {
             var evade = Clip(n++, evadeDirs[k] * EvadeSpeed);
             evade.Loop = false;
-            content.Add($"anim/test_combat/1HM_Evade_{evades[k]}.swclip", evade.Write);
+            content.Add($"animations/test_combat/1HM_Evade_{evades[k]}.swclip", evade.Write);
         }
         // Реакции на попадание: корпус (spine_05) и плечо отклоняются назад — у вздрагивания игрока есть что добавить к верху тела,
         // у реакции врага — сдвиг корня назад. Свой источник — после «test_combat»: номера прежних клипов не сдвигаются.
         string[] hits = ["1HM_HitReact01", "1HM_HitReact02", "1HM_HitReact_Behind01"];
-        for (int k = 0; k < 3; k++) content.Add($"anim/test_hit/{hits[k]}.swclip", HitClip(n++, k == 2 ? 1 : -1).Write);
-        if (actionsJson is not null) content.Add("combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
+        for (int k = 0; k < 3; k++) content.Add($"animations/test_hit/{hits[k]}.swclip", HitClip(n++, k == 2 ? 1 : -1).Write);
+        if (actionsJson is not null) content.Add("data/combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
         // Оружие: два статических меша в системе кисти — по алфавиту katana (0), sword_1h (1, меч по умолчанию).
         if (!weapons) return content;
-        content.Add("weapons/sword_1h.swmesh", Weapon(SwordTip).Write);
-        content.Add("weapons/katana.swmesh", Weapon(KatanaTip).Write);
+        content.Add("meshes/weapons/sword_1h.swmesh", Weapon(SwordTip).Write);
+        content.Add("meshes/weapons/katana.swmesh", Weapon(KatanaTip).Write);
         return content;
     }
 
@@ -205,4 +199,28 @@ public static class TestAssets
 
     /// <summary>Симуляция игры на тестовом контенте — та же композиция, что у Sword.exe и Sword.Headless.</summary>
     public static Simulation Simulation(ConfigSet? config = null) => SwordSimulation.Create(config ?? ConfigSet.Empty(), Assets);
+
+    /// <summary>Симуляция и ресурс-класс её мира (пул поз, хранилище подсистемы), который берёт модуль-зонд при сборке мира.</summary>
+    public static (Simulation Sim, T Resource) WithResource<T>(ConfigSet config, CharacterAssets? assets = null) where T : class
+    {
+        var probe = new ResourceProbe<T>();
+        var sim = Build(config, assets ?? Assets, probe);
+        return (sim, probe.Resource!);
+    }
+
+    /// <summary>Симуляция игры на тестовом контенте с модулями теста (зонды) сверх модулей игры.</summary>
+    public static Simulation WithModules(ConfigSet config, params IModule[] extra) => Build(config, Assets, extra);
+
+    private static Simulation Build(ConfigSet config, CharacterAssets assets, params IModule[] extra) =>
+        Engine.Runtime.Simulation.Build(config, GameStages.All, b => GameCore.Configure(b, assets),
+            [.. SwordSimulation.Modules(), .. extra], SwordSimulation.ClientModuleIds);
+
+    private sealed class ResourceProbe<T> : IModule where T : class
+    {
+        public T? Resource;
+
+        public string Id => "resource_probe";
+
+        public void Configure(SimulationBuilder b) => b.OnWorldBuilt(w => Resource = w.Resource<T>());
+    }
 }

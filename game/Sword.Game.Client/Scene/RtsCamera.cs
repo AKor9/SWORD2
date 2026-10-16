@@ -67,8 +67,8 @@ public sealed class RtsCamera
     /// <summary>Дистанция, к которой идёт зум.</summary>
     public float TargetDistance => _targetDistance;
 
-    /// <summary>Дистанция сразу, без сглаживания (ключ запуска, снимки): 6…110 м, как <c>SetDistance</c> SWORD.</summary>
-    public void SetDistance(float distance) => Distance = _targetDistance = Math.Clamp(distance, 6f, MaxDistance);
+    /// <summary>Дистанция сразу, без сглаживания (ключ запуска, снимки): те же 3…110 м, что у зума колесом.</summary>
+    public void SetDistance(float distance) => Distance = _targetDistance = Math.Clamp(distance, MinDistance, MaxDistance);
 
     /// <summary>Направления «вперёд» и «вправо» камеры на плоскости земли.</summary>
     public Vector3 GroundForward => new(-MathF.Sin(Yaw), 0, -MathF.Cos(Yaw));

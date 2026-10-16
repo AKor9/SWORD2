@@ -5,16 +5,13 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bootstrap;
 
 /// <summary>
-/// Единая композиция симуляции SWORD (раздел 3 плана): стадии игры, ядро и модули симуляции — один вызов для App и
-/// Headless, поэтому игра и её прогон без окна не расходятся составом. Модули симуляции регистрируются только здесь.
-/// Проверку конфига целиком (<see cref="ConfigSet.Complete"/>) делает exe после всей композиции — секции читает и клиент.
-/// Ассеты бойца (<see cref="CharacterAssets.Load"/>) грузит exe из своего контента: откуда контент — решает он.
+/// Единая композиция симуляции: стадии игры, ядро и модули — один вызов для App и Headless, поэтому игра и прогон без окна не
+/// расходятся составом. Проверку конфига целиком и загрузку ассетов делает exe.
 /// </summary>
 public static class SwordSimulation
 {
     /// <summary>
-    /// Модули симуляции по порядку. Ядро — не модуль (принцип 4 плана): <see cref="GameCore"/>. Сборка без модуля
-    /// (<c>-p:WithoutLocomotion=true</c>) его не знает вовсе.
+    /// Модули симуляции по порядку. Ядро — не модуль: <see cref="GameCore"/>. Сборка без модуля его не знает вовсе.
     /// </summary>
     public static IReadOnlyList<IModule> Modules() =>
     [
@@ -24,16 +21,14 @@ public static class SwordSimulation
     ];
 
     /// <summary>
-    /// Id всех модулей симуляции игры — и тех, что не вошли в эту сборку (<c>-p:Without&lt;Модуль&gt;=true</c>). Секция конфига модуля, которого
-    /// нет в сборке, пропускается, как у выключенного (<see cref="ConfigSet.Skip"/>): общий <c>sword.json</c> с его настройками
-    /// (<c>locomotion.player</c>) не роняет запуск — без модуля игра стартует (решение 9). Новый модуль — строка здесь и в <see cref="Modules"/>.
+    /// Id всех модулей симуляции, и тех, что не вошли в сборку: секция модуля, которого нет, пропускается (<see cref="ConfigSet.Skip"/>) —
+    /// без модуля игра стартует. Новый модуль — строка здесь и в <see cref="Modules"/>.
     /// </summary>
     public static readonly IReadOnlyList<string> ModuleIds = ["locomotion"];
 
     /// <summary>
-    /// Id модулей игры без части симуляции — только клиентских (<c>modules/Sword.Game.&lt;Модуль&gt;.Client</c>, композиция — Sword.exe):
-    /// группа <c>modules.&lt;id&gt;.enabled</c> знает их и у Headless, их секцию (<c>fire</c>) читает только клиент — exe без клиента и
-    /// сборка без модуля её пропускают (<see cref="SkipClientSections"/>). Новый клиентский модуль — строка здесь и в композиции exe.
+    /// Id только клиентских модулей: их секции читает только клиент, exe без клиента и сборка без модуля их пропускают
+    /// (<see cref="SkipClientSections"/>). Новый клиентский модуль — строка здесь и в композиции exe.
     /// </summary>
     public static readonly IReadOnlyList<string> ClientModuleIds = ["fire"];
 

@@ -3,20 +3,9 @@ using System.Numerics;
 namespace Sword.Engine.Physics;
 
 /// <summary>
-/// Эталонная реализация <see cref="IPhysicsWorld"/>: тела — массив состояний по слотам (AoS), идеи — <c>RigidBody</c> SWORD
-/// 2eab13b. Оптимизированная раскладка (SoA, острова) — отдельной реализацией рядом, эта остаётся оракулом в тестах
-/// (раздел 6 плана).
-///
-/// Слоты тел и сочленений — как у пула поз: поколение слота (у свободного — со знаком минус), список свободных, из
-/// которого берут с конца; рост — удвоением, новые свободные кладутся так, чтобы первыми выдавались младшие номера.
-/// Удалённое сочленение возвращает тела с конца, поэтому следующее того же размера получает те же слоты тем же порядком.
-/// Массив тел сочленения остаётся за его слотом и переиспользуется — создание и удаление сочленений прежних размеров
-/// памяти не выделяет.
-///
-/// Класс разбит на части (README «Раскладка файлов»): здесь — слоты и связь частей (крючки в конце
-/// файла); <c>PhysicsWorld.Dynamics.cs</c> — динамика тел, профили, настройки; <c>PhysicsWorld.Joints.cs</c> — суставы;
-/// <c>PhysicsWorld.Contacts.cs</c>, <c>PhysicsWorld.Step.cs</c> — статический мир, контакты, шаг, границы;
-/// <c>KinematicContacts.cs</c>, <c>PhysicsTrace.cs</c> — толчки живых и трасса.
+/// Эталонная реализация <see cref="IPhysicsWorld"/>: тела — массив состояний по слотам (AoS); остаётся оракулом в тестах
+/// для оптимизированной. Слоты — как у пула поз: удалённое сочленение возвращает тела с конца, и следующее того же размера
+/// получает те же слоты; создание и удаление прежних размеров памяти не выделяет. Части класса — README «Раскладка файлов».
 /// </summary>
 public sealed partial class PhysicsWorld : IPhysicsWorld
 {
@@ -28,14 +17,9 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
     private int[]?[] _artBodies = [];
     private int _freeArtCount, _artCapacity;
 
-    /// <summary>
-    /// Трасса физики; null — выключена. Поле — здесь, чтобы шаг и суставы проверяли его до того, как
-    /// собирать аргументы крючков трассы. Пишут только <c>EnableTrace</c> и <c>DisableTrace</c>.
-    /// </summary>
+    /// <summary>Трасса физики; null — выключена. Поле здесь — шаг и суставы проверяют его до сборки аргументов крючков.</summary>
     private PhysicsTrace? _trace = null;
 
-    /// <param name="articulations">Слотов сочленений на старте (растёт удвоением).</param>
-    /// <param name="bodies">Слотов тел на старте (растёт удвоением).</param>
     /// <param name="settings">Настройки физики (null — <see cref="PhysicsSettings.Default"/>); негодные — <see cref="ArgumentException"/>.</param>
     public PhysicsWorld(int articulations = 16, int bodies = 256, PhysicsSettings? settings = null)
     {
@@ -161,7 +145,7 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
         if (!float.IsFinite(dt) || dt <= 0) throw new ArgumentOutOfRangeException(nameof(dt), dt, "шаг — конечный и больше 0");
         ref var s = ref _bodies[body.Index];
         if (s.Mode != BodyMode.Kinematic) throw new InvalidOperationException($"тело {body} не кинематическое ({s.Mode})");
-        // Порядок и арифметика — кинематическая ветка Place в PlaceBodies SWORD; поза начала тика — прошлая постановка.
+        // Поза начала тика кинематического тела — прошлая постановка.
         s.PrevPosition = s.StartPosition = s.Position;
         s.PrevRotation = s.StartRotation = s.Rotation;
         s.Velocity = (position - s.Position) / dt;
@@ -214,15 +198,10 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
     }
 
     // ——— Связь частей класса ———
-    // Крючки — partial-методы без модификатора доступа: объявлены здесь, реализуют части в своих файлах; пока реализации нет,
-    // вызов исчезает вместе с аргументами. Реализация у крючка одна; новый крючок — правка контракта (отдельный коммит).
-    // Крючки не проверяют хэндлы: номера — слоты живых тел и
-    // сочленений, их проверил вызывающий. Внутри шага — без выделения памяти.
+    // Крючки — partial-методы: объявлены здесь, реализованы частями; без реализации вызов исчезает вместе с аргументами.
+    // Хэндлы не проверяют (номера — слоты живых, их проверил вызывающий). Внутри шага — без выделения памяти.
 
-    /// <summary>
-    /// Слоты выросли: сочленений <paramref name="articulations"/>, тел <paramref name="bodies"/> — массивы суставов по
-    /// слотам дорастить. Только рост; зовётся и из конструктора, пока тел ещё 0.
-    /// </summary>
+    /// <summary>Слоты выросли: массивы суставов дорастить. Только рост; зовётся и из конструктора.</summary>
     partial void JointsGrow(int articulations, int bodies);
 
     /// <summary>Сочленение в слоте создано (после выдачи тел) или удаляется (до возврата тел): суставов нет, журнал пуст.</summary>
@@ -237,16 +216,12 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
     /// <summary>Слоты выросли: проходы и бюджеты пар, отдача, снимки трассы — дорастить.</summary>
     partial void KinematicGrow(int articulations, int bodies);
 
-    /// <summary>
-    /// Сочленение в слоте создано или удаляется: проходы и бюджеты всех пар с этим слотом (в обе стороны) и его отдача —
-    /// в начальное состояние: новое сочленение в том же слоте чужого прохода не наследует (у SWORD наследовало).
-    /// </summary>
+    /// <summary>Сочленение в слоте создано или удаляется: проходы всех пар с ним и его отдача — в начальное состояние (новое сочленение чужого прохода не наследует).</summary>
     partial void KinematicReset(int articulation);
 
     /// <summary>
-    /// Подшаг <paramref name="substep"/> (0 …; из шага, после интеграции): проход суставов всех сочленений с суставами
-    /// и телами на физике — точка сустава и пределы по порядку суставов, срабатывания — в журнал (подшаг 0 — начало шага:
-    /// журнал прошлого шага очищается); кинематическое тело — неподвижная сторона.
+    /// Подшаг (после интеграции): точки и пределы суставов по порядку, срабатывания — в журнал (подшаг 0 очищает журнал);
+    /// кинематическое тело — неподвижная сторона.
     /// </summary>
     partial void SolveJoints(float h, int substep);
 
@@ -257,32 +232,21 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
     partial void BeginKinematicSubstep(float h);
 
     /// <summary>
-    /// Контакт кинематического тела <paramref name="kinematic"/> с телом на физике <paramref name="body"/> (из прохода пар;
-    /// номера — слоты тел разных сочленений): точки — на поверхностях капсул, нормаль <paramref name="normal"/> — от
-    /// кинематического к телу на физике (куда его толкают), <paramref name="depth"/> — полная глубина, м (&gt; 0). Толчок:
-    /// предел λ — бюджет пары, бюджет прохода (<see cref="BodyState.Source"/>), скорость толкающей точки; отдача
-    /// толкающему. Трассу толчка (снимок и поправка источника <c>PushBody + Source</c>, контакт) пишет сам крючок;
-    /// шаг вокруг вызова трассу не зовёт.
+    /// Толчок: контакт кинематического тела с телом на физике; нормаль — от кинематического, <paramref name="depth"/> — полная
+    /// глубина, м. Предел λ — бюджет пары, прохода и скорость толкающей точки; отдача толкающему. Трассу пишет сам.
     /// </summary>
     partial void PushKinematic(int kinematic, int body, Vector3 kinematicPoint, Vector3 point, Vector3 normal, float depth, float h);
 
     /// <summary>Подшаг (из шага, после контактов): итоги бюджетов пар подшага — трассе.</summary>
     partial void EndKinematicSubstep();
 
-    /// <summary>
-    /// Трасса (зовут суставы и шаг при <c>_trace</c> не null): снимок тела перед этапом подшага. Пара — два снимка
-    /// (<c>TraceBegin(a); TraceBegin(b)</c>), затем два <see cref="TraceEnd"/>.
-    /// </summary>
+    /// <summary>Трасса: снимок тела перед этапом подшага; пара — два снимка, затем два <see cref="TraceEnd"/>.</summary>
     partial void TraceBegin(int body);
 
     /// <summary>Трасса: поправка тела этапом <paramref name="source"/> с последнего <see cref="TraceBegin"/> — сдвиг и угол за h.</summary>
     partial void TraceEnd(int body, PhysicsSource source, float h);
 
-    /// <summary>
-    /// Трасса: контакт источника <paramref name="source"/> в подшаге — тело <paramref name="body"/> и второе тело пары
-    /// <paramref name="other"/> (−1 — мир: земля, стена, колонна), точка на теле и нормаль к нему (мир), настоящая глубина и
-    /// решённая в подшаге, м. Из них — статистика глубин и контакты последнего шага (оверлей <c>contacts</c>).
-    /// </summary>
+    /// <summary>Трасса: контакт подшага — тело, второе тело (−1 — мир), точка и нормаль (мир), глубина настоящая и решённая, м.</summary>
     partial void TraceContact(PhysicsSource source, int body, int other, Vector3 point, Vector3 normal, float depth, float solved);
 
     /// <summary>Трасса: трение торца тела <paramref name="body"/> о землю — нормальная и касательная λ, держало ли.</summary>
@@ -291,18 +255,12 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
     /// <summary>Трасса: скоростной проход погасил нормальную скорость контакта тела <paramref name="body"/>, м/с.</summary>
     partial void TraceVelocity(PhysicsSource source, int body, float normalSpeed);
 
-    /// <summary>
-    /// Трасса (из шага, в конце подшага — после расслабления суставов): итоговые скорости тел на физике, упоры в потолки,
-    /// энергия сочленений на физике (рост за подшаг — инвариант <c>physics.energy</c>).
-    /// </summary>
+    /// <summary>Трасса (конец подшага): итоговые скорости тел на физике, упоры в потолки, рост энергии.</summary>
     partial void TraceSubstep(float h);
 
     /// <summary>Трасса (из шага, в конце шага): итог тика — окно и прогон, события быстрее порога.</summary>
     partial void TraceStep(float dt);
 
-    /// <summary>
-    /// Трасса (из шага после каждой фазы подшага): энергия сочленений на физике после фазы <paramref name="phase"/> — рост энергии
-    /// по фазам (после позиционных фаз — по скоростям <c>сдвиг / h</c>, после скоростных — по настоящим).
-    /// </summary>
+    /// <summary>Трасса (после каждой фазы подшага): энергия сочленений на физике после фазы <paramref name="phase"/>.</summary>
     partial void TracePhase(PhysicsPhase phase, float h);
 }

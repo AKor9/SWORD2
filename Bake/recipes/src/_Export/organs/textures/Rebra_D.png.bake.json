@@ -1,0 +1,33 @@
+{
+  "converter": "texture",
+  "import": "human_organs",
+  "notes": "Цвет костей и органов пака HumanOrgans (экспорт tools/ue/export_textures.py, SWORD_TEX_SKIP=Colontex): слой на секцию skeleton/organs/brain, игра ищет слой по имени (InnardsModule.Sections).",
+  "params": {
+    "layers": [
+      "${src}/_Export/organs/textures/Rebra_D.png",
+      "${src}/_Export/organs/textures/Spine_D.png",
+      "${src}/_Export/organs/textures/Thigh_D.png",
+      "${src}/_Export/organs/textures/Legs_D.png",
+      "${src}/_Export/organs/textures/Head_D.png",
+      "${src}/_Export/organs/textures/Hand_D.png",
+      "${src}/_Export/organs/textures/Wrist_D.png",
+      "${src}/_Export/organs/textures/Trachea_D.png",
+      "${src}/_Export/organs/textures/L_lung_D.png",
+      "${src}/_Export/organs/textures/R_lungs_D.png",
+      "${src}/_Export/organs/textures/Glands_D.png",
+      "${src}/_Export/organs/textures/Diaphragm_D.png",
+      "${src}/_Export/organs/textures/Liver_D.png",
+      "${src}/_Export/organs/textures/Stomach_D.png",
+      "${src}/_Export/organs/textures/Spleen_D.png",
+      "${src}/_Export/organs/textures/Gallbladder_D.png",
+      "${src}/_Export/organs/textures/Pancreas_D.png",
+      "${src}/_Export/organs/textures/Kidneys_D.png",
+      "${src}/_Export/organs/textures/Colon_D.png",
+      "${src}/_Export/organs/textures/Heart_D.png",
+      "${src}/_Export/organs/textures/brain_D.png"
+    ],
+    "channel": "rgb",
+    "size": 1024,
+    "out": "textures/anatomy/albedo.swtex"
+  }
+}

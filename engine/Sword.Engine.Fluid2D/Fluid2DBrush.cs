@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Sword.Engine.Fluid2D;
 
-/// <summary>Точка кисти шага для агента (оверлей, <c>--json</c>): ключ, голова и хвост мазка в UV, UV-скорость, σ в см, есть ли отрезок.</summary>
+/// <summary>Точка кисти шага для отладки (оверлей, <c>--json</c>): ключ, голова и хвост мазка в UV, UV-скорость, σ в см, есть ли отрезок.</summary>
 public readonly record struct Fluid2DBrushPointInfo(Fluid2DBrushKey Key, Vector3 Unit, Vector2 Prev, Vector3 UnitVelocity, float Scale,
     float SigmaCm, bool Segment);
 

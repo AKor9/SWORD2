@@ -1,6 +1,5 @@
 // Test passes of the fire smoke (FireSmokeGpuTests): a scene with a known linear depth (reverse Z of an infinite projection:
-// depth = near / z) - a ramp by column and an optional rectangle at its own depth - and a synthetic sim field output RGBA16F
-// (v.xy, rho, wet) with values the test repeats on the CPU.
+// depth = near / z) - a ramp by column and an optional rectangle at its own depth. The gas density is a storage the test fills.
 #include "common/pass.hlsli"
 
 // Full-screen triangle.
@@ -32,12 +31,4 @@ SceneOut PsScene(float4 pos : SV_Position)
     o.color = float4(colour, 1);
     o.depth = asfloat(gPass4) / z;
     return o;
-}
-
-// Field: rho = (1.5 u - 0.25) (0.3 + 0.7 v) - bilinear in the texel centre coordinates; gPass1, gPass2 - size.
-float4 PsField(float4 pos : SV_Position) : SV_Target0
-{
-    float u = (floor(pos.x) + 0.5) / (float)gPass1;
-    float v = (floor(pos.y) + 0.5) / (float)gPass2;
-    return float4(0, 0, (1.5 * u - 0.25) * (0.3 + 0.7 * v), 1);
 }

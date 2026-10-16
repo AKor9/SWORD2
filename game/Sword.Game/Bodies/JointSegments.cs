@@ -4,10 +4,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Bodies;
 
 /// <summary>
-/// Сустав скелета → сегмент тела бойца (<c>CharacterRig.JointSegment</c> SWORD 2eab13b): точное имя ключевой кости, иначе
-/// по имени кости UE Manny (стороны — суффиксы <c>_l/_r</c>, пальцы — к предплечью), иначе вверх по родителям до ключевой,
-/// иначе таз. По имени, а не по иерархии: экспорт UE оставил часть костей без родителя (<c>ball_r</c>, пальцы). Нужна
-/// ID-буферу снимка (сегмент пикселя — по суставу вершины), позже — разрезам (Cutting отложен — решение 17).
+/// Сустав скелета → сегмент тела: точное имя ключевой кости, иначе по имени кости UE Manny, иначе вверх по родителям до ключевой,
+/// иначе таз. По имени, а не по иерархии: у части костей нет родителя. Нужна привязке скина.
 /// </summary>
 public static class JointSegments
 {
@@ -47,7 +45,7 @@ public static class JointSegments
         return result;
     }
 
-    /// <summary>Сегмент по имени кости скелета UE Manny (<c>CharacterRig.SegmentByName</c> SWORD); −1 — не распознано.</summary>
+    /// <summary>Сегмент по имени кости скелета UE Manny; −1 — не распознано.</summary>
     public static int ByName(string name)
     {
         bool left = name.EndsWith("_l", StringComparison.Ordinal) || name.Contains("_l_", StringComparison.Ordinal);

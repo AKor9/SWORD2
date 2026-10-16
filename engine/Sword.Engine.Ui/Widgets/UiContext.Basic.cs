@@ -31,9 +31,8 @@ public sealed partial class UiContext
     }
 
     /// <summary>
-    /// Строка-сведение «подпись — значение»: подпись слева приглушённая, значение справа цифровым начертанием, обе
-    /// мелким кеглем; <paramref name="split"/> — доля ширины под подпись. Оформление строки <c>TuningInfo</c> панели
-    /// ручек SWORD 2eab13b (<c>TuningPanel.DrawItem</c>).
+    /// Строка-сведение «подпись — значение»: подпись слева приглушённая, значение справа цифровым начертанием, мелким кеглем;
+    /// <paramref name="split"/> — доля ширины под подпись.
     /// </summary>
     public void InfoRow(UiRect r, ReadOnlySpan<char> label, ReadOnlySpan<char> value, float split = 0.42f, uint? valueColour = null)
     {

@@ -1,0 +1,8 @@
+{
+  "converter": "copy",
+  "import": "sword",
+  "notes": "Действия боя → клипы и слои (читает Game.Data, ActionTable). Правится исходник, пак обновляет сборка.",
+  "params": {
+    "out": "data/combat/actions.json"
+  }
+}

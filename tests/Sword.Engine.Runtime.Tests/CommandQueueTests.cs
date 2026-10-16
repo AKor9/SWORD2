@@ -3,7 +3,7 @@ using Sword.Engine.Ecs;
 
 namespace Sword.Engine.Runtime.Tests;
 
-/// <summary>Очередь команд тика: диапазон одной постановкой, порядок внутри тика, стоимость — не квадрат.</summary>
+/// <summary>Очередь команд тика: порядок по тику, внутри тика — по постановке; стоимость — не квадрат.</summary>
 public class CommandQueueTests
 {
     private sealed class Probe : IModule, IContinuousSystem
@@ -22,33 +22,29 @@ public class CommandQueueTests
         }
     }
 
-    private static byte[] Raw(int value) => BitConverter.GetBytes(value);
-
     [Fact]
-    public void Range_MergesIntoQueue_InTickThenPostingOrder()
+    public void Commands_InTickThenPostingOrder()
     {
         var m = new Probe();
         var sim = Simulation.Build(ConfigSet.Empty(), ["Intent"], [m]);
-        sim.EnqueueRaw(typeof(Ping), 3, Raw(1));
-        sim.EnqueueRaw(typeof(Ping), 1, Raw(2), repeat: 4);    // тики 1…4 — в середину очереди, одним слиянием
-        sim.EnqueueRaw(typeof(Ping), 4, Raw(3));
-        sim.Enqueue(3, new Ping { Value = 7 });                 // клиент — раньше инструментов своего тика
+        sim.Enqueue(3, new Ping { Value = 1 });
+        for (ulong t = 1; t <= 4; t++) sim.Enqueue(t, new Ping { Value = 2 });   // тики 1…4 — и в середину очереди
+        sim.Enqueue(4, new Ping { Value = 3 });
+        sim.Enqueue(3, new Ping { Value = 7 });
         for (int i = 0; i < 6; i++) sim.Step();
-        Assert.Equal([(1ul, 2), (2ul, 2), (3ul, 7), (3ul, 1), (3ul, 2), (4ul, 2), (4ul, 3)], m.Seen);
-        Assert.Throws<ArgumentOutOfRangeException>(() => sim.EnqueueRaw(typeof(Ping), 10, Raw(1), repeat: 0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => sim.EnqueueRaw(typeof(Ping), ulong.MaxValue, Raw(1), repeat: 2));
+        Assert.Equal([(1ul, 2), (2ul, 2), (3ul, 1), (3ul, 2), (3ul, 7), (4ul, 2), (4ul, 3)], m.Seen);
     }
 
     [Fact]
-    public void LongRange_IsLinear()
+    public void LongQueue_IsLinear()
     {
-        // 100 000 тиков одной командой агента (command.send repeat) — раньше каждый тик сдвигал весь хвост (~5·10⁹ шагов).
+        // 100 000 тиков вперёд: тик берёт свои записи с головы — без сдвига всего хвоста на каждый тик (~5·10⁹ шагов).
         const int n = 100_000;
         var m = new Probe();
         var sim = Simulation.Build(ConfigSet.Empty(), ["Intent"], [m]);
-        sim.EnqueueRaw(typeof(Ping), 5, Raw(1));
+        sim.Enqueue(5, new Ping { Value = 1 });
         var watch = Stopwatch.StartNew();
-        sim.EnqueueRaw(typeof(Ping), 0, Raw(2), repeat: n);    // слияние с уже стоящей командой
+        for (ulong t = 0; t < n; t++) sim.Enqueue(t, new Ping { Value = 2 });   // тики 0…4 — перед уже стоящей командой
         for (int i = 0; i < n; i++) sim.Step();
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"{n} тиков с очередью: {watch.Elapsed}");
         Assert.Equal(n + 1, m.Seen.Count);

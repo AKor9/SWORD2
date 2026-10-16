@@ -17,10 +17,7 @@ public enum DepthAccess
     Read,
 }
 
-/// <summary>
-/// Что проход сделал в кадре — для агента и журнала (<see cref="RenderGraph.LastFrame"/>). Строится по запросу из сырых данных
-/// кадра, а не в каждом кадре (кадр графа — 0 Б).
-/// </summary>
+/// <summary>Что проход сделал в кадре; строится по запросу из сырых данных кадра (кадр графа — 0 Б).</summary>
 /// <param name="Barriers">Переходов состояний и барьеров UAV перед проходом (одной пачкой).</param>
 public sealed record RenderPassReport(
     string Name,
@@ -33,17 +30,11 @@ public sealed record RenderPassReport(
     int Dispatches);
 
 /// <summary>
-/// Рендер-граф v0 (раздел 6 ARCHITECTURE_PLAN.md). Проходы объявляют читаемые и записываемые ресурсы — импортированные
-/// (задний буфер, цели сцены, буферы-хранилища <see cref="GpuStorage"/>) или временные (<see cref="CreateTexture"/>,
-/// <see cref="CreateBuffer"/>, из пула); граф сам ставит переходы состояний и барьеры UAV одной пачкой на проход,
-/// привязывает цели, чистит их, ставит область вывода, корневую сигнатуру и константы кадра. Одна graphics-очередь:
-/// <see cref="PassKind.Compute"/> — dispatch на ней же. Порядок — по фазам кадра (<see cref="FramePhase"/>), внутри фазы —
-/// порядок регистрации; без отсечения; алиасинга памяти нет — каждому временному ресурсу своя запись пула.
-///
-/// Инварианты (нарушение — исключение с именами прохода и ресурса, до записи первой команды кадра): проход не читает
-/// ресурс, который в этом кадре никто не записал и не очистил (кроме хранилищ — их содержимое переживает кадр); не пишет
-/// и не читает один ресурс в одном проходе; у графического прохода есть цели, у вычислительного — нет; с HDR задний буфер
-/// не пишет ни один проход раньше фазы <see cref="FramePhase.Post"/>. Всё — в порядке исполнения.
+/// Рендер-граф: проходы объявляют читаемые и записываемые ресурсы, граф ставит переходы состояний и барьеры UAV одной
+/// пачкой на проход, привязывает цели и константы. Одна graphics-очередь; порядок — по фазам (<see cref="FramePhase"/>),
+/// внутри фазы — регистрации; без отсечения и алиасинга. Инварианты проверяются до первой команды кадра: проход не читает
+/// ресурс, не записанный в этом кадре (кроме хранилищ); не пишет и не читает один ресурс; с HDR задний буфер не пишется
+/// раньше фазы <see cref="FramePhase.Post"/>.
 /// </summary>
 public sealed class RenderGraph
 {
@@ -85,24 +76,19 @@ public sealed class RenderGraph
     private readonly List<Pass> _passes = [];
     private readonly List<Pass> _passPool = [];
     private readonly RenderPassContext _context;
-    /// <summary>Барьеры прохода — массив графа, растёт удвоением (кадр без выделений; было <c>List.ToArray</c> на проход).</summary>
+    /// <summary>Барьеры прохода — массив графа, растёт удвоением (кадр без выделений).</summary>
     private ResourceBarrier[] _barriers = new ResourceBarrier[8];
     private int _barrierCount;
     /// <summary>Записан ли ресурс к проходу (<see cref="Validate"/>) — массив графа, а не новый на кадр.</summary>
     private bool[] _written = new bool[16];
     private ulong _frameConstants;
 
-    /// <summary>
-    /// Первая фаза, в которой проход вправе писать задний буфер: с HDR — <see cref="FramePhase.Post"/> (сцена пишет линейный
-    /// цвет в свою цель, в задний буфер его переводит тонмап), без HDR — любая.
-    /// </summary>
+    /// <summary>Первая фаза, в которой проход вправе писать задний буфер: с HDR — <see cref="FramePhase.Post"/>, без HDR — любая.</summary>
     internal FramePhase BackBufferFrom;
 
     /// <summary>
-    /// Сырые данные исполненного прохода (docs/history/profiler.md): отчёт
-    /// <see cref="RenderPassReport"/> строится из них только по запросу (<see cref="LastFrame"/>: агент, итог прогона), а в кадре —
-    /// ни списков, ни строк, ни записей.
-    /// Имена записей и чтений — ссылки на имена ресурсов подряд в <see cref="FrameRecords.Names"/> с <see cref="NamesStart"/>.
+    /// Сырые данные исполненного прохода: отчёт строится из них только по запросу, в кадре — ни списков, ни строк.
+    /// Имена — ссылки подряд в <see cref="FrameRecords.Names"/> с <see cref="NamesStart"/>.
     /// </summary>
     private struct PassRecord
     {
@@ -154,10 +140,7 @@ public sealed class RenderGraph
     /// <summary>Задний буфер кадра. В начале кадра содержимое не определено; в конце граф отдаёт его на показ.</summary>
     public RenderTexture BackBuffer { get; }
 
-    /// <summary>
-    /// Проходы и барьеры последнего исполненного кадра. Строится при первом запросе после кадра (агент — <c>render.graph</c>,
-    /// итог прогона <c>--json</c>) и держится до следующего кадра: сам кадр отчёта не строит (0 Б/кадр).
-    /// </summary>
+    /// <summary>Проходы и барьеры последнего кадра; строится при первом запросе и держится до следующего кадра (0 Б/кадр).</summary>
     public IReadOnlyList<RenderPassReport> LastFrame => _lastFrame ??= BuildReport(_shown);
 
     /// <summary>Проходов в последнем исполненном кадре — без построения отчёта.</summary>
@@ -270,16 +253,10 @@ public sealed class RenderGraph
     /// <summary>Константы кадра (b0) для проходов, добавленных после вызова: адрес запоминает проход.</summary>
     internal void SetFrameConstants(ulong address) => _frameConstants = address;
 
-    /// <summary>
-    /// Новый проход фазы <see cref="FramePhase.Opaque"/>; его ресурсы объявляются у возвращённого построителя, работа — в
-    /// <see cref="RenderPassBuilder.Execute"/>.
-    /// </summary>
+    /// <summary>Новый проход фазы <see cref="FramePhase.Opaque"/>; работа — в <see cref="RenderPassBuilder.Execute"/>.</summary>
     public RenderPassBuilder AddPass(string name, PassKind kind = PassKind.Graphics) => AddPass(name, FramePhase.Opaque, kind);
 
-    /// <summary>
-    /// Новый проход фазы <paramref name="phase"/>: граф исполнит его после проходов прежних фаз и после уже
-    /// зарегистрированных проходов той же фазы, как бы ни шла регистрация.
-    /// </summary>
+    /// <summary>Новый проход фазы <paramref name="phase"/>: исполнится после прежних фаз и уже зарегистрированных проходов этой.</summary>
     public RenderPassBuilder AddPass(string name, FramePhase phase, PassKind kind = PassKind.Graphics)
     {
         if ((uint)phase > (uint)FramePhase.Debug) throw new ArgumentOutOfRangeException(nameof(phase), phase, "нет такой фазы кадра");
@@ -298,10 +275,7 @@ public sealed class RenderGraph
     /// <summary>Вычислительный проход (dispatch на graphics-очереди) фазы <paramref name="phase"/>.</summary>
     public RenderPassBuilder AddComputePass(string name, FramePhase phase = FramePhase.Opaque) => AddPass(name, phase, PassKind.Compute);
 
-    /// <summary>
-    /// Проходов строящегося кадра, зарегистрированных до сих пор (порядок регистрации) — хост видит, какие проходы добавил вызов модуля
-    /// и в своей ли они фазе (<see cref="RegisteredPass"/>).
-    /// </summary>
+    /// <summary>Проходов строящегося кадра, зарегистрированных до сих пор — хост сверяет, что добавил модуль.</summary>
     public int Registered => _passes.Count;
 
     /// <summary>Имя и фаза прохода строящегося кадра по номеру регистрации (0 … <see cref="Registered"/> − 1).</summary>
@@ -320,8 +294,7 @@ public sealed class RenderGraph
         }
 
         /// <summary>
-        /// Цель цвета (следующий слот SV_Target); <paramref name="clear"/> — очистить перед проходом. Цель с заданным
-        /// значением очистки (временная — <see cref="TextureDesc.ClearColor"/>, нормали сцены) чистится только им.
+        /// Цель цвета (следующий SV_Target); <paramref name="clear"/> — очистить. Цель с заданным значением очистки чистится только им.
         /// </summary>
         public RenderPassBuilder Color(RenderTexture target, Vector4? clear = null)
         {
@@ -462,10 +435,7 @@ public sealed class RenderGraph
         _lastFrame = null;
     }
 
-    /// <summary>
-    /// Устойчивая сортировка вставками по фазе: регистрация обычно уже идёт по фазам — проход почти всегда стоит на месте,
-    /// без выделений; внутри фазы порядок регистрации сохраняется.
-    /// </summary>
+    /// <summary>Устойчивая сортировка вставками по фазе: регистрация обычно уже по фазам, без выделений.</summary>
     private void SortByPhase()
     {
         for (int i = 1; i < _passes.Count; i++)
@@ -482,10 +452,7 @@ public sealed class RenderGraph
         }
     }
 
-    /// <summary>
-    /// Инварианты кадра — до первой команды: при нарушении кадр бросается целиком (<see cref="Renderer.Render"/>),
-    /// ни одно состояние ресурса не сдвинуто.
-    /// </summary>
+    /// <summary>Инварианты кадра — до первой команды: при нарушении кадр бросается целиком, состояния ресурсов не сдвинуты.</summary>
     private void Validate()
     {
         if (_written.Length < _resources.Count) _written = new bool[Math.Max(_written.Length * 2, _resources.Count)];
@@ -563,9 +530,8 @@ public sealed class RenderGraph
     }
 
     /// <summary>
-    /// Запись UAV: переход в UnorderedAccess или, если ресурс уже там, барьер UAV — когда прошлый доступ был записью UAV
-    /// (иначе второй проход читал бы недописанное первым) или это первая запись кадра (граница кадров видимость записей
-    /// UAV не обещает).
+    /// Запись UAV: переход в UnorderedAccess или барьер UAV, если прошлый доступ — запись UAV или это первая запись кадра
+    /// (граница кадров видимость записей UAV не обещает).
     /// </summary>
     private void RequireUav(GraphResource r)
     {
@@ -632,9 +598,8 @@ public sealed class RenderGraph
     private readonly Dictionary<string, int> _gpuZones = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Зона прохода: имена проходов стабильны (порядок регистрации — нет), поиск по имени не выделяет памяти. Вместе с
-    /// ней заводится и зона GPU-времени прохода — в том же кадре (первый кадр — служебный), а не через 3 кадра, когда придут его
-    /// времена: иначе строки зон выделялись бы в обычном кадре.
+    /// Зона прохода по имени (имена стабильны, порядок — нет). Зона GPU-времени заводится тут же, а не через 3 кадра, когда
+    /// придут времена: иначе строки зон выделялись бы в обычном кадре.
     /// </summary>
     private int PassZone(string name)
     {

@@ -13,13 +13,9 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Толчки живых и удары по трупам, свои тесты свойств (со SWORD не сравниваем): метки толчков (клинок в ударе — проходом),
-/// отдача в корень (доля, масса, предел — игрок не теряет управления), живой проходит сквозь труп, теряя немного скорости, удар по трупу — импульс
-/// в часть с потолком Δv и из бюджета прохода, отдача атакующему (игроку слабее), серия ударов не разгоняет труп выше потолков, смертельный удар
-/// толкает падающий труп, клинки врагов толкают трупы врагов без урона, причинность импульса и отдачи — от попадания, повтор реплея, инварианты
-/// на неисправностях. Контент — синтетический (<see cref="TestAssets"/>: его удары клинком никого не задевают — касание клинка по трупу здесь
-/// подаётся системой теста <see cref="InjectContact"/> тем же путём Resolve); настоящие удары по трупу, s1, s3, s6 на паке —
-/// <see cref="KinematicPushContentTests"/>.
+/// Толчки живых и удары по трупам: метки толчков, отдача в корень, живой проходит сквозь труп, удар по трупу — импульс с потолком
+/// Δv из бюджета прохода, отдача атакующему, реплей, инварианты на неисправностях. Касание по трупу подаёт <see cref="InjectContact"/>
+/// (синтетические удары никого не задевают); настоящие удары на паке — <see cref="KinematicPushContentTests"/>.
 /// </summary>
 public sealed class KinematicPushTests(ITestOutputHelper output)
 {
@@ -35,12 +31,10 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
     private static string F(FormattableString s) => s.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// Касание клинка бьющего места <paramref name="attacker"/> по части <paramref name="part"/> бойца места <paramref name="victim"/> — в
-    /// Combat после проходов клинка, в тиках, где <paramref name="when"/> и бьющий в ударе с кончиком не медленнее 3,5 м/с (синтетические
-    /// удары клинком никого не задевают). Точка — на оси части, в четверти полудлины от центра (удар с плечом), направление — от корня бьющего к
-    /// точке по земле, скорость — кончика тика, урон <paramref name="damage"/>, номер удара — бьющего: дальше — тот же путь Resolve, что у
-    /// касания; касаний на удар — не больше <paramref name="perStrike"/>. Проходы пар (<see cref="StrikePairs"/>) касание не трогает —
-    /// <c>combat.hits</c> в таких тестах выключен.
+    /// Касание клинка места <paramref name="attacker"/> по части <paramref name="part"/> места <paramref name="victim"/> — в Combat,
+    /// когда <paramref name="when"/> и бьющий в ударе с кончиком не медленнее 3,5 м/с. Точка — на оси части в четверти полудлины от
+    /// центра, урон <paramref name="damage"/>, дальше — путь Resolve, как у касания; не больше <paramref name="perStrike"/> на удар.
+    /// Проходы пар (<see cref="StrikePairs"/>) не трогаются — <c>combat.hits</c> в таких тестах выключен.
     /// </summary>
     internal sealed class InjectContact(int attacker, int victim, int part, Func<ulong, bool> when, IPhysicsWorld[] physics, float damage = 60.8f,
         int perStrike = 2) : IContinuousSystem
@@ -363,47 +357,9 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
         Clean(sim);
     }
 
-    // ── причинность, реплей ──────────────────────────────────────────────────────────────────────────────────────────
+    // ── реплей ──────────────────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Причинность: импульс в тело трупа и отдача атакующему — от попадания: <c>state.why(труп, HitImpulse)</c> — Set ← Hit ←
-    /// касание; <c>state.why(игрок, Recoil)</c> — Set ← Hit того же удара.
-    /// </summary>
-    [Fact]
-    public void Causality_ImpulseAndRecoil_FromHit()
-    {
-        var holder = new IPhysicsWorld[1];
-        var hits = new InjectContact(0, 1, BodySegs.Torso, t => t > 241, holder);
-        var (sim, physics) = Create("arena.enemies=1;combat.enemiesAttack=false", (GameStages.Combat, hits));
-        holder[0] = physics;
-        sim.Invariants.SetEnabled("combat.hits", false);
-        sim.EnableCausality();
-        RagdollCorpseTests.Step(sim, RagdollCorpseTests.Place(1, 0, 3, MathF.PI));
-        RagdollCorpseTests.Step(sim, RagdollCorpseTests.Kill(1));
-        for (int t = 2; t < 400 && hits.Sent.Count == 0; t++)
-        {
-            sim.Enqueue(new PlayerCommand { Attack = t == 241 });
-            sim.Step();
-        }
-        Assert.NotEmpty(hits.Sent);
-        var enemy = Fighter(sim, 1);
-        var impulse = Assert.Single(CausalityTests.Why(sim, enemy, nameof(HitImpulse), null).Changes);
-        Assert.Equal(CauseKind.Set, impulse.Change.Record.Kind);
-        Assert.Equal("core.hit-apply@Resolve", impulse.Change.System);
-        var hit = impulse.Chain.First(s => s.ValueType == typeof(Hit));
-        Assert.True(MemoryMarshal.Read<Hit>(hit.After).Corpse);
-        Assert.Contains(impulse.Chain, s => s.ValueType == typeof(StrikeContact));
-        var recoil = Assert.Single(CausalityTests.Why(sim, Fighter(sim, 0), nameof(Recoil), null).Changes);
-        Assert.Equal("core.root-recoil@React", recoil.Change.System);
-        Assert.Equal(hit.Record.Id, recoil.Chain[0].Record.Id);
-        output.WriteLine(CausalityTests.Describe(impulse));
-        output.WriteLine(CausalityTests.Describe(recoil));
-    }
-
-    /// <summary>
-    /// Повтор реплея — те же хеши всех участников (и <c>physics</c>: проходы, отдача): труп, живой бежит сквозь него (намерение сцены), боец
-    /// поставлен на трупе, враг бьёт труп клинком, удары игрока по трупу (касание теста — в обоих прогонах).
-    /// </summary>
+    /// <summary>Реплей с трупом, проходом сквозь него, бойцом на трупе и ударами по нему — те же хеши всех участников.</summary>
     [Fact]
     public void Replay_PushesHitsAndRecoil_RepeatWithSameHashes()
     {
@@ -573,17 +529,14 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
 }
 
 /// <summary>
-/// На паке игры (категория Content): настоящие удары клинком по трупу — s1 (удары по трупу серией: попадания по трупу, импульс ≤ бюджета
-/// прохода, Δv ≤ доли скорости удара, труп сдвигается и переворачивается, тела — в потолках, причинность импульса до команды игрока), s3 (проход
-/// сквозь труп), s6 (постройка бойца на трупе — место наибольшего пересечения), клинки врагов толкают трупы врагов без урона. Числа — в выводе;
-/// пороги — ~2× к замеру (docs/history/ragdoll.md). Толчки проверяются по трассе физики; выталкивание толчком сверх толкающей точки — с запасом
-/// 0,05 м/с (замер — до 1,026 м/с при <c>PopSpeed</c> 1: второй порядок поворота в проекции; <c>physics.pushes</c> с запасом 1e-3 здесь не
-/// включается — docs/history/ragdoll.md, «Известные ошибки»).
+/// На паке игры (категория Content): настоящие удары клинком — s1 (серия по трупу), s3 (проход сквозь труп), s6 (постройка
+/// бойца на трупе), клинки врагов толкают трупы врагов. Числа — в выводе, пороги — ~2× к замеру; выталкивание толчком сверх
+/// толкающей точки — с запасом 0,05 м/с (второй порядок поворота в проекции).
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class KinematicPushContentTests(ITestOutputHelper output)
 {
-    private static CharacterAssets Pak => FeatureManifestsTests.Reference.Value.Assets;
+    private static CharacterAssets Pak => TestContent.Reference.Value.Assets;
 
     private static string F(FormattableString s) => s.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
@@ -594,14 +547,13 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
     /// s1 — удары по трупу: враг в (0; 1,4) курсом к игроку убит командой — падает к игроку; с 2 с игрок рубит его ударом ЛКМ вправо-вниз (жест
     /// (1; −1)) раз в 0,5 с 6 с. Попадания по трупу (≥ 3; замер 7), у каждого — импульс в часть: Δv ≤ 0,5 × скорость удара (есть упёршиеся в потолок),
     /// импульс ≤ бюджета прохода; отдача — игроку; труп сдвигается (центр масс ≥ 0,5 м; замер 1,0) и переворачивается (таз ≥ 1,2 рад; замер 2,3);
-    /// тела — не быстрее потолка профиля; «убито» — 1. Причинность: <c>state.why(труп, HitImpulse)</c> — Hit ← касание ← начало удара ← команда игрока.
+    /// тела — не быстрее потолка профиля; «убито» — 1.
     /// </summary>
     [Fact]
-    public void S1_StrikesOnCorpse_ImpulseWithinPass_CorpseMovesAndTurns_CausedByPlayerCommand()
+    public void S1_StrikesOnCorpse_ImpulseWithinPass_CorpseMovesAndTurns()
     {
         var (sim, physics) = RagdollCorpseTests.Create(Pak, "arena.enemies=1;combat.enemiesAttack=false");
         var trace = physics.EnableTrace();
-        sim.EnableCausality();
         var gaze = new Vector3(0, 0, 1.4f);
         RagdollCorpseTests.Step(sim, RagdollCorpseTests.Place(1, 0, 1.4f, MathF.PI));
         RagdollCorpseTests.Step(sim, RagdollCorpseTests.Kill(1));
@@ -618,7 +570,6 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
         trace.ClearWindow();
         int hits = 0;
         float turned = 0, bodyMax = 0;
-        HitImpulse lastImpulse = default;
         for (int t = 0; t < 720; t++)
         {
             sim.Export.BeginFrame();
@@ -639,7 +590,6 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
                 Assert.True(imp.Corpse && imp.Dv <= physics.Settings.HitDvShare * imp.Speed + 1e-3f);
                 Assert.True(j <= imp.Wanted + 1e-4f && j <= pass.Potential + 1e-3f && pass.Potential - pass.Remaining >= j - 1e-3f);
                 Assert.Equal(imp.Contact.Tick, sim.World.Get<Recoil>(player).Tick);
-                lastImpulse = imp;
             }
         }
         float moved = Vector3.Distance(com0, RagdollCorpseTests.Totals(sim, enemy).Com);
@@ -653,14 +603,6 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
         Assert.True(bodyMax <= sim.World.Resource<RagdollRules>().CorpseMaxSpeed, $"тело трупа {bodyMax} м/с");
         Assert.True(trace.Window.PassShare <= 1 + 1e-3f && trace.Window.HitDvShare <= physics.Settings.HitDvShare + 1e-3f);
         Assert.True(trace.Window.PushPopSpeed <= physics.Settings.PopSpeed + PopSlack);
-        // причинность: импульс последнего удара — от попадания, до нажатия игрока
-        var why = CausalityTests.Why(sim, enemy, nameof(HitImpulse), null);
-        var change = why.Changes[0];
-        Assert.True(change.Complete, CausalityTests.Describe(change));
-        Assert.Equal([typeof(Hit), typeof(StrikeContact), null, typeof(PlayerCommand)], change.Chain.Select(s => s.ValueType));
-        Assert.Equal(CombatCauses.AttackStart, change.Chain[2].Record.Note);
-        Assert.Equal(lastImpulse.Contact, MemoryMarshal.Read<Hit>(change.Chain[0].After).Contact);
-        output.WriteLine(CausalityTests.Describe(change));
         RagdollCorpseTests.Clean(sim);
     }
 
@@ -705,8 +647,8 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Место наибольшего пересечения стоящего бойца с телами трупа: вертикальная капсула (0,1…1,7 м, r 0,25) против 14 капсул трупа — сетка ±0,4 м
-    /// шагом 0,2 вокруг центра масс (сцена s6 SWORD — перебор постановок); сумма глубин — мера пересечения.
+    /// Место наибольшего пересечения стоящего бойца (капсула 0,1…1,7 м, r 0,25) с 14 капсулами трупа — сетка ±0,4 м шагом 0,2
+    /// вокруг центра масс; мера — сумма глубин.
     /// </summary>
     internal static (Vector2 At, float Overlap) BestOverlap(IPhysicsWorld physics, ArticulationHandle corpse, Vector3 com)
     {
@@ -729,12 +671,9 @@ public sealed class KinematicPushContentTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// s6 — постройка бойца на трупе: враг 1 в (0; 1,5) убит, через 2 с враг 2 поставлен командой в место наибольшего пересечения с телами трупа и
-    /// стоит (команда врагу): его тела расталкивают труп не быстрее своей точки + <c>PopSpeed</c> (стоит — 1 м/с) — без разлёта: центр масс трупа
-    /// ≤ 1 м/с (замер 0,69), сдвиг ≤ 0,8 м (0,58: суставы после удара о землю сводятся не быстрее
-    /// <c>JointPopSpeed</c>, — место наибольшего пересечения пришлось на его центр масс, мера 2,05 против 1,65, и боец выталкивает труп на свою
-    /// ширину), тела ≤ 3 м/с (1,6); через 4 с покой (≤ 0,3 Дж; 0,16: живой стоит на трупе и качается в стойке, самоколлизия не
-    /// даёт частям уйти в своё тело — толчок держит их в движении, спать рядом с живым труп не может); враг 2 не отброшен (отдача в пределе).
+    /// s6 — враг 2 поставлен в место наибольшего пересечения с трупом врага 1 и стоит: расталкивает труп не быстрее своей точки +
+    /// <c>PopSpeed</c> без разлёта — центр масс трупа ≤ 1 м/с (замер 0,69), сдвиг ≤ 0,8 м (0,58), тела ≤ 3 м/с (1,6); через 4 с
+    /// покой (≤ 0,3 Дж; 0,16 — рядом с живым труп не спит); враг 2 не отброшен.
     /// </summary>
     [Fact]
     public void S6_FighterBuiltOnCorpse_PushesItApartWithoutScatter()

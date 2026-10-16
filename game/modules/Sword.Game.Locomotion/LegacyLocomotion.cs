@@ -8,8 +8,8 @@ using Sword.Game.Data;
 namespace Sword.Game.Locomotion;
 
 /// <summary>
-/// Состояние локомоции клипами у бойца (<c>LegacyLocomotion</c> SWORD 2eab13b): играющий клип, сторона, бег, время
-/// клипа, доля кроссфейда, сколько клип держится; слой локомоции и снимок, от которого идёт кроссфейд, — позы в пуле.
+/// Состояние локомоции клипами у бойца: играющий клип, сторона, бег, время клипа, доля кроссфейда, сколько клип держится;
+/// слой локомоции и снимок кроссфейда — позы в пуле.
 /// </summary>
 public struct LegacyLocomotionState
 {
@@ -22,26 +22,24 @@ public struct LegacyLocomotionState
     public float Time, Fade, Hold;
 
     /// <summary>
-    /// Поза слоя локомоции (итог прошлого тика — снимок при смене клипа) и снимок кроссфейда. Берутся из пула на первом
-    /// тике (<see cref="LegacyLocomotion.Tick"/>), когда состояние уже в мире: снятое состояние всегда их вернёт.
+    /// Поза слоя локомоции и снимок кроссфейда. Берутся из пула на первом тике (<see cref="LegacyLocomotion.Tick"/>), когда
+    /// состояние уже в мире: снятое состояние всегда их вернёт.
     /// </summary>
     public PoseHandle Layer, From;
 }
 
 /// <summary>
-/// Локомоция клипами — <c>LegacyLocomotion</c> SWORD 2eab13b без изменений логики: стойка, ходьба и бег в 8 сторон по
-/// сглаженной скорости с гистерезисом походки (бег выше 1,9 м/с, шаг ниже 1,4 м/с) и направления (±0,2 сектора); клип
-/// меняется не чаще <see cref="MinHold"/>, кроссфейдом за <see cref="LocoFade"/> с сохранением фазы цикла; темп — по
-/// скорости корневого движения клипа (0,5…2,2), чтобы стопы не скользили. Позу не считает сам — ставит задания пулу поз.
+/// Локомоция клипами: стойка, ходьба и бег в 8 сторон по сглаженной скорости с гистерезисом походки (бег выше 1,9 м/с,
+/// шаг ниже 1,4 м/с) и направления (±0,2 сектора); клип меняется не чаще <see cref="MinHold"/>, кроссфейдом за
+/// <see cref="LocoFade"/> с сохранением фазы; темп (0,5…2,2) — по скорости корня клипа, чтобы стопы не скользили.
 /// </summary>
 public static class LegacyLocomotion
 {
     public const float LocoFade = 0.25f, MinHold = 0.35f, RunEnter = 1.9f, RunExit = 1.4f, DirHysteresis = 0.2f;
 
     /// <summary>
-    /// Новое состояние — как после <c>FighterAnimator.Reset</c> SWORD (<c>Tick(0)</c> стоя) у нового аниматора: стойка с
-    /// нулевого момента, без кроссфейда, сторона 0. Поз ещё нет — их возьмёт первый <see cref="Tick"/>. Боец, построенный
-    /// заново на той же сущности, сохраняет сторону (<see cref="LegacyLocomotionSetupSystem"/>).
+    /// Новое состояние: стойка с нулевого момента, без кроссфейда, сторона 0; позы возьмёт первый <see cref="Tick"/>. Боец,
+    /// построенный заново на той же сущности, сохраняет сторону (<see cref="LegacyLocomotionSetupSystem"/>).
     /// </summary>
     public static LegacyLocomotionState Start(ActionTable actions) => new()
     {
@@ -49,8 +47,8 @@ public static class LegacyLocomotion
     };
 
     /// <summary>
-    /// Выбор клипа на тик (<c>LegacyLocomotion.Tick</c>). Возвращает, нужен ли снимок кроссфейда: смена клипа — снимок
-    /// берётся с итога прошлого тика (слой ещё его держит), это и есть поза, которую SWORD пересэмплирует при смене.
+    /// Выбор клипа на тик. Возвращает, нужен ли снимок кроссфейда: при смене клипа снимок берётся с итога прошлого тика
+    /// (слой ещё его держит).
     /// </summary>
     public static bool Choose(ref LegacyLocomotionState s, in AnimatorMotion input, float dt, ClipLibrary clips, ActionTable actions)
     {
@@ -88,9 +86,8 @@ public static class LegacyLocomotion
     }
 
     /// <summary>
-    /// Тик бойца: выбор клипа и задания пулу — снимок (при смене клипа), сэмпл клипа в слой, кроссфейд от снимка
-    /// (вес — сглаженная ступень 1 − доля), слой — в позу бойца. Первый тик берёт из пула позы слоя и снимка (в позе
-    /// привязки — как раньше при заведении бойца: снимок до смены клипа не читается, смена — не раньше MinHold).
+    /// Тик бойца: выбор клипа и задания пулу — снимок (при смене клипа), сэмпл клипа в слой, кроссфейд от снимка (вес —
+    /// сглаженная ступень 1 − доля), слой — в позу бойца. Первый тик берёт из пула позы слоя и снимка.
     /// </summary>
     public static void Tick(ref LegacyLocomotionState s, in AnimatorMotion input, PoseHandle pose, float dt, PosePool pool, ActionTable actions)
     {
@@ -111,12 +108,9 @@ public static class LegacyLocomotion
 }
 
 /// <summary>
-/// Gameplay: новому бойцу — состояние локомоции. Позы слоя и снимка здесь не берутся: компонент добавляет команда, и если
-/// она не сыграет (боец снят на том же барьере, тик прерван), позы некому было бы вернуть. Боец, построенный заново на
-/// той же сущности (<c>Added&lt;Fighter&gt;</c> у бойца, у которого состояние уже есть, — сброс арены), начинает локомоцию с
-/// нуля, как после <c>FighterAnimator.Reset</c> SWORD, кроме стороны ходьбы: <c>LegacyLocomotion.Reset</c> SWORD её не
-/// сбрасывает (трасса толпы); его позы слоя и снимка остаются его. Игрок на Motion Matching (<c>locomotion.player = mm</c>;
-/// <paramref name="player"/> — false) состояния локомоции клипами не получает: его позу пишет Motion Matching.
+/// Gameplay: новому бойцу — состояние локомоции. Позы здесь не берутся: если команда добавления не сыграет, их некому
+/// вернуть. Построенный заново на той же сущности начинает локомоцию с нуля, кроме стороны ходьбы, и сохраняет свои позы.
+/// Игрок на Motion Matching (<paramref name="player"/> — false) состояния не получает.
 /// </summary>
 public sealed class LegacyLocomotionSetupSystem(bool player = true) : IReactiveSystem<Added<Fighter>>
 {
@@ -133,12 +127,11 @@ public sealed class LegacyLocomotionSetupSystem(bool player = true) : IReactiveS
             // Боец построен дважды за срабатывание (создан при сборке мира и сразу построен заново сбросом в тике 0) —
             // одна команда, по последней записи: состояния ещё нет, второе Add было бы ошибкой.
             if (!ctx.World.IsAlive(a.Entity) || Later(added, i) || !player && ctx.World.Has<PlayerTag>(a.Entity)) continue;
-            ctx.Cause = a.Cause;   // причина постройки бойца — родитель состояния локомоции (state.why)
             if (ctx.World.TryGet<LegacyLocomotionState>(a.Entity, out var old))
             {
                 var fresh = LegacyLocomotion.Start(actions);
-                // LegacyLocomotion.Reset SWORD не трогает _dir: сторона ходьбы переживает Fighter.Build того же бойца
-                // (сброс R) и решает, с какого клипа он пойдёт (гистерезис стороны). Трасса толпы это ловит.
+                // Сторона ходьбы переживает постройку заново того же бойца (сброс R) и решает, с какого клипа он пойдёт
+                // (гистерезис стороны). Трасса толпы это ловит.
                 fresh.Dir = old.Dir;
                 fresh.Layer = old.Layer;
                 fresh.From = old.From;
@@ -157,9 +150,8 @@ public sealed class LegacyLocomotionSetupSystem(bool player = true) : IReactiveS
 }
 
 /// <summary>
-/// Animation, до итоговой позы бойца: локомоция клипами всех бойцов (<see cref="LegacyLocomotion.Tick"/>) — задания
-/// пулу поз; пул исполнит их в <c>core.animation-tick</c>. Без игрока (<paramref name="player"/> — false), когда он на Motion Matching:
-/// одну позу бойца пишет одна система.
+/// Animation, до итоговой позы бойца: задания пулу поз локомоции клипами всех бойцов. Без игрока
+/// (<paramref name="player"/> — false), когда он на Motion Matching: одну позу пишет одна система.
 /// </summary>
 public sealed class LegacyLocomotionSystem(bool player = true) : IContinuousSystem
 {

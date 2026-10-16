@@ -11,55 +11,37 @@ public readonly record struct PoseHandle(int Index, int Generation)
     public override string ToString() => IsNone ? "нет" : $"{Index}v{Generation}";
 }
 
-/// <summary>
-/// Маска суставов, зарегистрированная в пуле (<see cref="PosePool.AddMask"/>): вес каждого сустава скелета 0…1 для
-/// <see cref="PosePool.BlendMasked"/> (слой верха тела: ноги и таз — 0, позвоночник нарастает, корпус, руки и голова — 1).
-/// </summary>
+/// <summary>Маска суставов в пуле (<see cref="PosePool.AddMask"/>): вес каждого сустава 0…1 для <see cref="PosePool.BlendMasked"/>.</summary>
 public readonly record struct PoseMask(int Index)
 {
     public override string ToString() => $"маска {Index}";
 }
 
-/// <summary>
-/// Скручивание, зарегистрированное в пуле (<see cref="PosePool.AddTwist"/>): сустав-опора поворота всего тела и суставы корпуса с долями
-/// обратного поворота для <see cref="PosePool.Twist"/>.
-/// </summary>
+/// <summary>Скручивание в пуле (<see cref="PosePool.AddTwist"/>): опора поворота тела и суставы корпуса с долями для <see cref="PosePool.Twist"/>.</summary>
 public readonly record struct PoseTwist(int Index)
 {
     public override string ToString() => $"скручивание {Index}";
 }
 
 /// <summary>
-/// Память смешивания по маске (<see cref="PosePool.BlendMasked"/>): две позы — итог прошлого тика (<see cref="Output"/>) и итог по
-/// кратчайшей дуге прошлого тика (<see cref="Shortest"/>); <see cref="Continuous"/> — в них прошлый тик того же смешивания
-/// (иначе — только записать).
+/// Память смешивания по маске: итог прошлого тика (<see cref="Output"/>) и итог по кратчайшей дуге (<see cref="Shortest"/>);
+/// <see cref="Continuous"/> — в них прошлый тик того же смешивания (иначе — только записать).
 /// </summary>
 public readonly record struct BlendMemory(PoseHandle Output, PoseHandle Shortest, bool Continuous)
 {
     public bool IsNone => Output.IsNone || Shortest.IsNone;
 }
 
-/// <summary>
-/// Итог одного <see cref="PosePool.Tick"/>: сколько заданий каждого вида выполнено и сколько пропущено; <see cref="Motions"/> —
-/// шагов проигрывателей Motion Matching (<see cref="PosePool.Motion"/>), <see cref="Twists"/> — скручиваний (<see cref="PosePool.Twist"/>).
-/// </summary>
+/// <summary>Итог одного <see cref="PosePool.Tick"/>: выполнено заданий каждого вида и пропущено (<see cref="Stale"/>).</summary>
 public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale, int Motions = 0, int Twists = 0)
 {
     public int Total => Samples + Blends + Copies + ToModel + Motions + Twists;
 }
 
 /// <summary>
-/// Пул поз одного скелета (раздел 6 плана: подсистема владеет позами, наружу — хэндлы). Поза — локальные повороты
-/// и смещения всех суставов и модельные матрицы (итог прямой кинематики). Слоты лежат подряд в общих массивах.
-///
-/// Позы меняются только заданиями: системы тика ставят <see cref="Sample"/>, <see cref="Blend"/>, <see cref="BlendMasked"/>,
-/// <see cref="AddMasked"/>, <see cref="Copy"/>, <see cref="ToModel"/>, <see cref="Motion"/>, <see cref="Twist"/> в очередь (Push), <see cref="Tick"/> исполняет всю очередь пачкой в порядке постановки (стадия
-/// Animation), дальше позы читают (Pull, клиент). Порядок заданий одной позы сохраняется, поэтому итог совпадает
-/// с последовательными вызовами <c>SkeletalClips</c> SWORD. Задание к позе, освобождённой до <see cref="Tick"/>,
-/// пропускается (<see cref="PoseTickStats.Stale"/>). Установившийся тик не выделяет памяти.
-///
-/// Задание <see cref="Motion"/> (Motion Matching) — шаг проигрывателя <see cref="MotionPlayers"/>: его состояние, как и позы,
-/// меняется только в очереди по порядку; исполнение — <c>Motion/PosePool.Motion.cs</c>.
+/// Пул поз одного скелета: локальные повороты, смещения и модельные матрицы за хэндлами. Позы меняются только заданиями
+/// в очереди; <see cref="Tick"/> исполняет её пачкой в порядке постановки (порядок заданий одной позы сохраняется).
+/// Задание к позе, освобождённой до <see cref="Tick"/>, пропускается. Установившийся тик не выделяет памяти.
 /// </summary>
 public sealed partial class PosePool
 {
@@ -85,8 +67,8 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// Смешивание по маске с памятью: наибольший поворот сустава за задание, пока итог догоняет кратчайшую дугу после её
-    /// перескока, рад (8° — 960°/с при 120 Гц: таз, перескочивший на 180°, доворачивается за 0,19 с, на 24° — за 3 тика).
+    /// Наибольший поворот сустава за задание, пока итог смешивания по маске догоняет кратчайшую дугу после перескока, рад
+    /// (8° — 960°/с при 120 Гц).
     /// </summary>
     public const float MaxArcStep = 8 * MathF.PI / 180;
 
@@ -126,26 +108,20 @@ public sealed partial class PosePool
     /// <summary>Модельные матрицы позы привязки — такой выдаётся новая поза.</summary>
     public ReadOnlySpan<Matrix4x4> ReferenceModel => _referenceModel;
 
-    /// <summary>Живых поз.</summary>
     public int Count => _capacity - _freeCount;
 
-    /// <summary>Заданий в очереди до следующего <see cref="Tick"/>.</summary>
     public int Pending => _jobCount;
 
-    /// <summary>Итог последнего <see cref="Tick"/>.</summary>
     public PoseTickStats LastTick { get; private set; }
 
-    /// <summary>Слотов в пуле (живых и свободных) — логическая ёмкость: растёт удвоением, память под неё может быть заведена заранее (<see cref="Reserve"/>).</summary>
+    /// <summary>Слотов в пуле (живых и свободных); растёт удвоением, память может быть заведена заранее (<see cref="Reserve"/>).</summary>
     public int Capacity => _capacity;
 
     /// <summary>Живая поза в слоте <paramref name="index"/>; слот свободен — <see cref="PoseHandle.None"/> (обход по слотам — стабильный порядок).</summary>
     public PoseHandle HandleAt(int index) =>
         (uint)index < (uint)_capacity && _generation[index] > 0 ? new PoseHandle(index, _generation[index]) : PoseHandle.None;
 
-    /// <summary>
-    /// Свободные слоты в порядке выдачи с конца: следующий <see cref="Alloc"/> берёт последний. От этого порядка зависят
-    /// номера будущих поз — он часть состояния пула.
-    /// </summary>
+    /// <summary>Свободные слоты в порядке выдачи с конца — часть состояния: от него зависят номера будущих поз.</summary>
     public ReadOnlySpan<int> FreeSlots => _free.AsSpan(0, _freeCount);
 
     /// <summary>Поколение слота: у живого — поколение позы, у свободного — со знаком минус, у ни разу не выданного — 0.</summary>
@@ -154,16 +130,12 @@ public sealed partial class PosePool
     /// <summary>Слотов, под которые уже есть память (<see cref="Reserve"/>); не меньше <see cref="Capacity"/>.</summary>
     public int Reserved => _generation.Length;
 
-    /// <summary>Мест в очереди заданий без роста.</summary>
     public int JobsReserved => _jobs.Length;
 
     /// <summary>
-    /// Память заранее: массивы — под <paramref name="poses"/> живых поз (с округлением до ёмкости, до которой пул дорастёт удвоением:
-    /// 363 позы — 512 слотов) и <paramref name="jobs"/> заданий тика, чтобы рост пула посреди игры (действия, снимки, вздрагивания толпы)
-    /// не выделял памяти. Логика пула не меняется: <see cref="Capacity"/>, номера будущих поз, порядок свободных слотов и поколения — те же,
-    /// что без запаса (растут удвоением, как раньше), поэтому и хеш состояния тот же; удвоение в пределах запаса только открывает слоты.
-    /// Таблица заданий проигрывателей (<see cref="Motion"/>) — на столько же заданий: заданий MM в тике не больше всех заданий, и
-    /// первое задание MM после запаса памяти не выделяет (32 Б на место: 11 бойцов × 16 заданий — 5,5 КБ). Меньше уже заведённого — ничего.
+    /// Память заранее под <paramref name="poses"/> поз (с округлением до ёмкости удвоения) и <paramref name="jobs"/> заданий
+    /// тика, чтобы рост посреди игры не выделял памяти. Логика и хеш не меняются: ёмкость, номера и поколения — те же, что без
+    /// запаса. Меньше уже заведённого — ничего.
     /// </summary>
     public void Reserve(int poses, int jobs = 0)
     {
@@ -239,7 +211,7 @@ public sealed partial class PosePool
         return _model.AsSpan(h.Index * _jc, _jc);
     }
 
-    /// <summary>Задание: локальная поза клипа <paramref name="clip"/> в момент <paramref name="time"/> — в <paramref name="dst"/>.</summary>
+    /// <summary>Задание: поза клипа <paramref name="clip"/> в момент <paramref name="time"/>, с, — в <paramref name="dst"/>.</summary>
     public void Sample(PoseHandle dst, int clip, float time)
     {
         Check(dst);
@@ -255,10 +227,7 @@ public sealed partial class PosePool
         Push(new Job { Op = Op.Blend, Dst = dst, Src = src, Value = weight });
     }
 
-    /// <summary>
-    /// Маска суставов для <see cref="BlendMasked"/>: вес каждого сустава скелета, 0…1 (копируется). Маски регистрируются при
-    /// настройке симуляции, номер — порядок регистрации.
-    /// </summary>
+    /// <summary>Маска суставов для <see cref="BlendMasked"/>: вес сустава 0…1 (копируется); регистрируется при настройке, номер — порядок.</summary>
     /// <exception cref="ArgumentException">Длина — не число суставов скелета или вес вне 0…1.</exception>
     public PoseMask AddMask(ReadOnlySpan<float> weights)
     {
@@ -270,23 +239,15 @@ public sealed partial class PosePool
         return new PoseMask(_masks.Count - 1);
     }
 
-    /// <summary>Масок в пуле.</summary>
     public int MaskCount => _masks.Count;
 
-    /// <summary>Веса маски по суставам.</summary>
     public ReadOnlySpan<float> Mask(PoseMask mask) => _masks[mask.Index];
 
     /// <summary>
-    /// Задание: смешать <paramref name="src"/> в <paramref name="dst"/> по маске — вес сустава j равен
-    /// <c>weight·(mask[j] + (1 − mask[j])·stand)</c> (<c>CharacterRig.LayerMask</c> и <c>SkeletalClips.Blend</c> с маской SWORD
-    /// 2eab13b: слой верха тела, <paramref name="stand"/> — доля клипа в суставах вне маски: стоя — 1, на ходу — 0). Дуга —
-    /// кратчайшая (<c>Quaternion.Slerp</c>, как SWORD).
-    ///
-    /// С памятью (<paramref name="memory"/>): кратчайшая дуга перескакивает на другую сторону, когда повороты сустава в двух
-    /// позах расходятся через 180° при частичном весе k (таз укола пака на полушаге: скачок min(k, 1 − k)·360° за тик). Перескок узнаётся
-    /// по тому, что итог по другой дуге ближе к прошлому итогу по кратчайшей, чем новый; тогда (и пока итог не догонит кратчайшую
-    /// дугу) итог сустава поворачивается к ней не больше чем на <see cref="MaxArcStep"/> за задание. Без перескока итог — побитово
-    /// как без памяти (SWORD); быстрое, но непрерывное движение (вход действия) не ограничивается.
+    /// Задание: смешать по маске — вес сустава <c>weight·(mask[j] + (1 − mask[j])·stand)</c>, <paramref name="stand"/> — доля
+    /// клипа вне маски (стоя — 1, на ходу — 0). Дуга — кратчайшая. С памятью: если кратчайшая дуга перескочила через 180°
+    /// (скачок min(k, 1 − k)·360° за тик), итог доворачивается к ней не больше <see cref="MaxArcStep"/> за задание; без
+    /// перескока — побитово как без памяти.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Маски нет в пуле.</exception>
     public void BlendMasked(PoseHandle dst, PoseHandle src, float weight, PoseMask mask, float stand, BlendMemory memory = default)
@@ -303,9 +264,8 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// Память смешивания ещё догоняет кратчайшую дугу: после последнего исполненного смешивания с ней итог хоть одного сустава не
-    /// равен итогу по кратчайшей дуге. Владелец смешивания продолжает его с весом 0, пока догон не кончится — иначе конец смешивания
-    /// (переход от снимка погас) вернул бы сустав на кратчайшую дугу скачком.
+    /// Память ещё догоняет кратчайшую дугу. Владелец продолжает смешивание с весом 0, пока догон не кончится, — иначе конец
+    /// смешивания вернул бы сустав на кратчайшую дугу скачком.
     /// </summary>
     public bool Following(BlendMemory memory)
     {
@@ -313,7 +273,7 @@ public sealed partial class PosePool
         return Differ(_rot.AsSpan(memory.Output.Index * _jc, _jc), _rot.AsSpan(memory.Shortest.Index * _jc, _jc));
     }
 
-    /// <summary>Повороты хоть одного сустава различаются (оператором, без упаковки — <c>SequenceEqual</c> в Debug упаковывал Quaternion).</summary>
+    /// <summary>Повороты хоть одного сустава различаются (оператором: <c>SequenceEqual</c> в Debug упаковывал Quaternion).</summary>
     private static bool Differ(ReadOnlySpan<Quaternion> a, ReadOnlySpan<Quaternion> b)
     {
         for (int j = 0; j < a.Length; j++)
@@ -322,10 +282,9 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// Задание: добавка поворотов по маске — к позе <paramref name="dst"/> отклонение позы <paramref name="pose"/> от
-    /// <paramref name="reference"/> с весом сустава <c>mask[j]·weight</c>: <c>rot[j] = normalize(rot[j]·slerp(identity,
-    /// conj(ref[j])·pose[j], k))</c>; сустав с k ≤ 0 и смещения не трогаются (идея — <c>CharacterRig.AddUpper</c> SWORD:
-    /// вздрагивание игрока — первые кадры клипа реакции поверх любой позы). Вес не больше 0 — задание ничего не меняет.
+    /// Задание: добавка к <paramref name="dst"/> отклонения <paramref name="pose"/> от <paramref name="reference"/> с весом
+    /// <c>mask[j]·weight</c>: <c>rot[j] = normalize(rot[j]·slerp(identity, conj(ref[j])·pose[j], k))</c>; смещения не
+    /// трогаются. Вес ≤ 0 — ничего.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Маски нет в пуле.</exception>
     public void AddMasked(PoseHandle dst, PoseHandle reference, PoseHandle pose, float weight, PoseMask mask)
@@ -338,10 +297,8 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// Скручивание для <see cref="Twist"/>: <paramref name="bodyRoot"/> — сустав, через начало которого идёт вертикаль поворота всего тела;
-    /// <paramref name="spine"/> — суставы корпуса, <paramref name="weights"/> — их доли обратного поворота (≥ 0, в сумме 1). Суставы корпуса
-    /// поворачиваются в порядке «предок раньше потомка» (порядок аргумента не важен). Регистрируется при настройке симуляции, номер —
-    /// порядок регистрации.
+    /// Скручивание для <see cref="Twist"/>: <paramref name="bodyRoot"/> — опора вертикали поворота тела; <paramref name="spine"/>
+    /// — суставы корпуса с долями обратного поворота (≥ 0, сумма 1), поворачиваются «предок раньше потомка».
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Сустава нет в скелете.</exception>
     /// <exception cref="ArgumentException">Суставов корпуса нет, они повторяются, их не столько, сколько долей, или доли не ≥ 0 и не в сумме 1.</exception>
@@ -379,16 +336,12 @@ public sealed partial class PosePool
         return new PoseTwist(_twists.Count - 1);
     }
 
-    /// <summary>Скручиваний в пуле.</summary>
     public int TwistCount => _twists.Count;
 
     /// <summary>
-    /// Задание: скручивание позы <paramref name="dst"/> на <paramref name="yaw"/> рад (курс: + от +Z к +X, как <c>Matrix4x4.CreateRotationY</c>).
-    /// Весь скелет поворачивается на <paramref name="yaw"/> вокруг вертикали модели (+Y) через начало сустава-опоры (у корневых суставов —
-    /// локальный поворот и смещение), затем каждый сустав корпуса — на −доля·(<paramref name="yaw"/> − <paramref name="chest"/>) вокруг
-    /// вертикали модели в своей точке: ноги и таз уходят на <paramref name="yaw"/>, а суставы после всего корпуса (грудь, шея, голова, руки) в
-    /// модели повёрнуты на <paramref name="chest"/> от того, как до задания (0 — так же; их положение сдвигается на горизонтальные плечи корпуса
-    /// — сантиметры). Меняет локальную позу; модельные матрицы — <see cref="ToModel"/>. Оба угла 0 — поза побитово прежняя.
+    /// Задание: скручивание на <paramref name="yaw"/>, рад (+ от +Z к +X): всё тело — вокруг вертикали через опору, затем
+    /// суставы корпуса — на −доля·(yaw − <paramref name="chest"/>): ноги и таз уходят на yaw, верх тела — на chest. Меняет
+    /// локальную позу; оба угла 0 — поза побитово прежняя.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Скручивания нет в пуле или угол не конечен.</exception>
     public void Twist(PoseHandle dst, PoseTwist twist, float yaw, float chest = 0)
@@ -400,7 +353,6 @@ public sealed partial class PosePool
         Push(new Job { Op = Op.Twist, Dst = dst, Clip = twist.Index, Value = yaw, Stand = chest });
     }
 
-    /// <summary>Задание: локальная поза <paramref name="src"/> — в <paramref name="dst"/>.</summary>
     public void Copy(PoseHandle dst, PoseHandle src)
     {
         Check(dst);
@@ -416,10 +368,8 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// Задание: шаг проигрывателя Motion Matching <paramref name="player"/> хранилища <paramref name="players"/> — продвижение
-    /// по графу базы, затухание смещений, запрошенный переход (<see cref="MotionStep"/>) — и его выход (локальная поза) — в
-    /// <paramref name="dst"/>. Всё, что зависит от выхода позы, меняется только так — в общей очереди по порядку; два задания одного
-    /// проигрывателя за тик — два шага подряд. Проигрыватель, освобождённый до <see cref="Tick"/>, пропускается (<see cref="PoseTickStats.Stale"/>).
+    /// Задание: шаг проигрывателя Motion Matching и его выход — в <paramref name="dst"/>. Состояние проигрывателя меняется только
+    /// так, в общей очереди по порядку; освобождённый до <see cref="Tick"/> пропускается.
     /// </summary>
     /// <exception cref="ArgumentException">Хранилище — другой библиотеки клипов.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Шаг вне допустимого (продвижение &lt; 0, dt или полупериод ≤ 0, переход вне базы).</exception>
@@ -530,25 +480,16 @@ public sealed partial class PosePool
         return LastTick = new PoseTickStats(samples, blends, copies, models, stale, motions, twists);
     }
 
-    /// <summary>
-    /// Исполнить задание проигрывателя (<see cref="Motion"/>) в позу с началом <paramref name="dst"/> в общих массивах — реализация в
-    /// <c>Motion/PosePool.Motion.cs</c>. false — проигрыватель освобождён после постановки (задание пропущено).
-    /// </summary>
+    /// <summary>Исполнить задание проигрывателя (Motion/PosePool.Motion.cs); false — проигрыватель освобождён, задание пропущено.</summary>
     private partial bool RunMotion(in MotionJob job, int dst);
 
-    /// <summary>
-    /// Маска задания с долей <paramref name="stand"/>: <c>mask[j] + (1 − mask[j])·stand</c> — выражение
-    /// <c>CharacterRig.LayerMask</c> SWORD (идея). Цикл по суставам — свой метод: <see cref="Tick"/> зовётся раз в тик.
-    /// </summary>
+    /// <summary>Маска задания с долей <paramref name="stand"/>: <c>mask[j] + (1 − mask[j])·stand</c>. Цикл — свой метод: Tick зовётся раз в тик.</summary>
     private static void LayerMask(ReadOnlySpan<float> mask, float stand, Span<float> into)
     {
         for (int j = 0; j < mask.Length; j++) into[j] = mask[j] + (1 - mask[j]) * stand;
     }
 
-    /// <summary>
-    /// Добавка поворотов по маске (<see cref="AddMasked"/>, <c>CharacterRig.AddUpper</c> SWORD): выражения и порядок — SWORD. Цикл
-    /// по суставам — свой метод: <see cref="Tick"/> зовётся раз в тик.
-    /// </summary>
+    /// <summary>Добавка поворотов по маске (<see cref="AddMasked"/>). Цикл — свой метод: Tick зовётся раз в тик.</summary>
     private static void AddRotations(Span<Quaternion> rot, ReadOnlySpan<Quaternion> reference, ReadOnlySpan<Quaternion> pose,
         ReadOnlySpan<float> mask, float weight)
     {
@@ -565,10 +506,8 @@ public sealed partial class PosePool
     private sealed record TwistSpec(int BodyRoot, int[] Spine, float[] Weights, int[] Tops);
 
     /// <summary>
-    /// Скручивание (<see cref="Twist"/>). Вектор слева, <c>model = local · model родителя</c> (<see cref="Skeleton.ToModel"/>): поворот всего
-    /// тела W = T(−c)·Ry·T(c) — справа к локальной матрице корневых суставов; обратный поворот сустава корпуса на θ в его точке — модельный
-    /// поворот R·Ry(θ), то есть локальный <c>r' = conj(P)·y·P·r</c> (P — модельный поворот родителя после прошлых шагов), θ = −доля·(yaw −
-    /// chest). Циклы по суставам — в своём методе: <see cref="Tick"/> зовётся раз в тик.
+    /// Скручивание: всё тело W = T(−c)·Ry·T(c) — справа к локальной матрице корневых суставов; сустав корпуса — локально
+    /// <c>r' = conj(P)·y·P·r</c> (P — модельный поворот родителя), θ = −доля·(yaw − chest).
     /// </summary>
     private void ApplyTwist(TwistSpec twist, Span<Quaternion> rot, Span<Vector3> pos, float yaw, float chest)
     {
@@ -611,9 +550,8 @@ public sealed partial class PosePool
     }
 
     /// <summary>
-    /// <see cref="ClipLibrary.Blend"/> с маской и памятью (<see cref="BlendMasked"/>): итог сустава — по кратчайшей дуге, кроме
-    /// сустава, у которого кратчайшая дуга перескочила или итог её ещё догоняет (<paramref name="output"/> прошлого тика не равен
-    /// <paramref name="shortest"/>): тот поворачивается к ней не больше чем на <see cref="MaxArcStep"/>. Память переписывается.
+    /// Смешивание с памятью: итог — по кратчайшей дуге, кроме сустава, у которого она перескочила или итог её ещё догоняет:
+    /// тот поворачивается не больше <see cref="MaxArcStep"/>. Память переписывается.
     /// </summary>
     private static void BlendFollowingArc(Span<Quaternion> aRot, Span<Vector3> aPos, ReadOnlySpan<Quaternion> bRot, ReadOnlySpan<Vector3> bPos,
         float w, ReadOnlySpan<float> mask, Span<Quaternion> output, Span<Quaternion> shortest, bool continuous)
@@ -640,10 +578,7 @@ public sealed partial class PosePool
         }
     }
 
-    /// <summary>
-    /// Сферическое смешивание <paramref name="a"/> → <paramref name="b"/> по другой (длинной) дуге — через −b, если кратчайшая идёт
-    /// к b; повороты почти совпадают (длинная дуга — полный оборот) — кратчайшая.
-    /// </summary>
+    /// <summary>Слерп <paramref name="a"/> → <paramref name="b"/> по длинной дуге (через −b); почти совпадающие — по кратчайшей.</summary>
     public static Quaternion OtherArc(Quaternion a, Quaternion b, float t)
     {
         float d = Quaternion.Dot(a, b);

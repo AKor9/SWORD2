@@ -5,11 +5,8 @@ using System.Text.Json.Nodes;
 namespace Sword.Engine.Runtime;
 
 /// <summary>
-/// Файл пользователя <c>sword.user.json</c> (слой конфига вне git, раздел 7 плана): запись и чтение одной секции — ручки панели
-/// F3 («сохранить», «загрузить»). Запись бережная: файл переписывается по лексемам, меняются только заданные ключи
-/// секции — другие секции, другие ключи этой секции (например, <c>combat.playerWeapon</c>), порядок и комментарии остаются
-/// (комментарий — блоком <c>/* … */</c>); отступы — по два пробела, строки — CRLF, UTF-8 без BOM. Замена — через временный файл
-/// рядом: оборванная запись не портит файл. Файл читается тем же разбором, что и конфиг (комментарии, запятая в конце).
+/// Секции файла <c>sword.user.json</c> для ручек F3. Запись бережная, по лексемам: меняются только заданные ключи, прочее,
+/// порядок и комментарии <c>/* */</c> остаются; CRLF, UTF-8 без BOM, замена через временный файл.
 /// </summary>
 public static class UserConfig
 {
@@ -18,10 +15,8 @@ public static class UserConfig
         CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true, AllowDuplicateProperties = false,
     };
 
-    /// <summary>
-    /// Путь <c>sword.user.json</c>: рядом с <c>sword.json</c> в каталоге <paramref name="start"/> или ближайшем выше (как его ищет
-    /// <see cref="ConfigSet.Load"/>); <c>sword.json</c> нигде нет — в самом <paramref name="start"/>.
-    /// </summary>
+    /// <summary>Путь <c>sword.user.json</c> рядом с <c>sword.json</c> (поиск как у <see cref="ConfigSet.Load"/>); нет —
+    /// в <paramref name="start"/>.</summary>
     public static string PathFrom(string start)
     {
         for (var d = new DirectoryInfo(start); d is not null; d = d.Parent)
@@ -29,10 +24,7 @@ public static class UserConfig
         return Path.Combine(start, ConfigSet.UserFileName);
     }
 
-    /// <summary>
-    /// Секция <paramref name="section"/> файла (регистр имени не важен); файла или секции нет — null. Испорченный файл —
-    /// <see cref="InvalidDataException"/> с путём.
-    /// </summary>
+    /// <summary>Секция файла (без учёта регистра); нет — null. Испорченный файл — <see cref="InvalidDataException"/>.</summary>
     public static JsonObject? ReadSection(string path, string section)
     {
         if (!File.Exists(path)) return null;
@@ -53,9 +45,8 @@ public static class UserConfig
     }
 
     /// <summary>
-    /// Записать в секцию <paramref name="section"/> файла <paramref name="path"/> ключи <paramref name="changes"/>: значение —
-    /// поставить (есть ключ в другом регистре — заменить его), null — убрать ключ (значение по умолчанию). Нет файла — создаётся,
-    /// нет секции — дописывается в конец; секция опустела — остаётся пустой.
+    /// Записать ключи в секцию: значение — поставить (заменяя ключ в другом регистре), null — убрать. Нет файла — создаётся,
+    /// нет секции — дописывается в конец.
     /// </summary>
     public static void WriteSection(string path, string section, IReadOnlyList<(string Key, JsonNode? Value)> changes)
     {
@@ -169,10 +160,8 @@ public static class UserConfig
         return buffer.ToArray();
     }
 
-    /// <summary>
-    /// Значение с тем же смыслом: число — десятичным (знаки после точки те же: 2.50 остаётся 2.50; вне десятичного — double), строка —
-    /// тем же текстом (экранирование — пишущего).
-    /// </summary>
+    /// <summary>Значение с тем же смыслом: число — десятичным с теми же знаками (2.50 остаётся 2.50), строка — тем же
+    /// текстом.</summary>
     private static void WriteValue(Utf8JsonWriter writer, ref Utf8JsonReader reader)
     {
         switch (reader.TokenType)

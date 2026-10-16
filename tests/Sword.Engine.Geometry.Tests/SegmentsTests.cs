@@ -3,10 +3,7 @@ using Sword.Engine.Geometry;
 
 namespace Sword.Engine.Geometry.Tests;
 
-/// <summary>
-/// <see cref="Segments.SegSeg"/>: первые два — тесты <c>XpbdTests</c> SWORD 2eab13b (<c>SegSeg_CrossingSegments</c>,
-/// <c>SegSeg_ParallelSegmentsClampToEnds</c>), дальше — края: вырожденные отрезки, параллельные с перекрытием, концы.
-/// </summary>
+/// <summary><see cref="Segments.SegSeg"/>: пересечение, параллельные, вырожденные отрезки, концы.</summary>
 public class SegmentsTests
 {
     [Fact]
@@ -50,8 +47,8 @@ public class SegmentsTests
         Assert.Equal(new Vector3(0.5f, 1, 0), c1);
         Assert.Equal(new Vector3(0.5f, 0, 0), c2);
         Assert.Equal(1f, d2, 6);
-        // Вторая — точка: у SWORD (Ericson без отдельной ветки «второй отрезок — точка») s остаётся 0 — начало первого, а не
-        // ближайшая к точке. Так и перенесено (дословно); в игре второй отрезок — ось капсулы тела, она не вырождена.
+        // Вторая — точка: без отдельной ветки (Ericson) s остаётся 0 — начало первого, а не ближайшая к точке;
+        // в игре второй отрезок — ось капсулы тела, она не вырождена.
         d2 = Segments.SegSeg(new(0, 0, 0), new(1, 0, 0), new(3, 0, 0), new(3, 0, 0), out c1, out c2);
         Assert.Equal(new Vector3(0, 0, 0), c1);
         Assert.Equal(new Vector3(3, 0, 0), c2);

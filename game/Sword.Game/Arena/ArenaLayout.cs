@@ -3,8 +3,7 @@ using System.Numerics;
 namespace Sword.Game.Arena;
 
 /// <summary>
-/// Геометрия арены: радиус и колонны (перенос <c>Gameplay/ArenaLayout.cs</c> SWORD 2eab13b). Её читают бой, мир
-/// и сцена; в шейдеры она уходит через константы кадра.
+/// Геометрия арены: радиус и колонны. Её читают бой, мир и сцена; в шейдеры она уходит через константы кадра.
 /// </summary>
 public static class ArenaLayout
 {

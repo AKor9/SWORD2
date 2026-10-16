@@ -13,11 +13,9 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Поворот на месте игрока на Motion Matching (категория Content — клипы GASP есть только в паке; <c>locomotion.player = mm</c>): клипы
-/// поворота базы и их сторона (L — к +X, курс +); медленный поворот взгляда стоя — стопы стоят (скольжение — против «без скручивания»,
-/// <c>locomotion.turnMax = 0</c>), клипы поворота нужной стороны доворачивают ноги, после остановки взгляда расхождение сходит к малому
-/// углу; грудь всё время по курсу корня; пошёл — расхождение гаснет за <c>turnReturn</c>; рука с мечом — у стойки при скручивании;
-/// инварианты чисты, 0 Б в тике. Числа — в вывод.
+/// Поворот на месте на MM (категория Content): медленный поворот взгляда стоя — стопы стоят, клипы поворота нужной стороны
+/// доворачивают ноги, расхождение сходит к малому углу; грудь по курсу корня; на ходу расхождение гаснет за <c>turnReturn</c>;
+/// рука у стойки; 0 Б в тике.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class TurnInPlaceTests(ITestOutputHelper output)
@@ -25,7 +23,7 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     private const float Deg = MathF.PI / 180;
 
-    private static Animation.CharacterAssets Assets => FeatureManifestsTests.Reference.Value.Assets;
+    private static Animation.CharacterAssets Assets => TestContent.Reference.Value.Assets;
 
     private static Simulation Create(params string[] sets) =>
         SwordSimulation.Create(ConfigSet.Empty(["locomotion.player=mm", .. sets]), Assets);
@@ -156,9 +154,8 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Медленный поворот взгляда стоя (60°/с, 3 с, влево и вправо): ноги стоят, клипы поворота нужной стороны доворачивают их — расхождение в
-    /// клипе уменьшается; после остановки взгляда сходит до малого угла; грудь по курсу корня; скольжение опорной стопы — против «без
-    /// скручивания» (<c>turnMax = 0</c> — как до поворота на месте).
+    /// Поворот взгляда стоя 60°/с, 3 с: ноги стоят, клипы поворота доворачивают их, после остановки расхождение сходит к малому углу;
+    /// скольжение опорной стопы — против <c>turnMax = 0</c>.
     /// </summary>
     [Theory]
     [InlineData(60)]
@@ -218,7 +215,7 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
         Assert.Equal(-1, start.S.TurnClip);
     }
 
-    /// <summary>Рука с мечом (8ж) при скручивании: кисть и клинок относительно груди — у стойки оружия, как без скручивания.</summary>
+    /// <summary>Рука с мечом при скручивании: кисть и клинок относительно груди — у стойки оружия, как без скручивания.</summary>
     [Fact]
     public void SwordArm_HoldsStance_WhileTwisted()
     {
@@ -257,7 +254,6 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
         Clean(sim);
     }
 
-    /// <summary>Поворот на месте в тике не выделяет памяти: скручивание, клипы поворота, возврат на ходу.</summary>
     [Fact]
     public void Turning_DoesNotAllocate()
     {

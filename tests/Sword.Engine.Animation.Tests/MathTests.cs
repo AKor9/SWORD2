@@ -3,10 +3,7 @@ using Sword.Engine.Animation;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Математика позы — <c>Sword.Anim.Tests/MathTests</c> SWORD 2eab13b с теми же ожиданиями: соглашение курса, IK,
-/// пружины. Тесты осей UE и переноса пальцев (<c>UeSpace</c>, <c>FingerTransfer</c>) — пекарня, переносятся с ней.
-/// </summary>
+/// <summary>Математика позы: соглашение курса, IK, пружины.</summary>
 public sealed class MathTests
 {
     private static void Near(Vector3 expected, Vector3 actual, float eps = 1e-4f) =>

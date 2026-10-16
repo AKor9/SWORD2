@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Пекарня без обработчиков игры: проект, добавление ассетов, актуальность, сборка и целостность пака, запись
-       манифестов (перенесено из SWORD — спецификация инструмента), загрузка двух плагинов по порядку, итог CLI в JSON и
-       сравнение паков (diff) на синтетических паках. -->
+  <!-- Пекарня (tools/Sword.Bake): конвертеры на синтетике (glTF, маршрутизация наборов, корневое движение, оси UE и окно
+       пальцев, хват, зоны крови, текстуры, шрифты, хеш исходника клипа), таблица видов файлов, рецепты и sword-bake
+       процессом на синтетическом риге — выход каждого конвертера читается читателем формата. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -19,13 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- конвертеры — напрямую (InternalsVisibleTo); sword-bake.exe запускается процессом из своего выхода -->
     <ProjectReference Include="..\..\tools\Sword.Bake\Sword.Bake.csproj" />
-    <ProjectReference Include="..\..\tools\Sword.Bake.Cli\Sword.Bake.Cli.csproj" />
     <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
-    <!-- Тестовые плагины грузятся по пути (bin/<конфигурация>/), как плагины проекта: ссылка только ради порядка сборки,
-         их сборок в выходе тестов нет — иначе они попали бы в контекст по умолчанию мимо загрузчика плагинов. -->
-    <ProjectReference Include="..\Sword.Bake.Tests.PluginA\Sword.Bake.Tests.PluginA.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Sword.Bake.Tests.PluginB\Sword.Bake.Tests.PluginB.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+    <ProjectReference Include="..\..\engine\Sword.Engine.Animation\Sword.Engine.Animation.csproj" />
+    <ProjectReference Include="..\..\game\Sword.Game.Data\Sword.Game.Data.csproj" />
   </ItemGroup>
 
 </Project>

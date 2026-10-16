@@ -11,15 +11,13 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Политика GASP на паке игры (категория Content): все 444 имени клипов <c>locomotion</c> разбираются, отбор по умолчанию —
-/// 440 клипов, база с политикой GASP строится (сводка, отпечаток, счёт политики, модель скоростей — в вывод теста), у каждого
-/// нециклического клипа есть продолжение, отпечаток стабилен при повторе и обратном порядке клипов; две симуляции берут одну базу.
-/// Время постройки — не бюджет (печатается).
+/// Политика GASP на паке (категория Content): все 444 имени разбираются, отбор — 440 клипов, база строится, у каждого
+/// нециклического клипа есть продолжение, отпечаток не зависит от порядка; две симуляции берут одну базу. Время — не бюджет.
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class GaspMotionPackTests(ITestOutputHelper output)
 {
-    private static ClipLibrary Library => FeatureManifestsTests.Reference.Value.Assets.Clips;
+    private static ClipLibrary Library => TestContent.Reference.Value.Assets.Clips;
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -157,14 +155,11 @@ public sealed class GaspMotionPackTests(ITestOutputHelper output)
         return -1;
     }
 
-    /// <summary>
-    /// Две симуляции игры (композиция <see cref="SwordSimulation"/> и модуль-зонд) берут базу так, как её берёт модуль, — из
-    /// библиотеки ресурса <see cref="PosePool"/> мира при сборке: один экземпляр на процесс.
-    /// </summary>
+    /// <summary>Две симуляции берут базу так, как модуль, — из библиотеки <see cref="PosePool"/>: один экземпляр на процесс.</summary>
     [Fact]
     public void TwoSimulations_ShareOneBase()
     {
-        var assets = FeatureManifestsTests.Reference.Value.Assets;
+        var assets = TestContent.Reference.Value.Assets;
         GaspMotionBase? first = null, second = null;
         Simulation.Build(ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, assets), [.. SwordSimulation.Modules(), new Probe(m => first = m)]);
         Simulation.Build(ConfigSet.Empty(), GameStages.All, b => GameCore.Configure(b, assets), [.. SwordSimulation.Modules(), new Probe(m => second = m)]);

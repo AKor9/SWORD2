@@ -11,28 +11,15 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Intent, первой (<see cref="GameLabels.SceneCommand"/>, до <c>core.player-command</c>): команды сцены тика по порядку
-/// (<see cref="SceneCommand"/>; постановки сцен s1–s8 <c>RagdollScene</c> SWORD 2eab13b — идеи, не образец). Стадия Intent — после
-/// барьера Begin: арена уже после своих команд (снятое место не найдётся, прибавленное — найдётся), и мир меняется один раз, на
-/// барьере Intent. Команды одного места в тике складываются по порядку: «убить, затем поставить» — боец жив и стоит в точке,
-/// «поставить, затем убить» — стоит мёртвым; меч, заданный раньше постановки, — в руке поставленного.
+/// Intent, первой: команды сцены тика (<see cref="SceneCommand"/>) по порядку — арена уже после своих команд, мир меняется один
+/// раз на барьере Intent. Команды одного места складываются по порядку («убить, затем поставить» — жив и стоит в точке).
 /// <list type="bullet">
-/// <item><see cref="SceneAction.Place"/> — постройка места заново на той же сущности (<see cref="Fighters.Rebuild"/>, как возрождение и
-/// сброс): корень в точке (x, z) курсом, прошлый корень = новому, намерение — стоять, зерно и меч — прежние, таймер удара врага — новый
-/// (<see cref="ArenaRules.Placed"/>); мёртвый оживает. Тело и клинок без скорости по позе постройки ставит Gameplay этого тика
-/// (<c>core.body-setup</c>, <c>core.blade-setup</c> по <c>Added&lt;Fighter&gt;</c>).</item>
-/// <item><see cref="SceneAction.Kill"/> — <see cref="Dead"/> с причиной <see cref="DeathCause.Command"/> живому (здоровье не трогается,
-/// как <c>Die(t, null)</c> SWORD); уже мёртвому — ничего. Привязку скина снимет Gameplay этого тика (<c>core.skin-capture</c>) по позе и
-/// телам прошлого тика — тела ещё не двигались.</item>
-/// <item><see cref="SceneAction.ShiftBodies"/> — тела мёртвого (метка смерти уже стояла до тика) сдвигаются на вектор без скорости
-/// (<see cref="IPhysicsWorld.Place"/> — в любом режиме, и тела трупа на физике; поворот прежний) — сразу, в Intent; живому и убитому
-/// этим же тиком — ничего.</item>
-/// <item><see cref="SceneAction.Weapon"/> — меч живого: врагу — <see cref="WeaponSlot"/>, игроку — выбор в инвентаре (<see cref="PlayerInventory"/>;
-/// нет меча в инвентаре — ничего) и меч в руке; номер вне таблицы — ничего. Клинок и тело клинка сменятся в PrePhysics (новая форма, без
-/// скорости).</item>
+/// <item><see cref="SceneAction.Place"/> — постройка места заново (<see cref="Fighters.Rebuild"/>, <see cref="ArenaRules.Placed"/>)
+/// в точке курсом; мёртвый оживает; тело и клинок ставит Gameplay этого тика.</item>
+/// <item><see cref="SceneAction.Kill"/> — <see cref="Dead"/> с причиной <see cref="DeathCause.Command"/> живому (здоровье не трогается).</item>
+/// <item><see cref="SceneAction.ShiftBodies"/> — тела мёртвого (до тика) сдвигаются на вектор без скорости сразу, в Intent.</item>
+/// <item><see cref="SceneAction.Weapon"/> — меч живого (игроку — только из инвентаря); номер вне таблицы — ничего.</item>
 /// </list>
-/// Намерение игрока (<see cref="SceneAction.PlayerIntent"/>) — не здесь, а в Gameplay (<see cref="ScenePlayerIntentSystem"/>).
-/// Причина (<c>state.why</c>) — каждая команда своих изменений.
 /// </summary>
 public sealed class SceneCommandSystem(IPhysicsWorld physics, int weapons) : IContinuousSystem
 {
@@ -74,7 +61,6 @@ public sealed class SceneCommandSystem(IPhysicsWorld physics, int weapons) : ICo
         var inventory = before;
         foreach (var c in commands)
         {
-            ctx.Cause = c.Cause;
             var command = c.Value;
             if ((uint)command.Slot >= Slots || _bySlot[command.Slot].IsNull) continue;   // места без бойца — ничего
             var e = _bySlot[command.Slot];
@@ -115,13 +101,12 @@ public sealed class SceneCommandSystem(IPhysicsWorld physics, int weapons) : ICo
         _weapon[c.Slot] = weapon;
     }
 
-    /// <summary>Смерть без удара (<see cref="SceneAction.Kill"/>): причина — команда; уже мёртвому — ничего.</summary>
+    /// <summary>Смерть без удара (<see cref="SceneAction.Kill"/>); уже мёртвому — ничего.</summary>
     private void Kill(in SystemContext ctx, Entity e, int slot)
     {
         if (_dead[slot]) return;
         _dead[slot] = true;
         ctx.Commands.Add(e, new Dead { Time = ctx.World.Resource<SimTime>().Time, Cause = DeathCause.Command });
-        ctx.Causality?.Link(e, CombatCauses.Death, ctx.Commands.LastCause);   // родитель возрождения
     }
 
     /// <summary>Сдвиг тел трупа без скорости (<see cref="SceneAction.ShiftBodies"/>) — сразу, в подсистеме.</summary>
@@ -143,17 +128,15 @@ public sealed class SceneCommandSystem(IPhysicsWorld physics, int weapons) : ICo
     private void Weapon(in SystemContext ctx, Entity e, in SceneCommand c, ref PlayerInventory inventory)
     {
         if (_dead[c.Slot] || (uint)c.Weapon >= (uint)weapons) return;
-        if (c.Slot == 0 && !inventory.Equip(c.Weapon)) return;   // нет такого меча у игрока — ничего (Inventory.Equip SWORD)
+        if (c.Slot == 0 && !inventory.Equip(c.Weapon)) return;   // нет такого меча у игрока — ничего
         _weapon[c.Slot] = c.Weapon;
         ctx.Commands.Set(e, new WeaponSlot { Index = c.Weapon });
     }
 }
 
 /// <summary>
-/// Gameplay, после команды врагу и до курса и разгона (<see cref="GameLabels.SceneIntent"/>): намерение игрока командой сцены
-/// (<see cref="SceneAction.PlayerIntent"/>) — желаемая скорость и курс-цель поверх того, что записала команда игрока (Intent), как
-/// <c>core.enemy-command</c> врагу; несколько в тике — последняя; нечисловая скорость — стоять, нечисловой курс — курс-цель команды
-/// игрока. Мёртвому — ничего. Сцена s3 SWORD — идти сквозь труп с заданной скоростью (<c>DesiredVel = (0; 0; 4,2)</c>).
+/// Gameplay, после команды врагу: намерение игрока командой сцены (<see cref="SceneAction.PlayerIntent"/>) поверх команды игрока;
+/// несколько в тике — последняя; нечисловая скорость — стоять, нечисловой курс — курс-цель команды. Мёртвому — ничего.
 /// </summary>
 public sealed class ScenePlayerIntentSystem : IContinuousSystem
 {

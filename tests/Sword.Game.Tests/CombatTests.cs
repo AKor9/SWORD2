@@ -1,13 +1,9 @@
 using System.Numerics;
-using System.Text.Json.Nodes;
-using Sword.Engine.Agent;
 using Sword.Engine.Animation;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ecs;
 using Sword.Engine.Formats;
-using Sword.Engine.Introspection;
 using Sword.Engine.Runtime;
-using Sword.Game.Agent;
 using Sword.Game.Animation;
 using Sword.Game.Arena;
 using Sword.Game.Bootstrap;
@@ -19,10 +15,8 @@ using Sword.Game.Movement;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Подготовка и оружие: таблица оружия (мечи пака по алфавиту, клинок по мешу), меч в руке (враг — случайный новой
-/// выборкой потока спауна, игрок — <c>combat.playerWeapon</c>), инвентарь и T, клинок каждого тика (на кисти, прошлое — прошлый
-/// тик, смена меча — без прохода), инварианты <c>combat.*</c> на неисправностях, команды арены в Begin, таблица ударов
-/// (<see cref="StrikeWindows"/>), инструмент <c>combat.weapons</c>, поиск Sword.exe сервером агента.
+/// Подготовка и оружие: таблица оружия, меч в руке, инвентарь и T, клинок каждого тика, инварианты <c>combat.*</c> на
+/// неисправностях, команды арены в Begin, таблица ударов (<see cref="StrikeWindows"/>).
 /// </summary>
 public sealed class CombatTests
 {
@@ -45,7 +39,7 @@ public sealed class CombatTests
         Assert.Equal(1, weapons.Default);                                                       // sword_1h — меч по умолчанию
         Assert.Equal((0, 1, -1), (weapons.Find("KATANA"), weapons.Find("sword_1h"), weapons.Find("axe")));
         var sword = weapons.Weapons[1];
-        Assert.Equal("weapons/sword_1h.swmesh", sword.Mesh);
+        Assert.Equal("meshes/weapons/sword_1h.swmesh", sword.Mesh);
         Assert.Equal(TestAssets.SwordTip, sword.BladeTip);                                      // самая дальняя вершина
         Assert.Equal(Vector3.Normalize(TestAssets.SwordTip) * WeaponMesh.BaseOffset, sword.BladeBase);   // 22 см по той же оси
         Assert.Equal(TestAssets.KatanaTip, weapons.Weapons[0].BladeTip);
@@ -196,7 +190,7 @@ public sealed class CombatTests
             }
         }
         Assert.True(sim.Invariants.Total == 0, string.Join("\n", sim.Invariants.Recent()));
-        Assert.Equal(201, sim.Invariants.Find("combat.blade")!.Evaluations);   // 200 тиков и проверка до первого тика
+        Assert.Equal(201, sim.Invariants.List().Single(i => i.Id == "combat.blade").Evaluations);   // 200 тиков и проверка до первого тика
     }
 
     [Fact]
@@ -247,7 +241,7 @@ public sealed class CombatTests
         sparse.EquipNext();
         Assert.Equal(2, sparse.Equipped);
         Assert.False(sparse.Equip(3));
-        var lost = new PlayerInventory { Owned = 0b110, Equipped = 0 };   // выбранного нет — первое доступное (IndexOf −1 SWORD)
+        var lost = new PlayerInventory { Owned = 0b110, Equipped = 0 };   // выбранного нет — первое доступное
         lost.EquipNext();
         Assert.Equal(1, lost.Equipped);
         var full = PlayerInventory.All(64, 63);
@@ -290,79 +284,6 @@ public sealed class CombatTests
         Assert.Equal(assets.Clips.Clips[0].Count, tips.Length);
     }
 
-    [Fact]
-    public async Task Agent_CombatWeapons_NamesWeaponsBladesAndAttacks()
-    {
-        var sim = Create("arena.enemies=2");
-        var host = new AgentHost(new AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Catalog(sim.World, sim.CommandTypes), Time = new TimeControl(true, sim.Tick),
-            Service = new ServiceQueue(), Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"),
-            Stop = () => { }, ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<JsonObject> Call(string tool, JsonObject? args = null)
-            {
-                var request = new JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            await Call("time.step", new JsonObject { ["ticks"] = 3 });
-            var all = await Call("combat.weapons");
-            Assert.Equal(["katana", "sword_1h"], all["weapons"]!.AsArray().Select(w => w!["name"]!.GetValue<string>()));
-            Assert.Equal("sword_1h", all["defaultWeapon"]!.GetValue<string>());
-            Assert.Equal("sword_1h", all["inventory"]!["equipped"]!.GetValue<string>());
-            Assert.Equal(3, all["fighters"]!.AsArray().Count);
-            Assert.Equal(7, all["attacks"]!.AsArray().Count);
-            Assert.Equal("slash1", all["attacks"]![0]!["slot"]!.GetValue<string>());
-            await Call("command.send", new JsonObject { ["command"] = "ArenaCommand", ["fields"] = new JsonObject { ["Action"] = "NextWeapon" } });
-            await Call("time.step", new JsonObject { ["ticks"] = 1 });
-            var player = await Call("combat.weapons", new JsonObject { ["entity"] = "player", ["attacks"] = false });
-            var p = Assert.Single(player["fighters"]!.AsArray())!;
-            Assert.Equal(("player", "katana", "katana"), (p["name"]!.GetValue<string>(), p["weapon"]!.GetValue<string>(), p["bladeWeapon"]!.GetValue<string>()));
-            Assert.Equal(0, p["tipTravel"]!.GetValue<double>());   // смена меча — прохода нет
-            Assert.Null(player["attacks"]);
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
-    }
-
-    [Fact]
-    public void AppLocator_FindsAppByBinFolder_OrByOptimizationOutsideBin()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "sword-app-locator-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            string debug = Path.Combine(root, "game", "Sword.Game.App", "bin", "Debug", "net10.0-windows10.0.22000.0");
-            Directory.CreateDirectory(debug);
-            File.WriteAllBytes(Path.Combine(debug, "Sword.exe"), []);
-            string exe = Path.Combine(debug, "Sword.exe");
-            string headlessBin = Path.Combine(root, "game", "Sword.Game.Headless", "bin", "Debug", "net10.0-windows10.0.22000.0") + Path.DirectorySeparatorChar;
-            string agentBin = Path.Combine(root, "artifacts", "agent-bin", "headless", "123456") + Path.DirectorySeparatorChar;
-            Assert.Equal(exe, AppLocator.Find(root, headlessBin, optimized: true));    // по папке за bin — Debug
-            Assert.Equal(exe, AppLocator.Find(root, agentBin, optimized: false));      // вне bin (agent-bin) — Debug сборки
-            Assert.Null(AppLocator.Find(root, agentBin, optimized: true));             // Release App не собран
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
 }
 
 public enum CombatFault { BladeShifted, BladeWrongWeapon, WeaponOutOfTable, PlayerWeaponNotEquipped }

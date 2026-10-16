@@ -22,6 +22,8 @@
 - [locomotion.md](locomotion.md) — модуль Locomotion: сверки с трассами SWORD до 7а, `FootDown` до решения 15.
 - [arena.md](arena.md) — арена: спаун по точкам 4а–6б, инструменты точки 1б.
 - [engine-agent.md](engine-agent.md) — агентский доступ (1е): подробные протокол и транспорты, ограничения 1е, проверки.
+- [agent-access.md](agent-access.md) — агентский доступ (MCP), интроспекция и приёмка фич по манифестам, снятые 2026-10-16 (решение 19): раздел 8 плана, README `Engine.Agent`, AGENTS.md `Engine.Introspection`, `docs/agent-playbook.md` в последней редакции.
+- [process.md](process.md) — прежний процесс работы (классы точек, проверяющие, приёмка этапов), корневой `AGENTS.md` до 2026-10-16.
 - [engine-physics.md](engine-physics.md) — подсистема физики (этап 5, этап 7: 7б–7з-3): контракт и реализация по точкам, решения, замеры, отвергнутые опыты, проверки по точкам, из `engine/Sword.Engine.Physics/README.md`, 2026-09-25.
 - [ragdoll.md](ragdoll.md) — «Рэгдолл» (этап 7: точки 7ж, 7и, 7з, 7к, 7з-2, 7з-3, 7з-4, 7л — приёмка): журналы, решения, замеры, проверки, доказательства перезаписи эталонов, из `game/Sword.Game/Features/Ragdoll/README.md`, 2026-09-25.
 - [playbook.md](playbook.md) — рецепты для агентов в прежней редакции (пометки точек, что снято на 7а, замеры по точкам), из `docs/agent-playbook.md`, 2026-09-25.

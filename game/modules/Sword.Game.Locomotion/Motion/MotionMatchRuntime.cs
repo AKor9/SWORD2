@@ -6,12 +6,10 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Motion Matching симуляции: общая база на процесс (<see cref="GaspMotionBase"/>) и своё у симуляции — хранилище проигрывателей
-/// (<see cref="MotionPlayers"/>), поиск (<see cref="MotionMatcher"/>), запрос (<see cref="MotionQuery"/>), истории корня по проигрывателям
-/// (<see cref="RootHistory"/>, номер — слот проигрывателя) и буфер весов. Авторитетное состояние — проигрыватели и истории: их хеширует и
-/// описывает участник <c>locomotion</c> (<see cref="MotionMatchHash"/>); поиск и запрос — рабочие буферы (их содержимое между тиками ни на
-/// что не влияет). Заводится при сборке мира (<see cref="Init"/>): база строится из библиотеки клипов пула поз (кэш процесса), ошибка данных
-/// — <see cref="InvalidDataException"/> (ошибка старта). Память — при сборке и при первом появлении слота проигрывателя; тик — 0 Б.
+/// Motion Matching симуляции: общая база на процесс (<see cref="GaspMotionBase"/>) и своё — хранилище проигрывателей,
+/// поиск, запрос, истории корня (номер — слот проигрывателя). Авторитетны проигрыватели и истории (хеширует
+/// <see cref="MotionMatchHash"/>); поиск и запрос — рабочие буферы. Ошибка данных при <see cref="Init"/> —
+/// <see cref="InvalidDataException"/> (ошибка старта). Тик — 0 Б.
 /// </summary>
 public sealed class MotionMatchRuntime
 {
@@ -34,15 +32,12 @@ public sealed class MotionMatchRuntime
     public float[] Weights { get; private set; } = [];
 
     /// <summary>
-    /// Кадр позы постройки — первый кадр первого клипа стойки базы (вид <see cref="GaspKind.Idle"/>); стойки в отборе нет — первый кадр
-    /// базы. С него начинает проигрыватель после постройки (без инерциализации): это и поза постройки игрока (<see cref="StartPose"/>).
+    /// Кадр позы постройки — первый кадр первого клипа стойки базы (нет стойки — первый кадр базы). С него начинает
+    /// проигрыватель после постройки без инерциализации.
     /// </summary>
     public int StartFrame { get; private set; }
 
-    /// <summary>
-    /// Поза постройки игрока на MM — клип библиотеки и момент кадра <see cref="StartFrame"/> (компонент <see cref="FighterStartPose"/>); со
-    /// слоем руки с мечом (<see cref="SwordArm.Init"/>).
-    /// </summary>
+    /// <summary>Поза постройки игрока на MM — кадр <see cref="StartFrame"/> со слоем руки с мечом (<see cref="SwordArm.Init"/>).</summary>
     public FighterStartPose StartPose { get; internal set; }
 
     /// <summary>Окно пропуска своего клипа, кадров (<see cref="GaspMotion.SkipSeconds"/> × частота клипов).</summary>
@@ -52,8 +47,8 @@ public sealed class MotionMatchRuntime
     public bool Ready => Database is not null;
 
     /// <summary>
-    /// База из библиотеки пула поз и отбора <paramref name="pattern"/> (кэш процесса — две симуляции строят её один раз), хранилище на
-    /// одного бойца с запасом, поиск, запрос, кадр постройки, поворот на месте (скручивание — в пуле поз).
+    /// База из библиотеки пула поз и отбора <paramref name="pattern"/> (кэш процесса), хранилище, поиск, запрос, кадр
+    /// постройки, поворот на месте.
     /// </summary>
     /// <exception cref="InvalidDataException">Данные не дают базы MM (нет клипов GASP, нет сустава, имя не разбирается, отбор — не регулярка).</exception>
     public void Init(PosePool pool, string pattern, float tickSeconds)
@@ -113,9 +108,9 @@ public sealed class MotionMatchRuntime
     }
 
     /// <summary>
-    /// Масштаб данных: скорость клипов шага или бега базы в направлении <paramref name="velocity"/> относительно курса
-    /// <paramref name="yaw"/> (<see cref="GaitSpeedModel"/>, походка — по скорости управления) / скорость управления <paramref name="control"/>.
-    /// Скорость управления не задана (0) или данных нет — 1. Без него запрос в скорости управления цеплялся бы за середины разгонов клипов.
+    /// Масштаб данных: скорость клипов в направлении <paramref name="velocity"/> относительно <paramref name="yaw"/> /
+    /// скорость управления <paramref name="control"/> (0 или данных нет — 1). Без него запрос цеплялся бы за середины
+    /// разгонов клипов.
     /// </summary>
     public float DataScale(Vector3 velocity, float yaw, float control)
     {

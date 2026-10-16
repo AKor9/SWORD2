@@ -6,13 +6,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Client;
 
 /// <summary>
-/// Оверлей Motion Matching игрока (<c>mm</c> — M, <c>--overlay mm</c>, слой снимка <c>capture.bundle</c>) по виду
-/// <see cref="IMotionMatchView"/>: желаемая траектория — запрос последнего поиска (<see cref="DesiredColour"/>: прошлое, «сейчас», будущее с
-/// курсом), траектория найденного кадра от того же корня (<see cref="MatchedColour"/>), история корня (<see cref="HistoryColour"/>), суставы
-/// контакта стоп в позе кадра — на земле по разметке кадра базы (<see cref="GroundColour"/>, крупнее) или нет (<see cref="AirColour"/>).
-/// Траектории — на рельефе (высота под точкой + <see cref="Lift"/>), в мире тика последнего поиска (как их сравнивал поиск: в единицах
-/// данных); стопы — в показанном мире бойца (как меш). Снимается в Extract только когда нужен (M, <c>--overlay mm</c>, слой); буферы растут
-/// удвоением и остаются — кадр без выделений. Вида нет (<c>locomotion.player = clips</c>) или игрок не на MM — пусто, у слоя — заметка.
+/// Оверлей Motion Matching игрока (<c>mm</c>) по <see cref="IMotionMatchView"/>: желаемая траектория, траектория найденного
+/// кадра, история корня, суставы контакта стоп. Траектории — на рельефе (+ <see cref="Lift"/>) в мире тика последнего
+/// поиска, стопы — в показанном мире бойца. Снимается в Extract только когда нужен; кадр без выделений. Вида нет — пусто.
 /// </summary>
 public sealed class MotionMatchOverlay(Func<float, float, float> height)
 {
@@ -22,9 +18,6 @@ public sealed class MotionMatchOverlay(Func<float, float, float> height)
 
     /// <summary>Подъём траекторий над рельефом, м; длина засечки курса точки траектории, м.</summary>
     public const float Lift = 0.03f, Tick = 0.25f;
-
-    /// <summary>Заметка снимка: слой заказан, а игрок не на Motion Matching.</summary>
-    public const string NoMotionNote = "mm: игрок не на Motion Matching (locomotion.player = clips или нет игрока) — траекторий нет";
 
     private MotionTrajectoryPoint[] _desired = new MotionTrajectoryPoint[16], _matched = new MotionTrajectoryPoint[16], _history = new MotionTrajectoryPoint[64];
     private Vector3[] _feet = new Vector3[8];
@@ -125,13 +118,4 @@ public sealed class MotionMatchOverlay(Func<float, float, float> height)
     }
 
     private Vector3 OnGround(Vector3 p) => p with { Y = height(p.X, p.Z) + Lift };
-
-    /// <summary>Подписи слоя снимка: «запрос» и «кадр» у последних точек, имя клипа над игроком (<paramref name="clipName"/>).</summary>
-    public void Labels(DebugDraw debug, string? clipName, Vector3? head)
-    {
-        if (!Available) return;
-        if (_desiredCount > 0) debug.Text(OnGround(_desired[_desiredCount - 1].Position) + new Vector3(0, 0.15f, 0), "запрос", DesiredColour, 12);
-        if (_matchedCount > 0) debug.Text(OnGround(_matched[_matchedCount - 1].Position) + new Vector3(0, 0.3f, 0), "кадр", MatchedColour, 12);
-        if (clipName is not null && head is { } h) debug.Text(h + new Vector3(0, 0.45f, 0), clipName, 0xFFFFFFFF, 12);
-    }
 }

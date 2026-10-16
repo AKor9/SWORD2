@@ -6,10 +6,8 @@ using Microsoft.Win32.SafeHandles;
 namespace Sword.Engine.Content;
 
 /// <summary>
-/// Контент из пака (<see cref="PakFormat"/>). Оглавление проверяется при открытии целиком: границы, пути, повторы.
-/// Чтение — <see cref="RandomAccess"/> по общему дескриптору, без общей позиции файла, поэтому потоки
-/// <see cref="OpenRead"/> можно читать из разных потоков одновременно. Открытый пак можно заменить новым
-/// (пекарня переносит новый файл на его место): открывший дочитывает прежний.
+/// Контент из пака (<see cref="PakFormat"/>); оглавление проверяется при открытии целиком. Чтение — <see cref="RandomAccess"/>
+/// без общей позиции файла: потоки читаются из разных потоков. Пак можно заменить на диске — открывший дочитывает прежний.
 /// </summary>
 public sealed class PakSource : IContentSource, IDisposable
 {
@@ -23,15 +21,10 @@ public sealed class PakSource : IContentSource, IDisposable
     public long Length { get; }
 
     /// <summary>
-    /// Отпечаток содержимого: SHA-256 оглавления (пути и хеши файлов по порядку), первые 8 байт — 16 шестнадцатеричных
-    /// цифр. Дёшево (файлы не читаются) и меняется с любым файлом контента: квитанции агента и реплеи называют им контент.
-    /// Сведения пекарни (<see cref="BakeDir"/>: <see cref="PakBuildInfo.EntryPath"/> со временем сборки и отпечатками
-    /// кода) не входят: перевыпечка тех же файлов — тот же хеш.
+    /// Отпечаток содержимого: первые 8 байт SHA-256 оглавления (16 hex-цифр) — дёшево, меняется с любым файлом; им реплеи
+    /// называют контент. Перевыпечка тех же файлов — тот же хеш.
     /// </summary>
     public string ContentHash => _contentHash ??= ComputeContentHash();
-
-    /// <summary>Каталог сведений пекарни в паке: не контент игры и не часть <see cref="ContentHash"/>.</summary>
-    public const string BakeDir = ".bake/";
 
     private string? _contentHash;
 
@@ -41,7 +34,6 @@ public sealed class PakSource : IContentSource, IDisposable
         Span<byte> hash = stackalloc byte[8];
         foreach (var e in _sorted)
         {
-            if (e.Path.StartsWith(BakeDir, StringComparison.OrdinalIgnoreCase)) continue;
             sha.AppendData(Encoding.UTF8.GetBytes(e.Path.ToLowerInvariant()));
             BinaryPrimitives.WriteUInt64LittleEndian(hash, e.Hash);
             sha.AppendData(hash);
@@ -185,10 +177,8 @@ public sealed class PakSource : IContentSource, IDisposable
     public void Dispose() => _handle.Dispose();
 }
 
-/// <summary>
-/// Окно файла пака как поток: только чтение, с поиском. Свой буфер — загрузчики читают <c>BinaryReader</c>'ом
-/// по четыре байта, и без буфера каждое число стоило бы системного вызова.
-/// </summary>
+/// <summary>Окно файла пака как поток с поиском. Свой буфер: загрузчики читают по четыре байта, и без него каждое число
+/// стоило бы системного вызова.</summary>
 internal sealed class PakEntryStream(SafeFileHandle handle, long start, long length) : Stream
 {
     private readonly byte[] _buffer = new byte[(int)Math.Clamp(length, 1, 256 * 1024)];

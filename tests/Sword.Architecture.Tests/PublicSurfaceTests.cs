@@ -3,9 +3,8 @@ using System.Reflection;
 namespace Sword.Architecture.Tests;
 
 /// <summary>
-/// Публичная поверхность сборок, через которые игра работает с движком: ни одна публичная или защищённая сигнатура не
-/// выставляет типы нижних слоёв. Матрица ссылок (<see cref="ArchitectureRules"/>) этого не видит: Render вправе
-/// ссылаться на Rhi, но не вправе отдавать его типы наружу — иначе игра обращается к Rhi в обход Render.
+/// Ни одна публичная сигнатура сборки не выставляет типы нижних слоёв: Render вправе ссылаться на Rhi, но не отдавать его
+/// типы наружу. Матрица ссылок (<see cref="ArchitectureRules"/>) этого не видит.
 /// </summary>
 public sealed class PublicSurfaceTests
 {
@@ -100,10 +99,7 @@ public sealed class PublicSurfaceTests
     public static bool IsReadView(Type parameter) =>
         parameter.GetGenericParameterConstraints().Any(c => c.FullName == ReadViewName);
 
-    /// <summary>
-    /// Каждый вид только для чтения в сборках продукта (интерфейс, наследующий <c>IReadView</c>) только читает: иначе через
-    /// <c>WorldReader.View</c> клиент получил бы путь изменить симуляцию мимо команд тика.
-    /// </summary>
+    /// <summary>Вид только для чтения (наследник <c>IReadView</c>) только читает: иначе клиент изменил бы симуляцию мимо команд тика.</summary>
     [Fact]
     public void ReadViews_OnlyRead()
     {

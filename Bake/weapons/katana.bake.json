@@ -1,9 +1,0 @@
-{
-  "processor": "weapon.static",
-  "import": "combat_master",
-  "notes": "/Game/CombatMasterAnimBundle/Weapon/Katana/SM_Katana.",
-  "params": {
-    "mesh": "${src}/_Export/weapons/SM_Katana.glb",
-    "skeleton": "skeletons/ue5_manny"
-  }
-}

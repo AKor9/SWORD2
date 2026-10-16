@@ -52,8 +52,8 @@ public enum GaspGait : byte
 }
 
 /// <summary>
-/// Направление хода относительно лица в имени GASP (<see cref="GaspClipName.Angle(GaspDirection)"/>): F — вперёд, FL/FR — вперёд-влево и
-/// вперёд-вправо, LL/LR — влево (таз к левой или правой стороне), RL/RR — вправо, B — назад, BL/BR — назад-влево и назад-вправо.
+/// Направление хода относительно лица в имени GASP: F — вперёд, FL/FR — вперёд-влево/вправо, LL/LR — влево (таз к левой
+/// или правой стороне), RL/RR — вправо, B — назад, BL/BR — назад-влево/вправо.
 /// </summary>
 public enum GaspDirection : byte
 {
@@ -79,24 +79,14 @@ public enum GaspSide : byte
 }
 
 /// <summary>
-/// Разбор короткого имени клипа локомоции GASP: <c>&lt;Стиль&gt;_&lt;Походка&gt;_&lt;Вид&gt;_…</c> (на паке — <c>M_Neutral_Walk_Start_F_Lfoot</c>).
-/// Стиль — всё до первой походки (<c>Stand</c>, <c>Walk</c>, <c>Run</c>) или <c>Transition</c> — пропускается. Грамматика каждого
-/// вида — в <see cref="GaspKind"/>; обязательные части (направление, нога, сторона, угол) строгие: опечатка — ошибка, а не
-/// «неизвестное». Лишние слова после разобранного — хвост (<see cref="Tail"/>; на паке — <c>backstep</c> у двух <c>Reface</c>).
-///
-/// Имя — только первичная классификация: походка, «стойка», вид для отбора и модели скоростей. Продолжение и прошлое клипа политика
-/// графа берёт из измеренного движения, а не из имени (<see cref="GaspGraphPolicy"/>).
+/// Разбор короткого имени клипа локомоции GASP: <c>&lt;Стиль&gt;_&lt;Походка&gt;_&lt;Вид&gt;_…</c> (<c>M_Neutral_Walk_Start_F_Lfoot</c>);
+/// стиль пропускается. Обязательные части строгие: опечатка — ошибка, а не «неизвестное»; лишнее — в <see cref="Tail"/>.
+/// Имя — только первичная классификация: продолжение и прошлое клипа политика графа берёт из измеренного движения.
 /// </summary>
-/// <param name="Style">Пропущенный префикс стиля без последнего «_» (<c>M_Neutral</c>; пусто — стиля нет).</param>
-/// <param name="Gait">Походка; у смены походки — целевая.</param>
 /// <param name="FromGait">Походка в начале клипа: у смены походки — исходная, у остальных — та же <see cref="Gait"/>.</param>
 /// <param name="In">Направление хода на входе (<see cref="GaspDirection.None"/> — имя не говорит или стоит).</param>
-/// <param name="Out">Направление хода на выходе.</param>
-/// <param name="Foot">Ведущая нога (<c>Lfoot</c>/<c>Rfoot</c>).</param>
-/// <param name="Side">Сторона поворота, дуги, стрейфа, отклонения цикла.</param>
 /// <param name="Degrees">Угол поворота или отклонения, градусы (0 — нет в имени).</param>
 /// <param name="Figure">Фигура смены направления (<c>Box</c>…<c>Spin</c>) или размер дуги (<c>Small</c>, <c>Tight</c>, <c>Wide</c>).</param>
-/// <param name="Tail">Остаток имени (метки <c>Shuffle</c> вида <c>RFF_to_LFF</c>, <c>backstep</c>); пусто — нет.</param>
 public readonly record struct GaspClipName(string Style, GaspKind Kind, GaspGait Gait, GaspGait FromGait, GaspDirection In,
     GaspDirection Out, GaspSide Foot, GaspSide Side, int Degrees, string Figure, string Tail)
 {

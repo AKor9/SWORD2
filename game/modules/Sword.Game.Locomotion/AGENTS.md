@@ -21,7 +21,7 @@ Matching игрока при `mm` (`sword.json` игры). Описание — 
 - База MM — одна на процесс и отбор (`GaspMotionBase.For`, кэш по экземпляру `ClipLibrary` из `PosePool`), неизменяема
   (тест `SharedMotionData_ExposeNoWritableData`). Ошибка данных — `InvalidDataException` с причиной; в игре — ошибка старта,
   без отката на клипы (решение 9).
-- `locomotion.player = clips` регистрирует ровно то же, что до 8е: мир без `sword.json` (тесты, сценарии фич, эталоны SWORD2) — побитово
+- `locomotion.player = clips` регистрирует ровно то же, что до 8е: мир без `sword.json` (тесты, эталоны SWORD2) — побитово
   тот же (`ReferenceReplaysTests` без перезаписи). Компоненты, системы, ручки, участник хеша `locomotion` MM — только при `mm`.
 - MM игрока (8е): корень и курс ведёт ядро; будущее запроса — модель контроллера тика из компонента `SteerModel` (одна правда — не
   копировать выражения контроллера в модуль); поза постройки игрока — `FighterStartPose` (кадр стойки базы, ставится при сборке мира);
@@ -35,12 +35,11 @@ Matching игрока при `mm` (`sword.json` игры). Описание — 
   инвариант `locomotion.mmArm`. Поза постройки игрока несёт руку слоем (`FighterStartPose.Layer*`; ядро считает его в `StartPoseModel`
   тем же сэмплом и смешиванием по маске `Skeleton.SubtreeMask`): задания руки и слой позы постройки меняются вместе, иначе первый тик
   после постройки прыгнет (`SwordArmTests.BuildReset_KnobOnTheRun_NoJumps`).
-- Агенту и на экран (8з; `Motion/MotionMatchObservers.cs` — только при `mm`): наблюдателям — только вид `IMotionMatchView` из
-  `Game.Contracts` (клиент и агентская сборка модуль не видят; вид только читает); события переходов `MotionTransition` шлёт
+- На экран (8з; `Motion/MotionMatchObservers.cs` — только при `mm`): наблюдателям — только вид `IMotionMatchView` из
+  `Game.Contracts` (клиент модуль не видит; вид только читает); события переходов `MotionTransition` шлёт
   `locomotion.mm-events` (Movement, до `locomotion.mm-history`); диагностика поиска (`MotionMatchDiagnostics`: последний поиск, время) — вне
-  хеша и не влияет на поведение; тяжёлые инварианты `locomotion.mmDecay`, `locomotion.mmContinuity` (в `$heavyIds` `verify.ps1` и в списке
-  `InvariantTests`); отпечаток базы — сведение реплея `locomotion.base`. Новое видимое MM — в вид, оверлей `mm` клиента и `anim.pose`.
+  хеша и не влияет на поведение; тяжёлые инварианты `locomotion.mmDecay`, `locomotion.mmContinuity` (в списке `InvariantTests`); отпечаток базы — сведение реплея `locomotion.base`. Новое видимое MM — в вид и оверлей `mm` клиента.
 
 Проверка: `tests/Sword.Game.Tests/AnimationTests`, `tests/Sword.Game.Tests/Locomotion/` (MM — `MotionMatchTests`, рука с мечом —
-`SwordArmTests`, агенту и на экран — `MotionMatchAgentTests`, `MotionMatchGpuTests`, на паке), эталоны SWORD2
-(`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke` (со `sword.json` — MM), `without-modules`, `agent-smoke`.
+`SwordArmTests`, на экран — `MotionMatchViewTests`, `MotionMatchGpuTests`, на паке), эталоны SWORD2
+(`ReferenceReplaysTests`); `verify.ps1` — `headless-smoke` (со `sword.json` — MM), `without-modules`.

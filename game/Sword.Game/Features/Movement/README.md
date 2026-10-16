@@ -45,8 +45,8 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 
 ## Настройки
 
-Своих ключей конфига нет: константы — `MovementRules` (значения взяты из SWORD; скорости и край держат метрики манифеста и
-тесты свойств). Шаг тика — `sim.tickRate` (120), потолок тиков за кадр — `sim.maxTicksPerFrame` (8).
+Своих ключей конфига нет: константы — `MovementRules` (значения взяты из SWORD; скорости и край держат тесты
+свойств). Шаг тика — `sim.tickRate` (120), потолок тиков за кадр — `sim.maxTicksPerFrame` (8).
 
 ## Зависимости
 
@@ -65,8 +65,6 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 
 ## Что проверить в игре
 
-Те же пункты — `checklist` в [feature.json](feature.json) (тест `FeatureManifestsTests` сверяет).
-
 Управление с клавиатуры — в `Features/Control`; здесь — заданной командой: `--move`/`--walk`/`--gaze` заменяют ввод
 игрока, камера управляется как обычно.
 
@@ -78,21 +76,15 @@ SWORD 2eab13b, путь `DuelArena.KinematicSteer` — без контролле
 4. `Sword.exe --move 0,1 --walk` — заметно медленнее: шаг, а не бег.
 5. Без ключей — Manny стоит в центре.
 
-## Агентский доступ
-
-Приёмка — [feature.json](feature.json): сценарии командами (бег до края, шаг, на колонну, со взглядом, стоит) и эталон
-прототипа; инварианты `ecs.*` и `movement.rootOverlap`; метрики — свои числа: скорости бега и шага и край арены —
-константы `MovementRules`/`ArenaLayout`, корень у колонны и курс взгляда — замер SWORD2; виды — бег и колонна; бюджет
-бега. `Sword.Headless --feature movement` или `feature.verify {"id":"movement"}`.
+## Ключи запуска для проверки
 
 - `Sword.Headless --ticks N --move X,Z [--gaze X,Z] [--walk] [--set …] --json` — итог: где игрок, курс, скорость,
   траектория (`--sample`), мс на тик, выделенные байты на тик после прогрева (`allocatedBytesPerTick`, ждём 0), список
   систем (`метка@стадия`, в порядке исполнения), модули, итоговый конфиг и его источники.
 - `Sword.exe --move … --ticks-per-frame N --frames M --shot F.png --json` — картинка ровно после N·M тиков; в итоге
   `simTicks` и корень игрока последнего кадра (`player`).
-- Агент: состояние на ходу — `entity.get`/`world.query`, почему игрок оказался здесь — `state.why`, воздействие —
-  `command.send` (`PlayerCommand`); регрессию держат `feature.verify movement`, эталон `prototype.swreplay` (хеши каждого
-  тика, `replay.check`/`replay.diff`), инвариант `movement.rootOverlap` и тесты свойств — нового инструмента не требуется.
+- Регрессию держат эталон `prototype.swreplay` (хеши каждого тика), инварианты `ecs.*` и `movement.rootOverlap`,
+  тесты свойств.
 - Клиент видит мир только через `WorldReader` (`SimulationLink.World`), владелец симуляции — тоже: изменить симуляцию
   мимо команд тика нельзя (`SimulationLink_ReachesOnlyReadOnlyWorld`, `OwnerSeesWorldReadOnly`).
 

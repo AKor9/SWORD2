@@ -4,10 +4,8 @@ using Sword.Engine.Animation.Motion;
 namespace Sword.Engine.Animation.Tests;
 
 /// <summary>
-/// Данные тестов постройки базы: синтетический скелет с ногами (корень, таз, бёдра, стопы, спина), клипы походки 30 кадров/с
-/// — корень задан формулой (смещение и курс по времени), шаг — треугольная волна стопы: в опоре стопа едет назад со скоростью
-/// корня (стоит в мире), в переносе — вперёд и поднята; таз качается. Схема — все виды групп; политика графа — тестовая, без
-/// имён: по измеренным скоростям.
+/// Синтетический скелет с ногами и клипы походки 30 кадров/с: корень задан формулой, стопа — треугольная волна (в опоре стоит
+/// в мире, в переносе — поднята); политика графа — по измеренным скоростям, без имён.
 /// </summary>
 internal static class MotionBuildFixtures
 {
@@ -68,10 +66,7 @@ internal static class MotionBuildFixtures
     public static Synth WalkStart(string name = "Walk_Start", Func<double, double>? pelvis = null) =>
         new(name, false, 31, t => (0, 0.75 * t * t, 0), t => 1.5 * t, PelvisExtra: pelvis);
 
-    /// <summary>
-    /// Длинный старт: разгон за 1 с, затем 1 с ровного шага — хвост клипа совпадает с циклом шага (цены шва ~0, различие — шум
-    /// округления); 61 кадр.
-    /// </summary>
+    /// <summary>Длинный старт (61 кадр): разгон за 1 с, затем 1 с шага — хвост совпадает с циклом (цена шва ~0).</summary>
     public static Synth WalkStartLong(Func<double, double>? pelvis = null) => new("Walk_Start_Long", false, 61,
         t => (0, t <= 1 ? 0.75 * t * t : 0.75 + 1.5 * (t - 1), 0), t => 1.5 * Math.Min(t, 1), PelvisExtra: pelvis);
 
@@ -158,7 +153,6 @@ internal static class MotionBuildFixtures
     public static int[] Find(ClipLibrary library, params string[] names) =>
         [.. names.Select(n => library.FindClip("synth/" + n) is var i and >= 0 ? i : throw new ArgumentException($"нет клипа {n}"))];
 
-    /// <summary>Все клипы библиотеки по порядку.</summary>
     public static int[] All(ClipLibrary library) => [.. Enumerable.Range(0, library.ClipCount)];
 
     /// <summary>

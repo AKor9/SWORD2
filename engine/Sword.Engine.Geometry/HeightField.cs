@@ -3,14 +3,9 @@ using System.Numerics;
 namespace Sword.Engine.Geometry;
 
 /// <summary>
-/// Поле высот — одна правда о рельефе (раздел 6 ARCHITECTURE_PLAN.md): игра строит его из описания уровня, физика
-/// и IK читают его на CPU (<see cref="Sample"/>), шейдеры — те же узлы буфером. Квадратная сетка узлов
-/// <see cref="Nodes"/>×<see cref="Nodes"/> над областью [−<see cref="Half"/>, +<see cref="Half"/>]² по x и z;
-/// узел (i, k) — точка (−Half + i·<see cref="Step"/>, −Half + k·Step), высоты по строкам z: <c>Heights[k·Nodes + i]</c>.
-/// Вне области высота — у ближайшего края.
-///
-/// Разрывы (вертикальные подступенки) поле не передаёт: между узлами высота линейна. Где физике нужен точный
-/// уступ, его задают явными примитивами рядом с полем.
+/// Поле высот — одна правда о рельефе: физика и IK читают его на CPU, шейдеры — те же узлы буфером. Сетка
+/// <see cref="Nodes"/>² над [−<see cref="Half"/>, +Half]² по x и z, высоты по строкам z: <c>Heights[k·Nodes + i]</c>;
+/// вне области — у ближайшего края. Между узлами высота линейна: уступы задают примитивами рядом.
 /// </summary>
 public sealed class HeightField
 {
@@ -56,10 +51,7 @@ public sealed class HeightField
         return new HeightField(cells, half, h);
     }
 
-    /// <summary>
-    /// Координата узла. Так же считает вершинный шейдер сетки: −half + i·(2·half / cells) — одно умножение, без
-    /// накопления шага.
-    /// </summary>
+    /// <summary>Координата узла — одним умножением без накопления шага, как в вершинном шейдере сетки.</summary>
     private static float NodeCoord(int i, float half, float step) => -half + i * step;
 
     /// <summary>Координата узла <paramref name="i"/> по x или z, м.</summary>
@@ -69,8 +61,7 @@ public sealed class HeightField
     public float Node(int i, int k) => _heights[k * Nodes + i];
 
     /// <summary>
-    /// Высота в точке. Ячейка делится диагональю от (0, 0) к (1, 1) на два треугольника — как сетку делит на
-    /// треугольники вершинный шейдер, поэтому CPU и картинка сходятся и на склонах, а не только в узлах.
+    /// Высота в точке. Ячейка делится диагональю (0, 0)–(1, 1), как в вершинном шейдере, — CPU и картинка сходятся и на склонах.
     /// </summary>
     public float Sample(float x, float z)
     {

@@ -3,9 +3,8 @@ using Vortice.Direct3D12;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// Запись работы прохода без типов D3D12: конвейер, корневые константы, отрисовка (графический проход) или dispatch
-/// (вычислительный). Цели, область вывода, корневую сигнатуру и константы кадра уже поставил граф. Корневые константы
-/// в начале каждого прохода — нули: проходы не видят чужих слотов.
+/// Запись работы прохода без типов D3D12; цели, корневую сигнатуру и константы кадра уже поставил граф. Корневые константы
+/// в начале прохода — нули.
 /// </summary>
 public sealed class RenderPassContext
 {
@@ -83,10 +82,7 @@ public sealed class RenderPassContext
 
     public void SetConstant(int slot, float value) => SetConstant(slot, BitConverter.SingleToUInt32Bits(value));
 
-    /// <summary>
-    /// Обрезка следующих отрисовок: прямоугольник в пикселях цели [<paramref name="left"/>, <paramref name="right"/>) ×
-    /// [<paramref name="top"/>, <paramref name="bottom"/>), зажимается в цель. В начале прохода — вся цель.
-    /// </summary>
+    /// <summary>Обрезка следующих отрисовок в пикселях цели, зажимается в цель; в начале прохода — вся цель.</summary>
     public void SetScissor(int left, int top, int right, int bottom)
     {
         Require(PassKind.Graphics, "обрезка");

@@ -3,9 +3,8 @@ using System.Numerics;
 namespace Sword.Engine.Render.Tests;
 
 /// <summary>
-/// CPU-эталон точечного света (<see cref="PointLightMath"/>) против формул UE 5.8, записанных здесь заново: затухание обоих режимов на
-/// d = 0, R/2, R, за R; угасание по дальности показа; UV light function — цепочка UE (оси UE, перестановка zyx, сферические углы) и
-/// шесть осей; значение LF в пределах 0…1 и переход к яркости без LF; сдвиги по времени.
+/// CPU-эталон точечного света (<see cref="PointLightMath"/>) против формул UE 5.8: затухание обоих режимов, угасание по дальности,
+/// UV light function (цепочка UE и шесть осей), сдвиги по времени.
 /// </summary>
 public sealed class PointLightMathTests
 {

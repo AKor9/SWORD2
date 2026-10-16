@@ -22,7 +22,6 @@
     <ProjectReference Include="..\..\game\Sword.Game\Sword.Game.csproj" />
     <ProjectReference Include="..\..\game\Sword.Game.Bootstrap\Sword.Game.Bootstrap.csproj" />
     <ProjectReference Include="..\..\game\Sword.Game.Client\Sword.Game.Client.csproj" />
-    <ProjectReference Include="..\..\game\Sword.Game.Agent\Sword.Game.Agent.csproj" />
     <ProjectReference Include="..\..\engine\Sword.Engine.Platform.Win32\Sword.Engine.Platform.Win32.csproj" />
     <!-- Разбор ключей Sword.exe (фокус окна, SWORD_NO_ACTIVATE): AppOptionsTests. -->
     <ProjectReference Include="..\..\game\Sword.Game.App\Sword.Game.App.csproj" />

@@ -9,10 +9,8 @@ using Sword.Engine.Ui;
 namespace Sword.Engine.Render.Tests;
 
 /// <summary>
-/// Картинки из пикселей (<see cref="Renderer.CreateImage"/>) и шрифты UI-прохода от вызывающего
-/// (<see cref="RendererOptions.UiFonts"/>) на настоящем устройстве со слоем отладки и GPU-валидацией: картинка рисуется
-/// <see cref="UiDrawList.Image"/> с нужным мипом (цвет кадра — из снимка), проход берёт шрифты вызывающего, а не пака.
-/// Шрифты для прохода читаются из пака — категория Content.
+/// Картинки из пикселей (<see cref="Renderer.CreateImage"/>) рисуются <see cref="UiDrawList.Image"/> с нужным мипом, UI-проход
+/// берёт шрифты вызывающего (<see cref="RendererOptions.UiFonts"/>), а не пака. Шрифты читаются из пака — категория Content.
 /// </summary>
 [Collection("gpu")]
 [Trait("Category", "Gpu")]

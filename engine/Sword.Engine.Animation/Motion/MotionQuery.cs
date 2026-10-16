@@ -1,18 +1,10 @@
 namespace Sword.Engine.Animation.Motion;
 
 /// <summary>
-/// Запрос поиска по схеме базы, в системе корня <c>state.Root</c>: траектория будущего — предсказание модели
-/// контроллера (<see cref="TrajectoryModel.Predict(in TrajectoryState, ReadOnlySpan{float}, float, Span{TrajectoryState})"/>,
-/// один проход на все моменты) в моменты <see cref="MotionSchema.FutureTimes"/>; прошлое — из истории корня
-/// (<see cref="RootHistory.At"/>) в моменты <see cref="MotionSchema.PastTimes"/>; скорость и угловая скорость корня — из
-/// модели; суставы — признаки текущего кадра базы (а не видимой позы после инерциализации: иначе поза запроса проигрывает
-/// продолжению и сбивает фазу шага). Масштаб данных: скорость состояния и прошлое умножаются на <c>velocityScale</c>, цель — на
-/// <c>goalScale</c> (скорость управления → скорость клипов в этом направлении); угловая скорость зажата
-/// <c>maxYawRate</c>. Итог нормализуется <see cref="MotionDatabase.Mean"/>/<see cref="MotionDatabase.Std"/>. Буферы — свои,
-/// <see cref="Fill"/> память не выделяет; экземпляр — у каждой симуляции свой.
-///
-/// Раскладка групп — как у базы (<see cref="FeatureKind"/>): положения и направления — по моменту подряд (x, z) и
-/// (sin, cos курса), скорость — (x, z), всё в системе корня (+Z вперёд, +X влево).
+/// Запрос поиска по схеме базы в системе корня <c>state.Root</c>: будущее — предсказание модели контроллера, прошлое — история
+/// корня, скорости корня — из модели, суставы — признаки текущего кадра базы (а не видимой позы: иначе запрос проигрывает
+/// продолжению и сбивает фазу шага). Скорость и прошлое × <c>velocityScale</c>, цель × <c>goalScale</c>, угловая скорость
+/// зажата <c>maxYawRate</c>; итог нормализуется. <see cref="Fill"/> память не выделяет.
 /// </summary>
 public sealed class MotionQuery
 {
@@ -40,23 +32,16 @@ public sealed class MotionQuery
     public ReadOnlySpan<float> Raw => _raw;
 
     /// <summary>
-    /// |ω| корня искомых кадров базы, 99-й перцентиль (ближний ранг), не меньше 1 рад/с, — обычный зажим угловой скорости
-    /// запроса. Источник — сырой признак группы <see cref="FeatureKind.RootYawRate"/>; её нет в схеме — поворот корня за
-    /// интервал графа (<see cref="MotionDatabase.Interval"/>) × частота кадров: то же «ω кадра», измеренное по графу.
+    /// 99-й перцентиль |ω| корня искомых кадров (не меньше 1 рад/с) — обычный зажим угловой скорости запроса; без группы
+    /// <see cref="FeatureKind.RootYawRate"/> — по поворотам интервалов графа.
     /// </summary>
     public float DataYawRate { get; }
 
-    /// <summary>Заполнить запрос.</summary>
     /// <param name="state">Корень (мир) и его скорость сейчас.</param>
     /// <param name="model">Модель контроллера на этот тик (цели и пределы).</param>
-    /// <param name="history">
-    /// История корня; шаг предсказания — её <see cref="RootHistory.TickSeconds"/>. Пуста — прошлое по текущему корню, сдвинутому
-    /// назад по скорости состояния (как у короткой истории).
-    /// </param>
+    /// <param name="history">История корня; шаг предсказания — её <see cref="RootHistory.TickSeconds"/>. Пуста — прошлое по скорости состояния.</param>
     /// <param name="now">Номер текущего тика (прошлое — тики <c>now + round(t / тик)</c>).</param>
     /// <param name="current">Текущий кадр базы (признаки суставов); −1 — нет: суставы — средние по базе (нормализованные нули).</param>
-    /// <param name="velocityScale">Масштаб скорости состояния и прошлого (kv).</param>
-    /// <param name="goalScale">Масштаб целевой скорости (kg).</param>
     /// <param name="maxYawRate">Зажим угловой скорости корня, рад/с (обычно <see cref="DataYawRate"/>).</param>
     /// <exception cref="ArgumentException">Кадр вне базы, масштаб не конечен, зажим меньше 0 или не число.</exception>
     public void Fill(in TrajectoryState state, in TrajectoryModel model, RootHistory history, long now, int current, float velocityScale,

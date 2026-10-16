@@ -11,9 +11,8 @@ public sealed partial class UiContext
     public const float FieldPadding = 7;
 
     /// <summary>
-    /// Однострочное поле ввода. Щелчок — фокус и каретка, протяжка и Shift — выделение, двойной щелчок — слово;
-    /// Ctrl+A/C/X/V, Ctrl+←/→/Backspace/Delete — по словам; Enter и Escape снимают фокус (чем закончилась правка —
-    /// <see cref="UiTextEdit.LastExit"/> в <c>State&lt;UiTextEdit&gt;(Id(label))</c>).
+    /// Однострочное поле ввода: выделение мышью и Shift, двойной щелчок — слово, Ctrl+A/C/X/V и правка по словам;
+    /// Enter и Escape снимают фокус (итог — <see cref="UiTextEdit.LastExit"/>).
     /// </summary>
     /// <returns>Текст изменился в этом кадре.</returns>
     public bool TextField(UiRect r, ReadOnlySpan<char> label, ref string text, ReadOnlySpan<char> placeholder = default) =>
@@ -150,18 +149,15 @@ public sealed partial class UiContext
     }
 
     /// <summary>
-    /// Число в поле ввода: значение принимается по Enter или щелчку мимо (не число — остаётся прежнее, число вне
-    /// [<paramref name="min"/>, <paramref name="max"/>] — прижимается), Escape — отмена.
-    /// Вне правки число рисуется со стека: строка создаётся только щелчком, берущим фокус (в SWORD — каждый кадр).
+    /// Число в поле ввода: принимается по Enter или щелчку мимо (не число — прежнее, вне [min, max] — прижимается),
+    /// Escape — отмена. Вне правки число рисуется со стека, строка создаётся только щелчком, берущим фокус.
     /// </summary>
     /// <returns>Значение изменилось.</returns>
     public bool NumberField(UiRect r, ReadOnlySpan<char> label, ref float value, string format = "0.###",
         float min = float.MinValue, float max = float.MaxValue)
     {
-        uint editId = Id(label, "#edit");   // ID поля правки SWORD — Id(label + "#edit"), без склейки строк
-        // Своё состояние числа — под своим ID («подпись#value»: та же подпись у ползунка рядом его не заденет). В SWORD
-        // оно лежало под ID поля правки рядом с UiTextEdit, и State<T> каждый кадр заменял одно другим: правка числа
-        // не доживала до следующего кадра.
+        uint editId = Id(label, "#edit");   // Id(label + "#edit") без склейки строк
+        // Своё состояние числа — под своим ID «подпись#value»: под ID поля правки State<T> каждый кадр заменял бы его UiTextEdit.
         var st = State<NumberState>(Id(label, "#value"));
         bool idle = FocusId != editId && !st.Editing;
         if (idle && ActiveId != editId && !(IsHovered(r) && Input.Pressed(0) && ActiveId == 0))
@@ -176,7 +172,7 @@ public sealed partial class UiContext
             DrawField(r, shown, default, focused: false, hovered, State<UiTextEdit>(editId));
             return false;
         }
-        if (idle) st.Text = value.ToString(format, CultureInfo.InvariantCulture);   // вне правки строка — из значения (SWORD)
+        if (idle) st.Text = value.ToString(format, CultureInfo.InvariantCulture);   // вне правки строка — из значения
 
         TextField(r, editId, ref st.Text, default);
         var edit = State<UiTextEdit>(editId);

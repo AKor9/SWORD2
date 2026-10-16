@@ -7,16 +7,13 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Locomotion.Motion;
 
 /// <summary>
-/// Диагностика Motion Matching симуляции: по слоту проигрывателя — последний поиск (тик, повод, корень «сейчас» запроса, текущий кадр,
-/// итог, сменил ли кадр, запрос в сырых единицах — для траекторий вида и оверлея), запрошенный переход тика (для события
-/// <see cref="MotionTransition"/>) и время поиска; зона профайлера <see cref="Zone"/> вокруг запроса и перебора. Всё это — производное
-/// авторитетного состояния тика (запрос и итог поиска повторяются при воспроизведении), кроме времени (от машины): в хеш и реплей не входит,
-/// поведение от него не зависит. Запись — в <c>locomotion.mm</c> (поиск), чтение — вид, описание участника <c>locomotion</c>, событие перехода.
-/// Память — при первом поиске слота; тик — 0 Б.
+/// Диагностика Motion Matching: по слоту проигрывателя — последний поиск (запрос в сырых единицах — для вида и оверлея),
+/// запрошенный переход тика и время поиска. Производное состояния тика, кроме времени (от машины): в хеш и реплей не
+/// входит, поведение от него не зависит. Память — при первом поиске слота; тик — 0 Б.
 /// </summary>
 public sealed class MotionMatchDiagnostics
 {
-    /// <summary>Зона профайлера поиска (<c>profile.stages</c>): запрос и перебор, под <c>locomotion.mm@Animation</c>.</summary>
+    /// <summary>Зона профайлера поиска: запрос и перебор, под <c>locomotion.mm@Animation</c>.</summary>
     public const string Zone = "locomotion.search";
 
     /// <summary>Последний поиск слота (запись — только <see cref="Searched"/>).</summary>
@@ -62,8 +59,7 @@ public sealed class MotionMatchDiagnostics
         !player.IsNone && player.Index < _records.Length && _records[player.Index] is { } r && r.Generation == player.Generation && r.Tick >= 0 ? r : null;
 
     /// <summary>
-    /// Профайлер мира (<c>SystemContext.World.Profiler</c>) — в начале <c>locomotion.mm</c>: сменился — зона <see cref="Zone"/> заводится в
-    /// нём (раз на профайлер; у <see cref="CpuProfiler.Off"/> — без регистрации).
+    /// Профайлер мира — в начале <c>locomotion.mm</c>: сменился — зона <see cref="Zone"/> заводится в нём (раз на профайлер).
     /// </summary>
     public void Attach(CpuProfiler profiler)
     {
@@ -98,8 +94,7 @@ public sealed class MotionMatchDiagnostics
     }
 
     /// <summary>
-    /// Поиск проигрывателя <paramref name="player"/> в тике <paramref name="tick"/>: повод, корень запроса, текущий кадр, итог, сменил ли кадр
-    /// (запрошенный переход в кадр итога — в этом тике), время, запрос (<paramref name="query"/> — сырые единицы).
+    /// Поиск проигрывателя <paramref name="player"/> в тике <paramref name="tick"/>; <paramref name="query"/> — сырые единицы.
     /// </summary>
     public void Searched(MotionPlayerHandle player, long tick, MotionSearchReason reason, Pose2 root, int current, in MotionMatch match,
         bool switched, double microseconds, ReadOnlySpan<float> query)

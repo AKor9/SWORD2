@@ -26,22 +26,14 @@ internal struct DebugCapsule
 }
 
 /// <summary>
-/// Отладочное рисование (раздел 6 плана, фаза Debug — после сцены): отрезки, капсулы и текст в мире для диагностики фич.
-/// Кадр копит примитивы (<see cref="Line"/>, <see cref="Capsule"/>, <see cref="Text"/>) прямо в кольца кадра, проход
-/// (<see cref="AddPass"/>) рисует всё накопленное поверх цели — заднего буфера или слоя снимка
-/// (<see cref="RenderFrame.CaptureLayer"/>); проходов в кадре может быть несколько, накопленное — одно: проход рисует накопленное
-/// к его регистрации, с начала кадра или с отметки (<see cref="Mark"/>: слой снимка одного оверлея). Глубины сцены нет:
-/// примитивы видны сквозь геометрию («рентген» поверх персонажей). Капсулы — полупрозрачные, с плотной кромкой (видны и
-/// одна поверх другой), без вершинного буфера: сетка — из SV_VertexID; отрезки — поверх капсул. Текст — проекцией точки
-/// мира на экран, UI-проходом (<see cref="UiPass"/>, шрифты пака). Цвет — <c>0xAABBGGRR</c>, как у интерфейса.
-/// Установившийся кадр памяти не выделяет. Переполнение — лишнее не рисуется, предупреждение в журнал один раз.
+/// Отладочное рисование (фаза Debug): отрезки, капсулы и текст в мире. Кадр копит примитивы в кольца кадра, проход
+/// (<see cref="AddPass"/>) рисует накопленное к его регистрации — с начала кадра или с отметки (<see cref="Mark"/>).
+/// Без глубины сцены: видно сквозь геометрию. Цвет — <c>0xAABBGGRR</c>. Установившийся кадр памяти не выделяет;
+/// переполнение — лишнее не рисуется, предупреждение в журнал один раз.
 /// </summary>
 public sealed class DebugDraw : IDisposable
 {
-    /// <summary>
-    /// Отметка накопленного (<see cref="Mark"/>): проход с ней (<see cref="AddPass"/>, <c>since</c>) рисует только добавленное после
-    /// неё — у каждого оверлея свой слой снимка, хотя кадр копит всё в одних кольцах. По умолчанию — начало кадра.
-    /// </summary>
+    /// <summary>Отметка накопленного: проход с ней рисует только добавленное после неё.</summary>
     public readonly record struct DebugMark(int LineVertices, int Capsules, int Texts);
 
     /// <summary>Вершин отрезков (по две на отрезок), капсул и подписей на кадр.</summary>
@@ -49,11 +41,7 @@ public sealed class DebugDraw : IDisposable
 
     public const int MaxTexts = 512;
 
-    /// <summary>
-    /// Проходов отладочного рисования в кадре не больше: работа прохода — заранее созданные делегаты. Слои снимка арены —
-    /// капсулы, клинки, контакты, суставы, mm, источники — и её проход на экран (7), клиентские модули — свой слой и свой проход на экран
-    /// (огонь — 2): предел — 12 с запасом.
-    /// </summary>
+    /// <summary>Проходов отладочного рисования в кадре не больше: работа прохода — заранее созданные делегаты.</summary>
     public const int MaxPassesPerFrame = 12;
 
     /// <summary>Сетка капсулы: вершин по кругу и колец на полусферу; вершин на капсулу — <see cref="CapsuleVertices"/>.</summary>
@@ -61,10 +49,7 @@ public sealed class DebugDraw : IDisposable
 
     public const uint CapsuleVertices = (2 * CapsuleRings + 1) * CapsuleAround * 6;
 
-    /// <summary>
-    /// Слоты корневых констант прохода: матрица вида-проекции — 16 подряд, глаз — 3 подряд, кольца кадра, первая вершина отрезков
-    /// и первая капсула прохода (с отметки).
-    /// </summary>
+    /// <summary>Слоты корневых констант прохода: матрица вида-проекции — 16 подряд, глаз — 3 подряд, кольца, начала с отметки.</summary>
     private const int SlotViewProj = 0, SlotEye = 16, SlotLines = 19, SlotCapsules = 20, SlotLineBase = 21, SlotCapsuleBase = 22;
 
     private const string Shader = "common/debug.hlsl";
@@ -120,8 +105,6 @@ public sealed class DebugDraw : IDisposable
 
     /// <summary>Накоплено в этом кадре: отрезков, капсул, подписей.</summary>
     public int LineCount => _lineVertices / 2;
-    public int CapsuleCount => _capsuleCount;
-    public int TextCount => _textCount;
 
     /// <summary>В этом кадре нечего рисовать.</summary>
     public bool IsEmpty => _lineVertices == 0 && _capsuleCount == 0 && _textCount == 0;
@@ -156,10 +139,7 @@ public sealed class DebugDraw : IDisposable
         };
     }
 
-    /// <summary>
-    /// Подпись в точке мира: центр строки — в проекции точки, высота букв <paramref name="size"/> пикселей. Строка
-    /// хранится до прохода: без выделений — только готовые строки.
-    /// </summary>
+    /// <summary>Подпись в точке мира: центр строки — в проекции точки, высота букв <paramref name="size"/> пикселей.</summary>
     public void Text(Vector3 world, string text, uint colour, float size = 14)
     {
         if (_textCount >= MaxTexts)
@@ -179,11 +159,8 @@ public sealed class DebugDraw : IDisposable
     }
 
     /// <summary>
-    /// Проход «накопленное поверх <paramref name="target"/>» (цель размера кадра) камерой <paramref name="viewProj"/>
-    /// (вектор слева, как <c>Matrix4x4</c>) с глазом <paramref name="eye"/>; подписи — UI-проходом следом за ним. Рисуется
-    /// накопленное к этому вызову с отметки <paramref name="since"/> (по умолчанию — с начала кадра).
-    /// <paramref name="clear"/> — очистить цель этим цветом (слой снимка: прозрачный); тогда проход есть, даже если рисовать
-    /// нечего. Без очистки и без накопленного — прохода нет.
+    /// Проход «накопленное с отметки <paramref name="since"/> поверх <paramref name="target"/>» камерой <paramref name="viewProj"/>
+    /// (вектор слева); подписи — UI-проходом следом. Без очистки и без накопленного — прохода нет.
     /// </summary>
     public void AddPass(RenderFrame frame, RenderTexture target, in Matrix4x4 viewProj, Vector3 eye, string name = "debug", Vector4? clear = null,
         DebugMark since = default)

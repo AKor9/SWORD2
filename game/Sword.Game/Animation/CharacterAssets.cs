@@ -7,21 +7,18 @@ using Sword.Game.Data;
 namespace Sword.Game.Animation;
 
 /// <summary>
-/// Ассеты бойца (<c>CharacterRig.TryLoad</c> SWORD): скелет Manny, поза привязки из его меша, все клипы библиотеки этого
-/// скелета, таблица действий (<c>combat/actions.json</c>), таблица оружия (мечи пака, <see cref="WeaponTable"/>) и
-/// таблица ударов (<see cref="StrikeTable"/>: окна по клинку меча по умолчанию в кисти <see cref="HandJoint"/>). Без любого из
-/// них игра не стартует: боец SWORD2 — скелетный всегда (капсульных бойцов SWORD без рига здесь нет). Всё неизменяемо —
-/// общее для симуляций процесса.
+/// Ассеты бойца: скелет Manny, поза привязки, клипы, таблицы действий, оружия (<see cref="WeaponTable"/>) и ударов
+/// (<see cref="StrikeTable"/>). Без любого из них игра не стартует. Всё неизменяемо — общее для симуляций процесса.
 /// </summary>
 public sealed class CharacterAssets
 {
     /// <summary>Скелет персонажа в библиотеке контента.</summary>
     public const string SkeletonId = "ue5_manny";
 
-    /// <summary>Меш персонажа (печёт skin.mesh по манифесту Bake/characters/manny/mesh.bake.json) — из него поза привязки.</summary>
-    public const string MeshFile = "characters/manny/mesh.swmesh";
+    /// <summary>Меш персонажа (печёт конвертер character по рецепту Bake/recipes/src/_Export/meshes/manny.glb.bake.json) — из него поза привязки.</summary>
+    public const string MeshFile = "meshes/characters/manny.swmesh";
 
-    /// <summary>Сустав, в котором оружие (<c>CharacterRig.Hand</c>): меч — жёсткое вложение в его систему.</summary>
+    /// <summary>Сустав, в котором оружие: меч — жёсткое вложение в его систему.</summary>
     public const string HandJoint = "hand_r";
 
     /// <summary>Библиотека клипов скелета — только чтение; пул поз у каждой симуляции свой (<see cref="GameCore"/>).</summary>
@@ -40,8 +37,7 @@ public sealed class CharacterAssets
     private Ragdoll.CorpseJoints.Anatomy? _hinges;
 
     /// <summary>
-    /// Анатомические оси шарниров трупа (локти и колени — ось сгиба кости по клипам библиотеки, <see cref="Ragdoll.CorpseJoints.Anatomy"/>) —
-    /// считаются один раз на ассеты (десятки мс на паке), дальше общие для симуляций процесса: только чтение.
+    /// Анатомические оси шарниров трупа (<see cref="Ragdoll.CorpseJoints.Anatomy"/>) — считаются один раз на ассеты (десятки мс).
     /// </summary>
     public Ragdoll.CorpseJoints.Anatomy Hinges =>
         LazyInitializer.EnsureInitialized(ref _hinges, () => new Ragdoll.CorpseJoints.Anatomy(Clips, new Bodies.BodyJoints(Clips.Skeleton)));
@@ -55,7 +51,7 @@ public sealed class CharacterAssets
         Hand = hand;
     }
 
-    /// <summary>Из пака игры (<see cref="ContentLocator"/>: переменная SWORD_CONTENT или ближайший пак вверх от exe).</summary>
+    /// <summary>Из пака игры (<see cref="ContentLocator"/>).</summary>
     /// <exception cref="FileNotFoundException">Нет пака или нужного в нём.</exception>
     /// <exception cref="InvalidDataException">Пак или ассеты испорчены.</exception>
     public static CharacterAssets LoadFromPak()

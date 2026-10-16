@@ -33,6 +33,23 @@ public sealed class FireFlameTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void TailCut_TailTransparent_FlameUntouched_OffIsMiTorch4()
+    {
+        // Хвост (ρ 0.2: k ≈ 0) — прозрачен; пламя (k ≥ GlowCut) — альфа как без среза; срез 0 — альфа = ρ, как MI_Torch4.
+        var off = P with { GlowCut = 0 };
+        var uv = new Vector2(0.5f);
+        var tail = new Vector4(0, 0, 0.2f, 1);
+        Assert.True(FlameMath.K(0.5f, 0.2f, P) < 0.01f * P.GlowCut);
+        Assert.True(FlameMath.Pixel(tail, 0.5f, 0.5f, 0, uv, 1, 0, Vector3.Zero, P).W < 0.01f * 0.2f);
+        Assert.Equal(0.2f, FlameMath.Pixel(tail, 0.5f, 0.5f, 0, uv, 1, 0, Vector3.Zero, off).W, 1e-6f);
+        var core = new Vector4(0, 0, 0.9f, 1);
+        Assert.True(FlameMath.K(0.6f, 0.9f, P) >= P.GlowCut);
+        Assert.Equal(FlameMath.Pixel(core, 0.6f, 0.6f, 0, uv, 1, 0, Vector3.Zero, off), FlameMath.Pixel(core, 0.6f, 0.6f, 0, uv, 1, 0, Vector3.Zero, P));
+        // Между — линейно по k: половина среза — половина альфы.
+        Assert.Equal(0.5f, FlameMath.Glow(0.5f * P.GlowCut, P), 1e-6f);
+    }
+
+    [Fact]
     public void Core_BrighterThanOne_BlueAfterFilmic()
     {
         // Ядро (ρ 1, шум 0.5 и 1) в HDR > 1 — даёт bloom; после экспозиции и Filmic синий канал > 0 при Color1.B = 0 (FSR §3.10а п.7).

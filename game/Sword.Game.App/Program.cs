@@ -15,34 +15,25 @@ using Sword.Game.Contracts;
 namespace Sword.Game.App;
 
 /// <summary>
-/// Точка входа игры SWORD: композиция симуляции (<see cref="SwordSimulation"/> — та же, что у Headless), клиента
-/// (<see cref="ArenaClient"/>) и привязок ввода (секция конфига <c>input</c>: действия игры и клиента движка).
-/// WASD относительно камеры, курсор — взгляд, колесо — зум; <c>--move</c> заменяет ввод заданной командой (проверочные
-/// прогоны). HUD (FPS, справка — F1), снимок F4, бенч кадра (<c>--bench</c>). <c>--agent</c> — сервер
-/// MCP для агента (AgentMode.cs; в сборке без агента его нет). Панели DevTools поверх кадра (DevToolsMode.cs; в
-/// сборке без DevTools его нет).
+/// Точка входа игры: композиция симуляции (<see cref="SwordSimulation"/> — та же, что у Headless), клиента (<see cref="ArenaClient"/>)
+/// и привязок ввода (секция <c>input</c>). <c>--move</c> заменяет ввод заданной командой, <c>--bench</c> — бенч кадра.
 /// </summary>
 public static partial class Program
 {
-    /// <summary>Режим агента (AgentMode.cs); в сборке без агента вызова нет — <paramref name="agent"/> остаётся null.</summary>
-    static partial void StartAgent(ClientHost client, Simulation sim, int port, ref IDisposable? agent);
-
     /// <summary>
-    /// Панели DevTools (DevToolsMode.cs); в сборке без DevTools (<c>-p:WithoutDevTools=true</c>) вызова нет — список пуст.
-    /// Их действия привязываются вместе с действиями игры, панели подключаются к клиенту до его <c>Run</c>.
+    /// Панели DevTools (DevToolsMode.cs); в сборке без DevTools вызова нет — список пуст.
     /// </summary>
     static partial void AddDevTools(List<IClientPanel> panels, bool bench);
 
     /// <summary>
-    /// Связать панели DevTools с игрой (DevToolsMode.cs): группы ручек клиента игры (заводятся в его <c>Initialize</c> — после
-    /// создания клиента движка) и включённых клиентских модулей, сохранение и загрузка, край под HUD. В сборке без DevTools вызова нет.
+    /// Связать панели DevTools с игрой: группы ручек клиента и клиентских модулей (заводятся в <c>Initialize</c> клиента), сохранение,
+    /// край под HUD. В сборке без DevTools вызова нет.
     /// </summary>
     static partial void ConnectDevTools(IReadOnlyList<IClientPanel> panels, ClientHost client, ArenaClient arena, ClientModules modules);
 
     /// <summary>
-    /// Переменная окружения: окно без фокуса по умолчанию (как <c>--no-activate</c>). Её задают настройки Claude Code
-    /// проекта (<c>.claude/settings.local.json</c>, <c>env</c>) — окна прогонов агентов не встают поверх приложений
-    /// пользователя; ручной запуск из обычного терминала её не видит. <c>--activate</c> / <c>--no-activate</c> главнее.
+    /// Переменная окружения: окно без фокуса по умолчанию (как <c>--no-activate</c>) — окна автоматических прогонов не встают поверх
+    /// приложений пользователя. <c>--activate</c> / <c>--no-activate</c> главнее.
     /// </summary>
     internal const string NoActivateVariable = "SWORD_NO_ACTIVATE";
 
@@ -67,16 +58,10 @@ public static partial class Program
         public double FrameSeconds;
         public double MaxFps;
         public bool NoHud;
-        /// <summary>Диагностический режим причинности (<c>--causality</c>): <c>state.why</c> агента; хеш и реплей не меняет.</summary>
-        public bool Causality;
         public double Bench;
         public string? Screenshots;
-        public bool Agent;
         public bool Profile;
-        public bool ProfileEvents;
         public bool ProfileTrace;
-        public double ProfileThreshold;
-        public int AgentPort = 47813;
         public string? Record;
         public string? Replay;
         public int HashEvery = 1;
@@ -97,8 +82,8 @@ public static partial class Program
         Управление (привязки — секция конфига input, например --set input.move_forward=Up):
           WASD — ход относительно камеры, Shift — шагом, курсор на земле — куда смотреть;
           колесо, +/− — зум; Z/C — поворот камеры; средняя кнопка — поворот и наклон мышью;
-          F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, последняя
-          аномалия, строка среды; включает профайлер); F4 — снимок; V — vsync вкл/выкл; Esc — выход;
+          F — камера за игроком / свободная (стрелки — панорама); F1 — справка; F2 — профайлер (зоны кадра, проходы GPU;
+          включает профайлер); F4 — снимок; V — vsync вкл/выкл; Esc — выход;
           PageUp/PageDown — врагов ±1, R — сброс арены, T — следующее оружие (команды арены — в реплее); F7 — капсулы тел
           и клинки поверх персонажей; J — суставы тел, K — контакты физики (включает трассу физики, пока показаны);
           M — траектории Motion Matching игрока (запрос поиска, найденный кадр, история, стопы на земле);
@@ -133,8 +118,7 @@ public static partial class Program
                             траектории Motion Matching игрока (как M), lights — точечные источники (крест, круги радиуса R
                             и половины затухания), fire — головка горящего оружия игрока по тикам последнего кадра, рамка площадки
                             сима огня, центр шага, точка кисти (модуль Fire; горящее оружие — fire.weapons, по умолчанию факел:
-                            --set combat.playerWeapon=torch), fire.field — поле огня (ρ тепловой шкалой на площадке); так снимаются
-                            виды фичи с оверлеем (views[].overlays манифеста)
+                            --set combat.playerWeapon=torch), fire.field — поле огня (ρ тепловой шкалой на площадке)
           --test-light [N]  тестовые точечные источники у игрока — факел LIVE-2 (цвет 1, 0.038, 0; интенсивность 100;
                             экспонента 400; R 20 м) на высоте 1.4 м, N > 1 — ещё N − 1 по кругу 3 м (замер; сверх 64 —
                             отброшены): свет без огня, симуляция и реплей их не видят; итог --json — report.lights
@@ -143,10 +127,6 @@ public static partial class Program
                             группа fire («Огонь») — flame, flameLayer, smoke, smokeLayer, light, lightFunction, overlay, field
                             (0/1), smokeDensity, simSpeed, accumulation, brushStrength, brushSize, kMin;
                             только представление (реплей и хеш те же); итог --json — light, fire
-          --agent           сервер MCP для агента (Claude Code, Codex) по HTTP на 127.0.0.1: мир, время, команды,
-                            снимок кадра; порт — --agent-port N (по умолчанию 47813)
-          --causality       диагностический режим причинности (state.why агента): причина, родитель, система и источник
-                            команд, событий и Set/Add/Remove — в кольцо; хеш и реплей не меняет
           --bench N         бенч кадра: N с игрового времени (первые 4 — прогрев), затем выход с итогом (кадр ср.,
                             p50, p99, макс, CPU); vsync выключен, справка скрыта, F4 не действует
           --camera Y,P,D[,X,Z]  неподвижная камера (проверочные снимки): поворот и наклон (рад), дистанция (м),
@@ -167,21 +147,15 @@ public static partial class Program
                             что --set arena.enemies=N (в sword.json — 10)
           --set секция.ключ=значение  конфиг (перекрывает sword.json и переменные SWORD_*)
           --record FILE     записать реплей (.swreplay) — команды по тикам и хеши состояния; воспроизводит его
-                            Sword.Headless --replay FILE (с агентом реплей пишется всегда — replay.save)
+                            Sword.Headless --replay FILE
           --hash-every K    хеш состояния в реплее каждые K тиков (по умолчанию 1)
           --replay FILE     воспроизвести реплей (.swreplay): его конфиг (--set — поверх) и его команды игрока — клавиатура
                             и мышь игроком не управляют, камера — как обычно; хеши сверяются по участникам (итог --json —
-                            replay); после конца реплея игрок стоит. Так снимаются виды фичи (feature.verify)
-          --json            итог — одной строкой JSON в stdout (для агента)
+                            replay); после конца реплея игрок стоит
+          --json            итог — одной строкой JSON в stdout (для скриптов)
           --profile         профайлер CPU с первого кадра: время и выделения фаз кадра, тиков, стадий, систем,
-                            инвариантов, проходов графа, зон игры; на кадр и тик — CPU потока, GC, JIT; машина и
-                            вердикт «код или машина»; отчёт — artifacts/profile/<прогон>/profile.json, в --json — секция
-                            profile; с --bench — только кадры замера. Агент включает его и без ключа (profile.stages)
-          --profile runtime то же и диагностический режим: события среды (выделения по типам, сборки, JIT с уровнями)
-                            с кадром, тиком и зоной — секция events отчёта; дорогой (JIT медленнее)
-          --profile-threshold MS  порог аномалии кадра и тика, мс (без ключа — по медиане последних 128: кадр дольше
-                            медианы + max(2 мс, 0.75 медианы), тик — медианы + max(1 мс, 0.75 медианы)); аномалии включённого
-                            профайлера (--profile, F2, агент) — файлы artifacts/profile/<прогон>/anomaly-*.json и строки журнала
+                            инвариантов, проходов графа, зон игры; отчёт — artifacts/profile/<прогон>/profile.json, в --json —
+                            секция profile; с --bench — только кадры замера
           --profile-trace   то же, что --profile, и кольцо профайлера в Chrome Trace (trace.json рядом с profile.json:
                             Perfetto, chrome://tracing)
         Переменные:
@@ -191,7 +165,7 @@ public static partial class Program
 
     public static int Main(string[] args)
     {
-        // Вывод — UTF-8: его читают и люди, и агенты.
+        // Вывод — UTF-8.
         Console.OutputEncoding = Encoding.UTF8;
 
         Options options;
@@ -206,15 +180,15 @@ public static partial class Program
             return 2;
         }
 
-        // При --json stdout — только итог для агента; журнал уходит в stderr.
+        // При --json stdout — только машинный итог; журнал уходит в stderr.
         if (options.Json) Log.SetSinks(new ConsoleLogSink(allToStandardError: true));
-        // Почему окно не взяло фокус, когда ключа не было: переменная из настроек Claude Code (агентские запуски).
+        // Почему окно не взяло фокус, когда ключа не было: переменная окружения.
         if (options.ActivateBy == NoActivateVariable)
             Log.Info("sword", $"окно без фокуса: {NoActivateVariable}={Environment.GetEnvironmentVariable(NoActivateVariable)} (фокус — --activate)");
 
         try
         {
-            // Бенч кадра — без инвариантов (раздел 8 плана: их стоимость меряется отдельно); --set перекрывает.
+            // Бенч кадра — без инвариантов (их стоимость меряется отдельно); --set перекрывает.
             List<string> sets = options.Bench > 0 ? ["sim.invariants=false", .. options.Sets] : options.Sets;
             // Реплей: только его конфиг (ни файлов, ни переменных) и --set поверх — как у Sword.Headless --replay.
             string content = ContentHash();
@@ -223,10 +197,8 @@ public static partial class Program
                 throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а пак здесь — {content}: хеши сравнивать бессмысленно");
             var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
             var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
-            if (options.Causality) simulation.EnableCausality();   // диагностика — хеш и реплей те же
             var playback = replay is null ? null : simulation.Play(replay);
-            // Живая игра (решение пользователя): тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy).
-            // Сверка реплея (--replay: виды фич, проверки) — каждый тик, как Headless и тесты.
+            // Живая игра: тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy); сверка реплея — каждый тик.
             simulation.Invariants.LivePeriods = replay is null;
             var arena = new ArenaClient(options.Camera, options.Command, hud: !options.NoHud, playerCommands: replay is null,
                 showBodies: options.Overlays.Contains(ArenaClient.CapsulesOverlay), showBlades: options.Overlays.Contains(ArenaClient.BladesOverlay),
@@ -245,11 +217,10 @@ public static partial class Program
             AddDevTools(panels, bench: options.Bench > 0);
             var bindings = InputBindings.Resolve([.. arena.Actions, .. ClientHost.Actions, .. panels.SelectMany(p => p.Actions)], config);
             arena.UseBindings(bindings.Keys);
-            if (options.Bench > 0) arena.Hud.ShowHelp = false;   // SWORD: ShowHelp = !bench
+            if (options.Bench > 0) arena.Hud.ShowHelp = false;   // в бенче справки нет
             config.Complete();   // композиция закончена (симуляция, клиент, ввод): неизвестная секция конфига — ошибка
-            // Реплей — с тика 0: по ключу --record и всегда с агентом (replay.save).
-            var recorder = options.Record is not null || options.Agent
-                ? simulation.Record(ReplayInfo.Current(content), options.HashEvery) : null;
+            // Реплей — с тика 0, по ключу --record.
+            var recorder = options.Record is not null ? simulation.Record(ReplayInfo.Current(content), options.HashEvery) : null;
             using var window = new Win32Window(new WindowOptions(
                 Title: "SWORD",
                 Width: options.Width,
@@ -262,7 +233,7 @@ public static partial class Program
             ClientRunReport report;
             CpuProfiler profiler;
             bool panelsShown;
-            // Каталог прогона профайлера — один на прогон: аномалии (по ходу) и profile.json, trace.json (в конце).
+            // Каталог прогона профайлера — один на прогон: profile.json, trace.json (в конце).
             string profileDir = ProfileDir();
             using (var client = new ClientHost(window, new ClientOptions
             {
@@ -280,7 +251,6 @@ public static partial class Program
                 Bindings = bindings,
                 HeldActions = options.Hold,
                 Profile = options.Profile,
-                ProfileEvents = options.ProfileEvents,
                 // Проверочный прогон (кадры, бенч) — со сторожем: нет кадров StallSeconds — итог-ошибка и выход (код StalledExit),
                 // а не бенч без конца. Свёрнутое окно такой прогон и так рисует (ClientHost).
                 StallSeconds = options.Frames > 0 || options.Bench > 0 ? options.StallSeconds : 0,
@@ -289,33 +259,11 @@ public static partial class Program
             {
                 profiler = client.Profiler;
                 foreach (var panel in panels) client.AddPanel(panel);
-                if (client.Panels is { } layer) layer.Scale = Hud.Scale;   // панели — в масштабе HUD (SWORD: Hud.UiScale)
+                if (client.Panels is { } layer) layer.Scale = Hud.Scale;   // панели — в масштабе HUD
                 ConnectDevTools(panels, client, arena, clientModules);
                 // Ручки «Свет» с первого кадра (--tune): те же делегаты, что у панели F3.
                 if (options.Tunes.Count > 0) ApplyTunes(arena, clientModules, options.Tunes);
-            // Захват аномалий: судит только включённый профайлер (--profile, F2, агент); файлы — в каталог прогона.
-                profiler.CaptureAnomalies(new AnomalyOptions
-                {
-                    Directory = profileDir, AbsoluteMs = options.ProfileThreshold,
-                    Run = new Dictionary<string, string>
-                    {
-                        ["process"] = "app", ["args"] = string.Join(" ", args), ["runtime"] = Environment.Version.ToString(),
-                    },
-                });
-                IDisposable? agent = null;
-                if (options.Agent)
-                {
-                    StartAgent(client, simulation, options.AgentPort, ref agent);
-                    if (agent is null) throw new InvalidOperationException("--agent: сборка без агента (-p:WithoutAgent=true)");
-                }
-                try
-                {
-                    report = client.Run();
-                }
-                finally
-                {
-                    agent?.Dispose();
-                }
+                report = client.Run();
                 panelsShown = client.Panels?.Shown ?? false;
             }
 
@@ -327,7 +275,7 @@ public static partial class Program
                 if (!options.Json) Log.Info("replay", $"записан {Path.GetFullPath(options.Record)}: {recorded.Ticks} тиков, хешей {recorded.Hashes.Count}");
             }
 
-            // Профайлер (--profile): отчёт — в артефакты прогона (файлы аномалий — дописаны: Write ждёт писателя).
+            // Профайлер (--profile): отчёт — в артефакты прогона.
             string? profileFile = options.Profile
                 ? profiler.Write(Path.Combine(profileDir, "profile.json"), new System.Text.Json.Nodes.JsonObject
                 {
@@ -340,13 +288,11 @@ public static partial class Program
                 })
                 : null;
             if (profileFile is not null && !options.Json) Log.Info("profile", $"профайлер: {profileFile}");
-            // Кольцо в Chrome Trace (--profile-trace) и итог захвата аномалий.
+            // Кольцо в Chrome Trace (--profile-trace).
             string? traceFile = options.ProfileTrace
                 ? profiler.WriteTrace(Path.Combine(profileDir, "trace.json"), new Dictionary<string, string> { ["process"] = "app" })
                 : null;
             if (traceFile is not null && !options.Json) Log.Info("profile", $"трасса (Perfetto, chrome://tracing): {traceFile}");
-            profiler.FlushAnomalies();
-            if (profiler.Anomalies is { Detected: > 0 } anomalies && !options.Json) Log.Info("profile", anomalies.Summary());
 
             // Корень игрока последнего кадра — для сверки с Headless на том же числе тиков (verify.ps1, app-smoke).
             // Показанный кадром игрок (интерполированный) и камера — что видел пользователь.
@@ -406,15 +352,8 @@ public static partial class Program
                     },
                     // Профайлер (--profile): файл отчёта и главные зоны кадра; без ключа — null.
                     profile = profileFile is null ? null : ProfileJson(profiler, profileFile, traceFile),
-                    // Профайлер кадра и без ключа: включён ли (ключом, F2, агентом), кадров в итогах, аномалий захвачено.
-                    profiler = new
-                    {
-                        enabled = profiler.Enabled, frames = profiler.Count(ProfilePeriod.Frame).Periods,
-                        anomalies = profiler.Anomalies?.Detected ?? 0,
-                        // Заметных (кадр не короче интервала показа монитора) и кадров инструментов (запросы агента).
-                        noticeable = profiler.Anomalies?.NoticeableCount ?? 0, noticeableMs = profiler.Anomalies?.NoticeableMs,
-                        toolFrames = profiler.ToolFrames,
-                    },
+                    // Профайлер кадра и без ключа: включён ли (ключом, F2), кадров в итогах.
+                    profiler = new { enabled = profiler.Enabled, frames = profiler.Count(ProfilePeriod.Frame).Periods },
                     // Воспроизведение (--replay): совпали ли хеши App с записанными — тот же реплей, что у Headless.
                     replay = playback is null ? null : new
                     {
@@ -431,13 +370,11 @@ public static partial class Program
             {
                 Log.Info("sword", $"выход: {report.ExitReason}; кадров {report.Frames}, изменений размера {report.Resizes}, " +
                     $"кадр в среднем {report.AverageFrameMs:0.###} мс, худший {report.MaxFrameMs:0.###} мс" +
-                    (report.Bench is { } b ? $"; бенч: {b}" : "") + (report.Machine is { } m ? $"; {m.Text}" : ""));
+                    (report.Bench is { } b ? $"; бенч: {b}" : ""));
                 if (playback is not null)
                     Log.Info("replay", playback.Divergence is { } d ? d.ToString()
                         : $"реплей: сверено хешей {playback.HashesChecked}, последний — после {playback.LastMatch?.ToString() ?? "—"} тиков");
             }
-            profiler.SetEvents(false);   // диагностический режим (--profile runtime): слушатель событий среды закрыт после итога
-            profiler.StopAnomalies();    // писатель аномалий — дописан и остановлен
             return 0;
         }
         catch (Exception ex)
@@ -450,9 +387,8 @@ public static partial class Program
     }
 
     /// <summary>
-    /// <c>--tune группа.ключ=значение</c>: клиентские ручки F3 — группа «Свет» (<see cref="LightTuning"/>) и группы клиентских модулей («Огонь»:
-    /// <c>fire.field=1</c>); ручки симуляции — <c>--set</c>, они идут в конфиг и реплей. Значение — число или true/false; группа и ключ
-    /// проверяются, когда группы собраны (<see cref="ApplyTunes"/>).
+    /// <c>--tune группа.ключ=значение</c>: клиентские ручки F3 (ручки симуляции — <c>--set</c>, они идут в конфиг и реплей). Значение —
+    /// число или true/false; группа и ключ проверяются, когда группы собраны (<see cref="ApplyTunes"/>).
     /// </summary>
     internal static (string Group, string Key, double Value) ParseTune(string option, string text)
     {
@@ -500,8 +436,8 @@ public static partial class Program
     internal const int StalledExit = 5;
 
     /// <summary>
-    /// Сторож кадров сработал (поток таймера): итог-ошибка словами (с <c>--json</c> — строкой JSON в stdout, как любая ошибка
-    /// прогона) и выход процесса с кодом <see cref="StalledExit"/> — главный поток может стоять в ожидании GPU, ждать его нельзя.
+    /// Сторож кадров сработал (поток таймера): итог-ошибка и выход с кодом <see cref="StalledExit"/> — главный поток может стоять в
+    /// ожидании GPU, ждать его нельзя.
     /// </summary>
     private static void Stalled(string message, bool json)
     {
@@ -520,8 +456,7 @@ public static partial class Program
     };
 
     /// <summary>
-    /// Опции из ключей командной строки и значения <see cref="NoActivateVariable"/> (<paramref name="noActivate"/>;
-    /// null — переменной нет): переменная задаёт умолчание фокуса, ключи <c>--activate</c> / <c>--no-activate</c> — главнее.
+    /// Опции из ключей командной строки и <paramref name="noActivate"/> (null — переменной нет): ключи фокуса главнее переменной.
     /// </summary>
     internal static Options Parse(string[] args, string? noActivate = null)
     {
@@ -581,29 +516,10 @@ public static partial class Program
                     }
                     break;
                 case "--tune": o.Tunes.Add(ParseTune(a, Next())); break;
-                case "--agent": o.Agent = true; break;
-                case "--causality": o.Causality = true; break;
-                case "--profile":
-                    o.Profile = true;
-                    if (i + 1 < args.Length && args[i + 1] == "runtime")
-                    {
-                        o.ProfileEvents = true;
-                        i++;
-                    }
-                    break;
+                case "--profile": o.Profile = true; break;
                 case "--profile-trace":
                     o.Profile = true;
                     o.ProfileTrace = true;
-                    break;
-                case "--profile-threshold":
-                    if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out o.ProfileThreshold)
-                        || !(o.ProfileThreshold >= 0 && o.ProfileThreshold <= 60_000))
-                        throw new ArgumentException($"{a}: ожидается порог в мс 0…60000 (0 — по медиане)");
-                    break;
-                case "--agent-port":
-                    if (!int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out o.AgentPort) || o.AgentPort is < 1 or > 65535)
-                        throw new ArgumentException($"{a}: ожидается порт 1…65535");
-                    o.Agent = true;
                     break;
                 case "--bench":
                     if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out o.Bench) || !(o.Bench > 4 && o.Bench <= 3600))
@@ -663,15 +579,14 @@ public static partial class Program
         if (o.TicksPerFrame > 0 && o.FrameSeconds > 0) throw new ArgumentException("--ticks-per-frame и --fps вместе не задаются");
         if (o.Bench > 0 && o.Frames > 0) throw new ArgumentException("--bench и --frames вместе не задаются: бенч кончается сам");
         if (o.Bench > 0 && o.MaxFps > 0) throw new ArgumentException("--bench и --max-fps вместе не задаются: ограничитель исказил бы замер");
-        if (o.Bench > 0 && o.Agent) throw new ArgumentException("--bench и --agent вместе не задаются: пауза и снимки агента исказили бы замер");
         if (o.Replay is not null && (o.Command is not null || o.Hold.Count > 0))
             throw new ArgumentException("--replay: команды игрока — из реплея; --move, --walk, --gaze, --hold нельзя");
         return o;
     }
 
     /// <summary>
-    /// Значение <see cref="NoActivateVariable"/>: <c>1</c>, <c>true</c> (без учёта регистра) — без фокуса; нет, пусто, <c>0</c>,
-    /// <c>false</c> — как без переменной. Иное — ошибка запуска: опечатка не должна молча вернуть окну фокус.
+    /// Значение <see cref="NoActivateVariable"/>: <c>1</c>, <c>true</c> — без фокуса; нет, пусто, <c>0</c>, <c>false</c> — как без
+    /// переменной. Иное — ошибка запуска: опечатка не должна молча вернуть окну фокус.
     /// </summary>
     internal static bool NoActivateFlag(string? value)
     {
@@ -690,15 +605,14 @@ public static partial class Program
     }
 
     /// <summary>
-    /// Каталог прогона профайлера: <c>artifacts/profile/&lt;дата-время старта&gt;-app-&lt;pid&gt;</c> в корне репозитория, вне
-    /// репозитория — рядом с exe. В нём — файлы аномалий (по ходу), <c>profile.json</c> и <c>trace.json</c> (в конце);
-    /// создаётся при первой записи.
+    /// Каталог прогона профайлера: <c>artifacts/profile/&lt;дата-время&gt;-app-&lt;pid&gt;</c> в корне репозитория, вне его — рядом с exe.
+    /// Создаётся при первой записи.
     /// </summary>
     private static string ProfileDir() =>
         Path.Combine(RepoRoot() ?? AppContext.BaseDirectory, "artifacts", "profile",
             $"{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-app-{Environment.ProcessId}");
 
-    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта, трасса и коротко — главные зоны кадра, аномалии.</summary>
+    /// <summary>Секция <c>profile</c> итога <c>--json</c>: файл отчёта, трасса и коротко — главные зоны кадра.</summary>
     private static System.Text.Json.Nodes.JsonObject ProfileJson(CpuProfiler profiler, string file, string? trace)
     {
         var json = profiler.Summary(12);
@@ -707,7 +621,7 @@ public static partial class Program
         return json;
     }
 
-    /// <summary>Отпечаток пака (реплей и квитанции агента называют его).</summary>
+    /// <summary>Отпечаток пака (реплей называет его).</summary>
     internal static string ContentHash()
     {
         try

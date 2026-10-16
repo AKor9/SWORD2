@@ -28,7 +28,7 @@
 | `Lights(Action<PointLights>)` | точечные источники и light functions кадра — до проходов игры: их видят освещение, константы и оверлей `lights` игры |
 | `GpuSimulation(IGpuSimulation)` | GPU-симуляция; вернёт её заявки `SimRequests` |
 | `Tuning(TuningGroup)` | вкладка панели F3 (ручки клиента — делегаты, в реплей не идут) |
-| `Overlay(name)` | оверлей: слой снимка (`capture.bundle`, `ClientHost.Overlays`) и `Sword.exe --overlay`; `Shown` — на экране |
+| `Overlay(name)` | оверлей: ключ `Sword.exe --overlay`; `Shown` — на экране |
 | `Shaders(Action<ShaderContract>)` | числа для шейдеров — до компиляции первого шейдера |
 | `Initialize(Action<ClientModuleContext>)` | рендер готов (после игры): `Renderer`, `Camera` (камера кадра игры), `Own(ресурс)` |
 | `TickDt` | шаг тика симуляции, с (1/120): такт наблюдателя — например, шаг GPU-симуляции 60 Гц по `TickId` |
@@ -56,5 +56,5 @@
 - `ClientModules.Dispose` — ресурсы модулей в обратном порядке; исключение одного ресурса (закрытие модуля) не мешает освободить
   остальные — оно после всех (несколько — `AggregateException`).
 
-Проверка: `tests/Sword.Engine.Client.Tests/ClientModulesTests` (наблюдатель при 0, 1, 2, 3, 8 тиках и паузе; шаг через кадр; выключенный
+Проверка: `tests/Sword.Engine.Client.Tests/ClientModulesTests` (наблюдатель при 0, 1, 2, 3, 8 тиках; шаг через кадр; выключенный
 модуль; ошибки Id; освобождение с исключением; 0 Б), `tests/Sword.Engine.Render.Tests/ReadbackGpuTests`, `tests/Sword.Game.Tests/FireModuleTests`.

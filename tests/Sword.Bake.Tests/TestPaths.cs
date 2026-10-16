@@ -3,7 +3,9 @@ using System.Text;
 
 namespace Sword.Bake.Tests;
 
-/// <summary>Пути собранного решения для тестов плагинов и CLI: той же конфигурации и TFM, что сами тесты.</summary>
+/// <summary>
+/// Пути собранного решения: sword-bake той же конфигурации, что тесты; корень сырых исходников машины.
+/// </summary>
 internal static class TestPaths
 {
     public static string RepoRoot { get; } = FindRepoRoot();
@@ -22,34 +24,30 @@ internal static class TestPaths
         throw new InvalidOperationException($"не найден SWORD.slnx выше {AppContext.BaseDirectory}");
     }
 
-    /// <summary>Сборка тестового плагина (tests/&lt;имя&gt;/bin/&lt;конфигурация&gt;/&lt;имя&gt;.dll — выход плагина без TFM).</summary>
-    public static string Plugin(string name)
-    {
-        string path = Path.Combine(RepoRoot, "tests", name, "bin", Configuration, name + ".dll");
-        Assert.True(File.Exists(path), $"нет {path} — соберите решение ({Configuration})");
-        return path;
-    }
-
-    /// <summary>sword-bake.exe из выхода tools/Sword.Bake.Cli той же конфигурации.</summary>
+    /// <summary>sword-bake.exe из выхода tools/Sword.Bake той же конфигурации.</summary>
     public static string Cli()
     {
-        string path = Path.Combine(RepoRoot, "tools", "Sword.Bake.Cli", "bin", Configuration, TargetFramework, "sword-bake.exe");
+        string path = Path.Combine(RepoRoot, "tools", "Sword.Bake", "bin", Configuration, TargetFramework, "sword-bake.exe");
         Assert.True(File.Exists(path), $"нет {path} — соберите решение ({Configuration})");
         return path;
     }
 
-    /// <summary>Запустить sword-bake: код выхода, stdout и stderr (UTF-8). Не дольше минуты.</summary>
-    public static (int Exit, string Out, string Err) RunCli(params string[] args) => RunCliIn(null, args);
-
     /// <summary>
-    /// Запустить sword-bake в каталоге <paramref name="workingDirectory"/> (null — текущий каталог тестов): проект без
-    /// --project ищется от него вверх, поэтому «вне проекта» — только во временном каталоге.
+    /// Корень исходников выпечки (<c>${src}</c>): переменная <c>BAKE_ROOT_SRC</c> (её же читает пекарня), иначе
+    /// <c>D:/Temp/GamedevAssets</c>. null — нет raw-экспорта локомоции: тесты Source пропускаются.
     /// </summary>
-    public static (int Exit, string Out, string Err) RunCliIn(string? workingDirectory, params string[] args)
+    public static string? SourceRoot()
+    {
+        string root = Environment.GetEnvironmentVariable("BAKE_ROOT_SRC") is { Length: > 0 } env ? env : "D:/Temp/GamedevAssets";
+        return File.Exists(Path.Combine(root, "_Export", "skin_gasp", "manifest.json")) ? Path.GetFullPath(root) : null;
+    }
+
+    /// <summary>Запустить sword-bake в каталоге <paramref name="workDir"/>: код выхода, stdout и stderr (UTF-8).</summary>
+    public static (int Exit, string Out, string Err) RunCli(string workDir, TimeSpan timeout, params string[] args)
     {
         var info = new ProcessStartInfo(Cli())
         {
-            WorkingDirectory = workingDirectory ?? "",
+            WorkingDirectory = workDir,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,
@@ -61,11 +59,22 @@ internal static class TestPaths
         using var process = Process.Start(info)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(TimeSpan.FromMinutes(1)))
+        if (!process.WaitForExit(timeout))
         {
             process.Kill(entireProcessTree: true);
-            Assert.Fail($"sword-bake {string.Join(' ', args)}: не закончил за минуту");
+            Assert.Fail($"sword-bake {string.Join(' ', args)}: не закончил за {timeout.TotalSeconds:F0} с");
         }
         return (process.ExitCode, stdout.Result, stderr.Result);
+    }
+}
+
+/// <summary>Тест на настоящих исходниках выпечки (категория Source): без raw-экспорта в <see cref="TestPaths.SourceRoot"/> — пропуск.</summary>
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class SourceFactAttribute : FactAttribute
+{
+    public SourceFactAttribute()
+    {
+        if (TestPaths.SourceRoot() is null)
+            Skip = "нет исходников выпечки (BAKE_ROOT_SRC или D:/Temp/GamedevAssets/_Export/skin_gasp)";
     }
 }

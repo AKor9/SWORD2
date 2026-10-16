@@ -5,10 +5,9 @@ Client. Сейчас — панель ручек `TuningPanel` (точка 6е: 
 SWORD 2eab13b (`Modules/Tools/Tuning/TuningPanel.cs`).
 
 - Зависит от `Engine.Client` (контракт панели `IClientPanel`, `FrameInput`, `InputAction`), `Engine.Ui` (виджеты
-  `UiContext`) и `Engine.Diagnostics` (`TuningGroup`); матрица разрешает ещё `Ecs` и `Introspection` (инспектор, данные
-  ручек для агента — позже).
+  `UiContext`) и `Engine.Diagnostics` (`TuningGroup`); матрица разрешает ещё `Ecs` (инспектор — позже).
 - Только из exe (правило `devtools-exe-only` архитектурных тестов; `Game.DevTools` — тоже): ни движок, ни игра на DevTools не
-  ссылаются, иначе сборка без них невозможна. Сборка без DevTools — `-p:WithoutDevTools=true` (как `WithoutAgent`): в
+  ссылаются, иначе сборка без них невозможна. Сборка без DevTools — `-p:WithoutDevTools=true`: в
   `Sword.Game.App.csproj` ссылка под условием и `DevToolsMode.cs` убирается; проверка — тест
   `DevToolsReferences_AreRemovedWithoutDevTools` (ссылки exe под условием) и шаг `verify.ps1` `without-devtools` (собирается,
   DLL и записи в `Sword.deps.json` нет; в обычной сборке есть).
@@ -49,12 +48,11 @@ SWORD 2eab13b (`Modules/Tools/Tuning/TuningPanel.cs`).
 команды не сыгран (решение 6е: на паузе ползунок не отскакивает), иначе мир; `Set` — команда ручки на ближайший тик; «сброс»
 (`TuningGroup.ResetAll`) — командами к значениям в коде.
 
-## Агентский доступ (раздел 8 плана)
+## Как увидеть (раздел 8 плана)
 
-Панель — рисунок поверх кадра, состояние симуляции она не держит: ручки — ресурс мира и команда `TuningCommand` в реплее (агент
-видит их `world.types` — у ресурса, `state.describe ecs`, меняет `command.send`, 6е). Панель на экране агент увидит снимком
-`sword-app` (`capture.bundle`) или `Sword.exe --shot`, открыв её удержанием действия прогона (`--hold tuning`: в первом кадре действие
-ещё и «нажато»); видна ли — `Sword.exe --json` → `panels`. Логика панели, маска ввода игры и 0 Б — тесты без окна и видеокарты (вкладка
+Панель — рисунок поверх кадра, состояние симуляции она не держит: ручки — ресурс мира и команда `TuningCommand` в реплее. Панель на
+экране — `Sword.exe --shot`, открыв её удержанием действия прогона (`--hold tuning`: в первом кадре действие ещё и «нажато»); видна
+ли — `Sword.exe --json` → `panels`. Логика панели, маска ввода игры и 0 Б — тесты без окна и видеокарты (вкладка
 «Бой» над настоящей симуляцией — `Sword.Game.Tests/CombatUiDrawTests`). Нового инструмента не нужно.
 
 Проверка: `tests/Sword.Engine.DevTools.Tests` (`TuningPanelLogicTests` — закрытая и пустая панель, клавиша открытия;

@@ -6,14 +6,9 @@ using System.Text.Json.Serialization.Metadata;
 namespace Sword.Engine.Runtime;
 
 /// <summary>
-/// Конфигурация запуска (раздел 7 плана). Слои, каждый перекрывает предыдущий: значения в коде → <c>sword.json</c>
-/// (в репозитории) → <c>sword.user.json</c> (вне git) → переменные <c>SWORD_&lt;СЕКЦИЯ&gt;_&lt;КЛЮЧ&gt;</c> → ключи
-/// <c>--set секция.ключ=значение</c>. Секции — типизированные записи (<see cref="Section{T}"/>); вложенные объекты
-/// сливаются по слоям ключ за ключом (<c>--set секция.объект.ключ=…</c>, <c>SWORD_СЕКЦИЯ_ОБЪЕКТ_КЛЮЧ</c>). Подсистемы
-/// конфиг не читают — получают готовые объекты при композиции. Секция групп (<see cref="Groups{T}"/>:
-/// <c>modules.&lt;id&gt;</c>) — те же записи на уровень глубже. Строгость: ключ — только записываемое свойство записи,
-/// неизвестный ключ и группа — ошибки, регистр имён не важен ни в одном слое, секция, которую до конца композиции никто не
-/// запросил (<see cref="Complete"/>), — ошибка. После <see cref="Complete"/> конфиг не меняется и не читается заново.
+/// Конфигурация запуска. Слои по возрастанию: код → <c>sword.json</c> → <c>sword.user.json</c> (вне git) → переменные
+/// <c>SWORD_&lt;СЕКЦИЯ&gt;_&lt;КЛЮЧ&gt;</c> → <c>--set секция.ключ=значение</c>; вложенные объекты сливаются ключ за ключом.
+/// Строго: неизвестный ключ, группа и незапрошенная до <see cref="Complete"/> секция — ошибки; регистр не важен.
 /// </summary>
 public sealed class ConfigSet
 {
@@ -22,10 +17,8 @@ public sealed class ConfigSet
     /// <summary>Секция привязок клавиш — её читает клиент движка (<c>InputBindings</c>).</summary>
     public const string InputSection = "input";
 
-    /// <summary>
-    /// Секции общего конфига, которые читает клиент движка. Exe без клиента (Headless) пропускает их
-    /// (<see cref="SkipClientSections"/>), не ссылаясь на клиентские сборки: общий <c>sword.json</c> один на оба exe.
-    /// </summary>
+    /// <summary>Секции клиента движка: Headless пропускает их (<see cref="SkipClientSections"/>) — <c>sword.json</c> один
+    /// на оба exe.</summary>
     public static readonly IReadOnlyList<string> ClientSections = [InputSection];
 
     private static readonly JsonSerializerOptions Json = new()
@@ -55,16 +48,11 @@ public sealed class ConfigSet
 
     private ConfigSet(Func<string, string?> env) => _env = env;
 
-    /// <summary>Откуда пришли значения (файлы, переменные, ключи) — для итога запуска и агента; без повторов.</summary>
+    /// <summary>Откуда пришли значения (файлы, переменные, ключи) — для итога запуска; без повторов.</summary>
     public IReadOnlyList<string> Sources => _sources;
 
-    /// <summary>Композиция закончена: конфиг проверен целиком и больше не меняется (<see cref="Complete"/>).</summary>
-    public bool Completed => _completed;
-
-    /// <summary>
-    /// Конфиг: файлы из <paramref name="directory"/> или ближайшего каталога выше, где есть <see cref="FileName"/>;
-    /// переменные окружения (<paramref name="env"/>, по умолчанию — процесса); ключи <c>--set</c>.
-    /// </summary>
+    /// <summary>Файлы из <paramref name="directory"/> или ближайшего каталога выше с <see cref="FileName"/>, переменные
+    /// окружения, ключи <c>--set</c>.</summary>
     public static ConfigSet Load(string? directory, IEnumerable<string> sets, Func<string, string?>? env = null)
     {
         var c = new ConfigSet(env ?? Environment.GetEnvironmentVariable);
@@ -91,10 +79,8 @@ public sealed class ConfigSet
         return c;
     }
 
-    /// <summary>
-    /// Конфиг из реплея: итоговый конфиг записи (<see cref="Effective"/>) — единственный слой поверх значений в коде; ни
-    /// файлов, ни переменных окружения этой машины. <paramref name="sets"/> — поверх (эксперимент с другим значением).
-    /// </summary>
+    /// <summary>Конфиг из реплея: итоговый конфиг записи — единственный слой поверх кода (без файлов и окружения этой
+    /// машины); <paramref name="sets"/> — поверх.</summary>
     public static ConfigSet FromReplay(JsonObject effective, IEnumerable<string> sets)
     {
         var c = new ConfigSet(_ => null);
@@ -119,11 +105,8 @@ public sealed class ConfigSet
         return null;
     }
 
-    /// <summary>
-    /// <c>секция.ключ=значение</c> (вложенно — <c>modules.cutting.enabled=false</c>); значение — литерал JSON или строка,
-    /// <c>True</c>/<c>False</c> в любом регистре — логическое. Тот же ключ в другом регистре — тот же ключ: действует
-    /// последний.
-    /// </summary>
+    /// <summary><c>секция.ключ=значение</c>: значение — литерал JSON или строка, <c>True</c>/<c>False</c> в любом регистре —
+    /// логическое. Ключ без учёта регистра, действует последний.</summary>
     public void ApplySet(string set)
     {
         NotCompleted();
@@ -172,8 +155,7 @@ public sealed class ConfigSet
     }
 
     /// <summary>
-    /// Секция групп: <c>секция.&lt;группа&gt;.ключ</c> (например, <c>modules.cutting.enabled</c>). Каждая группа из
-    /// <paramref name="groups"/> — запись <typeparamref name="T"/> по тем же слоям и с той же строгостью, что
+    /// Секция групп <c>секция.&lt;группа&gt;.ключ</c>: каждая группа — запись <typeparamref name="T"/> как в
     /// <see cref="Section{T}"/>; переменная — <c>SWORD_&lt;СЕКЦИЯ&gt;_&lt;ГРУППА&gt;_&lt;КЛЮЧ&gt;</c>. Группа не из списка — ошибка.
     /// </summary>
     public IReadOnlyDictionary<string, T> Groups<T>(string name, IReadOnlyCollection<string> groups) where T : new()
@@ -199,9 +181,8 @@ public sealed class ConfigSet
     }
 
     /// <summary>
-    /// Секция-словарь строк с известными ключами (привязки клавиш: <c>input.move_forward=W</c>): те же слои и та же
-    /// строгость, что у <see cref="Section{T}"/> — ключ не из <paramref name="defaults"/> — ошибка, значение — строка;
-    /// переменная — <c>SWORD_&lt;СЕКЦИЯ&gt;_&lt;КЛЮЧ&gt;</c>. Ключи результата — как в <paramref name="defaults"/>.
+    /// Секция-словарь строк с известными ключами (привязки клавиш), строгость как у <see cref="Section{T}"/>: ключ не из
+    /// <paramref name="defaults"/> — ошибка. Переменная — <c>SWORD_&lt;СЕКЦИЯ&gt;_&lt;КЛЮЧ&gt;</c>.
     /// </summary>
     public IReadOnlyDictionary<string, string> Strings(string name, IReadOnlyDictionary<string, string> defaults)
     {
@@ -304,10 +285,8 @@ public sealed class ConfigSet
         return node;
     }
 
-    /// <summary>
-    /// Секция выключенного модуля: не читается и не проверяется, но и неизвестной не считается — иначе выключение модуля
-    /// с настройками роняло бы запуск (решение 9). В итоговый конфиг не входит.
-    /// </summary>
+    /// <summary>Секция выключенного модуля: не читается, не проверяется и неизвестной не считается — выключение модуля
+    /// не роняет запуск. В итоговый конфиг не входит.</summary>
     public void Skip(string name)
     {
         NotCompleted();
@@ -315,10 +294,7 @@ public sealed class ConfigSet
         _skipped.Add(name);
     }
 
-    /// <summary>
-    /// Exe без клиента: клиентские секции (<see cref="ClientSections"/>) не читаются и не проверяются — их проверяет
-    /// Sword.exe, — но и неизвестными не считаются.
-    /// </summary>
+    /// <summary>Exe без клиента: клиентские секции не читаются и неизвестными не считаются (их проверяет Sword.exe).</summary>
     public void SkipClientSections()
     {
         foreach (var section in ClientSections) Skip(section);
@@ -336,10 +312,8 @@ public sealed class ConfigSet
             throw new InvalidDataException($"конфиг: неизвестные секции {string.Join(", ", unknown)}; есть: {string.Join(", ", _consumed.Order())}");
     }
 
-    /// <summary>
-    /// Конец композиции (exe — после симуляции и клиента: секции читают обе стороны): секция, которую никто не
-    /// запросил, — ошибка; дальше конфиг не меняется (<see cref="ApplySet"/>) и не читается (<see cref="Section{T}"/>).
-    /// </summary>
+    /// <summary>Конец композиции (после симуляции и клиента): незапрошенная секция — ошибка; дальше конфиг не меняется
+    /// и не читается.</summary>
     public void Complete()
     {
         ThrowOnUnknown();

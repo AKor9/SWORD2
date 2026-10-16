@@ -4,11 +4,7 @@ using static Sword.Engine.Physics.Tests.TestBodies;
 
 namespace Sword.Engine.Physics.Tests;
 
-/// <summary>
-/// Суставы, API: описания и их проверка (негодное — отказ без изменений), привязка по текущей позе (ошибка точки и
-/// отклонение от позы покоя — ноль), перепривязка, сгиб шарнира от выпрямленного положения со знаком описания, замер наклона и
-/// скручивания, включение, слот не наследует суставы, устаревший хэндл и номер сустава.
-/// </summary>
+/// <summary>Суставы, API: описания и отказ негодного, привязка и перепривязка, сгиб шарнира, замер наклона и скручивания, хэндлы.</summary>
 public class JointsTests(ITestOutputHelper output)
 {
     [Fact]
@@ -370,10 +366,7 @@ public class JointsTests(ITestOutputHelper output)
     }
 }
 
-/// <summary>
-/// Заготовки тестов суставов: миры, пары тел, «боец» из 14 капсул с суставами (дерево и пределы — отправные значения
-/// SWORD, данные теста, а не игры), энергия, ожидаемый сгиб шарнира своим расчётом.
-/// </summary>
+/// <summary>Заготовки тестов суставов: миры, пары тел, «боец» из 14 капсул (данные теста, а не игры), энергия, ожидаемый сгиб.</summary>
 internal static class JointsRig
 {
     /// <summary>Тик 120 Гц, с.</summary>
@@ -396,10 +389,7 @@ internal static class JointsRig
         return w;
     }
 
-    /// <summary>
-    /// Пара тел (и ещё <paramref name="bodies"/> − 2 тела выше по той же оси): родитель вдоль Y в начале координат, ребёнок —
-    /// его продолжение вверх, в покое. Суставов нет.
-    /// </summary>
+    /// <summary>Пара тел в покое: родитель вдоль Y в начале координат, ребёнок — его продолжение вверх (и ещё тела выше); суставов нет.</summary>
     public static (PhysicsWorld World, ArticulationHandle Art, BodyHandle Parent, BodyHandle Child) Pair(BodyMode parent, BodyMode child,
         float gravity = 0, int bodies = 2)
     {
@@ -477,9 +467,8 @@ internal static class JointsRig
     }
 
     /// <summary>
-    /// Ожидаемый сгиб шарнира своим расчётом (сразу после привязки: ось шарнира ребёнка = оси родителя): угол поворота оси
-    /// капсулы родителя к оси капсулы ребёнка вокруг оси шарнира ребёнка — через проекции на плоскость, перпендикулярную
-    /// оси, — умноженный на знак описания.
+    /// Ожидаемый сгиб шарнира своим расчётом (сразу после привязки): угол оси родителя к оси ребёнка вокруг оси шарнира через
+    /// проекции, со знаком описания.
     /// </summary>
     public static float ExpectedBend(in JointDesc d, Quaternion parent, Quaternion child) =>
         ExpectedBend(d, parent, child, Vector3.Normalize(Vector3.Transform(d.HingeAxis, child)));
@@ -542,7 +531,7 @@ internal static class JointsRig
         return art;
     }
 
-    /// <summary>Суставы бойца (13): пределы — отправные значения SWORD (данные теста); у клинка точка — хват.</summary>
+    /// <summary>Суставы бойца (13): пределы — отправные значения (данные теста); у клинка точка — хват.</summary>
     public static JointDesc[] FighterJoints(PhysicsWorld w, ArticulationHandle art)
     {
         var joints = new JointDesc[13];

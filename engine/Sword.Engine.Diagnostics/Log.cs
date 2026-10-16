@@ -17,11 +17,7 @@ public interface ILogSink
     void Write(in LogEntry entry);
 }
 
-/// <summary>
-/// Журнал движка вместо <c>Console.WriteLine("[sword] …")</c>: уровень, категория, приёмники. По умолчанию пишет
-/// в консоль. Кольцо последних записей для агента (<c>log.tail</c>) и запись без аллокаций — на следующих точках
-/// (разделы 7 и 8 ARCHITECTURE_PLAN.md).
-/// </summary>
+/// <summary>Журнал движка: уровень, категория, приёмники. По умолчанию пишет в консоль.</summary>
 public static class Log
 {
     private static readonly object Gate = new();
@@ -39,7 +35,7 @@ public static class Log
         lock (Gate) _sinks = [.. _sinks.Where(s => !ReferenceEquals(s, sink))];
     }
 
-    /// <summary>Заменить все приёмники (например, журнал — в stderr, когда stdout занят JSON для агента).</summary>
+    /// <summary>Заменить все приёмники (например, журнал — в stderr, когда stdout занят машинным выводом JSON).</summary>
     public static void SetSinks(params ILogSink[] sinks)
     {
         lock (Gate) _sinks = [.. sinks];
@@ -67,7 +63,7 @@ public static class Log
 /// <summary>
 /// Консоль: <c>[категория] текст</c>; предупреждения и ошибки помечены и идут в stderr.
 /// </summary>
-/// <param name="allToStandardError">Всё в stderr — когда stdout занят машинным выводом (JSON для агента).</param>
+/// <param name="allToStandardError">Всё в stderr — когда stdout занят машинным выводом (JSON).</param>
 public sealed class ConsoleLogSink(bool allToStandardError = false) : ILogSink
 {
     public void Write(in LogEntry entry)

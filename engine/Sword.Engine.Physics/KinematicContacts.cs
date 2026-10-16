@@ -2,24 +2,16 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// Толчки живых (кинематических) тел — бюджет пары, проход, отдача, импульс удара (идеи — KinematicContacts, HitImpulse,
-// PrepareKinematicContacts SWORD 2eab13b; свой путь — docs/history/engine-physics.md). Крючки KinematicGrow, KinematicReset, BeginKinematicSubstep,
-// PushKinematic, EndKinematicSubstep объявлены в PhysicsWorld.cs.
+// Толчки живых (кинематических) тел — бюджет пары, проход, отдача, импульс удара.
 public sealed partial class PhysicsWorld
 {
-    /// <summary>
-    /// Состояние пары сочленений «толкающий → цель» (слоты): проход (номер удара, открыт, потенциал, остаток, пустые тики,
-    /// отметки тика) и бюджет пары за подшаг (израсходовано, номер подшага, к которому оно относится).
-    /// </summary>
+    /// <summary>Состояние пары «толкающий → цель»: проход и бюджет пары за подшаг.</summary>
     private struct KinematicPair
     {
         public int Strike, Number, EmptyTicks, Stamp;
         public bool Inside, ContactSeen, HitSeen;
 
-        /// <summary>
-        /// Закрытый проход — потенциал этого тика (<see cref="PreparePass"/>; конец тика обнуляет); открытый — бюджет прохода:
-        /// наибольший потенциал с открытия. Потрачено за проход — <c>Potential − Remaining</c> (≥ 0).
-        /// </summary>
+        /// <summary>Закрытый проход — потенциал этого тика; открытый — бюджет: наибольший потенциал с открытия. Потрачено — <c>Potential − Remaining</c>.</summary>
         public float Potential, Remaining;
 
         /// <summary>Израсходовано бюджета пары в подшаге <see cref="Stamp"/>, кг·м.</summary>
@@ -41,14 +33,14 @@ public sealed partial class PhysicsWorld
     private float _kinematicSubstepShare;
     private int _kinematicSubstepPairs;
 
-    /// <summary>Израсходовано бюджета пары в последнем подшаге толчков, кг·м — тестам и диагностике (как <c>ContactsPairChecks</c>).</summary>
+    /// <summary>Израсходовано бюджета пары в последнем подшаге толчков, кг·м — тестам.</summary>
     internal float KinematicPairUsed(ArticulationHandle pusher, ArticulationHandle target)
     {
         ref readonly var p = ref KinematicPairOf(pusher, target);
         return p.Stamp == _kinematicSubstep ? p.Used : 0;
     }
 
-    /// <summary>Бюджет пары последнего подшага толчков, кг·м (<c>PushForce · h²</c>) — тестам и диагностике.</summary>
+    /// <summary>Бюджет пары последнего подшага толчков, кг·м — тестам.</summary>
     internal float KinematicPairBudget => _kinematicPairBudget;
 
     public void PreparePass(ArticulationHandle pusher, int strike, float mass, float speed)
@@ -64,9 +56,8 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Удар толкающего для одной пары: новый номер — проход «снаружи»; закрытому — потенциал этого тика; открытому бюджет растёт
-    /// до нового потенциала, если тот больше (остаток — на ту же прибавку): проход, открытый медленной частью взмаха, получает
-    /// бюджет быстрой (хрупкое место 10 SWORD — бюджет задавался раз при открытии).
+    /// Удар для одной пары: новый номер — проход «снаружи»; закрытому — потенциал тика; открытому бюджет растёт до нового
+    /// потенциала, если тот больше: проход, открытый медленной частью взмаха, получает бюджет быстрой.
     /// </summary>
     private static void KinematicPrepare(ref KinematicPair p, int strike, float potential)
     {
@@ -277,13 +268,9 @@ public sealed partial class PhysicsWorld
         KinematicPush(kinematic, body, kinematicPoint, point, normal, depth, h);
 
     /// <summary>
-    /// Толчок тела на физике <paramref name="body"/> кинематическим телом <paramref name="kinematic"/> (слоты тел разных
-    /// сочленений): кинематическая сторона не двигается (для решателя — мир). Предел λ — остаток бюджета пары за подшаг (скаляр
-    /// на все контакты пары: первый берёт сколько может), у <see cref="KinematicSource.Pass"/> — ещё остаток прохода (проход
-    /// открывается контактом), и предел скорости: точка тела вдоль нормали — не быстрее толкающей точки
-    /// (<c>0 … KinematicPointSpeedMax</c>) плюс <see cref="PhysicsSettings.PopSpeed"/>. Глубина решается полная (непогашенная
-    /// — на следующие подшаги). Отдача (<c>−λn/h</c>) — толкающему, кроме <see cref="KinematicSource.NoReaction"/>.
-    /// Возвращает применённую λ, кг·м.
+    /// Толчок тела на физике кинематическим (кинематическая сторона — мир). Предел λ — остаток бюджета пары за подшаг (у
+    /// <see cref="KinematicSource.Pass"/> — и прохода) и скорость: точка не быстрее толкающей плюс
+    /// <see cref="PhysicsSettings.PopSpeed"/>. Глубина — полная. Отдача <c>−λn/h</c> — толкающему. Возвращает λ, кг·м.
     /// </summary>
     private float KinematicPush(int kinematic, int body, Vector3 kinematicPoint, Vector3 point, Vector3 normal, float depth, float h)
     {
@@ -347,11 +334,8 @@ public sealed partial class PhysicsWorld
     private const float KinematicLimitSlack = 1e-4f;
 
     /// <summary>
-    /// Точный предел скорости толчка: λ предела считается линейно (<c>сдвиг = λ·w</c>), а поворот от поправки — нелинеен: точка
-    /// лёгкого тела (стопа, кисть) уходила за предел до 2,6 % (замер: выталкивание 1,026 м/с при <c>PopSpeed</c> 1, инвариант
-    /// <c>physics.pushes</c>). После поправки мерится настоящий сдвиг материальной точки вдоль нормали от прошлой позы; больше
-    /// <paramref name="allowed"/> — тело возвращается в позу до толчка, и λ урезается в долю лишнего от собственного сдвига поправки (до
-    /// трёх раз: ошибка — второго порядка, сходится сразу). Возвращает применённую λ.
+    /// Точный предел скорости толчка: λ считается линейно, а поворот нелинеен — точка лёгкого тела уходила за предел до 2,6 %.
+    /// Сдвиг больше <paramref name="allowed"/> — тело в позу до толчка, λ урезается (до трёх раз, сходится сразу). Возвращает λ.
     /// </summary>
     private float KinematicExactLimit(ref BodyState phys, in BodyState saved, Vector3 local, Vector3 point, Vector3 prevPoint, Vector3 normal,
         float depth, float allowed, float lambda, float h)

@@ -8,10 +8,7 @@ using Sword.Game.Movement;
 
 namespace Sword.Game.Tests;
 
-/// <summary>
-/// Движение игрока в симуляции — та же композиция, что у игры (<see cref="SwordSimulation"/>). Ожидания — формулы движения
-/// (<see cref="MovementRules"/>): разгон и поворот к намерению, столкновения корня с колоннами и краем арены, курс на точку взгляда.
-/// </summary>
+/// <summary>Движение игрока в композиции игры по формулам <see cref="MovementRules"/>: разгон, поворот, столкновения, курс на взгляд.</summary>
 public class MovementTests
 {
     private static (Simulation Sim, Entity Player) Create(params string[] sets)
@@ -23,7 +20,7 @@ public class MovementTests
     [Fact]
     public void Core_IsNotAModule_AndCannotBeSwitchedOff()
     {
-        // Принцип 4 плана: ядро — не модуль и не выключается; его регистрации без токена модуля.
+        // Ядро — не модуль и не выключается; его регистрации без токена модуля.
         var sim = TestAssets.Simulation(ConfigSet.Empty());
         Assert.DoesNotContain(sim.ActiveModules, m => m == "core");
         Assert.All(sim.World.Systems.Where(s => s.Label.StartsWith("core.", StringComparison.Ordinal)), s => Assert.Null(s.Module));
@@ -94,8 +91,8 @@ public class MovementTests
     [Fact]
     public void Gaze_IsRemembered_AndTrackedFromCurrentRoot()
     {
-        // PlayerController SWORD: курсор запоминается (_cursor), и каждый тик курс-цель — на него от текущего корня,
-        // даже когда курсора на земле нет. Бежим по +X мимо точки (10, 0, 3): взгляд поворачивает за ней.
+        // Курсор запоминается, и каждый тик курс-цель — на него от текущего корня, даже когда курсора на земле нет.
+        // Бежим по +X мимо точки (10, 0, 3): взгляд поворачивает за ней.
         var (sim, p) = Create();
         Run(sim, 1, new PlayerCommand { HasGaze = true, Gaze = new Vector3(10, 0, 3) });
         Run(sim, 120 * 5, new PlayerCommand { Move = new Vector2(1, 0) });   // без взгляда в командах
@@ -139,8 +136,8 @@ public class MovementTests
     [Fact]
     public void Pillar_RootNeverEntersIt_AndIsBlockedThenSlides()
     {
-        // ResolveRoots SWORD: корень — не ближе радиуса колонны плюс 0,35 м, скорость внутрь колонны гасится; остаток
-        // вдоль колонны уводит бойца в обход («упираются и скользят»), насквозь он не проходит.
+        // Корень — не ближе радиуса колонны плюс 0,35 м, скорость внутрь колонны гасится; остаток вдоль колонны уводит бойца
+        // в обход («упираются и скользят»), насквозь он не проходит.
         var (sim, p) = Create();
         var pillar = ArenaLayout.Pillars[0];
         var centre = new Vector2(pillar.X, pillar.Y);
@@ -226,7 +223,7 @@ public class MovementTests
     [Fact]
     public void SteadyTicks_DoNotAllocate()
     {
-        // Раздел 12 плана: 0 выделенных байтов на тик после прогрева — вся композиция игры, с командами тика.
+        // 0 выделенных байтов на тик после прогрева — вся композиция игры, с командами тика.
         var (sim, _) = Create();
         var command = new PlayerCommand { Move = new Vector2(1, 1), HasGaze = true, Gaze = new Vector3(30, 0, 0) };
         Run(sim, 200, command);

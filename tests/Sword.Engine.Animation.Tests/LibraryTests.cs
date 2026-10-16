@@ -3,12 +3,7 @@ using static Sword.Engine.Animation.Tests.TestClips;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Библиотека клипов — <c>Sword.Anim.Tests/LibraryTests</c> SWORD 2eab13b с теми же ожиданиями. Изменилось только, как
-/// тест добирается до кода: файлы — потоки в памяти в порядке контента (<c>IContentSource.List</c> — по пути), а не
-/// каталог на диске; скелет передаётся готовым (его отсутствие — забота игры, тест <c>Load_NoSkeleton</c> ушёл к ней).
-/// Тест имён импорта (<c>ImportId</c>) — пекарня, переносится с ней.
-/// </summary>
+/// <summary>Библиотека клипов: файлы — потоки в памяти в порядке контента, скелет передаётся готовым.</summary>
 public sealed class LibraryTests
 {
     [Fact]
@@ -64,14 +59,14 @@ public sealed class LibraryTests
     public void Load_IgnoresFilesOutsideSourceFolders()
     {
         var deep = Marked("a", "Idle", 2, 0);
-        var lib = Library(deep with { Path = "anim/a/sub/Idle.swclip" }, Marked("a", "Walk", 2, 0), deep with { Path = "anim/Idle.swclip" });
+        var lib = Library(deep with { Path = "animations/a/sub/Idle.swclip" }, Marked("a", "Walk", 2, 0), deep with { Path = "animations/Idle.swclip" });
         Assert.Equal(["a/Walk"], lib.Clips.ToArray().Select(c => c.Name));
     }
 
     [Fact]
     public void Load_CorruptClip_IsSkippedWithReason()
     {
-        var bad = new ClipSource("anim/a/Bad.swclip", () => new MemoryStream([1, 2, 3]), "mem:bad");
+        var bad = new ClipSource("animations/a/Bad.swclip", () => new MemoryStream([1, 2, 3]), "mem:bad");
         var skipped = new List<string>();
         var lib = ClipLibrary.Load(Skeleton(), [bad, Marked("a", "Idle", 2, 0)], skipped)!;
         Assert.Equal(["a/Idle"], lib.Clips.ToArray().Select(c => c.Name));

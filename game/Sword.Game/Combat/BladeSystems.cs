@@ -9,11 +9,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Combat;
 
 /// <summary>
-/// Клинок бойца в мире (<c>FighterAnimator.Blade</c> и клинок в <c>DuelArena.PlaceBodies</c> SWORD 2eab13b): модельная
-/// матрица кисти позы в мире бойца (<see cref="BodyPlacement.World"/> — корень, курс, высота рельефа: тот же мир, что у капсул
-/// тела, «как показан боец»), основание и кончик клинка меча — в её системе. Масштаба клинка игрока (<c>SWORD_PLAYER_BLADE</c>,
-/// тест разреза SWORD) нет. Тело клинка (тело 11 сочленения, <see cref="BladeBody"/>) — капсула от хвата (начало кисти) до
-/// кончика в той же системе кисти (<see cref="BodyOf"/>).
+/// Клинок бойца в мире: основание и кончик клинка меча — в системе кисти позы в мире бойца (<see cref="BodyPlacement.World"/>);
+/// тело клинка (<see cref="BladeBody"/>) — капсула от хвата до кончика в той же системе (<see cref="BodyOf"/>).
 /// </summary>
 public static class BladePlacement
 {
@@ -29,10 +26,8 @@ public static class BladePlacement
     }
 
     /// <summary>
-    /// Тело клинка в мире кисти <paramref name="hand"/>: хват — начало кисти, кончик — кончик клинка меча
-    /// <paramref name="weapon"/> (тот же, что у <see cref="Of"/>: ось капсулы лежит на отрезке хват — кончик), центр — середина,
-    /// поворот — ось Y вдоль клинка, X — опорная ось кисти <see cref="BladeBody.XHint"/> (<see cref="AnimMath.FromBasis"/>): тело
-    /// клинка повёрнуто относительно кисти всегда одинаково.
+    /// Тело клинка в мире кисти <paramref name="hand"/>: ось — от хвата до кончика меча <paramref name="weapon"/>, центр — середина,
+    /// поворот — Y вдоль клинка, X — опорная ось <see cref="BladeBody.XHint"/>: относительно кисти всегда одинаково.
     /// </summary>
     public static (Vector3 Position, Quaternion Rotation) BodyOf(in Matrix4x4 hand, in WeaponInfo weapon, in BladeBody body)
     {
@@ -42,9 +37,8 @@ public static class BladePlacement
     }
 
     /// <summary>
-    /// Постановка клинка тика: прошлый — клинок прошлого тика (<c>KinPrevBase = KinBase</c>); клинок не поставлен или посчитан
-    /// другим мечом (постройка, смена меча) — прошлое = нынешнему: прохода между разными клинками нет (в SWORD смена меча давала
-    /// один фантомный проход от старого клинка к новому).
+    /// Постановка клинка тика: прошлый — клинок прошлого тика; клинок не поставлен или посчитан другим мечом — прошлое = нынешнему
+    /// (фантомного прохода от старого клинка к новому нет).
     /// </summary>
     public static void Place(ref Blade blade, Vector3 bladeBase, Vector3 tip, int weapon)
     {
@@ -56,7 +50,7 @@ public static class BladePlacement
         blade.Weapon = weapon;
     }
 
-    /// <summary>Клинок только что построенного бойца — без прошлого (<c>PlaceBuilt</c> SWORD: первая постановка).</summary>
+    /// <summary>Клинок только что построенного бойца — без прошлого.</summary>
     public static Blade Built(ReadOnlySpan<Matrix4x4> startModel, int hand, WeaponTable weapons, int weapon, Vector3 root, float facing)
     {
         var (b, t) = Of(startModel, hand, weapons.Weapons[weapon], root, facing);
@@ -64,9 +58,8 @@ public static class BladePlacement
     }
 
     /// <summary>
-    /// Тело клинка без скорости (постройка бойца, смена меча): форма меча <paramref name="weapon"/> — масса и радиус
-    /// <see cref="BladeBody"/>, полудлина — половина отрезка хват — кончик — и постановка по кисти <paramref name="hand"/>
-    /// (<see cref="IPhysicsWorld.Place"/>). Сочленение негодно для бойца — ничего (его ловит <c>physics.bodyRefs</c>).
+    /// Тело клинка без скорости (постройка, смена меча): масса и радиус <see cref="BladeBody"/>, полудлина — половина отрезка хват —
+    /// кончик, постановка по кисти <paramref name="hand"/>. Негодное сочленение — ничего (ловит <c>physics.bodyRefs</c>).
     /// </summary>
     public static void BuildBody(IPhysicsWorld physics, ArticulationHandle body, WeaponTable weapons, int weapon, in Matrix4x4 hand)
     {
@@ -80,14 +73,9 @@ public static class BladePlacement
 }
 
 /// <summary>
-/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, после постройки тела и до курса (<see cref="GameLabels.BladeSetup"/>):
-/// построенному бойцу — клинок по позе постройки (своей — <see cref="FighterStartPose"/> — или общей <see cref="StartPose"/>) в корне и
-/// курсе постройки, без прошлого
-/// (<c>PlaceBuilt</c> → <c>PlaceBodies(f, 0)</c> SWORD: <c>first</c> — <c>KinPrevBase = bladeBase</c>): первая постановка тика
-/// после постройки заметает клинок от позы постройки к позе тика, как в SWORD. Ставится командой (на барьере Gameplay).
-/// Тело клинка — тоже: форма меча в руке и постановка без скорости по той же кисти (<see cref="BladePlacement.BuildBody"/>) —
-/// сразу, как тела плоти в <c>core.body-setup</c>. Бойцов сборки мира ставит сборка мира (<see cref="PlaceWorldBuilt"/>); тик 1
-/// ставит их ещё раз теми же значениями.
+/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>, после постройки тела: клинок по позе постройки без прошлого (первая
+/// постановка тика заметает клинок от позы постройки к позе тика) — командой; тело клинка — сразу
+/// (<see cref="BladePlacement.BuildBody"/>). Бойцов сборки мира ставит <see cref="PlaceWorldBuilt"/>.
 /// </summary>
 public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons, int hand, StartPoseModel start) : IReactiveSystem<Added<Fighter>>
 {
@@ -104,7 +92,6 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
             if (!world.IsAlive(a.Entity) || !world.Has<Blade>(a.Entity) || !world.TryGet<Transform>(a.Entity, out var root)
                 || !world.TryGet<WeaponSlot>(a.Entity, out var slot) || (uint)slot.Index >= (uint)weapons.Count)
                 continue;
-            ctx.Cause = a.Cause;   // причина постройки бойца — родитель клинка (state.why)
             var model = start.Of(StartPoseModel.For(world, a.Entity));   // своя поза постройки бойца или общая
             ctx.Commands.Set(a.Entity, BladePlacement.Built(model, hand, weapons, slot.Index, root.Position, root.Facing));
             if (world.TryGet<BodyRef>(a.Entity, out var body))
@@ -112,7 +99,7 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
         }
     }
 
-    /// <summary>Клинки бойцов сборки мира — по позе постройки (<c>OnWorldReady</c>, как тела: <c>PlaceBuilt</c> после <c>AttachRig</c>).</summary>
+    /// <summary>Клинки бойцов сборки мира — по позе постройки (<c>OnWorldReady</c>, как тела).</summary>
     public static void PlaceWorldBuilt(World world, IPhysicsWorld physics, WeaponTable weapons, int hand, StartPoseModel start)
     {
         var built = new List<(Entity Entity, Blade Blade)>();
@@ -135,14 +122,9 @@ public sealed class BladeSetupSystem(IPhysicsWorld physics, WeaponTable weapons,
 }
 
 /// <summary>
-/// PrePhysics, после капсул тела (<see cref="GameLabels.BladePlacement"/>): клинок каждого бойца — по позе этого тика в корне
-/// после Movement (<c>anim.Blade(world, …)</c> в <c>PlaceBodies</c> SWORD 2eab13b), прошлый — клинок прошлого тика; сменился меч —
-/// прошлое = нынешнему (<see cref="BladePlacement.Place"/>). У живого — и тело клинка: кинематическая цель тика по той же кисти
-/// (<see cref="IPhysicsWorld.SetKinematicTarget"/>: скорости — разностью за тик, как у тел плоти); сменился меч — новая форма и
-/// постановка без скорости (<see cref="BladePlacement.BuildBody"/>: фантомной скорости от старого меча к новому нет, как у отрезка).
-/// Мёртвый пропускается: его тело клинка — на физике (меч выпал, сустав запястья выключен), клинок-отрезок стоит, где был в тик смерти
-/// (удара у мёртвого нет; корень мёртвого идёт за тазом — отрезок по застывшей позе ехал бы с ним). Боец без позы или с номером меча вне
-/// таблицы пропускается — его ловят <c>animation.owners</c> и <c>combat.weapons</c>. Памяти не выделяет.
+/// PrePhysics, после капсул тела: клинок каждого бойца — по позе тика (<see cref="BladePlacement.Place"/>); у живого — и тело
+/// клинка кинематической целью; сменился меч — новая форма без скорости. Мёртвый пропускается (тело клинка на физике, отрезок
+/// стоит, где был). Боец без позы или с мечом вне таблицы пропускается. Памяти не выделяет.
 /// </summary>
 public sealed class BladePlacementSystem(IPhysicsWorld physics, WeaponTable weapons, int hand) : IContinuousSystem
 {

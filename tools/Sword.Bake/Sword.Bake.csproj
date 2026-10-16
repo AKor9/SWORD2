@@ -1,23 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Общее ядро пекарни: проект (bake.project.json), манифесты ассетов, плагины с обработчиками, проверка
-       актуальности, сборка пака .swpak и сравнение двух паков (diff). Ничего не знает об ассетах конкретной игры:
-       обработчики и сравнители форматов — плагины проекта (Sword.Bake.Engine, Sword.Bake.Game). Интерфейсы —
-       tools/Sword.Bake.Cli (позже Sword.Bake.Studio). Перенесено из SWORD 2eab13b как есть, diff — новое (README.md). -->
+  <!-- Пекарня sword-bake: сырой файл (raw-экспорт анимации, glTF, PNG, TTF, JSON) → конвертер по виду файла → файлы
+       игровых форматов в Content/<тема>/…; параметры — рецепт Bake/recipes/<корень>/<путь сырого файла>.bake.json.
+       Конвертеры движка и игры — папки этого проекта (Anim/, Texture/, Font/, Converters/). README.md. -->
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <RootNamespace>Sword.Bake</RootNamespace>
+    <AssemblyName>sword-bake</AssemblyName>
     <SwordSide>Neutral</SwordSide>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- формат пака и сведения о его сборке (PakBuildInfo) -->
+    <!-- пути контента (ContentPath) -->
     <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
+    <!-- писатели .swclip, .swskeleton, .swmesh, .swtex, .swfont -->
+    <ProjectReference Include="..\..\engine\Sword.Engine.Formats\Sword.Engine.Formats.csproj" />
+    <!-- система корневого движения (MotionMatrix), прямая кинематика (Skeleton) -->
+    <ProjectReference Include="..\..\engine\Sword.Engine.Animation\Sword.Engine.Animation.csproj" />
+    <!-- формат зон крови оружия .swblood -->
+    <ProjectReference Include="..\..\game\Sword.Game.Data\Sword.Game.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- контуры TrueType для пекаря шрифтов (UiFontBaker) -->
+    <PackageReference Include="StbTrueTypeSharp" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Sword.Bake.Tests" />
-    <InternalsVisibleTo Include="sword-bake" />
-    <InternalsVisibleTo Include="Sword.Bake.Studio" />
+    <InternalsVisibleTo Include="sword-assets" />
+    <InternalsVisibleTo Include="Sword.Assets.Tests" />
   </ItemGroup>
 
 </Project>

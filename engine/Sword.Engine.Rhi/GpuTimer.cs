@@ -3,21 +3,9 @@ using Vortice.Direct3D12;
 namespace Sword.Engine.Rhi;
 
 /// <summary>
-/// GPU-время кадра и его проходов — таймстемпы D3D12 на graphics-очереди, логика <c>GpuProfiler</c>
-/// SWORD 2eab13b: куча запросов на <see cref="MaxScopes"/> замеров × <see cref="GraphicsDevice.FrameCount"/> кадров в полёте,
-/// <c>ResolveQueryData</c> в readback в конце кадра, разбор — после ожидания слота этого кадра в
-/// <see cref="GraphicsDevice.BeginFrame"/> (данные кадра N − 3, CPU не стоит ради них), частота — очереди.
-///
-/// Замер 0 — кадр целиком (от открытия списка команд до его конца); проходы — <see cref="Begin"/>/<see cref="End"/> вокруг
-/// своей работы (их ставит рендер-граф). Слот помнит номер своего кадра (<see cref="GraphicsDevice.FrameNumber"/>) и имена
-/// замеров: публикуется только отправленный кадр (брошенный — <see cref="Abandon"/> — нет), номер опубликованного только
-/// растёт — смена размера (ожидание простоя, сброс индекса заднего буфера) и снимок кадра не приписывают времена чужому
-/// кадру. <see cref="CollectAll"/> (из <see cref="GraphicsDevice.WaitForIdle"/>) разбирает все отправленные — после него
-/// опубликован последний отправленный кадр.
-///
-/// Всегда включён (<see cref="Enabled"/> — для замера цены): на проход — два <c>EndQuery</c>, на кадр — один
-/// <c>ResolveQueryData</c> и чтение readback (~десятки нс CPU). В установившемся кадре не выделяет памяти: имена — ссылки на
-/// строки проходов, массивы — при создании.
+/// GPU-время кадра и его проходов — таймстемпы D3D12 на graphics-очереди. Разбор — после ожидания слота кадра
+/// (данные кадра N − 3, CPU не стоит). Замер 0 — кадр целиком. Публикуется только отправленный кадр, номер опубликованного
+/// только растёт. Всегда включён; установившийся кадр памяти не выделяет.
 /// </summary>
 public sealed class GpuTimer : IDisposable
 {
@@ -70,10 +58,7 @@ public sealed class GpuTimer : IDisposable
     /// <summary>Частота таймстемпов очереди, Гц (тиков GPU в секунду).</summary>
     public ulong Frequency { get; }
 
-    /// <summary>
-    /// Замерять (по умолчанию — да). Действует с ближайшего <see cref="BeginFrame"/>; уже опубликованное остаётся. Выключатель —
-    /// для замера цены таймстемпов, не для игры.
-    /// </summary>
+    /// <summary>Замерять (по умолчанию — да); выключатель — для замера цены таймстемпов. Действует с ближайшего <see cref="BeginFrame"/>.</summary>
     public bool Enabled { get; set; } = true;
 
     // ── опубликованный кадр ────────────────────────────────────────────────
@@ -102,10 +87,7 @@ public sealed class GpuTimer : IDisposable
 
     // ── кадр ───────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Открыт список команд кадра <paramref name="frame"/> в слоте <paramref name="slot"/> (слот уже разобран —
-    /// <see cref="Collect"/>): замер 0 — начало кадра.
-    /// </summary>
+    /// <summary>Открыт список команд кадра в разобранном слоте: замер 0 — начало кадра.</summary>
     internal void BeginFrame(ID3D12GraphicsCommandList list, int slot, ulong frame)
     {
         _open = null;
@@ -163,10 +145,7 @@ public sealed class GpuTimer : IDisposable
     /// <summary>Кадр брошен (список закрыт без отправки): его замеров не было — слот не разбирается.</summary>
     internal void Abandon() => _open = null;
 
-    /// <summary>
-    /// Разобрать слот <paramref name="slot"/> — после ожидания его забора (<see cref="GraphicsDevice.BeginFrame"/>): GPU его
-    /// кадр доделал. Публикуется, если кадр новее опубликованного.
-    /// </summary>
+    /// <summary>Разобрать слот после ожидания его забора; публикуется, если кадр новее опубликованного.</summary>
     internal void Collect(int slot)
     {
         var s = _slots[slot];

@@ -7,7 +7,7 @@ using Sword.Game.Contracts;
 
 namespace Sword.Game.Animation;
 
-/// <summary>Константы аниматора бойца — <c>FighterAnimator</c> SWORD 2eab13b.</summary>
+/// <summary>Константы аниматора бойца.</summary>
 public static class AnimatorRules
 {
     /// <summary>Гистерезис «идёт»: встал ниже 0,25 м/с, пошёл выше 0,5 м/с (<c>IdleEnter</c>, <c>IdleExit</c>).</summary>
@@ -16,7 +16,7 @@ public static class AnimatorRules
     /// <summary>Полупериод сглаживания скорости для локомоции, с (<c>VelHalflife</c>).</summary>
     public const float VelHalflife = 0.12f;
 
-    /// <summary>Мировое направление → система бойца (x — вправо, z — вперёд): <c>Fighter.DirToLocal</c> SWORD.</summary>
+    /// <summary>Мировое направление → система бойца (x — вправо, z — вперёд).</summary>
     public static Vector3 DirToLocal(Vector3 dir, float facing)
     {
         var v = Vector3.Transform(dir, Quaternion.CreateFromAxisAngle(Vector3.UnitY, -facing));
@@ -24,8 +24,8 @@ public static class AnimatorRules
     }
 
     /// <summary>
-    /// Слой движения аниматора на тик (начало <c>FighterAnimator.Tick</c>): сглаженная скорость и «идёт» с гистерезисом;
-    /// поиск кадра локомоции разрешён (<paramref name="search"/>), пока действие не ведёт всё тело.
+    /// Слой движения аниматора на тик: сглаженная скорость и «идёт» с гистерезисом; поиск кадра локомоции разрешён
+    /// (<paramref name="search"/>), пока действие не ведёт всё тело.
     /// </summary>
     public static void Step(ref AnimatorMotion m, Vector3 localVel, float dt, bool search = true)
     {
@@ -37,13 +37,8 @@ public static class AnimatorRules
 }
 
 /// <summary>
-/// Gameplay, после курса и разгона: аниматор бойца на тик без поз (<c>FighterAnimator.Tick(dt, f.DirToLocal(f.RootVel))</c>
-/// SWORD) — вход слоя локомоции: скорость корня в системе бойца (по новому курсу), сглаженная, и «идёт»
-/// (<see cref="AnimatorMotion"/>); у бойца со слоем действий (<see cref="AnimatorAction"/>: все бойцы) затем шаг действия
-/// (<see cref="ActionLayer.Tick"/>): время, доля клипа в ногах (слой верха), вес, поворот курса и сдвиг корня клипом, обрезка
-/// хвоста удара на бегу (игрок — <c>Agile</c>), переход от снимка; вздрагивание игрока (<see cref="Flinch"/>) — время слотов.
-/// Позу по ним ставят <see cref="ActionSnapshotSystem"/> и <see cref="AnimatorPoseSystem"/>, курс и корень двигает
-/// <c>RootControlSystem</c>. Мёртвый (<see cref="Dead"/>) замирает — его аниматор стоит.
+/// Gameplay, после курса и разгона: аниматор бойца на тик без поз — вход слоя локомоции (<see cref="AnimatorMotion"/> по новому
+/// курсу), затем шаг действия (<see cref="ActionLayer.Tick"/>) и время слотов вздрагивания игрока. Мёртвый замирает.
 /// </summary>
 public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
 {
@@ -86,22 +81,18 @@ public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
         var attacks = strikes.Attacks;
         for (int i = 0; i < m.Length; i++)
         {
-            // локомоция ищет кадр, пока действие не ведёт всё тело (FullBodyAction до шага действия — как в SWORD)
+            // локомоция ищет кадр, пока действие не ведёт всё тело (FullBodyAction до шага действия)
             AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt, !a[i].FullBody);
-            float speed = new Vector2(m[i].Velocity.X, m[i].Velocity.Z).Length();   // speed TickActions SWORD
+            float speed = new Vector2(m[i].Velocity.X, m[i].Velocity.Z).Length();   // сглаженная скорость для слоя верха
             ActionLayer.Tick(ref a[i], m[i].Moving, speed, dt, clips, attacks, agile);
         }
     }
 }
 
 /// <summary>
-/// Animation: итоговая поза бойца (конец <c>FighterAnimator.TickActions</c>): у бойца со слоем действий — задания слоя
-/// поверх локомоции (<see cref="ActionLayer.Pose"/>: сэмпл клипа действия и смешивание всем телом или по маске верха
-/// <paramref name="upper"/>, затем переход от снимка позы), затем у всех — прямая кинематика (<c>clips.ToComponent</c>). Слой
-/// локомоции (модуль Locomotion) ставит свои задания раньше (<see cref="GameLabels.AnimatorPose"/>), снимок — ещё раньше
-/// (<see cref="ActionSnapshotSystem"/>); без слоёв поза остаётся позой привязки. У игрока после слоя действий — вздрагивание (
-/// <see cref="FlinchLayer.Pose"/>: добавка поворотов по той же маске верха). Мёртвому (<see cref="Dead"/>) заданий нет — его поза стоит.
-/// <paramref name="full"/> — маска всего тела: переход от снимка — смешивание по ней с памятью (перескок дуги — догон по 8° за тик).
+/// Animation: итоговая поза бойца — задания слоя действий поверх локомоции (<see cref="ActionLayer.Pose"/>), у игрока затем
+/// вздрагивание (<see cref="FlinchLayer.Pose"/>), у всех — прямая кинематика. Слой локомоции и снимок ставят задания раньше.
+/// Мёртвому заданий нет. <paramref name="full"/> — маска всего тела для перехода от снимка.
 /// </summary>
 public sealed class AnimatorPoseSystem(PoseMask upper, PoseMask full) : IContinuousSystem
 {
@@ -162,11 +153,8 @@ public sealed class AnimationTickSystem : IContinuousSystem
 }
 
 /// <summary>
-/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>: бойцу, построенному командами тика (команда арены), — поза в пуле
-/// (<c>FighterSetupSystem</c> раздела 9 плана; сочленение, аниматор действий и оружие придут со своими этапами). Боец
-/// появляется с пустым <see cref="PoseRef"/>, поза берётся здесь, когда он уже в мире, и пишется в колонку на месте:
-/// поза из пула, взятая командой, не вернулась бы, если бы команда не сыграла. У бойца со своей живой позой (сборка мира,
-/// снятый и заново добавленный <see cref="Fighter"/>) — ничего.
+/// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>: бойцу, построенному командами тика, — поза в пуле, взятая здесь, когда он
+/// уже в мире (поза, взятая командой, не вернулась бы, если бы команда не сыграла). У бойца со своей живой позой — ничего.
 /// </summary>
 public sealed class FighterSetupSystem : IReactiveSystem<Added<Fighter>>
 {

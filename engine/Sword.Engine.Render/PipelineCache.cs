@@ -17,9 +17,7 @@ internal static class RootLayout
 }
 
 /// <summary>
-/// Смешивание цели 0. <see cref="Premultiplied"/> — цвет уже умножен на альфу: dst = src.rgb + dst·(1 − src.a), альфа —
-/// src.a + dst.a·(1 − src.a) (непрозрачность «поверх»): прозрачное поверх HDR-сцены и накопление в цели ½
-/// (<see cref="HalfResTransparency"/>).
+/// Смешивание цели 0. <see cref="Premultiplied"/>: dst = src.rgb + dst·(1 − src.a), альфа — непрозрачность «поверх».
 /// </summary>
 public enum BlendMode { Opaque, Additive, Alpha, Premultiplied }
 
@@ -29,16 +27,10 @@ public enum BlendMode { Opaque, Additive, Alpha, Premultiplied }
 /// </summary>
 public enum DepthMode { None, Test, TestWrite, TestBehind }
 
-/// <summary>
-/// Отсечение граней. Лицевые у конвейеров — по часовой: <see cref="Back"/> отсекает намотанные против часовой
-/// (как <c>cullBack</c> SWORD), <see cref="Front"/> — по часовой.
-/// </summary>
+/// <summary>Отсечение граней; лицевые — по часовой: <see cref="Back"/> отсекает намотанные против часовой.</summary>
 public enum CullMode { None, Back, Front }
 
-/// <summary>
-/// Графический конвейер без типов D3D12: шейдеры и состояние. Форматы целей сюда не входят — их даёт проход,
-/// в котором конвейер используется (<see cref="TargetLayout"/>).
-/// </summary>
+/// <summary>Графический конвейер без типов D3D12; форматы целей даёт проход (<see cref="TargetLayout"/>).</summary>
 public readonly record struct GraphicsPipelineDesc(
     string File,
     string VsEntry,
@@ -59,10 +51,8 @@ internal readonly record struct TargetLayout(Format Color0, Format Color1 = Form
 }
 
 /// <summary>
-/// Единственная корневая сигнатура (bindless: b0, b1 CBV + <see cref="RootLayout.ConstantCount"/> корневых констант
-/// в b2 + статические сэмплеры s0–s3) и кеш конвейеров поверх неё. Ресурсы шейдер берёт из <c>ResourceDescriptorHeap</c>
-/// по индексу, пришедшему в константах. Перенос <c>Graphics/PipelineCache.cs</c> SWORD 2eab13b; форматы целей теперь
-/// — часть ключа (их объявляет проход рендер-графа), а не набор «задний буфер или цели сцены».
+/// Единственная корневая сигнатура (bindless: b0, b1 CBV + <see cref="RootLayout.ConstantCount"/> корневых констант в b2 +
+/// сэмплеры s0–s3) и кеш конвейеров; форматы целей — часть ключа. Ресурсы шейдер берёт из <c>ResourceDescriptorHeap</c>.
 /// </summary>
 internal sealed class PipelineCache : IDisposable
 {
@@ -75,7 +65,6 @@ internal sealed class PipelineCache : IDisposable
 
     private readonly Dictionary<Key, ID3D12PipelineState> _pipelines = [];
     private readonly Dictionary<Key, ShaderKey[]> _pipelineShaders = [];
-    private readonly HashSet<ShaderKey> _retry = [];
 
     public int PipelineCount => _pipelines.Count;
 
@@ -180,7 +169,7 @@ internal sealed class PipelineCache : IDisposable
     {
         var blendDesc = BlendDescription.Opaque;
         // Непрозрачный — без смешивания вовсе (BlendDescription.Opaque Vortice включает его как One/Zero): целочисленные цели
-        // (ID-буфер R32_UINT) смешивания не поддерживают, а с One/Zero конвейер не создаётся.
+        // (R32_UINT) смешивания не поддерживают, а с One/Zero конвейер не создаётся.
         for (int i = 0; i < 8; i++) blendDesc.RenderTarget[i].BlendEnable = false;   // 8 целей D3D12
         if (d.Blend == BlendMode.Additive)
             blendDesc.RenderTarget[0] = new RenderTargetBlendDescription(true, false,
@@ -232,40 +221,6 @@ internal sealed class PipelineCache : IDisposable
         });
         pso.Name = $"{d.File}|{d.VsEntry}|{d.PsEntry}";
         return pso;
-    }
-
-    /// <summary>Горячая перезагрузка: изменённые шейдеры перекомпилируются, старый конвейер остаётся при ошибке.</summary>
-    public int ReloadStale()
-    {
-        var stale = _shaders.FindStale();
-        foreach (var key in _retry)
-            if (!stale.Contains(key)) stale.Add(key);
-        if (stale.Count == 0) return 0;
-
-        foreach (var key in stale) _shaders.Invalidate(key);
-        _retry.Clear();
-
-        int reloaded = 0;
-        foreach (var (key, keys) in _pipelineShaders.ToList())
-        {
-            if (!keys.Any(stale.Contains)) continue;
-            try
-            {
-                var old = _pipelines[key];
-                ID3D12PipelineState fresh = key.Graphics is { } g
-                    ? BuildGraphics(g, key.Layout, _shaders.Get(keys[0], false).Bytecode, _shaders.Get(keys[1], false).Bytecode)
-                    : BuildCompute(_shaders.Get(keys[0], true).Bytecode, $"{key.ComputeFile}|{key.ComputeEntry}");
-                _pipelines[key] = fresh;
-                _gd.DeferRelease(old);
-                reloaded++;
-            }
-            catch (Exception ex)
-            {
-                foreach (var k in keys) _retry.Add(k);
-                Log.Warning("shader", $"перезагрузка {keys[0].File}:{keys[0].Entry} не удалась:\n{ex.Message}");
-            }
-        }
-        return reloaded;
     }
 
     public void Dispose()

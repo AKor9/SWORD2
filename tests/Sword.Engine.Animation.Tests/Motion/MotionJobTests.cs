@@ -4,11 +4,7 @@ using static Sword.Engine.Animation.Tests.MotionPlayerFixtures;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Задание пула <see cref="PosePool.Motion"/> — шаг проигрывателя: продвижение по графу (ранний выход, шов цикла), затухание
-/// смещений, сэмпл кадра с долей, скорости выхода, запрошенный переход с инерциализацией. Не начатый — первый переход без
-/// инерциализации; освобождённый — Stale; установившийся тик — 0 Б; задание — в общей очереди по порядку, два пула — один итог.
-/// </summary>
+/// <summary>Задание пула <see cref="PosePool.Motion"/>: граф, затухание смещений, сэмпл кадра, переход с инерциализацией.</summary>
 public sealed class MotionJobTests
 {
     /// <summary>
@@ -129,9 +125,8 @@ public sealed class MotionJobTests
     }
 
     /// <summary>
-    /// Скачок позы (локальные повороты и смещения выхода) в тике запрошенного перехода и на ребре графа (ранний выход) и в тике
-    /// после — не больше обычного изменения за тик + <see cref="JumpRot"/>/<see cref="JumpPos"/>, хотя разрыв поз источника и входа —
-    /// десятые доли радиана и больше.
+    /// Скачок позы в тике перехода (запрошенного и по ребру) и после — не больше обычного изменения за тик +
+    /// <see cref="JumpRot"/>/<see cref="JumpPos"/>, хотя разрыв поз источника и входа — десятые доли радиана.
     /// </summary>
     [Fact]
     public void Jump_AtRequestedTransitionAndGraphEdge_WithinOrdinaryTickChange()
@@ -288,10 +283,7 @@ public sealed class MotionJobTests
         Assert.True(checkedCases > 200, $"проверено {checkedCases} случаев");
     }
 
-    /// <summary>
-    /// Через кадр выхода — вход в продолжение ровно один раз, доля сохраняется, перенос корня — остаток интервала до выхода и доля
-    /// интервала входа; на кадре выхода проигрыватель не стоит.
-    /// </summary>
+    /// <summary>Через кадр выхода — вход в продолжение ровно один раз, доля сохраняется; на кадре выхода проигрыватель не стоит.</summary>
     [Fact]
     public void ExitFrame_EntersContinuationExactlyOnce_AlphaKept()
     {
@@ -401,10 +393,7 @@ public sealed class MotionJobTests
         Assert.Equal(0, rig.Pool.Pending);
     }
 
-    /// <summary>
-    /// Задание MM — в общей очереди по порядку: копия после него видит выход MM, смешивание — поверх выхода; выход проигрывателя
-    /// (для скоростей) — до смешивания. Два задания одного проигрывателя за тик — два шага подряд (побитово как два тика).
-    /// </summary>
+    /// <summary>Задание MM — в общей очереди по порядку: копия видит выход MM, смешивание — поверх; два задания за тик — как два тика.</summary>
     [Fact]
     public void Motion_InSharedQueueOrder_TwoJobsAreTwoSteps()
     {
@@ -444,9 +433,8 @@ public sealed class MotionJobTests
     }
 
     /// <summary>
-    /// Установившийся тик с переходами (рёбра, запрошенные, второе задание за тик, выдача после освобождения) после запаса пула
-    /// (<see cref="PosePool.Reserve"/> — в том числе таблица заданий MM) и хранилища (<see cref="MotionPlayers.Reserve"/>) — 0 Б, с
-    /// первого шага MM; без запаса — выделяет (рост таблицы и хранилища).
+    /// После запаса пула (<see cref="PosePool.Reserve"/>) и хранилища (<see cref="MotionPlayers.Reserve"/>) тик с переходами —
+    /// 0 Б с первого шага; без запаса — выделяет.
     /// </summary>
     [Fact]
     public void SteadyTick_WithTransitions_AfterReserve_DoesNotAllocate()
@@ -497,10 +485,7 @@ public sealed class MotionJobTests
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
-    /// <summary>
-    /// Два пула с одинаковыми заданиями (MM со случайными шагами и переходами, сэмплы, смешивания, кинематика, освобождение
-    /// проигрывателя посреди очереди) — побитово одинаковый итог: позы, состояние и все данные суставов проигрывателей.
-    /// </summary>
+    /// <summary>Случайные шаги, переходы и освобождение посреди очереди; сравниваются позы, состояние и данные суставов.</summary>
     [Fact]
     public void TwoPools_SameJobs_BitwiseSameResult()
     {
@@ -599,7 +584,6 @@ public sealed class MotionJobTests
         }
     }
 
-    /// <summary>Длинный прогон со случайными шагами, тиками, полупериодами и частыми переходами: выход и состояние конечны.</summary>
     [Fact]
     public void LongRun_RandomTransitions_OutputStaysFinite()
     {
@@ -670,10 +654,7 @@ public sealed class MotionJobTests
         }
     }
 
-    /// <summary>
-    /// Предохранители: огромное продвижение (1e30 с) — не больше 1024 интервалов графа за задание, остаток отброшен; цикл входов
-    /// (выход → вход, который сам выход обратно) не зацикливает ни переход, ни продвижение.
-    /// </summary>
+    /// <summary>Огромное продвижение — не больше 1024 интервалов графа за задание; цикл входов не зацикливает ни переход, ни продвижение.</summary>
     [Fact]
     public void Safeguards_HugeAdvanceAndEntryCycle_Terminate()
     {

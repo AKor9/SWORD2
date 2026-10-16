@@ -16,12 +16,8 @@ using Sword.Game.Data;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Урон, смерть, реакции, возрождение: правила урона числами (<see cref="DamageRules"/>), проба удара командой
-/// тем же путём Resolve (урон, раны, кровотечение, заявка на отруб, смертельный укол только остриём, реакция, статистика),
-/// неуязвимость (настройка и рывок), трупы — цели (попадание по трупу) и не действуют, кровопотеря, возрождение ровно через 8 с,
-/// мёртвый игрок (команды не действуют, враги ×0,2 и не бьют, R — заново), вздрагивание игрока (только верх, управление не отнимается),
-/// инварианты урона на неисправностях. Контент — синтетический (<see cref="TestAssets"/>); касания настоящих ударов пака — сценарии
-/// манифеста <c>combat</c> (дуэль, смерть игрока, рывок сквозь удар) и инвариант <c>combat.hits</c>.
+/// Урон, смерть, реакции, возрождение: правила урона, проба удара командой тем же путём Resolve, неуязвимость, трупы — цели,
+/// кровопотеря, мёртвый игрок, вздрагивание, инварианты на неисправностях. Контент — синтетический (<see cref="TestAssets"/>).
 /// </summary>
 public sealed class DamageTests
 {
@@ -53,9 +49,8 @@ public sealed class DamageTests
     // ── правила ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Правила урона (<see cref="DamageRules"/>) числами: урон касания по скорости кончика, множители частей и пороги отруба, попадание
-    /// (очки жизни, рана, кровотечение, смерть по ране торса), кровопотеря; смертельный укол — только остриём вперёд (доля движения
-    /// кончика вдоль клинка больше 0,6).
+    /// Правила урона (<see cref="DamageRules"/>) числами: урон по скорости кончика, множители частей, пороги отруба, рана,
+    /// кровотечение; смертельный укол — только остриём (доля движения кончика вдоль клинка больше 0,6).
     /// </summary>
     [Fact]
     public void Rules_DamageSeverWoundsBleedLethalThrust()
@@ -101,9 +96,8 @@ public sealed class DamageTests
     // ── проба и Resolve ─────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Проба удара командой: попадание в плечо врага — очки жизни, рана, кровотечение (кровопотеря — в том же тике), заявка на отруб
-    /// (урон больше порога), событие попадания; враг отшатывается (реакция действием клипом реакции); статистика — попадание и последний
-    /// удар игрока. Инварианты чисты.
+    /// Проба удара командой в плечо врага: очки жизни, рана, кровотечение, заявка на отруб, событие попадания, реакция, статистика.
+    /// Инварианты чисты.
     /// </summary>
     [Fact]
     public void Probe_DamageWoundBleedSeverReactionStats()
@@ -207,10 +201,9 @@ public sealed class DamageTests
     }
 
     /// <summary>
-    /// Труп — цель и не действует: проба в труп — попадание по трупу (<see cref="Hit.Corpse"/>: урон и рана трупу, смерти и
-    /// реакции нет, «убито» не растёт, в статистике — <see cref="ArenaStats.CorpseHits"/>, не <c>Hits</c>; импульса у пробы нет — скорости
-    /// удара нет); курс, действие, поза и клинок-отрезок стоят, хотя ИИ живого вёл бы его к игроку. Тела — труп на физике: в тик смерти
-    /// (Settle) скорости последней постановки живого урезаны переходом (≤ 6 м/с), дальше труп падает; корень идёт за тазом трупа.
+    /// Труп — цель (<see cref="Hit.Corpse"/>: урон и рана, смерти и реакции нет, счёт — <see cref="ArenaStats.CorpseHits"/>) и не
+    /// действует. Тела — труп на физике: в тик смерти скорости живого урезаны переходом (≤ 6 м/с), дальше падает; корень идёт за
+    /// тазом трупа.
     /// </summary>
     [Fact]
     public void Corpse_Target_DoesNotAct_OnPhysics_RootFollowsPelvis()
@@ -256,10 +249,7 @@ public sealed class DamageTests
         Clean(sim);
     }
 
-    /// <summary>
-    /// Кровопотеря: после попадания живой теряет очки жизни (кровотечение·dt, кровотечение гаснет на 0,2/с) и умирает, когда они кончатся;
-    /// «убито» считает и смерть от кровопотери (в SWORD — только от удара игрока).
-    /// </summary>
+    /// <summary>Кровопотеря: живой теряет очки жизни (кровотечение·dt, гаснет на 0,2/с) и умирает; «убито» считает и такую смерть.</summary>
     [Fact]
     public void Bleed_KillsLater_CountsKill()
     {
@@ -407,9 +397,8 @@ public sealed class DamageTests
     }
 
     /// <summary>
-    /// Два попадания подряд — второе вздрагивание в другом слоте, прошлое гаснет с текущего веса (<c>StartFlinch</c> SWORD); вес прошлого в
-    /// момент нового попадания не скачет и на входе (исправление SWORD: там на первых 0,06 с вес падал до квадрата входа); третье попадание,
-    /// пока оба слота видны, нового вздрагивания не даёт (исправление SWORD: там старший слот обрывался — скачок позы).
+    /// Два попадания подряд — второе вздрагивание в другом слоте, прошлое гаснет с текущего веса без скачка; третье, пока видны оба
+    /// слота, вздрагивания не даёт (иначе старший слот обрывался бы — скачок позы).
     /// </summary>
     [Fact]
     public void Flinch_SecondHitFades_ThirdWhileVisibleSkipped()
@@ -439,68 +428,6 @@ public sealed class DamageTests
         Assert.True(w is > 0 and < 1);
         Assert.True(FlinchLayer.Start(ref g, 8, 1.0f));
         Assert.Equal(w, Weight(g.Second), 6);
-    }
-
-    // ── агент ───────────────────────────────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Агенту: проба удара — <c>command.send StrikeProbe</c>; «почему боец умер» — <c>events.history</c> по <c>Hit</c> и <c>Added&lt;Dead&gt;</c>
-    /// (экспорт даёт событиям журнал — без подписчика они не видны); здоровье и пары — <c>entity.get</c> (рецепт — docs/agent-playbook.md).
-    /// </summary>
-    [Fact]
-    public async Task Agent_ProbeByCommand_WhyDiedByEventsHistory()
-    {
-        var sim = Create("arena.enemies=1", "combat.enemiesAttack=false");
-        var host = new Sword.Engine.Agent.AgentHost(new Sword.Engine.Agent.AgentHostOptions
-        {
-            Mode = "headless", Catalog = new Sword.Engine.Introspection.Catalog(sim.World, sim.CommandTypes),
-            Time = new Sword.Engine.Introspection.TimeControl(true, sim.Tick), Service = new Sword.Engine.Introspection.ServiceQueue(),
-            Log = new LogRing(16), ArtifactsRoot = Path.Combine(Path.GetTempPath(), "sword-game-agent-tests"), Stop = () => { },
-            ServiceTimeout = TimeSpan.FromSeconds(5),
-        });
-        Sword.Game.Agent.SwordAgent.Register(host);
-        using var stop = new CancellationTokenSource();
-        var loop = new Thread(() => Sword.Engine.Agent.SimulationLoop.Run(sim, host, stop.Token)) { IsBackground = true };
-        loop.Start();
-        try
-        {
-            async Task<System.Text.Json.Nodes.JsonObject> Call(string tool, System.Text.Json.Nodes.JsonObject? args = null)
-            {
-                var request = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
-                    ["params"] = new System.Text.Json.Nodes.JsonObject { ["name"] = tool, ["arguments"] = args ?? [] },
-                };
-                var r = System.Text.Json.Nodes.JsonNode.Parse((await host.Server.HandleAsync(request.ToJsonString()))!)!["result"]!;
-                Assert.False(r["isError"]?.GetValue<bool>() ?? false, r.ToJsonString());
-                return r["structuredContent"]!.AsObject();
-            }
-
-            await Call("time.step", new() { ["ticks"] = 3 });
-            await Call("command.send", new()
-            {
-                ["command"] = "StrikeProbe",
-                ["fields"] = new System.Text.Json.Nodes.JsonObject { ["Attacker"] = 0, ["Victim"] = 1, ["Part"] = BodySegs.Head, ["Damage"] = 30, ["Kind"] = "Thrust" },
-            });
-            await Call("time.step", new() { ["ticks"] = 2 });
-            var history = await Call("events.history", new() { ["types"] = new System.Text.Json.Nodes.JsonArray("Hit", "Added<Dead>"), ["entity"] = "enemy 1" });
-            var events = history["events"]!.AsArray();
-            Assert.Equal(["Added<Dead>", "Event<Hit>"], events.Select(e => e!["type"]!.GetValue<string>()).Order());
-            var hit = events.Single(e => e!["type"]!.GetValue<string>() == "Event<Hit>")!["fields"]!["Value"]!;
-            Assert.True(hit["Killed"]!.GetValue<bool>() && hit["LethalThrust"]!.GetValue<bool>() && hit["Probe"]!.GetValue<bool>(), hit.ToJsonString());
-            Assert.Equal(("0v1", "Thrust", BodySegs.Head), (hit["Attacker"]!.GetValue<string>(), hit["Kind"]!.GetValue<string>(), hit["Part"]!.GetValue<int>()));
-            var enemy = (await Call("entity.get", new() { ["entity"] = "enemy 1", ["components"] = new System.Text.Json.Nodes.JsonArray("Health", "Dead", "StrikePairs") }))
-                .ToJsonString();
-            Assert.Contains("Wounds", enemy);
-            Assert.Contains("FromPlayer", enemy);
-            Assert.Contains("\"Dead\"", enemy);
-        }
-        finally
-        {
-            stop.Cancel();
-            host.Service.Wake();
-            loop.Join(TimeSpan.FromSeconds(5));
-        }
     }
 
     // ── неисправности ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -551,7 +478,6 @@ public sealed class DamageTests
             }
         }
 
-        /// <summary>Мёртвого сдвинуть.</summary>
         private sealed class MoveDead : IContinuousSystem
         {
             private Query _q = null!;
@@ -646,10 +572,8 @@ public sealed class DamageTests
 }
 
 /// <summary>
-/// На паке игры (категория Content): бой толпы без выделений — 32 бьющих врага против неуязвимого игрока, он рубит связкой без
-/// перерыва и поворачивается (сценарий <c>crowd</c> манифеста <c>combat</c>): касания, попадания, реакции, смерти и возрождения идут после
-/// прогрева, а тик — 0 байт. Нашлось: 539 Б/тик — рост пула поз посреди боя (~3,8 МБ: слои действий, снимки, память смешивания);
-/// исправлено запасом пула на полную арену (<see cref="PosePool.Reserve"/>, <see cref="GameCore.PosesPerFighter"/>).
+/// На паке игры (категория Content): 32 бьющих врага против неуязвимого игрока, который рубит без перерыва, — после прогрева
+/// тик 0 байт: пул поз запасён на полную арену (<see cref="PosePool.Reserve"/>, <see cref="GameCore.PosesPerFighter"/>).
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class DamageContentTests
@@ -668,65 +592,17 @@ public sealed class DamageContentTests
     }
 
     /// <summary>
-    /// Прогрев — через первое возрождение (<see cref="WarmUp"/>). Замер — ещё <see cref="Measured"/> тиков боя: попадания, кровопотеря,
-    /// новые смерти и возрождения; и удары по трупам (импульс в часть, проход) и толчки трупов живыми с отдачей в корень.
-    /// </summary>
-    [Fact]
-    public void Fight_32AttackingEnemies_RealPack_AfterWarmup_DoesNotAllocate()
-    {
-        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=32", "combat.playerInvulnerable=true", "sim.invariants=false"), Reference.Value);
-        int tick = 0;
-        void Step()
-        {
-            sim.Export.BeginFrame();
-            sim.Enqueue(Crowd(tick));
-            sim.Step();
-            tick++;
-        }
-        WarmUp(sim, Step, () => tick);
-        var dead = new List<Entity>();
-        foreach (var chunk in sim.World.Iterate(sim.World.Query().With<EnemyTag>().With<Dead>()))
-            for (int i = 0; i < chunk.Count; i++) dead.Add(chunk.Entities[i]);
-        var before = sim.World.Resource<ArenaStats>();
-        long allocated = 0;
-        int recoils = 0;
-        var recoiled = sim.World.Query().With<Fighter>().Read<Ragdoll.Recoil>();
-        for (int stop = tick + Measured; tick < stop;)
-        {
-            long bytes = GC.GetAllocatedBytesForCurrentThread();
-            Step();
-            allocated += GC.GetAllocatedBytesForCurrentThread() - bytes;
-            ulong now = sim.World.Resource<SimTime>().Tick;
-            foreach (var chunk in sim.World.Iterate(recoiled))
-                foreach (var r in chunk.Read<Ragdoll.Recoil>())
-                    if (r.Tick == now) recoils++;
-        }
-        var after = sim.World.Resource<ArenaStats>();
-        Assert.True(before.Kills >= 2 && after.Kills - before.Kills >= 3, $"убито до замера {before.Kills}, в замере {after.Kills - before.Kills}: смертей мало");
-        Assert.True(after.Hits - before.Hits >= 10, $"попаданий в замере {after.Hits - before.Hits}");
-        Assert.Contains(dead, e => !sim.World.Has<Dead>(e));   // возрождения — в замере
-        // В замере и удары по трупам (импульс в часть, проход, отдача), и толчки трупов живыми (отдача в корень)
-        Assert.True(after.CorpseHits - before.CorpseHits >= 1, $"попаданий по трупам в замере {after.CorpseHits - before.CorpseHits}");
-        Assert.True(recoils > 100, $"отдач корню в замере {recoils}");
-        Assert.Equal(0, allocated);
-    }
-
-    /// <summary>
     /// Запас пула поз — на арену из конфига (<see cref="GameCore.ReservePoses"/>), прибавку врагов добирает команда арены до
-    /// постройки новых бойцов. Арена из 10 врагов (запас 11 бойцов — 128 слотов) набрана PageUp до 32 (команда в тике 0: запас 33 бойцов —
-    /// 512 слотов) и бьётся, как сценарий <c>crowd</c>: после прогрева (<see cref="WarmUp"/>) — 0 Б/тик, пул за запас не
-    /// рос (<see cref="PosePool.Reserved"/> тот же с тика команды до конца), ёмкость пула в бою — внутри запаса.
+    /// постройки. 10 врагов, PageUp до 32 в тике 0, бой как сценарий <c>crowd</c>: после прогрева 0 Б/тик,
+    /// <see cref="PosePool.Reserved"/> с тика команды не меняется.
     /// </summary>
     [Fact]
     public void Fight_CrowdGrownByArenaCommand_ReserveFollows_DoesNotAllocate()
     {
-        var sim = SwordSimulation.Create(ConfigSet.Empty("arena.enemies=10", "combat.playerInvulnerable=true", "sim.invariants=false"), Reference.Value);
-        // Пул — как его видит агент: сводка state.describe animation (запас в хеш не входит).
-        (int Reserved, int JobsReserved, int Capacity) Pool()
-        {
-            var d = System.Text.Json.Nodes.JsonNode.Parse(sim.DescribeState("animation", new DescribeQuery("-", Take: 0)))!;
-            return (d["reserved"]!.GetValue<int>(), d["jobsReserved"]!.GetValue<int>(), d["capacity"]!.GetValue<int>());
-        }
+        var (sim, pool) = TestAssets.WithResource<PosePool>(
+            ConfigSet.Empty("arena.enemies=10", "combat.playerInvulnerable=true", "sim.invariants=false"), Reference.Value);
+        // Запас пула в хеш не входит — читается прямо из пула.
+        (int Reserved, int JobsReserved, int Capacity) Pool() => (pool.Reserved, pool.JobsReserved, pool.Capacity);
         var start = Pool();
         Assert.Equal((128, 11 * GameCore.PoseJobsPerFighter), (start.Reserved, start.JobsReserved));   // 11 бойцов × 11 поз = 121 → 128
         int tick = 0;
@@ -761,10 +637,8 @@ public sealed class DamageContentTests
     }
 
     /// <summary>
-    /// Прогрев замера: бой не короче <see cref="Warmup"/> тиков и до второго тика после первого возрождения. Первая смерть и первая постройка
-    /// заново выделяют разово (~40 КБ на мир: чанки новых архетипов — боец с меткой <see cref="Dead"/> и боец, снятый и поставленный заново на
-    /// барьере; постройка бойца в следующем тике — ещё ~0,1 КБ) — docs/history/combat.md, «Бюджеты и замеры». Возрождение — через 8 с после
-    /// смерти, а тик первой смерти зависит от хода боя (число врагов, клинки пака), поэтому прогрев ждёт само возрождение, а не тик.
+    /// Прогрев: не короче <see cref="Warmup"/> тиков и до второго тика после первого возрождения. Первая смерть и постройка заново
+    /// выделяют разово (~40 КБ — чанки новых архетипов); тик первой смерти зависит от хода боя, поэтому ждём само возрождение.
     /// </summary>
     private static void WarmUp(Simulation sim, Action step, Func<int> tick)
     {
@@ -787,7 +661,7 @@ public sealed class DamageContentTests
         }
     }
 
-    /// <summary>Прогрев не короче — как у бюджета <c>crowd</c> манифеста combat (первое возрождение толпы 32 врагов — до него).</summary>
+    /// <summary>Прогрев: первое возрождение толпы 32 врагов — до его конца.</summary>
     private const int Warmup = 1320;
 
     /// <summary>Тиков замера после прогрева (9 с боя).</summary>

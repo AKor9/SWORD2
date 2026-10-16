@@ -2,10 +2,8 @@ using System.Runtime.InteropServices;
 
 namespace Sword.Engine.Ecs;
 
-/// <summary>
-/// Построитель запроса: <c>Read/Write</c> — компонент нужен и читается/пишется, <c>With/Without</c> — фильтр. Неизменяемый:
-/// каждый шаг — новый построитель, поэтому общая основа (<c>var b = Query().Read&lt;A&gt;()</c>) не меняется ветками.
-/// </summary>
+/// <summary>Построитель запроса: <c>Read/Write</c> — компонент нужен, <c>With/Without</c> — фильтр. Неизменяемый:
+/// общая основа не меняется ветками.</summary>
 public readonly struct QueryBuilder
 {
     private readonly World _world;
@@ -146,11 +144,8 @@ public readonly struct ChunkView
 
     public ReadOnlySpan<T> Read<T>() where T : unmanaged => Column<T>(_world.TypeOf<T>());
 
-    /// <summary>
-    /// Колонка на запись на месте. Реактивный компонент так не пишется — только командой <c>Set</c> (проверки мира:
-    /// исключение). Отложенное значение черновика в поле <see cref="Entity"/> здесь запрещено: проверки мира ловят его
-    /// после исполнения системы.
-    /// </summary>
+    /// <summary>Колонка на запись на месте. Реактивный компонент и отложенное значение черновика так не пишутся — их
+    /// ловят проверки мира.</summary>
     public Span<T> Write<T>() where T : unmanaged
     {
         var t = _world.TypeOf<T>();
@@ -160,8 +155,6 @@ public readonly struct ChunkView
                 throw new InvalidOperationException($"{_registration?.Name ?? "мир"}: {t.StableName} реактивный — меняется только командой Set");
             if (t.HasEntityFields) _world.NoteWritten(_archetype, _chunk, t);
         }
-        // Диагностический режим: грубо — какая регистрация писала столбец в каком тике (state.why непрерывных полей).
-        if (_world.Causality is { } log && _registration is not null) log.NoteWrite(t.Id, _registration.Id, _world.CurrentTick);
         return Column<T>(t);
     }
 

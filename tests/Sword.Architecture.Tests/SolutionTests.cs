@@ -1,6 +1,6 @@
 namespace Sword.Architecture.Tests;
 
-/// <summary>Реальное решение против правил раздела 4 ARCHITECTURE_PLAN.md.</summary>
+/// <summary>Реальное решение против правил архитектуры.</summary>
 public sealed class SolutionTests
 {
     private static readonly string Root = SolutionModel.FindRepoRoot();
@@ -16,9 +16,8 @@ public sealed class SolutionTests
     }
 
     /// <summary>
-    /// Собранные сборки продукта ссылаются только на разрешённое. Компилятор пишет в метаданные ссылку на каждую сборку,
-    /// чьи типы код использует, в том числе доступную лишь транзитивно, — такую ссылку .csproj не показывает.
-    /// Сборки берутся той же конфигурации, что и тесты; решение должно быть собрано (dotnet test SWORD.slnx собирает).
+    /// Собранные сборки ссылаются только на разрешённое: метаданные видят и транзитивно доступные сборки, которых .csproj не
+    /// показывает. Сборки — той же конфигурации, что тесты; решение должно быть собрано.
     /// </summary>
     [Fact]
     public void CompiledAssemblies_FollowArchitecture()
@@ -61,9 +60,8 @@ public sealed class SolutionTests
     }
 
     /// <summary>
-    /// Сборка без DevTools (<c>-p:WithoutDevTools=true</c>, раздел 4): каждая ссылка exe на сборку DevTools — под условием
-    /// <c>'$(WithoutDevTools)' != 'true'</c> (других ссылающихся нет — правило <c>devtools-exe-only</c>). Что такая сборка
-    /// собирается и DevTools в ней нет — шаг <c>without-devtools</c> verify.ps1.
+    /// Каждая ссылка exe на сборку DevTools — под условием <c>'$(WithoutDevTools)' != 'true'</c>. Что такая сборка собирается —
+    /// шаг <c>without-devtools</c> verify.ps1.
     /// </summary>
     [Fact]
     public void DevToolsReferences_AreRemovedWithoutDevTools()
@@ -87,9 +85,8 @@ public sealed class SolutionTests
     }
 
     /// <summary>
-    /// Сборка без модуля (<c>-p:Without&lt;Модуль&gt;=true</c>, раздел 7): каждая ссылка продукта на модуль (<c>game/modules</c> — часть симуляции
-    /// или клиентская) — под условием <c>'$(Without&lt;Модуль&gt;)' != 'true'</c>, где Модуль — имя без <c>Sword.Game.</c> и <c>.Client</c>
-    /// (Bootstrap — модули симуляции, Sword.exe — клиентские). Что такая сборка собирается и стартует — шаг <c>without-modules</c> verify.ps1.
+    /// Каждая ссылка продукта на модуль — под условием <c>'$(Without&lt;Модуль&gt;)' != 'true'</c>, Модуль — имя без
+    /// <c>Sword.Game.</c> и <c>.Client</c>. Что такая сборка собирается и стартует — шаг <c>without-modules</c> verify.ps1.
     /// </summary>
     [Fact]
     public void ModuleReferences_AreRemovedWithoutModule()

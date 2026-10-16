@@ -4,10 +4,7 @@ using static Sword.Engine.Animation.Tests.MotionPlayerFixtures;
 
 namespace Sword.Engine.Animation.Tests;
 
-/// <summary>
-/// Хранилище проигрывателей: хэндлы с поколением, порядок свободных слотов, запас памяти без изменения логики, чтение
-/// освобождённого — исключение, новый проигрыватель не начат; ближний кадр для поиска и запроса.
-/// </summary>
+/// <summary>Хранилище проигрывателей: хэндлы с поколением, свободные слоты, запас памяти, ближний кадр.</summary>
 public sealed class MotionPlayersTests
 {
     [Fact]
@@ -74,10 +71,7 @@ public sealed class MotionPlayersTests
         Assert.Equal(skeleton.ReferencePos.ToArray(), rig.Players.OutputPositions(p).ToArray());
     }
 
-    /// <summary>
-    /// Запас памяти (<see cref="MotionPlayers.Reserve"/>) — как у пула поз: выдача и освобождение с удвоением ёмкости не выделяют
-    /// памяти, а ёмкость, номера, поколения и порядок свободных слотов — те же, что без запаса.
-    /// </summary>
+    /// <summary>Как у пула поз: рост с запасом не выделяет, а ёмкость, номера, поколения и свободные слоты — те же, что без него.</summary>
     [Fact]
     public void Reserve_GrowthWithoutAllocations_SameLogicAsWithout()
     {
@@ -121,10 +115,7 @@ public sealed class MotionPlayersTests
         for (int i = 0; i < plain.Capacity; i++) Assert.Equal(plain.GenerationAt(i), reserved.GenerationAt(i));
     }
 
-    /// <summary>
-    /// Ближний кадр: доля ≥ 0,5 — следующий кадр того же клипа, иначе сам кадр; последний кадр цикла — начало цикла; конец
-    /// нециклического клипа — он сам.
-    /// </summary>
+    /// <summary>Ближний кадр: доля ≥ 0,5 — следующий кадр клипа; последний кадр цикла — начало цикла; конец нециклического — он сам.</summary>
     [Fact]
     public void NearestFrame_RoundsWithinClip_LoopLastIsStart()
     {

@@ -106,18 +106,17 @@ public class FrameToolsTests
     }
 
     /// <summary>
-    /// Сторож кадров — кадры идут, он молчит; кадров нет дольше срока — ровно один вызов со словами «нет кадров N с» и тем, свёрнуто ли
-    /// окно (бенч в свёрнутом окне висел 28 мин: кадров нет, игровое время бенча стоит).
+    /// Сторож кадров: пока кадры идут — молчит; кадров нет дольше срока — ровно один вызов со словами «нет кадров N с» и тем, свёрнуто ли окно.
     /// </summary>
     [Fact]
     public void Watchdog_SilentWhileFrames_FiresOnceWhenFramesStop()
     {
         var calls = new System.Collections.Concurrent.ConcurrentQueue<string>();
         bool minimized = false;
-        using (var w = new FrameWatchdog(1, () => minimized, calls.Enqueue))
+        using (var w = new FrameWatchdog(0.3, () => minimized, calls.Enqueue))
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            while (clock.Elapsed.TotalSeconds < 2)
+            while (clock.Elapsed.TotalSeconds < 0.9)   // три срока сторожа с кадрами
             {
                 w.Frame();
                 Thread.Sleep(10);
@@ -127,10 +126,10 @@ public class FrameToolsTests
             minimized = true;
             clock.Restart();
             while (calls.IsEmpty && clock.Elapsed.TotalSeconds < 5) Thread.Sleep(10);
-            Thread.Sleep(1200);   // второго вызова нет
+            Thread.Sleep(600);   // второго вызова нет: больше двух сроков и восьми периодов таймера
             Assert.True(w.Fired);
             string message = Assert.Single(calls);
-            Assert.Contains("нет кадров 1 с", message);
+            Assert.Contains("нет кадров 0.3 с", message);
             Assert.Contains("окно свёрнуто", message);
         }
         Assert.Throws<ArgumentOutOfRangeException>(() => new FrameWatchdog(0, () => false, _ => { }));

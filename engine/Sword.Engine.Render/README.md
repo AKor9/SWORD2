@@ -33,7 +33,7 @@
 запись пула — на один запрос в кадре, без алиасинга памяти; не выданная `TransientPool.KeepFrames` кадров подряд освобождается (после
 смены размера окна старых целей нет). Индексы для шейдера — `SrvOf`/`UavOf`. Цель цвета и глубина создаются с оптимальным значением
 очистки (`TextureDesc.ClearColor`/`ClearDepth`) и чистятся только им — другой цвет — исключение графа. Хранилище
-(`Renderer.CreateStorage`) переживает кадр; `Renderer.ReadStorage` читает его на CPU с ожиданием GPU — для тестов и агента.
+(`Renderer.CreateStorage`) переживает кадр; `Renderer.ReadStorage` читает его на CPU с ожиданием GPU — для тестов и снимков.
 Асинхронное чтение — `Renderer.CreateReadback(storage, bytes, handler)` (`GpuReadback`, представление и диагностика GPU-симуляций): последней
 командой каждого кадра копия в буфер чтения слота кольца кадров, данные кадра N — в начале кадра N + `GpuReadback.Latency` (3), без ожидания
 GPU, по порядку кадров; брошенный кадр данных не даёт; смена размера (`Renderer.Resize`: слоты кадров — с нуля) отдаёт ждущие данные сразу,
@@ -120,7 +120,7 @@ RGBA16F, очищена нулём), проходы вызывающего в `H
 рендер при первой загрузке (`ContentLocator`), в журнал (`skin`) — источник и размер. Экземпляр в позе — `Skinned.AddPosed(mesh, model,
 world, …)`: модельные матрицы от аниматора, палитру `InverseBind · Model · World` считает рендер; число суставов позы и меша обязано
 совпасть. `Add` — палитру заполняет вызывающий (поза привязки). Жёсткое вложение меша без суставов (меч в кисти) — `Skinned.AddRigid(mesh,
-world, …)`: палитра из одной матрицы; часть ID-буфера такого меша — одна (`SetJointParts` с одной частью).
+world, …)`: палитра из одной матрицы.
 
 ### Снимок кадра
 
@@ -128,11 +128,8 @@ world, …)`: палитра из одной матрицы; часть ID-бу�
 показан, а файл не записался — `CaptureException`. С HDR ещё: `HdrPath` — карта яркости входа тонмапа в ложных цветах (`.hdr.png`) и сырой
 half (`.hdr.bin`) → `CaptureResult.Hdr` (экспозиция, максимум, среднее, доля ярче 1, NaN); `BloomPath` — добавка bloom той же шкалой
 (`.bloom.png`/`.bin`) → `Hdr.Bloom`; `TransparentPath` — слой ½ до композита (`.transparent.png`/`.bin`, если слой был в кадре) →
-`Hdr.Transparent` (размер, яркость, покрытие — средняя альфа). Диагностический режим: заказ — в `RenderFrame.Capture`, игра регистрирует
-проходы только в этом кадре и отдаёт `RenderFrame.CaptureIds` (ID-буфер `R32Uint`: PNG, сырые коды `.bin`, сводка `CaptureResult.Ids`) и
-`RenderFrame.CaptureLayer` (слой `Rgba8`, премультиплицированный, в свой PNG); не отданное и заметки игры (`RenderFrame.CaptureNote`) —
-`CaptureResult.Notes`. Код ID-буфера — `SkinnedMeshes.IdOf(владелец, часть)`: часть — по суставу вершины с наибольшим весом
-(`SetJointParts`, слот 17, `skin.hlsli`); ID-проход рисует тем же вершинным шейдером с тестом «равная проходит» по глубине сцены.
+`Hdr.Transparent` (размер, яркость, покрытие — средняя альфа); заказанная карта без HDR или bloom в кадре — `CaptureResult.Notes`. Заказ
+кадра виден в `RenderFrame.Capture`: модуль кладёт рядом со снимком свои данные (поля огня).
 Пиксельные циклы снимка (`Screenshot.Save*`, `Png.Crc32.Update`) — `AggressiveOptimization`: без неё OSR давал 4…5 мс на главном потоке.
 
 ### UI-проход и отладочное рисование
@@ -181,18 +178,15 @@ HLSL, константы кадра — `ConstantBuffer<struct>` с полями
 
 Rhi (устройство D3D12, DXC), Formats (`.swtex`, меши, шрифты), Content (пак), Ui (списки квадов), Diagnostics (профайлер, журнал).
 
-## Агентский доступ
+## Наблюдение
 
 - `Sword.exe --json`: `report.passes` (фаза, вид, записи, чтения, барьеры, вызовы), `report.hdr` (включён, экспозиция, bloom; с `--shot` —
   `shot`: яркость входа тонмапа, `bloom`, `transparent` и карты `.hdr.png`/`.bin`, `.bloom.png`/`.bin`, `.transparent.png`/`.bin` рядом со
   снимком), `report.lights` (показано, отброшено, скрыто дальностью, LF, источники), `report.textures` (путь, размер, слои, мипы, формат,
   sRGB, байт видеопамяти), `pipelines`, `pooledResources`.
-- `capture.bundle` — `hdr` (с `bloom`, `transparent`: числа, PNG шкалы, сырой half), слои оверлеев; `render.graph` — проходы кадра с фазой и
-  GPU-временем, `hdr`, `bloom`, `lights`, `textures`.
-- Оверлей `lights` (`Sword.exe --overlay lights`, слой снимка): крест в позиции, круги R и половины затухания, подпись «интенсивность, R».
+- Оверлей `lights` (`Sword.exe --overlay lights`): крест в позиции, круги R и половины затухания.
   Тестовый свет — `Sword.exe --test-light [N]`.
 - `SWORD_TEST_KEEP=1` — снимки GPU-тестов (`BloomGpuTests` и др.) не удаляются.
-- Рецепты — [docs/agent-playbook.md](../../docs/agent-playbook.md), «Рендер: HDR, bloom, свет, прозрачное».
 
 ## Проверки
 
@@ -204,9 +198,8 @@ Rhi (устройство D3D12, DXC), Formats (`.swtex`, меши, шрифты
   премультипликация по формуле, мягкий край, размеры 1×1…101×55), `TextureGpuTests` (GPU = CPU-декод всех форматов; с `SWORD_CONTENT` —
   любой пак), `FilmicTonemapTests` (ветки кривой, вырожденная — исключение), `UiPassGpuTests`.
 - `tests/Sword.Game.Tests`: `ArenaBloomGpuTests`, `ArenaPointLightGpuTests`, `ArenaLightTuningGpuTests` (день бит в бит, ночь, факел, ручки —
-  0 Б, без команд), `IdBufferGpuTests`, `CorpseGpuTests`.
-- `verify.ps1` `app-smoke` — игра (с HDR, bloom и тонмапом) под `--gpu-validation`: проходы, `hud`, снимок; `agent-smoke` —
-  `capture.bundle` с `ids` и `overlays`. Числа HDR и свет в смоуках не судятся — их держат GPU-тесты выше.
+  0 Б, без команд), `CorpseGpuTests`.
+- `verify.ps1` `app-smoke` — игра (с HDR, bloom и тонмапом) под `--gpu-validation`: проходы, `hud`, снимок. Числа HDR и свет в смоуках не судятся — их держат GPU-тесты выше.
 
 ## Ограничения
 
@@ -217,8 +210,7 @@ Rhi (устройство D3D12, DXC), Formats (`.swtex`, меши, шрифты
   источники, как и солнце, — прямой свет и на ao не умножаются (как в UE: затенять прямой свет — дело теней), поэтому без теней светят
   и в щели.
 - Слой ½ один на кадр (общий для модулей); допуск апсемпла — доля глубины, а не её наклон.
-- Материалов секций скина и разрезов нет (Cutting отложен — решение 17); горячая перезагрузка шейдеров по клавише — `PipelineCache.ReloadStale`
-  есть, вызова нет.
+- Материалов секций скина и разрезов нет (Cutting отложен — решение 17); горячей перезагрузки шейдеров нет.
 
 ## Известные ошибки
 

@@ -6,10 +6,8 @@ using Xunit.Abstractions;
 namespace Sword.Game.Tests;
 
 /// <summary>
-/// Земля арены для физики (<see cref="ArenaGround"/>): свойства граней своими числами. Пирамида — центр (−16, 0),
-/// ярус k (1…5) — квадрат полушириной 7 − k с верхом на 0,12·k м; гладкий рельеф — высота без ступеней. Ровная земля, верх
-/// яруса у кромки, подступенок, над ребром и углом, внутренние углы, погружение в ярус, ярус без дна, нормаль рельефа против конечных
-/// разностей высоты, касания = грани с глубиной &gt; 0, непрерывность глубины, стена и колонны, 0 Б на вызов.
+/// Земля арены (<see cref="ArenaGround"/>): свойства граней своими числами. Пирамида — центр (−16, 0), ярус k (1…5) — квадрат
+/// полушириной 7 − k с верхом на 0,12·k м; гладкий рельеф — высота без ступеней.
 /// </summary>
 public sealed class ArenaGroundTests(ITestOutputHelper output)
 {
@@ -240,8 +238,8 @@ public sealed class ArenaGroundTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Ярус — призма без дна: сколь угодно глубоко под проступью (до 2 м — ниже дна ящика SWORD на −1 м) грань яруса выталкивает
-    /// к ближайшему выходу — вверх или вбок, никогда вниз; глубина — радиус плюс расстояние до этого выхода.
+    /// Ярус — призма без дна: сколь угодно глубоко под проступью (до 2 м) грань яруса выталкивает к ближайшему выходу — вверх или
+    /// вбок, никогда вниз; глубина — радиус плюс расстояние до этого выхода.
     /// </summary>
     [Fact]
     public void TierPrism_Bottomless_NeverPushesDown()
@@ -295,10 +293,7 @@ public sealed class ArenaGroundTests(ITestOutputHelper output)
         Assert.True(worstRest < 5e-4f, $"сфера на поверхности по нормали: глубина {worstRest}");
     }
 
-    /// <summary>
-    /// Высота с градиентом — та же функция: бит в бит <see cref="ArenaTerrain.SmoothHeightAt(float, float)"/> по всей арене,
-    /// вне пирамиды — бит в бит <see cref="ArenaTerrain.Height"/> (земля трупов = земля живых); вне участков градиент 0.
-    /// </summary>
+    /// <summary>Высота с градиентом бит в бит равна <see cref="ArenaTerrain.SmoothHeightAt(float, float)"/>, вне пирамиды — <see cref="ArenaTerrain.Height"/>.</summary>
     [Fact]
     public void SmoothHeightWithGradient_IsTheSameHeight()
     {
@@ -383,10 +378,7 @@ public sealed class ArenaGroundTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>
-    /// Нечисловой (NaN) центр — ни одного касания. Бесконечный центр — не вход земли (положения тел физика держит конечными):
-    /// у y = −∞ глубина рельефа бесконечна.
-    /// </summary>
+    /// <summary>NaN-центр — ни одного касания; при y = −∞ глубина рельефа бесконечна (физика держит положения конечными).</summary>
     [Fact]
     public void NaNCenter_NoTouches()
     {

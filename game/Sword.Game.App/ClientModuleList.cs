@@ -7,9 +7,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.App;
 
 /// <summary>
-/// Композиция клиентских модулей Sword.exe (раздел 7 плана) — по образцу <see cref="SwordSimulation.Modules"/>: модули статически, сборка
-/// без модуля (<c>-p:WithoutFire=true</c>) его не знает вовсе, а его секцию конфига пропускает (<see cref="SwordSimulation.ClientModuleIds"/>) —
-/// общий <c>sword.json</c> с его настройками не роняет запуск (решение 9). Сервисы игры для модулей — здесь же: игра о модулях не знает.
+/// Композиция клиентских модулей Sword.exe — по образцу <see cref="SwordSimulation.Modules"/>: сборка без модуля его не знает, а
+/// его секцию конфига пропускает (<see cref="SwordSimulation.ClientModuleIds"/>). Сервисы игры для модулей — здесь же.
 /// </summary>
 internal static class ClientModuleList
 {
@@ -22,8 +21,8 @@ internal static class ClientModuleList
     ];
 
     /// <summary>
-    /// Модули клиента над <paramref name="simulation"/> — до <see cref="ConfigSet.Complete"/> (модули читают свои секции): включённые настроены,
-    /// сервис оружия тика (<see cref="IWeaponTips"/>) — клиент арены над миром симуляции, туман, солнце и небо сцены (<see cref="ISceneFog"/>, <see cref="ISceneSky"/>) — клиент арены.
+    /// Модули клиента над <paramref name="simulation"/> — до <see cref="ConfigSet.Complete"/> (модули читают свои секции), с сервисами
+    /// игры: оружие тика (<see cref="IWeaponTips"/>), туман, солнце и небо сцены.
     /// </summary>
     public static ClientModules Compose(ConfigSet config, Simulation simulation, ISceneFog fog, ISceneSky sky)
     {

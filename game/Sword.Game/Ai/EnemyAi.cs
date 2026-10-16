@@ -9,16 +9,13 @@ using Sword.Game.Contracts;
 
 namespace Sword.Game.Ai;
 
-/// <summary>
-/// Константы ИИ врага — <c>Gameplay/Ai/EnemyAi.cs</c> SWORD 2eab13b (<c>Think</c>, <c>Built</c>): движение и удар по
-/// таймеру; блок у врагов в SWORD выключен — его нет.
-/// </summary>
+/// <summary>Константы ИИ врага: движение и удар по таймеру.</summary>
 public static class EnemyAiRules
 {
     /// <summary>Дистанция удара, м (<c>Reach</c>): ближе к игроку — враг бьёт, когда таймер вышел.</summary>
     public const float Reach = 2.3f;
 
-    /// <summary>Таймер удара при постройке — 1 + ГСЧ·2 с (<c>Built</c>), после удара — 1,1 + ГСЧ·1,4 с.</summary>
+    /// <summary>Таймер удара при постройке — 1 + ГСЧ·2 с, после удара — 1,1 + ГСЧ·1,4 с.</summary>
     public const float FirstTimer = 1f, FirstTimerSpread = 2f, NextTimer = 1.1f, NextTimerSpread = 1.4f;
 
     /// <summary>Рубящий удар (случайный из связки) с вероятностью 0,75, иначе укол (случайный).</summary>
@@ -47,16 +44,12 @@ public static class EnemyAiRules
 }
 
 /// <summary>
-/// Составляющие намерения врага на этом тике — агентский вид ИИ (почему враг идёт туда, куда идёт): расстояние до
-/// игрока, скорость подхода, покачивания и толчок расхождения. Пишет <see cref="EnemyAiSystem"/> (и команда арены — тому,
-/// кого строит); читают агент (<c>entity.get</c>, <c>watch.add</c>, условия) и манифест фичи. Хешируется (участник
-/// <c>ecs</c>): это производное состояние, детерминированное, как и само намерение.
-/// Желаемая скорость — <c>dir·ApproachSpeed + side·SwaySpeed + Separation</c> (dir — на игрока, side = (dir.Z, 0, −dir.X)),
-/// сумма с точностью до округления float: в <see cref="FighterCommand.DesiredVelocity"/> она сложена в порядке SWORD.
+/// Составляющие намерения врага на этом тике — почему враг идёт туда, куда идёт (хешируется, участник <c>ecs</c>). Желаемая
+/// скорость — <c>dir·ApproachSpeed + side·SwaySpeed + Separation</c> (side = (dir.Z, 0, −dir.X)) с точностью до округления float.
 /// </summary>
 public struct EnemyAiTerms
 {
-    /// <summary>Расстояние до игрока по земле, м (<c>dist</c> SWORD, не меньше 1e-3).</summary>
+    /// <summary>Расстояние до игрока по земле, м (не меньше 1e-3).</summary>
     public float Distance;
 
     /// <summary>Скорость к игроку, м/с: clamp((dist − 1,8)·2,5, −2, 3,2); больше 0 — подходит, меньше — отступает.</summary>
@@ -73,8 +66,7 @@ public struct EnemyAiTerms
 }
 
 /// <summary>
-/// Кто на арене для ИИ: корни и зёрна мест 0…32 (0 — игрок) и какие места заняты. Корни — до движения тика (в SWORD все
-/// <c>Think</c> идут до <c>KinematicBegin</c>). Массивы заводятся один раз — тик памяти не выделяет.
+/// Кто на арене для ИИ: корни и зёрна мест 0…32 (0 — игрок) до движения тика. Массивы заводятся один раз — тик памяти не выделяет.
 /// </summary>
 public sealed class EnemyCrowd
 {
@@ -82,10 +74,10 @@ public sealed class EnemyCrowd
     public readonly float[] Seeds = new float[ArenaRules.MaxFighters];
     public readonly bool[] Present = new bool[ArenaRules.MaxFighters];
 
-    /// <summary>Игрок мёртв (<c>p.Dead</c> SWORD): враги подходят ×0,2 и не бьют.</summary>
+    /// <summary>Игрок мёртв: враги подходят ×0,2 и не бьют.</summary>
     public bool PlayerDead;
 
-    /// <summary>Множитель желаемой скорости врага при мёртвом игроке (<c>desired *= 0.2f</c> SWORD).</summary>
+    /// <summary>Множитель желаемой скорости врага при мёртвом игроке.</summary>
     public const float DeadPlayerCalm = 0.2f;
 
     public void Clear()
@@ -102,10 +94,7 @@ public sealed class EnemyCrowd
     }
 
     /// <summary>
-    /// Толпа мира до движения тика: все живые бойцы с местом (<see cref="FighterSlot"/>) — корень и зерно (мёртвые враги в
-    /// расхождении не участвуют — <c>o.Dead</c> SWORD); мёртвый игрок — тоже цель (враги идут к нему ×0,2), отмечен
-    /// <see cref="PlayerDead"/>. Запросы — <c>With&lt;Fighter&gt;().Without&lt;Dead&gt;().Read&lt;FighterSlot&gt;().Read&lt;Transform&gt;().Read&lt;FighterSeed&gt;()</c>
-    /// и тот же у игрока <c>With&lt;Dead&gt;()</c>.
+    /// Толпа мира до движения тика: живые бойцы с местом — корень и зерно; мёртвый игрок — тоже цель (отмечен <see cref="PlayerDead"/>).
     /// </summary>
     public void Gather(in SystemContext ctx, Query fighters, Query deadPlayer)
     {
@@ -128,8 +117,8 @@ public sealed class EnemyCrowd
     }
 
     /// <summary>
-    /// Намерение врага места <paramref name="slot"/> по этой толпе (<see cref="EnemyAi.Think"/>; игрок мёртв — желаемая скорость
-    /// ×0,2, как в SWORD); игрока (место 0) нет — false, намерение не трогается.
+    /// Намерение врага места <paramref name="slot"/> по этой толпе (<see cref="EnemyAi.Think"/>); игрока нет — false, намерение не
+    /// трогается.
     /// </summary>
     public bool Think(int slot, float time, ref FighterCommand intent, ref GazeTarget gaze, ref EnemyAiTerms terms)
     {
@@ -142,17 +131,14 @@ public sealed class EnemyCrowd
 }
 
 /// <summary>
-/// ИИ врага — <c>EnemyAi.Think</c> SWORD 2eab13b, движение (удар по таймеру — <see cref="EnemyAiSystem.Attack"/>; блока у
-/// врагов нет, <c>p.Dead</c> учтён): идёт на игрока до 1,8 м, покачиваясь вбок, и расходится с врагами ближе 1,4 м; курс-цель
-/// и точка взгляда — на игрока. Расхождение складывается по местам 1…32 (порядок сложения float — часть поведения: эталоны
-/// SWORD2 держат его хешами).
+/// ИИ врага, движение: идёт на игрока до 1,8 м, покачиваясь вбок, и расходится с врагами ближе 1,4 м; курс-цель и взгляд — на
+/// игрока. Расхождение складывается по местам 1…32 (порядок сложения float — часть поведения).
 /// </summary>
 public static class EnemyAi
 {
     /// <summary>
     /// Один враг. <paramref name="roots"/> и <paramref name="present"/> — по местам (0 — игрок, в расхождении не участвует);
-    /// сам враг (<paramref name="slot"/>) пропускается. <paramref name="time"/> — время арены (<c>DuelArena.Time</c>:
-    /// <see cref="SimTime.Time"/>).
+    /// <paramref name="time"/> — <see cref="SimTime.Time"/>.
     /// </summary>
     public static FighterCommand Think(int slot, Vector3 self, float seed, Vector3 player, float time,
         ReadOnlySpan<Vector3> roots, ReadOnlySpan<bool> present, out EnemyAiTerms terms)
@@ -164,7 +150,7 @@ public static class EnemyAi
         var side = new Vector3(dir.Z, 0, -dir.X);
         float approach = Math.Clamp((dist - EnemyAiRules.KeepDistance) * EnemyAiRules.ApproachGain, EnemyAiRules.ApproachMin, EnemyAiRules.ApproachMax);
         float sway = MathF.Sin(time * EnemyAiRules.SwayFrequency + seed * EnemyAiRules.SwaySeedScale);
-        // Порядок SWORD: dir·clamp + (side·sin)·0,7, затем толчки соседей по местам.
+        // Порядок: dir·clamp + (side·sin)·0,7, затем толчки соседей по местам.
         var desired = dir * approach + side * sway * EnemyAiRules.SwaySpeed;
         terms = new EnemyAiTerms { Distance = dist, ApproachSpeed = approach, SwaySpeed = sway * EnemyAiRules.SwaySpeed };
 
@@ -188,9 +174,7 @@ public static class EnemyAi
 }
 
 /// <summary>
-/// Таймер удара врага (<c>EnemyAi._attackTimer</c> SWORD 2eab13b): сколько ещё ждать до следующего удара, с (не ниже 0). Задаёт
-/// постройка места (<see cref="FighterSpawn.AttackTimer"/>: 1 + ГСЧ·2), после удара ИИ — 1,1 + ГСЧ·1,4; идёт каждый тик и при
-/// мирных врагах (<c>combat.enemiesAttack = false</c>). Хешируется, виден агенту.
+/// Таймер удара врага, с (не ниже 0): при постройке 1 + ГСЧ·2, после удара 1,1 + ГСЧ·1,4; идёт и при мирных врагах. Хешируется.
 /// </summary>
 public struct EnemyAttack
 {
@@ -198,12 +182,8 @@ public struct EnemyAttack
 }
 
 /// <summary>
-/// Intent, после команды игрока: намерение каждого врага (<c>EnemyAi.Think</c> SWORD по местам 1…32 после
-/// <c>PlayerBrain.Think</c>) — желаемая скорость и курс-цель (<see cref="FighterCommand"/>), точка взгляда на игрока
-/// (<see cref="GazeTarget"/>) и составляющие (<see cref="EnemyAiTerms"/>). Корни — до движения тика: сначала толпа
-/// собирается целиком, потом думает каждый. Команды арены — в стадии Begin: Intent уже видит арену после них.
-/// Удар (<see cref="Attack"/>): таймер минус тик; удар командой врагу (<see cref="EnemyCommand.Attack"/>, поверх ИИ на
-/// тик) или по таймеру ИИ, если враги нападают (<see cref="CombatRules.EnemiesAttack"/>).
+/// Intent, после команды игрока: намерение, взгляд и составляющие ИИ каждого врага. Сначала толпа собирается целиком, потом
+/// думает каждый. Удар (<see cref="Attack"/>) — командой врагу или по таймеру, если враги нападают.
 /// </summary>
 public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
 {
@@ -231,9 +211,8 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
         var rules = world.Resource<CombatRules>();
         var clips = world.Resource<PosePool>().Clips;
         var commands = ctx.Journal<Event<EnemyCommand>>();
-        var log = ctx.Causality;
         _crowd.Gather(ctx, _fighters, _deadPlayer);
-        bool strike = rules.EnemiesAttack && !_crowd.PlayerDead;   // мёртвого игрока не бьют (!p.Dead SWORD)
+        bool strike = rules.EnemiesAttack && !_crowd.PlayerDead;   // мёртвого игрока не бьют
         foreach (var chunk in ctx.Iterate(_enemies))
         {
             var intent = chunk.Write<FighterCommand>();
@@ -247,9 +226,8 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
             {
                 int slot = slots[i].Index;
                 if ((uint)slot >= ArenaRules.MaxFighters || !_crowd.Think(slot, time.Time, ref intent[i], ref gaze[i], ref terms[i])) continue;
-                int serial = action[i].AttackSerial, commanded = Commanded(commands, slot);
+                int commanded = Commanded(commands, slot);
                 Attack(ref action[i], ref attack[i], terms[i].Distance, commanded, strike, entities[i], time, rng, clips);
-                if (log is not null && action[i].AttackSerial != serial) Started(ctx, log, entities[i], serial, action[i].AttackSerial, commands, slot, commanded);
             }
         }
     }
@@ -263,30 +241,9 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
     }
 
     /// <summary>
-    /// Диагностический режим: удар начался — родитель начала удара — команда врагу этого тика или решение ИИ «удар по таймеру»
-    /// (корень: команды нет).
-    /// </summary>
-    private static void Started(in SystemContext ctx, CausalityLog log, Entity e, int before, int serial, ReadOnlySpan<Event<EnemyCommand>> commands,
-        int slot, int commanded)
-    {
-        var parent = CauseId.None;
-        if (commanded != 0)
-            for (int c = commands.Length - 1; c >= 0; c--)
-                if (commands[c].Value.Slot == slot)
-                {
-                    parent = commands[c].Cause;
-                    break;
-                }
-        if (parent.Value == 0) parent = ctx.Commands.Note(CombatCauses.AiStrike, e, CauseId.None);
-        CombatCauses.Started(ctx, log, e, before, serial, parent);
-    }
-
-    /// <summary>
-    /// Удар врага (<c>EnemyAi.Think</c> SWORD, конец): таймер минус тик; удар команды — если враг может действовать (<c>CanAct</c>
-    /// не-<c>Agile</c>), таймер не трогается; иначе ИИ: игрок ближе <see cref="EnemyAiRules.Reach"/>, таймер вышел, может
-    /// действовать — рубящий (0,75; случайный из связки) или укол (случайный), таймер 1,1 + ГСЧ·1,4. <paramref name="enemiesAttack"/> —
-    /// враги нападают и игрок жив (<c>!p.Dead</c> SWORD); мёртвый враг сюда не приходит (<c>f.CanAttack</c> SWORD: жив; рука и меч
-    /// целы — с Cutting, отложен: решение 17). Удар командой при мёртвом игроке начинается (вид), но трупы — не цели.
+    /// Удар врага: таймер минус тик; удар команды — если враг может действовать (таймер не трогается); иначе ИИ: игрок ближе
+    /// <see cref="EnemyAiRules.Reach"/>, таймер вышел — рубящий (0,75) или укол, таймер заново. <paramref name="enemiesAttack"/> —
+    /// враги нападают и игрок жив. Удар командой при мёртвом игроке начинается, но трупы — не цели.
     /// </summary>
     public void Attack(ref AnimatorAction action, ref EnemyAttack state, float distance, int commanded, bool enemiesAttack, Entity e,
         in SimTime time, SimRandom rng, ClipLibrary clips)
@@ -310,10 +267,8 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
 }
 
 /// <summary>
-/// Gameplay, до курса и разгона: команды врагу тика (<see cref="EnemyCommand"/>) — намерение врага места вместо ИИ. Стоит
-/// после барьера Intent, чтобы лечь поверх и ИИ, и команды арены (в её тике ИИ по новой арене ставится на барьере).
-/// Составляющие ИИ (<see cref="EnemyAiTerms"/>) и точка взгляда остаются от ИИ — что он хотел бы. Несколько команд
-/// одному месту — последняя; нечисловая скорость — стоять, нечисловой курс — курс-цель ИИ.
+/// Gameplay, до курса и разгона: команды врагу тика — намерение вместо ИИ (после барьера Intent — поверх ИИ и команды арены).
+/// Составляющие ИИ и взгляд остаются от ИИ. Несколько команд — последняя; нечисловая скорость — стоять, курс — курс-цель ИИ.
 /// </summary>
 public sealed class EnemyCommandSystem : IContinuousSystem
 {

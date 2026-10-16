@@ -10,19 +10,15 @@ using BenchmarkDotNet.Toolchains.InProcess.Emit;
 namespace Sword.Benchmarks;
 
 /// <summary>
-/// Микробенчмарки ECS (BenchmarkDotNet) и вердикт по целям раздела 5 плана: обход медленнее сырого цикла не более чем
-/// на <see cref="MaxRatio"/>, команды и журналы в устойчивом режиме — 0 байт на тик. Итог — <c>artifacts/bench/ecs.json</c>,
-/// код выхода 0 — цели выполнены. <c>--quick</c> — короткий прогон (меньше итераций, шире разброс).
+/// Микробенчмарки ECS и вердикт: обход медленнее сырого цикла не более чем на <see cref="MaxRatio"/>, команды и журналы —
+/// 0 байт на тик. Итог — <c>artifacts/bench/ecs.json</c>, код 0 — цели выполнены; <c>--quick</c> — короткий прогон.
 /// </summary>
 public static class Program
 {
     /// <summary>Верх цели «20–30 %»: отношение медиан ECS / сырой цикл.</summary>
     public const double MaxRatio = 1.30;
 
-    /// <summary>
-    /// Цель профайлера: пара Begin/End выключенного — не дороже стольких нс сверх пустого цикла (проверка
-    /// поля; при зоне на систему — ~60 пар на тик толпы, то есть меньше 0,1 мкс на тик).
-    /// </summary>
+    /// <summary>Пара Begin/End выключенного профайлера сверх пустого цикла, нс: ~60 пар на тик — меньше 0,1 мкс.</summary>
     public const double MaxDisabledPairNs = 1.5;
 
     public static int Main(string[] args)
@@ -104,10 +100,7 @@ public static class Program
 #endif
     }
 
-    /// <summary>
-    /// Пара Begin/End профайлера CPU: нс на пару сверх пустого цикла — выключенного (цель — не больше
-    /// <see cref="MaxDisabledPairNs"/>) и включённого; байты — 0 у обоих. Итог — <c>artifacts/bench/profiler.json</c>.
-    /// </summary>
+    /// <summary>Цена пары Begin/End сверх пустого цикла, выключенного и включённого; 0 байт. Итог — <c>artifacts/bench/profiler.json</c>.</summary>
     private static bool Profiler(IConfig config, string outDir, bool quick)
     {
         var summary = BenchmarkRunner.Run<ProfilerZone>(config);
@@ -119,8 +112,8 @@ public static class Program
         }
         double loop = Ns(nameof(ProfilerZone.Loop)), disabled = Ns(nameof(ProfilerZone.Disabled)), enabled = Ns(nameof(ProfilerZone.Enabled));
         long disabledBytes = Bytes(nameof(ProfilerZone.Disabled)), enabledBytes = Bytes(nameof(ProfilerZone.Enabled));
-        // Счётчики среды, период, снимок машины, строка HUD — время и 0 байт.
-        var counters = BenchmarkRunner.Run<ProfilerCounters>(config);
+        // Период профайлера — время и 0 байт.
+        var counters = BenchmarkRunner.Run<ProfilerPeriod>(config);
         var counterResults = counters.Reports.ToDictionary(r => r.BenchmarkCase.Descriptor.WorkloadMethod.Name, r => new
         {
             ns = Math.Round(r.ResultStatistics!.Median, 1), bytes = r.GcStats.GetBytesAllocatedPerOperation(r.BenchmarkCase) ?? -1,

@@ -30,7 +30,7 @@ public static class PakFormat
     /// <summary>Хеш содержимого потока — как его запишет <see cref="PakWriter"/>.</summary>
     public static ulong HashOf(Stream stream) => HashOf(System.Security.Cryptography.SHA256.HashData(stream));
 
-    /// <summary>Хеш в текстовом виде — так его хранят сведения пекарни о сборке пака (<see cref="PakBuildInfo"/>).</summary>
+    /// <summary>Хеш в текстовом виде: 16 шестнадцатеричных цифр.</summary>
     public static string HashText(ulong hash) => hash.ToString("X16");
 }
 

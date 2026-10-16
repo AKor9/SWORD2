@@ -3,10 +3,7 @@ using Xunit.Abstractions;
 
 namespace Sword.Engine.Render.Tests;
 
-/// <summary>
-/// CPU-эталон тонмапа Filmic (<see cref="FilmicTonemap"/>): свойства кривой и цепочки и подбор экспозиции по умолчанию. Шейдер
-/// сверяется с эталоном на устройстве — <see cref="HdrGpuTests"/>.
-/// </summary>
+/// <summary>CPU-эталон <see cref="FilmicTonemap"/>: свойства кривой и экспозиция по умолчанию; шейдер сверяет <see cref="HdrGpuTests"/>.</summary>
 public sealed class FilmicTonemapTests(ITestOutputHelper output)
 {
     private static Vector3 Gray(float v) => new(v);

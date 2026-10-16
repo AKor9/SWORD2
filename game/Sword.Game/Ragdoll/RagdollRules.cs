@@ -6,9 +6,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Ragdoll;
 
 /// <summary>
-/// Секция конфига <c>ragdoll</c>: правила трупа на физике — ручки «Рэгдолл» (<see cref="RagdollKnobs"/>). Отправные значения — SWORD
-/// 2eab13b (<c>RagdollSettings</c>, <c>DuelArena</c>, <c>KinematicContacts</c>, <c>Fighter.RagdollDynamics</c>, <c>TameDetached</c>) — источник
-/// идей, не образец: подбираются на глаз ручками и замерами SWORD2.
+/// Секция конфига <c>ragdoll</c>: правила трупа на физике — ручки «Рэгдолл» (<see cref="RagdollKnobs"/>); значения подбираются на
+/// глаз ручками и замерами.
 /// </summary>
 public sealed record RagdollSettings
 {
@@ -19,15 +18,14 @@ public sealed record RagdollSettings
     public float PushForce { get; init; } = 800f;
 
     /// <summary>
-    /// Скорость выталкивания застарелой глубины, м/с (<see cref="PhysicsSettings.PopSpeed"/>; у физики и SWORD — 3). У трупа — 1: выход
-    /// конечности из земли и трупов внахлёст идёт через суставы, и чем быстрее выход, тем сильнее он разгоняет весь труп (замер: два трупа
-    /// внахлёст — разошлись на 1,69 м при 3 м/с и на 1,12 м при 1 м/с, всплеск энергии за подшаг — 16 и 3,9 Дж; docs/history/ragdoll.md).
+    /// Скорость выталкивания застарелой глубины, м/с (<see cref="PhysicsSettings.PopSpeed"/>). У трупа — 1: выход из земли и трупов
+    /// внахлёст идёт через суставы, и быстрый выход разгоняет весь труп.
     /// </summary>
     public float PopSpeed { get; init; } = 1f;
 
     /// <summary>
-    /// Податливость пределов наклона-скручивания суставов трупа, рад/(Н·м) (<see cref="PhysicsSettings.JointLimitCompliance"/>). 2e-6 —
-    /// значение пользователя (проверка в игре 2026-09-25: при 2e-4 «тела очень мягкие, руки быстро обмякают»); у физики по умолчанию — 2e-4.
+    /// Податливость пределов наклона-скручивания суставов трупа, рад/(Н·м) (<see cref="PhysicsSettings.JointLimitCompliance"/>): при
+    /// 2e-4 тела слишком мягкие, руки быстро обмякают.
     /// </summary>
     public float JointCompliance { get; init; } = 2e-6f;
 
@@ -52,15 +50,13 @@ public sealed record RagdollSettings
     public float DeathMaxAngularSpeed { get; init; } = 20f;
 
     /// <summary>
-    /// Доля отдачи в скорость корня живого (<c>EnemyReact</c>, <c>PlayerReact</c> SWORD — отправные): горизонталь отдачи тика (толчки
-    /// трупов и удары по ним) × доля / масса бойца. Игроку — четверть: отзывчивость (игрок не теряет управления).
+    /// Доля отдачи в скорость корня живого: горизонталь отдачи тика × доля / масса бойца. Игроку — четверть: не теряет управления.
     /// </summary>
     public float EnemyRecoil { get; init; } = 1f;
     public float PlayerRecoil { get; init; } = 0.25f;
 
     /// <summary>
-    /// Предел отдачи, м/с: отдача не уводит скорость корня от заданной (намерение × масштаб хода действия) вдоль себя дальше этого —
-    /// сквозь кучу трупов боец идёт, теряя не больше предела; дальше скорость возвращает разгон бойца (14 1/с).
+    /// Предел отдачи, м/с: отдача не уводит скорость корня от заданной дальше этого — сквозь кучу трупов боец идёт.
     /// </summary>
     public float RecoilMaxSpeed { get; init; } = 1f;
 
@@ -90,10 +86,8 @@ public sealed record RagdollSettings
 }
 
 /// <summary>
-/// Правила трупа на физике — ресурс-значение мира (хеширует участник <c>ecs</c>) из секции конфига <c>ragdoll</c>, ручки «Рэгдолл»
-/// меняют его командой ручки. Настройки физики (<see cref="PhysicsSettings"/>) и профиль динамики трупа из него производны
-/// (<see cref="Physics"/>, <see cref="Corpse"/>): их ставит сборка (<see cref="GameCore"/>) и замена правил
-/// (<see cref="RagdollRulesChangeSystem"/>) — в хеш они сами не входят, входят правила.
+/// Правила трупа на физике — ресурс-значение мира (хеширует <c>ecs</c>); настройки физики и профиль трупа из него производны
+/// (<see cref="Physics"/>, <see cref="Corpse"/>) и в хеш не входят.
 /// </summary>
 public struct RagdollRules
 {
@@ -178,11 +172,8 @@ public struct RagdollRules
 }
 
 /// <summary>
-/// Ручки «Рэгдолл» (механизм — как у «Боя»; отдача: доли врагу и игроку, предел; сведение разрыва сустава и трение между
-/// трупами, сон трупа: пороги трупа и части, время; трение суставов и самоколлизия): поля <see cref="RagdollRules"/> — ресурса
-/// мира из секции конфига <c>ragdoll</c>.
-/// Изменение на ходу — команда ручки (система <c>tuning.ragdoll</c> в Begin), в реплее; замену настроек физики и профиля трупа делает
-/// <see cref="RagdollRulesChangeSystem"/> (Intent) — до шага физики того же тика. Группа F3 «Рэгдолл» — клиент.
+/// Ручки «Рэгдолл» (механизм — как у «Боя»): поля <see cref="RagdollRules"/>. Изменение на ходу — команда ручки (<c>tuning.ragdoll</c>
+/// в Begin), в реплее; замену настроек физики делает <see cref="RagdollRulesChangeSystem"/> до шага того же тика.
 /// </summary>
 public static class RagdollKnobs
 {
@@ -254,11 +245,9 @@ public static class RagdollKnobs
 }
 
 /// <summary>
-/// Intent, первой (<see cref="GameLabels.RagdollRules"/>), реактивная по <c>ResourceChanged&lt;RagdollRules&gt;</c>: ручки «Рэгдолл»
-/// сменили правила (система ручек в Begin этого тика) — настройки физики заменяются целиком (<see cref="IPhysicsWorld.Settings"/>, от
-/// нынешних: число подшагов и доли толчков — прежние) и профиль трупа (<see cref="IPhysicsWorld.ReplaceDynamics"/>): шаг этого тика идёт
-/// уже по новым. Мир ECS не меняет. Изменившиеся настройки физики и профиль трупа будят спящие трупы (физика); ручки, которые физику не
-/// меняют (отдача живому), — не будят.
+/// Intent, первой, реактивная по <c>ResourceChanged&lt;RagdollRules&gt;</c>: настройки физики (<see cref="IPhysicsWorld.Settings"/>)
+/// и профиль трупа (<see cref="IPhysicsWorld.ReplaceDynamics"/>) заменяются — шаг этого тика идёт по новым. Изменения физики будят
+/// спящие трупы.
 /// </summary>
 public sealed class RagdollRulesChangeSystem(IPhysicsWorld physics, int corpseProfile) : IReactiveSystem<ResourceChanged<RagdollRules>>
 {

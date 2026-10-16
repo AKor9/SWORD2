@@ -1,9 +1,6 @@
 namespace Sword.Architecture.Tests;
 
-/// <summary>
-/// Тесты на сами правила: заведомо запрещённая ссылка должна находиться. Без них зелёный
-/// <see cref="SolutionTests.Solution_FollowsArchitecture"/> ничего не доказывает.
-/// </summary>
+/// <summary>Заведомо запрещённая ссылка находится: без этого зелёный <see cref="SolutionTests.Solution_FollowsArchitecture"/> ничего не доказывает.</summary>
 public sealed class RuleTests
 {
     private static ProjectNode P(string path, string? side, string[]? references = null, bool exe = false, PackageRef[]? packages = null)
@@ -33,9 +30,7 @@ public sealed class RuleTests
         Assert.Empty(violations);
     }
 
-    /// <summary>
-    /// Сборка игры, использующая типы Rhi через транзитивную ссылку (в .csproj её нет): .csproj чист, метаданные — нет.
-    /// </summary>
+    /// <summary>Типы Rhi через транзитивную ссылку: .csproj чист, метаданные — нет.</summary>
     [Fact]
     public void CompiledReferenceOutsideMatrix_IsFound()
     {
@@ -117,11 +112,6 @@ public sealed class RuleTests
     public void Win32FromLibrary_IsViolation() => AssertViolates("win32-exe-only",
         P("engine/Sword.Engine.Platform.Win32/Sword.Engine.Platform.Win32.csproj", Sides.Client),
         P("engine/Sword.Engine.Client/Sword.Engine.Client.csproj", Sides.Client, ["Sword.Engine.Platform.Win32"]));
-
-    [Fact]
-    public void AgentFromLibrary_IsViolation() => AssertViolates("agent-exe-only",
-        P("engine/Sword.Engine.Agent/Sword.Engine.Agent.csproj", Sides.Simulation),
-        P("game/Sword.Game/Sword.Game.csproj", Sides.Simulation, ["Sword.Engine.Agent"]));
 
     /// <summary>Клиент игры с панелью DevTools: без DevTools его уже не собрать — ссылка только из exe.</summary>
     [Fact]

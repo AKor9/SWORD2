@@ -3,13 +3,10 @@ using Sword.Engine.Ecs;
 
 namespace Sword.Engine.Runtime;
 
-/// <summary>
-/// Базовые инварианты движка (раздел 8 плана) — их заводит Runtime в каждой симуляции, по листьям полей
-/// (<see cref="FieldLayout"/>), как хеш: <c>ecs.finite</c> и <c>ecs.entityRefs</c>.
-/// </summary>
+/// <summary>Базовые инварианты движка — в каждой симуляции, по листьям полей (<see cref="FieldLayout"/>): <c>ecs.finite</c>.</summary>
 internal static class EcsInvariants
 {
-    public static IEnumerable<IInvariant> For(WorldReader world) => [new Finite(world), new EntityRefs(world)];
+    public static IEnumerable<IInvariant> For(WorldReader world) => [new Finite(world)];
 
     private readonly record struct Data(int Id, string Title, FieldLayout Layout, int[] Leaves);
 
@@ -29,10 +26,8 @@ internal static class EcsInvariants
 
     private static string Path(Data d, int leaf) => d.Layout.Leaves[leaf].Path is { Length: > 0 } p ? $"{d.Title}.{p}" : d.Title;
 
-    /// <summary>
-    /// <c>ecs.finite</c> — все числа с плавающей точкой в компонентах живых сущностей и в ресурсах-значениях конечны (нет NaN
-    /// и бесконечностей): в конце каждого тика. Нарушение — сущность и путь поля (<c>Transform.Position.X = NaN</c>).
-    /// </summary>
+    /// <summary><c>ecs.finite</c>: все float в компонентах живых сущностей и ресурсах-значениях конечны — в конце каждого
+    /// тика. Нарушение — сущность и путь поля.</summary>
     private sealed class Finite(WorldReader world) : IInvariant
     {
         private (Data[] Components, Data[] Resources)? _data;
@@ -94,66 +89,6 @@ internal static class EcsInvariants
             return layout.Leaves[leaf].Kind == FieldLayout.Kind.F32
                 ? BitConverter.UInt32BitsToSingle((uint)bits).ToString(CultureInfo.InvariantCulture)
                 : BitConverter.UInt64BitsToDouble(bits).ToString(CultureInfo.InvariantCulture);
-        }
-    }
-
-    /// <summary>
-    /// <c>ecs.entityRefs</c> — поля-сущности в компонентах живых сущностей и в ресурсах-значениях указывают на живую сущность
-    /// или пусты. По запросу (<c>invariant.run</c>): ссылка на только что умершую сущность бывает законной, пока система её не
-    /// сняла, — это совет искать висячие ссылки, а не правило каждого тика.
-    /// </summary>
-    private sealed class EntityRefs(WorldReader world) : IInvariant
-    {
-        private (Data[] Components, Data[] Resources)? _data;
-
-        public string Id => "ecs.entityRefs";
-        public InvariantCost Cost => InvariantCost.OnDemand;
-        public InvariantScope Scope => InvariantScope.Entity;
-        public string After => Simulation.ExportStage;
-
-        public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
-        {
-            var (components, resources) = _data ??= Prepare(world, k => k == FieldLayout.Kind.Entity);
-            // Тело обхода по сущности — свой метод (включённый явно проверяется каждый тик — без замены на ходу, как ecs.finite).
-            for (int i = 0, n = world.EntitySlots; i < n; i++)
-            {
-                var e = world.EntityAt(i);
-                if (!e.IsNull && !Scan(e, components, ref violations)) return;
-            }
-            foreach (var d in resources)
-            {
-                if (!world.TryReadResource(d.Id, out var bytes)) continue;
-                foreach (int leaf in d.Leaves)
-                {
-                    var target = Target(d.Layout, bytes, leaf);
-                    if (target.IsNull || world.IsAlive(target)) continue;
-                    violations.Report($"ресурс {Path(d, leaf)} = {target} — не жива");
-                    if (violations.Full) return;
-                }
-            }
-        }
-
-        /// <summary>Ссылки в компонентах живой сущности; ложь — приёмник полон.</summary>
-        private bool Scan(Entity e, Data[] components, ref ViolationSink violations)
-        {
-            foreach (var d in components)
-            {
-                if (!world.TryRead(e, d.Id, out var bytes)) continue;
-                foreach (int leaf in d.Leaves)
-                {
-                    var target = Target(d.Layout, bytes, leaf);
-                    if (target.IsNull || world.IsAlive(target)) continue;
-                    violations.Report(e, $"{Path(d, leaf)} = {target} — не жива");
-                    if (violations.Full) return false;
-                }
-            }
-            return true;
-        }
-
-        private static Entity Target(FieldLayout layout, ReadOnlySpan<byte> bytes, int leaf)
-        {
-            ulong bits = layout.Bits(bytes, leaf);
-            return new Entity(unchecked((int)(uint)bits), unchecked((int)(bits >> 32)));
         }
     }
 }

@@ -1,9 +1,6 @@
 namespace Sword.Engine.Render.Tests;
 
-/// <summary>
-/// Числа bloom без GPU (<see cref="BloomKernel"/>): ядро нормировано и симметрично, радиусы растут с экраном (гало в долях экрана
-/// то же), усиления и порог — как у UE 5.8.
-/// </summary>
+/// <summary><see cref="BloomKernel"/>: ядро нормировано и симметрично, радиусы растут с экраном, усиления и порог — как у UE 5.8.</summary>
 public sealed class BloomKernelTests
 {
     [Theory]

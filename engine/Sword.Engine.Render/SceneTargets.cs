@@ -6,10 +6,8 @@ using Vortice.Mathematics;
 namespace Sword.Engine.Render;
 
 /// <summary>
-/// Цели сцены рядом с задним буфером (перенос <c>Graphics/SceneTargets.cs</c> SWORD 2eab13b): глубина (D32, обратный Z)
-/// и нормали (R10G10B10A2: xyz — нормаль мира · 0.5 + 0.5, a — признак приёмника декалей мира). Непрозрачная фаза
-/// пишет их, фазы поверх сцены читают. В граф они входят импортированными текстурами; переходы состояний ставит граф.
-/// Размер — всегда заднего буфера.
+/// Цели сцены размера заднего буфера: глубина (D32, обратный Z) и нормали (R10G10B10A2: нормаль мира · 0.5 + 0.5,
+/// a — приёмник декалей). Пишет непрозрачная фаза, читают фазы поверх; в граф входят импортом.
 /// </summary>
 public sealed class SceneTargets : IDisposable
 {
@@ -51,7 +49,6 @@ public sealed class SceneTargets : IDisposable
 
     /// <summary>Глубина как ресурс графа — для снимка глубины (<see cref="Renderer.Render(System.Action{RenderFrame}, bool, FrameCapture?)"/>).</summary>
     internal GraphResource DepthResource => _depth;
-    public int NormalSrv => _normal.Srv;
 
     /// <summary>Пересоздаёт цели под размер заднего буфера; прежние освобождаются после своего кадра.</summary>
     internal void EnsureSize()

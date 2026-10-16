@@ -125,7 +125,7 @@ public class UiFontFileTests
         Rejected(header);
         Rejected(Font("body", 2, "Body").WithBands(1));
         Rejected(Font("body", 1, "Body").WithMetrics(0.2f, 0.8f));
-        Rejected(Font("body", 1, "Body", "Head", "Label", "NumLight", "Num", "Body"));   // ролей больше пяти (SWORD)
+        Rejected(Font("body", 1, "Body", "Head", "Label", "NumLight", "Num", "Body"));   // ролей больше пяти
 
         // Чтение ловит то же: запись в обход проверки — байты правильного файла с испорченной ссылкой.
         var good = Save(Font("body", 2, "Body"));

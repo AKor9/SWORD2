@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Sword.Engine.Ecs.Tests;
 
-/// <summary>Описание мира наружу (агент, инструменты): объявления систем и чтение данных по номеру типа, без типа CLR.</summary>
+/// <summary>Описание мира наружу: объявления систем и чтение данных по номеру типа, без типа CLR.</summary>
 public class InspectionTests
 {
     private sealed class Healer : IReactiveSystem<Added<Frozen>>
@@ -51,52 +51,27 @@ public class InspectionTests
     }
 
     [Fact]
-    public void Reader_CopiesByTypeNumber_SelectsPages_ListsComponents()
+    public void Reader_ComponentsByNumber_TagAndReactive()
     {
-        var world = Worlds.Builder().Build();
-        var entities = new List<Entity>();
-        for (int i = 0; i < 6; i++)
-        {
-            var e = world.CreateImmediate();
-            world.AddImmediate(e, new Position { Value = new Vector3(i, 0, 0) });
-            if (i % 3 == 0) world.AddImmediate(e, new Frozen());
-            entities.Add(e);
-        }
-        var reader = world.Reader;
+        var reader = Worlds.Builder().Build().Reader;
         int position = reader.Components.Single(c => c.Type == typeof(Position)).Id;
         int frozen = reader.Components.Single(c => c.Type == typeof(Frozen)).Id;
+        Assert.Equal(position, reader.Components[position].Id);
+        Assert.False(reader.Components[position].IsTag);
         Assert.True(reader.Components[frozen].IsTag);
         Assert.True(reader.Components.Single(c => c.Type == typeof(Health)).Reactive);
-
-        var bytes = reader.Copy(entities[4], position)!;
-        Assert.Equal(reader.Components[position].Size, bytes.Length);
-        Assert.Equal(4f, MemoryMarshal.Read<Position>(bytes).Value.X);
-        Assert.Empty(reader.Copy(entities[3], frozen)!);                       // тег — есть, байтов нет
-        Assert.Null(reader.Copy(entities[4], frozen));
-        Assert.Throws<ArgumentOutOfRangeException>(() => reader.Copy(entities[0], 999));
-
-        var page = new List<Entity>();
-        Assert.Equal(4, reader.Select([position], [frozen], skip: 1, take: 2, page));   // без метки — 1, 2, 4, 5
-        Assert.Equal([entities[2], entities[4]], page);
-
-        var ids = new List<int>();
-        reader.ComponentsOf(entities[0], ids);
-        Assert.Equal(new[] { position, frozen }.Order(), ids);
-        world.DestroyImmediate(entities[0]);
-        reader.ComponentsOf(entities[0], ids);
-        Assert.Empty(ids);
     }
 
     [Fact]
-    public void Resources_PlainDataCopied_ManagedNot()
+    public void Resources_PlainDataRead_ManagedNot()
     {
         var world = Worlds.Builder().Resource(new Position { Value = Vector3.One }).Resource<List<int>>([]).Build();
         var reader = world.Reader;
         var plain = reader.Resources.Single(r => r.Type == typeof(Position));
         var managed = reader.Resources.Single(r => r.Type == typeof(List<int>));
         Assert.Equal(0, managed.Size);
-        Assert.Null(reader.CopyResource(managed.Id));
-        var bytes = reader.CopyResource(plain.Id)!;
+        Assert.False(reader.TryReadResource(managed.Id, out _));
+        Assert.True(reader.TryReadResource(plain.Id, out var bytes));
         Assert.Equal(Vector3.One, MemoryMarshal.Read<Position>(bytes).Value);
     }
 
@@ -125,8 +100,6 @@ public class InspectionTests
         Assert.True(tag.IsEmpty);                                    // тег есть, байтов нет
         Assert.False(reader.TryRead(c, position, out _));
         Assert.False(reader.TryRead(b, position, out _));            // мёртвая
-        Assert.Equal([position], reader.ComponentIds(a).ToArray());
-        Assert.True(reader.ComponentIds(b).IsEmpty);
 
         int health = reader.Resources.Single(r => r.Type == typeof(Health)).Id;
         int list = reader.Resources.Single(r => r.Type == typeof(List<int>)).Id;
@@ -166,7 +139,6 @@ public class InspectionTests
 
         int healer = reader.Systems.Single(s => s.Label == "healer").Order;
         int mover = reader.Systems.Single(s => s.Label == "mover").Order;
-        Assert.Equal(2, reader.SystemCount);
         Assert.Equal(0, reader.CursorCount(mover));
         Assert.Equal(2, reader.CursorCount(healer));   // срабатывание первым, затем ReadsJournal
         Assert.Equal(1, reader.CursorUnread(healer, 0, out int journal));

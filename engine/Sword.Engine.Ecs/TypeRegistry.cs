@@ -4,11 +4,8 @@ using System.Runtime.InteropServices;
 
 namespace Sword.Engine.Ecs;
 
-/// <summary>
-/// Зарегистрированный тип компонента или события. Номер (<see cref="Id"/>) назначается при сборке мира по полному
-/// имени типа — не зависит от порядка регистрации и первого обращения; нигде не сохраняется (сейвы, реплеи и ассеты
-/// ссылаются на <see cref="StableName"/>).
-/// </summary>
+/// <summary>Тип компонента или события. <see cref="Id"/> назначается при сборке по полному имени и нигде не
+/// сохраняется (сейвы, реплеи и ассеты ссылаются на <see cref="StableName"/>).</summary>
 internal sealed class DataType
 {
     public required Type Type { get; init; }
@@ -44,9 +41,8 @@ internal sealed class DataType
     }
 
     /// <summary>
-    /// Смещения всех полей <see cref="Entity"/> в управляемой раскладке <typeparamref name="T"/>, включая вложенные
-    /// структуры. <c>Marshal.OffsetOf</c> не годится: он даёт раскладку маршалинга (bool — 4 байта, char — 1), и
-    /// разрешитель писал бы мимо поля. Поэтому в каждое поле пишется свой маркер и ищется в байтах значения.
+    /// Смещения полей <see cref="Entity"/> в управляемой раскладке <typeparamref name="T"/>, включая вложенные. Не
+    /// <c>Marshal.OffsetOf</c>: он даёт раскладку маршалинга (bool — 4 байта), поэтому в поле пишется маркер и ищется в байтах.
     /// </summary>
     private static int[] ManagedEntityOffsets<T>() where T : unmanaged
     {
@@ -83,10 +79,8 @@ internal sealed class DataType
     /// <summary>Маркер поля: живой сущностью и черновиком быть не может (поколение вне обычных значений).</summary>
     private static Entity Marker(int k) => new(0x5EED0000 + k, 0x7E57AB1E);
 
-    /// <summary>
-    /// Пути ко всем полям <see cref="Entity"/>, включая вложенные структуры. Иная форма хранения ссылки (фиксированный
-    /// буфер — в нём сущность не распознать) — ошибка регистрации.
-    /// </summary>
+    /// <summary>Пути ко всем полям <see cref="Entity"/>, включая вложенные. Фиксированный буфер сущностей — ошибка
+    /// регистрации: в нём сущность не распознать.</summary>
     private static void CollectEntityPaths(Type type, FieldInfo[] prefix, List<FieldInfo[]> paths, Type root)
     {
         // Встроенный массив ([InlineArray]) виден отражению одним полем: остальные элементы разрешитель бы не увидел.
@@ -111,10 +105,8 @@ internal sealed class DataType
     public override string ToString() => StableName;
 }
 
-/// <summary>
-/// Номер CLR-типа в процессе: статическое поле обобщённого класса читается дешевле словаря и потоковой памяти, поэтому
-/// обход чанков (<c>Read/Write</c> на каждый чанк) находит тип мира по массиву. Номер нигде не сохраняется.
-/// </summary>
+/// <summary>Номер CLR-типа в процессе: статическое поле обобщённого класса дешевле словаря, обход чанков находит тип
+/// мира по массиву. Нигде не сохраняется.</summary>
 internal static class ProcessTypeId
 {
     private static int s_last = -1;
@@ -142,10 +134,10 @@ internal static class ProcessTypeTable
 internal interface IJournalWriter
 {
     void Attach(TriggerKind kind, JournalBase journal);
-    void Added(Entity e, CauseId cause, long barrier);
-    void Removed(Entity e, ReadOnlySpan<byte> value, CauseId cause, long barrier);
-    void Changed(Entity e, ReadOnlySpan<byte> value, CauseId cause, long barrier);
-    void Event(ReadOnlySpan<byte> value, CauseId cause, long barrier);
+    void Added(Entity e, long barrier);
+    void Removed(Entity e, ReadOnlySpan<byte> value, long barrier);
+    void Changed(Entity e, ReadOnlySpan<byte> value, long barrier);
+    void Event(ReadOnlySpan<byte> value, long barrier);
 }
 
 internal sealed class ComponentJournals<T> : IJournalWriter where T : unmanaged
@@ -165,15 +157,15 @@ internal sealed class ComponentJournals<T> : IJournalWriter where T : unmanaged
         }
     }
 
-    public void Added(Entity e, CauseId cause, long barrier) => AddedJournal?.Append(new Added<T>(e, cause), barrier);
+    public void Added(Entity e, long barrier) => AddedJournal?.Append(new Added<T>(e), barrier);
 
-    public void Removed(Entity e, ReadOnlySpan<byte> value, CauseId cause, long barrier) =>
-        RemovedJournal?.Append(new Removed<T>(e, Read(value), cause), barrier);
+    public void Removed(Entity e, ReadOnlySpan<byte> value, long barrier) =>
+        RemovedJournal?.Append(new Removed<T>(e, Read(value)), barrier);
 
-    public void Changed(Entity e, ReadOnlySpan<byte> value, CauseId cause, long barrier) =>
-        ChangedJournal?.Append(new Changed<T>(e, Read(value), cause), barrier);
+    public void Changed(Entity e, ReadOnlySpan<byte> value, long barrier) =>
+        ChangedJournal?.Append(new Changed<T>(e, Read(value)), barrier);
 
-    public void Event(ReadOnlySpan<byte> value, CauseId cause, long barrier) => throw new InvalidOperationException();
+    public void Event(ReadOnlySpan<byte> value, long barrier) => throw new InvalidOperationException();
 
     private static T Read(ReadOnlySpan<byte> bytes) => bytes.Length == 0 ? default : MemoryMarshal.Read<T>(bytes);
 }
@@ -186,12 +178,12 @@ internal sealed class EventJournal<E> : IJournalWriter where E : unmanaged
         Journal = kind == TriggerKind.Event ? (Journal<Event<E>>)journal : throw new ArgumentException($"{kind} у события");
 
     // Событие без полей (тег) хранится без байтов: значение — default.
-    public void Event(ReadOnlySpan<byte> value, CauseId cause, long barrier) =>
-        Journal?.Append(new Event<E>(value.Length == 0 ? default : MemoryMarshal.Read<E>(value), cause), barrier);
+    public void Event(ReadOnlySpan<byte> value, long barrier) =>
+        Journal?.Append(new Event<E>(value.Length == 0 ? default : MemoryMarshal.Read<E>(value)), barrier);
 
-    public void Added(Entity e, CauseId cause, long barrier) => throw new InvalidOperationException();
-    public void Removed(Entity e, ReadOnlySpan<byte> value, CauseId cause, long barrier) => throw new InvalidOperationException();
-    public void Changed(Entity e, ReadOnlySpan<byte> value, CauseId cause, long barrier) => throw new InvalidOperationException();
+    public void Added(Entity e, long barrier) => throw new InvalidOperationException();
+    public void Removed(Entity e, ReadOnlySpan<byte> value, long barrier) => throw new InvalidOperationException();
+    public void Changed(Entity e, ReadOnlySpan<byte> value, long barrier) => throw new InvalidOperationException();
 }
 
 /// <summary>Ресурс мира: синглтон. Замена — командой или сразу вне систем; попадает в <see cref="ResourceChanged{T}"/>.</summary>
@@ -199,7 +191,7 @@ internal abstract partial class ResourceSlot
 {
     public abstract Type Type { get; }
     /// <summary>Применить значение, отложенное командой (номер — из <see cref="ResourceSlot{T}.Stage"/>).</summary>
-    public abstract void ApplyStaged(int staged, CauseId cause, long barrier);
+    public abstract void ApplyStaged(int staged, long barrier);
     /// <summary>Отложенные значения применены на барьере — место освобождается.</summary>
     public abstract void ClearStaged();
     public abstract void Attach(JournalBase journal);
@@ -225,11 +217,11 @@ internal sealed partial class ResourceSlot<T> : ResourceSlot
         return _stagedCount++;
     }
 
-    public override void ApplyStaged(int staged, CauseId cause, long barrier)
+    public override void ApplyStaged(int staged, long barrier)
     {
         Value = _staged[staged];
         Set = true;
-        Journal?.Append(new ResourceChanged<T>(Value, cause), barrier);
+        Journal?.Append(new ResourceChanged<T>(Value), barrier);
     }
 
     public override void ClearStaged()

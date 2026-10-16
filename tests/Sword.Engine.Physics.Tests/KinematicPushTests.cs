@@ -4,10 +4,8 @@ using static Sword.Engine.Physics.Tests.KinematicScene;
 namespace Sword.Engine.Physics.Tests;
 
 /// <summary>
-/// Заготовки сцен толчков: мир с профилем «вакуум» (без гравитации и сопротивления — скорость меняют только толчки),
-/// толкающий из кинематических шаров, цель из шаров на физике; тик — настоящий <see cref="PhysicsWorld.Step"/> без земли,
-/// стены и колонн (цели разных сочленений не касаются друг друга — в шаге только толчки). Шар толкают в точке на линии
-/// центров — без плеча: импульс тела за тик ровно <c>Σλ/h</c>.
+/// Сцены толчков: мир с профилем «вакуум» (скорость меняют только толчки), толкающий из кинематических шаров, цель из шаров на
+/// физике; шаг без земли и стен. Шар толкают на линии центров — импульс за тик ровно <c>Σλ/h</c>.
 /// </summary>
 internal static class KinematicScene
 {
@@ -75,7 +73,6 @@ internal static class KinematicScene
         }
     }
 
-    /// <summary>Чем толкают все тела сочленения.</summary>
     public static void Source(IPhysicsWorld w, ArticulationHandle a, KinematicSource source)
     {
         for (int i = 0; i < w.BodyCount(a); i++) w.SetKinematicSource(w.Body(a, i), source);
@@ -84,15 +81,13 @@ internal static class KinematicScene
     /// <summary>Бюджет пары за подшаг при подшаге <paramref name="h"/>, кг·м.</summary>
     public static float Budget(float h, PhysicsSettings? s = null) => (s ?? PhysicsSettings.Default).PushForce * h * h;
 
-    /// <summary><paramref name="actual"/> в пределах относительной ошибки <paramref name="rel"/> от <paramref name="expected"/>.</summary>
     public static void Near(float expected, float actual, float rel, string what) =>
         Assert.True(MathF.Abs(actual - expected) <= rel * MathF.Abs(expected) + 1e-9f, $"{what}: {actual} против {expected}");
 }
 
 /// <summary>
-/// Толчки живых: бюджет пары за подшаг (скаляр на все контакты пары, первый берёт сколько может, сброс каждый подшаг,
-/// пары независимы), сила за тик не зависит от числа подшагов, отдача против поправки физической стороны, предел скорости
-/// лёгкой части, толчок без отдачи, клинок списывает проход и бюджет пары вместе.
+/// Толчки живых: бюджет пары за подшаг, сила за тик не зависит от числа подшагов, отдача, предел скорости лёгкой части,
+/// толчок без отдачи, клинок списывает проход и бюджет пары вместе.
 /// </summary>
 public class KinematicPushTests
 {
@@ -274,7 +269,7 @@ public class KinematicPushTests
     {
         // Без точного предела выталкивание — до 1,026 м/с при PopSpeed 1: длинная лёгкая капсула, толкаемая у торца, от поправки поворачивается —
         // линейный предел λ·w не видит второго порядка поворота. Точный предел мерит настоящий сдвиг материальной точки: выталкивание сверх
-        // толкающей точки — не больше PopSpeed (с допуском инварианта physics.pushes 1e-3).
+        // толкающей точки — не больше PopSpeed (с допуском 1e-3).
         var s = PhysicsSettings.Default with { PopSpeed = 1 };
         var w = World(substeps: 4, s);
         var trace = w.EnableTrace();

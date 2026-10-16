@@ -99,7 +99,10 @@ public sealed class GpuTexture : IDisposable
             throw new InvalidDataException($"{path}: {data.Format} {data.Width}×{data.Height} — сторона мипа 0 блочного формата кратна {block}");
         var desc = ResourceDescription.Texture2D(dxgi, (uint)data.Width, (uint)data.Height, (ushort)data.Slices, (ushort)data.Mips);
         long bytes = (long)gd.Device.GetResourceAllocationInfo(0, desc).SizeInBytes;
-        var resource = gd.Device.CreateCommittedResource(HeapType.Default, HeapFlags.None, desc, ResourceStates.CopyDest);
+        // Создаётся и остаётся в COMMON: копия продвигает её в COPY_DEST неявно, барьер возвращает в COMMON, чтение шейдером продвигает
+        // неявно (текстура только для чтения). Состояние после заливки равно состоянию создания: откат отслеживаемого состояния к состоянию
+        // создания (так бывает у GPU-валидации под нагрузкой GPU) не превращается в «чтение из COPY_DEST».
+        var resource = gd.Device.CreateCommittedResource(HeapType.Default, HeapFlags.None, desc, ResourceStates.Common);
         resource.Name = path;
         int srv = -1;
         try
@@ -120,8 +123,7 @@ public sealed class GpuTexture : IDisposable
                 {
                     for (uint i = 0; i < count; i++)
                         list.CopyTextureRegion(new TextureCopyLocation(resource, i), 0, 0, 0, new TextureCopyLocation(upload, layouts[i]), null);
-                    list.ResourceBarrierTransition(resource, ResourceStates.CopyDest,
-                        ResourceStates.PixelShaderResource | ResourceStates.NonPixelShaderResource);
+                    list.ResourceBarrierTransition(resource, ResourceStates.CopyDest, ResourceStates.Common);
                 });
             }
 

@@ -2,9 +2,8 @@ using System.Numerics;
 
 namespace Sword.Engine.Physics;
 
-// Трасса физики — сторона мира: включение, крючки Trace* (объявлены в PhysicsWorld.cs, поле _trace — там же) и начало
-// шага для трассы. Данные и сводки — класс PhysicsTrace (PhysicsTrace.Data.cs, PhysicsTrace.Stats.cs). Идеи — RagTrace SWORD
-// 2eab13b (свой путь — docs/history/engine-physics.md).
+// Трасса физики — сторона мира: включение, крючки Trace* и начало шага для трассы. Данные и сводки — PhysicsTrace.Data.cs,
+// PhysicsTrace.Stats.cs.
 public sealed partial class PhysicsWorld
 {
     public PhysicsTrace EnableTrace(PhysicsTrace? trace = null)
@@ -18,9 +17,8 @@ public sealed partial class PhysicsWorld
     public void DisableTrace() => _trace = null;
 
     /// <summary>
-    /// Начало шага для трассы (зовёт <see cref="Step"/> под <c>if (_trace is not null)</c> — после позы начала тика, до
-    /// подшага 0): энергия сочленений на физике до шага — от неё рост за подшаг 0. Изменения между шагами (удар, команда сцены,
-    /// переход в труп) в рост не попадают (<c>TraceTests.Trace_EnergyGrowth_…</c>, <c>Trace_Step_MeasuresSubstepZero_…</c>).
+    /// Начало шага для трассы (после позы начала тика, до подшага 0): энергия до шага — база роста подшага 0, поэтому изменения
+    /// между шагами (удар, команда, переход в труп) в рост не попадают.
     /// </summary>
     internal void TraceStepBegin()
     {
@@ -66,10 +64,7 @@ public sealed partial class PhysicsWorld
         t.SubstepEnd();
     }
 
-    /// <summary>
-    /// Тело на физике в конце подшага: скорости, упор в потолки профиля, энергия — в сумму его сочленения. Тело спящего — не считается:
-    /// шаг его не двигает (скорости 0, энергия постоянна), и в сумме роста энергии и перцентилях скоростей его нет.
-    /// </summary>
+    /// <summary>Тело на физике в конце подшага: скорости, упоры, энергия — в сумму сочленения. Спящие не считаются.</summary>
     private void TraceSubstepBody(PhysicsTrace t, int b)
     {
         if (_bodyGeneration[b] <= 0) return;
@@ -106,8 +101,7 @@ public sealed partial class PhysicsWorld
     }
 
     /// <summary>
-    /// Тело на физике после фазы: энергия (кинетическая + m·g·y) — в сумму его сочленения. После позиционных фаз (<paramref name="moved"/>)
-    /// скорости — те, что дал бы сдвиг за подшаг (<see cref="Dynamics.UpdateVelocity"/> без демпфирования): поправка положения, которая
+    /// Тело после фазы: энергия — в сумму сочленения. После позиционных фаз скорости — от сдвига за подшаг: поправка, которая
     /// станет скоростью, видна в той фазе, что её сделала.
     /// </summary>
     private void TracePhaseBody(PhysicsTrace t, int b, bool moved, float h)
