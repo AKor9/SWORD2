@@ -38,7 +38,7 @@ struct FloorConstants
     float4 shadow0r0; float4 shadow0r1; float4 shadow0r2; float4 shadow0r3;   // rows, vector on the left (C# Matrix4x4)
     float4 shadow1r0; float4 shadow1r1; float4 shadow1r2; float4 shadow1r3;
     uint shadowMap0; uint shadowMap1; float shadowTexel0; float shadowTexel1;
-    float shadowBias0; float shadowBias1; float shadowSoftness; float shadowPad;
+    float shadowBias0; float shadowBias1; float shadowSoftness; float edgeWarp;
     float noiseAmp; float noiseSize; float erodeMm; float epoch;
 };
 _Static_assert(sizeof(FloorConstants) == BLOOD_FLOOR_CONSTANTS_SIZE, "FloorConstants differs from C# BloodFloorConstants");
@@ -163,6 +163,43 @@ float FieldBilinear(StructuredBuffer<uint2> c, float2 f)
     return lerp(lerp(a, b, w.x), lerp(d, e, w.x), w.y);
 }
 
+// Mitchell-Netravali cubic (B = C = 1/3 = B-spline / 3 + Catmull-Rom * 2/3): weights of the four taps around w in [0, 1) and their
+// derivatives d/dw. Round contours instead of the texel grid, yet a single-texel drop keeps ~80 % of its peak (a pure B-spline - 44 %,
+// and the erosion ate the small drops); the slight negative lobe only lowers the signed thickness outside the film.
+void Cubic(float w, out float4 k, out float4 dk)
+{
+    float v = 1 - w, w2 = w * w, w3 = w2 * w;
+    float4 kb = float4(v * v * v, 3 * w3 - 6 * w2 + 4, -3 * w3 + 3 * w2 + 3 * w + 1, w3) / 6;
+    float4 dkb = float4(-0.5 * v * v, 1.5 * w2 - 2 * w, -1.5 * w2 + w + 0.5, 0.5 * w2);
+    float4 kc = float4(-w3 + 2 * w2 - w, 3 * w3 - 5 * w2 + 2, -3 * w3 + 4 * w2 + w, w3 - w2) * 0.5;
+    float4 dkc = float4(-3 * w2 + 4 * w - 1, 9 * w2 - 10 * w, -9 * w2 + 8 * w + 1, 3 * w2 - 2 * w) * 0.5;
+    k = (kb + 2 * kc) / 3;
+    dk = (dkb + 2 * dkc) / 3;
+}
+
+// Smooth rho of the field at texel coordinates f (bicubic, 16 taps) and its gradient, rho per texel.
+float FieldSmooth(StructuredBuffer<uint2> c, float2 f, out float2 grad)
+{
+    float2 i = floor(f);
+    grad = 0;
+    // Nothing in the four nearest texels - nothing worth the other twelve taps (the outer ones only weigh a few per cent).
+    int2 n = int2(i);
+    if (FieldRho(c, n) + FieldRho(c, n + int2(1, 0)) + FieldRho(c, n + int2(0, 1)) + FieldRho(c, n + int2(1, 1)) <= 0) return 0;
+    float4 kx, dkx, kz, dkz;
+    Cubic(f.x - i.x, kx, dkx);
+    Cubic(f.y - i.y, kz, dkz);
+    int2 t = n - 1;
+    float v = 0;
+    [unroll] for (int y = 0; y < 4; y++)
+    {
+        float4 r = float4(FieldRho(c, t + int2(0, y)), FieldRho(c, t + int2(1, y)), FieldRho(c, t + int2(2, y)), FieldRho(c, t + int2(3, y)));
+        float row = dot(kx, r);
+        v += kz[y] * row;
+        grad += float2(kz[y] * dot(dkx, r), dkz[y] * row);
+    }
+    return v;
+}
+
 float MapRho(StructuredBuffer<uint> map, int2 t, out float birth)
 {
     birth = 0;
@@ -170,6 +207,30 @@ float MapRho(StructuredBuffer<uint> map, int2 t, out float birth)
     uint u = map[t.x + t.y * BLOOD_MAP_N];
     birth = f16tof32(u >> 16);
     return max(f16tof32(u), 0);
+}
+
+// Smooth rho of the map at texel coordinates f (bicubic, 16 taps) and its birth - the mean weighted by the share of rho.
+float MapSmooth(StructuredBuffer<uint> map, float2 f, out float birth)
+{
+    float2 i = floor(f);
+    birth = 0;
+    int2 n = int2(i);
+    float b;
+    if (MapRho(map, n, b) + MapRho(map, n + int2(1, 0), b) + MapRho(map, n + int2(0, 1), b) + MapRho(map, n + int2(1, 1), b) <= 0) return 0;
+    float4 kx, dkx, kz, dkz;
+    Cubic(f.x - i.x, kx, dkx);
+    Cubic(f.y - i.y, kz, dkz);
+    int2 t = n - 1;
+    float v = 0, vb = 0;
+    [unroll] for (int y = 0; y < 4; y++)
+        [unroll] for (int x = 0; x < 4; x++)
+        {
+            float r = kx[x] * kz[y] * MapRho(map, t + int2(x, y), b);
+            v += r;
+            vb += r * b;
+        }
+    birth = vb / max(v, 1e-20);
+    return max(v, 0);
 }
 
 // Terrain height - bilinear over the nodes of the height buffer (as the terrain mesh is drawn), outside - the edge cell.
@@ -242,6 +303,15 @@ float ValueNoise(float2 x)
     return lerp(lerp(RippleHash(t), RippleHash(t + int2(1, 0)), u.x), lerp(RippleHash(t + int2(0, 1)), RippleHash(t + int2(1, 1)), u.x), u.y);
 }
 
+// Static warp of the sample point, texels: two value noises at ~2 cm move it by up to edgeWarp - the edge tears within a texel.
+float2 EdgeWarp(FloorConstants c, float2 xz)
+{
+    float2 q = xz / 0.021 + 7.7;
+    float2 r = float2(1.6 * q.x + 1.2 * q.y, 1.6 * q.y - 1.2 * q.x);
+    float2 d = float2(ValueNoise(q) + 0.5 * ValueNoise(r + 3.1), ValueNoise(q + 41.3) + 0.5 * ValueNoise(r + 57.9)) / 1.5;
+    return c.edgeWarp * (2 * d - 1);
+}
+
 float FilmNoise(float2 xz, float size)
 {
     float2 q = xz / size + 31.7;
@@ -250,27 +320,53 @@ float FilmNoise(float2 xz, float size)
     {
         sum += weight * ValueNoise(q);
         norm += weight;
-        q = q * 2.03 + 17.1;
+        q = float2(1.6 * q.x + 1.2 * q.y, 1.6 * q.y - 1.2 * q.x) + 17.1;   // x2, turned by 37 deg: value noise loses its grid
         weight *= 0.5;
     }
     return sum / norm;
 }
 
 // Thickness on screen, mm: x (1 +- noiseAmp) by the noise and minus up to erodeMm where the noise is low - a torn edge of the puddle and an
-// uneven thickness (the mass of the field is not touched).
+// uneven thickness (the mass of the field is not touched). Signed: below zero outside the film, so its screen derivative stays
+// meaningful across the edge.
 float UnevenThickness(FloorConstants c, float hMm, float n)
 {
     float e = 1 - n;
-    return max(hMm * (1 + c.noiseAmp * (2 * n - 1)) - c.erodeMm * e * e, 0);
+    return hMm * (1 + c.noiseAmp * (2 * n - 1)) - c.erodeMm * e * e;
+}
+
+// Look of a layer averaged over the pixel footprint in thickness: four evaluations across [s - fw/2, s + fw/2] (fw - the screen
+// derivative of the thickness) - the edge, where the thickness jumps from nothing to the bulk within a pixel, is antialiased by the same
+// look function instead of stepping on pixels. mul, add (albedo part), coverage and its wet part, roughness - averages.
+struct FilmLook
+{
+    float3 mul, add;
+    float coverage, wet, roughness;
+};
+
+FilmLook FilteredLook(float age, float s, float fw, BloodLookParams lp)
+{
+    FilmLook o = (FilmLook)0;
+    [unroll] for (int k = 0; k < 4; k++)
+    {
+        BloodLookResult r = BloodLookEval(age, s + fw * ((k + 0.5) * 0.25 - 0.5), lp);
+        o.mul += BloodMul(r);
+        o.add += BloodAdd(r);
+        o.coverage += r.coverage;
+        o.wet += r.coverage * r.wet;
+        o.roughness += r.roughness;
+    }
+    o.mul *= 0.25; o.add *= 0.25; o.coverage *= 0.25; o.wet *= 0.25; o.roughness *= 0.25;
+    return o;
 }
 
 // One layer of blood over the floor: the floor multiplier and the light it adds (premultiplied by coverage); wet - darkening of the floor
 // (0 - none); mottle - factor of the light the layer scatters. Fog: the scene below is already fogged, so dst * mul + add * (1 - fog) + fogColour * fog * (1 - mul) keeps the fog on top.
-void FloorLayer(FloorConstants c, BloodLookResult look, float3 n, float3 v, float3 world, float wet, float sunVis, float mottle, out float3 mul,
+void FloorLayer(FloorConstants c, FilmLook look, float3 n, float3 v, float3 world, float wet, float sunVis, float mottle, out float3 mul,
     out float3 add)
 {
-    mul = BloodMul(look) * lerp(1, c.wetDarken, wet);
-    add = BloodAdd(look) * (LayerDiffuseLight(c, n, sunVis) * mottle) + look.coverage * LayerSpecular(c, n, v, look.roughness, sunVis);
+    mul = look.mul * BloodWetMul(wet, c.wetDarken);
+    add = look.add * (LayerDiffuseLight(c, n, sunVis) * mottle) + look.coverage * LayerSpecular(c, n, v, look.roughness, sunVis);
     float fog = saturate((distance(world, c.eye) - c.fogStart) / c.fogRange);
     add = add * (1 - fog) + c.fogColour * fog * (1 - mul);
 }
@@ -286,12 +382,6 @@ struct FilmOut
     float4 add : SV_Target0;   // dual-source blending: dst = add + dst * mul
     float4 mul : SV_Target1;
 };
-
-// Film profile for the normal: h_c * (1 - exp(-h / h_c)), mm - steep at the thin edge (meniscus), flat in the thick middle of a puddle.
-float FilmProfile(FloorConstants c, float rho)
-{
-    return c.meniscusMm * (1 - exp(-rho * c.thickMmPerRho / c.meniscusMm));
-}
 
 FilmOut PsFloor(float4 pos : SV_Position)
 {
@@ -318,69 +408,70 @@ FilmOut PsFloor(float4 pos : SV_Position)
     float noise = FilmNoise(p.xz, c.noiseSize);
     // Mottled body of the layer: the scattered light of thick blood (opaque - its thickness no longer shows) varies by a second noise.
     float mottle = 1 + c.noiseAmp * 1.2 * (FilmNoise(p.xz * 1.7 + 5.3, c.noiseSize) - 0.5);
+    // Thicknesses are sampled in uniform flow: their screen derivatives (fwidth) are the pixel footprint for FilteredLook.
+    float mapS = -1, mapBirth = 0, fieldS = -1, fieldRho = 0, peak = 0;
+    float2 fieldF = 0, fieldGrad = 0, peakAt = 0;
+    float2 warp = EdgeWarp(c, p.xz);   // the map and the window share the texel grid
     if (c.hasMap != 0)
     {
         StructuredBuffer<uint> map = ResourceDescriptorHeap[c.map];
-        float2 f = (p.xz - c.mapMin) / BLOOD_TEXEL - 0.5;
-        float2 i = floor(f);
-        float2 wt = SmoothWeights(f - i);
-        int2 t = int2(i);
-        float b00, b10, b01, b11;
-        float r00 = MapRho(map, t, b00), r10 = MapRho(map, t + int2(1, 0), b10), r01 = MapRho(map, t + int2(0, 1), b01),
-              r11 = MapRho(map, t + int2(1, 1), b11);
-        float rho = lerp(lerp(r00, r10, wt.x), lerp(r01, r11, wt.x), wt.y);
-        if (rho > 0)
-        {
-            float wsum = r00 + r10 + r01 + r11;
-            float birth = (b00 * r00 + b10 * r10 + b01 * r01 + b11 * r11) / max(wsum, 1e-20);
-            BloodLookResult look = BloodLookEval(max(c.now - c.epoch - birth, 0), UnevenThickness(c, rho * c.thickMmPerRho, noise), lp);
-            FloorLayer(c, look, n, v, p, look.coverage * look.wet, sunVis, mottle, mulAll, addAll);
-            drawn = true;
-        }
+        float2 f = (p.xz - c.mapMin) / BLOOD_TEXEL - 0.5 + warp;
+        float rho = MapSmooth(map, f, mapBirth);
+        mapS = UnevenThickness(c, rho * c.thickMmPerRho, noise);
     }
     if (c.hasField != 0)
     {
-        float2 f = (p.xz - c.windowMin) / BLOOD_TEXEL - 0.5;
-        float reach = c.haloTexels + 1;
-        if (all(f > -reach) && all(f < BLOOD_FLOOR_N + reach))
+        StructuredBuffer<uint2> field = ResourceDescriptorHeap[c.field];
+        fieldF = (p.xz - c.windowMin) / BLOOD_TEXEL - 0.5 + warp;
+        fieldRho = FieldSmooth(field, fieldF, fieldGrad);
+        fieldS = UnevenThickness(c, fieldRho * c.thickMmPerRho, noise);   // continuous across rho = 0: fwidth stays the footprint
+        // Wet floor around fresh blood: the mean rho of eight samples on a circle of haloTexels - it fades smoothly outwards (the
+        // thickest sample drew a hard band of the halo radius along the texel grid); the freshness - of the thickest sample.
+        float best = fieldRho, sum = 0;
+        peakAt = fieldF;
+        [unroll] for (int k = 0; k < 8; k++)
         {
-            StructuredBuffer<uint2> field = ResourceDescriptorHeap[c.field];
-            StructuredBuffer<float> ageBuf = ResourceDescriptorHeap[c.age];
-            float rho = FieldBilinear(field, f);
-            // Wet floor around fresh blood: the thickest of eight samples on a circle of haloTexels (and here) wets the floor by its freshness
-            // (four samples on the axes drew a cross around small spots).
-            float2 at = f;
-            float peak = rho;
-            [unroll] for (int k = 0; k < 8; k++)
-            {
-                float2 o = c.haloTexels * float2(cos(k * 0.78539816), sin(k * 0.78539816));
-                float r = FieldBilinear(field, f + o);
-                if (r > peak) { peak = r; at = f + o; }
-            }
-            if (peak > 0)
-            {
-                int2 ta = clamp(int2(floor(at + 0.5)), 0, BLOOD_FLOOR_N - 1);
-                BloodLookResult around = BloodLookEval(ageBuf[ta.x + ta.y * BLOOD_FLOOR_N], peak * c.thickMmPerRho, lp);
-                float wet = around.coverage * around.wet;
-                int2 t = clamp(int2(floor(f + 0.5)), 0, BLOOD_FLOOR_N - 1);
-                BloodLookResult look = BloodLookEval(ageBuf[t.x + t.y * BLOOD_FLOOR_N], UnevenThickness(c, rho * c.thickMmPerRho, noise), lp);
-                // Film normal: slope of the film profile (central differences, one texel) x normalScale plus the still ripple (world noise),
-                // in the receiver basis.
-                float k = 1e-3 / (2 * BLOOD_TEXEL) * c.normalScale;
-                float gx = (FilmProfile(c, FieldBilinear(field, f + float2(1, 0))) - FilmProfile(c, FieldBilinear(field, f - float2(1, 0)))) * k;
-                float gz = (FilmProfile(c, FieldBilinear(field, f + float2(0, 1))) - FilmProfile(c, FieldBilinear(field, f - float2(0, 1)))) * k;
-                float2 q = p.xz / c.rippleSize;
-                float2 ripple = (RippleGradient(q) + 0.5 * RippleGradient(q * 2.31 + 17.3)) * c.ripple;
-                float3 g = float3(gx + ripple.x, 0, gz + ripple.y);
-                g -= n * dot(n, g);
-                float3 nf = normalize(n - g);
-                float3 m2, a2;
-                FloorLayer(c, look, nf, v, p, max(wet, look.coverage * look.wet), sunVis, mottle, m2, a2);
-                addAll = addAll * m2 + a2;
-                mulAll *= m2;
-                drawn = true;
-            }
+            float2 o = c.haloTexels * float2(cos(k * 0.78539816), sin(k * 0.78539816));
+            float r = FieldBilinear(field, fieldF + o);
+            sum += r;
+            if (r > best) { best = r; peakAt = fieldF + o; }
         }
+        peak = sum / 8;
+    }
+    // A pixel spans at most half a millimetre of thickness. A quad across a silhouette (a body over the floor: its world point lies over
+    // the puddle) is no footprint at all - there the step of the world point exceeds what the ray step on this surface allows (the ray
+    // direction is continuous across silhouettes), and the pixel takes no filtering instead of smearing the film onto the outline.
+    float expected = distance(c.eye, p) * (length(ddx(v)) + length(ddy(v))) / max(abs(dot(n, v)), 0.1);
+    float aa = length(ddx(p)) + length(ddy(p)) < 2 * expected ? 1 : 0;
+    float mapFw = min(fwidth(mapS), 0.5) * aa, fieldFw = min(fwidth(fieldS), 0.5) * aa;
+    if (mapS + 0.5 * mapFw > 0)
+    {
+        FilmLook look = FilteredLook(max(c.now - c.epoch - mapBirth, 0), mapS, mapFw, lp);
+        FloorLayer(c, look, n, v, p, look.wet, sunVis, mottle, mulAll, addAll);
+        drawn = true;
+    }
+    if (fieldS + 0.5 * fieldFw > 0 || peak > 0)
+    {
+        StructuredBuffer<float> ageBuf = ResourceDescriptorHeap[c.age];
+        int2 ta = clamp(int2(floor(peakAt + 0.5)), 0, BLOOD_FLOOR_N - 1);
+        // The halo wets by the freshness of the blood it comes from, fading in over the first 0.1 mm of the mean thickness around.
+        float haloWet = BloodLookEval(ageBuf[ta.x + ta.y * BLOOD_FLOOR_N], 1, lp).wet * BloodSmooth(0, 0.1, peak * c.thickMmPerRho);
+        int2 t = clamp(int2(floor(fieldF + 0.5)), 0, BLOOD_FLOOR_N - 1);
+        FilmLook look = FilteredLook(ageBuf[t.x + t.y * BLOOD_FLOOR_N], fieldS, fieldFw, lp);
+        // Film normal: slope of the film profile h_c (1 - exp(-h / h_c)) (steep at the thin edge - meniscus, flat in the thick middle) from
+        // the smooth field's gradient x normalScale, plus the still ripple (world noise), in the receiver basis.
+        float dProfile = c.thickMmPerRho * exp(-fieldRho * c.thickMmPerRho / c.meniscusMm);
+        float2 slope = fieldGrad * (dProfile * 1e-3 / BLOOD_TEXEL * c.normalScale);
+        float2 q = p.xz / c.rippleSize;
+        float2 ripple = (RippleGradient(q) + 0.5 * RippleGradient(q * 2.31 + 17.3)) * c.ripple;
+        float3 g = float3(slope.x + ripple.x, 0, slope.y + ripple.y);
+        g -= n * dot(n, g);
+        float3 nf = normalize(n - g);
+        float3 m2, a2;
+        FloorLayer(c, look, nf, v, p, max(haloWet, look.wet), sunVis, mottle, m2, a2);
+        addAll = addAll * m2 + a2;
+        mulAll *= m2;
+        drawn = true;
     }
     if (!drawn) discard;
     FilmOut o;

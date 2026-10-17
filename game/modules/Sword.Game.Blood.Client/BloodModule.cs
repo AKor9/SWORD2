@@ -254,6 +254,7 @@ public sealed class BloodModule : IClientModule
             .Float("floorSky", "плёнка: сила неба", () => t.FloorSkyGain, v => t.FloorSkyGain = v, 0f, 4f, format: "0.##")
             .Float("floorWet", "мокрый пол: множитель", () => t.FloorWetDarken, v => t.FloorWetDarken = v, 0.1f, 1f, format: "0.##")
             .Float("floorHalo", "мокрый пол: ореол, текселей", () => t.FloorHalo, v => t.FloorHalo = v, 0f, 8f, format: "0.#")
+            .Float("floorEdgeWarp", "плёнка: сдвиг края шумом, текселей", () => t.FloorEdgeWarp, v => t.FloorEdgeWarp = v, 0f, 2f, format: "0.##")
             .Float("floorRipple", "плёнка: рябь, уклон", () => t.FloorRipple, v => t.FloorRipple = v, 0f, 0.3f, format: "0.###")
             .Float("floorRippleSize", "плёнка: рябь, размер, м", () => t.FloorRippleSize, v => t.FloorRippleSize = v, 0.005f, 0.5f, log: true, format: "0.###")
             .Float("floorNoise", "плёнка: неровность толщины ±", () => t.FloorNoise, v => t.FloorNoise = v, 0f, 1f, format: "0.##")

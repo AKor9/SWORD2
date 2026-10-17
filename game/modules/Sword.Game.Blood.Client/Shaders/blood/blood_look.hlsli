@@ -69,4 +69,13 @@ BloodLookResult BloodLookEval(float age, float thicknessMm, BloodLookParams p)
 float3 BloodMul(BloodLookResult o) { return 1 - o.coverage * (1 - o.transmission); }
 float3 BloodAdd(BloodLookResult o) { return o.coverage * o.albedo * (1 - o.transmission); }
 
+/// Wet substrate under and around blood: lerp(1, darken * tint, wet) per channel - darker and warmer, never lighter (BloodLook.WetMul).
+static const float3 BLOOD_WET_TINT = float3(1.0, 0.88, 0.8);
+float3 BloodWetMul(float wet, float darken)
+{
+    float w = saturate(wet);
+    float3 full = saturate(darken) * BLOOD_WET_TINT;
+    return 1 + (full - 1) * w;
+}
+
 #endif

@@ -74,6 +74,41 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         Assert.True(BloodLook.Evaluate(40, 1f, Look).Wet > at40.Wet);
     }
 
+    /// <summary>
+    /// Мокрая подложка (пол под кровью и ореол вокруг) только темнее и насыщеннее: ни один канал множителя не больше 1, с влажностью
+    /// не растёт; бежевый пол арены под ним темнее и насыщеннее, светлой каймы нет. Оттенок — тот же, что в <c>BloodWetMul</c> HLSL.
+    /// </summary>
+    [Fact]
+    public void WetFloor_NeverLighter_DarkerAndMoreSaturated()
+    {
+        var floor = BloodLook.Linear(196, 180, 152);
+        foreach (float darken in new[] { 0f, 0.3f, 0.75f, 1f, 1.5f })
+        {
+            var prev = Vector3.One;
+            for (int k = 0; k <= 20; k++)
+            {
+                float wet = k / 20f;
+                var m = BloodLook.WetMul(wet, darken);
+                Assert.True(m.X <= 1 && m.Y <= 1 && m.Z <= 1 && m.X >= 0 && m.Y >= 0 && m.Z >= 0, $"wet {wet}, darken {darken}: {m}");
+                Assert.True(m.X <= prev.X + 1e-6f && m.Y <= prev.Y + 1e-6f && m.Z <= prev.Z + 1e-6f, $"wet {wet}: {m} > {prev}");
+                prev = m;
+                var wetFloor = floor * m;
+                Assert.True(Luma(wetFloor) <= Luma(floor) + 1e-6f);
+                if (wet > 0 && darken > 0) Assert.True(Saturation(wetFloor) >= Saturation(floor) - 1e-6f, $"wet {wet}: {wetFloor}");
+            }
+        }
+        Near(Vector3.One, BloodLook.WetMul(0, 0.75f));
+        Near(0.75f * BloodLook.WetTint, BloodLook.WetMul(1, 0.75f));
+
+        // C# = HLSL: оттенок в blood_look.hlsli — те же числа.
+        string hlsl = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", BloodLook.ShaderInclude));
+        var t = BloodLook.WetTint;
+        Assert.Contains(FormattableString.Invariant($"static const float3 BLOOD_WET_TINT = float3({t.X:0.0##}, {t.Y:0.0##}, {t.Z:0.0##});"), hlsl);
+
+        static float Luma(Vector3 c) => 0.2126f * c.X + 0.7152f * c.Y + 0.0722f * c.Z;
+        static float Saturation(Vector3 c) => (MathF.Max(c.X, MathF.Max(c.Y, c.Z)) - MathF.Min(c.X, MathF.Min(c.Y, c.Z))) / MathF.Max(c.X, MathF.Max(c.Y, c.Z));
+    }
+
     private static void Near(Vector3 expected, Vector3 actual) => Assert.True(Vector3.Distance(expected, actual) < 1e-6f, $"{expected} ≠ {actual}");
 
     // ---------------- кожа ----------------

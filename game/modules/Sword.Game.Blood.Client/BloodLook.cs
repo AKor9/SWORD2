@@ -77,6 +77,20 @@ public static class BloodLook
         return new BloodLookResult(albedo, transmission, coverage, roughness, wet, dry);
     }
 
+    /// <summary>
+    /// Оттенок мокрой подложки: пол под кровью и в ореоле — множитель lerp(1, darken·WetTint, wet) по каналам. Сыворотка впитывается
+    /// тёплой: синий и зелёный гаснут сильнее красного — подложка темнее и насыщеннее, но ни в одном канале не светлее (каналы ≤ 1).
+    /// </summary>
+    public static readonly Vector3 WetTint = new(1f, 0.88f, 0.8f);
+
+    /// <summary>Множитель мокрой подложки (HLSL <c>BloodWetMul</c>): wet 0 — 1, wet 1 — darken·<see cref="WetTint"/>; darken зажат в [0, 1].</summary>
+    public static Vector3 WetMul(float wet, float darken)
+    {
+        float w = Saturate(wet);
+        var full = Saturate(darken) * WetTint;
+        return Vector3.One + (full - Vector3.One) * w;
+    }
+
     /// <summary>Гладкая ступенька (как <c>smoothstep</c> HLSL).</summary>
     public static float Smooth(float a, float b, float x)
     {

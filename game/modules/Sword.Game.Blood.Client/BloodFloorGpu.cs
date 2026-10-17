@@ -28,7 +28,9 @@ public struct BloodFloorConstants
     /// <summary>Тень солнца кадра (<see cref="SunShadow"/>, каскады 0 и 1; карты нет — <see cref="SunShadow.None"/>): блик плёнки — под тенью.</summary>
     public Matrix4x4 ShadowViewProj0, ShadowViewProj1;
     public uint ShadowMap0, ShadowMap1; public float ShadowTexel0, ShadowTexel1;
-    public float ShadowBias0, ShadowBias1, ShadowSoftness, ShadowPad;
+    public float ShadowBias0, ShadowBias1, ShadowSoftness;
+    /// <summary>Сдвиг выборки поля статичным шумом в мире, текселей: край лужи рваный внутри текселя, а не по его сетке.</summary>
+    public float EdgeWarp;
     /// <summary>Неровность плёнки (шум толщины в мире) и эпоха рождений карты, с.</summary>
     public float NoiseAmp, NoiseSize, ErodeMm, Epoch;
 }
@@ -394,6 +396,7 @@ public sealed class BloodFloorGpu : IGpuSimulation
             RippleSize = MathF.Max(t.FloorRippleSize, 1e-3f),
             WetDarken = t.FloorWetDarken,
             HaloTexels = t.FloorHalo,
+            EdgeWarp = MathF.Max(t.FloorEdgeWarp, 0),
             MeniscusMm = MathF.Max(t.FloorMeniscusMm, 1e-3f),
             Ripple = t.FloorRipple,
             NoiseAmp = Math.Clamp(t.FloorNoise, 0, 1),

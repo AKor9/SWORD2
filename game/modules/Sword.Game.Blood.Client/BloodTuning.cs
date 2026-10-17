@@ -112,9 +112,16 @@ public sealed class BloodTuning
     /// <summary>Сила отражения неба плёнкой (1 — как у сцены).</summary>
     public float FloorSkyGain { get; set; } = 2.5f;
 
-    /// <summary>Мокрая подложка: множитель пола под свежей кровью и в ореоле вокруг (Lagarde: до 0.2 у пористой), радиус ореола, текселей.</summary>
-    public float FloorWetDarken { get; set; } = 0.7f;
-    public float FloorHalo { get; set; } = 1.5f;
+    /// <summary>
+    /// Мокрая подложка: множитель пола под свежей кровью и в ореоле вокруг (Lagarde: до 0.2 у пористой; с оттенком
+    /// <see cref="BloodLook.WetTint"/> — темнее и насыщеннее, не светлее), радиус ореола, текселей (ореол — среднее толщины по кругу:
+    /// мягко гаснет наружу).
+    /// </summary>
+    public float FloorWetDarken { get; set; } = 0.75f;
+    public float FloorHalo { get; set; } = 2f;
+
+    /// <summary>Сдвиг выборки поля статичным шумом в мире, текселей: край рваный внутри текселя, а не по сетке поля.</summary>
+    public float FloorEdgeWarp { get; set; } = 0.6f;
 
     /// <summary>Рябь плёнки: уклон шума в мире (без анимации) и его размер, м.</summary>
     public float FloorRipple { get; set; } = 0.02f;
