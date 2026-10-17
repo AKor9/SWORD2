@@ -1,9 +1,12 @@
+using System.Numerics;
+
 namespace Sword.Engine.Animation.Motion;
 
 /// <summary>
 /// Запрос поиска по схеме базы в системе корня <c>state.Root</c>: будущее — предсказание модели контроллера, прошлое — история
 /// корня, скорости корня — из модели, суставы — признаки текущего кадра базы (а не видимой позы: иначе запрос проигрывает
-/// продолжению и сбивает фазу шага). Скорость и прошлое × <c>velocityScale</c>, цель × <c>goalScale</c>, угловая скорость
+/// продолжению и сбивает фазу шага); видимая поза — только по просьбе (<c>pose</c>): когда позу вёл не проигрыватель (действие
+/// всем телом), признаки его кадра устарели. Скорость и прошлое × <c>velocityScale</c>, цель × <c>goalScale</c>, угловая скорость
 /// зажата <c>maxYawRate</c>; итог нормализуется. <see cref="Fill"/> память не выделяет.
 /// </summary>
 public sealed class MotionQuery
@@ -43,9 +46,15 @@ public sealed class MotionQuery
     /// <param name="now">Номер текущего тика (прошлое — тики <c>now + round(t / тик)</c>).</param>
     /// <param name="current">Текущий кадр базы (признаки суставов); −1 — нет: суставы — средние по базе (нормализованные нули).</param>
     /// <param name="maxYawRate">Зажим угловой скорости корня, рад/с (обычно <see cref="DataYawRate"/>).</param>
-    /// <exception cref="ArgumentException">Кадр вне базы, масштаб не конечен, зажим меньше 0 или не число.</exception>
+    /// <param name="pose">
+    /// Суставы схемы видимой позы в системе корня (порядок <see cref="MotionSchema.Joints"/>); пусто — признаки суставов текущего
+    /// кадра базы.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// Кадр вне базы, масштаб не конечен, зажим меньше 0 или не число, суставов видимой позы не столько, сколько в схеме.
+    /// </exception>
     public void Fill(in TrajectoryState state, in TrajectoryModel model, RootHistory history, long now, int current, float velocityScale,
-        float goalScale, float maxYawRate)
+        float goalScale, float maxYawRate, PoseJoints pose = default)
     {
         ArgumentNullException.ThrowIfNull(history);
         if (current < -1 || current >= _db.FrameCount)
@@ -53,6 +62,9 @@ public sealed class MotionQuery
         if (!float.IsFinite(velocityScale)) throw new ArgumentOutOfRangeException(nameof(velocityScale), velocityScale, "масштаб не конечен");
         if (!float.IsFinite(goalScale)) throw new ArgumentOutOfRangeException(nameof(goalScale), goalScale, "масштаб не конечен");
         if (!(maxYawRate >= 0)) throw new ArgumentOutOfRangeException(nameof(maxYawRate), maxYawRate, "зажим ω — не меньше 0");
+        int joints = _db.Schema.Joints.Length;
+        if (!pose.IsEmpty && (pose.Positions.Length != joints || pose.Velocities.Length != joints))
+            throw new ArgumentException($"суставов видимой позы {pose.Positions.Length}/{pose.Velocities.Length}, а в схеме {joints}", nameof(pose));
 
         var schema = _db.Schema;
         float dt = history.TickSeconds;
@@ -65,16 +77,20 @@ public sealed class MotionQuery
         }
         var mean = _db.Mean;
         var std = _db.Std;
-        foreach (var group in schema.Groups)
+        var groups = schema.Groups;
+        for (int g = 0; g < groups.Length; g++)
         {
+            var group = groups[g];
             var raw = _raw.AsSpan(group.Offset, group.Size);
             var values = _values.AsSpan(group.Offset, group.Size);
-            if (MotionSchema.IsJoint(group.Kind))
+            bool joint = MotionSchema.IsJoint(group.Kind);
+            if (joint && pose.IsEmpty)
             {
                 JointFeatures(current, group, raw, values);
                 continue;
             }
-            switch (group.Kind)
+            if (joint) PoseFeatures(schema, g, pose, raw);
+            else switch (group.Kind)
             {
                 case FeatureKind.TrajectoryPosition:
                     for (int k = 0; k < _future.Length; k++)
@@ -119,6 +135,33 @@ public sealed class MotionQuery
         }
     }
 
+    /// <summary>
+    /// Суставы группы <paramref name="g"/> из видимой позы — те же выражения, что у кадров базы (положение, скорость; курс пары —
+    /// «левый − правый», повёрнутое +X → +Z).
+    /// </summary>
+    private static void PoseFeatures(MotionSchema schema, int g, PoseJoints pose, Span<float> raw)
+    {
+        var joints = schema.GroupJoints(g);
+        var kind = schema.Groups[g].Kind;
+        for (int k = 0; k < joints.Length; k++)
+        {
+            int slot = schema.JointSlot(joints[k]);
+            if (kind == FeatureKind.JointPairFacing)
+            {
+                if (k % 2 != 0) continue;
+                var d = pose.Positions[slot] - pose.Positions[schema.JointSlot(joints[k + 1])];
+                float x = -d.Z, z = d.X, length = MathF.Sqrt(x * x + z * z);
+                raw[k] = length > 1e-6f ? x / length : 0;
+                raw[k + 1] = length > 1e-6f ? z / length : 1;
+                continue;
+            }
+            var v = kind == FeatureKind.JointVelocity ? pose.Velocities[slot] : pose.Positions[slot];
+            raw[3 * k] = v.X;
+            raw[3 * k + 1] = v.Y;
+            raw[3 * k + 2] = v.Z;
+        }
+    }
+
     /// <summary>Суставы — признаки текущего кадра базы как есть (нормализованные: самопопадание без ошибки округления); нет — нули.</summary>
     private void JointFeatures(int current, in FeatureGroup group, Span<float> raw, Span<float> values)
     {
@@ -156,4 +199,15 @@ public sealed class MotionQuery
         int rank = (int)Math.Ceiling(0.99 * rates.Length);
         return MathF.Max(1, rates[rank - 1]);
     }
+}
+
+/// <summary>
+/// Суставы схемы видимой позы для запроса (<see cref="MotionQuery.Fill"/>): положения и скорости в системе корня, порядок —
+/// <see cref="MotionSchema.Joints"/>. Пусто — признаки суставов кадра базы.
+/// </summary>
+public readonly ref struct PoseJoints(ReadOnlySpan<Vector3> positions, ReadOnlySpan<Vector3> velocities)
+{
+    public ReadOnlySpan<Vector3> Positions { get; } = positions;
+    public ReadOnlySpan<Vector3> Velocities { get; } = velocities;
+    public bool IsEmpty => Positions.IsEmpty;
 }

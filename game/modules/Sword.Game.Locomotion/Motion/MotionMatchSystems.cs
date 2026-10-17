@@ -146,7 +146,7 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         // Клип поворота на месте, пока его корень поворачивается, поиск не перебивает.
         if (transition < 0 && !turn.Turning(s, current) && motion.Search
             && (s.SinceSearch >= period || !s.SearchWas || GoalJumped(s.SearchGoal, steer.GoalVelocity)))
-            transition = Search(ref s, t, velocity, steer, current, rules, time, standing);
+            transition = Search(ref s, t, velocity, steer, current, rules, time, standing, pool, pose);
         s.SearchWas = motion.Search;
         pool.Motion(pose, players, s.Player, new MotionStep(dt * s.Rate, dt, transition, rules.InertialHalflife));
         // Скручивание — после шага проигрывателя (он пишет позу целиком) и до руки с мечом (она — в системе груди).
@@ -174,11 +174,13 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
 
     /// <summary>
     /// Поиск: лучший кадр по запросу; переход (кадр), если сменяет текущий по <see cref="Switches"/>, иначе −1. Стоя клип
-    /// поворота на месте поиск не выбирает — его ставит поворот на месте.
+    /// поворота на месте поиск не выбирает — его ставит поворот на месте. Первый поиск после действия всем телом (передача) —
+    /// по суставам видимой позы, а не кадра проигрывателя: под действием его кадр устарел и проигрывает видимой позе по цене.
     /// </summary>
     private int Search(ref MotionMatchState s, in Transform t, Vector3 velocity, in SteerModel steer, int current, in LocomotionRules rules,
-        in SimTime time, bool standing)
+        in SimTime time, bool standing, PosePool pool, PoseHandle pose)
     {
+        bool handoff = !s.SearchWas;
         float dt = time.Dt;
         velocity.Y = 0;
         // «Сейчас» — конец тика по модели: курс тика уже повёрнут (core.root-steer), корень переносит core.root-control после Animation.
@@ -190,7 +192,9 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
         var diagnostics = runtime.Diagnostics;   // повод, зона профайлера, последний поиск для вида и событий
         var reason = MotionMatchDiagnostics.Reason(s, steer.GoalVelocity);
         diagnostics.Begin();
-        query.Fill(new TrajectoryState(root, velocity), model, runtime.History(s.Player), (long)time.Tick, current, kv, kg, query.DataYawRate);
+        var history = runtime.History(s.Player);
+        var visible = handoff ? runtime.VisibleJoints(pool, pose, history, velocity) : default;
+        query.Fill(new TrajectoryState(root, velocity), model, history, (long)time.Tick, current, kv, kg, query.DataYawRate, visible);
         var match = runtime.Matcher.Search(query.Values, runtime.Weights, current, 0, runtime.SkipFrames);
         double microseconds = diagnostics.End();
         s.Searches++;

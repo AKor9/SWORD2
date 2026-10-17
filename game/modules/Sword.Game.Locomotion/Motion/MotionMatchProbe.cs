@@ -111,4 +111,38 @@ public sealed class MotionMatchProbe
         }
         return new MotionMatchMeasure(slide, slideJoint, feet, jump, joint);
     }
+
+    /// <summary>
+    /// Скольжение опорной стопы по итоговой позе: суставы контакта кадра проигрывателя, мир — корень двух последних записей
+    /// <paramref name="history"/> × модельные матрицы <paramref name="now"/> и <paramref name="before"/> (поза уже повёрнута по курсу ног,
+    /// курс — корня). Нет данных — NaN и −1.
+    /// </summary>
+    public (float Slide, int Joint) PoseSlide(MotionPlayerHandle player, ReadOnlySpan<Matrix4x4> now, ReadOnlySpan<Matrix4x4> before,
+        RootHistory? history, float dt)
+    {
+        var players = _runtime.Players;
+        if (!players.IsAlive(player) || history is not { Count: >= 2 } h || h[h.Count - 1].Tick != h[h.Count - 2].Tick + 1) return (float.NaN, -1);
+        var db = _runtime.Database;
+        int frame = players.State(player).Frame;
+        int bits = frame >= 0 ? db.Contacts[frame] : 0;
+        if (bits == 0) return (float.NaN, -1);
+        var contacts = db.Schema.ContactJoints;
+        var root = h[h.Count - 1].Root;
+        var prev = h[h.Count - 2].Root;
+        float slide = 0;
+        int slideJoint = -1;
+        for (int k = 0; k < contacts.Length; k++)
+        {
+            if ((bits >> k & 1) == 0) continue;
+            int j = contacts[k];
+            var d = root.ToParent(now[j].Translation) - prev.ToParent(before[j].Translation);
+            float speed = new Vector2(d.X, d.Z).Length() / dt;
+            if (speed > slide || slideJoint < 0)
+            {
+                slide = speed;
+                slideJoint = j;
+            }
+        }
+        return (slide, slideJoint);
+    }
 }

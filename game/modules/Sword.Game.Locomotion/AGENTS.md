@@ -6,8 +6,9 @@ Matching игрока при `mm` (`sword.json` игры). Описание — 
 - Модуль не видит ядро игры (`Sword.Game`) и другие модули: вход — компоненты и метки `Game.Contracts`, клипы слотов —
   `Game.Data.ActionTable` (ресурс), позы — `PosePool` (ресурс) и `PoseRef` бойца.
 - Позу не считает сам: только задания пулу поз, после `core.action-snapshot` (6в: снимок позы прошлого тика копируется
-  первым) и до `core.animator-pose`. Порядок заданий и формулы — из `LegacyLocomotion` SWORD (идея); от них зависят хеши
-  эталонов SWORD2 (участник `animation`) — разошлись эталоны, значит изменилось поведение. Сверка с SWORD снята на 7а.
+  первым) и до `core.animator-pose`; IK ног фиксации стоп игрока на MM (`locomotion.mm-feet`, `Motion/FootLock.cs`) — в Movement,
+  после `core.root-collision` и до `core.pose-post-tick` (второй проход пула ядра), только модельные матрицы; нулевая правка — без
+  задания. Порядок заданий и формулы — из `LegacyLocomotion` SWORD (идея); от них зависят хеши эталонов SWORD2 (участник `animation`) — разошлись эталоны, значит изменилось поведение. Сверка с SWORD снята на 7а.
 - Свои позы (слой и снимок) модуль заводит сам и сам возвращает (`locomotion.release`); держит их инвариант модуля
   `locomotion.poses` (живые, свои, не итоговая поза бойца). Пул в инварианте — только через `IAnimationView`.
 - `Added<Fighter>` у бойца, у которого состояние уже есть, — постройка заново (протокол `Game.Contracts`, сброс арены):
@@ -29,7 +30,8 @@ Matching игрока при `mm` (`sword.json` игры). Описание — 
   система). Сброс — только по `Added<Fighter>` (флаг `Restart`), мёртвый (`Dead`) не трогается. Авторитетное состояние — компонент
   `MotionMatchState` (участник `ecs`, все числа конечны) и хранилище проигрывателей с историями (участник `locomotion`). Тик — 0 Б.
 - Рука с мечом игрока на MM (8ж, `Motion/MotionMatchArm.cs`): после шага MM и до `core.animator-pose` (`locomotion.mm-arm`) — стойка
-  оружия (клип слота `idle`, момент `SwordArm.StanceTime`) смешиванием по маске поддерева `clavicle_r` с весом `MotionMatchArm.Weight`
+  оружия (клип слота `idle`, момент `SwordArm.StanceTime`): плечевой пояс — добавкой от нейтральной стойки MM поверх маха клипа, кисть —
+  стойкой целиком, с весом `MotionMatchArm.Weight`
   (к ручке `locomotion.armWeight` не быстрее `SwordArm.WeightRate`/с); слой действий ядра — поверх руки. Имена суставов руки и её
   умолчания — одно место, `SwordArm`. Поза стойки — своя поза пула: заводит шаг руки, возвращает `locomotion.mm-arm-release`, держит
   инвариант `locomotion.mmArm`. Поза постройки игрока несёт руку слоем (`FighterStartPose.Layer*`; ядро считает его в `StartPoseModel`

@@ -75,10 +75,12 @@ public readonly record struct MotionMatchSearch(long Tick, MotionSearchReason Re
 public readonly record struct MotionTrajectoryPoint(float Time, Vector3 Position, float Yaw);
 
 /// <summary>
-/// Замер тика (инвариант <c>locomotion.mmContinuity</c>) по выходу проигрывателя: скольжение опорной стопы по разметке
-/// кадра базы, м/с, и наибольший скачок сустава за тик в пространстве персонажа, м; нет данных — NaN и −1.
+/// Замер тика: скольжение опорной стопы (суставы контакта по разметке кадра базы) в мире по итоговой позе — та, что видна, после
+/// фиксации стоп, м/с; <see cref="SourceSlide"/> — то же по выходу проигрывателя (до руки, действий и фиксации); наибольший скачок
+/// сустава выхода проигрывателя за тик в пространстве персонажа, м (инвариант <c>locomotion.mmContinuity</c>); нет данных — NaN и −1.
 /// </summary>
-public readonly record struct MotionMatchMeasure(float FootSlide, int SlideJoint, int FeetOnGround, float JointJump, int JumpJoint)
+public readonly record struct MotionMatchMeasure(float FootSlide, int SlideJoint, int FeetOnGround, float JointJump, int JumpJoint,
+    float SourceSlide = float.NaN)
 {
     public static MotionMatchMeasure None => new(float.NaN, -1, 0, float.NaN, -1);
 }

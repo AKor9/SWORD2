@@ -163,13 +163,32 @@ public sealed class ClipLibrary
 
     public float Duration(int clip) => (_clips[clip].Count - 1) / SampleRate;
 
-    /// <summary>Поворот корневого движения в момент <paramref name="time"/>, рад (с упором в концы клипа).</summary>
+    /// <summary>Поворот корневого движения в момент <paramref name="time"/>, рад (с упором в концы клипа; сплайн по ключам).</summary>
     public float RootYawAt(int clip, float time)
     {
-        var c = _clips[clip];
-        float f = Math.Clamp(time * SampleRate, 0, c.Count - 1);
-        int i0 = Math.Min((int)f, c.Count - 1), i1 = Math.Min(i0 + 1, c.Count - 1);
-        return float.Lerp(_rootYaw[c.Start + i0], _rootYaw[c.Start + i1], f - i0);
+        var k = Around(_clips[clip], time, false);
+        return AnimMath.CatmullRom(_rootYaw[k.A], _rootYaw[k.B], _rootYaw[k.C], _rootYaw[k.D], k.T);
+    }
+
+    /// <summary>Четыре ключа сплайна (кадры библиотеки) и доля между средними — <see cref="Around"/>.</summary>
+    private readonly record struct Keys(int A, int B, int C, int D, float T);
+
+    /// <summary>
+    /// Ключи сплайна вокруг момента <paramref name="time"/>: <paramref name="loop"/> — по кругу (последний кадр цикла = первый,
+    /// соседи шва — предпоследний и второй кадр), иначе упор в концы (крайний ключ — сам себе сосед).
+    /// </summary>
+    private Keys Around(in Clip c, float time, bool loop)
+    {
+        float f = time * SampleRate;
+        int last = c.Count - 1;
+        loop &= last > 0;
+        if (loop) f = ((f % last) + last) % last;
+        else f = Math.Clamp(f, 0, last);
+        int i0 = Math.Min((int)f, last), i1 = Math.Min(i0 + 1, last);
+        int ia = i0 - 1, id = i1 + 1;
+        if (ia < 0) ia = loop ? last - 1 : 0;
+        if (id > last) id = loop ? 1 : last;
+        return new Keys(c.Start + ia, c.Start + i0, c.Start + i1, c.Start + id, f - i0);
     }
 
     /// <summary>Поворот корневого движения за весь клип, рад.</summary>
@@ -183,37 +202,45 @@ public sealed class ClipLibrary
         return d > 1e-4f ? Vector3.Distance(_rootMotion[c.End - 1], _rootMotion[c.Start]) / d : 0;
     }
 
-    /// <summary>Смещение корневого движения в момент <paramref name="time"/> (с упором в концы клипа).</summary>
+    /// <summary>Смещение корневого движения в момент <paramref name="time"/> (с упором в концы клипа; сплайн по ключам).</summary>
     public Vector3 RootMotionAt(int clip, float time)
     {
-        var c = _clips[clip];
-        float f = Math.Clamp(time * SampleRate, 0, c.Count - 1);
-        int i0 = Math.Min((int)f, c.Count - 1), i1 = Math.Min(i0 + 1, c.Count - 1);
-        return Vector3.Lerp(_rootMotion[c.Start + i0], _rootMotion[c.Start + i1], f - i0);
+        var k = Around(_clips[clip], time, false);
+        return AnimMath.CatmullRom(_rootMotion[k.A], _rootMotion[k.B], _rootMotion[k.C], _rootMotion[k.D], k.T);
     }
 
-    /// <summary>Локальная поза клипа в момент <paramref name="time"/>, с (цикл — по кругу, иначе упор в конец): слерп поворотов и лерп смещений.</summary>
+    /// <summary>
+    /// Локальная поза клипа в момент <paramref name="time"/>, с (цикл — по кругу, иначе упор в конец): сплайн Катмулла — Рома по
+    /// четырём ключам (<see cref="SampleKeys"/>).
+    /// </summary>
     public void Sample(int clip, float time, Span<Quaternion> rot, Span<Vector3> pos)
     {
         var c = _clips[clip];
-        float f = time * SampleRate;
-        float last = c.Count - 1;
-        if (c.Loop && last > 0) f = ((f % last) + last) % last;
-        else f = Math.Clamp(f, 0, last);
-        int i0 = Math.Min((int)f, c.Count - 1);
-        int i1 = Math.Min(i0 + 1, c.Count - 1);
-        float a = f - i0;
-        int jc = JointCount, o0 = (c.Start + i0) * jc, o1 = (c.Start + i1) * jc;
-        var r0 = _localRot.AsSpan(o0, jc);
-        var r1 = _localRot.AsSpan(o1, jc);
-        var p0 = _localPos.AsSpan(o0, jc);
-        var p1 = _localPos.AsSpan(o1, jc);
-        rot = rot[..jc];
-        pos = pos[..jc];
+        var k = Around(c, time, c.Loop);
+        int jc = JointCount;
+        SampleKeys(_localRot.AsSpan(k.A * jc, jc), _localRot.AsSpan(k.B * jc, jc), _localRot.AsSpan(k.C * jc, jc), _localRot.AsSpan(k.D * jc, jc),
+            _localPos.AsSpan(k.A * jc, jc), _localPos.AsSpan(k.B * jc, jc), _localPos.AsSpan(k.C * jc, jc), _localPos.AsSpan(k.D * jc, jc),
+            k.T, rot[..jc], pos[..jc]);
+    }
+
+    /// <summary>
+    /// Поза между ключами <c>b</c> (t = 0) и <c>c</c> (t = 1) сплайном Катмулла — Рома с соседями <c>a</c>, <c>d</c>
+    /// (<see cref="AnimMath.CatmullRom(Quaternion, Quaternion, Quaternion, Quaternion, float)"/>); t = 0 — ключ <c>b</c> как есть.
+    /// </summary>
+    public static void SampleKeys(ReadOnlySpan<Quaternion> ra, ReadOnlySpan<Quaternion> rb, ReadOnlySpan<Quaternion> rc, ReadOnlySpan<Quaternion> rd,
+        ReadOnlySpan<Vector3> pa, ReadOnlySpan<Vector3> pb, ReadOnlySpan<Vector3> pc, ReadOnlySpan<Vector3> pd, float t, Span<Quaternion> rot,
+        Span<Vector3> pos)
+    {
+        if (t == 0)
+        {
+            rb.CopyTo(rot);
+            pb.CopyTo(pos);
+            return;
+        }
         for (int j = 0; j < rot.Length; j++)
         {
-            rot[j] = Quaternion.Slerp(r0[j], r1[j], a);
-            pos[j] = Vector3.Lerp(p0[j], p1[j], a);
+            rot[j] = AnimMath.CatmullRom(ra[j], rb[j], rc[j], rd[j], t);
+            pos[j] = AnimMath.CatmullRom(pa[j], pb[j], pc[j], pd[j], t);
         }
     }
 

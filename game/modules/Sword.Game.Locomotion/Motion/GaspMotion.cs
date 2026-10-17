@@ -44,9 +44,11 @@ public static class GaspMotion
 
     /// <summary>
     /// Отбор по умолчанию (<c>locomotion.clips</c>): все клипы, кроме <c>Circle_Strafe</c> — почти на месте, совпадали с
-    /// запросом «стою» и держали персонажа на круге.
+    /// запросом «стою» и держали персонажа на круге; и кроме стартов бегом — <c>Run_Start</c>, <c>Run_Reface_Start</c>,
+    /// <c>Transition_Walk_to_Run</c>: рывок с места пригнувшись (таз ниже стойки на 15–22 см, наклон корпуса 35–62°), а у стартов шагом —
+    /// 8–10 см и ~10°. Старт — шагом, разгон — циклами бега.
     /// </summary>
-    public const string DefaultClips = "^(?!.*Circle_Strafe)";
+    public const string DefaultClips = "^(?!.*(Circle_Strafe|Run_Start|Run_Reface_Start|Transition_Walk_to_Run))";
 
     /// <summary>Порог «стоит», м/с: выход медленнее — продолжение в стойку; начало медленнее — прошлое «стоял»; цикл медленнее — не ход.</summary>
     public const float StandSpeed = 0.3f;
@@ -123,6 +125,48 @@ public static class GaspMotion
     /// </summary>
     public const float SwitchGain = 2f;
 
+    /// <summary>
+    /// Фиксация опорной стопы (<see cref="FootLock"/>): цель голеностопа отходит от анимации не дальше, м (<c>locomotion.footLock</c>;
+    /// 0 — без фиксации), дальше точка опоры тянется за анимацией. Скольжение опорной стопы (среднее по 7 прогонам замеров, м/с): без
+    /// фиксации 1,21, 0,06 м — 0,83, 0,1 м — 0,72, 0,2 м — 0,61; но с 0,2 м на беге по малому кругу (клип идёт вбок, корень ещё и по дуге)
+    /// удержанная стопа уходила на 20 см назад сверх позы клипа — ноги перекрещивались. 0,1 м — поза как у клипа.
+    /// </summary>
+    public const float FootLockDistance = 0.1f;
+
+    /// <summary>Курс опорной стопы отходит от анимации не дальше, градусы (<c>locomotion.footYaw</c>).</summary>
+    public const float FootYaw = 45;
+
+    /// <summary>Полупериод возврата стопы к анимации после опоры, с (<c>locomotion.footBlend</c>).</summary>
+    public const float FootBlend = 0.08f;
+
+    /// <summary>
+    /// «У земли» в позе, м: голеностоп не выше (стоя — 0,079), носок не выше (стоя — 0,008); выше — не опора, даже если кадр базы
+    /// говорит «стоит» (позу ещё догоняет переход).
+    /// </summary>
+    public const float FootHeelHeight = 0.15f, FootBallHeight = 0.06f;
+
+    /// <summary>
+    /// Колено над опорной стопой (<c>locomotion.kneeLimit</c>), градусы: в клипах смены направления (Hourglass, Box, Diamond, Pivot,
+    /// Shuffle) колено опорной ноги уходит от носка до 50–67° (p95; по всем клипам — 34°), а фиксация курса стопы добавляет своё — колени
+    /// «смотрят в разные стороны». Сверх предела нога поворачивается вокруг линии бедро — голеностоп; вход — мягкий на <see cref="KneeSoft"/>.
+    /// </summary>
+    public const float KneeLimit = 30, KneeSoft = 10;
+
+    /// <summary>Доля правки колена по высоте носка в позе, м: ниже первого — вся, выше второго — нет (нога в махе — как в клипе).</summary>
+    public const float KneeGround = 0.06f, KneeAir = 0.16f;
+
+    /// <summary>
+    /// Удержанная стопа уходит от анимации внутрь, к другой ноге, не дальше, м: на беге по малому кругу тело уходит вбок от опорной
+    /// стопы, и с пределом 0,2 м ноги перекрещивались.
+    /// </summary>
+    public const float FootInward = 0.03f;
+
+    /// <summary>Мягкая доля хода ноги у предела IK (колено не щёлкает).</summary>
+    public const float FootSoft = 0.05f;
+
+    /// <summary>Скачок корня за тик дальше, м, — фиксация с нуля (телепорт, расстановка).</summary>
+    public const float FootTeleport = 1;
+
     /// <summary>Полупериод затухания смещений инерциализации, с (ручка <c>locomotion.inertialHalflife</c>).</summary>
     public const float InertialHalflife = 0.1f;
 
@@ -144,9 +188,9 @@ public static class GaspMotion
 
     /// <summary>
     /// Порог поворота, градусы (<c>locomotion.turnAngle</c>): стоя расхождение курса корня и ног больше — клип поворота на месте;
-    /// меньше — корпус доворачивается скручиванием.
+    /// меньше — корпус доворачивается скручиванием. В GASP шаг поворота — с 50°; 45 — скручивание корпуса над ногами заметно меньше.
     /// </summary>
-    public const float TurnAngle = 55;
+    public const float TurnAngle = 45;
 
     /// <summary>Малый угол, градусы (ручка <c>locomotion.turnSmallAngle</c>): курс стоит дольше выдержки, а расхождение больше — клип поворота.</summary>
     public const float TurnSmallAngle = 15;
@@ -156,9 +200,9 @@ public static class GaspMotion
 
     /// <summary>
     /// Потолок расхождения, градусы (<c>locomotion.turnMax</c>): при резком рывке курса ноги подтягиваются к потолку (скользят);
-    /// 0 — без скручивания и клипов поворота.
+    /// 0 — без скручивания и клипов поворота. Как у зажима смещения корня в MM Холдена — 90°.
     /// </summary>
-    public const float TurnMax = 100;
+    public const float TurnMax = 90;
 
     /// <summary>Возврат на ходу, с (ручка <c>locomotion.turnReturn</c>): пошёл — расхождение гаснет к 0 не дольше этого (с потолка — ровно за него).</summary>
     public const float TurnReturn = 0.15f;

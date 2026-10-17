@@ -26,10 +26,10 @@ public static class GameCore
     public const int PosesPerFighter = 11;
 
     /// <summary>
-    /// Заданий пула на бойца за тик в худшем случае: локомоция до 4, действие до 3, снимок 1, вздрагивание до 6, прямая
-    /// кинематика 1.
+    /// Заданий пула на бойца за тик в худшем случае: локомоция до 5 (у игрока на MM — шаг, скручивание и рука: сэмплы стойки,
+    /// добавка, два смешивания), действие до 3, снимок 1, вздрагивание до 6, прямая кинематика 1, IK ног и колено над стопой до 4.
     /// </summary>
-    public const int PoseJobsPerFighter = 16;
+    public const int PoseJobsPerFighter = 22;
 
     /// <summary>
     /// Запас пула поз на арену из <paramref name="enemies"/> врагов: бой не растит пул посреди игры, тик боя — 0 Б. Зовут
@@ -132,6 +132,7 @@ public static class GameCore
             .System(GameStages.Animation, new AnimationTickSystem())
             .System(GameStages.Movement, new RootControlSystem())
             .System(GameStages.Movement, new RootCollisionSystem())
+            .System(GameStages.Movement, new PosePostTickSystem())
             .System(GameStages.PrePhysics, new KinematicPlacementSystem(physics, joints))
             .System(GameStages.PrePhysics, new BladePlacementSystem(physics, weapons, assets.Hand))
             .System(GameStages.PrePhysics, new KinematicSourceSystem(physics))

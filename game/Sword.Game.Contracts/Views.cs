@@ -24,6 +24,12 @@ public interface IAnimationView : IReadView
     /// </summary>
     ReadOnlySpan<Matrix4x4> Model(PoseRef pose);
 
+    /// <summary>
+    /// Поза тика раньше последнего (пара к <see cref="Model"/> для показа между тиками). Пусто — позы нет или у неё нет прошлого тика
+    /// (только заведена — постройка бойца — или в прошлом тике не считалась): показывать позу последнего тика.
+    /// </summary>
+    ReadOnlySpan<Matrix4x4> PreviousModel(PoseRef pose);
+
     /// <summary>Поза привязки — модельные матрицы, в которых меш рисуется без анимации (новая поза — такая).</summary>
     ReadOnlySpan<Matrix4x4> ReferenceModel();
 

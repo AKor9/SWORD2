@@ -31,6 +31,12 @@ public sealed record LocomotionSettings
     /// <summary>Вес руки с мечом (<c>locomotion.armWeight</c>): стойка оружия по маске правой руки поверх позы MM.</summary>
     public float ArmWeight { get; init; } = SwordArm.DefaultWeight;
 
+    // Фиксация опорной стопы: метры, градусы, секунды (GaspMotion.Foot*).
+    public float FootLock { get; init; } = GaspMotion.FootLockDistance;
+    public float FootYaw { get; init; } = GaspMotion.FootYaw;
+    public float FootBlend { get; init; } = GaspMotion.FootBlend;
+    public float KneeLimit { get; init; } = GaspMotion.KneeLimit;
+
     // Поворот на месте: углы — градусы, времена — секунды (GaspMotion.Turn*).
     public float TurnAngle { get; init; } = GaspMotion.TurnAngle;
     public float TurnSmallAngle { get; init; } = GaspMotion.TurnSmallAngle;
@@ -84,6 +90,19 @@ public struct LocomotionRules
     public float ArmWeight;
 
     /// <summary>
+    /// Фиксация опорной стопы (<see cref="Motion.FootLock"/>): предел смещения голеностопа, м (<c>footLock</c>, 0 — выкл.), курса
+    /// стопы, градусы (<c>footYaw</c>), возврат к анимации после опоры, с (<c>footBlend</c>).
+    /// </summary>
+    public float FootLockDistance, FootYaw, FootBlend;
+
+    /// <summary>Пределы фиксации стоп в единицах <see cref="Motion.FootLock"/> (радианы).</summary>
+    public readonly FootLockRules FootLock => new(FootLockDistance, FootYaw * MathF.PI / 180, FootBlend, GaspMotion.FootHeelHeight, GaspMotion.FootBallHeight,
+        GaspMotion.FootInward);
+
+    /// <summary>Колено над опорной стопой (<see cref="PosePool.KneeAlign"/>): расхождение колена и стопы не больше, градусы (<c>kneeLimit</c>; 180 — выкл.).</summary>
+    public float KneeLimit;
+
+    /// <summary>
     /// Поворот на месте (<see cref="TurnInPlace"/>): порог клипа поворота и малый угол, градусы (<c>turnAngle</c>, <c>turnSmallAngle</c>), выдержка, с
     /// (<c>turnHold</c>), потолок расхождения, градусы (<c>turnMax</c>), возврат на ходу, с (<c>turnReturn</c>).
     /// </summary>
@@ -102,6 +121,10 @@ public struct LocomotionRules
             InertialHalflife = Check(s.InertialHalflife, "inertialHalflife", 1e-3f, 10),
             RateRange = Check(s.RateRange, "rateRange", 0, 0.99f),
             ArmWeight = Check(s.ArmWeight, "armWeight", 0, 1),
+            FootLockDistance = Check(s.FootLock, "footLock", 0, 1),
+            FootYaw = Check(s.FootYaw, "footYaw", 0, 180),
+            FootBlend = Check(s.FootBlend, "footBlend", 0.005f, 2),
+            KneeLimit = Check(s.KneeLimit, "kneeLimit", 0, 180),
             TurnAngle = Check(s.TurnAngle, "turnAngle", 1, 180),
             TurnSmallAngle = Check(s.TurnSmallAngle, "turnSmallAngle", 0, 180),
             TurnHold = Check(s.TurnHold, "turnHold", 0, 10),
@@ -170,6 +193,15 @@ public static class LocomotionKnobs
                 hint: $"вес группы признаков «{name}» в цене кадра");
         }
         SwordArm.Knob(t, d.ArmWeight);   // вес руки с мечом
+        t.Float("footLock", "стопы: фиксация", (in LocomotionRules r) => r.FootLockDistance, (ref LocomotionRules r, float v) => r.FootLockDistance = v,
+                0, 0.5f, d.FootLock, format: "0.00",
+                hint: "опорная стопа стоит в мире, пока анимация не уйдёт от неё дальше, м (дальше стопа едет за анимацией); 0 — без фиксации, стопы как в клипе", field: nameof(LocomotionRules.FootLockDistance))
+            .Float("footYaw", "стопы: курс", (in LocomotionRules r) => r.FootYaw, (ref LocomotionRules r, float v) => r.FootYaw = v,
+                0, 90, d.FootYaw, format: "0", hint: "опорная стопа держит курс в мире, пока анимация не повернёт её дальше, градусы")
+            .Float("footBlend", "стопы: возврат", (in LocomotionRules r) => r.FootBlend, (ref LocomotionRules r, float v) => r.FootBlend = v,
+                0.01f, 0.5f, d.FootBlend, format: "0.00", hint: "стопа оторвалась — за сколько секунд гаснет половина её отличия от клипа")
+            .Float("kneeLimit", "колено над стопой", (in LocomotionRules r) => r.KneeLimit, (ref LocomotionRules r, float v) => r.KneeLimit = v,
+                0, 180, d.KneeLimit, format: "0", hint: "колено опорной ноги смотрит не дальше этого угла от носка, градусы (нога поворачивается в бедре); 180 — как в клипе");
         t.Float("turnAngle", "поворот: порог", (in LocomotionRules r) => r.TurnAngle, (ref LocomotionRules r, float v) => r.TurnAngle = v,
                 1, 180, d.TurnAngle, format: "0",
                 hint: "стоя курс корня ушёл от ног дальше, градусы, — сразу клип поворота на месте (Stand_Turn); меньше — ноги стоят, корпус скручивается")
@@ -249,6 +281,7 @@ public sealed class LocomotionModule : IModule
         var rules = LocomotionRules.From(settings);
         var runtime = new MotionMatchRuntime();
         var arm = new SwordArm();   // рука с мечом поверх позы MM
+        var feet = new FootLockLegs();   // фиксация опорной стопы по итоговой позе
         b.Component<MotionMatchState>()
             .Resource(rules)
             .System(GameStages.Gameplay, new MotionMatchSetupSystem(runtime))
@@ -261,10 +294,12 @@ public sealed class LocomotionModule : IModule
             {
                 runtime.Init(w.Resource<PosePool>(), settings.Clips, w.Resource<SimTime>().Dt);
                 arm.Init(w, runtime);   // маска руки, поза постройки со стойкой руки, состояние руки игроку
+                feet.Init(w.Resource<PosePool>(), runtime);   // ноги в пуле для IK
                 Log.Info("locomotion", runtime.Base.StartLine());
                 MotionMatchSetupSystem.PlaceWorldBuilt(w, runtime);
             });
         arm.Configure(b);
+        feet.Configure(b, runtime);
         MotionMatchObservers.Register(b, runtime);   // вид, события переходов, тяжёлые инварианты, сведение реплея
         LocomotionKnobs.Register(b);
     }

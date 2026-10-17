@@ -1,4 +1,5 @@
 using System.Numerics;
+using Sword.Engine.Animation;
 using Sword.Engine.Animation.Motion;
 using Sword.Engine.Ecs;
 using Sword.Engine.Runtime;
@@ -152,6 +153,13 @@ public sealed class MotionMatchView(MotionMatchRuntime runtime) : IMotionMatchVi
     public MotionMatchMeasure Measure(Entity fighter)
     {
         if (!TryState(fighter, out var s, out _) || _world.Has<Dead>(fighter)) return MotionMatchMeasure.None;
-        return _probe.Measure(s.Player, runtime.HistoryAt(s.Player.Index), _world.Resource<SimTime>().Dt, s.Twist, s.TwistBefore);
+        var history = runtime.HistoryAt(s.Player.Index);
+        float dt = _world.Resource<SimTime>().Dt;
+        var m = _probe.Measure(s.Player, history, dt, s.Twist, s.TwistBefore);
+        var pool = runtime.Pool;
+        var pose = _world.TryGet<PoseRef>(fighter, out var p) ? new PoseHandle(p.Index, p.Generation) : PoseHandle.None;
+        if (!pool.IsAlive(pose) || !pool.HasPreviousModel(pose)) return m with { FootSlide = float.NaN, SlideJoint = -1, SourceSlide = m.FootSlide };
+        var (slide, joint) = _probe.PoseSlide(s.Player, pool.Model(pose), pool.PreviousModel(pose), history, dt);
+        return m with { FootSlide = slide, SlideJoint = joint, SourceSlide = m.FootSlide };
     }
 }

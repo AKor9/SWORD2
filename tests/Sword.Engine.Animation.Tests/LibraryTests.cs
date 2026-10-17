@@ -1,4 +1,6 @@
+using System.Numerics;
 using Sword.Engine.Animation;
+using Sword.Engine.Formats;
 using static Sword.Engine.Animation.Tests.TestClips;
 
 namespace Sword.Engine.Animation.Tests;
@@ -90,5 +92,46 @@ public sealed class LibraryTests
         Assert.Equal(3 * 3f, pos[0].Y, 4);
         Assert.Equal(3f / 30, lib.Duration(1), 6);
         Assert.Equal(0.3f / (3f / 30), lib.RootSpeed(1), 4);
+    }
+
+    /// <summary>
+    /// Сэмпл между ключами — сплайн: ключи — как есть, а ускорение на 120 Гц не скачет на ключах 30 кадров/с. Ключи — равноускоренное
+    /// движение (смещение, root motion и угол поворота — квадрат номера кадра): сплайн повторяет его и между ключами, вторая разность
+    /// по тикам постоянна, а у линейного сэмпла она нулевая внутри отрезка и всплеском — на каждом ключе.
+    /// </summary>
+    [Fact]
+    public void Sample_BetweenKeys_SplineKeepsAccelerationAcrossKeys()
+    {
+        const int frames = 9;
+        var file = new ClipFile
+        {
+            Skeleton = "test", SkeletonHash = SkeletonFile.ComputeHash(Joints, Parents), SampleRate = 30, Frames = frames, Joints = Joints.Length,
+            LocalRot = Enumerable.Range(0, frames * Joints.Length)
+                .Select(i => Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.02f * (i / Joints.Length) * (i / Joints.Length))).ToArray(),
+            LocalPos = Enumerable.Range(0, frames * Joints.Length).Select(i => new Vector3(0.01f * (i / Joints.Length) * (i / Joints.Length), 0, 0)).ToArray(),
+            RootMotion = Enumerable.Range(0, frames).Select(f => new Vector3(0, 0, 0.01f * f * f)).ToArray(),
+            RootYaw = new float[frames],
+        };
+        var lib = Library(Source("a", "Accel", file));
+        var rot = new Quaternion[Joints.Length];
+        var pos = new Vector3[Joints.Length];
+        float Position(float f) => 0.01f * f * f;
+        for (int key = 0; key < frames; key++)
+        {
+            lib.Sample(0, key / 30f, rot, pos);
+            Assert.Equal(Position(key), pos[1].X, 1e-5f);
+        }
+        // внутренние отрезки (соседи — настоящие ключи): 120 Гц, четыре тика на кадр
+        var x = new List<float>();
+        for (int tick = 4; tick <= 4 * (frames - 2); tick++)
+        {
+            float f = tick / 4f;
+            lib.Sample(0, f / 30, rot, pos);
+            Assert.Equal(Position(f), pos[1].X, 1e-5f);
+            Assert.Equal(0.02f * f * f, 2 * MathF.Acos(Math.Clamp(MathF.Abs(rot[1].W), 0, 1)), 1e-3f);
+            Assert.Equal(Position(f), lib.RootMotionAt(0, f / 30).Z, 1e-5f);
+            x.Add(pos[1].X);
+        }
+        for (int i = 1; i < x.Count - 1; i++) Assert.Equal(2 * 0.01f / 16, x[i + 1] - 2 * x[i] + x[i - 1], 1e-5f);
     }
 }

@@ -213,6 +213,36 @@ public class ArenaViewTests
         Assert.True(raw.Max() - raw.Min() > 0.5f, $"без интерполяции разброс {raw.Min()}…{raw.Max()} — тест ничего не проверяет");
     }
 
+    /// <summary>
+    /// Поза между тиками: при 144 кадрах/с (тиков 120 в секунду — часть кадров без нового тика) показанная поза бегущего игрока
+    /// меняется каждый кадр, как корень; без позы между тиками (доля 1 — поза последнего тика) кадры без тика повторяют позу, а корень
+    /// идёт дальше — рывок частей тела.
+    /// </summary>
+    [Fact]
+    public void ShownPose_ChangesEveryFrame_AtFrameRateAboveTickRate()
+    {
+        int Repeats(bool interpolate)
+        {
+            var sim = TestAssets.Simulation(ConfigSet.Empty());
+            var clock = new SimulationClock(sim, (link, _) => link.Enqueue(new PlayerCommand { Move = new Vector2(1, 0) }));
+            var view = new ArenaView(Field);
+            Matrix4x4[]? last = null;
+            int repeats = 0;
+            for (int i = 0; i < 288; i++)
+            {
+                clock.RunFrame(1 / 144.0);
+                view.Extract(clock.Link, interpolate ? clock.Alpha : 1);
+                if (view.Player is not { } p) continue;
+                var pose = view.Pose(p).ToArray();
+                if (i > 144 && last is not null && pose.AsSpan().SequenceEqual(last)) repeats++;
+                last = pose;
+            }
+            return repeats;
+        }
+        Assert.Equal(0, Repeats(interpolate: true));
+        Assert.True(Repeats(interpolate: false) > 10, "без позы между тиками кадры не повторяют позу — тест ничего не различает");
+    }
+
     /// <summary>Снимает и возвращает игроку <see cref="Fighter"/> по расписанию: (тик, стадия, снять ли).</summary>
     private sealed class FighterToggle((ulong Tick, string Stage, bool Remove)[] plan) : IModule
     {
@@ -305,10 +335,10 @@ public class ArenaViewTests
     [Fact]
     public void ShownCapsules_StayOnTheShownPose_AtAnyAlpha()
     {
-        // Капсулы живого бойца — постановка тика, перенесённая в показанный мир бойца: на суставах той же позы тика в том же мире,
-        // в котором рисуется меш, — при любой доле тика (без отставания и дрожи).
+        // Капсулы живого бойца — постановки прошлого и последнего тика, перенесённые в показанный мир бойца и смешанные по доле тика:
+        // на суставах показанной позы (между тиками) в том же мире, в котором рисуется меш, — при любой доле тика (без отставания и дрожи).
         var joints = new Sword.Game.Bodies.BodyJoints(TestAssets.Assets.Clips.Skeleton);
-        float worstShown = 0, worstLerp = 0;
+        float worstShown = 0, worstTick = 0;
         int fractional = 0;
         foreach (var (view, sim, alpha) in CrowdFrames(300))
         {
@@ -329,14 +359,18 @@ public class ArenaViewTests
                         : Sword.Game.Bodies.BodyPlacement.Ends(pose, joints, f.World, body[i].Segment);
                     worstShown = MathF.Max(worstShown, Vector3.Distance(body[i].Center, (a + b) * 0.5f));
                     Assert.True(Vector3.Dot(body[i].Axis, Vector3.Normalize(b - a)) > 1 - 1e-4f, $"{f.Entity} {BodySegs.Name(body[i].Segment)}: ось не вдоль суставов");
-                    // Для сравнения — интерполяция прошлой и нынешней постановки: отстаёт от меша.
-                    worstLerp = MathF.Max(worstLerp, Vector3.Distance(ArenaView.Lerp(bodies.Body(bodyRef, i), alpha).Center, (a + b) * 0.5f));
+                    // Для сравнения — постановка тика в показанном мире (без позы между тиками): отстаёт от меша.
+                    var tick = sim.World.Get<Transform>(f.Entity);
+                    Matrix4x4.Invert(ArenaView.FighterWorld(tick.Position, tick.Facing, Field(tick.Position.X, tick.Position.Z)), out var back);
+                    var atTick = ArenaView.Carry(bodies.Body(bodyRef, i), body[i].Segment, back * f.World,
+                        Quaternion.CreateFromAxisAngle(Vector3.UnitY, f.Facing - tick.Facing));
+                    worstTick = MathF.Max(worstTick, Vector3.Distance(atTick.Center, (a + b) * 0.5f));
                 }
             }
         }
         Assert.True(fractional > 100, $"кадров с дробной долей тика {fractional}");
         Assert.True(worstShown < 1e-4f, $"капсула ушла от показанной позы на {worstShown} м");
-        Assert.True(worstLerp > 0.01f, $"интерполяция постановок отстаёт от меша лишь на {worstLerp} м — тест ничего не различает");
+        Assert.True(worstTick > 0.005f, $"постановка тика отстаёт от меша лишь на {worstTick} м — тест ничего не различает");
     }
 
     /// <summary>Хват и кончик меча бойца кадра в показанном мире (ось тела клинка).</summary>

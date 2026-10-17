@@ -54,8 +54,9 @@ public readonly record struct CorpseFrameStats(int Corpses, int AtRest, int Simu
 
 /// <summary>
 /// Мир представления арены (Extract): что рисует кадр; рендер читает только его, кадр без выделений памяти (буферы
-/// растут удвоением). Корни — между прошлым и последним тиком по доле тика (курс — по короткой дуге); поза — последнего
-/// тика, капсулы переносятся в показанный мир бойца (<see cref="Carry"/>), чтобы идти с мешем без отставания. Капсулы
+/// растут удвоением). Корни — между прошлым и последним тиком по доле тика (курс — по короткой дуге), поза — тоже (модельные
+/// матрицы прошлого и последнего тика); капсулы — постановки обоих тиков, перенесённые в показанный мир бойца и смешанные так же
+/// (<see cref="Carry"/>, <c>Carrier</c>), чтобы идти с мешем без отставания; клинок оверлея — отрезки тика симуляции. Капсулы
 /// всех бойцов снимаются только по запросу (иначе — таз игрока): 429 скрытых капсул — 0,016 мс CPU кадра впустую.
 /// Труп с привязкой скина рисуется по телам (<see cref="Shown"/>): сустав j = привязка[j] × тело его сегмента.
 /// </summary>
@@ -302,12 +303,18 @@ public sealed class ArenaView
             return view;
         }
 
-        // Поза — последнего тика, без интерполяции между тиками: плавно идёт корень.
+        bool between = false;
+        // Поза — между прошлым и последним тиком по доле тика, как корень: иначе кадр без нового тика повторял позу, а корень шёл
+        // дальше (рывок частей тела и дрожь опорной стопы на частоте кадра выше частоты тика).
         _profiler.Begin(_posesZone);
         if (_poseView is not null && world.TryGet<PoseRef>(e, out var poseRef) && _poseView.Model(poseRef) is { Length: > 0 } model)
         {
             if (_poses.Length < _posed + model.Length) Array.Resize(ref _poses, Math.Max(_poses.Length * 2, _posed + model.Length));
-            model.CopyTo(_poses.AsSpan(_posed));
+            var shown = _poses.AsSpan(_posed, model.Length);
+            var previous = _poseView.PreviousModel(poseRef);
+            between = alpha < 1 && previous.Length == model.Length;
+            if (between) LerpPose(previous, model, alpha, shown);
+            else model.CopyTo(shown);
             view = view with { PoseStart = _posed, PoseCount = model.Length };
             _posed += model.Length;
         }
@@ -319,22 +326,19 @@ public sealed class ArenaView
             view = view with { Weapon = weapon, WeaponWorld = handModel * view.World };
             if (blades && world.TryGet<Blade>(e, out var blade) && blade.Weapon >= 0) view = view with { Blade = CarryBlade(blade, cur, view) };
         }
-        // Тело — постановка последнего тика в мире, где кадр показывает бойца (как меш): без отставания от персонажа.
+        // Тело — постановки тиков в мире, где кадр показывает бойца (как меш): без отставания от персонажа.
         _profiler.Begin(_bodiesZone);
         if (!allBodies && !joints)
         {
-            if (view.IsPlayer && hasBody) PlayerPelvis(_bodyView!, bodyRef, cur, view, alpha);
+            if (view.IsPlayer && hasBody) PlayerPelvis(_bodyView!, bodyRef, prev, cur, view, alpha, between);
         }
         else if (hasBody && ReadBody(_bodyView!, bodyRef) is > 0 and var n)
         {
             if (_bodies.Length < _bodied + n) Array.Resize(ref _bodies, Math.Max(_bodies.Length * 2, _bodied + n));
-            var tickWorld = TickWorld(cur, _height);
-            Matrix4x4.Invert(tickWorld, out var back);
-            var carry = back * view.World;
-            var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, view.Facing - cur.Facing);
+            var carry = new Carrier(this, prev, cur, view, alpha, between);
             for (int i = 0; i < n; i++)
             {
-                var c = _bodies[_bodied + i] = Carry(_snapshots[i], BodySegs.Segment(i), carry, turn);
+                var c = _bodies[_bodied + i] = carry.Body(_snapshots[i], BodySegs.Segment(i));
                 _shown[i] = BodySystem(c.Center, c.Rotation);
             }
             view = view with { BodyStart = _bodied, BodyCount = n };
@@ -479,17 +483,51 @@ public sealed class ArenaView
     /// <summary>
     /// Только таз игрока (капсулы не нужны кадру): точка тени и кольца и фокус камеры — те же выражения, что при чтении всего тела.
     /// </summary>
-    private void PlayerPelvis(IBodyView bodies, BodyRef body, in Transform cur, in FighterView view, float alpha)
+    private void PlayerPelvis(IBodyView bodies, BodyRef body, in PrevTransform prev, in Transform cur, in FighterView view, float alpha, bool between)
     {
         int pelvis = BodySegs.Body(BodySegs.Pelvis);
         if (pelvis >= Math.Min(bodies.BodyCount(body), _snapshots.Length)) return;
         var snapshot = bodies.Body(body, pelvis);
-        var tickWorld = TickWorld(cur, _height);
-        Matrix4x4.Invert(tickWorld, out var back);
-        var carry = back * view.World;
-        var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, view.Facing - cur.Facing);
-        PlayerMarker = Carry(snapshot, BodySegs.Segment(pelvis), carry, turn).Center with { Y = 0 };
+        PlayerMarker = new Carrier(this, prev, cur, view, alpha, between).Body(snapshot, BodySegs.Segment(pelvis)).Center with { Y = 0 };
         PlayerFocus = Lerp(snapshot, alpha).Center with { Y = 0 };
+    }
+
+    /// <summary>
+    /// Постановка живого бойца там, где кадр показывает его меш: постановка тика переносится из мира на тике в показанный мир
+    /// (<see cref="Carry"/>); если поза показана между тиками (<paramref name="between"/>), так же переносится постановка прошлого
+    /// тика (поза начала тика тела) из мира прошлого тика, и между ними — по доле тика, как суставы позы.
+    /// </summary>
+    private readonly struct Carrier
+    {
+        private readonly Matrix4x4 _carry, _carryPrev;
+        private readonly Quaternion _turn, _turnPrev;
+        private readonly float _alpha;
+        private readonly bool _between;
+
+        public Carrier(ArenaView owner, in PrevTransform prev, in Transform cur, in FighterView view, float alpha, bool between)
+        {
+            Matrix4x4.Invert(TickWorld(cur, owner._height), out var back);
+            _carry = back * view.World;
+            _turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, view.Facing - cur.Facing);
+            _alpha = alpha;
+            _between = between;
+            if (!between) return;
+            Matrix4x4.Invert(FighterWorld(prev.Position, prev.Facing, owner._height(prev.Position.X, prev.Position.Z)), out var backPrev);
+            _carryPrev = backPrev * view.World;
+            _turnPrev = Quaternion.CreateFromAxisAngle(Vector3.UnitY, view.Facing - prev.Facing);
+        }
+
+        public ShownCapsule Body(in BodySnapshot body, int segment)
+        {
+            var now = Carry(body, segment, _carry, _turn);
+            if (!_between) return now;
+            var before = Carry(body with { Position = body.StartPosition, Rotation = body.StartRotation }, segment, _carryPrev, _turnPrev);
+            return now with
+            {
+                Center = Vector3.Lerp(before.Center, now.Center, _alpha),
+                Rotation = Quaternion.Normalize(Quaternion.Slerp(before.Rotation, now.Rotation, _alpha)),
+            };
+        }
     }
 
     /// <summary>Тела сочленения в <see cref="_snapshots"/> (не больше 14); вернёт, сколько.</summary>
@@ -524,6 +562,15 @@ public sealed class ArenaView
             for (; a < added.Length && added[a].Tick == tick; a++)
                 if (!_fighters.Contains(added[a].Record.Entity)) _fighters.Add(added[a].Record.Entity);
         }
+    }
+
+    /// <summary>
+    /// Поза между тиками: модельные матрицы — поэлементно (за тик сустав поворачивается на градусы, укорочение оси при таком
+    /// смешивании — доли процента, а кватернион на сустав дороже).
+    /// </summary>
+    public static void LerpPose(ReadOnlySpan<Matrix4x4> previous, ReadOnlySpan<Matrix4x4> current, float alpha, Span<Matrix4x4> into)
+    {
+        for (int j = 0; j < into.Length; j++) into[j] = Matrix4x4.Lerp(previous[j], current[j], alpha);
     }
 
     /// <summary>Интерполяция корня между прошлым и последним тиком.</summary>
@@ -561,7 +608,7 @@ public sealed class ArenaView
 
     /// <summary>
     /// Тело между прошлой и нынешней постановкой по доле тика (центр — линейно, поворот — <c>Slerp</c>): фокус камеры.
-    /// Капсулы живого рисует <see cref="Carry"/> (интерполяция отстаёт от меша), тела трупа — <see cref="Shown"/>.
+    /// Капсулы живого рисует <c>Carrier</c> (интерполяция постановок в мире отстаёт от меша), тела трупа — <see cref="Shown"/>.
     /// </summary>
     public static (Vector3 Center, Quaternion Rotation) Lerp(in BodySnapshot body, float alpha) =>
         (Vector3.Lerp(body.PrevPosition, body.Position, alpha), Quaternion.Slerp(body.PrevRotation, body.Rotation, alpha));
