@@ -3,7 +3,8 @@ namespace Sword.Game.Client.Scene;
 /// <summary>
 /// Материал поверхности сцены для бликов (<c>ShadeMaterial</c> в lighting.hlsli): шероховатость GGX (младшие 8 бит), металл (бит 8) и
 /// текстура (биты 9–11: 0 — нет, иначе слой + 1 массивов <c>textures/materials/*.swtex</c>; трипланар — у скина в позе привязки, у пола
-/// и колонн в мире). У скина — поле <c>Flags</c> экземпляра (<c>GpuSkinInstance</c>), у пола и колонн — числа шейдера.
+/// и колонн в мире), слой крови оружия (бит 12, <see cref="WeaponLayer"/>). У скина — поле <c>Flags</c> экземпляра (<c>GpuSkinInstance</c>), у пола
+/// и колонн — числа шейдера.
 /// </summary>
 public static class SceneMaterial
 {
@@ -12,6 +13,12 @@ public static class SceneMaterial
 
     /// <summary>Сдвиг номера текстуры (слой + 1) в материале.</summary>
     public const int TextureShift = 9;
+
+    /// <summary>
+    /// Бит слоя крови оружия (бит 12, выше номера текстуры): <c>owner</c> экземпляра — SRV крови лезвия + 1 (<c>IWeaponBloodLayer</c>), а не
+    /// слой кожи.
+    /// </summary>
+    public const uint WeaponLayer = 0x1000;
 
     /// <summary>Маска номера текстуры после сдвига.</summary>
     public const uint TextureMask = 7;

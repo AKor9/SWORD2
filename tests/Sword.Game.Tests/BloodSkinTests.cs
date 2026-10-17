@@ -21,17 +21,46 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
     // ---------------- функция свежести ----------------
 
     [Fact]
-    public void Look_FreshScarletGlossy_ThenMatte_ThenBrown()
+    public void Look_LayerByThickness_GlossyThenMatteThenBrown()
     {
-        var thick = BloodLook.Evaluate(0, 1, Look);
-        Near(Look.Thick, thick.Albedo);
+        // Толстая (2 мм) свежая — глубокий тёмно-красный (58, 4, 6), подложки не видно, глянец.
+        var thick = BloodLook.Evaluate(0, 2, Look);
+        Near(Look.Deep, thick.Albedo);
         Assert.Equal(1, thick.Wet);
         Assert.Equal(Look.WetRoughness, thick.Roughness, 5);
-        Assert.True(thick.Coverage > 0.999f);
-        Near(Look.Thin, BloodLook.Evaluate(0, 0, Look).Albedo);
+        Assert.Equal(1, thick.Coverage);
+        Assert.True(thick.Mul.X < 0.01f && thick.Mul.Y < 1e-6f && thick.Mul.Z < 1e-6f, $"толстая пропускает {thick.Mul}");
+        // Тонкая — подложка видна, темнее и краснее (красный проходит, синий гаснет первым); своего альбедо почти нет.
+        var thin = BloodLook.Evaluate(0, 0.005f, Look);
+        Assert.True(thin.Transmission.X > 0.9f && thin.Transmission.X > thin.Transmission.Y && thin.Transmission.Y > thin.Transmission.Z,
+            $"тонкая: {thin.Transmission}");
+        Assert.True(thin.Add.X < 0.01f);
+        // Средняя (0.1 мм) — красный подложки ещё проходит, сине-зелёный погашен: алая полоса только на светлом.
+        var mid = BloodLook.Evaluate(0, 0.1f, Look);
+        Assert.True(mid.Transmission.X > 0.5f && mid.Transmission.Y < 0.01f && mid.Transmission.Z < 0.01f, $"средняя: {mid.Transmission}");
+        // Слой над белым: белое · M + A ∈ [0, 1] и не светлее подложки по каналам.
+        foreach (float h in new[] { 0f, 0.001f, 0.01f, 0.1f, 1f, 3f })
+        {
+            var r = BloodLook.Evaluate(0, h, Look);
+            var white = r.Mul + r.Add;
+            Assert.True(white.X <= 1 + 1e-6f && white.Y <= 1 + 1e-6f && white.Z <= 1 + 1e-6f && white.Y >= 0, $"h {h}: {white}");
+        }
+        // Мягкий край: покрытие 0 без крови, растёт по толщине гладко, половина — на EdgeMm/2, полное — с EdgeMm.
+        Assert.Equal(0, BloodLook.Evaluate(0, 0, Look).Coverage);
+        Assert.Equal(0.5f, BloodLook.Evaluate(0, Look.EdgeMm / 2, Look).Coverage, 5);
+        Assert.Equal(1, BloodLook.Evaluate(0, Look.EdgeMm, Look).Coverage);
+        float cover = -1;
+        for (float h = 0; h <= 2 * Look.EdgeMm; h += Look.EdgeMm / 50)
+        {
+            float c = BloodLook.Evaluate(0, h, Look).Coverage;
+            Assert.True(c >= cover, $"покрытие убывает на {h} мм");
+            cover = c;
+        }
+        // Засохшая — бурая и мутнее: альбедо Dry, шероховатость засохшей, пропускает меньше свежей той же толщины.
         var old = BloodLook.Evaluate(1000, 0.05f, Look);
         Near(Look.Dry, old.Albedo);
         Assert.Equal(Look.DryRoughness, old.Roughness, 5);
+        Assert.True(old.Transmission.X < BloodLook.Evaluate(0, 0.05f, Look).Transmission.X);
         float wet = 2, dry = -1;
         for (float age = 0; age <= 400; age += 0.5f)
         {
@@ -43,6 +72,41 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         var at40 = BloodLook.Evaluate(40, 0.01f, Look);
         Assert.True(at40.Wet < 0.5f && at40.Dry == 0);
         Assert.True(BloodLook.Evaluate(40, 1f, Look).Wet > at40.Wet);
+    }
+
+    /// <summary>
+    /// Мокрая подложка (пол под кровью и ореол вокруг) только темнее и насыщеннее: ни один канал множителя не больше 1, с влажностью
+    /// не растёт; бежевый пол арены под ним темнее и насыщеннее, светлой каймы нет. Оттенок — тот же, что в <c>BloodWetMul</c> HLSL.
+    /// </summary>
+    [Fact]
+    public void WetFloor_NeverLighter_DarkerAndMoreSaturated()
+    {
+        var floor = BloodLook.Linear(196, 180, 152);
+        foreach (float darken in new[] { 0f, 0.3f, 0.75f, 1f, 1.5f })
+        {
+            var prev = Vector3.One;
+            for (int k = 0; k <= 20; k++)
+            {
+                float wet = k / 20f;
+                var m = BloodLook.WetMul(wet, darken);
+                Assert.True(m.X <= 1 && m.Y <= 1 && m.Z <= 1 && m.X >= 0 && m.Y >= 0 && m.Z >= 0, $"wet {wet}, darken {darken}: {m}");
+                Assert.True(m.X <= prev.X + 1e-6f && m.Y <= prev.Y + 1e-6f && m.Z <= prev.Z + 1e-6f, $"wet {wet}: {m} > {prev}");
+                prev = m;
+                var wetFloor = floor * m;
+                Assert.True(Luma(wetFloor) <= Luma(floor) + 1e-6f);
+                if (wet > 0 && darken > 0) Assert.True(Saturation(wetFloor) >= Saturation(floor) - 1e-6f, $"wet {wet}: {wetFloor}");
+            }
+        }
+        Near(Vector3.One, BloodLook.WetMul(0, 0.75f));
+        Near(0.75f * BloodLook.WetTint, BloodLook.WetMul(1, 0.75f));
+
+        // C# = HLSL: оттенок в blood_look.hlsli — те же числа.
+        string hlsl = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", BloodLook.ShaderInclude));
+        var t = BloodLook.WetTint;
+        Assert.Contains(FormattableString.Invariant($"static const float3 BLOOD_WET_TINT = float3({t.X:0.0##}, {t.Y:0.0##}, {t.Z:0.0##});"), hlsl);
+
+        static float Luma(Vector3 c) => 0.2126f * c.X + 0.7152f * c.Y + 0.0722f * c.Z;
+        static float Saturation(Vector3 c) => (MathF.Max(c.X, MathF.Max(c.Y, c.Z)) - MathF.Min(c.X, MathF.Min(c.Y, c.Z))) / MathF.Max(c.X, MathF.Max(c.Y, c.Z));
     }
 
     private static void Near(Vector3 expected, Vector3 actual) => Assert.True(Vector3.Distance(expected, actual) < 1e-6f, $"{expected} ≠ {actual}");
@@ -279,6 +343,88 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Ooze_CorpsePool_PoursExpFromDeath_ByDamage_Deterministic()
+    {
+        (double Poured, double[] ByWound, int Drops) Run(bool dead)
+        {
+            var rig = new OozeRig();
+            rig.Hit(60);
+            rig.Step();
+            rig.Hit(30);   // последняя рана живого — смертельная
+            for (int i = 0; i < 60; i++) rig.Step();   // 1 с жив
+            rig.Dead = dead;
+            var byWound = new double[2];
+            int drops = 0;
+            for (int i = 0; i < 6 * 60; i++)
+            {
+                rig.Step();
+                foreach (var p in rig.Ooze.Pours)
+                {
+                    Assert.True(p.Volume >= rig.Tuning.CorpsePourDropMl, $"капля {p.Volume} мл");
+                    byWound[p.Wound] += p.Volume;
+                    drops++;
+                }
+            }
+            return (rig.Ooze.Poured, byWound, drops);
+        }
+        var t = new BloodTuning();
+        var a = Run(true);
+        // 6 с после смерти: PoolMl·(1 − e^(−(6 − задержка)/τ)) без недобранной капли у каждой раны.
+        double expected = t.CorpsePoolMl * (1 - Math.Exp(-(6 - t.CorpsePoolDelay) / t.CorpsePoolSeconds));
+        Assert.InRange(a.Poured, expected - 2 * t.CorpsePourDropMl - 0.1, expected + 0.1);
+        // По урону², смертельная (последняя, 30) — с весом LethalPourWeight: 60² : 30²·6.
+        double ratio = 60.0 * 60 / (30.0 * 30 * BloodOoze.LethalPourWeight);
+        Assert.InRange(a.ByWound[0] / a.ByWound[1], 0.95 * ratio, 1.05 * ratio);
+        Assert.Equal(a.Poured, a.ByWound.Sum(), 4);
+        var b = Run(true);
+        Assert.Equal(a.Poured, b.Poured);
+        Assert.Equal(a.Drops, b.Drops);
+        Assert.Equal(0, Run(false).Poured);   // живой лужу не льёт
+        output.WriteLine($"лужа трупа за 6 с: {a.Poured:F2} мл (формула {expected:F2}), капель {a.Drops}");
+    }
+
+    [Fact]
+    public void Ooze_CorpsePool_AfterRebuildOnSameKey_PoursAgain()
+    {
+        var rig = new OozeRig();
+        rig.Hit(60);
+        rig.Step();
+        rig.Dead = true;
+        for (int i = 0; i < 6 * 60; i++) rig.Step();
+        double first = rig.Ooze.Poured;
+        // Возрождение на той же сущности (ключ прежний) — строка ран освобождается, как в BloodModule.Forget.
+        rig.Ooze.Clear(rig.Wounds.Find(1));
+        rig.Wounds.Clear(1);
+        rig.Dead = false;
+        rig.Hit(500);   // первая же рана новой жизни — смертельная: лужа не наследует почти вылитую прошлой смерти
+        rig.Dead = true;
+        for (int i = 0; i < 6 * 60; i++) rig.Step();
+        Assert.True(first > 100, $"первая лужа {first} мл");
+        Assert.InRange(rig.Ooze.Poured - first, 0.95 * first, 1.05 * first);
+    }
+
+    [Fact]
+    public void Stamp_WithRadius_SpreadsOverSkin_KeepsVolume()
+    {
+        var surface = new SkinSurface(BloodBodyTests.Wall(seam: false));
+        var narrow = new BloodSkin(surface, 1);
+        var wide = new BloodSkin(surface, 1);
+        int t = surface.Nearest(BodySegs.Torso, new Vector3(0.012f, 0.317f, 0), out var bary, out _);
+        narrow.Stamp(1, t, bary, 0.5f, 0, 0);
+        wide.Stamp(1, t, bary, 0.5f, 0, 0.1f);
+        int Count(BloodSkin skin)
+        {
+            int n = 0;
+            for (int w = 0; w < surface.WeldCount; w++) if (skin.Thickness(1, w) > 0) n++;
+            return n;
+        }
+        Assert.Equal(3, Count(narrow));
+        Assert.True(Count(wide) > 6, $"вершин у широкого штампа {Count(wide)}");
+        Assert.Equal(0.5, wide.Deposited, 5);
+        Assert.Equal(0.5, narrow.Deposited, 5);
+    }
+
+    [Fact]
     public void SkinAndOoze_Step_NoAllocations()
     {
         var rig = new OozeRig();
@@ -319,6 +465,29 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         arena.Frame(0);
         Assert.Equal(0, arena.Blood.Skin!.UsedSlots);
     }
+
+    /// <summary>
+    /// Много R подряд посреди боя (сброс в каждом кадре, затем через кадр): после каждого — ни ран, ни потёков, ни крови на коже, ни
+    /// сочения; счёт сбросов — по числу R; бой после них снова кровит, как первый.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Content")]
+    public void Module_OnPak_ManyResetsInARow_ClearEachTime_BleedAgain()
+    {
+        var arena = new BloodBodyTests.Arena();
+        for (int f = 0; f < 200; f++) arena.Frame(f);
+        var blood = arena.Blood;
+        Assert.True(blood.Skin!.UsedSlots > 0 && blood.Wounds.Count > 0 && blood.Drips!.Alive > 0, "до сброса крови нет");
+        for (int r = 0; r < 12; r++)
+        {
+            arena.ArenaCommands.Add(new ArenaCommand { Action = ArenaAction.Reset });
+            arena.Frame(0);
+            Assert.Equal((r + 1, 0, 0, 0, 0), ((int)blood.Resets, blood.Skin.UsedSlots, blood.Wounds.Count, blood.Drips.Alive, blood.Ooze.Active));
+            if (r % 2 == 1) arena.Frame(1);   // через кадр — кадр без сброса между ними
+        }
+        for (int f = 0; f < 200; f++) arena.Frame(f);
+        Assert.True(blood.Skin.UsedSlots > 0 && blood.Wounds.Count > 0, $"после сбросов: слотов {blood.Skin.UsedSlots}, ран {blood.Wounds.Count}");
+    }
 }
 
 /// <summary>Кровь на коже на GPU (<see cref="BloodSkinGpu"/>): вид вершин = функция свежести на CPU, снятый слот обнуляется.</summary>
@@ -340,7 +509,8 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Вид вершин на GPU (<c>CsLook</c>) = <see cref="BloodLook.Evaluate"/> с упаковкой <see cref="SkinLayerTexel"/> (половинная точность и 1/255),
+    /// Вид вершин на GPU (<c>CsLook</c>) = <see cref="BloodLook.Evaluate"/> с упаковкой <see cref="SkinLayerTexel"/> (A — R11G11B10F, M — 1/127,
+    /// покрытие — 1/31, шероховатость — 1/63),
     /// во все копии вершины на шве; снятый слот — нули. Любое предупреждение D3D12 — провал.
     /// </summary>
     [Fact]
@@ -375,20 +545,31 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
             Assert.True(gpu.Srv(slot) >= 0);
             var data = new ulong[2 * s.VertexCount];
             renderer.ReadStorage(gpu.Storage(slot), data.AsSpan());
-            float worstAlbedo = 0, worstScalar = 0;
+            float worstAdd = 0, worstMul = 0, worstScalar = 0;
+            int worstCode = 0, offByOne = 0;
             for (int v = 0; v < s.VertexCount; v++)
             {
                 int w = s.WeldOf(v);
                 var cpu = BloodLook.Evaluate(now - BirthOf(data[s.VertexCount + v]), ThickOf(data[s.VertexCount + v]), Look);
                 Assert.Equal(skin.Thickness(5, w), ThickOf(data[s.VertexCount + v]));
-                SkinLayerTexel.Unpack((uint)data[v], (uint)(data[v] >> 32), out var albedo, out float coverage, out float roughness);
-                var d = Vector3.Abs(albedo - cpu.Albedo) / Vector3.Max(cpu.Albedo, new Vector3(1e-3f));
-                worstAlbedo = MathF.Max(worstAlbedo, MathF.Max(d.X, MathF.Max(d.Y, d.Z)));
-                worstScalar = MathF.Max(worstScalar, MathF.Max(MathF.Abs(coverage - cpu.Coverage), MathF.Abs(roughness - cpu.Roughness)));
+                SkinLayerTexel.Unpack((uint)data[v], (uint)(data[v] >> 32), out var add, out var mul, out float coverage, out float roughness);
+                var d = Vector3.Abs(add - cpu.Add) / Vector3.Max(cpu.Add, new Vector3(1e-3f));
+                worstAdd = MathF.Max(worstAdd, MathF.Max(d.X, MathF.Max(d.Y, d.Z)));
+                // A — коды R11G11B10F той же упаковки CPU-вида: не дальше одного шага (граница округления; шаг — 1.6 % у r, g и 3.1 % у b).
+                uint gx = (uint)data[v], cx = SkinLayerTexel.Pack(cpu.Add, cpu.Mul, cpu.Coverage, cpu.Roughness).X;
+                int code = Math.Max(Math.Abs((int)(gx & 0x7FF) - (int)(cx & 0x7FF)),
+                    Math.Max(Math.Abs((int)(gx >> 11 & 0x7FF) - (int)(cx >> 11 & 0x7FF)), Math.Abs((int)(gx >> 22) - (int)(cx >> 22))));
+                worstCode = Math.Max(worstCode, code);
+                if (code > 0) offByOne++;
+                var m = Vector3.Abs(mul - cpu.Mul);
+                worstMul = MathF.Max(worstMul, MathF.Max(m.X, MathF.Max(m.Y, m.Z)));
+                worstScalar = MathF.Max(worstScalar, MathF.Max(MathF.Abs(coverage - cpu.Coverage) * 31, MathF.Abs(roughness - cpu.Roughness) * 63));
             }
-            output.WriteLine($"GPU − CPU: альбедо {worstAlbedo:E2} (отн.), покрытие и шероховатость {worstScalar * 255:F2}/255");
-            Assert.True(worstAlbedo <= 2e-3f, $"альбедо {worstAlbedo}");
-            Assert.True(worstScalar <= 1.01f / 255, $"покрытие или шероховатость {worstScalar}");
+            output.WriteLine($"GPU − CPU: A {worstAdd:E2} (отн.), кодов A до {worstCode} шага (вершин со сдвигом {offByOne} из {s.VertexCount}), " +
+                $"M {worstMul * 127:F2}/127, покрытие и шероховатость {worstScalar:F2} шага");
+            Assert.True(worstCode <= 1, $"A: коды R11G11B10F расходятся на {worstCode} шага");
+            Assert.True(worstMul <= 0.51f / 127, $"M {worstMul}");
+            Assert.True(worstScalar <= 0.51f, $"покрытие или шероховатость {worstScalar} шага");
 
             // Кадр — 0 Б сверх пустого кадра рендера: проходы с изменениями и без.
             long Spent(Action<RenderFrame> build)

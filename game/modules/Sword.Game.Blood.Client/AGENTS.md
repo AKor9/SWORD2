@@ -1,28 +1,27 @@
 # Sword.Game.Blood.Client — правила
 
-Модуль `blood` (клиентский, решение 20): кровь из ран по телу и на полу — только представление. Устройство, сервисы, числа —
-[README.md](README.md); план этапа — `artifacts/plans/blood/PLAN.md`.
+Модуль `blood` (клиентский, решение 20): кровь из ран по телу, брызги, кровь на оружии и на полу — только представление. Устройство,
+сервисы, ручки, цена — [README.md](README.md).
 
 Инварианты:
-- Только представление: мира ECS модуль не видит (ни `Entity`, ни запросов) — игра приходит сервисами `Sword.Game.Contracts`
-  (`IBloodFeed`, `IFighterPoses`, `ISkinMesh`, `ITerrainView`, `ISceneSky`, `ISkinBloodLayer`); в симуляцию, хеш и реплей модуль ничего не пишет.
-- Функция свежести — одна: `BloodLook.Evaluate` (C#) и `BloodLookEval` (`Shaders/blood/blood_look.hlsli`) меняются вместе
-  (`BloodSkinGpuTests`); упаковка вида вершины — `SkinLayerTexel` (Contracts) = `SkinLayerOf` в `scene.hlsl` игры.
-- Такт — по `TickId` наблюдателя тиков (`AfterTick`): события и позы читаются там, где они ровно этого тика; часов кадра нет, пауза — кровь
-  стоит. Рождение случайного — из хеша (зерно, `TickId`, `ContactIndex`), не из `Random`.
-- Кадр модуля и сервисов — 0 Б: буферы заводятся при старте или растут удвоением, делегаты проходов — поля.
-- Нет сервиса — модуль не делает того, что на нём стоит, и игра стартует; модуль выключен (`modules.blood.enabled=false`) или не собран
-  (`-p:WithoutBlood=true`) — ни ресурса, ни прохода, ни ручки.
-- Метод тика или кадра с долгим циклом — тело цикла в отдельный метод (OSR).
-- Полёт капли — одна формула: `BloodFlight` (C#) = `blood_flight.hlsli`; приёмник плёнки `BloodFloor.Receives` = проверка `PsFloor`; окно пола
-  сдвигается только целыми текселями, а уходящее из окна до шага уходит в карту (`blood.floor.transfer`).
+- Только представление: мира ECS модуль не видит — игра приходит сервисами `Sword.Game.Contracts` (`IBloodFeed`, `IFighterPoses`,
+  `ISkinMesh`, `ITerrainView`, `ISceneSky`, `ISkinBloodLayer`, `IWeaponTips`, `IWeaponBloodLayer`); в симуляцию, хеш и реплей не пишет.
+- Пары C# = HLSL меняются вместе: функция свежести `BloodLook.Evaluate` = `BloodLookEval` (`blood_look.hlsli`, `BloodSkinGpuTests`); полёт
+  `BloodFlight` = `blood_flight.hlsli`; упаковка `SkinLayerTexel` и `WeaponBloodLayout` (Contracts) = `SkinLayerOf`/`WeaponLayerOf`
+  (`scene_layers.hlsli` игры, `BloodLayerGpuTests`); приёмник `BloodFloor.Receives` = проверка `PsFloor`.
+- Такт — `TickId` наблюдателя тиков: события и позы — ровно этого тика; часов кадра и `Random` нет (хеш: зерно, тик, касание); пауза —
+  кровь стоит.
+- Кадр — 0 Б: буферы при старте или удвоением, конвейеры и ленивые буферы прогреваются в первом кадре/шаге, делегаты — поля.
+- Нет сервиса — нет того, что на нём стоит, игра стартует; модуль выключен или не собран (`-p:WithoutBlood=true`) — ни ресурса, ни прохода.
+- Тик или кадр с долгим циклом — тело цикла в отдельный метод (OSR); поиск и скин кожи `SkinSurface` — `AggressiveOptimization`.
+- Окно пола сдвигается только целыми текселями, уходящее — до шага в карту; засохшее — из `Advected`, не из `Composite`.
 
-Проверка: `dotnet test tests/Sword.Game.Tests --filter "FullyQualifiedName~Blood"` (GPU и Content — пак игры);
-`verify.ps1 -Only without-modules`.
+Проверка: `dotnet test tests/Sword.Game.Tests --filter "FullyQualifiedName~Blood"` (нужен пак), `verify.ps1 -Only without-modules`;
+цена — бой `Sword.exe --windowed 1600x900 --no-activate --attack --units 3 --fps 60 --set combat.playerInvulnerable=true --frames 2400 --json`
+(Release): `blood.feed.meanTickMs`/`p99TickMs`/`maxTickMs`, `report.passes`.
 
-Видно: `Sword.exe --json` → `blood.feed` (тики, попадания, смерти, постройки, сбросы, последний кадр, бойцов в позах),
-`blood.services`, `blood.wounds` (с `ooze`), `blood.skin`, `blood.drips`, `blood.floor` (`fieldHash`, мл окна и карты); оверлеи `blood` (с рамкой
-окна пола и приземлениями), `blood.wounds`, `blood.drips`; вкладка F3 «Кровь» (лужа под игроком: `--tune blood.puddle=1`).
+Видно: `--json` → `blood.feed`, `.services`, `.wounds`, `.skin`, `.drips`, `.floor` (`fieldHash`), `.spray`, `.blade`; оверлеи `blood`,
+`blood.wounds`, `blood.drips`; F3 «Кровь» (`--tune blood.puddle=1`, `--tune blood.bladeSmear=1`); `blood.feed.deathsAt` — куда ставить `--camera`.
 
-Типичные ошибки: читать `IBloodFeed` вне наблюдателя тиков и ждать всех тиков кадра (отдаётся последний сыгранный); якорь раны по позе
-кадра, а не тика; путать `Point` пробы удара (центр капсулы) с касанием клинка (поверхность).
+Типичные ошибки: читать `IBloodFeed` вне наблюдателя тиков (отдаётся последний сыгранный тик); якорь по позе кадра, а не тика; путать
+`Point` пробы (центр капсулы) с касанием клинка (поверхность); новый путь удара без прогрева — всплеск JIT в тике первого удара.

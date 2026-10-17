@@ -136,7 +136,8 @@ public static partial class Program
                             (мировые оси); длина не важна — бегом или шагом, как WASD в SWORD
           --walk            заданная команда: шагом (без --move — стоять)
           --gaze X,Z        заданная команда: точка взгляда на земле
-                            (любой из трёх ключей заменяет ввод игрока заданной командой; камера управляется)
+          --attack          заданная команда: удар каждый тик (связка без конца — бой без мыши, проверочные снимки)
+                            (любой из четырёх ключей заменяет ввод игрока заданной командой; камера управляется)
           --ticks-per-frame N  ровно N тиков на кадр (проверочные прогоны); без ключа — по часам
           --hold A[,B…]     удерживать действия ввода весь прогон (имена — как в секции input, например
                             move_forward,walk): управление без клавиатуры; в первом кадре действие ещё и нажато
@@ -532,6 +533,7 @@ public static partial class Program
                     break;
                 }
                 case "--walk": o.Command = (o.Command ?? default) with { Walk = true }; break;
+                case "--attack": o.Command = (o.Command ?? default) with { Attack = true }; break;
                 case "--gaze":
                 {
                     var g = Pair(a, Next());
@@ -580,7 +582,7 @@ public static partial class Program
         if (o.Bench > 0 && o.Frames > 0) throw new ArgumentException("--bench и --frames вместе не задаются: бенч кончается сам");
         if (o.Bench > 0 && o.MaxFps > 0) throw new ArgumentException("--bench и --max-fps вместе не задаются: ограничитель исказил бы замер");
         if (o.Replay is not null && (o.Command is not null || o.Hold.Count > 0))
-            throw new ArgumentException("--replay: команды игрока — из реплея; --move, --walk, --gaze, --hold нельзя");
+            throw new ArgumentException("--replay: команды игрока — из реплея; --move, --walk, --gaze, --attack, --hold нельзя");
         return o;
     }
 

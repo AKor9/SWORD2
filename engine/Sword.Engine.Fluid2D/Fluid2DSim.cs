@@ -191,6 +191,15 @@ public sealed class Fluid2DSim : IDisposable
     /// </summary>
     public GpuStorage? Age => _ageC;
 
+    /// <summary>
+    /// Состояние между шагами — выход Advection, вход Composite следующего шага: поле A (как <see cref="Composite"/>), его возраст (при
+    /// <see cref="Fluid2DParams.AgeChannel"/>) и ρ во float (при <see cref="Fluid2DParams.ConservativeDensity"/>; его, а не half в A, берёт
+    /// Composite). Вынуть массу (засохшее — в карту пятен): обнулить ρ текселя во всех трёх проходом до шага.
+    /// </summary>
+    public GpuStorage Advected => _advected;
+    public GpuStorage? AgeAdvected => _ageA;
+    public GpuStorage? DensityAdvected => _rhoA;
+
     /// <summary>Обнулить поля и грид кисти: первым проходом следующего шага или экспорта (<c>fluid.clear</c>, <c>fluid.painter.clear</c>).</summary>
     public void Reset()
     {
@@ -311,7 +320,9 @@ public sealed class Fluid2DSim : IDisposable
                 Out1 = age ? g.UavOf(ea) : 0, Out6 = rho ? g.UavOf(ra) : 0, GroupsX = groups, GroupsY = groups,
             });
         }
-        if (only is null or Fluid2DStage.Divergence)
+        // DivergenceMult 0: дивергенция нулевая, давление после очистки остаётся нулём — проходы шага не нужны (стадии проверки идут).
+        bool pressure = _params.HasPressure || only is not null;
+        if (pressure && only is null or Fluid2DStage.Divergence)
         {
             var pass = g.AddComputePass("fluid.divergence", FramePhase.Simulation).Read(a).Read(p);
             if (hasBrush) pass = pass.Read(b);
@@ -320,8 +331,8 @@ public sealed class Fluid2DSim : IDisposable
         }
         if (only is null)
         {
-            if (_params.CrudePressureSolver) AddPressure(g, k, groups, (input.Step & 1) != 0, s, p);
-            else
+            if (pressure && _params.CrudePressureSolver) AddPressure(g, k, groups, (input.Step & 1) != 0, s, p);
+            else if (pressure)
             {
                 AddPressure(g, k, groups, false, s, p);
                 AddPressure(g, k, groups, true, p, s);

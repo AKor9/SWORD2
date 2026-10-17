@@ -24,6 +24,7 @@ public sealed class GpuTexture : IDisposable
     private readonly GraphicsDevice _device;
     private readonly ID3D12Resource _resource;
     private readonly string[] _layers;
+    private readonly float[] _aspects;
     private Action<GpuTexture>? _disposed;
 
     private GpuTexture(GraphicsDevice device, ID3D12Resource resource, int srv, string path, TextureData data, GpuTextureFormat format,
@@ -42,6 +43,7 @@ public sealed class GpuTexture : IDisposable
         Srgb = srgb;
         Bytes = bytes;
         _layers = [.. data.Layers.Select(l => l.Name)];
+        _aspects = [.. data.Layers.Select(l => l.Aspect)];
     }
 
     /// <summary>Bindless-индекс SRV (<c>Texture2DArray</c>, все мипы и слои).</summary>
@@ -69,6 +71,9 @@ public sealed class GpuTexture : IDisposable
 
     /// <summary>Имена слоёв из файла (обычно имена исходников); пусто — слои без имён.</summary>
     public IReadOnlyList<string> Layers => _layers;
+
+    /// <summary>Соотношение сторон исходника слоя (ширина / высота; пекарня приводит слой к квадрату); пусто — слои без имён.</summary>
+    public IReadOnlyList<float> LayerAspects => _aspects;
 
     /// <summary>Номер слоя по имени (без учёта регистра); нет — −1.</summary>
     public int FindLayer(string name) => Array.FindIndex(_layers, l => string.Equals(l, name, StringComparison.OrdinalIgnoreCase));

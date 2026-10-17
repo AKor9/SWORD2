@@ -16,13 +16,19 @@ public sealed record BloodSettings
     public int ShownHits { get; init; } = 64;
 
     /// <summary>Потёков по коже на бойца не больше (вытесняется самый старый).</summary>
-    public int DripsPerFighter { get; init; } = 16;
+    public int DripsPerFighter { get; init; } = 32;
 
     /// <summary>Потёков по коже на мир не больше.</summary>
-    public int DripsWorld { get; init; } = 512;
+    public int DripsWorld { get; init; } = 1024;
 
     /// <summary>Бойцов с кровью на коже одновременно (пул буферов по вершинам: ≈ 0.78 МБ видеопамяти и 0.6 МБ памяти на слот).</summary>
     public int SkinSlots { get; init; } = 40;
+
+    /// <summary>Кровь на оружии: копится на лезвии от попаданий, стекает и капает (нужны сервисы оружия игры).</summary>
+    public bool Blade { get; init; } = true;
+
+    /// <summary>Клинков с кровью одновременно (в руке и выпавших).</summary>
+    public int BladeSlots { get; init; } = 40;
 
     /// <summary>Предел <see cref="ShownHits"/>.</summary>
     public const int ShownHitsLimit = 1024;
@@ -33,6 +39,7 @@ public sealed record BloodSettings
         if (ShownHits is < 0 or > ShownHitsLimit) throw new InvalidDataException($"конфиг: blood.shownHits = {ShownHits}: 0…{ShownHitsLimit}");
         if (DripsPerFighter is < 1 or > 256) throw new InvalidDataException($"конфиг: blood.dripsPerFighter = {DripsPerFighter}: 1…256");
         if (SkinSlots is < 1 or > 256) throw new InvalidDataException($"конфиг: blood.skinSlots = {SkinSlots}: 1…256");
+        if (BladeSlots is < 1 or > 256) throw new InvalidDataException($"конфиг: blood.bladeSlots = {BladeSlots}: 1…256");
         if (DripsWorld is < 1 or > 65536) throw new InvalidDataException($"конфиг: blood.dripsWorld = {DripsWorld}: 1…65536");
     }
 }

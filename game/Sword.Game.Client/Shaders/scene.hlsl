@@ -6,6 +6,7 @@
 #include "common/gbuffer.hlsli"
 #include "common/skin.hlsli"
 #include "common/surface.hlsli"
+#include "scene_layers.hlsli"
 
 // Непрозрачная фаза пишет две цели: линейный цвет HDR-сцены (SceneColor; на экран — тонмап рендера) и нормаль с признаком
 // приёмника декалей (SceneTargets).
@@ -106,15 +107,16 @@ struct SkinVs
     float3 normal : TEXCOORD1;
     nointerpolation float3 colour : COLOR0;
     nointerpolation float glow : TEXCOORD2;
-    float4 layer : TEXCOORD3;       // wet layer over the skin (blood): linear albedo, coverage
-    float layerRoughness : TEXCOORD4;
+    float4 layerAdd : TEXCOORD3;    // wet layer over the skin (blood): its own albedo A, coverage of the highlight
+    float4 layerMul : TEXCOORD4;    // multiplier M of the skin under the layer, roughness
     nointerpolation uint material : TEXCOORD5;   // SceneMaterial: GpuSkinInstance.Flags
-    float3 bindPos : TEXCOORD6;                  // поза привязки (трипланар текстуры материала)
+    float3 bindPos : TEXCOORD6;                  // поза привязки (трипланар текстуры материала; у оружия - пространство руки: кровь лезвия по точке)
     float3 bindNormal : TEXCOORD7;
     float3 axisX : TEXCOORD8;                    // образы осей позы привязки в мире
     float3 axisY : TEXCOORD9;
     float3 axisZ : TEXCOORD10;
     float2 uv : TEXCOORD11;                       // cut cap: uv.x > 4, (uv - (8, 0)) - point in the cap plane / limb radius
+    nointerpolation uint weaponLayer : TEXCOORD12;   // blood on the weapon blade: SRV + 1 (0 - none)
 };
 
 // Предпроход скина: глубина, нормаль и точка в прошлом кадре (палитра прошлого кадра) - скорости.
@@ -126,22 +128,11 @@ struct SkinPreVs
     float3 prevWorld : TEXCOORD2;
 };
 
-// Wet layer of a vertex (ISkinBloodLayer, SkinLayerTexel in C#): inst.owner = bindless SRV of the layer + 1 (0 - no layer); an element
-// per mesh vertex: x = half r | half g << 16, y = half b | unorm8 coverage << 16 | unorm8 roughness << 24.
-float4 SkinLayerOf(uint owner, uint vid, out float roughness)
-{
-    roughness = 1;
-    if (owner == 0) return 0;
-    StructuredBuffer<uint2> layer = ResourceDescriptorHeap[owner - 1];
-    uint count, stride;
-    layer.GetDimensions(count, stride);
-    if (vid >= count) return 0;   // vertices added by a mesh cut have no layer texel
-    uint2 u = layer[vid];
-    roughness = (u.y >> 24) / 255.0;
-    return float4(f16tof32(u.x), f16tof32(u.x >> 16), f16tof32(u.y), ((u.y >> 16) & 0xFF) / 255.0);
-}
-
-static const float SKIN_LAYER_F0 = 0.03;   // SkinLayerTexel.F0
+static const float SKIN_LAYER_F0 = 0.028;   // SkinLayerTexel.F0
+// Second, wider sun lobe of a fresh wet layer (the film is uneven: the glint spreads around the mirror direction, as on the blood floor
+// film): weight and added roughness; it fades out as the layer roughens to dry (roughness 0.15...0.45).
+static const float SKIN_LAYER_GLINT = 0.4;
+static const float SKIN_LAYER_GLINT_ROUGHNESS = 0.3;
 
 // Точка и нормаль - из буфера вершин кадра (SkinWorld); смешанная матрица - только ради осей позы привязки (трипланар).
 SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
@@ -153,7 +144,8 @@ SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.pos = mul(gFrame.viewProj, float4(o.world, 1));
     o.colour = inst.colour;
     o.glow = inst.glow;
-    o.layer = SkinLayerOf(inst.owner, vid, o.layerRoughness);
+    o.weaponLayer = (inst.flags & SCENE_MATERIAL_WEAPON_LAYER) != 0 ? inst.owner : 0;
+    SkinLayerOf(o.weaponLayer != 0 ? 0 : inst.owner, vid, o.layerAdd, o.layerMul);
     o.material = inst.flags;
     o.uv = v.uv;
     SkinMat m = SkinBlended(v, inst);
@@ -227,25 +219,41 @@ SceneOut PsSkin(SkinVs i)
         float3 flesh = CutTissue(i.uv - float2(8, 0), i.colour);
         return Scene(ShadeMaterial(flesh, n, i.world, SceneAo(i.pos.xy), CUT_MATERIAL), n, false);
     }
+    float3 ng = n;   // the wet film fills the material relief: its highlight is by the geometric normal
     float3 colour = i.colour;
     float roughness = MaterialRoughness(i.material);
     uint texture = MaterialTexture(i.material);
     if (texture != 0 && gFrame.materialAlbedo != SCENE_MATERIAL_NONE)
         MaterialTextured(texture - 1, i.bindPos, i.bindNormal, i.axisX, i.axisY, i.axisZ, colour, n, roughness);
     float metal = MaterialMetal(i.material);
-    float cover = saturate(i.layer.a);
+    float4 layerAdd = i.layerAdd, layerMul = i.layerMul;
+    if (i.weaponLayer != 0) WeaponLayerOf(i.weaponLayer, i.bindPos, layerAdd, layerMul);
+    float cover = saturate(layerAdd.a);
     if (cover <= 0)
     {
         float3 c = ShadeSurface(colour, n, i.world, SceneAo(i.pos.xy), roughness, metal) + i.glow * float3(0.5, 0.15, 0.1);
         return Scene(c, n, false);
     }
-    // The layer albedo blends with the skin by the interpolated coverage; its highlight - GGX sun + the sky of reflections
-    // (SkyReflection, as metal and the floor), under the fog.
-    float3 albedo = lerp(colour, i.layer.rgb, cover);
-    float3 c = ShadeSurface(albedo, n, i.world, SceneAo(i.pos.xy), roughness, metal) + i.glow * float3(0.5, 0.15, 0.1);
+    // Blood is an absorbing layer over the skin: the skin shows through it darkened and reddened (M), the layer adds its own albedo (A);
+    // its highlight - GGX sun (under the sun shadow) + the sky of reflections (SkyReflection, as metal and the floor), x coverage, under
+    // the fog. On steel the metal mirror shows through the turbid film dimmed twice over (x M^2: absorbed and scattered out of the mirror
+    // direction) and the blood scatters as a dielectric: its albedo is lit diffusely (Shade without the rim and fog that do not depend on it).
+    float ao = SceneAo(i.pos.xy);
+    float3 c;
+    if (metal > 0)
+        c = ShadeSurface(colour * saturate(layerMul.rgb * layerMul.rgb), n, i.world, ao, roughness, metal)
+            + Shade(max(layerAdd.rgb, 0), n, i.world, ao) - Shade(0, n, i.world, ao);
+    else
+        c = ShadeSurface(colour * saturate(layerMul.rgb) + max(layerAdd.rgb, 0), n, i.world, ao, roughness, metal);
+    c += i.glow * float3(0.5, 0.15, 0.1);
     float3 v = normalize(gFrame.cameraPos - i.world);
-    float3 sky = SkyReflection(reflect(-v, n), i.layerRoughness);
-    float3 spec = SurfaceSpecular(n, v, normalize(-gFrame.lightDir), gFrame.env.sun, sky, SKIN_LAYER_F0, i.layerRoughness);
+    float3 l = normalize(-gFrame.lightDir);
+    float shadow = SunShadow(gFrame.shadowMap0, gFrame.shadowViewProj[0], gFrame.shadowTexel0, gFrame.shadowBias0,
+        gFrame.shadowMap1, gFrame.shadowViewProj[1], gFrame.shadowTexel1, gFrame.shadowBias1, gFrame.shadowSoftness, i.world, ng, l);
+    float3 sky = SkyReflection(reflect(-v, ng), layerMul.a);
+    float3 spec = SurfaceSpecular(ng, v, l, gFrame.env.sun * shadow, sky * ao, SKIN_LAYER_F0, layerMul.a);
+    float glint = SKIN_LAYER_GLINT * (1 - smoothstep(0.15, 0.45, layerMul.a));
+    if (glint > 0) spec += glint * SurfaceSpecular(ng, v, l, gFrame.env.sun * shadow, 0, SKIN_LAYER_F0, layerMul.a + SKIN_LAYER_GLINT_ROUGHNESS);
     float fog = SceneFogAt(i.world);
     return Scene(c + cover * (1 - fog) * spec, n, false);
 }

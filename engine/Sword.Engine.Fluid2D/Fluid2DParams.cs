@@ -231,6 +231,12 @@ public sealed record Fluid2DParams
 
     public float DivergenceMult { get; init; } = 1;
 
+    /// <summary>
+    /// Давление считается: при DivergenceMult 0 дивергенция нулевая и давление — нули, шаг идёт без Divergence и Pressure (сим и эталон);
+    /// поле давления остаётся каким было (после очистки — нули).
+    /// </summary>
+    public bool HasPressure => DivergenceMult != 0;
+
     /// <summary>Прокол: дивергенция +0.01·BrushPuncture·плотность кисти (ближайший тексель).</summary>
     public float BrushPuncture { get; init; } = 0.05f;
 

@@ -81,7 +81,7 @@ public sealed class ArenaBloodFeed(SimulationLink link) : IBloodFeed
         var e = FighterKey.Entity(fighter);
         bleed = 0;
         dead = false;
-        if (e.Index <= 0 || e.Generation <= 0 || !_world.IsAlive(e) || !_world.Has<Fighter>(e)) return false;
+        if (e.Index < 0 || e.Generation <= 0 || !_world.IsAlive(e) || !_world.Has<Fighter>(e)) return false;
         if (_world.TryGet<Health>(e, out var health)) bleed = health.Bleed;
         dead = _world.Has<Dead>(e);
         return true;

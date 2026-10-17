@@ -128,15 +128,12 @@ public sealed class BloodWounds
             triangle = surface.Raycast(segment, p - dir * 0.5f, dir, out bary, out _);
         if (triangle < 0)
         {
-            triangle = surface.Nearest(segment, p, out bary, out float bindDistance);
+            triangle = NearestSkin(surface, segment, p, hit.Point, joints, out bary);
             if (triangle < 0)
             {
                 Missed++;
                 return -1;
             }
-            // Перевод через один сустав ошибается на сантиметры (WR §3.2: торс p90 до 8 см) — уточнение по коже в позе тика.
-            int refined = surface.NearestSkinned(segment, p, bindDistance + RefineRadius, hit.Point, joints, out var refinedBary, out _);
-            if (refined >= 0) (triangle, bary) = (refined, refinedBary);
         }
         var point = surface.BindPoint(triangle, bary);
         var normal = surface.BindNormal(triangle, bary);
@@ -157,6 +154,30 @@ public sealed class BloodWounds
         _count[row] = Math.Min(_count[row] + 1, RingSize);
         Recorded++;
         return index;
+    }
+
+    /// <summary>
+    /// Кожа сегмента у точки мира <paramref name="world"/> в позе <paramref name="joints"/>: через опорный сустав в привязку, ближайший
+    /// треугольник сегмента; <paramref name="refine"/> — уточнённый по скинированной коже позы в шаре «расстояние + 8 см» (якорь раны;
+    /// ≈ 0.3 мс). Без уточнения (капля брызг на чужом теле: ≈ 0.1 мс) ошибка перевода через один сустав — до сантиметров. Нет — −1.
+    /// </summary>
+    public static int Anchor(SkinSurface surface, int segment, Vector3 world, ReadOnlySpan<Matrix4x4> joints, out Vector3 bary, bool refine = true)
+    {
+        bary = default;
+        int joint = surface.ReferenceJoint(segment, world, joints);
+        if (joint < 0 || joint >= joints.Length) return -1;
+        var bind = Vector3.Transform(world, surface.WorldToBind(joint, joints));
+        return refine ? NearestSkin(surface, segment, bind, world, joints, out bary) : surface.Nearest(segment, bind, out bary, out _, coarse: true);
+    }
+
+    private static int NearestSkin(SkinSurface surface, int segment, Vector3 bind, Vector3 world, ReadOnlySpan<Matrix4x4> joints, out Vector3 bary)
+    {
+        int triangle = surface.Nearest(segment, bind, out bary, out float bindDistance);
+        if (triangle < 0) return -1;
+        // Перевод через один сустав ошибается на сантиметры (WR §3.2: торс p90 до 8 см) — уточнение по коже в позе тика.
+        int refined = surface.NearestSkinned(segment, bind, bindDistance + RefineRadius, world, joints, out var refinedBary, out _);
+        if (refined >= 0) (triangle, bary) = (refined, refinedBary);
+        return triangle;
     }
 
     private static Vector3 SafeNormal(Vector3 v) => v.LengthSquared() > 1e-12f ? Vector3.Normalize(v) : Vector3.Zero;

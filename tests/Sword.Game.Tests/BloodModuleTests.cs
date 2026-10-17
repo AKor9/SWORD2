@@ -279,6 +279,12 @@ public sealed class BloodModuleTests
         scene.Frames(1);
         Assert.Equal([(kill, FighterKey.Of(scene.Slot(1)))], deaths);
         Assert.True(scene.Feed.TryBleed(FighterKey.Of(scene.Slot(1)), out _, out dead) && dead);
+        // Игрок — сущность с номером 0 (не Entity.Null): его труп тоже мёртв, иначе нет лужи трупа игрока.
+        Assert.Equal(0, scene.Slot(0).Index);
+        Assert.True(scene.Feed.TryBleed(FighterKey.Of(scene.Slot(0)), out _, out dead) && !dead);
+        scene.Pending.Add(new SceneCommand { Action = SceneAction.Kill, Slot = 0 });
+        scene.Frames(1);
+        Assert.True(scene.Feed.TryBleed(FighterKey.Of(scene.Slot(0)), out _, out dead) && dead);
         Assert.Empty(resets);
 
         built.Clear();
@@ -317,6 +323,20 @@ public sealed class BloodModuleTests
         Assert.Equal(["Кровь"], on.Modules.TuningGroups.Select(g => g.Title));
         Assert.Single(on.Modules.Sections());
         Assert.Equal(10, on.Blood.ObservedTicks);
+    }
+
+    /// <summary>Часы крови в долгой игре: 600 шагов — 10 с и через 5 ч, и через 73 ч, и через неделю (сумма float там шла вбок и вставала).</summary>
+    [Fact]
+    public void Clock_LongPlay_KeepsPace()
+    {
+        const float dt = 1f / 60;
+        foreach (long hours in new long[] { 0, 5, 73, 7 * 24 })
+        {
+            long n = hours * 3600 * 60;
+            float c = BloodModule.ClockAt(n, dt), later = BloodModule.ClockAt(n + 600, dt);
+            Assert.InRange(c, n * (double)dt * (1 - 1e-6), n * (double)dt * (1 + 1e-6) + 1e-6);
+            Assert.InRange(later - c, 9.9, 10.1);
+        }
     }
 
     [Fact]

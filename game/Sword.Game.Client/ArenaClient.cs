@@ -398,7 +398,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// Солнце и небо следующего кадра — для объёмов и бликов клиентских модулей (дым, кровь): солнце окружения, небо вертикальной поверхности,
     /// направление на солнце (обратное <see cref="SunLight"/>).
     /// </summary>
-    public SceneSky Sky => new(Environment.Sun, (Environment.SkyLow + Environment.SkyHigh) * 0.5f, -SunLight);
+    public SceneSky Sky => new(Environment.Sun, (Environment.SkyLow + Environment.SkyHigh) * 0.5f, -SunLight, Environment.SkyLow, Environment.SkyHigh);
 
     /// <summary>Блики и металл материалов (<see cref="SceneMaterial"/>): выключены — только рассеянный свет; со следующего кадра.</summary>
     public bool Specular { get; set; } = true;
@@ -460,6 +460,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
 
     /// <summary>Слой крови на коже для модуля крови: SRV вида по вершинам бойца — в <c>owner</c> экземпляра скина.</summary>
     public ArenaSkinBloodLayer SkinBlood { get; } = new();
+
+    /// <summary>Слой крови на оружии для модуля крови: SRV крови лезвия бойца — в <c>owner</c> частей его оружия.</summary>
+    public ArenaWeaponBloodLayer WeaponBlood { get; } = new();
 
     /// <summary>Группа ручек «Свет» (<see cref="LightTuning"/>); null — до <see cref="Initialize"/>.</summary>
     public TuningGroup? Light => _light;
@@ -533,6 +536,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         c.Add("TERRAIN_HALF", _field.Half, "полуразмер сетки рельефа, м");
         c.Add("PILLAR_COUNT", ArenaLayout.PillarCount, "колонн в константах кадра");
         c.Add("SCENE_MATERIAL_METAL", SceneMaterial.Metal, "бит металла материала (SceneMaterial)");
+        c.Add("SCENE_MATERIAL_WEAPON_LAYER", SceneMaterial.WeaponLayer, "бит слоя крови оружия: owner экземпляра — SRV + 1 (SceneMaterial)");
+        c.Add("WEAPON_BLOOD_HEADER", WeaponBloodLayout.Header, "элементов заголовка буфера крови лезвия (WeaponBloodLayout)");
         c.Add("SCENE_MATERIAL_GROUND", SceneMaterial.Ground, "материал пола и рельефа");
         c.Add("SCENE_MATERIAL_PILLAR", SceneMaterial.Pillar, "материал колонн");
         c.Add("SCENE_MATERIAL_TEXTURE_SHIFT", SceneMaterial.TextureShift, "сдвиг номера текстуры (слой + 1) в материале");
@@ -603,6 +608,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
             _weapons[w] = [.. sections.Select(p => (p.Mesh, WeaponMaterialColour(p.Material), SceneMaterial.OfWeaponPart(p.Material)))];
             _weaponNames[w] = weapons[w].Name;
         }
+        WeaponBlood.Load(weapons, Sword.Game.Combat.WeaponBloodZones.LoadFromPak(weapons));
         // Жест удара: направления замаха рубящих ударов таблицы — в системе бойца.
         var swings = new List<Vector2>();
         foreach (var a in _simulation.World.View<ICombatView>().Attacks)
@@ -829,7 +835,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         for (int i = 0; i < fighters.Count; i++)
         {
             var fighter = fighters[i];
-            if ((uint)fighter.Weapon < (uint)_weapons.Length && AddWeapon(_weapons[fighter.Weapon], fighter.WeaponWorld, fighter.Entity))
+            if ((uint)fighter.Weapon < (uint)_weapons.Length && AddWeapon(_weapons[fighter.Weapon], fighter.WeaponWorld, fighter.Entity,
+                    WeaponBlood.OwnerOf(FighterKey.Of(fighter.Entity), fighter.Weapon)))
                 armed++;
         }
         DrawnWeapons = armed;
@@ -881,14 +888,18 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         _prevViewProj = _camera.ViewProj;
     }
 
-    /// <summary>Оружие бойца — все части меша своими цветами в одном мире; false — места в кадре не хватило хоть одной части.</summary>
-    private bool AddWeapon((int Mesh, Vector3 Colour, uint Material)[] parts, in Matrix4x4 world, Entity owner)
+    /// <summary>
+    /// Оружие бойца — все части меша своими цветами в одном мире; <paramref name="blood"/> — слой крови лезвия (SRV + 1, 0 — нет: бит
+    /// <see cref="SceneMaterial.WeaponLayer"/> не ставится); false — места в кадре не хватило хоть одной части.
+    /// </summary>
+    private bool AddWeapon((int Mesh, Vector3 Colour, uint Material)[] parts, in Matrix4x4 world, Entity owner, uint blood)
     {
         bool all = true;
+        uint layer = blood != 0 ? SceneMaterial.WeaponLayer : 0;
         for (int i = 0; i < parts.Length; i++)
         {
             var (mesh, colour, material) = parts[i];
-            all &= _renderer!.Skinned.AddRigid(mesh, world, colour, flags: material, motionKey: MotionKey(owner, i + 1));
+            all &= _renderer!.Skinned.AddRigid(mesh, world, colour, owner: blood, flags: material | layer, motionKey: MotionKey(owner, i + 1));
         }
         return all;
     }

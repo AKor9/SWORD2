@@ -20,7 +20,7 @@ public sealed class BloodSkinGpu : IDisposable
 {
     public const string ShaderFile = "blood/blood_skin.hlsl";
     public const int Group = 64;
-    private const int SlotTarget = 18, SlotCount = 19, SlotEntries = 20, SlotFirst = 21, SlotNow = 22;
+    private const int SlotTarget = 23, SlotCount = 24, SlotEntries = 25, SlotFirst = 26, SlotNow = 27;   // после чисел вида (0…18)
 
     private readonly Renderer _renderer;
     private readonly BloodSkin _skin;
