@@ -5,7 +5,8 @@
 
 Инварианты:
 - Только представление: мира ECS модуль не видит — игра приходит сервисами `Sword.Game.Contracts` (`IBloodFeed`, `IFighterPoses`,
-  `ISkinMesh`, `ITerrainView`, `ISceneSky`, `ISkinBloodLayer`, `IWeaponTips`, `IWeaponBloodLayer`); в симуляцию, хеш и реплей не пишет.
+  `ISkinMesh`, `ITerrainView`, `ISceneSky`, `ISkinBloodLayer`, `IWeaponTips`, `IWeaponBloodLayer`, `ISeverFeed`, `IPiecePoses`); в симуляцию,
+  хеш и реплей не пишет; код расчленения не трогает — только читает его сервисы.
 - Пары C# = HLSL меняются вместе: функция свежести `BloodLook.Evaluate` = `BloodLookEval` (`blood_look.hlsli`, `BloodSkinGpuTests`); полёт
   `BloodFlight` = `blood_flight.hlsli`; упаковка `SkinLayerTexel` и `WeaponBloodLayout` (Contracts) = `SkinLayerOf`/`WeaponLayerOf`
   (`scene_layers.hlsli` игры, `BloodLayerGpuTests`); приёмник `BloodFloor.Receives` = проверка `PsFloor`.
@@ -20,7 +21,7 @@
 цена — бой `Sword.exe --windowed 1600x900 --no-activate --attack --units 3 --fps 60 --set combat.playerInvulnerable=true --frames 2400 --json`
 (Release): `blood.feed.meanTickMs`/`p99TickMs`/`maxTickMs`, `report.passes`.
 
-Видно: `--json` → `blood.feed`, `.services`, `.wounds`, `.skin`, `.drips`, `.floor` (`fieldHash`), `.spray`, `.blade`; оверлеи `blood`,
+Видно: `--json` → `blood.feed`, `.services`, `.wounds`, `.skin`, `.drips`, `.floor` (`fieldHash`), `.spray`, `.blade`, `.stumps`; оверлеи `blood`,
 `blood.wounds`, `blood.drips`; F3 «Кровь» (`--tune blood.puddle=1`, `--tune blood.bladeSmear=1`); `blood.feed.deathsAt` — куда ставить `--camera`.
 
 Типичные ошибки: читать `IBloodFeed` вне наблюдателя тиков (отдаётся последний сыгранный тик); якорь по позе кадра, а не тика; путать

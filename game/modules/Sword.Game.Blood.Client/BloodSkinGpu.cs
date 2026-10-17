@@ -11,8 +11,9 @@ public struct BloodSkinUpload
 }
 
 /// <summary>
-/// Кровь на коже на GPU: буфер на слот бойца (<c>uint2</c> × 2V: вид вершин меша для шейдера скина игры, затем сырое — толщина и рождение),
-/// выделены при старте. Кадр (фаза Simulation): обнулить снятые слоты → разнести изменения CPU (<see cref="BloodSkin.Gather"/>, только
+/// Кровь на коже на GPU: два буфера на слот бойца по <c>uint2</c> × V, выделены при старте — вид вершин меша (его SRV читает шейдер скина
+/// игры) и сырое (толщина и рождение). Буфер вида — ровно V элементов: шейдер скина отличает вершины, добавленные разрезом меша (номер ≥ V),
+/// по размеру буфера; сырое за видом читалось бы ими как вид (мусор R11G11B10F — выбросы HDR до Inf у края среза). Кадр (фаза Simulation): обнулить снятые слоты → разнести изменения CPU (<see cref="BloodSkin.Gather"/>, только
 /// изменённые вершины, через кольцо кадра) → вид по функции свежести (<see cref="BloodLook"/>) у занятых слотов, если шаг крови сменился или
 /// пришли изменения → все буферы в чтение шейдером. Кадр — 0 Б: аргументы — массивы, делегаты — поля.
 /// </summary>
@@ -20,16 +21,18 @@ public sealed class BloodSkinGpu : IDisposable
 {
     public const string ShaderFile = "blood/blood_skin.hlsl";
     public const int Group = 64;
-    private const int SlotTarget = 23, SlotCount = 24, SlotEntries = 25, SlotFirst = 26, SlotNow = 27;   // после чисел вида (0…18)
+    // После чисел вида (0…18). Слот 25 — записи загрузки у разноса, буфер сырого у вида (корневых констант 28, свободных нет).
+    private const int SlotTarget = 23, SlotCount = 24, SlotEntries = 25, SlotRaw = 25, SlotFirst = 26, SlotNow = 27;
 
     private readonly Renderer _renderer;
     private readonly BloodSkin _skin;
-    private readonly GpuStorage[] _slots;
+    private readonly GpuStorage[] _slots, _raw;
     private readonly int[] _srv;
     private FrameData<BloodSkinUpload> _upload;
-    private readonly (int Uav, int First, int Count)[] _clearArgs, _scatterArgs, _lookArgs;
+    private readonly (int Uav, int First, int Count)[] _clearArgs, _scatterArgs;
+    private readonly (int Uav, int Raw, int Count)[] _lookArgs;
     private int _clears, _scatters, _looks;
-    private readonly RenderBuffer[] _imported;
+    private readonly RenderBuffer[] _imported, _importedRaw;
     private readonly int[] _slotFirst, _slotCount;
     private readonly Action<RenderPassContext> _clear, _scatter, _look, _ready;
     private BloodLookParams _params;
@@ -44,14 +47,20 @@ public sealed class BloodSkinGpu : IDisposable
         _skin = skin;
         int n = skin.SlotCount;
         _slots = new GpuStorage[n];
-        for (int s = 0; s < n; s++) _slots[s] = renderer.CreateStorage<ulong>($"blood.skin.{s}", (uint)(2 * skin.VertexCount));
+        _raw = new GpuStorage[n];
+        for (int s = 0; s < n; s++)
+        {
+            _slots[s] = renderer.CreateStorage<ulong>($"blood.skin.{s}", (uint)skin.VertexCount);
+            _raw[s] = renderer.CreateStorage<ulong>($"blood.skin.raw.{s}", (uint)skin.VertexCount);
+        }
         _srv = new int[n];
         Array.Fill(_srv, -1);
         _upload = renderer.CreateFrameData<BloodSkinUpload>("blood.skin.upload", 16384);
-        _clearArgs = new (int, int, int)[n];
+        _clearArgs = new (int, int, int)[2 * n];
         _scatterArgs = new (int, int, int)[n];
         _lookArgs = new (int, int, int)[n];
         _imported = new RenderBuffer[n];
+        _importedRaw = new RenderBuffer[n];
         _slotFirst = new int[n];
         _slotCount = new int[n];
         _clear = Clear;
@@ -67,8 +76,9 @@ public sealed class BloodSkinGpu : IDisposable
     public int LastLooks { get; private set; }
     public int LastUploads { get; private set; }
 
-    /// <summary>Буфер слота (тесты, чтение на CPU между кадрами).</summary>
+    /// <summary>Буфер вида и буфер сырого слота (тесты, чтение на CPU между кадрами).</summary>
     public GpuStorage Storage(int slot) => _slots[slot];
+    public GpuStorage RawStorage(int slot) => _raw[slot];
 
     /// <summary>SRV вида слота для экземпляра скина; до первого кадра — −1.</summary>
     public int Srv(int slot) => (uint)slot < (uint)_srv.Length ? _srv[slot] : -1;
@@ -86,19 +96,25 @@ public sealed class BloodSkinGpu : IDisposable
         for (int s = 0; s < n; s++)
         {
             _imported[s] = g.Import(_slots[s]);
+            _importedRaw[s] = g.Import(_raw[s]);
             if (_srv[s] < 0) _srv[s] = g.SrvOf(_imported[s]);
         }
         _clears = _scatters = _looks = 0;
         for (int s = 0; s < n; s++)
-            if (_skin.PendingClear(s, take: true)) _clearArgs[_clears++] = (s, 0, 2 * _skin.VertexCount);
+            if (_skin.PendingClear(s, take: true))
+            {
+                _clearArgs[_clears++] = (s, 0, _skin.VertexCount);
+                _clearArgs[_clears++] = (n + s, 0, _skin.VertexCount);
+            }
         // Проходы — каждый кадр одни и те же (пустые — без работы): имена проходов в зонах профайлера и таймерах GPU заводятся при
         // старте, а не посреди боя.
         var clear = g.AddComputePass("blood.skin.clear", FramePhase.Simulation);
         for (int i = 0; i < _clears; i++)
         {
             int s = _clearArgs[i].Uav;
-            clear = clear.Write(_imported[s]);
-            _clearArgs[i].Uav = g.UavOf(_imported[s]);
+            var b = s < n ? _imported[s] : _importedRaw[s - n];
+            clear = clear.Write(b);
+            _clearArgs[i].Uav = g.UavOf(b);
         }
         clear.Execute(_clear);
 
@@ -119,8 +135,8 @@ public sealed class BloodSkinGpu : IDisposable
             for (int s = 0; s < n; s++)
             {
                 if (_slotCount[s] == 0) continue;
-                scatter = scatter.Write(_imported[s]);
-                _scatterArgs[_scatters++] = (g.UavOf(_imported[s]), _slotFirst[s], _slotCount[s]);
+                scatter = scatter.Write(_importedRaw[s]);
+                _scatterArgs[_scatters++] = (g.UavOf(_importedRaw[s]), _slotFirst[s], _slotCount[s]);
             }
         }
         scatter.Execute(_scatter);
@@ -137,8 +153,9 @@ public sealed class BloodSkinGpu : IDisposable
         for (int i = 0; i < _looks; i++)
         {
             int s = _lookArgs[i].Uav;
-            pass = pass.Write(_imported[s]);
+            pass = pass.Write(_imported[s]).Write(_importedRaw[s]);
             _lookArgs[i].Uav = g.UavOf(_imported[s]);
+            _lookArgs[i].Raw = g.UavOf(_importedRaw[s]);
         }
         pass.Execute(_look);
         LastLooks = _looks;
@@ -194,6 +211,7 @@ public sealed class BloodSkinGpu : IDisposable
         for (int i = 0; i < _looks; i++)
         {
             ctx.SetConstant(SlotTarget, _lookArgs[i].Uav);
+            ctx.SetConstant(SlotRaw, _lookArgs[i].Raw);
             ctx.SetConstant(SlotCount, _lookArgs[i].Count);
             ctx.Dispatch((uint)((_lookArgs[i].Count + Group - 1) / Group), 1);
         }
@@ -203,12 +221,13 @@ public sealed class BloodSkinGpu : IDisposable
     public static void Contribute(ShaderContract c) => c
         .Section("Blood: blood on skin (Sword.Game.Blood.Client)")
         .Add("BLOOD_SKIN_GROUP", Group, "numthreads of the skin passes")
-        .AddSlot("gSkinTarget", SlotTarget).AddSlot("gSkinCount", SlotCount).AddSlot("gSkinEntries", SlotEntries)
+        .AddSlot("gSkinTarget", SlotTarget).AddSlot("gSkinCount", SlotCount).AddSlot("gSkinEntries", SlotEntries).AddSlot("gSkinRaw", SlotRaw)
         .AddSlot("gSkinFirst", SlotFirst).AddSlot("gSkinNow", SlotNow);
 
     public void Dispose()
     {
         foreach (var s in _slots) s.Dispose();
+        foreach (var s in _raw) s.Dispose();
         _upload.Dispose();
     }
 }

@@ -37,13 +37,14 @@ public sealed class BloodSpray
 
     /// <summary>
     /// Брызги попадания <paramref name="hit"/> из раны <paramref name="w"/> в позе тика жертвы <paramref name="joints"/>; тела атакующего тика
-    /// <paramref name="attacker"/> (пусто — без обратного конуса). Удар по трупу — треть объёма.
+    /// <paramref name="attacker"/> (пусто — без обратного конуса). Удар по трупу — треть объёма; <paramref name="share"/> — доля объёма
+    /// (удар, отрубивший часть, — меньше: основное — из культи).
     /// </summary>
     public ReadOnlySpan<BloodDrop> Emit(in BloodHit hit, in BloodWound w, ReadOnlySpan<Matrix4x4> joints, ReadOnlySpan<SegmentBody> attacker,
-        SkinSurface s, BloodTuning t)
+        SkinSurface s, BloodTuning t, float share = 1)
     {
         _count = 0;
-        float target = MathF.Max(hit.Damage, 0) * t.SprayPerDamage * (hit.Corpse ? 1f / 3 : 1);
+        float target = MathF.Max(hit.Damage, 0) * t.SprayPerDamage * (hit.Corpse ? 1f / 3 : 1) * MathF.Max(share, 0);
         if (!(target > 0) || joints.IsEmpty) return Drops;
         s.SkinTriangle(w.Triangle, joints, out var w0, out var w1, out var w2);
         var c = Vector3.Cross(w1 - w0, w2 - w0);

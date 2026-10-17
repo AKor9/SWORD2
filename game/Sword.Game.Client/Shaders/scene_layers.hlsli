@@ -10,7 +10,8 @@ void UnpackLayer(uint2 u, out float4 add, out float4 mul)
     mul = float4((u.y & 0x7F) / 127.0, ((u.y >> 7) & 0x7F) / 127.0, ((u.y >> 14) & 0x7F) / 127.0, (u.y >> 26) / 63.0);
 }
 
-// Wet layer of a vertex (ISkinBloodLayer): inst.owner = bindless SRV of the layer + 1 (0 - no layer); a SkinLayerTexel per mesh vertex.
+// Wet layer of a vertex (ISkinBloodLayer): inst.owner = bindless SRV of the layer + 1 (0 - no layer); exactly a SkinLayerTexel per
+// vertex of the character mesh (a vertex past the buffer was added by a mesh cut).
 // The layer over the skin: albedo = skin * M + A. No layer: A = 0, M = 1, coverage 0.
 void SkinLayerOf(uint owner, uint vid, out float4 add, out float4 mul)
 {

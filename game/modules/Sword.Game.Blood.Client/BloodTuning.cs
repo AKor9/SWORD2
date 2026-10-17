@@ -236,6 +236,53 @@ public sealed class BloodTuning
     /// <summary>Засохшее в окне уходит в карту пятен: возраст не меньше, с (тонкое, стоящее; толще — вдвое старше).</summary>
     public float FloorDryAge { get; set; } = 240;
 
+    /// <summary>
+    /// Струя из культи при отрубе: крови всего, мл (при постоянной огибающей; у трупа огибающая короче), огибающая e^(−t/τ), τ — с
+    /// (<see cref="StumpCorpseShare"/> — доля τ у трупа: гаснет быстрее), пульс, Гц, скорость в пике систолы в начале, м/с (∝ √огибающей),
+    /// полуугол разброса от нормали среза, рад.
+    /// </summary>
+    public float StumpMl { get; set; } = 220;
+    public float StumpSeconds { get; set; } = 1.5f;
+    public float StumpCorpseShare { get; set; } = 0.6f;
+    public float StumpPulseHz { get; set; } = 1.25f;
+    public float StumpSpeed { get; set; } = 3.5f;
+    public float StumpSpread { get; set; } = 0.12f;
+
+    /// <summary>Капель струи за шаг 60 Гц на источник не больше (остальное — крупнее капли); брызг мелких среди них, доля объёма брызг.</summary>
+    public int StumpDropsPerStep { get; set; } = 5;
+    public int StumpSpatterPerStep { get; set; } = 2;
+    public float StumpSpatterShare { get; set; } = 0.1f;
+
+    /// <summary>Выплеск из крышки куска: крови, мл, τ, с, скорость в начале, м/с (без пульса).</summary>
+    public float PieceMl { get; set; } = 45;
+    public float PieceSeconds { get; set; } = 0.35f;
+    public float PieceSpeed { get; set; } = 1.2f;
+
+    /// <summary>Капание с края крышки после струи: культя, кусок — мл всего, τ, с; капля, мл.</summary>
+    public float StumpDripMl { get; set; } = 50;
+    public float PieceDripMl { get; set; } = 30;
+    public float StumpDripSeconds { get; set; } = 6;
+    public float StumpDripDropMl { get; set; } = 0.12f;
+
+    /// <summary>
+    /// Кровь на коже у края среза: при отрубе — столько, мл, на каждую сторону в полосе шириной <see cref="StumpRimBand"/>, м, от плоскости
+    /// (толщина ∝ (1 − d/B)²); потом — доля текущего выброса (<see cref="StumpRimShare"/>) и потёки вниз по культе (доля
+    /// <see cref="StumpRunShare"/> порциями <see cref="StumpRunMl"/>, мл).
+    /// </summary>
+    public float StumpRimMl { get; set; } = 10;
+    public float StumpRimBand { get; set; } = 0.05f;
+    public float StumpRimShare { get; set; } = 0.06f;
+    public float StumpRunShare { get; set; } = 0.06f;
+    public float StumpRunMl { get; set; } = 0.5f;
+
+    /// <summary>Доля объёма по виду отделения: перелом (кость под кожей), отрыв по суставу, клочья (только культя).</summary>
+    public float FractureShare { get; set; } = 0.3f;
+    public float TearShare { get; set; } = 0.8f;
+    public float ShatterShare { get; set; } = 0.8f;
+
+    /// <summary>Брызги из точки касания при отрубе — эта доля обычных (основное — из культи).</summary>
+    public float SeverSprayShare { get; set; } = 0.2f;
+
     /// <summary>Функция свежести (кожа и пол).</summary>
     public BloodLookParams Look = BloodLookParams.Default;
 }

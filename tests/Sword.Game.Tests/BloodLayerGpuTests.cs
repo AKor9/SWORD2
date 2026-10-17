@@ -41,6 +41,7 @@ public sealed class BloodLayerGpuTests(ITestOutputHelper output)
             var contract = new ShaderContract();
             Renderer.Contribute(contract);
             BloodFloorGpu.Contribute(contract, 8, 8);   // окно и карта 8² — данные теста
+            BloodSkinGpu.Contribute(contract);
             contract.Add("WEAPON_BLOOD_HEADER", WeaponBloodLayout.Header);
             Renderer = new Renderer(new RendererOptions(Window.NativeHandle, 64, 64, DebugLayer: true,
                 ShaderRoot: Path.Combine(AppContext.BaseDirectory, "Shaders"), GpuValidation: true), contract);
@@ -138,6 +139,55 @@ public sealed class BloodLayerGpuTests(ITestOutputHelper output)
             Assert.Equal(Vector4.Zero, none[2 * i]);
             Assert.Equal(Vector4.One, none[2 * i + 1]);
         }
+    }
+
+    /// <summary>
+    /// Кожа с разрезом меша: слой, который отдаёт модуль (<see cref="BloodSkinGpu"/>, кровь на всех вершинах, свежая и засохшая), читается
+    /// шейдером скина по номерам вершин меша после разреза — основа (0…V − 1) получает свой вид, добавленные разрезом (V…2V − 1) — нейтральный
+    /// (A 0, M 1, покрытие 0); все числа конечны, A не больше 1. Раньше за видом в том же буфере лежало сырое (толщина, рождение) — вершины
+    /// разреза читали его как вид: A до 2·10⁴ и Inf, «гирлянда» ярких пикселей по краю среза.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Gpu")]
+    public void Gpu_SkinLayerOf_ServedLayer_CutVerticesNeutral()
+    {
+        var s = new SkinSurface(BloodBodyTests.Wall(seam: true));
+        var skin = new BloodSkin(s, 2);
+        int slot = skin.Acquire(7);
+        for (int w = 0; w < s.WeldCount; w++)
+            skin.Deposit(slot, w, 0.05f * (1 + w % 23) * skin.Area(w) * 1e3f, (w % 41) * 7f);
+        int v = s.VertexCount;
+        using var rig = new Rig();
+        using var gpu = new BloodSkinGpu(rig.Renderer, skin);
+        rig.Window.PumpMessages();
+        rig.Renderer.Render(f => gpu.Build(f, 300, 1, BloodLookParams.Default), vsync: false);
+        rig.Renderer.WaitForIdle();
+        var look = new ulong[v];
+        rig.Renderer.ReadStorage(gpu.Storage(slot), look.AsSpan());
+        var result = rig.Run("CsSkinLayer", 2 * v, gpu.Storage(slot), null);
+        int bloody = 0;
+        for (int i = 0; i < 2 * v; i++)
+        {
+            var (add, mul) = (result[2 * i], result[2 * i + 1]);
+            string at = i < v ? $"вершина основы {i}" : $"вершина разреза {i}";
+            Assert.True(float.IsFinite(add.X) && float.IsFinite(add.Y) && float.IsFinite(add.Z) && float.IsFinite(add.W), $"{at}: A {add}");
+            Assert.True(float.IsFinite(mul.X) && float.IsFinite(mul.Y) && float.IsFinite(mul.Z) && float.IsFinite(mul.W), $"{at}: M {mul}");
+            Assert.True(add.X is >= 0 and <= 1 && add.Y is >= 0 and <= 1 && add.Z is >= 0 and <= 1, $"{at}: A {add}");
+            if (i < v)
+            {
+                var (a, m) = Unpacked(look[i]);
+                Near(a, add, $"{at}: A и покрытие");
+                Near(m, mul, $"{at}: M и шероховатость");
+                if (a.W > 0) bloody++;
+            }
+            else
+            {
+                Assert.Equal(Vector4.Zero, add);
+                Assert.Equal(Vector4.One, mul);
+            }
+        }
+        output.WriteLine($"вершин основы {v}, в крови {bloody}; вершин разреза {v} — нейтральны");
+        Assert.True(bloody > v / 2, $"в крови {bloody} вершин из {v}");
     }
 
     /// <summary>

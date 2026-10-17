@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace Sword.Game.Blood;
 
-/// <summary>Изменённый элемент буфера крови слота для GPU: слот, элемент (<c>V + вершина меша</c>), два слова (толщина, мм; рождение, с).</summary>
+/// <summary>Изменённый элемент буфера крови слота для GPU: слот, вершина меша (элемент сырого буфера), два слова (толщина, мм; рождение, с).</summary>
 public readonly record struct BloodSkinEntry(int Slot, int Element, uint X, uint Y);
 
 /// <summary>
@@ -278,7 +278,7 @@ public sealed class BloodSkin
 
     /// <summary>
     /// Изменения с прошлого раза для GPU — по слотам подряд: каждая изменённая сваренная вершина — во все свои копии (элемент
-    /// <c>V + вершина меша</c>). Отметки снимаются.
+    /// — вершина меша). Отметки снимаются.
     /// </summary>
     public ReadOnlySpan<BloodSkinEntry> Gather()
     {
@@ -300,7 +300,7 @@ public sealed class BloodSkin
         foreach (int v in _surface.WeldCopies(weld))
         {
             if (count == _entries.Length) Array.Resize(ref _entries, _entries.Length * 2);
-            _entries[count++] = new BloodSkinEntry(slot, _vertices + v, x, y);
+            _entries[count++] = new BloodSkinEntry(slot, v, x, y);
         }
         return count;
     }

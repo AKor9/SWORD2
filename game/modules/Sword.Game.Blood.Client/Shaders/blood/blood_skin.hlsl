@@ -1,10 +1,12 @@
-// Blood on skin (BloodSkinGpu.cs): a buffer per fighter slot, uint2 elements - [0, V) the look of a mesh vertex (SkinLayerTexel: the skin
-// shader of the game reads it), [V, 2V) the raw state of the vertex (asfloat: thickness, mm; birth time, s - the age is now - birth).
-// CsClear zeroes a slot, CsScatter writes the raw elements changed on the CPU, CsLook turns raw into the look by the freshness function.
+// Blood on skin (BloodSkinGpu.cs): two buffers per fighter slot, uint2 x V each - the look of a mesh vertex (SkinLayerTexel: the skin
+// shader of the game reads it; exactly V elements - vertices added by a mesh cut, numbered >= V, are told by its size) and the raw state
+// of the vertex (asfloat: thickness, mm; birth time, s - the age is now - birth).
+// CsClear zeroes a buffer, CsScatter writes the raw elements changed on the CPU, CsLook turns raw into the look by the freshness function.
 #include "common/pass.hlsli"
 #include "blood/blood_look.hlsli"
 
-// Root constants (BloodSkinGpu.Contribute): 0...18 - the look numbers, gSkinTarget, gSkinCount, gSkinEntries, gSkinFirst, gSkinNow.
+// Root constants (BloodSkinGpu.Contribute): 0...18 - the look numbers, gSkinTarget, gSkinCount, gSkinEntries (CsScatter) or gSkinRaw
+// (CsLook, the same slot), gSkinFirst, gSkinNow.
 
 [numthreads(BLOOD_SKIN_GROUP, 1, 1)]
 void CsClear(uint3 id : SV_DispatchThreadID)
@@ -37,7 +39,8 @@ void CsLook(uint3 id : SV_DispatchThreadID)
     uint vertices = gSkinCount;
     if (id.x >= vertices) return;
     RWStructuredBuffer<uint2> target = ResourceDescriptorHeap[gSkinTarget];
-    uint2 raw = target[vertices + id.x];
+    RWStructuredBuffer<uint2> raws = ResourceDescriptorHeap[gSkinRaw];
+    uint2 raw = raws[id.x];
     float thickness = asfloat(raw.x);
     // A vertex without blood gets the neutral look (M = 1, A = 0, coverage 0, roughness of fresh blood), not zeros: the skin shader
     // interpolates the look across triangles, and M = 0 there drew a dark outline around every stain.
