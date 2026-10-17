@@ -324,6 +324,20 @@ public sealed class BloodModuleTests
         Assert.Equal(10, on.Blood.ObservedTicks);
     }
 
+    /// <summary>Часы крови в долгой игре: 600 шагов — 10 с и через 5 ч, и через 73 ч, и через неделю (сумма float там шла вбок и вставала).</summary>
+    [Fact]
+    public void Clock_LongPlay_KeepsPace()
+    {
+        const float dt = 1f / 60;
+        foreach (long hours in new long[] { 0, 5, 73, 7 * 24 })
+        {
+            long n = hours * 3600 * 60;
+            float c = BloodModule.ClockAt(n, dt), later = BloodModule.ClockAt(n + 600, dt);
+            Assert.InRange(c, n * (double)dt * (1 - 1e-6), n * (double)dt * (1 + 1e-6) + 1e-6);
+            Assert.InRange(later - c, 9.9, 10.1);
+        }
+    }
+
     [Fact]
     public void ModuleAndServices_SteadyFrame_DoNotAllocate()
     {

@@ -223,15 +223,19 @@ float MapSmooth(StructuredBuffer<uint> map, float2 f, out float birth)
     Cubic(f.x - i.x, kx, dkx);
     Cubic(f.y - i.y, kz, dkz);
     int2 t = n - 1;
-    float v = 0, vb = 0;
+    float v = 0, vb = 0, wb = 0;
     [unroll] for (int y = 0; y < 4; y++)
         [unroll] for (int x = 0; x < 4; x++)
         {
             float r = kx[x] * kz[y] * MapRho(map, t + int2(x, y), b);
             v += r;
-            vb += r * b;
+            // The birth - over the positive taps only: at the edge the negative lobes cancel rho to ~0, and a mean over unequal births
+            // divided by it left their range (an old stain's rim read as fresh).
+            float rb = max(r, 0);
+            wb += rb;
+            vb += rb * b;
         }
-    birth = vb / max(v, 1e-20);
+    birth = vb / max(wb, 1e-20);
     return max(v, 0);
 }
 
@@ -477,7 +481,7 @@ FilmOut PsFloor(float4 pos : SV_Position)
         FilmLook look = FilteredLook(ageBuf[t.x + t.y * BLOOD_FLOOR_N], fieldS, fieldFw, lp);
         // Film normal: slope of the film profile h_c (1 - exp(-h / h_c)) (steep at the thin edge - meniscus, flat in the thick middle) from
         // the smooth field's gradient x normalScale, plus the still ripple (world noise), in the receiver basis.
-        float dProfile = c.thickMmPerRho * exp(-fieldRho * c.thickMmPerRho / c.meniscusMm);
+        float dProfile = c.thickMmPerRho * exp(-max(fieldRho, 0) * c.thickMmPerRho / c.meniscusMm);   // the negative lobe: no exp overflow
         float2 slope = fieldGrad * (dProfile * 1e-3 / BLOOD_TEXEL * c.normalScale);
         float2 q = p.xz / c.rippleSize;
         float2 ripple = (RippleGradient(q) + 0.5 * RippleGradient(q * 2.31 + 17.3)) * c.ripple;

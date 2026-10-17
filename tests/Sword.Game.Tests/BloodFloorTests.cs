@@ -336,6 +336,60 @@ public sealed class BloodFloorGpuTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Полёт капли на GPU (<c>blood_flight.hlsli</c>, им рисуются капли в полёте) = <see cref="BloodFlight"/> (по нему — приземление и
+    /// прилипание): те же точка и скорость на 200 случаях (k 0.01…20 1/с — весь диапазон ручки, t до 1.5 с) с точностью до ошибок exp.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Gpu")]
+    public void Gpu_Flight_EqualsCpuClosedForm()
+    {
+        const int n = 200;
+        var cases = new Vector4[2 * n];
+        for (int i = 0; i < n; i++)
+        {
+            float k = 0.01f * MathF.Pow(2000, i / (n - 1f));
+            cases[2 * i] = new Vector4(-0.5f + 0.01f * i, 1.2f - 0.003f * i, 0.3f * MathF.Sin(i), k);
+            cases[2 * i + 1] = new Vector4(3 * MathF.Cos(0.7f * i), 4 * MathF.Sin(0.3f * i), 2 * MathF.Cos(1.3f * i), 1.5f * ((i * 37) % n) / n);
+        }
+        using var rig = new Rig();
+        using var input = rig.Renderer.CreateStorage<Vector4>("test.flight.in", cases);
+        using var result = rig.Renderer.CreateStorage<Vector4>("test.flight.out", 2 * n);
+        rig.Window.PumpMessages();
+        rig.Renderer.Render(f =>
+        {
+            var a = f.Graph.Import(input);
+            var b = f.Graph.Import(result);
+            int srv = f.Graph.SrvOf(a), uav = f.Graph.UavOf(b);
+            f.Graph.AddComputePass("test.flight", FramePhase.Simulation).Read(a).Write(b).Execute(ctx =>
+            {
+                ctx.SetPipeline(new ComputePipelineDesc("blood_flight_tests.hlsl", "CsFlight"));
+                ctx.SetConstant(0, srv);
+                ctx.SetConstant(1, uav);
+                ctx.SetConstant(2, n);
+                ctx.Dispatch((n + 63) / 64);
+            });
+        }, vsync: false);
+        rig.Renderer.WaitForIdle();
+        var gpu = new Vector4[2 * n];
+        rig.Renderer.ReadStorage(result, gpu.AsSpan());
+        float worstX = 0, worstV = 0;
+        for (int i = 0; i < n; i++)
+        {
+            var (a, b) = (cases[2 * i], cases[2 * i + 1]);
+            var x0 = new Vector3(a.X, a.Y, a.Z);
+            var v0 = new Vector3(b.X, b.Y, b.Z);
+            var x = BloodFlight.Position(x0, v0, a.W, b.W);
+            var v = BloodFlight.Velocity(v0, a.W, b.W);
+            float dx = Vector3.Distance(x, new Vector3(gpu[2 * i].X, gpu[2 * i].Y, gpu[2 * i].Z));
+            float dv = Vector3.Distance(v, new Vector3(gpu[2 * i + 1].X, gpu[2 * i + 1].Y, gpu[2 * i + 1].Z));
+            worstX = MathF.Max(worstX, dx);
+            worstV = MathF.Max(worstV, dv);
+            Assert.True(dx <= 2e-4f && dv <= 2e-4f, $"случай {i} (k {a.W}, t {b.W}): точка {x} против GPU {gpu[2 * i]}, скорость {v} против {gpu[2 * i + 1]}");
+        }
+        output.WriteLine($"GPU − CPU: точка до {worstX * 1e3:F4} мм, скорость до {worstV * 1e3:F4} мм/с");
+    }
+
     [Fact]
     [Trait("Category", "Gpu")]
     public void Gpu_ShapedStamps_Mass_DriedToMap_EpochBirth_DropsOutsideToMap()

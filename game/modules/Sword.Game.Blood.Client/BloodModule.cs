@@ -135,6 +135,13 @@ public sealed class BloodModule : IClientModule
     /// <summary>Часы крови, с: шагов × шаг (пауза — стоят); возраст крови на коже — от них.</summary>
     public float Clock => _clock;
 
+    /// <summary>
+    /// Часы после <paramref name="steps"/> шагов по <paramref name="stepDt"/> с — произведением в double, а не суммой float: сумма теряет шаг
+    /// (шаг 1/60 с: с ~5 ч часы шли на 5–6 % вбок, с ~73 ч — почти вдвое быстрее, с ~6 суток шаг меньше полушага float — часы
+    /// вставали и кровь переставала сохнуть).
+    /// </summary>
+    public static float ClockAt(long steps, float stepDt) => (float)(steps * (double)stepDt);
+
     /// <summary>Радиус пятна у раны по урону, м.</summary>
     public static float SpotRadius(float damage, BloodTuning t) => Math.Clamp(t.SpotRadiusMin + damage * t.SpotRadiusPerDamage, t.SpotRadiusMin, t.SpotRadiusMax);
 
@@ -404,8 +411,8 @@ public sealed class BloodModule : IClientModule
         bool step = IsStep(tick);
         if (step)
         {
-            _clock += _stepDt;
             _steps++;
+            _clock = ClockAt(_steps, _stepDt);
         }
         if (_bladeBlood is { } blades)
         {

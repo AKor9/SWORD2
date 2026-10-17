@@ -4,7 +4,7 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Blood;
 
 /// <summary>
-/// Полёт капли с линейным сопротивлением (dv/dt = g − k·v): замкнутая формула x(t) = x0 + v∞t + (v0 − v∞)(1 − e^(−kt))/k, v∞ = g/k —
+/// Полёт капли с линейным сопротивлением (dv/dt = g − k·v): замкнутая формула x(t) = x0 + v∞t + (v0 − v∞)(1 − e^(−kt))/k, v∞ = g/k (считается без вычитания близких чисел) —
 /// та же в HLSL (<c>Shaders/blood/blood_flight.hlsli</c>, <c>BloodFlightPosition</c>). Приземление — на CPU по рельефу <see cref="ITerrainView"/>:
 /// первый тик, на котором капля не выше рельефа, затем точка — делением отрезка этого тика пополам.
 /// </summary>
@@ -18,19 +18,44 @@ public static class BloodFlight
     /// <summary>Сопротивление не меньше, 1/с (формула делит на k).</summary>
     public const float MinDrag = 1e-3f;
 
+    /// <summary>x(t) = x0 + v0·t·φ(kt) + g·t²·ψ(kt) — та же формула без вычитания близких чисел (v∞·t против v∞·(1 − e^(−kt))/k при малом k).</summary>
     public static Vector3 Position(Vector3 x0, Vector3 v0, float k, float t)
     {
         k = MathF.Max(k, MinDrag);
-        var vInf = new Vector3(0, -Gravity / k, 0);
-        float e = (1 - MathF.Exp(-k * t)) / k;
-        return x0 + vInf * t + (v0 - vInf) * e;
+        Terms(k * t, out float phi, out float psi, out _);
+        return x0 + v0 * (t * phi) + new Vector3(0, -Gravity * (t * t * psi), 0);
     }
 
+    /// <summary>v(t) = v0·e^(−kt) + g·t·φ(kt).</summary>
     public static Vector3 Velocity(Vector3 v0, float k, float t)
     {
         k = MathF.Max(k, MinDrag);
-        var vInf = new Vector3(0, -Gravity / k, 0);
-        return vInf + (v0 - vInf) * MathF.Exp(-k * t);
+        Terms(k * t, out float phi, out _, out float decay);
+        return v0 * decay + new Vector3(0, -Gravity * (t * phi), 0);
+    }
+
+    /// <summary>Скорость вылета, с которой капля через <paramref name="t"/> с окажется в <paramref name="to"/> от точки вылета.</summary>
+    public static Vector3 Launch(Vector3 to, float k, float t)
+    {
+        k = MathF.Max(k, MinDrag);
+        Terms(k * t, out float phi, out float psi, out _);
+        return (to - new Vector3(0, -Gravity * (t * t * psi), 0)) / (t * phi);
+    }
+
+    /// <summary>φ(z) = (1 − e^(−z))/z, ψ(z) = (z − 1 + e^(−z))/z², e^(−z); при z &lt; 0.1 — ряды Тейлора (HLSL <c>BloodFlightTerms</c>).</summary>
+    private static void Terms(float z, out float phi, out float psi, out float decay)
+    {
+        decay = MathF.Exp(-z);
+        if (z < 0.1f)
+        {
+            phi = 1 - z * (0.5f - z * (1f / 6 - z * (1f / 24)));
+            psi = 0.5f - z * (1f / 6 - z * (1f / 24 - z * (1f / 120)));
+        }
+        else
+        {
+            phi = (1 - decay) / z;
+            psi = (z - 1 + decay) / (z * z);
+        }
     }
 
     /// <summary>

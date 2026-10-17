@@ -118,9 +118,7 @@ public sealed class BloodSpray
         float dist = to.Length();
         if (!(dist > 0.05f)) return false;
         float time = dist / MathF.Max(u, 0.1f);
-        float k = MathF.Max(t.DropDrag, BloodFlight.MinDrag);
-        var vInf = new Vector3(0, -BloodFlight.Gravity / k, 0);
-        v = vInf + (to - vInf * time) * (k / (1 - MathF.Exp(-k * time)));
+        v = BloodFlight.Launch(to, t.DropDrag, time);
         return v.Length() <= 1.5f * t.SprayMaxSpeed;
     }
 
