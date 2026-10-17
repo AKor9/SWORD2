@@ -428,7 +428,7 @@ public sealed class BloodBodyTests(ITestOutputHelper output)
                     (bySegment.TryGetValue(h.Segment, out var list) ? list : bySegment[h.Segment] = []).Add(gap);
                 }
             };
-            for (int f = 0; f < 400; f++) a.Frame(f);
+            for (int f = 0; f < 1200; f++) a.Frame(f);
             return all;
         }
         var first = Run(true, out var arena);
