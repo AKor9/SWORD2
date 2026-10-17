@@ -33,14 +33,20 @@ public readonly record struct BloodMapStamp(Vector2 Xz, float Volume);
 
 /// <summary>
 /// Капля в полёте: отрыв (точка, скорость, тик), приземление (тик, время после отрыва, точка, скорость), объём, мл, зерно формы; чья (ключ
-/// бойца) и липнет ли к телам бойцов (брызги из раны — <see cref="BloodFloor.Collide"/>).
+/// бойца) и липнет ли к телам бойцов (брызги из раны — <see cref="BloodFloor.Collide"/>). Приземление ищется по шагам
+/// (<see cref="BloodFloor.Lookahead"/> тиков вперёд): пока не найдено — <see cref="LandTick"/> = <see cref="ulong.MaxValue"/>, время — +∞;
+/// <see cref="Checked"/> — тиков после отрыва, на которых капля ещё выше рельефа (−1 — точка отрыва не проверена), <see cref="Drag"/> —
+/// сопротивление полёта.
 /// </summary>
 public readonly record struct BloodFlying(Vector3 X0, Vector3 V0, ulong Tick0, ulong LandTick, float LandTime, Vector3 Land, float Volume,
-    Vector3 LandVelocity, uint Seed, ulong Owner = 0, bool Sticky = false);
+    Vector3 LandVelocity, uint Seed, ulong Owner = 0, bool Sticky = false, int Checked = -1, float Drag = 0)
+{
+    public bool Landed => LandTick != ulong.MaxValue;
+}
 
 /// <summary>
 /// Кровь на полу на CPU: капли от тела (<see cref="BloodDrips.Drops"/>) и из ран трупа — полёт замкнутой формулой (<see cref="BloodFlight"/>),
-/// приземление по рельефу сразу при отрыве (тик, точка, скорость) → штамп формы пака в шаг после тика приземления (капля на экране — до
+/// приземление по рельефу тик за тиком на шагах полёта (тик, точка, скорость) → штамп формы пака в шаг после тика приземления (капля на экране — до
 /// касания); окно сима 32 м у игрока: центр — тексель, пересадка целыми текселями, когда игрок ушёл от центра дальше <see cref="Hysteresis"/>
 /// по оси; капля вне окна — прямо в карту пятен. Отладочная лужа — выливание из точки. Заявки шагов — GPU-симуляции (<see cref="BloodFloorGpu"/>).
 /// Пауза — шагов нет, кровь стоит. Буферы растут удвоением.
@@ -67,6 +73,13 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
 
     /// <summary>Полёт не дольше, тиков (дальше капля пропадает).</summary>
     public const int MaxFlightTicks = 600;
+
+    /// <summary>
+    /// Приземление ищется не дальше стольких тиков после тика шага: тик за тиком, как при расчёте сразу (тот же тик и точка), но
+    /// разложено по шагам полёта — удар с сотнями капель не считает их приземления в одном тике. Запас покрывает показ кадра до
+    /// следующего шага (шаг 60 Гц — 2 тика при 120).
+    /// </summary>
+    public const int Lookahead = 4;
 
     /// <summary>Точек приземления на оверлее (кольцо).</summary>
     public const int RecentLandings = 64;
@@ -173,7 +186,7 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
         _resetPending = true;
     }
 
-    /// <summary>Отрывы шага: приземление по рельефу на CPU (тик, точка, скорость) — сразу; в полёт. Зерно формы — (боец, тик, номер в шаге).</summary>
+    /// <summary>Отрывы шага: в полёт; приземление по рельефу на CPU (тик, точка, скорость) — по шагам (<see cref="Advance"/>). Зерно формы — (боец, тик, номер в шаге).</summary>
     public void Detach(ReadOnlySpan<BloodDrop> drops, ITerrainView? terrain, float drag, float tickDt)
     {
         for (int i = 0; i < drops.Length; i++) DetachOne(drops[i], i, terrain, drag, tickDt, 0, false);
@@ -192,17 +205,77 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
     {
         Detached++;
         DetachedMl += d.Volume;
-        if (!BloodFlight.Land(terrain, d.Position, d.Velocity, drag, tickDt, MaxFlightTicks, out int ticks, out float t, out var point))
+        _terrain = terrain;
+        _tickDt = tickDt;
+        uint seed = BloodHash.Seed(d.Fighter, d.Tick, 0);
+        if (salt != 0) seed = BloodHash.Combine(seed, salt);
+        seed = BloodHash.Combine(seed, (uint)index);
+        var f = new BloodFlying(d.Position, d.Velocity, d.Tick, ulong.MaxValue, float.PositiveInfinity, default, d.Volume, default, seed,
+            d.Fighter, sticky, -1, drag);
+        if (!Resolve(ref f, d.Tick + Lookahead))
         {
             Lost++;
             return;
         }
         if (_flyingCount == _flying.Length) Array.Resize(ref _flying, _flying.Length * 2);
-        uint seed = BloodHash.Seed(d.Fighter, d.Tick, 0);
-        if (salt != 0) seed = BloodHash.Combine(seed, salt);
-        seed = BloodHash.Combine(seed, (uint)index);
-        _flying[_flyingCount++] = new BloodFlying(d.Position, d.Velocity, d.Tick, d.Tick + (ulong)ticks, t, point, d.Volume,
-            BloodFlight.Velocity(d.Velocity, drag, t), seed, d.Fighter, sticky);
+        _flying[_flyingCount++] = f;
+    }
+
+    private ITerrainView? _terrain;
+    private float _tickDt = 1f / 120;
+
+    /// <summary>
+    /// Приземления капель в полёте — до тика <paramref name="tick"/> + <see cref="Lookahead"/> (тесты: все до конца — большой тик). Капля,
+    /// не коснувшаяся рельефа за <see cref="MaxFlightTicks"/>, пропадает.
+    /// </summary>
+    public void Advance(ulong tick)
+    {
+        int w = 0;
+        for (int i = 0; i < _flyingCount; i++)
+        {
+            if (!Resolve(ref _flying[i], tick + Lookahead))
+            {
+                Lost++;
+                continue;
+            }
+            _flying[w++] = _flying[i];
+        }
+        _flyingCount = w;
+    }
+
+    /// <summary>
+    /// Приземление капли — тик за тиком до <paramref name="upTo"/> (те же тики и деление пополам, что у <see cref="BloodFlight.Land"/>);
+    /// false — не коснулась за <see cref="MaxFlightTicks"/>.
+    /// </summary>
+    private bool Resolve(ref BloodFlying f, ulong upTo)
+    {
+        if (f.Landed) return true;
+        var terrain = _terrain;
+        float k = f.Drag, dt = _tickDt;
+        int j = f.Checked;
+        if (j < 0)
+        {
+            if (BloodFlight.Down(terrain, f.X0, f.V0, k, dt, 0))
+            {
+                f = f with
+                {
+                    LandTick = f.Tick0, LandTime = 0, Land = new Vector3(f.X0.X, terrain?.Height(f.X0.X, f.X0.Z) ?? 0, f.X0.Z),
+                    LandVelocity = BloodFlight.Velocity(f.V0, k, 0), Checked = 0,
+                };
+                return true;
+            }
+            j = 0;
+        }
+        int limit = upTo > f.Tick0 ? (int)Math.Min(upTo - f.Tick0, MaxFlightTicks) : 0;
+        for (int next = j + 1; next <= limit; next++)
+        {
+            if (!BloodFlight.Down(terrain, f.X0, f.V0, k, dt, next)) continue;
+            BloodFlight.Touch(terrain, f.X0, f.V0, k, dt, next, out float t, out var point);
+            f = f with { LandTick = f.Tick0 + (ulong)next, LandTime = t, Land = point, LandVelocity = BloodFlight.Velocity(f.V0, k, t), Checked = next };
+            return true;
+        }
+        if (limit > j) f = f with { Checked = limit };
+        return limit < MaxFlightTicks;
     }
 
     /// <summary>Запас к шару бойца для отбора, м.</summary>
@@ -231,6 +304,7 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
         _stickCount = 0;
         ulong since = _collided;
         _collided = tick;
+        Advance(tick);
         if (!AnySticky()) return Sticks;   // позы не трогать: снимок поз всех бойцов — при первом обращении в тике
         int fighters = poses.Count;
         if (_bounds.Length < fighters)
@@ -358,6 +432,7 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
         _cx += sx;
         _cz += sz;
         int first0 = _stampCount, map0 = _mapStampCount;
+        Advance(tick);
         int w = 0;
         for (int i = 0; i < _flyingCount; i++)
         {

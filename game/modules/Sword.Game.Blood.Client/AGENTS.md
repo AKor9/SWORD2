@@ -5,9 +5,10 @@
 
 Инварианты:
 - Только представление: мира ECS модуль не видит (ни `Entity`, ни запросов) — игра приходит сервисами `Sword.Game.Contracts`
-  (`IBloodFeed`, `IFighterPoses`, `ISkinMesh`, `ITerrainView`, `ISceneSky`, `ISkinBloodLayer`); в симуляцию, хеш и реплей модуль ничего не пишет.
+  (`IBloodFeed`, `IFighterPoses`, `ISkinMesh`, `ITerrainView`, `ISceneSky`, `ISkinBloodLayer`, `IWeaponTips`, `IWeaponBloodLayer`); в симуляцию, хеш и реплей модуль ничего не пишет.
 - Функция свежести — одна: `BloodLook.Evaluate` (C#) и `BloodLookEval` (`Shaders/blood/blood_look.hlsli`) меняются вместе
-  (`BloodSkinGpuTests`); упаковка вида вершины — `SkinLayerTexel` (Contracts) = `SkinLayerOf` в `scene.hlsl` игры.
+  (`BloodSkinGpuTests`); упаковка вида вершины — `SkinLayerTexel` (Contracts) = `SkinLayerOf` в `scene.hlsl` игры; буфер крови лезвия —
+  `WeaponBloodLayout` (Contracts) = `WeaponLayerOf` там же.
 - Такт — по `TickId` наблюдателя тиков (`AfterTick`): события и позы читаются там, где они ровно этого тика; часов кадра нет, пауза — кровь
   стоит. Рождение случайного — из хеша (зерно, `TickId`, `ContactIndex`), не из `Random`.
 - Кадр модуля и сервисов — 0 Б: буферы заводятся при старте или растут удвоением, делегаты проходов — поля.
@@ -22,8 +23,8 @@
 
 Видно: `Sword.exe --json` → `blood.feed` (тики, попадания, смерти, постройки, сбросы, последний кадр, бойцов в позах),
 `blood.services`, `blood.wounds` (с `ooze`), `blood.skin`, `blood.drips`, `blood.floor` (`fieldHash`, мл окна и карты), `blood.spray`
-(брызги, на коже, касания); оверлеи `blood` (с рамкой окна пола и приземлениями), `blood.wounds`, `blood.drips`; вкладка F3 «Кровь» (лужа
-под игроком: `--tune blood.puddle=1`). Снимки боя — `--attack` (удар каждый тик), `--fps 60` и `--set combat.playerInvulnerable=true`:
+(брызги, на коже, касания), `blood.blade` (кровь на клинках); оверлеи `blood` (с рамкой окна пола и приземлениями), `blood.wounds`, `blood.drips`; вкладка F3 «Кровь» (лужа
+под игроком: `--tune blood.puddle=1`; кровь на мече игрока: `--tune blood.bladeSmear=1`). Снимки боя — `--attack` (удар каждый тик), `--fps 60` и `--set combat.playerInvulnerable=true`:
 прогон повторяется, `blood.feed.deathsAt` — куда ставить `--camera`.
 
 Типичные ошибки: читать `IBloodFeed` вне наблюдателя тиков и ждать всех тиков кадра (отдаётся последний сыгранный); якорь раны по позе

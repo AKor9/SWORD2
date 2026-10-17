@@ -415,6 +415,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// <summary>Слой крови на коже для модуля крови: SRV вида по вершинам бойца — в <c>owner</c> экземпляра скина.</summary>
     public ArenaSkinBloodLayer SkinBlood { get; } = new();
 
+    /// <summary>Слой крови на оружии для модуля крови: SRV крови лезвия бойца — в <c>owner</c> частей его оружия.</summary>
+    public ArenaWeaponBloodLayer WeaponBlood { get; } = new();
+
     /// <summary>Группа ручек «Свет» (<see cref="LightTuning"/>); null — до <see cref="Initialize"/>.</summary>
     public TuningGroup? Light => _light;
 
@@ -487,6 +490,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         c.Add("TERRAIN_HALF", _field.Half, "полуразмер сетки рельефа, м");
         c.Add("PILLAR_COUNT", ArenaLayout.PillarCount, "колонн в константах кадра");
         c.Add("SCENE_MATERIAL_METAL", SceneMaterial.Metal, "бит металла материала (SceneMaterial)");
+        c.Add("SCENE_MATERIAL_WEAPON_LAYER", SceneMaterial.WeaponLayer, "бит слоя крови оружия: owner экземпляра — SRV + 1 (SceneMaterial)");
+        c.Add("WEAPON_BLOOD_HEADER", WeaponBloodLayout.Header, "элементов заголовка буфера крови лезвия (WeaponBloodLayout)");
         c.Add("SCENE_MATERIAL_GROUND", SceneMaterial.Ground, "материал пола и рельефа");
         c.Add("SCENE_MATERIAL_PILLAR", SceneMaterial.Pillar, "материал колонн");
         c.AddSlot("R_TERRAIN", SlotTerrain, "высоты узлов рельефа (HeightField, по строкам z)");
@@ -543,6 +548,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
             _weapons[w] = [.. sections.Select(p => (p.Mesh, WeaponMaterialColour(p.Material), SceneMaterial.OfWeaponPart(p.Material)))];
             _weaponNames[w] = weapons[w].Name;
         }
+        WeaponBlood.Load(weapons, Sword.Game.Combat.WeaponBloodZones.LoadFromPak(weapons));
         // Жест удара: направления замаха рубящих ударов таблицы — в системе бойца.
         var swings = new List<Vector2>();
         foreach (var a in _simulation.World.View<ICombatView>().Attacks)
@@ -746,7 +752,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         for (int i = 0; i < fighters.Count; i++)
         {
             var fighter = fighters[i];
-            if ((uint)fighter.Weapon < (uint)_weapons.Length && AddWeapon(_weapons[fighter.Weapon], fighter.WeaponWorld))
+            if ((uint)fighter.Weapon < (uint)_weapons.Length && AddWeapon(_weapons[fighter.Weapon], fighter.WeaponWorld,
+                    WeaponBlood.OwnerOf(FighterKey.Of(fighter.Entity), fighter.Weapon)))
                 armed++;
         }
         DrawnWeapons = armed;
@@ -790,11 +797,16 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         profiler.End(_zones.Bodies);
     }
 
-    /// <summary>Оружие бойца — все части меша своими цветами в одном мире; false — места в кадре не хватило хоть одной части.</summary>
-    private bool AddWeapon((int Mesh, Vector3 Colour, uint Material)[] parts, in Matrix4x4 world)
+    /// <summary>
+    /// Оружие бойца — все части меша своими цветами в одном мире; <paramref name="blood"/> — слой крови лезвия (SRV + 1, 0 — нет: бит
+    /// <see cref="SceneMaterial.WeaponLayer"/> не ставится); false — места в кадре не хватило хоть одной части.
+    /// </summary>
+    private bool AddWeapon((int Mesh, Vector3 Colour, uint Material)[] parts, in Matrix4x4 world, uint blood)
     {
         bool all = true;
-        foreach (var (mesh, colour, material) in parts) all &= _renderer!.Skinned.AddRigid(mesh, world, colour, flags: material);
+        uint layer = blood != 0 ? SceneMaterial.WeaponLayer : 0;
+        foreach (var (mesh, colour, material) in parts)
+            all &= _renderer!.Skinned.AddRigid(mesh, world, colour, owner: blood, flags: material | layer);
         return all;
     }
 

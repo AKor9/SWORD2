@@ -118,6 +118,46 @@ public sealed class BloodTuning
     /// <summary>Прилипшая к коже капля — пятно толщины не больше этой, мм (радиус — от объёма, 0.8…3 см).</summary>
     public float SprayStickMm { get; set; } = 0.15f;
 
+    /// <summary>
+    /// Кровь на клинке: крови на единицу урона попадания, мл (на обе стороны лезвия), размазано вдоль лезвия на ±столько клеток (клинок
+    /// проходит сквозь тело).
+    /// </summary>
+    public float BladePerDamage { get; set; } = 0.05f;
+    public float BladeSpreadCells { get; set; } = 2.5f;
+
+    /// <summary>Отладочная кровь на мече игрока (кнопка F3, <c>--tune blood.bladeSmear=1</c>), мл.</summary>
+    public float SmearMl { get; set; } = 4;
+
+    /// <summary>Плёнка на клинке толщиной до этой, мм, стоит (смачивает сталь); течёт только избыток.</summary>
+    public float BladeHoldMm { get; set; } = 0.03f;
+
+    /// <summary>
+    /// Плёнка на клинке тоньше этой, мм, покрывает сталь не сплошь: покрытие клетки — толщина / это (шейдер оружия рвёт край по шуму
+    /// полосами вдоль лезвия), толще — сплошь.
+    /// </summary>
+    public float BladeCoverMm { get; set; } = 0.05f;
+
+    /// <summary>
+    /// Тонкая плёнка течёт медленнее (вязкий слой: скорость ∝ h²): скорость × ((h − смачивающий слой) / это, мм)², не больше 1.
+    /// </summary>
+    public float BladeRunMm { get; set; } = 0.15f;
+
+    /// <summary>Вязкость крови на клинке k, 1/с: скорость стекания — проекция (g − a) на ось клинка / k (отвесно — 25 см/с).</summary>
+    public float BladeViscosity { get; set; } = 40;
+
+    /// <summary>Капля на кончике или у гарды отрывается с такого объёма, мл; при рывке сильнее <see cref="JerkAccel"/> — с <see cref="BladeJerkMl"/>.</summary>
+    public float BladeDetachMl { get; set; } = 0.08f;
+    public float BladeJerkMl { get; set; } = 0.03f;
+
+    /// <summary>
+    /// Взмах стряхивает кровь: сила инерции от плоскости лезвия сильнее, м/с², — доля подвижной крови за шаг до <see cref="BladeShakeShare"/>
+    /// (полная при вдвое большей силе); капли — по группам <see cref="BladeShakeGroup"/> клеток не меньше <see cref="BladeShakeMinMl"/>, мл.
+    /// </summary>
+    public float BladeShakeAccel { get; set; } = 120;
+    public float BladeShakeShare { get; set; } = 0.35f;
+    public int BladeShakeGroup { get; set; } = 2;
+    public float BladeShakeMinMl { get; set; } = 0.004f;
+
     /// <summary>Сопротивление полёта капли k, 1/с: dv/dt = g − k·v (предельная скорость g/k).</summary>
     public float DropDrag { get; set; } = 2;
 

@@ -9,6 +9,9 @@ public static class SceneMaterial
     /// <summary>Бит металла: f0 — альбедо, рассеянного света нет.</summary>
     public const uint Metal = 0x100;
 
+    /// <summary>Бит слоя крови оружия: <c>owner</c> экземпляра — SRV крови лезвия + 1 (<c>IWeaponBloodLayer</c>), а не слой кожи.</summary>
+    public const uint WeaponLayer = 0x200;
+
     public static uint Pack(float roughness, bool metal = false) =>
         (uint)MathF.Round(Math.Clamp(roughness, 0f, 1f) * 255) | (metal ? Metal : 0);
 

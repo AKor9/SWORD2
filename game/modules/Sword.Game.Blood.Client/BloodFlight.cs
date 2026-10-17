@@ -41,7 +41,7 @@ public static class BloodFlight
     public static bool Land(ITerrainView? terrain, Vector3 x0, Vector3 v0, float k, float tickDt, int maxTicks, out int ticks, out float t,
         out Vector3 point)
     {
-        if (Above(terrain, x0) <= 0)
+        if (Down(terrain, x0, v0, k, tickDt, 0))
         {
             ticks = 0;
             t = 0;
@@ -50,25 +50,37 @@ public static class BloodFlight
         }
         for (int j = 1; j <= maxTicks; j++)
         {
-            float t1 = j * tickDt;
-            if (Above(terrain, Position(x0, v0, k, t1)) > 0) continue;
-            float a = (j - 1) * tickDt, b = t1;
-            for (int i = 0; i < 40; i++)
-            {
-                float m = 0.5f * (a + b);
-                if (Above(terrain, Position(x0, v0, k, m)) > 0) a = m;
-                else b = m;
-            }
+            if (!Down(terrain, x0, v0, k, tickDt, j)) continue;
             ticks = j;
-            t = b;
-            var p = Position(x0, v0, k, b);
-            point = new Vector3(p.X, Ground(terrain, p.X, p.Z), p.Z);
+            Touch(terrain, x0, v0, k, tickDt, j, out t, out point);
             return true;
         }
         ticks = 0;
         t = 0;
         point = default;
         return false;
+    }
+
+    /// <summary>Капля на тике <paramref name="j"/> после отрыва уже не выше рельефа (j = 0 — точка отрыва).</summary>
+    public static bool Down(ITerrainView? terrain, Vector3 x0, Vector3 v0, float k, float tickDt, int j) =>
+        Above(terrain, j == 0 ? x0 : Position(x0, v0, k, j * tickDt)) <= 0;
+
+    /// <summary>
+    /// Касание внутри тика <paramref name="j"/> ≥ 1 (на j − 1 капля выше рельефа, на j — нет): время — делением отрезка тика пополам, точка
+    /// (y — высота рельефа).
+    /// </summary>
+    public static void Touch(ITerrainView? terrain, Vector3 x0, Vector3 v0, float k, float tickDt, int j, out float t, out Vector3 point)
+    {
+        float a = (j - 1) * tickDt, b = j * tickDt;
+        for (int i = 0; i < 40; i++)
+        {
+            float m = 0.5f * (a + b);
+            if (Above(terrain, Position(x0, v0, k, m)) > 0) a = m;
+            else b = m;
+        }
+        t = b;
+        var p = Position(x0, v0, k, b);
+        point = new Vector3(p.X, Ground(terrain, p.X, p.Z), p.Z);
     }
 
     private static float Ground(ITerrainView? terrain, float x, float z) => terrain?.Height(x, z) ?? 0;

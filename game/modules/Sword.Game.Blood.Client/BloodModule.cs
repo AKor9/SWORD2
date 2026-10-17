@@ -52,6 +52,14 @@ public sealed class BloodModule : IClientModule
     private ISceneSky? _sky;
     private ISkinBloodLayer? _layer;
     private ISceneFog? _fog;
+    private IWeaponTips? _tips;
+    private IWeaponBloodLayer? _weaponLayer;
+    private BloodBlade? _bladeBlood;
+    private BloodBladeGpu? _bladeGpu;
+    private WeaponTip[] _tipBuf = new WeaponTip[64];
+    private int _tipCount;
+    private ulong _tipsTick = ulong.MaxValue;
+    private readonly Func<ulong, int, int> _bladeSrvOf;
     private BloodFloor? _floor;
     private BloodFloorGpu? _floorGpu;
     private SimRequests? _floorRequests;
@@ -83,7 +91,22 @@ public sealed class BloodModule : IClientModule
     {
         _dead = fighter => _feed is { } feed && feed.TryBleed(fighter, out _, out bool dead) && dead;
         _srvOf = fighter => _skin is { } skin && _skinGpu is { } gpu ? gpu.Srv(skin.SlotOf(fighter)) : -1;
+        _bladeSrvOf = BladeSrv;
     }
+
+    /// <summary>SRV крови лезвия оружия <paramref name="weapon"/> бойца для кадра; крови нет — −1.</summary>
+    private int BladeSrv(ulong fighter, int weapon)
+    {
+        if (_bladeBlood is not { } blade || _bladeGpu is not { } gpu) return -1;
+        int slot = blade.SlotOf(fighter);
+        return slot >= 0 && blade.Weapon(slot) == weapon ? gpu.Srv(slot, _clock, _steps, Tuning.Look, Tuning.BladeCoverMm) : -1;
+    }
+
+    /// <summary>Кровь на клинках (сервисы оружия есть и <c>blood.blade</c>); иначе null.</summary>
+    public BloodBlade? BladeBlood => _bladeBlood;
+
+    /// <summary>Кровь на клинках для шейдера оружия (после инициализации с рендером).</summary>
+    public BloodBladeGpu? BladeGpu => _bladeGpu;
 
     public string Id => ModuleId;
 
@@ -172,6 +195,9 @@ public sealed class BloodModule : IClientModule
         _sky = b.Service<ISceneSky>();
         _layer = b.Service<ISkinBloodLayer>();
         _fog = b.Service<ISceneFog>();
+        _tips = b.Service<IWeaponTips>();
+        _weaponLayer = b.Service<IWeaponBloodLayer>();
+        if (settings.Blade && _tips is not null && _weaponLayer is not null) _bladeBlood = new BloodBlade(settings.BladeSlots, Tuning);
         if (_feed is null) Log.Warning(ModuleId, "событий боя нет (клиент игры не дал IBloodFeed) — крови не будет");
         _shown = new (Vector3, uint, float)[settings.ShownHits];
         _tickRate = Math.Max(1, (int)Math.Round(1.0 / b.TickDt));
@@ -184,6 +210,7 @@ public sealed class BloodModule : IClientModule
         b.Extract((in FrameView view) =>
         {
             EndFrame();
+            _bladeGpu?.BeginFrame();
             _floorGpu?.SetDisplayTick((double)_lastTick - 1 + view.Alpha);   // double: без перехода через 0 у ulong и потери доли тика
         });
         ClientModuleContext? context = null;
@@ -215,6 +242,11 @@ public sealed class BloodModule : IClientModule
                 _skinGpu = c.Own(new BloodSkinGpu(c.Renderer, _skin));
                 _layer.Attach(_srvOf);
             }
+            if (_bladeBlood is not null && _weaponLayer is not null)
+            {
+                _bladeGpu = c.Own(new BloodBladeGpu(c.Renderer, _bladeBlood));
+                _weaponLayer.Attach(_bladeSrvOf);
+            }
         });
         if (settings.Body)
         {
@@ -238,6 +270,13 @@ public sealed class BloodModule : IClientModule
             .Float("sprayOutward", "брызги: наружу по нормали", () => t.SprayOutward, v => t.SprayOutward = v, 0f, 2f, format: "0.##")
             .Float("spraySpeedMax", "брызги: скорость до, × кончика", () => t.SpraySpeedMax, v => t.SpraySpeedMax = v, 0.05f, 1.5f, format: "0.##")
             .Float("sprayBackShare", "брызги: доля к атакующему", () => t.SprayBackShare, v => t.SprayBackShare = v, 0f, 1f, format: "0.##")
+            .Float("bladePerDamage", "клинок: крови на урон, мл", () => t.BladePerDamage, v => t.BladePerDamage = v, 0f, 1f, format: "0.###")
+            .Float("bladeViscosity", "клинок: вязкость k, 1/с", () => t.BladeViscosity, v => t.BladeViscosity = v, 1f, 1000f, log: true, format: "0.#")
+            .Float("bladeDetachMl", "клинок: капля с конца, мл", () => t.BladeDetachMl, v => t.BladeDetachMl = v, 0.005f, 2f, log: true, format: "0.###")
+            .Button("кровь на мече игрока", RequestSmear, "кровь на лезвие меча игрока (подгонка вида и стекания)")
+            .Bool("bladeSmear", "кровь на мече игрока (флаг)", () => _smear, v => { if (v) RequestSmear(); }, defaultValue: false)
+            .Float("bladeSmearMl", "кровь на мече игрока, мл", () => t.SmearMl, v => t.SmearMl = v, 0.1f, 50f, log: true, format: "0.#")
+            .Float("bladeShakeAccel", "клинок: стряхивает с, м/с²", () => t.BladeShakeAccel, v => t.BladeShakeAccel = v, 10f, 1000f, log: true, format: "0")
             .Float("viscosity", "вязкость k, 1/с", () => t.Viscosity, v => t.Viscosity = v, 1f, 1000f, log: true, format: "0.#")
             .Float("detachVolume", "порог отрыва, мл", () => t.DetachVolume, v => t.DetachVolume = v, 0.01f, 5f, log: true, format: "0.###")
             .Float("detachAngle", "отрыв: угол от «вниз», °", () => t.DetachAngle, v => t.DetachAngle = v, 0f, 90f, format: "0")
@@ -296,10 +335,40 @@ public sealed class BloodModule : IClientModule
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         ObserveTick(tick);
-        _observeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+        long spent = System.Diagnostics.Stopwatch.GetTimestamp() - started;
+        _observeTicks += spent;
+        if (ObservedTicks > WarmTicks) Slow(tick, spent);
     }
 
-    private long _observeTicks, _emitTicks, _collideTicks;
+    private long _observeTicks, _observeMax, _emitTicks, _collideTicks;
+
+    /// <summary>Первые тики (прогрев: JIT, первые снимки) в самые долгие не идут.</summary>
+    private const int WarmTicks = 240;
+
+    /// <summary>Наблюдатель тиков: самый долгий тик после прогрева, мс (всплеск тика удара).</summary>
+    public double MaxObserveMs => Ms(_observeMax);
+
+    /// <summary>Самые долгие тики после прогрева (тик, время) — по убыванию.</summary>
+    public const int SlowTicks = 8;
+    private readonly (ulong Tick, long Spent)[] _slow = new (ulong, long)[SlowTicks];
+
+    private void Slow(ulong tick, long spent)
+    {
+        if (spent > _observeMax) _observeMax = spent;
+        int at = SlowTicks - 1;
+        if (spent <= _slow[at].Spent) return;
+        while (at > 0 && _slow[at - 1].Spent < spent)
+        {
+            _slow[at] = _slow[at - 1];
+            at--;
+        }
+        _slow[at] = (tick, spent);
+    }
+
+    /// <summary>Выброс брызг удара, мс — первые <see cref="EmitLog"/>.</summary>
+    public const int EmitLog = 16;
+    private readonly double[] _emitLog = new double[EmitLog];
+    private int _emits;
 
     private static double Ms(long ticks) => ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
@@ -332,6 +401,21 @@ public sealed class BloodModule : IClientModule
         if (feed.ArenaReset) _floor?.Reset();
         foreach (ulong f in feed.Deaths) RememberDeath(f, tick, poses);
         for (int i = 0; i < hits.Length; i++) Blade(hits[i], poses);
+        bool step = IsStep(tick);
+        if (step)
+        {
+            _clock += _stepDt;
+            _steps++;
+        }
+        if (_bladeBlood is { } blades)
+        {
+            if (feed.ArenaReset) blades.ReleaseAll();
+            foreach (ulong f in feed.Removed) blades.Release(f);
+            foreach (ulong f in feed.Built) blades.Release(f);
+            if (_bladeCount > 0) DepositBlades(blades, tick);
+            if (_smear) SmearPlayer(blades, tick, poses);
+            if (step && blades.UsedSlots > 0) StepBlades(blades, tick, poses);
+        }
         if (Settings!.Body && (_surface is not null || EnsureSurface()))
         {
             if (feed.ArenaReset)
@@ -344,9 +428,113 @@ public sealed class BloodModule : IClientModule
             Forget(feed.Removed);
             Forget(feed.Built);
             for (int i = 0; i < hits.Length; i++) Wound(hits[i], poses);
-            if (IsStep(tick)) StepDrips(tick, poses);
+            if (step) StepDrips(tick, poses);
         }
-        if (_floor is not null && IsStep(tick)) StepFloor(tick, poses);
+        if (_floor is not null && step) StepFloor(tick, poses);
+    }
+
+    /// <summary>Оружие бойцов тика (раз в тик, когда нужно).</summary>
+    private void ReadTips(ulong tick)
+    {
+        if (_tipsTick == tick || _tips is not { } tips) return;
+        _tipsTick = tick;
+        int n = tips.Read(_tipBuf, playerOnly: false);
+        if (n > _tipBuf.Length)
+        {
+            _tipBuf = new WeaponTip[Math.Max(2 * _tipBuf.Length, n)];
+            n = tips.Read(_tipBuf, playerOnly: false);
+        }
+        _tipCount = Math.Min(n, _tipBuf.Length);
+    }
+
+    /// <summary>Номер оружия бойца в тике; нет — −1.</summary>
+    private int WeaponOf(ulong fighter)
+    {
+        for (int i = 0; i < _tipCount; i++)
+            if (_tipBuf[i].Key == fighter) return _tipBuf[i].Weapon;
+        return -1;
+    }
+
+    /// <summary>Касания клинков тика — кровь на лезвие атакующего около места касания (∝ урону; рукоять и гарда — нет).</summary>
+    private void DepositBlades(BloodBlade blades, ulong tick)
+    {
+        ReadTips(tick);
+        for (int i = 0; i < _bladeCount; i++) DepositBlade(blades, _blade[i], i);
+    }
+
+    private void DepositBlade(BloodBlade blades, in BloodBladeContact c, int index)
+    {
+        if (!c.HasBlade || c.Attacker == c.Victim) return;
+        BladeContactsSeen++;
+        int weapon = WeaponOf(c.Attacker);
+        if (weapon < 0 || !_weaponLayer!.TryBlade(weapon, out var zone))
+        {
+            BladeNoZone++;
+            return;
+        }
+        float along = zone.Along(Vector3.Transform(c.BladeLocal, zone.BodyToMesh));
+        _recentAlong[(int)((BladeContactsSeen - 1) % RecentAlong)] = (c.Along, along);
+        if (along > 1 && along <= 1 + TipMargin) along = 1;   // касание кончиком: точка жертвы чуть дальше острия
+        if (!(along >= 0 && along <= 1)) BladeOffBlade++;
+        blades.Deposit(c.Attacker, weapon, zone, along, c.Damage * Tuning.BladePerDamage, _clock,
+            BloodHash.Combine(BloodHash.Seed(c.Attacker, c.Tick, 0xB1ADu), (uint)index));
+    }
+
+    /// <summary>Отладка вида: кровь на меч игрока в следующем тике (<see cref="BloodTuning.SmearMl"/>: две трети — у середины лезвия, треть — у кончика).</summary>
+    public void RequestSmear() => _smear = true;
+
+    private bool _smear;
+
+    private void SmearPlayer(BloodBlade blades, ulong tick, IFighterPoses poses)
+    {
+        _smear = false;
+        ReadTips(tick);
+        for (int i = 0; i < poses.Count; i++)
+        {
+            var f = poses.Fighter(i);
+            if (!f.IsPlayer) continue;
+            int weapon = WeaponOf(f.Fighter);
+            if (weapon < 0 || !_weaponLayer!.TryBlade(weapon, out var zone)) return;
+            uint seed = BloodHash.Seed(f.Fighter, tick, 0x5E4Eu);
+            blades.Deposit(f.Fighter, weapon, zone, 0.45f, 2f / 3 * Tuning.SmearMl, _clock, seed);
+            blades.Deposit(f.Fighter, weapon, zone, 0.85f, 1f / 3 * Tuning.SmearMl, _clock, seed + 1);
+            return;
+        }
+    }
+
+    /// <summary>Касание дальше острия не больше этой доли лезвия — кровь на кончик.</summary>
+    private const float TipMargin = 0.25f;
+
+    /// <summary>Касаний клинков с атакующим (не самоудар), без зоны лезвия у оружия, мимо лезвия (рукоять, гарда).</summary>
+    public long BladeContactsSeen { get; private set; }
+    public long BladeNoZone { get; private set; }
+    public long BladeOffBlade { get; private set; }
+
+    /// <summary>Последних касаний в итоге: доля длины тела клинка и доля лезвия.</summary>
+    private const int RecentAlong = 8;
+    private readonly (float Body, float Blade)[] _recentAlong = new (float, float)[RecentAlong];
+
+    /// <summary>Шаг крови на клинках: по телу клинка тика; капли — в полёт (липнут к телам, ложатся на пол).</summary>
+    private void StepBlades(BloodBlade blades, ulong tick, IFighterPoses poses)
+    {
+        ReadTips(tick);
+        for (int s = 0; s < blades.SlotCount; s++) StepBlade(blades, s, tick, poses);
+        if (blades.Drops.Length > 0) _floor?.DetachSticky(blades.Drops, _terrain, Tuning.DropDrag, _tickDt, 0xB1ADu);
+        blades.TakeDrops();
+    }
+
+    private void StepBlade(BloodBlade blades, int slot, ulong tick, IFighterPoses poses)
+    {
+        if (!blades.Used(slot)) return;
+        ulong key = blades.Key(slot);
+        int index = WeaponOf(key) == blades.Weapon(slot) ? poses.Find(key) : -1;
+        var segments = index >= 0 ? poses.Segments(index) : default;
+        if (segments.Length <= BodySegs.Weapon || !Matrix4x4.Invert(blades.Zone(slot).BodyToMesh, out var meshToBody))
+        {
+            blades.Release(slot);   // оружие сменилось, боец снят или клинка в позах нет
+            return;
+        }
+        blades.Step(slot, meshToBody * segments[BodySegs.Weapon].World, tick, _stepDt, _clock, Tuning.Look);
     }
 
     /// <summary>Касание клинка попадания: точка в системе тела клинка атакующего тика.</summary>
@@ -498,15 +686,15 @@ public sealed class BloodModule : IClientModule
         int attacker = hit.Attacker != hit.Fighter ? poses.Find(hit.Attacker) : -1;
         var drops = _spray.Emit(hit, w, joints, attacker >= 0 ? poses.Segments(attacker) : default, _surface!, Tuning);
         floor.DetachSticky(drops, _terrain, Tuning.DropDrag, _tickDt, w.Seed | 1);
-        _emitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+        long spent = System.Diagnostics.Stopwatch.GetTimestamp() - started;
+        _emitTicks += spent;
+        if (_emits < EmitLog) _emitLog[_emits++] = Ms(spent);
     }
 
     private void StepDrips(ulong tick, IFighterPoses poses)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         bool any = _drips!.Alive > 0;
-        _clock += _stepDt;
-        _steps++;
         _drips.Step(tick, _stepDt, poses);
         if (_skin is { } skin) StampSkin(skin, _drips.Stamps);
         _ooze.Step(tick, _tickDt, _clock, _wounds, Tuning, _dead, _skin, _drips);
@@ -774,6 +962,8 @@ public sealed class BloodModule : IClientModule
             // Позы — снимок последнего тика при чтении итога (в кадре скелет их не снимает).
             posedFighters = _poses?.Count ?? 0,
             meanTickMs = Math.Round(MeanObserveMs, 4),
+            maxTickMs = Math.Round(MaxObserveMs, 3),
+            slowTicks = _slow.Where(x => x.Spent > 0).Select(x => new { tick = x.Tick, ms = Math.Round(Ms(x.Spent), 3) }).ToArray(),
         },
         services = new
         {
@@ -814,6 +1004,31 @@ public sealed class BloodModule : IClientModule
             layer = _layer is not null,
         } : null,
         floor = FloorReport(),
+        blade = _bladeBlood is { } bb ? new
+        {
+            slots = bb.SlotCount,
+            used = bb.UsedSlots,
+            slotMisses = bb.SlotMisses,
+            depositedMl = Math.Round(bb.Deposited, 4),
+            onBladesMl = Math.Round(bb.OnBlades(), 4),
+            droppedMl = Math.Round(bb.DroppedMl, 4),
+            drops = bb.Dropped,
+            shakenMl = Math.Round(bb.ShakenMl, 4),
+            contacts = BladeContactsSeen,
+            noZone = BladeNoZone,
+            offBlade = BladeOffBlade,
+            recentAlong = _recentAlong.Take((int)Math.Min(BladeContactsSeen, RecentAlong))
+                .Select(a => new { body = Math.Round(a.Body, 3), blade = Math.Round(a.Blade, 3) }).ToArray(),
+            blades = Enumerable.Range(0, bb.SlotCount).Where(bb.Used).Select(k => new
+            {
+                fighter = bb.Key(k), weapon = bb.Weapon(k), lengthM = Math.Round(bb.Zone(k).Length, 3), halfM = Math.Round(bb.Zone(k).Half, 4),
+                ml = Math.Round(bb.OnBlade(k), 4), centre = Math.Round(bb.Centre(k), 3), tipBeadMl = Math.Round(bb.Bead(k, 1), 4),
+                guardBeadMl = Math.Round(bb.Bead(k, 0), 4),
+            }).ToArray(),
+            gpu = _bladeGpu is not null,
+            lastPacks = _bladeGpu?.Packs ?? 0,
+            lastServed = _bladeGpu?.Served ?? 0,
+        } : null,
         spray = new
         {
             drops = _spray.Emitted,
@@ -822,6 +1037,7 @@ public sealed class BloodModule : IClientModule
             missedSkin = SprayMissedSkin,
             bladeContacts = _bladeCount,
             emitMs = Math.Round(Ms(_emitTicks), 3),
+            emitEachMs = _emitLog.Take(_emits).Select(x => Math.Round(x, 3)).ToArray(),
             collideMs = Math.Round(Ms(_collideTicks), 3),
             recentSticks = _recentSticks.Take((int)Math.Min(_stuckCount, RecentSticks)).Select(r => new
             {

@@ -26,7 +26,7 @@ internal static class ClientModuleList
     /// <summary>
     /// Модули клиента над <paramref name="simulation"/> — до <see cref="ConfigSet.Complete"/> (модули читают свои секции), с сервисами
     /// игры: оружие тика (<see cref="IWeaponTips"/>), события боя и позы тика (<see cref="IBloodFeed"/>, <see cref="IFighterPoses"/>), меш
-    /// персонажа (<see cref="ISkinMesh"/>) и слой крови на коже (<see cref="ISkinBloodLayer"/>), рельеф (<see cref="ITerrainView"/>), туман, солнце и небо сцены — от клиента арены.
+    /// персонажа (<see cref="ISkinMesh"/>) и слои крови на коже и оружии (<see cref="ISkinBloodLayer"/>, <see cref="IWeaponBloodLayer"/>), рельеф (<see cref="ITerrainView"/>), туман, солнце и небо сцены — от клиента арены.
     /// </summary>
     public static ClientModules Compose(ConfigSet config, Simulation simulation, ArenaClient arena)
     {
@@ -39,6 +39,7 @@ internal static class ClientModuleList
             .Add<IFighterPoses>(link => new ArenaFighterPoses(link))
             .Add<ISkinMesh>(arena.SkinMesh)
             .Add<ISkinBloodLayer>(arena.SkinBlood)
+            .Add<IWeaponBloodLayer>(arena.WeaponBlood)
             .Add<ITerrainView>(arena.TerrainView)
             .Add<ISceneFog>(arena)
             .Add<ISceneSky>(arena);

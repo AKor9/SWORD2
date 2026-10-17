@@ -100,6 +100,8 @@ struct SkinVs
     float4 layerAdd : TEXCOORD3;    // wet layer over the skin (blood): its own albedo A, coverage of the highlight
     float4 layerMul : TEXCOORD4;    // multiplier M of the skin under the layer, roughness
     nointerpolation uint material : TEXCOORD5;   // SceneMaterial: GpuSkinInstance.Flags
+    float3 local : TEXCOORD6;                    // vertex in mesh space (weapon: hand space) - blood on the blade by position
+    nointerpolation uint weaponLayer : TEXCOORD7;   // blood on the weapon blade: SRV + 1 (0 - none)
 };
 
 // Wet layer of a vertex (ISkinBloodLayer, SkinLayerTexel in C#): inst.owner = bindless SRV of the layer + 1 (0 - no layer); an element
@@ -114,6 +116,57 @@ void SkinLayerOf(uint owner, uint vid, out float4 add, out float4 mul)
     uint2 u = layer[vid];
     add = float4(f16tof32((u.x & 0x7FF) << 4), f16tof32(((u.x >> 11) & 0x7FF) << 4), f16tof32((u.x >> 22) << 5), ((u.y >> 21) & 0x1F) / 31.0);
     mul = float4((u.y & 0x7F) / 127.0, ((u.y >> 7) & 0x7F) / 127.0, ((u.y >> 14) & 0x7F) / 127.0, (u.y >> 26) / 63.0);
+}
+
+// Value noise of a point (smooth, 0...1) - stains on the blade without straight bands.
+float WeaponNoiseHash(float2 c) { return frac(sin(dot(c, float2(127.1, 311.7))) * 43758.5453); }
+float WeaponNoise(float2 p)
+{
+    float2 c = floor(p), f = frac(p);
+    float2 s = f * f * (3 - 2 * f);
+    float a = WeaponNoiseHash(c), b = WeaponNoiseHash(c + float2(1, 0)), d = WeaponNoiseHash(c + float2(0, 1)), e = WeaponNoiseHash(c + 1);
+    return lerp(lerp(a, b, s.x), lerp(d, e, s.x), s.y);
+}
+
+void UnpackLayer(uint2 u, out float4 add, out float4 mul)
+{
+    add = float4(f16tof32((u.x & 0x7FF) << 4), f16tof32(((u.x >> 11) & 0x7FF) << 4), f16tof32((u.x >> 22) << 5), ((u.y >> 21) & 0x1F) / 31.0);
+    mul = float4((u.y & 0x7F) / 127.0, ((u.y >> 7) & 0x7F) / 127.0, ((u.y >> 14) & 0x7F) / 127.0, (u.y >> 26) / 63.0);
+}
+
+// Blood on a weapon blade (IWeaponBloodLayer, WeaponBloodLayout in C#): owner = SRV + 1; header - the blade in mesh space (start, cells
+// per side, length axis / length, width axis / half width, plane normal, noise seed), then cells along the blade, side 0 (along the
+// normal) and side 1, each SkinLayerTexel. Between cells - linear; the position along the blade is warped by noise varying across the
+// width (stains end ragged, not in bands across the blade), partial coverage (thin film) is dissolved by streak noise along the blade.
+// Off the blade (guard, grip) - none.
+void WeaponLayerOf(uint owner, float3 p, out float4 add, out float4 mul)
+{
+    add = 0;
+    mul = float4(1, 1, 1, 1);
+    StructuredBuffer<uint2> layer = ResourceDescriptorHeap[owner - 1];
+    uint2 h0 = layer[0], h1 = layer[1], h2 = layer[2], h3 = layer[3], h4 = layer[4], h5 = layer[5], h6 = layer[6];
+    uint cells = h1.y;
+    float3 d = p - asfloat(uint3(h0.x, h0.y, h1.x));
+    float u = dot(d, asfloat(uint3(h2.x, h2.y, h3.x)));
+    float v = dot(d, asfloat(uint3(h3.y, h4.x, h4.y)));
+    if (cells == 0 || u < 0 || u > 1) return;
+    uint side = dot(d, asfloat(uint3(h5.x, h5.y, h6.x))) >= 0 ? 0 : 1;
+    float2 seed = float2(h6.y & 0xFF, (h6.y >> 8) & 0xFF) * 0.37;
+    float warp = WeaponNoise(float2(u * cells * 0.3, v * 3) + seed) - 0.5;
+    float f = clamp(u * cells - 0.5 + warp * 4, 0, cells - 1);
+    uint i0 = (uint)floor(f), i1 = min(i0 + 1, cells - 1);
+    float t = f - i0;
+    uint first = WEAPON_BLOOD_HEADER + side * cells;
+    float4 a0, m0, a1, m1;
+    UnpackLayer(layer[first + i0], a0, m0);
+    UnpackLayer(layer[first + i1], a1, m1);
+    add = lerp(a0, a1, t);
+    mul = lerp(m0, m1, t);
+    // Thin film (partial coverage) - streaks along the blade: long along it, narrow across.
+    float edge = 0.7 * WeaponNoise(float2(u * cells * 0.2, v * 5) + seed + 11.3) + 0.3 * WeaponNoise(float2(u * cells * 1.5, v * 14) + seed + 5.1);
+    float keep = saturate((add.a - 0.85 * edge) / 0.15) * saturate(u * cells * 2) * saturate((1 - u) * cells * 4);
+    add *= keep;
+    mul.rgb = lerp(1, mul.rgb, keep);
 }
 
 static const float SKIN_LAYER_F0 = 0.028;   // SkinLayerTexel.F0
@@ -131,7 +184,9 @@ SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.pos = mul(gFrame.viewProj, float4(o.world, 1));
     o.colour = inst.colour;
     o.glow = inst.glow;
-    SkinLayerOf(inst.owner, vid, o.layerAdd, o.layerMul);
+    o.local = v.p;
+    o.weaponLayer = (inst.flags & SCENE_MATERIAL_WEAPON_LAYER) != 0 ? inst.owner : 0;
+    SkinLayerOf(o.weaponLayer != 0 ? 0 : inst.owner, vid, o.layerAdd, o.layerMul);
     o.material = inst.flags;
     return o;
 }
@@ -159,17 +214,26 @@ float4 PsSkinPre(SkinVs i) : SV_Target0 { return SceneNormalOut(i.normal, false)
 SceneOut PsSkin(SkinVs i)
 {
     float3 n = normalize(i.normal);
-    float cover = saturate(i.layerAdd.a);
+    float4 layerAdd = i.layerAdd, layerMul = i.layerMul;
+    if (i.weaponLayer != 0) WeaponLayerOf(i.weaponLayer, i.local, layerAdd, layerMul);
+    float cover = saturate(layerAdd.a);
     if (cover <= 0)
     {
         float3 c = ShadeMaterial(i.colour, n, i.world, SceneAo(i.pos.xy), i.material) + i.glow * float3(0.5, 0.15, 0.1);
         return Scene(c, n, false);
     }
     // Blood is an absorbing layer over the skin: the skin shows through it darkened and reddened (M), the layer adds its own albedo (A);
-    // its highlight - GGX sun + sky reflection by the reflected vector, x coverage, under the fog.
-    float3 albedo = i.colour * saturate(i.layerMul.rgb) + max(i.layerAdd.rgb, 0);
+    // its highlight - GGX sun + sky reflection by the reflected vector, x coverage, under the fog. On steel the metal mirror shows through
+    // the turbid film dimmed twice over (x M^2: absorbed and scattered out of the mirror direction) and the blood scatters as a dielectric:
+    // its albedo is lit diffusely (Shade without the rim and fog that do not depend on it).
     float ao = SceneAo(i.pos.xy);
-    float3 c = ShadeMaterial(albedo, n, i.world, ao, i.material) + i.glow * float3(0.5, 0.15, 0.1);
+    float3 c;
+    if ((i.material & SCENE_MATERIAL_METAL) != 0)
+        c = ShadeMaterial(i.colour * saturate(layerMul.rgb * layerMul.rgb), n, i.world, ao, i.material)
+            + Shade(max(layerAdd.rgb, 0), n, i.world, ao) - Shade(0, n, i.world, ao);
+    else
+        c = ShadeMaterial(i.colour * saturate(layerMul.rgb) + max(layerAdd.rgb, 0), n, i.world, ao, i.material);
+    c += i.glow * float3(0.5, 0.15, 0.1);
     float3 v = normalize(gFrame.cameraPos - i.world);
     float3 r = reflect(-v, n);
     float3 l = normalize(-gFrame.lightDir);
@@ -177,9 +241,9 @@ SceneOut PsSkin(SkinVs i)
         gFrame.shadowMap1, gFrame.shadowViewProj[1], gFrame.shadowTexel1, gFrame.shadowBias1, gFrame.shadowSoftness, i.world, n, l);
     float3 skyHalf = (gFrame.env.skyHigh - gFrame.env.skyLow) * 0.5;
     float3 sky = (gFrame.env.skyLow + skyHalf) + r.y * skyHalf;
-    float3 spec = SurfaceSpecular(n, v, l, gFrame.env.sun * shadow, sky * ao, SKIN_LAYER_F0, i.layerMul.a);
-    float glint = SKIN_LAYER_GLINT * (1 - smoothstep(0.15, 0.45, i.layerMul.a));
-    if (glint > 0) spec += glint * SurfaceSpecular(n, v, l, gFrame.env.sun * shadow, 0, SKIN_LAYER_F0, i.layerMul.a + SKIN_LAYER_GLINT_ROUGHNESS);
+    float3 spec = SurfaceSpecular(n, v, l, gFrame.env.sun * shadow, sky * ao, SKIN_LAYER_F0, layerMul.a);
+    float glint = SKIN_LAYER_GLINT * (1 - smoothstep(0.15, 0.45, layerMul.a));
+    if (glint > 0) spec += glint * SurfaceSpecular(n, v, l, gFrame.env.sun * shadow, 0, SKIN_LAYER_F0, layerMul.a + SKIN_LAYER_GLINT_ROUGHNESS);
     float fog = saturate((distance(i.world, gFrame.cameraPos) - 25) / 140);
     return Scene(c + cover * (1 - fog) * spec, n, false);
 }
