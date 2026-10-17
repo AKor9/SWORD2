@@ -9,8 +9,8 @@ namespace Sword.Engine.Render;
 
 /// <summary>
 /// UI-проход: квады <see cref="UiDrawList"/> поверх цели — фигуры полем расстояний и GPU-векторный текст
-/// (<c>common/ui.hlsl</c>). Без вершинного буфера: записи в кольце кадра, вершины по SV_VertexID. Вызов рисования рвётся
-/// на смене конвейера (фигуры / текст) и обрезки (scissor). Шрифты склеиваются при создании и живут в видеопамяти до конца.
+/// (<c>common/ui.hlsl</c>), один конвейер на все режимы. Без вершинного буфера: записи в кольце кадра, вершины по SV_VertexID.
+/// Вызов рисования рвётся только на смене обрезки (scissor). Шрифты склеиваются при создании и живут в видеопамяти до конца.
 /// </summary>
 public sealed class UiPass : IDisposable
 {
@@ -22,8 +22,7 @@ public sealed class UiPass : IDisposable
     public const int MaxPassesPerFrame = 4;
 
     private const string Shader = "common/ui.hlsl";
-    private static readonly GraphicsPipelineDesc Shapes = new(Shader, "VsUi", "PsUi", BlendMode.Alpha);
-    private static readonly GraphicsPipelineDesc VectorText = new(Shader, "VsUi", "PsVectorText", BlendMode.Alpha);
+    private static readonly GraphicsPipelineDesc Pipeline = new(Shader, "VsUi", "PsUi", BlendMode.Alpha);
 
     private readonly Renderer _renderer;
     private readonly FontBuffer _glyphs, _curves, _bands, _indices;
@@ -99,6 +98,7 @@ public sealed class UiPass : IDisposable
         c.Add("UI_BOX", (uint)UiMode.Box);
         c.Add("UI_TRI", (uint)UiMode.Triangle);
         c.Add("UI_SPRITE", (uint)UiMode.Sprite);
+        c.Add("UI_TEXT", (uint)UiMode.Text);
         c.Add("UI_VECTOR_BANDS", UiVectorFontFormat.BandsPerAxis, "полос на ось у glyph'а");
         c.AddSlot("UI_QUADS", SlotQuads, "записи квадов (кольцо кадра)");
         c.AddSlot("UI_BASE", SlotBase, "первый квад вызова");
@@ -187,7 +187,7 @@ public sealed class UiPass : IDisposable
         ctx.SetConstant(SlotCurves, _curves.Srv);
         ctx.SetConstant(SlotBands, _bands.Srv);
         ctx.SetConstant(SlotIndices, _indices.Srv);
-        bool? vectorPipeline = null;
+        ctx.SetPipeline(Pipeline);
         (int, int, int, int) scissor = (0, 0, ctx.Width, ctx.Height);   // граф ставит всю цель в начале прохода
         foreach (var b in work.Batches)
         {
@@ -195,11 +195,6 @@ public sealed class UiPass : IDisposable
             {
                 ctx.SetScissor(b.X0, b.Y0, b.X1, b.Y1);
                 scissor = (b.X0, b.Y0, b.X1, b.Y1);
-            }
-            if (vectorPipeline != b.Vector)
-            {
-                ctx.SetPipeline(b.Vector ? VectorText : Shapes);
-                vectorPipeline = b.Vector;
             }
             ctx.SetConstant(SlotBase, work.Base + b.Start);
             ctx.Draw((uint)(b.Count * 6));

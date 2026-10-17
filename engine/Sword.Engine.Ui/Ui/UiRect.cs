@@ -20,8 +20,6 @@ public readonly record struct UiRect(float X0, float Y0, float X1, float Y1)
 
     public bool Contains(Vector2 p) => p.X >= X0 && p.X < X1 && p.Y >= Y0 && p.Y < Y1;
 
-    public bool Overlaps(UiRect o) => X0 < o.X1 && o.X0 < X1 && Y0 < o.Y1 && o.Y0 < Y1;
-
     /// <summary>Пересечение; не пересекаются — пустой прямоугольник нулевого размера.</summary>
     public UiRect Intersect(UiRect o)
     {

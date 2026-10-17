@@ -39,8 +39,11 @@ public sealed class UiFonts : IDisposable
         return (uint)(Tables.FaceOffsets[f] + glyphId);
     }
 
-    /// <summary>Shaping строки шрифтом роли. Результат живёт до следующего вызова (буфер переиспользуется).</summary>
+    /// <summary>Shaping строки шрифтом роли (повтор — из кэша). Результат живёт до следующего вызова.</summary>
     public ReadOnlySpan<UiShapedGlyph> Shape(UiFace face, ReadOnlySpan<char> text) => _shaper.Shape(face, text);
+
+    /// <summary>Строк, отданных HarfBuzz с создания: остальные вызовы <see cref="Shape"/> — из кэша.</summary>
+    public long ShapedStrings => _shaper.Shaped;
 
     public string Report() => $"glyphs {GlyphCount}, шрифтов {Tables.Fonts.Count}: {string.Join(", ", Tables.Fonts.Select(f => f.Name))}";
 

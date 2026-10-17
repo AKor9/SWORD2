@@ -43,15 +43,15 @@ public static class CombatTuning
     /// в строку панели F3); удара не было — «—».
     /// </summary>
     public static int LastStrike(Span<char> d, in ArenaStats stats) =>
-        stats.LastPart < 0 ? Length(new Line(d).S("—").Text)
+        stats.LastPart < 0 ? new Line(d).S("—").Length
             : stats.LastDamage > stats.LastSeverAt
-                ? Length(new Line(d).F(stats.LastDamage, "F0").S(" > ").F(stats.LastSeverAt, "F0").S(" — отрубил бы").Text)
-                : Length(new Line(d).F(stats.LastDamage, "F0").S(" ≤ ").F(stats.LastSeverAt, "F0").S(" — нет").Text);
+                ? new Line(d).F(stats.LastDamage, "F0").S(" > ").F(stats.LastSeverAt, "F0").S(" — отрубил бы").Length
+                : new Line(d).F(stats.LastDamage, "F0").S(" ≤ ").F(stats.LastSeverAt, "F0").S(" — нет").Length;
 
     /// <summary>«рубящий 61, укол 62» — удар клинком быстрее 16 м/с с уроном игрока (<see cref="DamageRules.StrikeDamage"/>).</summary>
     public static int MaxStrike(Span<char> d, float playerDamage) =>
-        Length(new Line(d).S("рубящий ").F(DamageRules.StrikeDamage(false, DamageRules.SpeedCap, true, playerDamage), "F0")
-            .S(", укол ").F(DamageRules.StrikeDamage(true, DamageRules.SpeedCap, true, playerDamage), "F0").Text);
+        new Line(d).S("рубящий ").F(DamageRules.StrikeDamage(false, DamageRules.SpeedCap, true, playerDamage), "F0")
+            .S(", укол ").F(DamageRules.StrikeDamage(true, DamageRules.SpeedCap, true, playerDamage), "F0").Length;
 
     /// <summary>
     /// Пороги отруба частей ударом игрока (порог ÷ max(острота, 0,05)) — голова, предплечье, плечо, голень, бедро, торс:
@@ -60,12 +60,9 @@ public static class CombatTuning
     public static int SeverThresholds(Span<char> d, float sharpness)
     {
         float k = MathF.Max(sharpness, DamageRules.MinSharpness);
-        return Length(new Line(d).F(DamageRules.SeverThreshold(BodySegs.Head) / k, "F0").S(", ")
+        return new Line(d).F(DamageRules.SeverThreshold(BodySegs.Head) / k, "F0").S(", ")
             .F(DamageRules.SeverThreshold(BodySegs.FArmR) / k, "F0").S(", ").F(DamageRules.SeverThreshold(BodySegs.UArmR) / k, "F0")
             .S(", ").F(DamageRules.SeverThreshold(BodySegs.ShinR) / k, "F0").S(", ").F(DamageRules.SeverThreshold(BodySegs.ThighR) / k, "F0")
-            .S(", ").F(DamageRules.SeverThreshold(BodySegs.Torso) / k, "F0").Text);
+            .S(", ").F(DamageRules.SeverThreshold(BodySegs.Torso) / k, "F0").Length;
     }
-
-    /// <summary>Строка уже на месте (<see cref="Line"/> пишет в тот же буфер) — её длина.</summary>
-    private static int Length(ReadOnlySpan<char> text) => text.Length;
 }

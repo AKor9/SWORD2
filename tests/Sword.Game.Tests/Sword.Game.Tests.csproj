@@ -42,4 +42,8 @@
           Link="D3D12\d3d12SDKLayers.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\PakFonts.cs" Link="Shared\PakFonts.cs" />
+  </ItemGroup>
+
 </Project>

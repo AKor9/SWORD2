@@ -54,6 +54,15 @@ public sealed class UiTheme
     public uint HealthLow = C(140, 25, 20);
     public uint DeathTint = C(40, 0, 0, 110);
 
+    // окно просмотра картинок и 3D (менеджер ресурсов), подложка подписей поверх сцены
+    public uint Viewport = C(24, 24, 28);
+    public uint ViewportInset = C(16, 16, 20);
+    public uint ImageBackdrop = C(8, 8, 10);
+    public uint CheckerLight = C(70, 70, 76);
+    public uint CheckerDark = C(46, 46, 52);
+    public uint TextBackdrop = C(16, 16, 20, 190);
+    public uint DebugTextBackdrop = C(0, 0, 0, 160);
+
     public float FontSize = 14;
     public float SmallFontSize = 12;
     public float RowHeight = 22;

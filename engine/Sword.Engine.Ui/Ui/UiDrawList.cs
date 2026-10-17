@@ -3,17 +3,17 @@ using System.Numerics;
 namespace Sword.Engine.Ui;
 
 /// <summary>
-/// Один вызов рисования: квады [<see cref="Start"/>, Start + <see cref="Count"/>) списка одним конвейером (текст —
-/// <see cref="Vector"/>, иначе фигуры) с обрезкой [<see cref="X0"/>, <see cref="X1"/>) × [<see cref="Y0"/>, <see cref="Y1"/>).
+/// Один вызов рисования: квады [<see cref="Start"/>, Start + <see cref="Count"/>) списка (все режимы — один конвейер) с
+/// обрезкой [<see cref="X0"/>, <see cref="X1"/>) × [<see cref="Y0"/>, <see cref="Y1"/>).
 /// </summary>
-public readonly record struct UiBatch(int Start, int Count, bool Vector, int X0, int Y0, int X1, int Y1);
+public readonly record struct UiBatch(int Start, int Count, int X0, int Y0, int X1, int Y1);
 
 /// <summary>
 /// Список квадов интерфейса за кадр: аналитические фигуры (поле расстояний) и GPU-векторный текст; одна запись на квад.
 /// Без выделений: строки — в <c>Span&lt;char&gt;</c>. Обрезка — стек прямоугольников, смены пишутся в <see cref="ClipRuns"/>;
 /// квады целиком вне обрезки не записываются. Без шрифтов текст — <see cref="InvalidOperationException"/>.
 /// </summary>
-public sealed class UiDrawList
+public sealed partial class UiDrawList
 {
     private const float Fringe = 1f;
 
@@ -82,12 +82,7 @@ public sealed class UiDrawList
         MarkClip(ClipRect);
     }
 
-    private void MarkClip(UiRect clip)
-    {
-        var current = _runs.Count > 0 ? _runs[^1].Clip : NoClip;
-        if (_runs.Count > 0 && _runs[^1].Start == _count) _runs[^1] = new ClipRun(_count, clip);   // смена без квадов между — перезаписать
-        else if (clip != current) _runs.Add(new ClipRun(_count, clip));
-    }
+    private void MarkClip(UiRect clip) => SetRunAt(_count, clip);
 
     /// <summary>Виден ли прямоугольник в текущей обрезке.</summary>
     private bool Visible(float x0, float y0, float x1, float y1)
@@ -114,6 +109,7 @@ public sealed class UiDrawList
         SetRunAt(_count, restore);
     }
 
+    /// <summary>С квада <paramref name="start"/> — обрезка <paramref name="clip"/>; смена без квадов между — перезаписать.</summary>
     private void SetRunAt(int start, UiRect clip)
     {
         var current = _runs.Count > 0 ? _runs[^1].Clip : NoClip;
@@ -145,10 +141,13 @@ public sealed class UiDrawList
         return ref q;
     }
 
+    private ref UiQuad Box(float x0, float y0, float x1, float y1, float radius, float stroke) =>
+        ref Shape(new((x0 + x1) * 0.5f, (y0 + y1) * 0.5f), new((x1 - x0) * 0.5f, (y1 - y0) * 0.5f), radius, stroke);
+
     public void Rect(float x0, float y0, float x1, float y1, uint colour, float radius = 0f)
     {
         if (x1 <= x0 || y1 <= y0 || !Visible(x0, y0, x1, y1)) return;
-        ref var q = ref Shape(new((x0 + x1) * 0.5f, (y0 + y1) * 0.5f), new((x1 - x0) * 0.5f, (y1 - y0) * 0.5f), radius, 0f);
+        ref var q = ref Box(x0, y0, x1, y1, radius, 0f);
         q.ColourA = q.ColourB = colour;
     }
 
@@ -158,7 +157,7 @@ public sealed class UiDrawList
     public void RectGradient(float x0, float y0, float x1, float y1, uint top, uint bottom, float radius = 0f)
     {
         if (x1 <= x0 || y1 <= y0 || !Visible(x0, y0, x1, y1)) return;
-        ref var q = ref Shape(new((x0 + x1) * 0.5f, (y0 + y1) * 0.5f), new((x1 - x0) * 0.5f, (y1 - y0) * 0.5f), radius, 0f);
+        ref var q = ref Box(x0, y0, x1, y1, radius, 0f);
         q.ColourA = top;
         q.ColourB = bottom;
         q.Shape.W = 1f;
@@ -167,7 +166,7 @@ public sealed class UiDrawList
     public void RectStroke(float x0, float y0, float x1, float y1, uint colour, float thickness, float radius = 0f)
     {
         if (x1 <= x0 || y1 <= y0 || !Visible(x0 - thickness, y0 - thickness, x1 + thickness, y1 + thickness)) return;
-        ref var q = ref Shape(new((x0 + x1) * 0.5f, (y0 + y1) * 0.5f), new((x1 - x0) * 0.5f, (y1 - y0) * 0.5f), radius, thickness);
+        ref var q = ref Box(x0, y0, x1, y1, radius, thickness);
         q.ColourA = q.ColourB = colour;
     }
 
@@ -297,70 +296,77 @@ public sealed class UiDrawList
         return MathF.Max(penX - start, 0f);
     }
 
-    public float TextRight(UiFace face, float sizePx, Vector2 rightTop, uint colour, ReadOnlySpan<char> text)
-    {
-        if (text.IsEmpty) return 0f;
-        ReadOnlySpan<UiShapedGlyph> glyphs = Fonts.Shape(face, text);
-        float w = Measure(sizePx, glyphs);
-        EmitText(face, sizePx, rightTop with { X = rightTop.X - w }, colour, glyphs);
-        return w;
-    }
+    public float TextRight(UiFace face, float sizePx, Vector2 rightTop, uint colour, ReadOnlySpan<char> text) =>
+        TextAnchored(face, sizePx, rightTop, 1f, colour, text);
 
-    public float TextCentered(UiFace face, float sizePx, Vector2 centreTop, uint colour, ReadOnlySpan<char> text)
+    public float TextCentered(UiFace face, float sizePx, Vector2 centreTop, uint colour, ReadOnlySpan<char> text) =>
+        TextAnchored(face, sizePx, centreTop, 0.5f, colour, text);
+
+    /// <summary>Строка, у которой точка <paramref name="anchor"/> её ширины (0 — левый край, 1 — правый) стоит в <paramref name="pos"/>.</summary>
+    private float TextAnchored(UiFace face, float sizePx, Vector2 pos, float anchor, uint colour, ReadOnlySpan<char> text)
     {
         if (text.IsEmpty) return 0f;
         ReadOnlySpan<UiShapedGlyph> glyphs = Fonts.Shape(face, text);
         float w = Measure(sizePx, glyphs);
-        EmitText(face, sizePx, centreTop with { X = centreTop.X - w * 0.5f }, colour, glyphs);
+        EmitText(face, sizePx, pos with { X = pos.X - w * anchor }, colour, glyphs);
         return w;
     }
 
     /// <summary>Строка не шире <paramref name="maxWidth"/>: не влезает — обрезается по символам с «…» в конце. Возвращает ширину.</summary>
+    /// <remarks>
+    /// Строка shaping'уется один раз: обрезка — по ширинам её glyph'ов на границе кластера (пара UTF-16 и combining mark —
+    /// один кластер, половинки не бывает), а не перебором префиксов: каждый префикс — отдельный вызов HarfBuzz.
+    /// </remarks>
     public float TextFit(UiFace face, float sizePx, Vector2 pos, uint colour, ReadOnlySpan<char> text, float maxWidth)
     {
         if (text.IsEmpty || maxWidth <= 0) return 0f;
-        if (Measure(face, sizePx, text) <= maxWidth) return Text(face, sizePx, pos, colour, text);
-        float ellipsis = Measure(face, sizePx, "…");
-        int lo = 0, hi = text.Length - 1;
-        while (lo < hi)
+        // «…» — первым: результат Shape живёт до следующего вызова
+        Span<UiShapedGlyph> dots = stackalloc UiShapedGlyph[4];
+        var shapedDots = Fonts.Shape(face, "…");
+        dots = dots[..Math.Min(shapedDots.Length, dots.Length)];
+        shapedDots[..dots.Length].CopyTo(dots);
+        float ellipsis = Measure(sizePx, dots);
+
+        var glyphs = Fonts.Shape(face, text);
+        if (Measure(sizePx, glyphs) <= maxWidth) return EmitText(face, sizePx, pos, colour, glyphs);
+        float pen = 0;
+        int keep = 0;
+        for (int i = 0; i < glyphs.Length; i++)
         {
-            int mid = (lo + hi + 1) / 2;
-            if (Measure(face, sizePx, text[..mid]) + ellipsis <= maxWidth) lo = mid;
-            else hi = mid - 1;
+            pen += glyphs[i].XAdvance * sizePx;
+            if (pen + ellipsis > maxWidth) break;
+            if (i + 1 == glyphs.Length || glyphs[i + 1].Cluster != glyphs[i].Cluster) keep = i + 1;
         }
-        if (lo > 0 && char.IsHighSurrogate(text[lo - 1])) lo--;   // не резать пару UTF-16 (эмодзи): половинка — .notdef
-        while (lo > 0 && char.IsWhiteSpace(text[lo - 1])) lo--;
-        Span<char> buffer = lo < 512 ? stackalloc char[lo + 1] : new char[lo + 1];
-        text[..lo].CopyTo(buffer);
-        buffer[lo] = '…';
-        return Text(face, sizePx, pos, colour, buffer);
+        while (keep > 0 && char.IsWhiteSpace(text[(int)glyphs[keep - 1].Cluster])) keep--;
+        float w = EmitText(face, sizePx, pos, colour, glyphs[..keep]);
+        return w + EmitText(face, sizePx, pos with { X = MathF.Round(pos.X) + w }, colour, dots);
     }
 
     // ── вызовы рисования ───────────────────────────────────────────────
 
     /// <summary>
-    /// Вызовы рисования: подряд квады одного конвейера под одной обрезкой; обрезка — целочисленный scissor в пределах цели,
-    /// дробные края наружу; вне цели — вызова нет. <paramref name="batches"/> очищается.
+    /// Вызовы рисования: подряд квады под одной обрезкой (соседние обрезки с тем же scissor — один вызов); обрезка —
+    /// целочисленный scissor в пределах цели, дробные края наружу; вне цели — вызова нет. <paramref name="batches"/> очищается.
     /// </summary>
     public void Split(int width, int height, List<UiBatch> batches)
     {
         batches.Clear();
-        var quads = Quads;
-        int nextRun = 0;
+        int count = _count, nextRun = 0, runStart = 0;
         var clip = NoClip;
-        int runStart = 0;
-        while (runStart < quads.Length)
+        while (runStart < count)
         {
             while (nextRun < _runs.Count && _runs[nextRun].Start <= runStart) clip = _runs[nextRun++].Clip;
-            int limit = nextRun < _runs.Count ? Math.Min(_runs[nextRun].Start, quads.Length) : quads.Length;
-
-            bool vector = quads[runStart].Mode == UiMode.Text;
-            int runEnd = runStart + 1;
-            while (runEnd < limit && (quads[runEnd].Mode == UiMode.Text) == vector) runEnd++;
+            int runEnd = nextRun < _runs.Count ? Math.Min(_runs[nextRun].Start, count) : count;
 
             int x0 = (int)Math.Clamp(MathF.Floor(clip.X0), 0, width), y0 = (int)Math.Clamp(MathF.Floor(clip.Y0), 0, height);
             int x1 = (int)Math.Clamp(MathF.Ceiling(clip.X1), 0, width), y1 = (int)Math.Clamp(MathF.Ceiling(clip.Y1), 0, height);
-            if (x1 > x0 && y1 > y0) batches.Add(new UiBatch(runStart, runEnd - runStart, vector, x0, y0, x1, y1));
+            if (x1 > x0 && y1 > y0)
+            {
+                if (batches.Count > 0 && batches[^1] is var last && last.Start + last.Count == runStart
+                    && (last.X0, last.Y0, last.X1, last.Y1) == (x0, y0, x1, y1))
+                    batches[^1] = last with { Count = last.Count + runEnd - runStart };
+                else batches.Add(new UiBatch(runStart, runEnd - runStart, x0, y0, x1, y1));
+            }
             runStart = runEnd;
         }
     }

@@ -72,7 +72,6 @@ public sealed class UiInputSource
     public static CursorShape Cursor(UiCursor cursor) => cursor switch
     {
         UiCursor.IBeam => CursorShape.IBeam,
-        UiCursor.Hand => CursorShape.Hand,
         UiCursor.SizeWE => CursorShape.SizeWE,
         UiCursor.SizeNS => CursorShape.SizeNS,
         UiCursor.SizeAll => CursorShape.SizeAll,

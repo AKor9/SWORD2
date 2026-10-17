@@ -59,34 +59,30 @@ public sealed class UiContextTests
     [Fact]
     public void ComboPopupStaysOnScreen()
     {
-        var ui = new UiContext();
-        Frame(ui);
-        int index = 0;
-        ui.OpenCombo("combo");
         // поле у самого правого края: список шире поля и вылез бы за экран, где его срежет scissor
-        ui.Combo(new UiRect(160, 10, 195, 30), "combo", ref index, ["", "", ""]);
-        ui.EndFrame();
+        var d = new UiDriver();
+        int index = 0;
+        void Widgets(UiContext ui) => ui.Combo(new UiRect(160, 10, 195, 30), "combo", ref index, ["", "", ""]);
+        d.Click(170, 20, Widgets);   // кадр отпускания раскрывает и рисует список
 
-        Assert.NotEmpty(ui.Output.ClipRuns);
-        foreach (var run in ui.Output.ClipRuns)
+        Assert.Contains(d.Ui.Output.ClipRuns, run => run.Clip != UiDrawList.NoClip);
+        foreach (var run in d.Ui.Output.ClipRuns)
             if (run.Clip != UiDrawList.NoClip)
-                Assert.InRange(run.Clip.X1, run.Clip.X0, ui.Width);
+                Assert.InRange(run.Clip.X1, run.Clip.X0, d.Width);
     }
 
     [Fact]
     public void ComboPopupFlipsAboveTheFieldAtTheBottom()
     {
-        var ui = new UiContext();
-        Frame(ui);
+        var d = new UiDriver();
         int index = 0;
-        ui.OpenCombo("combo");
-        ui.Combo(new UiRect(10, 170, 120, 190), "combo", ref index, ["", "", ""]);
-        ui.EndFrame();
+        void Widgets(UiContext ui) => ui.Combo(new UiRect(10, 170, 120, 190), "combo", ref index, ["", "", ""]);
+        d.Click(20, 180, Widgets);
 
-        Assert.NotEmpty(ui.Output.ClipRuns);
-        foreach (var run in ui.Output.ClipRuns)
+        Assert.Contains(d.Ui.Output.ClipRuns, run => run.Clip != UiDrawList.NoClip);
+        foreach (var run in d.Ui.Output.ClipRuns)
             if (run.Clip != UiDrawList.NoClip)
-                Assert.InRange(run.Clip.Y1, run.Clip.Y0, ui.Height);
+                Assert.InRange(run.Clip.Y1, run.Clip.Y0, d.Height);
     }
 
     // ── кнопки и переключатели ─────────────────────────────────────────
@@ -343,23 +339,6 @@ public sealed class UiContextTests
     }
 
     [Fact]
-    public void Modal_BlocksWholeScreen()
-    {
-        var d = new UiDriver();
-        uint active = 1;
-        void Widgets(UiContext ui)
-        {
-            ui.Button(new UiRect(0, 0, 40, 40), "", id: "far");
-            active = ui.ActiveId;
-            ui.BeginModal(new UiRect(100, 100, 150, 150));
-            ui.EndModal();
-        }
-        d.Frame(Widgets);
-        d.Press(10, 10).Frame(Widgets);
-        Assert.Equal(0u, active);
-    }
-
-    [Fact]
     public void Tooltip_WaitsHalfSecondUnderMouse_AsksForRedraw()
     {
         var d = new UiDriver();
@@ -434,8 +413,8 @@ public sealed class UiContextTests
     [Fact]
     public void ShapeWidgetFrame_AllocatesNothing()
     {
-        // Кадр панели: ползунок тянут, список крутят, выпадающий список раскрыт — без выделений (состояние виджетов
-        // заводится в первые кадры). Текст — в UiWidgetTextTests.
+        // Кадр панели: ползунок тянут и список крутят, затем выпадающий список раскрыт щелчком и крутится — без выделений
+        // (состояние виджетов заводится в первые кадры). Текст — в UiWidgetTextTests.
         var d = new UiDriver(width: 300, height: 300);
         float slider = 0.02f, split = 260;
         bool flag = false;
@@ -455,16 +434,19 @@ public sealed class UiContextTests
             ui.TreeNode(new UiRect(10, 184, 230, 204), "node", "", 1, leaf: false, selected: true, out _);
             ui.Separator(new UiRect(10, 206, 230, 210));
             ui.Splitter(new UiRect(255, 0, 265, 300), "split", ref split, vertical: true, 240, 290);
-            ui.OpenCombo("combo");
             ui.Combo(new UiRect(10, 214, 120, 234), "combo", ref combo, items);
         }
 
         Action<UiContext> frame = Widgets;   // делегат один: преобразование группы методов в цикле — выделение теста
         d.Frame(frame);
-        d.Press(20, 50).Frame(frame);   // схватить ползунок
+        d.Click(60, 224, frame);        // раскрыть список: его строки заводят состояние
+        d.Move(30, 150).Frame(frame);
+        d.Input.Wheel = -1;
+        d.Frame(frame);
+        d.Press(20, 50).Frame(frame);   // схватить ползунок (нажатие мимо закрывает список)
         for (int i = 0; i < 10; i++) d.Move(20 + i, i % 2 == 0 ? 50 : 150).Frame(frame);
         long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 100; i++)
+        for (int i = 0; i < 50; i++)
         {
             // ползунок следит только за X: на кадрах с колесом мышь — над списком, он прокручивается
             bool wheel = i % 10 == 0;
@@ -472,7 +454,18 @@ public sealed class UiContextTests
             if (wheel) d.Input.Wheel = -1;
             d.Frame(frame);
         }
+        d.Release(130, 50).Frame(frame);
+        d.Click(60, 224, frame);        // список снова раскрыт: колесо над ним
+        for (int i = 0; i < 50; i++)
+        {
+            d.Move(30, 150);
+            if (i % 10 == 0) d.Input.Wheel = -1;
+            d.Frame(frame);
+        }
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
         Assert.True(slider > 0.02f);
+        bool popup = false;
+        foreach (ref readonly var q in d.Ui.Output.Quads) popup |= q.ColourA == d.Ui.Theme.Shadow;   // тень — только у всплывающего окна
+        Assert.True(popup);   // список раскрыт и в замере
     }
 }

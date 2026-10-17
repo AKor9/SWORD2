@@ -9,9 +9,6 @@ public sealed partial class UiContext
         public bool Open;
     }
 
-    /// <summary>Раскрыть выпадающий список программно (с тем же стеком ID, что у вызова <see cref="Combo"/>).</summary>
-    public void OpenCombo(ReadOnlySpan<char> label) => State<ComboState>(Id(label)).Open = true;
-
     /// <summary>
     /// Выпадающий список. Раскрытый список — всплывающее окно под полем (не влезает — над ним, и там не влезает —
     /// прижат к низу экрана); закрывают выбор, щелчок мимо и Escape.

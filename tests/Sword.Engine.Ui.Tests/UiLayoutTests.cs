@@ -29,7 +29,6 @@ public sealed class UiLayoutTests
         var a = new UiRect(0, 0, 10, 10);
         var b = new UiRect(20, 20, 30, 30);
         Assert.True(a.Intersect(b).IsEmpty);
-        Assert.False(a.Overlaps(b));
     }
 
     [Fact]
@@ -126,11 +125,11 @@ public sealed class UiLayoutTests
     }
 
     [Fact]
-    public void Split_GroupsByPipelineAndClip_ClampsScissorToTarget()
+    public void Split_GroupsByClip_ClampsScissorToTarget()
     {
         var d = new UiDrawList();
         d.Rect(0, 0, 10, 10, 1);
-        d.Rect(20, 0, 30, 10, 1);                          // тот же конвейер, та же обрезка — тот же вызов
+        d.Rect(20, 0, 30, 10, 1);                          // та же обрезка — тот же вызов
         d.PushClip(new UiRect(-5.5f, 2.2f, 50.1f, 700));   // дробные края — наружу, за целью — зажать
         d.Rect(0, 5, 10, 10, 1);
         d.PopClip();
@@ -140,9 +139,9 @@ public sealed class UiLayoutTests
         d.Split(640, 480, batches);
         Assert.Equal(
             [
-                new UiBatch(0, 2, false, 0, 0, 640, 480),
-                new UiBatch(2, 1, false, 0, 2, 51, 480),
-                new UiBatch(3, 1, false, 0, 0, 640, 480),
+                new UiBatch(0, 2, 0, 0, 640, 480),
+                new UiBatch(2, 1, 0, 2, 51, 480),
+                new UiBatch(3, 1, 0, 0, 640, 480),
             ],
             batches);
     }

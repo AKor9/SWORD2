@@ -124,14 +124,13 @@ internal sealed class RecipeEditor
                     {
                         p.SetValue(_edited, null);
                     }
-                    bool ok = double.TryParse(text.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed)
-                              && double.IsFinite(parsed) && (type != typeof(int) || Math.Abs(parsed) <= int.MaxValue);
+                    bool ok = UiContext.TryParseNumber(text, out double parsed) && (type != typeof(int) || Math.Abs(parsed) <= int.MaxValue);
                     if (ok)
                     {
                         p.SetValue(_edited, type == typeof(int) ? (int)Math.Round(parsed) : type == typeof(double) ? parsed : (float)parsed);
                     }
                 }
-                if (_typed.TryGetValue(name, out var typed) && !(type == typeof(float?) && typed.Trim().Length == 0) && !double.TryParse(typed.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+                if (_typed.TryGetValue(name, out var typed) && !(type == typeof(float?) && typed.Trim().Length == 0) && !UiContext.TryParseNumber(typed, out _))
                     ui.Label(numberRest.Shrink(ui.S(8), 0), "не число — не применено", t.Bad, UiAlign.Left, UiFace.Body, t.SmallFontSize);
             }
             else if (type == typeof(List<string>))

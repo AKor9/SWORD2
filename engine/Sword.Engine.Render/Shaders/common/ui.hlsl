@@ -1,5 +1,5 @@
 // Интерфейс (UiPass): аналитические фигуры (поле расстояний) и GPU-векторный текст. Перенос ui.hlsl SWORD 2eab13b
-// (туда — из Star2). Одна запись на квад, шесть вершин по SV_VertexID. Слоты UI_*, режимы UI_BOX/UI_TRI/UI_SPRITE,
+// (туда — из Star2). Одна запись на квад, шесть вершин по SV_VertexID. Слоты UI_*, режимы UI_BOX/UI_TRI/UI_SPRITE/UI_TEXT,
 // UI_VECTOR_BANDS и размеры записей — из контракта шейдеров (UiPass.Contribute).
 #include "pass.hlsli"
 
@@ -96,8 +96,12 @@ float4 Sprite(PsInput input)
     return tex.SampleLevel(gLinearClamp, float3(uv, input.shape.w), mip) * input.colour;
 }
 
+// Текст — тот же конвейер, что фигуры: квады подряд рисуются одним вызовом, рвёт его только обрезка.
+float4 VectorText(PsInput input);
+
 float4 PsUi(PsInput input) : SV_Target
 {
+    if (input.mode == UI_TEXT) return VectorText(input);
     if (input.mode == UI_SPRITE) return Sprite(input);
     float d = input.mode == UI_TRI
         ? SdTriangle(input.local, input.uvRect.xy, input.uvRect.zw, input.shape.zw)
@@ -201,7 +205,7 @@ float VectorCoverage(float2 renderCoord, uint glyphIndex)
     return saturate(max(combined, min(abs(xcov), abs(ycov))));
 }
 
-float4 PsVectorText(PsInput input) : SV_Target
+float4 VectorText(PsInput input)
 {
     float2 t = input.local / max(input.halfSize, 1e-5) * 0.5 + 0.5;
     float2 renderCoord = lerp(input.uvRect.xy, input.uvRect.zw, t);

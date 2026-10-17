@@ -13,22 +13,8 @@ public sealed partial class UiContext
 
     /// <summary>Строка текста, по вертикали — по центру прямоугольника; не влезает — с «…». Возвращает ширину.</summary>
     public float Label(UiRect r, ReadOnlySpan<char> text, uint? colour = null, UiAlign align = UiAlign.Left,
-        UiFace face = UiFace.Body, float? size = null)
-    {
-        if (text.IsEmpty || r.Width <= 0) return 0;
-        float fs = S(size ?? Theme.FontSize);
-        float y = r.Y0 + (r.Height - Draw.LineHeight(face, fs)) * 0.5f;
-        uint c = colour ?? Theme.Text;
-        float w = Draw.Measure(face, fs, text);
-        if (w > r.Width) return Draw.TextFit(face, fs, new Vector2(r.X0, y), c, text, r.Width);
-        float x = align switch
-        {
-            UiAlign.Centre => r.X0 + (r.Width - w) * 0.5f,
-            UiAlign.Right => r.X1 - w,
-            _ => r.X0,
-        };
-        return Draw.Text(face, fs, new Vector2(x, y), c, text);
-    }
+        UiFace face = UiFace.Body, float? size = null) =>
+        Draw.Label(r, face, S(size ?? Theme.FontSize), colour ?? Theme.Text, text, align);
 
     /// <summary>
     /// Строка-сведение «подпись — значение»: подпись слева приглушённая, значение справа цифровым начертанием, мелким кеглем;
@@ -36,17 +22,9 @@ public sealed partial class UiContext
     /// своего текста. <paramref name="labelSize"/> — кегль подписи (null — мелкий).
     /// </summary>
     public void InfoRow(UiRect r, ReadOnlySpan<char> label, ReadOnlySpan<char> value, float split = 0.42f, uint? valueColour = null,
-        float? labelSize = null)
-    {
-        float ls = labelSize ?? Theme.SmallFontSize;
-        float nameW = r.Width * split;
-        float need = Draw.Measure(UiFace.Num, S(Theme.SmallFontSize), value);
-        if (need > r.Width - nameW)
-            nameW = MathF.Min(nameW, Draw.Measure(UiFace.Body, S(ls), label) + S(10));
-        var name = r.SplitLeft(nameW, out var rest);
-        Label(name, label, Theme.TextDim, UiAlign.Left, UiFace.Body, ls);
-        Label(rest, value, valueColour ?? Theme.Text, UiAlign.Right, UiFace.Num, Theme.SmallFontSize);
-    }
+        float? labelSize = null) =>
+        Draw.InfoRow(r, label, S(labelSize ?? Theme.SmallFontSize), Theme.TextDim, value, S(Theme.SmallFontSize),
+            valueColour ?? Theme.Text, split, S(10));
 
     /// <summary>
     /// Текст с переносом по словам в <paramref name="r"/>: строк — сколько влезает по высоте, остаток последней — с «…».
@@ -88,12 +66,8 @@ public sealed partial class UiContext
     }
 
     /// <summary>Заголовок секции: мелкая подпись и тонкая линия до края.</summary>
-    public void SectionHeader(UiRect r, ReadOnlySpan<char> title)
-    {
-        float w = Label(r, title, Theme.TextDim, UiAlign.Left, UiFace.Label, Theme.SmallFontSize);
-        float y = MathF.Round(r.Centre.Y);
-        Draw.Rect(r.X0 + w + S(8), y, r.X1, y + MathF.Max(1, S(1)), Theme.Border);
-    }
+    public void SectionHeader(UiRect r, ReadOnlySpan<char> title) =>
+        Draw.SectionHeader(r, title, S(Theme.SmallFontSize), Theme.TextDim, Theme.Border, S(8), MathF.Max(1, S(1)));
 
     public void Separator(UiRect r, bool vertical = false)
     {

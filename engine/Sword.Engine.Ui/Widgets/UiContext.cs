@@ -3,7 +3,7 @@ using System.Numerics;
 namespace Sword.Engine.Ui;
 
 /// <summary>Курсор, который просят виджеты кадра; ставит его окну клиент.</summary>
-public enum UiCursor { Arrow, IBeam, Hand, SizeWE, SizeNS, SizeAll }
+public enum UiCursor { Arrow, IBeam, SizeWE, SizeNS, SizeAll }
 
 public enum UiAlign { Left, Centre, Right }
 
@@ -194,6 +194,31 @@ public sealed partial class UiContext
         return clicked;
     }
 
+    /// <summary>
+    /// Перетаскивание за прямоугольник: нажатие над ним захватывает мышь за <paramref name="id"/> (<paramref name="started"/>),
+    /// пока кнопка зажата — тянут (истина); отпустили — захват снят.
+    /// </summary>
+    /// <param name="hovered">Курсор над <paramref name="r"/>, а мышь свободна или у этого виджета.</param>
+    public bool Drag(UiRect r, uint id, out bool hovered, out bool started)
+    {
+        hovered = IsHovered(r) && (ActiveId == 0 || ActiveId == id);
+        started = hovered && Input.Pressed(0);
+        if (started) ActiveId = id;
+        if (ActiveId != id) return false;
+        if (Input.Down(0) || Input.Pressed(0)) return true;
+        ActiveId = 0;
+        return false;
+    }
+
+    /// <summary>Колесо над <paramref name="r"/> в этом кадре (0 — не крутили или мимо); забирается — виджеты под ним его не видят.</summary>
+    public float TakeWheel(UiRect r)
+    {
+        if (Input.Wheel == 0 || !IsHovered(r)) return 0;
+        float wheel = Input.Wheel;
+        Input.Wheel = 0;
+        return wheel;
+    }
+
     /// <summary>Отдать фокус клавиатуры виджету (и не снять его щелчком этого кадра).</summary>
     public void Focus(uint id)
     {
@@ -237,23 +262,6 @@ public sealed partial class UiContext
 
     private UiDrawList LayerList(int layer) => layer switch { 0 => _main, 1 => _overlay, _ => _top };
 
-    /// <summary>Окно вопроса поверх всего: фон затемняется, мышь под ним не проходит. Закрывать — <see cref="EndModal"/>.</summary>
-    public void BeginModal(UiRect dialog)
-    {
-        var layer = EnterLayer();
-        if (_layer == 1) _nextPopupBlock = Screen;
-        else _nextTopBlock = Screen;
-        // Сначала затемнение, потом окно: затемнение поверх окна проступало бы тёмной рамкой на скруглённых углах.
-        float radius = S(Theme.Radius + 2);
-        layer.Rect(Screen, Theme.Shadow);
-        layer.Rect(dialog.Offset(S(2), S(5)).Expand(S(2)), Theme.Shadow, radius + S(2));
-        layer.Rect(dialog, Theme.Popup, radius);
-        layer.RectStroke(dialog, Theme.BorderStrong, S(1), radius);
-        layer.PushClipReplace(dialog);
-    }
-
-    public void EndModal() => EndPopup();
-
     // ── подсказка ──────────────────────────────────────────────────────
 
     private uint _tooltipId;
@@ -293,14 +301,12 @@ public sealed partial class UiContext
         if (_pendingTooltip is not { } text) return;
         _pendingTooltip = null;
         float fs = S(Theme.SmallFontSize), pad = S(6);
-        float w = MathF.Min(_main.Measure(UiFace.Body, fs, text) + pad * 2, Width);
-        float h = _main.LineHeight(UiFace.Body, fs) + pad * 2;
+        var size = _main.TextBoxSize(UiFace.Body, fs, text, new Vector2(pad));
+        float w = MathF.Min(size.X, Width), h = size.Y;
         float x = Math.Clamp(Input.Mouse.X + S(12), 0, MathF.Max(0, Width - w));
         float y = Input.Mouse.Y + S(20);
         if (y + h > Height) y = Input.Mouse.Y - h - S(6);
         var tip = new UiRect(x, y, x + w, y + h);
-        _main.Rect(tip, Theme.Popup, S(3));
-        _main.RectStroke(tip, Theme.BorderStrong, S(1), S(3));
-        _main.TextFit(UiFace.Body, fs, new Vector2(x + pad, y + pad), Theme.Text, text, w - pad * 2);
+        _main.TextBox(tip, UiFace.Body, fs, Theme.Text, text, Theme.Popup, pad, S(3), Theme.BorderStrong, S(1));
     }
 }

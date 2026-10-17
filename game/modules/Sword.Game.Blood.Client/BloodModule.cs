@@ -510,68 +510,28 @@ public sealed class BloodModule : IClientModule
     /// <summary>Строка F3 — на стек: числа — <c>TryFormat</c> (кадр панели без выделений).</summary>
     private int Status(Span<char> d)
     {
-        int n = Write(d, 0, "тик ");
-        n = Number(d, n, (long)_lastTick);
-        n = Write(d, n, ", кадр: попаданий ");
-        n = Number(d, n, LastFrameHits);
-        n = Write(d, n, ", смертей ");
-        n = Number(d, n, LastFrameDeaths);
-        n = Write(d, n, "; всего: попаданий ");
-        n = Number(d, n, Hits);
-        n = Write(d, n, ", смертей ");
-        n = Number(d, n, Deaths);
-        n = Write(d, n, ", сбросов ");
-        return Number(d, n, Resets);
+        return new Line(d).S("тик ").I((long)_lastTick).S(", кадр: попаданий ").I(LastFrameHits).S(", смертей ").I(LastFrameDeaths)
+            .S("; всего: попаданий ").I(Hits).S(", смертей ").I(Deaths).S(", сбросов ").I(Resets).Length;
     }
 
     private int DripStatus(Span<char> d)
     {
-        int n = Write(d, 0, "ран ");
-        n = Number(d, n, _wounds.Count);
-        n = Write(d, n, ", потёков ");
-        n = Number(d, n, _drips?.Alive ?? 0);
-        n = Write(d, n, ", капель ");
-        n = Number(d, n, _drips?.Detached ?? 0);
-        n = Write(d, n, ", шаг мкс ");
-        return Number(d, n, (long)(LastStepMs * 1000));
+        return new Line(d).S("ран ").I(_wounds.Count).S(", потёков ").I(_drips?.Alive ?? 0).S(", капель ").I(_drips?.Detached ?? 0)
+            .S(", шаг мкс ").I((long)(LastStepMs * 1000)).Length;
     }
 
     private int FloorStatus(Span<char> d)
     {
         var f = _floor;
-        int n = Write(d, 0, "в полёте ");
-        n = Number(d, n, f?.Flying.Length ?? 0);
-        n = Write(d, n, ", приземлилось мкл ");
-        n = Number(d, n, (long)((f?.LandedMl ?? 0) * 1000));
-        n = Write(d, n, ", в окно мкл ");
-        n = Number(d, n, (long)((f?.StampedMl ?? 0) * 1000));
-        n = Write(d, n, ", шагов ");
-        n = Number(d, n, f?.Steps ?? 0);
-        n = Write(d, n, ", сдвигов ");
-        return Number(d, n, f?.Shifts ?? 0);
+        return new Line(d).S("в полёте ").I(f?.Flying.Length ?? 0).S(", приземлилось мкл ").I((long)((f?.LandedMl ?? 0) * 1000))
+            .S(", в окно мкл ").I((long)((f?.StampedMl ?? 0) * 1000)).S(", шагов ").I(f?.Steps ?? 0).S(", сдвигов ").I(f?.Shifts ?? 0).Length;
     }
 
     private int SkinStatus(Span<char> d)
     {
-        int n = Write(d, 0, "слотов ");
-        n = Number(d, n, _skin?.UsedSlots ?? 0);
-        n = Write(d, n, ", сочится ");
-        n = Number(d, n, _ooze.Active);
-        n = Write(d, n, ", темп мкл/с ");
-        n = Number(d, n, (long)(_ooze.Rate * 1000));
-        n = Write(d, n, ", выпущено мкл ");
-        return Number(d, n, (long)(_ooze.Released * 1000));
+        return new Line(d).S("слотов ").I(_skin?.UsedSlots ?? 0).S(", сочится ").I(_ooze.Active).S(", темп мкл/с ").I((long)(_ooze.Rate * 1000))
+            .S(", выпущено мкл ").I((long)(_ooze.Released * 1000)).Length;
     }
-
-    private static int Write(Span<char> d, int n, string text)
-    {
-        int k = Math.Min(text.Length, d.Length - n);
-        text.AsSpan(0, k).CopyTo(d[n..]);
-        return n + k;
-    }
-
-    private static int Number(Span<char> d, int n, long value) =>
-        value.TryFormat(d[n..], out int w, provider: System.Globalization.CultureInfo.InvariantCulture) ? n + w : n;
 
     private object Report() => new
     {

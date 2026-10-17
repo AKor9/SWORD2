@@ -69,7 +69,7 @@ public sealed class LocomotionTuning
     private int Clip(Span<char> d)
     {
         if (!Status(out _, out _, out var s) || !_link.World.TryView<IAnimationView>(out var anim) || (uint)s.Clip >= (uint)anim.ClipCount)
-            return Length(new Line(d).S("—").Text);
+            return new Line(d).S("—").Length;
         var name = anim.ClipName(s.Clip).AsSpan();
         name = name[(name.LastIndexOf('/') + 1)..];
         var line = new Line(d);
@@ -78,38 +78,38 @@ public sealed class LocomotionTuning
             line = line.S("..");
             name = name[^(ClipChars - 2)..];
         }
-        return Length(line.S(name).S(" · ").I(s.ClipFrame).Text);
+        return line.S(name).S(" · ").I(s.ClipFrame).Length;
     }
 
     /// <summary>«1.27 / 3.40, расписание, сменил» — цена найденного / продолжения, повод, сменил ли; поиска не было — «—».</summary>
     private int Search(Span<char> d)
     {
-        if (!Status(out var mm, out var player, out _) || !mm.TrySearch(player, out var q)) return Length(new Line(d).S("—").Text);
+        if (!Status(out var mm, out var player, out _) || !mm.TrySearch(player, out var q)) return new Line(d).S("—").Length;
         var line = new Line(d).F(q.Cost, "F2").S(" / ");
         line = q.ContinuationCost < 0 ? line.S("—") : line.F(q.ContinuationCost, "F2");
-        return Length(line.S(", ").S(Reason(q.Reason)).S(q.Switched ? ", сменил" : "").Text);
+        return line.S(", ").S(Reason(q.Reason)).S(q.Switched ? ", сменил" : "").Length;
     }
 
     /// <summary>«0.041 мс (макс 0.210)» — время последнего поиска и наибольшее; поиска не было — «—».</summary>
     private int SearchTime(Span<char> d)
     {
-        if (!Status(out var mm, out var player, out _) || !mm.TrySearch(player, out var q)) return Length(new Line(d).S("—").Text);
-        return Length(new Line(d).F(q.Microseconds / 1000, "F3").S(" мс (макс ").F(q.MaxMicroseconds / 1000, "F3").S(")").Text);
+        if (!Status(out var mm, out var player, out _) || !mm.TrySearch(player, out var q)) return new Line(d).S("—").Length;
+        return new Line(d).F(q.Microseconds / 1000, "F3").S(" мс (макс ").F(q.MaxMicroseconds / 1000, "F3").S(")").Length;
     }
 
     /// <summary>«скрут 23.4° · грудь 1.2° · пов. 3*» — расхождение корня и ног, выравнивание груди, поворотов (* — клип поворота идёт); нет — «—».</summary>
     private int Turn(Span<char> d)
     {
-        if (!Status(out _, out _, out var s)) return Length(new Line(d).S("—").Text);
+        if (!Status(out _, out _, out var s)) return new Line(d).S("—").Length;
         const float Deg = 180 / MathF.PI;
-        return Length(new Line(d).S("скрут ").F(s.Twist * Deg, "F1").S("° · грудь ").F(s.Chest * Deg, "F1").S("° · пов. ").I(s.Turns)
-            .S(s.TurnClip >= 0 ? "*" : "").Text);
+        return new Line(d).S("скрут ").F(s.Twist * Deg, "F1").S("° · грудь ").F(s.Chest * Deg, "F1").S("° · пов. ").I(s.Turns)
+            .S(s.TurnClip >= 0 ? "*" : "").Length;
     }
 
     /// <summary>«2.5 (всего 41)» — переходов в секунду за окно и всего с постройки; окно ещё не набрано — «— (всего N)».</summary>
     private int Transitions(Span<char> d)
     {
-        if (!Status(out _, out var player, out var s)) return Length(new Line(d).S("—").Text);
+        if (!Status(out _, out var player, out var s)) return new Line(d).S("—").Length;
         float time = _link.Time;
         // Окно: счётчик переходов в начале окна; прошло 2 с — частота за окно, новое окно. Постройка заново (счётчик меньше) — окно заново.
         if (player != _rateOf || float.IsNaN(_windowStart) || s.Transitions < _windowTransitions || time < _windowStart)
@@ -126,7 +126,7 @@ public sealed class LocomotionTuning
             _windowTransitions = s.Transitions;
         }
         var line = float.IsNaN(_rate) ? new Line(d).S("—") : new Line(d).F(_rate, "F1");
-        return Length(line.S(" (всего ").I(s.Transitions).S(")").Text);
+        return line.S(" (всего ").I(s.Transitions).S(")").Length;
     }
 
     /// <summary>Повод поиска словами (коротко — строка панели).</summary>
@@ -138,6 +138,4 @@ public sealed class LocomotionTuning
         MotionSearchReason.Schedule => "расписание",
         _ => "—",
     };
-
-    private static int Length(ReadOnlySpan<char> text) => text.Length;
 }

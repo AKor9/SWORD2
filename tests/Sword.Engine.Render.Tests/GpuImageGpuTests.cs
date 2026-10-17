@@ -1,10 +1,9 @@
 using System.Numerics;
-using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
-using Sword.Engine.Formats;
 using Sword.Engine.Platform;
 using Sword.Engine.Platform.Win32;
 using Sword.Engine.Ui;
+using Sword.Tests;
 
 namespace Sword.Engine.Render.Tests;
 
@@ -26,25 +25,12 @@ public sealed class GpuImageGpuTests : IDisposable, ILogSink
     public GpuImageGpuTests()
     {
         Log.AddSink(this);
-        _fonts = PackFonts();
+        _fonts = PakFonts.Read();   // шрифты читает вызывающий, как окно инструмента
         _window = new Win32Window(new WindowOptions("Sword.Engine.Render.Tests.Image", 320, 200, Activate: false));
         var contract = new ShaderContract();
         Renderer.Contribute(contract);
         _renderer = new Renderer(new RendererOptions(_window.NativeHandle, _window.Width, _window.Height, DebugLayer: true,
             ShaderRoot: Path.Combine(AppContext.BaseDirectory, "Shaders"), GpuValidation: true) { UiFonts = _fonts }, contract);
-    }
-
-    /// <summary>Шрифты интерфейса, прочитанные вызывающим (как окно инструмента читает свои).</summary>
-    private static UiFonts PackFonts()
-    {
-        using var pak = ContentLocator.Open();
-        var files = pak.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension)
-            .Select(f =>
-            {
-                using var s = pak.OpenRead(f);
-                return UiFontFile.Read(s, f);
-            }).ToList();
-        return new UiFonts(files);
     }
 
     void ILogSink.Write(in LogEntry entry)

@@ -23,4 +23,8 @@
     <ProjectReference Include="..\..\engine\Sword.Engine.Content\Sword.Engine.Content.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\PakFonts.cs" Link="Shared\PakFonts.cs" />
+  </ItemGroup>
+
 </Project>

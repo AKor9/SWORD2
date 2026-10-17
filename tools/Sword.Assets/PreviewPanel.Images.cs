@@ -105,7 +105,7 @@ internal sealed partial class PreviewPanel
             }
             var img = images[i];
             var thumb = row.SplitLeft(rowH, out var text).Shrink(ui.S(5));
-            ui.Draw.Rect(thumb, UiDrawList.Rgba(16, 16, 20), ui.S(2));
+            ui.Draw.Rect(thumb, t.ViewportInset, ui.S(2));
             var fit = FitRect(thumb, DisplayAspect(img));
             float lod = MathF.Log2(MathF.Max(1, img.Width / MathF.Max(fit.Width, 1)));
             ui.Draw.Image(fit, Texture(i), Vector2.Zero, Vector2.One, uint.MaxValue, MathF.Min(lod, img.Mips.Count - 1));
@@ -139,7 +139,7 @@ internal sealed partial class PreviewPanel
     private void DrawImageView(UiContext ui, UiRect view, PreviewImage img, out string? pixel)
     {
         pixel = null;
-        ui.Draw.Rect(view, UiDrawList.Rgba(24, 24, 28), ui.S(4));
+        ui.Draw.Rect(view, ui.Theme.Viewport, ui.S(4));
 
         float fit = FitScale(view, img);
         float scale = fit * _imageZoom;
@@ -148,34 +148,27 @@ internal sealed partial class PreviewPanel
         var rect = Centred(centre, size);
 
         // ввод: колесо — к курсору, ЛКМ — сдвиг, двойной щелчок — вписать
-        uint id = ui.Id("preview-image");
-        bool hovered = ui.IsHovered(view) && (ui.ActiveId == 0 || ui.ActiveId == id);
         var mouse = ui.Input.Mouse;
-        if (hovered && ui.Input.Pressed(0))
+        bool dragging = ui.Drag(view, ui.Id("preview-image"), out bool hovered, out bool started);
+        if (started)
         {
-            ui.ActiveId = id;
             _imageLastMouse = mouse;
             if (ui.DoubleClicked) ResetImageView();
         }
-        if (ui.ActiveId == id)
+        if (dragging)
         {
-            if (ui.Input.Down(0))
-            {
-                _imagePan += mouse - _imageLastMouse;
-                _imageLastMouse = mouse;
-                ui.Cursor = UiCursor.SizeAll;
-            }
-            else ui.ActiveId = 0;
+            _imagePan += mouse - _imageLastMouse;
+            _imageLastMouse = mouse;
+            ui.Cursor = UiCursor.SizeAll;
         }
-        if (hovered && ui.Input.Wheel != 0)
+        if (ui.TakeWheel(view) is var wheel and not 0)
         {
-            float zoom = Math.Clamp(_imageZoom * MathF.Pow(1.25f, ui.Input.Wheel), 0.05f, 400f);
+            float zoom = Math.Clamp(_imageZoom * MathF.Pow(1.25f, wheel), 0.05f, 400f);
             // точка картинки под курсором остаётся под курсором
             var local = (mouse - centre) / scale;
             _imageZoom = zoom;
             scale = fit * _imageZoom;
             _imagePan = mouse - local * scale - view.Centre;
-            ui.Input.Wheel = 0;
             size = new Vector2(DisplayWidth(img), img.Height) * scale;
             centre = view.Centre + _imagePan;
             rect = Centred(centre, size);
@@ -184,7 +177,7 @@ internal sealed partial class PreviewPanel
         ui.Draw.PushClip(view.Shrink(ui.S(1)));
         var visible = rect.Intersect(view);
         if (img.Checker && !visible.IsEmpty) Checker(ui, rect, visible);
-        else if (!visible.IsEmpty) ui.Draw.Rect(visible, UiDrawList.Rgba(8, 8, 10));
+        else if (!visible.IsEmpty) ui.Draw.Rect(visible, ui.Theme.ImageBackdrop);
 
         float texelsPerPixel = MathF.Max(img.Width / MathF.Max(size.X, 1e-3f), img.Height / MathF.Max(size.Y, 1e-3f));
         float autoMip = Math.Clamp(MathF.Log2(MathF.Max(texelsPerPixel, 1)), 0, img.Mips.Count - 1);
@@ -211,7 +204,7 @@ internal sealed partial class PreviewPanel
     private static void Checker(UiContext ui, UiRect rect, UiRect visible)
     {
         float cell = ui.S(10);
-        uint light = UiDrawList.Rgba(70, 70, 76), dark = UiDrawList.Rgba(46, 46, 52);
+        uint light = ui.Theme.CheckerLight, dark = ui.Theme.CheckerDark;
         ui.Draw.Rect(visible, dark);
         int ix0 = (int)MathF.Floor((visible.X0 - rect.X0) / cell), iy0 = (int)MathF.Floor((visible.Y0 - rect.Y0) / cell);
         int ix1 = (int)MathF.Ceiling((visible.X1 - rect.X0) / cell), iy1 = (int)MathF.Ceiling((visible.Y1 - rect.Y0) / cell);

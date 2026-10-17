@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using Sword.Assets.Preview;
 using Sword.Engine.Content;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Ui;
 
 namespace Sword.Assets;
@@ -267,18 +268,19 @@ internal sealed class AssetsView(AssetsApp app, Func<PreviewImage, PreviewTextur
         if (app.LastWritten.Count > 0)
         {
             ui.SectionHeader(written.SplitTop(ui.S(22), out written), $"ЗАПИСАНО   {app.LastWritten.Count}");
-            var list = ui.BeginScroll(written, "written", app.LastWritten.Count * ui.S(22));
-            for (int i = 0; i < app.LastWritten.Count; i++)
+            var rows = ui.BeginList(written, "written", app.LastWritten.Count, ui.S(22));
+            Span<char> path = stackalloc char[260];
+            for (int i = rows.First; i < rows.Last; i++)
             {
-                var line = UiRect.FromSize(list.X0, list.Y0 + i * ui.S(22), list.Width, ui.S(22));
-                if (ui.Selectable(line, ui.Id("w:" + app.LastWritten[i]), false))
+                var line = rows.Row(i);
+                if (ui.Selectable(line, ui.Id(i), false))
                 {
                     app.Selected = app.LastWritten[i];
                     _tab = 0;
                 }
-                ui.Label(line.Shrink(ui.S(6), 0), "Content/" + app.LastWritten[i], t.TextDim, UiAlign.Left, UiFace.Num, t.SmallFontSize);
+                ui.Label(line.Shrink(ui.S(6), 0), new Line(path).S("Content/").S(app.LastWritten[i]).Text, t.TextDim, UiAlign.Left, UiFace.Num, t.SmallFontSize);
             }
-            ui.EndScroll();
+            ui.EndList();
         }
     }
 

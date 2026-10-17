@@ -1,4 +1,5 @@
 using Sword.Engine.Client;
+using Sword.Engine.Diagnostics;
 using Sword.Engine.Ui;
 using Sword.Game.Contracts;
 

@@ -50,7 +50,7 @@ public sealed class UiPassGpuTests : IDisposable, ILogSink
     private void AssertNoDebugMessages() =>
         Assert.True(_d3d12.Count == 0, "сообщения отладочного слоя D3D12:\n" + string.Join("\n", _d3d12));
 
-    /// <summary>Фон, текст, фигуры под обрезкой, снова текст — четыре отрезка.</summary>
+    /// <summary>Фон и текст, фигуры под обрезкой, снова текст — три отрезка: вызов рвёт обрезка, а не смена фигура/текст.</summary>
     private static void Panel(UiDrawList d, int rects)
     {
         d.Rect(0, 0, 320, 200, 0xC0101010, 8);
@@ -71,7 +71,7 @@ public sealed class UiPassGpuTests : IDisposable, ILogSink
         Panel(large, 5000);   // больше начального кольца (4096 квадов на кадр)
         var batches = new List<UiBatch>();
         large.Split(_renderer.Width, _renderer.Height, batches);
-        Assert.Equal(4, batches.Count);
+        Assert.Equal(3, batches.Count);
 
         uint before = ui.QuadCapacity;
         for (int frame = 0; frame < 4; frame++)   // кадров больше, чем кадров в полёте: кольцо каждого кадра — в деле
@@ -84,7 +84,7 @@ public sealed class UiPassGpuTests : IDisposable, ILogSink
 
         var passes = _renderer.Graph.LastFrame;
         Assert.Equal(["ui.small", "ui.large"], passes.Select(p => p.Name));
-        Assert.Equal([4, 4], passes.Select(p => p.Draws));
+        Assert.Equal([3, 3], passes.Select(p => p.Draws));
         Assert.Single(passes[1].Writes);   // только задний буфер
         Assert.Empty(passes[1].Reads);
         AssertNoDebugMessages();
