@@ -41,10 +41,16 @@ public readonly record struct PointLight(Vector3 Position, Vector3 Color, float 
     public float VolumetricScattering { get; init; } = 1;
 
     /// <summary>
-    /// Тестовый источник «факел LIVE-2». Без дальности показа: в LIVE-2 она 12 м, а камера арены по умолчанию в 24 м.
+    /// Отбрасывает тени (<see cref="PointLights.Shadows"/>): кубическая карта на кадр, не больше <see cref="PointLights.MaxShadowed"/>
+    /// источников — первые видимые с флагом; заслоняющие ближе <see cref="PointLights.ShadowNear"/> (держатель факела) тени не дают.
+    /// </summary>
+    public bool CastShadows { get; init; }
+
+    /// <summary>
+    /// Тестовый источник «факел LIVE-2» (с тенями). Без дальности показа: в LIVE-2 она 12 м, а камера арены по умолчанию в 24 м.
     /// </summary>
     public static PointLight Torch(Vector3 position) =>
-        new(position, new Vector3(1f, 0.038204f, 0f), 100f, 20f, LightFalloff.Exponent, 400f) { VolumetricScattering = 0.15f };
+        new(position, new Vector3(1f, 0.038204f, 0f), 100f, 20f, LightFalloff.Exponent, 400f) { VolumetricScattering = 0.15f, CastShadows = true };
 }
 
 /// <summary>
@@ -193,6 +199,9 @@ internal struct GpuPointLight
     public Vector2 OffsetA; public Vector2 OffsetB;
     /// <summary>Поворот из мира в оси LF (кватернион xyzw).</summary>
     public Quaternion FunctionToLocal;
+    /// <summary>SRV граней кубической карты теней (+X, −X, +Y, −Y, +Z, −Z) или <see cref="PointLights.NoShadow"/> у первой — теней нет.</summary>
+    public uint Shadow0, Shadow1, Shadow2, Shadow3;
+    public uint Shadow4, Shadow5, ShadowPad0, ShadowPad1;
 }
 
 /// <summary>
@@ -212,6 +221,40 @@ public sealed class PointLights : IDisposable
 
     internal const uint FlagInverseSquared = 1, FlagFunction = 2;
 
+    /// <summary>Источников с тенями в кадре (по кубической карте у каждого).</summary>
+    public const int MaxShadowed = 2;
+
+    /// <summary>Сторона грани кубической карты теней, тексели.</summary>
+    public const int ShadowFaceSize = 512;
+
+    /// <summary>Ближняя плоскость граней, м: ближе заслоняющих нет (факел и рука держателя).</summary>
+    public const float ShadowNear = 0.2f;
+
+    /// <summary>Сдвиг точки к источнику при сравнении, м.</summary>
+    public const float ShadowBias = 0.03f;
+
+    /// <summary>«Теней нет» у источника в буфере (<c>POINT_SHADOW_NONE</c>).</summary>
+    public const uint NoShadow = uint.MaxValue;
+
+    /// <summary>Корневые константы проходов заслоняющих: грань, позиция источника.</summary>
+    public const int SlotShadowFace = 22, SlotShadowX = 23, SlotShadowY = 24, SlotShadowZ = 25;
+
+    private static readonly string[] ShadowPassNames = BuildNames("scene.pointShadow");
+    private static readonly string[] ShadowMapNames = BuildNames("pointShadow");
+    private readonly RenderTexture[] _shadowMaps = new RenderTexture[MaxShadowed * 6];
+    private readonly uint[] _shadowSrv = new uint[MaxShadowed * 6];
+    private readonly Vector3[] _shadowPositions = new Vector3[MaxShadowed];
+    private readonly Action<RenderPassContext>[] _recordShadow = new Action<RenderPassContext>[MaxShadowed * 6];
+    private Action<RenderPassContext>? _casters;
+    private int _shadowed;
+
+    private static string[] BuildNames(string prefix)
+    {
+        var names = new string[MaxShadowed * 6];
+        for (int i = 0; i < names.Length; i++) names[i] = $"{prefix}.{i / 6}.{i % 6}";
+        return names;
+    }
+
     private readonly FrameData<GpuPointLight> _ring;
     private readonly PointLight[] _queued = new PointLight[MaxQueued];
     private readonly LightFunction[] _functions = new LightFunction[MaxFunctions];
@@ -221,7 +264,65 @@ public sealed class PointLights : IDisposable
     private readonly ShownPointLight[] _shown = new ShownPointLight[MaxLights];
     private int _shownCount, _shownDropped, _shownHidden, _shownFunctions, _shownDroppedFunctions;
 
-    internal PointLights(Renderer renderer) => _ring = renderer.CreateFrameData<GpuPointLight>("Frame.PointLights", MaxLights + 1);
+    internal PointLights(Renderer renderer)
+    {
+        _ring = renderer.CreateFrameData<GpuPointLight>("Frame.PointLights", MaxLights + 1);
+        for (int i = 0; i < _recordShadow.Length; i++)
+        {
+            int index = i;
+            _recordShadow[i] = ctx => RecordShadow(ctx, index);
+        }
+    }
+
+    /// <summary>Тени точечных источников (со следующего кадра); по умолчанию выключены — игра включает.</summary>
+    public bool Shadows { get; set; }
+
+    /// <summary>Карты теней в этом кадре (<see cref="AddShadowPasses"/> при <see cref="Shadows"/>).</summary>
+    public bool ShadowsActive { get; private set; }
+
+    /// <summary>Источников с тенями в последнем кадре.</summary>
+    public int Shadowed => _shadowed;
+
+    /// <summary>
+    /// Проходы граней кубических карт (фаза Opaque, только глубина, очистка 0) для <see cref="MaxShadowed"/> источников — до проходов,
+    /// которые их читают (<see cref="ReadShadows"/>). Какой источник в какой карте — решается после построения кадра (модули добавляют
+    /// свет позже); пустая карта только чистится. <paramref name="casters"/> рисует заслоняющих: грань и позиция источника — корневые
+    /// константы <c>POINT_SHADOW_FACE</c>, <c>POINT_SHADOW_X/Y/Z</c>, вершина — <c>PointShadowClip</c> из <c>common/lights.hlsli</c>.
+    /// </summary>
+    public void AddShadowPasses(RenderFrame frame, Action<RenderPassContext> casters)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        if (!Shadows) return;
+        var g = frame.Graph;
+        _casters = casters;
+        var desc = new TextureDesc(TextureFormat.Depth32Float, TextureUsage.DepthTarget, ShadowFaceSize, ShadowFaceSize, ClearDepth: 0);
+        for (int i = 0; i < _shadowMaps.Length; i++)
+        {
+            _shadowMaps[i] = g.CreateTexture(ShadowMapNames[i], desc);
+            _shadowSrv[i] = (uint)g.SrvOf(_shadowMaps[i]);
+            g.AddPass(ShadowPassNames[i], FramePhase.Opaque).Depth(_shadowMaps[i], DepthAccess.Write, clear: 0f).Execute(_recordShadow[i]);
+        }
+        ShadowsActive = true;
+    }
+
+    /// <summary>Чтения карт теней в проходе, который освещает точечными источниками.</summary>
+    public void ReadShadows(RenderGraph.RenderPassBuilder pass)
+    {
+        if (!ShadowsActive) return;
+        foreach (var map in _shadowMaps) pass.Read(map);
+    }
+
+    private void RecordShadow(RenderPassContext ctx, int index)
+    {
+        int light = index / 6;
+        if (light >= _shadowed) return;
+        var p = _shadowPositions[light];
+        ctx.SetConstant(SlotShadowFace, index % 6);
+        ctx.SetConstant(SlotShadowX, p.X);
+        ctx.SetConstant(SlotShadowY, p.Y);
+        ctx.SetConstant(SlotShadowZ, p.Z);
+        _casters!(ctx);
+    }
 
     internal static void Contribute(ShaderContract c)
     {
@@ -233,6 +334,14 @@ public sealed class PointLights : IDisposable
         c.Add("POINT_LIGHT_BIAS_SQ", PointLightMath.DistanceBiasSq, "сдвиг d^2 обратного квадрата, м^2");
         c.Add("POINT_LIGHT_LF_BAND", PointLightMath.FunctionFadeBand, "полоса угасания LF, доля дальности");
         c.Add("POINT_LIGHT_PI", MathF.PI);
+        c.Add("POINT_SHADOW_NONE", NoShadow, "теней у источника нет");
+        c.Add("POINT_SHADOW_SIZE", ShadowFaceSize, "сторона грани кубической карты");
+        c.Add("POINT_SHADOW_NEAR", ShadowNear, "ближняя плоскость граней, м");
+        c.Add("POINT_SHADOW_BIAS", ShadowBias, "сдвиг к источнику, м");
+        c.AddSlot("POINT_SHADOW_FACE", SlotShadowFace, "грань прохода заслоняющих: +X -X +Y -Y +Z -Z");
+        c.AddSlot("POINT_SHADOW_X", SlotShadowX, "позиция источника, float");
+        c.AddSlot("POINT_SHADOW_Y", SlotShadowY);
+        c.AddSlot("POINT_SHADOW_Z", SlotShadowZ);
     }
 
     /// <summary>SRV буфера источников этого кадра (действителен с начала кадра — кладётся в константы кадра до добавления источников).</summary>
@@ -271,6 +380,7 @@ public sealed class PointLights : IDisposable
     internal void BeginFrame()
     {
         _queuedCount = _overflow = _functionCount = _droppedFunctions = 0;
+        ShadowsActive = false;
     }
 
     /// <summary>Отбор и запись буфера кадра — после построения кадра, до исполнения графа.</summary>
@@ -278,6 +388,7 @@ public sealed class PointLights : IDisposable
     {
         var slot = _ring.Slot;
         int shown = 0, hidden = 0, dropped = _overflow;
+        _shadowed = 0;
         for (int i = 0; i < _queuedCount; i++)
         {
             ref readonly var light = ref _queued[i];
@@ -294,6 +405,7 @@ public sealed class PointLights : IDisposable
             }
             _shown[shown] = new ShownPointLight(light, fade);
             slot[++shown] = Pack(light, fade);
+            if (light.CastShadows && ShadowsActive && _shadowed < MaxShadowed) AttachShadow(ref slot[shown], light.Position);
         }
         slot[0] = new GpuPointLight { Count = (uint)shown };
         _shownCount = shown;
@@ -301,6 +413,14 @@ public sealed class PointLights : IDisposable
         _shownHidden = hidden;
         _shownFunctions = _functionCount;
         _shownDroppedFunctions = _droppedFunctions;
+    }
+
+    private void AttachShadow(ref GpuPointLight g, Vector3 position)
+    {
+        int b = _shadowed * 6;
+        (g.Shadow0, g.Shadow1, g.Shadow2, g.Shadow3, g.Shadow4, g.Shadow5) =
+            (_shadowSrv[b], _shadowSrv[b + 1], _shadowSrv[b + 2], _shadowSrv[b + 3], _shadowSrv[b + 4], _shadowSrv[b + 5]);
+        _shadowPositions[_shadowed++] = position;
     }
 
     /// <summary>Угасание по дальности показа от <see cref="ViewOrigin"/>; 0 — источник скрыт (или без света).</summary>
@@ -317,6 +437,7 @@ public sealed class PointLights : IDisposable
             Color = light.Color * (light.Intensity * fade),
             Exponent = light.Exponent,
             Flags = light.Falloff == LightFalloff.InverseSquared ? FlagInverseSquared : 0,
+            Shadow0 = NoShadow,
         };
         if ((uint)light.Function < (uint)_functionCount)
         {

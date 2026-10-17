@@ -328,7 +328,7 @@ public sealed class ArenaView
         else if (hasBody && ReadBody(_bodyView!, bodyRef) is > 0 and var n)
         {
             if (_bodies.Length < _bodied + n) Array.Resize(ref _bodies, Math.Max(_bodies.Length * 2, _bodied + n));
-            var tickWorld = FighterWorld(cur.Position, cur.Facing, _height(cur.Position.X, cur.Position.Z));
+            var tickWorld = TickWorld(cur, _height);
             Matrix4x4.Invert(tickWorld, out var back);
             var carry = back * view.World;
             var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, view.Facing - cur.Facing);
@@ -395,10 +395,29 @@ public sealed class ArenaView
     }
 
     /// <summary>Сустав <c>j</c> трупа в мире — привязка[j] × показанное тело его сегмента.</summary>
-    private void SkinJoints(ReadOnlySpan<Matrix4x4> binding, Span<Matrix4x4> joints)
+    private void SkinJoints(ReadOnlySpan<Matrix4x4> binding, Span<Matrix4x4> joints) => CorpseJoints(binding, _jointBodies, _shown, joints);
+
+    /// <summary>
+    /// Суставы трупа в мире — вход палитры скина: <c>joints[j] = binding[j] · bodies[jointBodies[j]]</c> (привязка × система тела сегмента
+    /// сустава). Кадр — по показанным телам, позы тика (<see cref="ArenaFighterPoses"/>) — по телам тика.
+    /// </summary>
+    public static void CorpseJoints(ReadOnlySpan<Matrix4x4> binding, ReadOnlySpan<int> jointBodies, ReadOnlySpan<Matrix4x4> bodies,
+        Span<Matrix4x4> joints)
     {
-        for (int j = 0; j < joints.Length; j++) joints[j] = binding[j] * _shown[_jointBodies[j]];
+        for (int j = 0; j < joints.Length; j++) joints[j] = binding[j] * bodies[jointBodies[j]];
     }
+
+    /// <summary>
+    /// Суставы живого в мире — вход палитры скина (<c>SkinnedMeshes.AddPosed</c>: InverseBind · модельная · мир): <c>model[j] · world</c>.
+    /// </summary>
+    public static void LivingJoints(ReadOnlySpan<Matrix4x4> model, in Matrix4x4 world, Span<Matrix4x4> joints)
+    {
+        for (int j = 0; j < joints.Length; j++) joints[j] = model[j] * world;
+    }
+
+    /// <summary>Мир бойца на тике: корень тика на высоте рельефа под ним (кадр показывает его же, перенесённым по доле тика).</summary>
+    public static Matrix4x4 TickWorld(in Transform cur, Func<float, float, float> height) =>
+        FighterWorld(cur.Position, cur.Facing, height(cur.Position.X, cur.Position.Z));
 
     /// <summary>Капсулы трупа — показанные тела (как скин): на физике — с отметкой.</summary>
     private FighterView CorpseCapsules(FighterView view)
@@ -450,7 +469,7 @@ public sealed class ArenaView
     /// <summary>Клинок тика и прошлого тика в показанном мире бойца (<see cref="ShownBlade"/>).</summary>
     private ShownBlade CarryBlade(in Blade blade, in Transform cur, in FighterView view)
     {
-        var tickWorld = FighterWorld(cur.Position, cur.Facing, _height(cur.Position.X, cur.Position.Z));
+        var tickWorld = TickWorld(cur, _height);
         Matrix4x4.Invert(tickWorld, out var back);
         var carry = back * view.World;
         return new ShownBlade(Vector3.Transform(blade.Base, carry), Vector3.Transform(blade.Tip, carry),
@@ -465,7 +484,7 @@ public sealed class ArenaView
         int pelvis = BodySegs.Body(BodySegs.Pelvis);
         if (pelvis >= Math.Min(bodies.BodyCount(body), _snapshots.Length)) return;
         var snapshot = bodies.Body(body, pelvis);
-        var tickWorld = FighterWorld(cur.Position, cur.Facing, _height(cur.Position.X, cur.Position.Z));
+        var tickWorld = TickWorld(cur, _height);
         Matrix4x4.Invert(tickWorld, out var back);
         var carry = back * view.World;
         var turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, view.Facing - cur.Facing);

@@ -86,6 +86,34 @@ public sealed partial class UiContext
         return changed;
     }
 
+    /// <summary>
+    /// Вкладки столбцом: строка высотой <paramref name="rowHeight"/> на вкладку от верха <paramref name="r"/>, выбранная —
+    /// подсветка и полоса акцента слева; не влезшая подпись — «…». Не влезшие по высоте строки не рисуются.
+    /// </summary>
+    /// <returns>Выбрана другая вкладка.</returns>
+    public bool TabList(UiRect r, ReadOnlySpan<char> label, ref int index, IReadOnlyList<string> tabs, float rowHeight)
+    {
+        PushId(label);
+        bool changed = false;
+        for (int i = 0; i < tabs.Count; i++)
+        {
+            var tab = new UiRect(r.X0, r.Y0 + i * rowHeight, r.X1, r.Y0 + (i + 1) * rowHeight);
+            if (tab.Y1 > r.Y1) break;
+            if (Clickable(tab, Id(i), out bool hovered, out _) && index != i)
+            {
+                index = i;
+                changed = true;
+            }
+            bool selected = i == index;
+            if (selected) Draw.Rect(tab, Theme.RowSelected, S(3));
+            else if (hovered) Draw.Rect(tab, Theme.RowHover, S(3));
+            if (selected) Draw.Rect(tab.X0, tab.Y0 + S(4), tab.X0 + S(3), tab.Y1 - S(4), Theme.Accent, S(1));
+            Label(tab.Shrink(S(10), 0), tabs[i], selected || hovered ? Theme.Text : Theme.TextDim, UiAlign.Left, UiFace.Label);
+        }
+        PopId();
+        return changed;
+    }
+
     /// <summary>Стрелка у края полосы вкладок: щелчок двигает полосу на <paramref name="step"/>; у упора — притушена.</summary>
     private void ScrollArrow(UiRect r, ReadOnlySpan<char> label, UiDir dir, ref float offset, float step, float max)
     {

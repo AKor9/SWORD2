@@ -61,6 +61,8 @@ public sealed class ArenaLightTuningGpuTests(ITestOutputHelper output) : IDispos
         using var renderer = new Renderer(new RendererOptions(window.NativeHandle, W, H, DebugLayer: true,
             ShaderRoot: Path.Combine(AppContext.BaseDirectory, "Shaders"), GpuValidation: true), contract);
         arena.Initialize(renderer, clock.Link);
+        // Кадры сравниваются между собой: дрожание камеры TAA меняло бы сцену от кадра к кадру.
+        renderer.Taa.Enabled = false;
         for (int i = 0; i < 30; i++)
         {
             clock.RunFrame(0);
@@ -147,9 +149,7 @@ public sealed class ArenaLightTuningGpuTests(ITestOutputHelper output) : IDispos
             }
             return (GC.GetAllocatedBytesForCurrentThread() - before) / frames;
         }
-        Bytes(20, _ => { });
-        long steady = Bytes(200, _ => { });
-        long toggled = Bytes(200, i =>
+        void Toggle(int i)
         {
             Flag(LightTuning.Night).Set(i % 2 == 0);
             Flag(LightTuning.TestLight).Set(i % 3 == 0);
@@ -157,7 +157,11 @@ public sealed class ArenaLightTuningGpuTests(ITestOutputHelper output) : IDispos
             Flag(LightTuning.Bloom).Set(i % 4 != 0);
             Number(LightTuning.BloomIntensity).Set(5 + i % 7);
             Number(LightTuning.BloomThreshold).Set(0.5f + i % 3);
-        });
+        }
+        Bytes(20, _ => { });
+        long steady = Bytes(200, _ => { });
+        Bytes(84, Toggle);   // прогрев: каждое сочетание переключений (период 84) — хотя бы раз до замера
+        long toggled = Bytes(200, Toggle);
         output.WriteLine($"выделения на кадр: без переключений {steady} Б, с переключениями {toggled} Б");
         Assert.True(toggled <= steady, $"переключения выделяют: {toggled} Б на кадр против {steady}");
 

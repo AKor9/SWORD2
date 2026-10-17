@@ -5,6 +5,7 @@
 #include "lighting.hlsli"
 #include "common/gbuffer.hlsli"
 #include "common/skin.hlsli"
+#include "common/surface.hlsli"
 
 // Непрозрачная фаза пишет две цели: линейный цвет HDR-сцены (SceneColor; на экран — тонмап рендера) и нормаль с признаком
 // приёмника декалей (SceneTargets).
@@ -62,11 +63,29 @@ LitVs VsPillar(uint vid : SV_VertexID, uint inst : SV_InstanceID)
     return o;
 }
 
+// Заслоняющие в карту теней солнца (проход scene.shadow, только глубина): те же вершины в осях света.
+float4 VsPillarShadow(uint vid : SV_VertexID, uint inst : SV_InstanceID) : SV_Position
+{
+    return mul(gFrame.shadowViewProj[SHADOW_CASCADE], float4(VsPillar(vid, inst).world, 1));
+}
+
+void PsShadow() { }
+
+// Заслоняющие в грань кубической карты точечного источника (PointLights.AddShadowPasses): та же точка мира в осях грани.
+float4 VsPillarPointShadow(uint vid : SV_VertexID, uint inst : SV_InstanceID) : SV_Position
+{
+    return PointShadowClip(VsPillar(vid, inst).world);
+}
+
+// Предпроход глубины и нормалей (GTAO читает их до непрозрачного прохода): те же вершинные шейдеры, нормаль и признак приёмника -
+// как у непрозрачного.
+float4 PsPillarPre(LitVs i) : SV_Target0 { return SceneNormalOut(i.normal, true); }
+
 // Колонны — статичный мир: принимают декали.
 SceneOut PsPillar(LitVs i)
 {
     float3 n = normalize(i.normal);
-    return Scene(Shade(i.colour, n, i.world, 1), n, true);
+    return Scene(ShadeMaterial(i.colour, n, i.world, SceneAo(i.pos.xy), SCENE_MATERIAL_PILLAR), n, true);
 }
 
 // ── скинированные меши (персонажи) ─────────────────────────────────────────
@@ -78,7 +97,24 @@ struct SkinVs
     float3 normal : TEXCOORD1;
     nointerpolation float3 colour : COLOR0;
     nointerpolation float glow : TEXCOORD2;
+    float4 layer : TEXCOORD3;       // wet layer over the skin (blood): linear albedo, coverage
+    float layerRoughness : TEXCOORD4;
+    nointerpolation uint material : TEXCOORD5;   // SceneMaterial: GpuSkinInstance.Flags
 };
+
+// Wet layer of a vertex (ISkinBloodLayer, SkinLayerTexel in C#): inst.owner = bindless SRV of the layer + 1 (0 - no layer); an element
+// per mesh vertex: x = half r | half g << 16, y = half b | unorm8 coverage << 16 | unorm8 roughness << 24.
+float4 SkinLayerOf(uint owner, uint vid, out float roughness)
+{
+    roughness = 1;
+    if (owner == 0) return 0;
+    StructuredBuffer<uint2> layer = ResourceDescriptorHeap[owner - 1];
+    uint2 u = layer[vid];
+    roughness = (u.y >> 24) / 255.0;
+    return float4(f16tof32(u.x), f16tof32(u.x >> 16), f16tof32(u.y), ((u.y >> 16) & 0xFF) / 255.0);
+}
+
+static const float SKIN_LAYER_F0 = 0.03;   // SkinLayerTexel.F0
 
 SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
 {
@@ -89,14 +125,50 @@ SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.pos = mul(gFrame.viewProj, float4(o.world, 1));
     o.colour = inst.colour;
     o.glow = inst.glow;
+    o.layer = SkinLayerOf(inst.owner, vid, o.layerRoughness);
+    o.material = inst.flags;
     return o;
 }
+
+float4 VsSkinPointShadow(uint vid : SV_VertexID, uint iid : SV_InstanceID) : SV_Position
+{
+    SkinInstance inst = SkinInstanceOf(iid);
+    SkinVertex v = SkinVertexOf(vid);
+    float3 world, normal;
+    SkinTransform(v, inst, world, normal);
+    return PointShadowClip(world);
+}
+
+float4 VsSkinShadow(uint vid : SV_VertexID, uint iid : SV_InstanceID) : SV_Position
+{
+    SkinInstance inst = SkinInstanceOf(iid);
+    SkinVertex v = SkinVertexOf(vid);
+    float3 world, normal;
+    SkinTransform(v, inst, world, normal);
+    return mul(gFrame.shadowViewProj[SHADOW_CASCADE], float4(world, 1));
+}
+
+float4 PsSkinPre(SkinVs i) : SV_Target0 { return SceneNormalOut(i.normal, false); }
 
 SceneOut PsSkin(SkinVs i)
 {
     float3 n = normalize(i.normal);
-    float3 c = Shade(i.colour, n, i.world, 1) + i.glow * float3(0.5, 0.15, 0.1);
-    return Scene(c, n, false);
+    float cover = saturate(i.layer.a);
+    if (cover <= 0)
+    {
+        float3 c = ShadeMaterial(i.colour, n, i.world, SceneAo(i.pos.xy), i.material) + i.glow * float3(0.5, 0.15, 0.1);
+        return Scene(c, n, false);
+    }
+    // The layer albedo blends with the skin by the interpolated coverage; its highlight - GGX sun + sky reflection, under the fog.
+    float3 albedo = lerp(i.colour, i.layer.rgb, cover);
+    float3 c = ShadeMaterial(albedo, n, i.world, SceneAo(i.pos.xy), i.material) + i.glow * float3(0.5, 0.15, 0.1);
+    float3 v = normalize(gFrame.cameraPos - i.world);
+    float3 r = reflect(-v, n);
+    float3 skyHalf = (gFrame.env.skyHigh - gFrame.env.skyLow) * 0.5;
+    float3 sky = (gFrame.env.skyLow + skyHalf) + r.y * skyHalf;
+    float3 spec = SurfaceSpecular(n, v, normalize(-gFrame.lightDir), gFrame.env.sun, sky, SKIN_LAYER_F0, i.layerRoughness);
+    float fog = saturate((distance(i.world, gFrame.cameraPos) - 25) / 140);
+    return Scene(c + cover * (1 - fog) * spec, n, false);
 }
 
 // ── пол ───────────────────────────────────────────────────────────────────
@@ -127,6 +199,16 @@ GroundVs VsTerrain(uint vid : SV_VertexID)
     return o;
 }
 
+float4 VsTerrainPointShadow(uint vid : SV_VertexID) : SV_Position
+{
+    return PointShadowClip(VsTerrain(vid).world);
+}
+
+float4 VsTerrainShadow(uint vid : SV_VertexID) : SV_Position
+{
+    return mul(gFrame.shadowViewProj[SHADOW_CASCADE], float4(VsTerrain(vid).world, 1));
+}
+
 /// Подкраска тестовых участков, чтобы их было видно издалека.
 float3 TerrainTint(float2 p, float3 albedo)
 {
@@ -140,6 +222,12 @@ float3 TerrainTint(float2 p, float3 albedo)
     float bumps = TSmooth(8.0, 6.0, length(p - float2(0, -18)));
     albedo = lerp(albedo, float3(0.26, 0.22, 0.2) * (0.7 + 0.6 * ValueNoise(p * 4.0)), bumps * 0.85);
     return albedo;
+}
+
+float4 PsGroundPre(GroundVs i) : SV_Target0
+{
+    float3 n = normalize(cross(ddy(i.world), ddx(i.world)));
+    return SceneNormalOut(n.y < 0 ? -n : n, true);
 }
 
 SceneOut PsGround(GroundVs i)
@@ -163,16 +251,16 @@ SceneOut PsGround(GroundVs i)
     albedo = lerp(albedo, float3(0.45, 0.28, 0.12), smoothstep(0.12, 0.0, abs(r - 8.0)) * 0.6);
     albedo = lerp(albedo, float3(0.45, 0.28, 0.12), smoothstep(0.08, 0.0, abs(r - 20.0)) * 0.4);
 
-    // тень под игроком
+    // Пятно под игроком — пока нет настоящей тени солнца.
     float dp = distance(p, gFrame.playerPos.xz);
-    albedo *= lerp(0.45, 1.0, smoothstep(0.2, 0.9, dp));
+    if (gFrame.shadowMap0 == SHADOW_NONE) albedo *= lerp(0.45, 1.0, smoothstep(0.2, 0.9, dp));
 
     albedo = TerrainTint(p, albedo);
 
     // Нормаль по производным мировой позиции: грани ступеней остаются чёткими.
     float3 n = normalize(cross(ddy(i.world), ddx(i.world)));
     if (n.y < 0) n = -n;
-    float3 c = Shade(albedo, n, i.world, 1);
+    float3 c = ShadeMaterial(albedo, n, i.world, SceneAo(i.pos.xy), SCENE_MATERIAL_GROUND);
 
     // кольцо выделения игрока
     c = lerp(c, lerp(float3(1, 0.2, 0.1), float3(0.3, 1.0, 0.45), gFrame.playerHpFrac), smoothstep(0.05, 0.0, abs(dp - 0.75)) * 0.8);

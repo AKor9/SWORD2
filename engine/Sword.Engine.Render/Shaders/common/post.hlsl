@@ -115,10 +115,30 @@ float3 FilmicDisplay(float3 scene, float exposure)
     return float3(EncodeSrgb(rgb.r), EncodeSrgb(rgb.g), EncodeSrgb(rgb.b));
 }
 
+// Экспозиция кадра: буфер автоэкспозиции (AutoExposure, элемент 0.x) или корневая константа.
+float FrameExposure(uint constant, uint buffer)
+{
+    if (buffer == EXPOSURE_NONE) return asfloat(constant);
+    StructuredBuffer<float4> state = ResourceDescriptorHeap[buffer];
+    return state[0].x;
+}
+
 float4 VsFullscreen(uint vid : SV_VertexID) : SV_Position
 {
     float2 uv = float2((vid << 1) & 2, vid & 2);
     return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+
+// Цветокоррекция и виньетка (PostEffects) - линейный цвет после экспозиции, до кривой: баланс белого (множители той же яркости),
+// насыщенность (к яркости Rec.709), контраст (степень вокруг 0.18), виньетка (углы темнее по расстоянию от центра с учётом сторон).
+float3 PostGrade(float3 c, float2 px, float2 size)
+{
+    c *= float3(asfloat(POST_WB_R), asfloat(POST_WB_G), asfloat(POST_WB_B));
+    c = max(lerp(dot(c, BLOOM_LUMA), c, asfloat(POST_SATURATION)), 0);
+    c = 0.18 * pow(c / 0.18, asfloat(POST_CONTRAST));
+    float2 aspect = float2(size.x / size.y, 1);
+    float r = length((px / size - 0.5) * aspect) / length(0.5 * aspect);
+    return c * (1 - asfloat(POST_VIGNETTE) * smoothstep(0.2, 1.0, r));
 }
 
 float4 PsTonemap(float4 pos : SV_Position) : SV_Target0
@@ -133,7 +153,11 @@ float4 PsTonemap(float4 pos : SV_Position) : SV_Target0
         bloom.GetDimensions(size.x, size.y);
         c += bloom.SampleLevel(gLinearClamp, 0.5 * pos.xy / size, 0).rgb;
     }
-    return float4(FilmicDisplay(c, asfloat(POST_EXPOSURE)), 1);
+    float exposure = FrameExposure(POST_EXPOSURE, POST_EXPOSURE_BUFFER);
+    if (POST_GRADE == 0) return float4(FilmicDisplay(c, exposure), 1);
+    float2 size;
+    scene.GetDimensions(size.x, size.y);
+    return float4(FilmicDisplay(PostGrade(min(c * exposure, FILMIC_INPUT_MAX), pos.xy, size), 1), 1);
 }
 
 // ---- Bloom: сумма гауссиан ----
@@ -160,7 +184,7 @@ float4 PsBloomSetup(float4 pos : SV_Position) : SV_Target0
 {
     float3 c = min(BloomDownsample(BLOOM_SOURCE, pos.xy), FILMIC_INPUT_MAX);
     float threshold = asfloat(BLOOM_THRESHOLD);
-    float amount = threshold > -1 ? saturate((dot(c, BLOOM_LUMA) * asfloat(BLOOM_EXPOSURE) - threshold) * 0.5) : 1;
+    float amount = threshold > -1 ? saturate((dot(c, BLOOM_LUMA) * FrameExposure(BLOOM_EXPOSURE, BLOOM_EXPOSURE_BUFFER) - threshold) * 0.5) : 1;
     return float4(c * amount, 0);
 }
 
@@ -206,4 +230,23 @@ float4 PsBloomBlur(float4 pos : SV_Position) : SV_Target0
     }
     // В пределе half: сумма ступеней от пятна на пределе (бесконечность сцены) не переполняет цель в бесконечность.
     return float4(min(c, FILMIC_INPUT_MAX), 0);
+}
+
+// ---- Резкость (PostEffects.Sharpen): по мотивам CAS AMD - вес креста соседей отрицательный и тем меньше, чем ближе пиксель к
+// краю диапазона (min, 1 - max) в своём кресте: на резких краях ореолов нет, в мягких деталях - резче. LDR после тонмапа.
+float4 PsSharpen(float4 pos : SV_Position) : SV_Target0
+{
+    Texture2D<float4> src = ResourceDescriptorHeap[SHARPEN_SOURCE];
+    int2 size;
+    src.GetDimensions(size.x, size.y);
+    int2 p = int2(pos.xy);
+    float3 c = src.Load(int3(p, 0)).rgb;
+    float3 n = src.Load(int3(clamp(p + int2(0, -1), 0, size - 1), 0)).rgb;
+    float3 s = src.Load(int3(clamp(p + int2(0, 1), 0, size - 1), 0)).rgb;
+    float3 w = src.Load(int3(clamp(p + int2(-1, 0), 0, size - 1), 0)).rgb;
+    float3 e = src.Load(int3(clamp(p + int2(1, 0), 0, size - 1), 0)).rgb;
+    float3 mn = min(c, min(min(n, s), min(w, e))), mx = max(c, max(max(n, s), max(w, e)));
+    float3 amp = sqrt(saturate(min(mn, 1 - mx) / max(mx, 1e-4)));
+    float3 weight = amp * (-1 / lerp(8.0, 5.0, asfloat(SHARPEN_AMOUNT)));
+    return float4(saturate((c + weight * (n + s + w + e)) / (1 + 4 * weight)), 1);
 }

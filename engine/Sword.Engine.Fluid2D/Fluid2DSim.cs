@@ -20,12 +20,13 @@ public sealed class Fluid2DSim : IDisposable
 
     internal const int Group = 8, StatsThreads = 256, StatsRows = 8;
     private const int SlotConstants = 0, SlotIndex = 1, SlotIn0 = 2, SlotIn1 = 3, SlotIn2 = 4, SlotOut0 = 5, SlotOut1 = 6, SlotOut2 = 7,
-        SlotOut3 = 8, SlotPass = 9;
+        SlotOut3 = 8, SlotPass = 9, SlotIn3 = 10, SlotIn4 = 11, SlotOut4 = 12, SlotOut5 = 13, SlotIn5 = 14, SlotOut6 = 15, SlotOut7 = 16;
 
-    private enum Entry { Composite, Advection, Divergence, Pressure, Export, Clear, StatsRows, Stats, Painter, PainterClear }
+    private enum Entry { Composite, Advection, Divergence, Pressure, Export, Clear, StatsRows, Stats, Painter, PainterClear, Stamp, ExportAge }
 
     private static readonly string[] Entries =
-        ["CsComposite", "CsAdvection", "CsDivergence", "CsPressure", "CsExport", "CsClear", "CsStatsRows", "CsStats", "CsPainter", "CsPainterClear"];
+        ["CsComposite", "CsAdvection", "CsDivergence", "CsPressure", "CsExport", "CsClear", "CsStatsRows", "CsStats", "CsPainter", "CsPainterClear",
+            "CsStamp", "CsExportAge"];
 
     /// <summary>Числа и слоты шейдера сима в контракт (вызывает тот, кто собирает контракт рендера: модуль — <c>ClientBuilder.Shaders</c>).</summary>
     public static void Contribute(ShaderContract c) => c
@@ -44,6 +45,11 @@ public sealed class Fluid2DSim : IDisposable
         .Add("FLUID2D_PAINTER_NOISE", Fluid2DConstants.PainterNoise)
         .Add("FLUID2D_PAINTER_BITMAP", Fluid2DConstants.PainterBitmap)
         .Add("FLUID2D_PAINTER_BITMAP_DENSITY_ONLY", Fluid2DConstants.PainterBitmapDensityOnly)
+        .Add("FLUID2D_STAMP_WORDS", Fluid2DStampRecord.Words, "uint words of a stamp (Fluid2DStamps)")
+        .Add("FLUID2D_FILM_CONSERVATIVE", Fluid2DConstants.FilmConservative)
+        .Add("FLUID2D_FILM_UNBOUNDED", Fluid2DConstants.FilmUnbounded)
+        .Add("FLUID2D_FILM_FLOW", Fluid2DConstants.FilmFlow)
+        .Add("FLUID2D_FILM_HEIGHTS", Fluid2DConstants.FilmHeights)
         .AddSlot("gFluidConstants", SlotConstants)
         .AddSlot("gFluidIndex", SlotIndex)
         .AddSlot("gFluidIn0", SlotIn0)
@@ -53,7 +59,14 @@ public sealed class Fluid2DSim : IDisposable
         .AddSlot("gFluidOut1", SlotOut1)
         .AddSlot("gFluidOut2", SlotOut2)
         .AddSlot("gFluidOut3", SlotOut3)
-        .AddSlot("gFluidPass", SlotPass);
+        .AddSlot("gFluidPass", SlotPass)
+        .AddSlot("gFluidIn3", SlotIn3)
+        .AddSlot("gFluidIn4", SlotIn4)
+        .AddSlot("gFluidOut4", SlotOut4)
+        .AddSlot("gFluidOut5", SlotOut5)
+        .AddSlot("gFluidIn5", SlotIn5)
+        .AddSlot("gFluidOut6", SlotOut6)
+        .AddSlot("gFluidOut7", SlotOut7);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct StatsPartial
@@ -65,20 +78,21 @@ public sealed class Fluid2DSim : IDisposable
     private struct PassArgs
     {
         public Entry Entry;
-        public int Constants, In0, In1, In2, Out0, Out1, Out2, Out3, Pass;
+        public int Constants, In0, In1, In2, In3, In4, In5, Out0, Out1, Out2, Out3, Out4, Out5, Out6, Out7, Pass;
         public uint GroupsX, GroupsY;
     }
 
     private readonly Renderer _renderer;
     private readonly FrameData<Fluid2DConstants> _constants;
-    private readonly Fluid2DNoise _density, _amp, _brushNoise, _bitmap;
-    private readonly string _outputName;
+    private readonly Fluid2DNoise _density, _amp, _brushNoise, _bitmap, _stampShapes;
+    private readonly string _outputName, _ageName;
     private readonly GpuStorage _stats, _partial;
     private GpuStorage _composite, _advected;
     private readonly GpuStorage[] _pressure = new GpuStorage[2];
     private readonly GpuStorage?[] _painter = new GpuStorage?[2];
-    private FrameData<uint>? _brushData;
-    private int _current, _painterCurrent, _brushUsed;
+    private FrameData<uint>? _brushData, _stampData;
+    private GpuStorage? _ageC, _ageA, _stampGrid, _rhoC, _rhoA;
+    private int _current, _painterCurrent, _brushUsed, _stampUsed;
     private bool _clearPending, _painterClearPending = true;
     private Fluid2DParams _params;
 
@@ -91,8 +105,10 @@ public sealed class Fluid2DSim : IDisposable
     /// <param name="ampNoise">Amp-шум скорости (<c>T_NoiseTemplate1</c>): нужен при <see cref="Fluid2DParams.VeloAmplitudeNoiseEnabled"/>.</param>
     /// <param name="brushNoise">Шум кисти (<c>T_NoiseTemplate2</c>, RG линейные): нужен Painter при <see cref="Fluid2DParams.BrushNoiseUsed"/>.</param>
     /// <param name="bitmap">Битмап кисти (слои 4–6, RGB); без него слои 4–6 — 0.</param>
+    /// <param name="stampShapes">Текстура форм штампов: форма k ≥ 1 — слой <see cref="Fluid2DNoise.Layer"/> + k − 1 (канал r); нужна штампам
+    /// с формой k ≥ 1.</param>
     public Fluid2DSim(Renderer renderer, string name, Fluid2DParams parameters, Fluid2DNoise densityNoise = default, Fluid2DNoise ampNoise = default,
-        Fluid2DNoise brushNoise = default, Fluid2DNoise bitmap = default)
+        Fluid2DNoise brushNoise = default, Fluid2DNoise bitmap = default, Fluid2DNoise stampShapes = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         parameters.Validate();
@@ -102,10 +118,12 @@ public sealed class Fluid2DSim : IDisposable
         _amp = ampNoise;
         _brushNoise = brushNoise;
         _bitmap = bitmap;
+        _stampShapes = stampShapes;
         Name = name;
         CheckNoises(parameters);
         int n = parameters.Resolution;
         _outputName = $"fluid.{name}.output";
+        _ageName = $"fluid.{name}.age";
         _constants = renderer.CreateFrameData<Fluid2DConstants>($"fluid.{name}.constants", MaxStepsPerFrame + 2);
         _composite = renderer.CreateStorage<ulong>($"fluid.{name}.composite", (uint)(n * n));
         _advected = renderer.CreateStorage<ulong>($"fluid.{name}.advected", (uint)(n * n));
@@ -113,6 +131,16 @@ public sealed class Fluid2DSim : IDisposable
         _pressure[1] = renderer.CreateStorage<uint>($"fluid.{name}.pressure1", (uint)(n * n));
         _partial = renderer.CreateStorage<StatsPartial>($"fluid.{name}.stats.partial", (uint)StatsGroups(n));
         _stats = renderer.CreateStorage<uint>($"fluid.{name}.stats", Fluid2DStats.Bytes / sizeof(uint));
+        if (parameters.AgeChannel)
+        {
+            _ageC = renderer.CreateStorage<float>($"fluid.{name}.age.composite", (uint)(n * n));
+            _ageA = renderer.CreateStorage<float>($"fluid.{name}.age.advected", (uint)(n * n));
+        }
+        if (parameters.ConservativeDensity)
+        {
+            _rhoC = renderer.CreateStorage<float>($"fluid.{name}.density.composite", (uint)(n * n));
+            _rhoA = renderer.CreateStorage<float>($"fluid.{name}.density.advected", (uint)(n * n));
+        }
         _execute = Execute;
     }
 
@@ -127,12 +155,20 @@ public sealed class Fluid2DSim : IDisposable
         set
         {
             value.Validate();
-            if (value.Resolution != _params.Resolution || value.PaintBufferDownScaleFactor != _params.PaintBufferDownScaleFactor)
-                throw new ArgumentException($"сторона сима {_params.Resolution}² (кисть {_params.BrushResolution}²) не меняется — нужен новый сим");
+            if (value.Resolution != _params.Resolution || value.PaintBufferDownScaleFactor != _params.PaintBufferDownScaleFactor
+                || value.AgeChannel != _params.AgeChannel || value.ConservativeDensity != _params.ConservativeDensity)
+                throw new ArgumentException($"сторона сима {_params.Resolution}² (кисть {_params.BrushResolution}²), канал возраста и консервативный перенос не меняются — нужен новый сим");
             CheckNoises(value);
             _params = value;
         }
     }
+
+    /// <summary>
+    /// Высоты рельефа для течения плёнки (<see cref="Fluid2DParams.FilmFlow"/>; модуль передаёт буфер <c>ITerrainView.HeightsSrv</c> и его
+    /// <c>Grid</c>): со следующего шага, окно — <see cref="Fluid2DStepInput.WindowCenter"/>. default — уклона нет. Буфер только читается, его
+    /// не пишут в кадре сима.
+    /// </summary>
+    public Fluid2DHeightField Heights { get; set; }
 
     /// <summary>Шагов с создания или сброса.</summary>
     public ulong Steps { get; private set; }
@@ -149,6 +185,12 @@ public sealed class Fluid2DSim : IDisposable
     /// </summary>
     public GpuStorage Composite => _composite;
 
+    /// <summary>
+    /// Канал возраста после Composite последнего шага (<c>StructuredBuffer&lt;float&gt;</c>, секунды; тексель (x, y) — элемент x + N·y) при
+    /// <see cref="Fluid2DParams.AgeChannel"/>, иначе null; читать, как <see cref="Composite"/>, или текстурой <see cref="ExportAge"/>.
+    /// </summary>
+    public GpuStorage? Age => _ageC;
+
     /// <summary>Обнулить поля и грид кисти: первым проходом следующего шага или экспорта (<c>fluid.clear</c>, <c>fluid.painter.clear</c>).</summary>
     public void Reset()
     {
@@ -162,28 +204,35 @@ public sealed class Fluid2DSim : IDisposable
     /// Проходы одного шага в кадр <paramref name="frame"/>. <paramref name="brush"/> — грид кисти (N/PaintBufferDownScaleFactor)² ×
     /// <see cref="Fluid2DBrushTexel"/>, его пишет вызывающий до шага; null — без кисти.
     /// </summary>
-    public void Step(RenderFrame frame, in Fluid2DStepInput input, GpuStorage? brush = null) => AddStep(frame, input, brush, null, null, false);
+    /// <param name="stamps">Штампы шага (после <see cref="Fluid2DStamps.End"/> того же шага): проход <c>fluid.stamp</c> перед Composite.</param>
+    public void Step(RenderFrame frame, in Fluid2DStepInput input, GpuStorage? brush = null, Fluid2DStamps? stamps = null) =>
+        AddStep(frame, input, brush, null, null, false, stamps);
 
     /// <summary>
     /// Шаг с кистью: проход <c>fluid.painter</c> по точкам шага <paramref name="brush"/> (после <see cref="Fluid2DBrush.End"/> того же
     /// <see cref="Fluid2DStepInput.Step"/>; параметры кисти и сима совпадают) пишет грид кисти сима, его читают Composite и Divergence.
     /// Данные точек копируются в кадр сразу — кисть можно готовить к следующему шагу.
     /// </summary>
-    public void Step(RenderFrame frame, in Fluid2DStepInput input, Fluid2DBrush brush) => AddStep(frame, input, null, brush, null, false);
+    public void Step(RenderFrame frame, in Fluid2DStepInput input, Fluid2DBrush brush, Fluid2DStamps? stamps = null) =>
+        AddStep(frame, input, null, brush, null, false, stamps);
 
     /// <summary>Одна стадия (проверка стадий): буферы — как у <see cref="Fluid2DStage"/>, давление ролями не меняется, статистики нет.</summary>
-    internal void AddStage(RenderFrame frame, in Fluid2DStepInput input, GpuStorage? brush, Fluid2DStage stage) => AddStep(frame, input, brush, null, stage, false);
+    internal void AddStage(RenderFrame frame, in Fluid2DStepInput input, GpuStorage? brush, Fluid2DStage stage, Fluid2DStamps? stamps = null) =>
+        AddStep(frame, input, brush, null, stage, false, stamps);
 
     /// <summary>Только Painter (проверка стадии): грид кисти сима → следующий грид кисти.</summary>
-    internal void AddPainterStage(RenderFrame frame, in Fluid2DStepInput input, Fluid2DBrush brush) => AddStep(frame, input, null, brush, null, true);
+    internal void AddPainterStage(RenderFrame frame, in Fluid2DStepInput input, Fluid2DBrush brush) => AddStep(frame, input, null, brush, null, true, null);
 
-    private void AddStep(RenderFrame frame, in Fluid2DStepInput input, GpuStorage? brush, Fluid2DBrush? painter, Fluid2DStage? only, bool painterOnly)
+    private void AddStep(RenderFrame frame, in Fluid2DStepInput input, GpuStorage? brush, Fluid2DBrush? painter, Fluid2DStage? only, bool painterOnly,
+        Fluid2DStamps? stamps)
     {
         if (painter is null) CheckBrush(brush);
         else CheckPainter(painter, input);
+        bool hasStamps = CheckStamps(stamps, input) && only is null or Fluid2DStage.Composite;
         BeginFrame(frame);
         var g = frame.Graph;
         var constants = Fluid2DConstants.Build(_params, input, brush is not null || painter is not null, _amp, _density);
+        if (Heights.Present) constants.SetHeights(_params, input, Heights.Srv, Heights.Cells, Heights.Half);
         int dataSrv = 0;
         if (painter is not null)
         {
@@ -191,11 +240,24 @@ public sealed class Fluid2DSim : IDisposable
             dataSrv = _brushData!.Srv;
             constants.SetPainter(_params, input, painter, wordBase, _brushNoise, _bitmap);
         }
+        if (hasStamps) constants.SetStamps(stamps!, WriteStamps(stamps!), _stampShapes);
         int k = PushConstants(constants);
         var c = g.Import(_composite);
         var a = g.Import(_advected);
         var p = g.Import(_pressure[_current]);
         var s = g.Import(_pressure[1 - _current]);
+        RenderBuffer ec = default, ea = default, rc = default, ra = default;
+        if (_ageC is not null)
+        {
+            ec = g.Import(_ageC);
+            ea = g.Import(_ageA!);
+        }
+        bool rho = _rhoC is not null;
+        if (rho)
+        {
+            rc = g.Import(_rhoC!);
+            ra = g.Import(_rhoA!);
+        }
         if (_clearPending) AddClear(g, k, c, a, p, s);
         RenderBuffer b = default;
         int brushSrv = 0;
@@ -211,19 +273,43 @@ public sealed class Fluid2DSim : IDisposable
             brushSrv = g.SrvOf(b);
         }
         bool hasBrush = brush is not null || painter is not null;
+        bool age = _ageC is not null;
         uint groups = (uint)((_params.Resolution + Group - 1) / Group);
+        RenderBuffer st = default;
+        if (hasStamps)
+        {
+            _stampGrid ??= _renderer.CreateStorage<float>($"fluid.{Name}.stamps", (uint)(_params.Resolution * _params.Resolution));
+            st = g.Import(_stampGrid);
+            g.AddComputePass("fluid.stamp", FramePhase.Simulation).Write(st).Execute(_execute);
+            Push(new PassArgs { Entry = Entry.Stamp, Constants = k, In0 = _stampData!.Srv, Out0 = g.UavOf(st), GroupsX = groups, GroupsY = groups });
+        }
 
         if (only is null or Fluid2DStage.Composite)
         {
             var pass = g.AddComputePass("fluid.composite", FramePhase.Simulation).Read(a).Read(p);
             if (hasBrush) pass = pass.Read(b);
+            if (hasStamps) pass = pass.Read(st);
+            if (age) pass = pass.Read(ea).Write(ec);
+            if (rho) pass = pass.Read(ra).Write(rc);
             pass.Write(c).Execute(_execute);
-            Push(new PassArgs { Entry = Entry.Composite, Constants = k, In0 = g.SrvOf(a), In1 = g.SrvOf(p), In2 = brushSrv, Out0 = g.UavOf(c), GroupsX = groups, GroupsY = groups });
+            Push(new PassArgs
+            {
+                Entry = Entry.Composite, Constants = k, In0 = g.SrvOf(a), In1 = g.SrvOf(p), In2 = brushSrv, In3 = age ? g.SrvOf(ea) : 0,
+                In4 = hasStamps ? g.SrvOf(st) : 0, In5 = rho ? g.SrvOf(ra) : 0, Out0 = g.UavOf(c), Out1 = age ? g.UavOf(ec) : 0,
+                Out6 = rho ? g.UavOf(rc) : 0, GroupsX = groups, GroupsY = groups,
+            });
         }
         if (only is null or Fluid2DStage.Advection)
         {
-            g.AddComputePass("fluid.advection", FramePhase.Simulation).Read(c).Write(a).Execute(_execute);
-            Push(new PassArgs { Entry = Entry.Advection, Constants = k, In0 = g.SrvOf(c), Out0 = g.UavOf(a), GroupsX = groups, GroupsY = groups });
+            var pass = g.AddComputePass("fluid.advection", FramePhase.Simulation).Read(c);
+            if (age) pass = pass.Read(ec).Write(ea);
+            if (rho) pass = pass.Read(rc).Write(ra);
+            pass.Write(a).Execute(_execute);
+            Push(new PassArgs
+            {
+                Entry = Entry.Advection, Constants = k, In0 = g.SrvOf(c), In1 = age ? g.SrvOf(ec) : 0, In5 = rho ? g.SrvOf(rc) : 0, Out0 = g.UavOf(a),
+                Out1 = age ? g.UavOf(ea) : 0, Out6 = rho ? g.UavOf(ra) : 0, GroupsX = groups, GroupsY = groups,
+            });
         }
         if (only is null or Fluid2DStage.Divergence)
         {
@@ -293,6 +379,28 @@ public sealed class Fluid2DSim : IDisposable
         return wordBase;
     }
 
+    /// <summary>Штампы шага в буфер кадра (таблица ячеек, записи, штампы); буфер растёт при новом максимуме слов за кадр.</summary>
+    private uint WriteStamps(Fluid2DStamps stamps)
+    {
+        int words = stamps.Words;
+        if (_stampData is null || _stampUsed + words > _stampData.Capacity)
+        {
+            _stampData?.Dispose();
+            _stampData = _renderer.CreateFrameData<uint>($"fluid.{Name}.stamps.data", (uint)Math.Max(2 * (_stampUsed + words), 4096));
+            _stampUsed = 0;
+        }
+        var slot = _stampData.Slot;
+        int o = _stampUsed;
+        stamps.Cells.CopyTo(slot[o..]);
+        o += stamps.Cells.Length;
+        stamps.Entries.CopyTo(slot[o..]);
+        o += stamps.Entries.Length;
+        MemoryMarshal.Cast<Fluid2DStampRecord, uint>(stamps.Records).CopyTo(slot[o..]);
+        uint wordBase = (uint)_stampUsed;
+        _stampUsed += words;
+        return wordBase;
+    }
+
     private void AddPressure(RenderGraph g, int k, uint groups, bool vertical, RenderBuffer source, RenderBuffer destination)
     {
         g.AddComputePass(vertical ? "fluid.pressure.y" : "fluid.pressure.x", FramePhase.Simulation).Read(source).Write(destination).Execute(_execute);
@@ -312,8 +420,31 @@ public sealed class Fluid2DSim : IDisposable
     private void AddClear(RenderGraph g, int k, RenderBuffer c, RenderBuffer a, RenderBuffer p, RenderBuffer s)
     {
         uint groups = (uint)((_params.Resolution + Group - 1) / Group);
-        g.AddComputePass("fluid.clear", FramePhase.Simulation).Write(c).Write(a).Write(p).Write(s).Execute(_execute);
-        Push(new PassArgs { Entry = Entry.Clear, Constants = k, Out0 = g.UavOf(c), Out1 = g.UavOf(a), Out2 = g.UavOf(p), Out3 = g.UavOf(s), GroupsX = groups, GroupsY = groups });
+        var pass = g.AddComputePass("fluid.clear", FramePhase.Simulation).Write(c).Write(a).Write(p).Write(s);
+        int out4 = 0, out5 = 0;
+        if (_ageC is not null)
+        {
+            var ec = g.Import(_ageC);
+            var ea = g.Import(_ageA!);
+            pass = pass.Write(ec).Write(ea);
+            out4 = g.UavOf(ec);
+            out5 = g.UavOf(ea);
+        }
+        int out6 = 0, out7 = 0;
+        if (_rhoC is not null)
+        {
+            var rc = g.Import(_rhoC);
+            var ra = g.Import(_rhoA!);
+            pass = pass.Write(rc).Write(ra);
+            out6 = g.UavOf(rc);
+            out7 = g.UavOf(ra);
+        }
+        pass.Execute(_execute);
+        Push(new PassArgs
+        {
+            Entry = Entry.Clear, Constants = k, Out0 = g.UavOf(c), Out1 = g.UavOf(a), Out2 = g.UavOf(p), Out3 = g.UavOf(s), Out4 = out4, Out5 = out5,
+            Out6 = out6, Out7 = out7, GroupsX = groups, GroupsY = groups,
+        });
         _clearPending = false;
     }
 
@@ -336,6 +467,26 @@ public sealed class Fluid2DSim : IDisposable
         return output;
     }
 
+    /// <summary>
+    /// Канал возраста кадра — временная текстура R32F N² (секунды после Composite последнего шага; <see cref="Fluid2DParams.AgeChannel"/>):
+    /// проход <c>fluid.export.age</c>, раз за кадр после шагов.
+    /// </summary>
+    public RenderTexture ExportAge(RenderFrame frame)
+    {
+        if (_ageC is null) throw new InvalidOperationException($"сим {Name}: канал возраста выключен");
+        BeginFrame(frame);
+        var g = frame.Graph;
+        int k = PushConstants(Fluid2DConstants.Build(_params, new Fluid2DStepInput(LastStep ?? 0, default, default), false, _amp, _density));
+        if (_clearPending) AddClear(g, k, g.Import(_composite), g.Import(_advected), g.Import(_pressure[_current]), g.Import(_pressure[1 - _current]));
+        int n = _params.Resolution;
+        var age = g.Import(_ageC);
+        var output = g.CreateTexture(_ageName, new TextureDesc(TextureFormat.R32Float, TextureUsage.Storage, n, n));
+        g.AddComputePass("fluid.export.age", FramePhase.Simulation).Read(age).Write(output).Execute(_execute);
+        uint groups = (uint)((n + Group - 1) / Group);
+        Push(new PassArgs { Entry = Entry.ExportAge, Constants = k, In0 = g.SrvOf(age), Out0 = g.UavOf(output), GroupsX = groups, GroupsY = groups });
+        return output;
+    }
+
     // ── вне кадра: тесты и отладка ────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Поля с GPU (ожидание GPU; между кадрами). После <see cref="Reset"/> без шага — нули.</summary>
@@ -347,6 +498,16 @@ public sealed class Fluid2DSim : IDisposable
         _renderer.ReadStorage(_advected, MemoryMarshal.Cast<Half, ulong>(f.Advected.AsSpan()));
         _renderer.ReadStorage(_pressure[_current], MemoryMarshal.Cast<Half, uint>(f.Pressure.AsSpan()));
         _renderer.ReadStorage(_pressure[1 - _current], MemoryMarshal.Cast<Half, uint>(f.Scratch.AsSpan()));
+        if (_ageC is not null)
+        {
+            _renderer.ReadStorage(_ageC, f.AgeComposite.AsSpan());
+            _renderer.ReadStorage(_ageA!, f.AgeAdvected.AsSpan());
+        }
+        if (_rhoC is not null)
+        {
+            _renderer.ReadStorage(_rhoC, f.DensityComposite.AsSpan());
+            _renderer.ReadStorage(_rhoA!, f.DensityAdvected.AsSpan());
+        }
         return f;
     }
 
@@ -362,6 +523,24 @@ public sealed class Fluid2DSim : IDisposable
         _pressure[1].Dispose();
         _pressure[0] = p;
         _pressure[1] = s;
+        if (_ageC is not null)
+        {
+            var ec = _renderer.CreateStorage<float>(_ageC.Name, fields.AgeComposite.AsSpan());
+            var ea = _renderer.CreateStorage<float>(_ageA!.Name, fields.AgeAdvected.AsSpan());
+            _ageC.Dispose();
+            _ageA.Dispose();
+            _ageC = ec;
+            _ageA = ea;
+        }
+        if (_rhoC is not null)
+        {
+            var rc = _renderer.CreateStorage<float>(_rhoC.Name, fields.DensityComposite.AsSpan());
+            var ra = _renderer.CreateStorage<float>(_rhoA!.Name, fields.DensityAdvected.AsSpan());
+            _rhoC.Dispose();
+            _rhoA.Dispose();
+            _rhoC = rc;
+            _rhoA = ra;
+        }
         _current = 0;
         _clearPending = false;
     }
@@ -392,6 +571,15 @@ public sealed class Fluid2DSim : IDisposable
         slot = next;
     }
 
+    /// <summary>Грид штампов последнего шага со штампами (ожидание GPU; между кадрами); штампов не было — null.</summary>
+    internal float[]? ReadStampGrid()
+    {
+        if (_stampGrid is null) return null;
+        var grid = new float[_params.Resolution * _params.Resolution];
+        _renderer.ReadStorage(_stampGrid, grid.AsSpan());
+        return grid;
+    }
+
     /// <summary>Статистика последнего шага (ожидание GPU; между кадрами).</summary>
     public Fluid2DStats ReadStats()
     {
@@ -413,6 +601,12 @@ public sealed class Fluid2DSim : IDisposable
     {
         _constants.Dispose();
         _brushData?.Dispose();
+        _stampData?.Dispose();
+        _ageC?.Dispose();
+        _ageA?.Dispose();
+        _rhoC?.Dispose();
+        _rhoA?.Dispose();
+        _stampGrid?.Dispose();
         _composite.Dispose();
         _advected.Dispose();
         _pressure[0].Dispose();
@@ -430,7 +624,7 @@ public sealed class Fluid2DSim : IDisposable
         if (frame.Number == _frame) return;
         _frame = frame.Number;
         _argCount = _argNext = _slots = 0;
-        _brushUsed = 0;
+        _brushUsed = _stampUsed = 0;
     }
 
     private int PushConstants(in Fluid2DConstants constants)
@@ -462,6 +656,13 @@ public sealed class Fluid2DSim : IDisposable
         ctx.SetConstant(SlotOut2, a.Out2);
         ctx.SetConstant(SlotOut3, a.Out3);
         ctx.SetConstant(SlotPass, a.Pass);
+        ctx.SetConstant(SlotIn3, a.In3);
+        ctx.SetConstant(SlotIn4, a.In4);
+        ctx.SetConstant(SlotOut4, a.Out4);
+        ctx.SetConstant(SlotOut5, a.Out5);
+        ctx.SetConstant(SlotIn5, a.In5);
+        ctx.SetConstant(SlotOut6, a.Out6);
+        ctx.SetConstant(SlotOut7, a.Out7);
         ctx.Dispatch(a.GroupsX, a.GroupsY);
     }
 
@@ -480,6 +681,20 @@ public sealed class Fluid2DSim : IDisposable
         if (!Equals(brush.Params, _params)) throw new InvalidOperationException($"сим {Name}: параметры кисти и сима различаются");
         if (_params.BrushNoiseUsed && _brushNoise.Width <= 0) throw new InvalidOperationException($"сим {Name}: шум кисти включён, текстуры нет");
         EnsurePainter();
+    }
+
+    /// <summary>Штампы готовы к шагу и совпадают с симом; false — штампов нет (прохода нет).</summary>
+    private bool CheckStamps(Fluid2DStamps? stamps, in Fluid2DStepInput input)
+    {
+        if (stamps is null) return false;
+        if (!stamps.Ready || stamps.Step != input.Step)
+            throw new InvalidOperationException($"сим {Name}: штампы не готовы к шагу {input.Step} (Begin/Add/End того же шага)");
+        if (stamps.Params.Resolution != _params.Resolution || stamps.Params.Extents != _params.Extents)
+            throw new InvalidOperationException($"сим {Name}: сетка штампов и сима различается");
+        if (stamps.Count == 0) return false;
+        foreach (var r in stamps.Records)
+            if (r.Shape > 0 && _stampShapes.Width <= 0) throw new InvalidOperationException($"сим {Name}: штамп формы {r.Shape}, текстуры форм нет");
+        return true;
     }
 
     private void EnsurePainter()

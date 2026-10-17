@@ -111,6 +111,7 @@ public sealed class SolutionTests
         }
         Assert.True(problems.Count == 0, string.Join("\n", problems));
         Assert.Contains("Sword.Game.App → Sword.Game.Fire.Client", conditioned);
+        Assert.Contains("Sword.Game.App → Sword.Game.Blood.Client", conditioned);
         Assert.Contains("Sword.Game.Bootstrap → Sword.Game.Locomotion", conditioned);
     }
 

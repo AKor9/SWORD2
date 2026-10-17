@@ -34,6 +34,14 @@ struct FluidConstants
     float PainterVeloMult; float VeloNoiseScale; float VeloNoiseAmp; float VeloNoiseBias;
     float BrushDensityScale; float2 VeloNoiseOffset; float2 BrushDensityOffset;
     float BrushDensityFloor; float BrushDensityPow; float2 BitmapOffset; float BitmapScale; float DensityTxtMult;
+    int ShiftX; int ShiftY; int BrushShiftX; int BrushShiftY;
+    uint AgeEnabled; float AgeStep;
+    uint StampCells; uint StampCellTexels; uint StampCellBase; uint StampEntryBase; uint StampBase;
+    uint StampShapeSrv; uint StampShapeLayer; uint StampShapeWidth; uint StampShapeHeight;
+    uint RoundNearest;
+    uint FilmFlags; float FilmHeight; float FilmMinThickness; float FilmPuddle; float FilmFrictionDt;
+    float FilmInvTwoDx; float FilmInvTwoDy; float FilmAccelX; float FilmAccelY; float FilmClamp;
+    uint HeightSrv; uint HeightCells; float HeightX0; float HeightZ0; float HeightScaleU; float HeightScaleV; float HeightInvStep;
 };
 _Static_assert(sizeof(FluidConstants) == FLUID2D_CONSTANTS_SIZE, "FluidConstants differs from C# Fluid2DConstants");
 
@@ -54,6 +62,23 @@ float4 Unpack4(uint2 u) { return float4(f16tof32(u.x), f16tof32(u.x >> 16), f16t
 uint2 Pack4(float4 v) { return uint2(f32tof16(v.x) | (f32tof16(v.y) << 16), f32tof16(v.z) | (f32tof16(v.w) << 16)); }
 float2 Unpack2(uint u) { return float2(f16tof32(u), f16tof32(u >> 16)); }
 uint Pack2(float2 v) { return f32tof16(v.x) | (f32tof16(v.y) << 16); }
+
+// f32tof16 of the hardware rounds toward zero (measured: a puddle at rest loses 0.26 % of its mass in 600 steps of the neutral
+// accumulation); round to nearest, ties to even - the same half as the C# (Half) cast: the truncated half or the next one away from zero.
+uint F32ToF16Nearest(float v)
+{
+    uint h = f32tof16(v);
+    if ((h & 0x7FFFu) >= 0x7BFFu) return h;
+    float a = f16tof32(h), b = f16tof32(h + 1u);
+    float da = abs(v - a), db = abs(b - v);
+    return (db < da || (db == da && (h & 1u) != 0)) ? h + 1u : h;
+}
+
+uint2 PackState(float4 v, bool nearest)
+{
+    if (!nearest) return Pack4(v);
+    return uint2(F32ToF16Nearest(v.x) | (F32ToF16Nearest(v.y) << 16), F32ToF16Nearest(v.z) | (F32ToF16Nearest(v.w) << 16));
+}
 
 float4 Lerp4(float4 a, float4 b, float t) { return a + (b - a) * t; }
 float2 Lerp2(float2 a, float2 b, float t) { return a + (b - a) * t; }
@@ -145,6 +170,134 @@ void BrushBilinear(StructuredBuffer<uint4> g, int n, float2 uv, out float4 lo, o
     hi = Lerp4(Lerp4(a1, b1, t.x), Lerp4(c1, d1, t.x), t.y);
 }
 
+// ---- grids of the previous step through the integer window shift s: texel (x, y) = stored (clamp(x, y) + s), outside - 0 ----
+
+bool Inside(int2 p, int n) { return p.x >= 0 && p.x < n && p.y >= 0 && p.y < n; }
+
+float4 Texel4S(StructuredBuffer<uint2> g, int n, int x, int y, int2 s)
+{
+    int2 p = int2(clamp(x, 0, n - 1), clamp(y, 0, n - 1)) + s;
+    if (!Inside(p, n)) return 0;
+    return Unpack4(g[p.y * n + p.x]);
+}
+
+float4 Bilinear4S(StructuredBuffer<uint2> g, int n, float2 uv, int2 s)
+{
+    float2 p = uv * (float)n - 0.5;
+    float2 f = floor(p);
+    float2 t = p - f;
+    int x = (int)f.x, y = (int)f.y;
+    float4 a = Texel4S(g, n, x, y, s), b = Texel4S(g, n, x + 1, y, s);
+    float4 c = Texel4S(g, n, x, y + 1, s), d = Texel4S(g, n, x + 1, y + 1, s);
+    return Lerp4(Lerp4(a, b, t.x), Lerp4(c, d, t.x), t.y);
+}
+
+float2 TexelPS(StructuredBuffer<uint> g, int n, int x, int y, int2 s)
+{
+    int2 p = int2(clamp(x, 0, n - 1), clamp(y, 0, n - 1)) + s;
+    if (!Inside(p, n)) return 0;
+    return Unpack2(g[p.y * n + p.x]);
+}
+
+float2 BilinearPS(StructuredBuffer<uint> g, int n, float2 uv, int2 s)
+{
+    float2 p = uv * (float)n - 0.5;
+    float2 f = floor(p);
+    float2 t = p - f;
+    int x = (int)f.x, y = (int)f.y;
+    float2 a = TexelPS(g, n, x, y, s), b = TexelPS(g, n, x + 1, y, s);
+    float2 c = TexelPS(g, n, x, y + 1, s), d = TexelPS(g, n, x + 1, y + 1, s);
+    return Lerp2(Lerp2(a, b, t.x), Lerp2(c, d, t.x), t.y);
+}
+
+void BrushTexelS(StructuredBuffer<uint4> g, int n, int x, int y, int2 s, out float4 lo, out float4 hi)
+{
+    int2 p = int2(clamp(x, 0, n - 1), clamp(y, 0, n - 1)) + s;
+    lo = 0;
+    hi = 0;
+    if (!Inside(p, n)) return;
+    uint4 u = g[p.y * n + p.x];
+    lo = Unpack4(u.xy);
+    hi = Unpack4(u.zw);
+}
+
+void BrushBilinearS(StructuredBuffer<uint4> g, int n, float2 uv, int2 s, out float4 lo, out float4 hi)
+{
+    float2 p = uv * (float)n - 0.5;
+    float2 f = floor(p);
+    float2 t = p - f;
+    int x = (int)f.x, y = (int)f.y;
+    float4 a0, a1, b0, b1, c0, c1, d0, d1;
+    BrushTexelS(g, n, x, y, s, a0, a1);
+    BrushTexelS(g, n, x + 1, y, s, b0, b1);
+    BrushTexelS(g, n, x, y + 1, s, c0, c1);
+    BrushTexelS(g, n, x + 1, y + 1, s, d0, d1);
+    lo = Lerp4(Lerp4(a0, b0, t.x), Lerp4(c0, d0, t.x), t.y);
+    hi = Lerp4(Lerp4(a1, b1, t.x), Lerp4(c1, d1, t.x), t.y);
+}
+
+// Age channel: rho * age of a texel (rho - channel z of the grid), bilinear like Bilinear4S - divided by the bilinear rho it gives the
+// rho-weighted age of the sample.
+float AgeMassS(StructuredBuffer<uint2> g, StructuredBuffer<float> e, int n, int x, int y, int2 s)
+{
+    int2 p = int2(clamp(x, 0, n - 1), clamp(y, 0, n - 1)) + s;
+    if (!Inside(p, n)) return 0.0;
+    int i = p.y * n + p.x;
+    return f16tof32(g[i].y) * e[i];
+}
+
+float BilinearAgeMassS(StructuredBuffer<uint2> g, StructuredBuffer<float> e, int n, float2 uv, int2 s)
+{
+    float2 p = uv * (float)n - 0.5;
+    float2 f = floor(p);
+    float2 t = p - f;
+    int x = (int)f.x, y = (int)f.y;
+    float a = AgeMassS(g, e, n, x, y, s), b = AgeMassS(g, e, n, x + 1, y, s);
+    float c = AgeMassS(g, e, n, x, y + 1, s), d = AgeMassS(g, e, n, x + 1, y + 1, s);
+    float ab = a + (b - a) * t.x, cd = c + (d - c) * t.x;
+    return ab + (cd - ab) * t.y;
+}
+
+// Float density channel (conservative transport): texel through the window shift, outside - 0; bilinear like Bilinear4S; rho * age.
+float TexelFS(StructuredBuffer<float> g, int n, int x, int y, int2 s)
+{
+    int2 p = int2(clamp(x, 0, n - 1), clamp(y, 0, n - 1)) + s;
+    if (!Inside(p, n)) return 0.0;
+    return g[p.y * n + p.x];
+}
+
+float BilinearFS(StructuredBuffer<float> g, int n, float2 uv, int2 s)
+{
+    float2 p = uv * (float)n - 0.5;
+    float2 f = floor(p);
+    float2 t = p - f;
+    int x = (int)f.x, y = (int)f.y;
+    float a = TexelFS(g, n, x, y, s), b = TexelFS(g, n, x + 1, y, s);
+    float c = TexelFS(g, n, x, y + 1, s), d = TexelFS(g, n, x + 1, y + 1, s);
+    float ab = a + (b - a) * t.x, cd = c + (d - c) * t.x;
+    return ab + (cd - ab) * t.y;
+}
+
+float AgeMassFS(StructuredBuffer<float> rho, StructuredBuffer<float> e, int n, int x, int y, int2 s)
+{
+    int2 p = int2(clamp(x, 0, n - 1), clamp(y, 0, n - 1)) + s;
+    if (!Inside(p, n)) return 0.0;
+    int i = p.y * n + p.x;
+    return rho[i] * e[i];
+}
+
+float BilinearAgeMassFS(StructuredBuffer<float> rho, StructuredBuffer<float> e, int n, float2 uv, int2 s)
+{
+    float2 p = uv * (float)n - 0.5;
+    float2 f = floor(p);
+    float2 t = p - f;
+    int x = (int)f.x, y = (int)f.y;
+    float a = AgeMassFS(rho, e, n, x, y, s), b = AgeMassFS(rho, e, n, x + 1, y, s);
+    float c = AgeMassFS(rho, e, n, x, y + 1, s), d = AgeMassFS(rho, e, n, x + 1, y + 1, s);
+    float ab = a + (b - a) * t.x, cd = c + (d - c) * t.x;
+    return ab + (cd - ab) * t.y;
+}
+
 // Nearest texel: round-half-even of uv * n - 0.5; outside the grid - 0 (an out-of-range load of L2).
 int Nearest(float u, int n) { return (int)round(u * (float)n - 0.5); }
 
@@ -230,6 +383,60 @@ float2 Simplex2(float3 p)
 float EdgeDistance(float2 uv) { return max(abs(2.0 * uv.x - 1.0), abs(2.0 * uv.y - 1.0)); }
 float EdgeMask(float m, float invWidth) { return saturate(invWidth - 0.01 - m * invWidth); }
 
+// ---- film (A'): thickness h = rho * FilmHeight, friction and gravity, conservative transport ----
+
+// Density ceiling: saturate (L2), or only rho >= 0 when the density is a thickness without the ceiling 1.
+float BoundDensity(float rho, bool unbounded) { return unbounded ? max(rho, 0.0) : saturate(rho); }
+
+// Gradient (dT/dx, dT/dz) of the bilinear terrain surface at the texel: nodes (HeightCells + 1)^2 by rows of z, node coordinates of the
+// window texel - HeightX0 + u * HeightScaleU, HeightZ0 + v * HeightScaleV (u along +X, v along +Z), clamped to the grid.
+float2 TerrainGradient(FluidConstants c, float2 uv)
+{
+    StructuredBuffer<float> hs = ResourceDescriptorHeap[c.HeightSrv];
+    int cells = (int)c.HeightCells, nodes = cells + 1;
+    float gx = c.HeightX0 + uv.x * c.HeightScaleU, gz = c.HeightZ0 + uv.y * c.HeightScaleV;
+    float fx = clamp(floor(gx), 0.0, (float)(cells - 1)), fz = clamp(floor(gz), 0.0, (float)(cells - 1));
+    float tx = clamp(gx - fx, 0.0, 1.0), tz = clamp(gz - fz, 0.0, 1.0);
+    int i = (int)fx, j = (int)fz;
+    float h00 = hs[j * nodes + i], h10 = hs[j * nodes + i + 1], h01 = hs[(j + 1) * nodes + i], h11 = hs[(j + 1) * nodes + i + 1];
+    float dx0 = h10 - h00, dx1 = h11 - h01, dz0 = h01 - h00, dz1 = h11 - h10;
+    return float2(dx0 + (dx1 - dx0) * tz, dz0 + (dz1 - dz0) * tx) * c.HeightInvStep;
+}
+
+// Density of A at a texel through the window shift: the float channel under conservative transport, otherwise the half one.
+float NeighbourRho(FluidConstants c, StructuredBuffer<uint2> adv, int n, int x, int y, int2 shift)
+{
+    if ((c.FilmFlags & FLUID2D_FILM_CONSERVATIVE) == 0) return Texel4S(adv, n, x, y, shift).z;
+    StructuredBuffer<float> rhoA = ResourceDescriptorHeap[gFluidIn5];
+    return TexelFS(rhoA, n, x, y, shift);
+}
+
+// Film velocity: thinner than FilmMinThickness - 0; otherwise v - g * grad(terrain + max(h - H, 0)) (neighbours from A through the window
+// shift, central difference), then the implicit Poiseuille friction v / (1 + k * dt / h^2).
+float2 FilmVelocity(FluidConstants c, StructuredBuffer<uint2> adv, int n, int x, int y, int2 shift, float2 uv, float2 v, float rho)
+{
+    float h = rho * c.FilmHeight;
+    if (h < c.FilmMinThickness) return 0;
+    float el = max(NeighbourRho(c, adv, n, x - 1, y, shift) * c.FilmHeight - c.FilmPuddle, 0.0);
+    float er = max(NeighbourRho(c, adv, n, x + 1, y, shift) * c.FilmHeight - c.FilmPuddle, 0.0);
+    float eu = max(NeighbourRho(c, adv, n, x, y - 1, shift) * c.FilmHeight - c.FilmPuddle, 0.0);
+    float ed = max(NeighbourRho(c, adv, n, x, y + 1, shift) * c.FilmHeight - c.FilmPuddle, 0.0);
+    float2 g = float2((er - el) * c.FilmInvTwoDx, (ed - eu) * c.FilmInvTwoDy);
+    if ((c.FilmFlags & FLUID2D_FILM_HEIGHTS) != 0) g = g + TerrainGradient(c, uv);
+    float2 a = float2(v.x - c.FilmAccelX * g.x, v.y - c.FilmAccelY * g.y);
+    return a / (1.0 + c.FilmFrictionDt / (h * h));
+}
+
+// Donor-cell flux through the face between L and R (velocity of the face - the mean of the two): both cells of the face compute the same
+// number, so the mass leaving one is exactly the mass entering the other.
+float FaceFlux(float rhoL, float uL, float rhoR, float uR)
+{
+    float uf = 0.5 * (uL + uR);
+    return uf > 0.0 ? rhoL * uf : rhoR * uf;
+}
+
+float FaceAge(float flux, float uL, float uR, float ageL, float ageR) { return flux * (0.5 * (uL + uR) > 0.0 ? ageL : ageR); }
+
 // ---- stages ----
 
 // Composite and Gradient: A (advected, read at uv + WOD), P (last pressure), brush -> C (v, rho, wet).
@@ -244,11 +451,18 @@ void CsComposite(uint3 id : SV_DispatchThreadID)
     int n = (int)c.N;
     float2 uv = (float2(id.xy) + 0.5) * c.InvN;
     float2 uvs = uv + c.Wod;
+    int2 shift = int2(c.ShiftX, c.ShiftY);
     float d = c.SimSpeed * c.InvN;
 
-    float4 a = Bilinear4(adv, n, uvs);
-    float px1 = BilinearP(prs, n, uvs + float2(d, 0)).x, px0 = BilinearP(prs, n, uvs - float2(d, 0)).x;
-    float py1 = BilinearP(prs, n, uvs + float2(0, d)).x, py0 = BilinearP(prs, n, uvs - float2(0, d)).x;
+    float4 a = Bilinear4S(adv, n, uvs, shift);
+    bool conservative = (c.FilmFlags & FLUID2D_FILM_CONSERVATIVE) != 0;
+    if (conservative)
+    {
+        StructuredBuffer<float> rhoA = ResourceDescriptorHeap[gFluidIn5];
+        a.z = BilinearFS(rhoA, n, uvs, shift);
+    }
+    float px1 = BilinearPS(prs, n, uvs + float2(d, 0), shift).x, px0 = BilinearPS(prs, n, uvs - float2(d, 0), shift).x;
+    float py1 = BilinearPS(prs, n, uvs + float2(0, d), shift).x, py0 = BilinearPS(prs, n, uvs - float2(0, d), shift).x;
     float2 v = a.xy - 0.5 * float2(px1 - px0, py1 - py0);
 
     float4 paint = 0, bitmap = 0;
@@ -281,14 +495,79 @@ void CsComposite(uint3 id : SV_DispatchThreadID)
         dn = 1.0 + c.DensityAmount * (NoiseBilinear(c.DensitySrv, c.DensityLayer, c.DensityWidth, c.DensityHeight,
             uv * c.DensityScale + c.DensityOffset) - 0.5);
     float ep = pow(EdgeMask(m, c.EdgeInvWidth), c.EdgePow);
-    float rho = saturate(a.z - min(paint.z, c.Eraser) + ((1.0 - c.Eraser) * paint.z + 0.2 * bitmap.z) * dn)
+    bool unbounded = (c.FilmFlags & FLUID2D_FILM_UNBOUNDED) != 0;
+    float rho = BoundDensity(a.z - min(paint.z, c.Eraser) + ((1.0 - c.Eraser) * paint.z + 0.2 * bitmap.z) * dn, unbounded)
         * (0.5 * (c.DensityAccumulation * max(ep, 0.7)) + 0.5) * ep;
+    if (c.StampCells != 0)
+    {
+        // Stamps of the step after the accumulation factor: C gains exactly their mass (times the edge mask).
+        StructuredBuffer<float> stamps = ResourceDescriptorHeap[gFluidIn4];
+        rho = rho + stamps[id.y * c.N + id.x] * ep;
+    }
     rho = max(rho, c.DensityFloor);
+    if ((c.FilmFlags & FLUID2D_FILM_FLOW) != 0) vn = FilmVelocity(c, adv, n, (int)id.x, (int)id.y, shift, uv, vn, rho);
+    if (conservative)
+    {
+        vn = clamp(vn, -c.FilmClamp, c.FilmClamp);
+        RWStructuredBuffer<float> rhoC = ResourceDescriptorHeap[gFluidOut6];
+        rhoC[id.y * c.N + id.x] = rho;
+    }
 
-    int wx = Nearest(uvs.x, n), wy = Nearest(uvs.y, n);
+    int wx = Nearest(uvs.x, n) + shift.x, wy = Nearest(uvs.y, n) + shift.y;
     float wetPrev = (wx >= 0 && wx < n && wy >= 0 && wy < n) ? Unpack4(adv[wy * n + wx]).w : 0.0;
     float wet = (0.982 * wetPrev + c.WetFeed * rho) * EdgeMask(m, c.WetInvWidth);
-    outC[id.y * c.N + id.x] = Pack4(float4(vn, rho, wet));
+    outC[id.y * c.N + id.x] = PackState(float4(vn, rho, wet), c.RoundNearest != 0);
+
+    if (c.AgeEnabled != 0)
+    {
+        // Age: rho-weighted sample of A's age, + one step; inflow (rho above what the old blood alone gives) rejuvenates in proportion.
+        StructuredBuffer<float> ageA = ResourceDescriptorHeap[gFluidIn3];
+        RWStructuredBuffer<float> ageC = ResourceDescriptorHeap[gFluidOut1];
+        float ageMass;
+        if (conservative)
+        {
+            StructuredBuffer<float> rhoA = ResourceDescriptorHeap[gFluidIn5];
+            ageMass = BilinearAgeMassFS(rhoA, ageA, n, uvs, shift);
+        }
+        else ageMass = BilinearAgeMassS(adv, ageA, n, uvs, shift);
+        float ageIn = a.z > 0.0 ? ageMass / a.z : 0.0;
+        float rhoOld = BoundDensity(a.z, unbounded) * (0.5 * (c.DensityAccumulation * max(ep, 0.7)) + 0.5) * ep;
+        float fresh = rho > rhoOld ? rhoOld / rho : 1.0;
+        ageC[id.y * c.N + id.x] = rho > 0.0 ? (ageIn + c.AgeStep) * fresh : 0.0;
+    }
+}
+
+// Conservative advection: velocity - the back-traced sample s times VelocityFeedback, rho (float channel; half copy in A) - donor-cell fluxes through the four faces (closed
+// walls at the grid edge), age - the same fluxes times the age of the donor.
+void AdvectConservative(FluidConstants c, StructuredBuffer<uint2> comp, int n, int x, int y, float4 here, float4 s)
+{
+    RWStructuredBuffer<uint2> outA = ResourceDescriptorHeap[gFluidOut0];
+    StructuredBuffer<float> rhoC = ResourceDescriptorHeap[gFluidIn5];
+    RWStructuredBuffer<float> rhoA = ResourceDescriptorHeap[gFluidOut6];
+    float4 l = Texel4(comp, n, x - 1, y), r = Texel4(comp, n, x + 1, y), u = Texel4(comp, n, x, y - 1), d = Texel4(comp, n, x, y + 1);
+    here.z = rhoC[y * n + x];
+    l.z = rhoC[y * n + clamp(x - 1, 0, n - 1)];
+    r.z = rhoC[y * n + clamp(x + 1, 0, n - 1)];
+    u.z = rhoC[clamp(y - 1, 0, n - 1) * n + x];
+    d.z = rhoC[clamp(y + 1, 0, n - 1) * n + x];
+    float fxm = x > 0 ? FaceFlux(l.z, l.x, here.z, here.x) : 0.0;
+    float fxp = x + 1 < n ? FaceFlux(here.z, here.x, r.z, r.x) : 0.0;
+    float fym = y > 0 ? FaceFlux(u.z, u.y, here.z, here.y) : 0.0;
+    float fyp = y + 1 < n ? FaceFlux(here.z, here.y, d.z, d.y) : 0.0;
+    float rho = max(here.z - ((fxp - fxm) + (fyp - fym)) * c.SimSpeed, 0.0);
+    uint i = (uint)(y * n + x);
+    outA[i] = PackState(float4(s.xy * c.VelocityFeedback, rho, here.w), c.RoundNearest != 0);
+    rhoA[i] = rho;
+    if (c.AgeEnabled == 0) return;
+    StructuredBuffer<float> ageC = ResourceDescriptorHeap[gFluidIn1];
+    RWStructuredBuffer<float> ageA = ResourceDescriptorHeap[gFluidOut1];
+    float ah = ageC[i];
+    float axm = x > 0 ? FaceAge(fxm, l.x, here.x, ageC[i - 1], ah) : 0.0;
+    float axp = x + 1 < n ? FaceAge(fxp, here.x, r.x, ah, ageC[i + 1]) : 0.0;
+    float aym = y > 0 ? FaceAge(fym, u.y, here.y, ageC[i - (uint)n], ah) : 0.0;
+    float ayp = y + 1 < n ? FaceAge(fyp, here.y, d.y, ah, ageC[i + (uint)n]) : 0.0;
+    float mass = here.z * ah - ((axp - axm) + (ayp - aym)) * c.SimSpeed;
+    ageA[i] = rho > 0.0 ? max(mass / rho, 0.0) : 0.0;
 }
 
 // Advection: C -> A; back-trace uv - v * SimSpeed / N (clamped sampling), v and rho times VelocityFeedback, wet copied as is.
@@ -304,7 +583,18 @@ void CsAdvection(uint3 id : SV_DispatchThreadID)
     float4 here = Unpack4(comp[id.y * c.N + id.x]);
     float2 back = uv - here.xy * (c.SimSpeed * c.InvN);
     float4 s = Bilinear4(comp, n, back);
-    outA[id.y * c.N + id.x] = Pack4(float4(s.xyz * c.VelocityFeedback, here.w));
+    if ((c.FilmFlags & FLUID2D_FILM_CONSERVATIVE) != 0)
+    {
+        AdvectConservative(c, comp, n, (int)id.x, (int)id.y, here, s);
+        return;
+    }
+    outA[id.y * c.N + id.x] = PackState(float4(s.xyz * c.VelocityFeedback, here.w), c.RoundNearest != 0);
+    if (c.AgeEnabled != 0)
+    {
+        StructuredBuffer<float> ageC = ResourceDescriptorHeap[gFluidIn1];
+        RWStructuredBuffer<float> ageA = ResourceDescriptorHeap[gFluidOut1];
+        ageA[id.y * c.N + id.x] = s.z > 0.0 ? BilinearAgeMassS(comp, ageC, n, back, int2(0, 0)) / s.z : 0.0;
+    }
 }
 
 // Divergence: A, P, brush -> S = (P shifted with the area, clamp(div, -2, 2)).
@@ -331,7 +621,7 @@ void CsDivergence(uint3 id : SV_DispatchThreadID)
         paintRho = lo.z;
     }
     float div = clamp(c.DivergenceMult * (c.Puncture * paintRho + (dvx + dvy)), -2.0, 2.0);
-    float p0 = BilinearP(prs, n, uv + c.Wod).x;
+    float p0 = BilinearPS(prs, n, uv + c.Wod, int2(c.ShiftX, c.ShiftY)).x;
     outS[id.y * c.N + id.x] = Pack2(float2(p0, div));
 }
 
@@ -397,6 +687,31 @@ void CsClear(uint3 id : SV_DispatchThreadID)
     outA[i] = 0;
     outP[i] = 0;
     outS[i] = 0;
+    if (c.AgeEnabled != 0)
+    {
+        RWStructuredBuffer<float> ageC = ResourceDescriptorHeap[gFluidOut4];
+        RWStructuredBuffer<float> ageA = ResourceDescriptorHeap[gFluidOut5];
+        ageC[i] = 0;
+        ageA[i] = 0;
+    }
+    if ((c.FilmFlags & FLUID2D_FILM_CONSERVATIVE) != 0)
+    {
+        RWStructuredBuffer<float> rhoC = ResourceDescriptorHeap[gFluidOut6];
+        RWStructuredBuffer<float> rhoA = ResourceDescriptorHeap[gFluidOut7];
+        rhoC[i] = 0;
+        rhoA[i] = 0;
+    }
+}
+
+// Export of the age channel (after Composite of the last step): seconds per texel -> R32F texture.
+[numthreads(FLUID2D_GROUP, FLUID2D_GROUP, 1)]
+void CsExportAge(uint3 id : SV_DispatchThreadID)
+{
+    FluidConstants c = LoadConstants();
+    if (id.x >= c.N || id.y >= c.N) return;
+    StructuredBuffer<float> age = ResourceDescriptorHeap[gFluidIn0];
+    RWTexture2D<float> rt = ResourceDescriptorHeap[gFluidOut0];
+    rt[id.xy] = age[id.y * c.N + id.x];
 }
 
 // ---- brush: TrackPoint Painter (BR 4.2, deterministic merge BR 8.2) ----
@@ -497,7 +812,7 @@ void CsPainter(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID)
 
     float a = saturate(best + c.PainterBase);
     float4 oldLo, oldHi;
-    BrushBilinear(prev, bn, float2(u + c.Wod.x, v + c.Wod.y), oldLo, oldHi);
+    BrushBilinearS(prev, bn, float2(u + c.Wod.x, v + c.Wod.y), int2(c.BrushShiftX, c.BrushShiftY), oldLo, oldHi);
     float keep = 1.0 - a;
     float px, py, pz;
     if ((c.PainterFlags & FLUID2D_PAINTER_ADDITIVE) != 0)
@@ -626,4 +941,44 @@ void CsStats(uint3 id : SV_DispatchThreadID)
     stats[8] = asuint(acc.Sum > 0.0 ? acc.SumX / acc.Sum : 0.5);
     stats[9] = asuint(acc.Sum > 0.0 ? acc.SumY / acc.Sum : 0.5);
     for (uint k = 10; k < 16; k++) stats[k] = 0;
+}
+
+// ---- stamps: density of the step's stamps per texel (Fluid2DStamps), summed in record order of the binning cell, no atomics ----
+
+float StampWord(StructuredBuffer<uint> data, uint b, uint i) { return asfloat(data[b + i]); }
+
+// Words of a stamp: centre 0-1, matrix uv -> q 2-5, peak 6, shape 7, aabb 8-11. Shape 0 - gaussian exp(-|q|^2 / 2) cut at |q| = 4;
+// shape k >= 1 - channel r of layer StampShapeLayer + k - 1 on the square |q| <= 1 (bilinear with wrap at uv = q / 2 + 0.5).
+[numthreads(FLUID2D_GROUP, FLUID2D_GROUP, 1)]
+void CsStamp(uint3 id : SV_DispatchThreadID)
+{
+    FluidConstants c = LoadConstants();
+    if (id.x >= c.N || id.y >= c.N) return;
+    StructuredBuffer<uint> data = ResourceDescriptorHeap[gFluidIn0];
+    RWStructuredBuffer<float> outS = ResourceDescriptorHeap[gFluidOut0];
+    float u = ((float)id.x + 0.5) * c.InvN, v = ((float)id.y + 0.5) * c.InvN;
+    uint2 cell = id.xy / c.StampCellTexels;
+    uint word = data[c.StampCellBase + cell.y * c.StampCells + cell.x];
+    uint start = word & 0xFFFFu, count = word >> 16;
+    float sum = 0.0;
+    for (uint j = 0; j < count; j++)
+    {
+        uint b = c.StampBase + data[c.StampEntryBase + start + j] * FLUID2D_STAMP_WORDS;
+        if (u < StampWord(data, b, 8) || u > StampWord(data, b, 10) || v < StampWord(data, b, 9) || v > StampWord(data, b, 11)) continue;
+        float dx = u - StampWord(data, b, 0), dy = v - StampWord(data, b, 1);
+        float qx = StampWord(data, b, 2) * dx + StampWord(data, b, 3) * dy;
+        float qy = StampWord(data, b, 4) * dx + StampWord(data, b, 5) * dy;
+        uint shape = data[b + 7];
+        float value = 0.0;
+        if (shape == 0)
+        {
+            float q2 = qx * qx + qy * qy;
+            if (q2 <= 16.0) value = exp2(-0.72134752 * q2);
+        }
+        else if (abs(qx) <= 1.0 && abs(qy) <= 1.0)
+            value = ImageBilinear(c.StampShapeSrv, c.StampShapeLayer + shape - 1, c.StampShapeWidth, c.StampShapeHeight,
+                float2(qx * 0.5 + 0.5, qy * 0.5 + 0.5)).x;
+        sum += StampWord(data, b, 6) * value;
+    }
+    outS[id.y * c.N + id.x] = sum;
 }

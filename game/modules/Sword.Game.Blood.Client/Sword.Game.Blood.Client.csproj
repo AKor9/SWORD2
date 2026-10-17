@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Модуль Blood (раздел 10, решение 20): кровь из ран по телу и на полу — только клиентская часть, вне симуляции и хеша. -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Game.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Client\Sword.Engine.Client.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Fluid2D\Sword.Engine.Fluid2D.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+  <!-- Шейдеры модуля: в выходе — Shaders/blood/…, рядом с общими шейдерами движка. -->
+  <ItemGroup>
+    <None Update="Shaders\**\*.hlsl;Shaders\**\*.hlsli">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

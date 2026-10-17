@@ -133,7 +133,7 @@ public sealed class Fluid2DPainterReference
 
         float a = Saturate(best + c.PainterBase);
         int bn = (int)c.BrushN;
-        Fluid2DReference.BrushBilinear(old, bn, u + c.Wod.X, v + c.Wod.Y, out var prev, out _);
+        Fluid2DReference.BrushBilinear(old, bn, u + c.Wod.X, v + c.Wod.Y, c.BrushShiftX, c.BrushShiftY, out var prev, out _);
         float keep = 1f - a;
         float px, py, pz;
         if ((c.PainterFlags & Fluid2DConstants.PainterAdditive) != 0)

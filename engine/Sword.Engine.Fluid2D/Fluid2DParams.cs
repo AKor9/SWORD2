@@ -12,6 +12,76 @@ public sealed record Fluid2DParams
     /// <summary>Факел LIVE-2 (FSR §3.4б, §3.5).</summary>
     public static Fluid2DParams Torch { get; } = new();
 
+    /// <summary>
+    /// Вязкая кровь на полу (B1 LIVE-2, BVR §2.2, §2.7, пересчёт на сетку SWORD2 — BVR §6.8 с BR §9.2): горизонтальная площадка 32×32 м, 1024²
+    /// (тексель 3.125 см), кисть без огрубления, SimSpeed 3 (d = 9.4 см); VF 0.9, DA — нейтраль 2/VF − 1 (масса не растёт и не тает), давление
+    /// без памяти (KIO −2, DM 0.04); мировые числа L2 (Kill 2 м/с, ячейка шума скорости 6.25 см, период шума плотности 4 м, полосы краёв в
+    /// метрах) — те же, доли стороны пересчитаны на 32 м; канал возраста включён. Выбор чисел, которых нет в BVR, — README.
+    /// </summary>
+    public static Fluid2DParams Blood { get; } = new()
+    {
+        Resolution = 1024,
+        PaintBufferDownScaleFactor = 1,
+        SimSpeed = 3,
+        VelocityFeedback = 0.9f,
+        VelocityClamp = 50,
+        DensityAccumulation = 2f / 0.9f - 1f,
+        EdgeMaskWidth = 0.03125f,
+        EdgeMaskPow = 1,
+        SimEdgeBounciness = 0,
+        WetmapFeedback = 0.93f,
+        WetMapEdgeMaskWidth = 0.0625f,
+        VeloFromBrushMotion = 10,
+        DirectVelocity = Vector3.Zero,
+        VeloAmplitudeNoiseEnabled = false,
+        VeloDirNoise = 100,
+        VeloDirNoiseSize = 0.125f,
+        VeloDirNoiseSpeed = 0,
+        MaskDirNoiseWithSimVelocity = 1,
+        DensityNoiseAmount = 1,
+        DensityNoiseTile = 7,
+        DensityNoiseSpeed = 0,
+        DensityFloor = 0,
+        DivergenceMult = 0.04f,
+        BrushPuncture = 0,
+        KernelMult = 1,
+        KernelIndexOffset = -2,
+        PressureEdgeMasking = true,
+        PressureEdgeMaskWidth = 0.09375f,
+        PressureEdgeMaskPow = 1,
+        Extents = new Vector3(32, 32, 0.65f),
+        CameraFacing = false,
+        BrushPositionRandom = 0,
+        BrushMaxPoints = 256,
+        BrushMaxEntries = 4096,
+        BrushHardness = 0.5f,
+        KillBrushBelowThisVelocity = 0.1f,
+        BrushDensityNoise = 0.4f,
+        BrushVelocityMultXY = 4,
+        KillInterpolatorAboveThisVelocity = 100,
+        PersistencyOfFieldAndPointData = 0.05f,
+        PainterEdgeMaskWidth = 0.15625f,
+        DensityTxtMult = 0,
+        AgeChannel = true,
+        HalfRoundToNearest = true,
+    };
+
+    /// <summary>
+    /// Кровь, которая растекается и течёт по уклону (A′, BVR §7): <see cref="Blood"/> + консервативный перенос ρ, толщина h = ρ·h_max без
+    /// потолка 1, трение плёнки от толщины, пороги h_min и H, растекание по ∇(рельеф + h). Накопление 1 (масса — только из кисти и штампов),
+    /// давление выключено (растекание — это дивергенция). Подбор чисел — README («Плёнка»).
+    /// </summary>
+    public static Fluid2DParams BloodSpread { get; } = Blood with
+    {
+        VelocityFeedback = 1,
+        DensityAccumulation = 1,
+        DivergenceMult = 0,
+        ConservativeDensity = true,
+        UnboundedDensity = true,
+        FilmFlow = true,
+        FilmSpread = 10,
+    };
+
     // ── Сетка и такт ─────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Сторона гридов, текселей (факел — 368: тексель 0.815 см на площадке 3 м).</summary>
@@ -102,6 +172,60 @@ public sealed record Fluid2DParams
 
     /// <summary>Нижняя граница плотности после Composite (литерал L2 1e-6); 0 — чистый ноль.</summary>
     public float DensityFloor { get; init; } = 1e-6f;
+
+    /// <summary>
+    /// Канал возраста E (float32 на тексель, секунды): переносится выборкой адвекции, взвешенной по ρ; растёт на <see cref="StepSeconds"/> за
+    /// шаг; приток омолаживает: age' = (age + dt)·ρ_без притока/ρ_новая; где ρ = 0 — 0. Меняется только с новым симом.
+    /// </summary>
+    public bool AgeChannel { get; init; }
+
+    /// <summary>
+    /// C и A пишутся в half с округлением к ближайшему (как эталон); иначе — f32tof16 железа, к нулю (огонь). Нужен балансу массы при
+    /// нейтральном накоплении: к нулю лужа в покое теряет 0.26 % за 600 шагов, к ближайшему — 0.0001 %.
+    /// </summary>
+    public bool HalfRoundToNearest { get; init; }
+
+    // ── Плёнка (A′) ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Консервативный перенос ρ: Advection — потоки через грани (донорская схема, скорость грани — среднее двух текселей, у края грида —
+    /// стенка) вместо полулагранжевой выборки, ρ не умножается на VelocityFeedback; возраст — те же потоки × возраст донора. Скорость —
+    /// прежней выборкой; Composite зажимает её по CFL (<see cref="FilmCourant"/>). Масса сохраняется до округления half.
+    /// </summary>
+    public bool ConservativeDensity { get; init; }
+
+    /// <summary>ρ без потолка 1 (только ρ ≥ 0): ρ — толщина h = ρ·<see cref="FilmThicknessPerDensity"/>.</summary>
+    public bool UnboundedDensity { get; init; }
+
+    /// <summary>Толщина плёнки на ρ = 1 (h_max), м.</summary>
+    public float FilmThicknessPerDensity { get; init; } = 0.003f;
+
+    /// <summary>
+    /// Течение плёнки в Composite: тоньше <see cref="FilmMinThickness"/> — v = 0; иначе v − g·∇(рельеф + max(h − H, 0))·dt (высоты —
+    /// <see cref="Fluid2DSim.Heights"/>; нет — уклон 0), затем трение Пуазейля неявно v/(1 + k·dt/h²).
+    /// </summary>
+    public bool FilmFlow { get; init; }
+
+    /// <summary>Трение плёнки k (= 3ν у настоящей), м²/с: установившаяся скорость на уклоне — g·sinα·h²/k.</summary>
+    public float FilmFriction { get; init; } = 1e-4f;
+
+    /// <summary>h_min, м: тоньше не течёт (мазок стоит).</summary>
+    public float FilmMinThickness { get; init; } = 0.0003f;
+
+    /// <summary>H, м: толщина лужи — растекание собственным весом идёт только от избытка max(h − H, 0).</summary>
+    public float FilmPuddleThickness { get; init; } = 0.001f;
+
+    /// <summary>Ускорение тяжести плёнки, м/с² (масштаб силы).</summary>
+    public float FilmGravity { get; init; } = 9.81f;
+
+    /// <summary>
+    /// Множитель растекания собственным весом (члена ∇max(h − H, 0)), уклон рельефа — без него: лужа быстрее выходит на толщину H, а скорость
+    /// на склоне (g·sinα·h²/k) не меняется.
+    /// </summary>
+    public float FilmSpread { get; init; } = 1;
+
+    /// <summary>Предел компоненты скорости при консервативном переносе, текселей за шаг (CFL: сумма по четырём граням ≤ 4·Courant ≤ 1).</summary>
+    public float FilmCourant { get; init; } = 0.25f;
 
     // ── Divergence и Pressure ───────────────────────────────────────────────────────────────────────────────────
 
@@ -266,6 +390,9 @@ public sealed record Fluid2DParams
         if (!(VeloDirNoiseSize > 0) || !float.IsFinite(VeloDirNoiseSize))
             throw new ArgumentOutOfRangeException(nameof(VeloDirNoiseSize), VeloDirNoiseSize, "размер направленного шума > 0");
         if (BrushMaxPoints is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(BrushMaxPoints), BrushMaxPoints, "точек кисти 1…4096");
+        if (!(FilmCourant > 0 && FilmCourant <= 0.25f)) throw new ArgumentOutOfRangeException(nameof(FilmCourant), FilmCourant, "CFL 0…0.25 текселя за шаг");
+        if (FilmFlow && !(FilmThicknessPerDensity > 0 && FilmMinThickness > 0 && FilmFriction >= 0 && FilmPuddleThickness >= 0))
+            throw new ArgumentOutOfRangeException(nameof(FilmFlow), FilmFlow, "плёнка: h_max > 0, h_min > 0, k ≥ 0, H ≥ 0");
         if (BrushMaxEntries < BrushMaxPoints || BrushMaxEntries > 65535)
             throw new ArgumentOutOfRangeException(nameof(BrushMaxEntries), BrushMaxEntries, "записей бининга — от числа точек до 65535");
     }

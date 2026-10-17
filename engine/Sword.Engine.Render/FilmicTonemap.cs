@@ -187,7 +187,7 @@ public static class FilmicTonemap
     public static Vector3 SceneFor(Vector3 display, float exposure, FilmicCurve? curve = null)
     {
         var u = new double[3];
-        for (int i = 0; i < 3; i++) u[i] = Math.Log(Math.Max(DecodeSrgb(display[i]), 1e-6) / exposure);
+        for (int i = 0; i < 3; i++) u[i] = Math.Log(Math.Max(DecodeSrgbDouble(display[i]), 1e-6) / exposure);
         var f = new double[3];
         var j = new double[9];
         const double du = 1e-3;
@@ -322,7 +322,11 @@ public static class FilmicTonemap
         return Math.Clamp(e, 0, 1);
     }
 
-    private static double DecodeSrgb(double v) => v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+    /// <summary>Декодирование sRGB (обратное <see cref="EncodeSrgb"/>, теми же числами), как у шейдера SMAA.</summary>
+    public static float DecodeSrgb(float v) =>
+        v <= SrgbLinearSlope * SrgbLinearLimit ? v / SrgbLinearSlope : MathF.Pow((v + SrgbOffset) / SrgbScale, SrgbGamma);
+
+    private static double DecodeSrgbDouble(double v) => v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
 
     private static string F(float v)
     {

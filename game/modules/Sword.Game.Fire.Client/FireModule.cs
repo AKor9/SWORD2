@@ -700,7 +700,7 @@ public sealed class FireModule : IClientModule
             .Header("СИМ (клиент, не реплей)")
             .Float("simSpeed", "скорость сима", () => tuning.Params.SimSpeed, v => tuning.Params = tuning.Params with { SimSpeed = v }, 0.25f, 8f,
                 hint: "SimSpeed: шаг соседей и адвекции, текселей (факел — 2)", defaultValue: torch.SimSpeed)
-            .Float("accumulation", "затухание (накопление ρ)", () => tuning.Params.DensityAccumulation,
+            .Float("accumulation", "накопление плотности", () => tuning.Params.DensityAccumulation,
                 v => tuning.Params = tuning.Params with { DensityAccumulation = v }, 0.5f, 1f,
                 hint: "DensityAccumulation: ρ ×(0.5 + 0.5·DA·…) за шаг; меньше — гаснет быстрее (факел — 0.9: ×0.94)", defaultValue: torch.DensityAccumulation)
             .Float("brushStrength", "сила кисти", () => tuning.Params.BrushStrength, v => tuning.Params = tuning.Params with { BrushStrength = v },

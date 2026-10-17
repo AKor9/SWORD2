@@ -159,6 +159,39 @@ public sealed class SkinnedMeshes : IDisposable
         return parts;
     }
 
+    /// <summary>
+    /// Меш из контента на CPU (тот же файл, что <see cref="LoadMesh"/>; читается заново, в GPU не идёт) — геометрия кожи для эффектов.
+    /// </summary>
+    /// <exception cref="ArgumentException">Путь не путь контента.</exception>
+    /// <exception cref="FileNotFoundException">Нет пака или ассета.</exception>
+    /// <exception cref="InvalidDataException">Файл не .swmesh или испорчен.</exception>
+    public SkinnedMeshCpu ReadCpu(string path)
+    {
+        path = ContentPath.Normalize(path);
+        var content = _renderer.Content;
+        SkinnedMeshData data;
+        using (var s = content.OpenRead(path))
+            data = SkinnedMeshData.Read(s, content.Describe(path));
+        var v = data.Vertices;
+        var positions = new Vector3[v.Length];
+        var normals = new Vector3[v.Length];
+        var joints = new uint[v.Length];
+        var weights = new Vector4[v.Length];
+        for (int i = 0; i < v.Length; i++)
+        {
+            positions[i] = v[i].Position;
+            normals[i] = v[i].Normal;
+            joints[i] = v[i].Joints;
+            var w = v[i].Weights;
+            weights[i] = new Vector4(w, Math.Clamp(1 - w.X - w.Y - w.Z, 0, 1));
+        }
+        return new SkinnedMeshCpu
+        {
+            Positions = positions, Normals = normals, Indices = data.Indices, Joints = joints, Weights = weights,
+            InverseBind = data.InverseBind, JointNames = data.JointNames,
+        };
+    }
+
     /// <summary>Готовый меш в память GPU (сгенерированные меши движка); вернёт номер для <see cref="Add"/>.</summary>
     internal int AddMesh(string name, SkinnedMeshData data)
     {

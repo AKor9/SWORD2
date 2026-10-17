@@ -22,6 +22,12 @@ public sealed class RenderFrame
     /// <summary>Точечные источники этого кадра (<see cref="PointLights"/>): добавляет тот, кто строит кадр; SRV буфера — для констант кадра.</summary>
     public PointLights Lights => _renderer.Lights;
 
+    /// <summary>Тени от солнца этого кадра (<see cref="SunShadow"/>): карта, матрица, проход заслоняющих.</summary>
+    public SunShadow Shadow => _renderer.Shadow;
+
+    /// <summary>Затенение рассеянного света этого кадра (<see cref="AmbientOcclusion"/>): цели и проходы GTAO.</summary>
+    public AmbientOcclusion Ao => _renderer.Ao;
+
     /// <summary>Прозрачное в ½ разрешения этого кадра (<see cref="HalfResTransparency"/>): слой ½ и его композит в <see cref="SceneColor"/>.</summary>
     public HalfResTransparency HalfRes => _renderer.HalfRes;
 
@@ -130,6 +136,7 @@ public sealed class Renderer : IDisposable
             Constants = new ConstantRing(Device, "Frame.Constants", MaxFrameConstantsBytes, FrameConstantSlots);
             Graph = new RenderGraph(Device, Pipelines);
             Scene = new SceneTargets(Device, Graph);
+            Ao = new AmbientOcclusion(Device, Scene);
             HdrScene = new HdrScene(Device, Graph);
             Skinned = new SkinnedMeshes(this);
             Debug = new DebugDraw(this);
@@ -137,6 +144,8 @@ public sealed class Renderer : IDisposable
             HalfRes = new HalfResTransparency(this);
             Gpu = new GpuFrameTimes(Device);
             _frame = new RenderFrame(this);
+            AutoExposure = new AutoExposure(this);
+            Taa = new TemporalAa(Device, Graph, Scene);
         }
         catch
         {
@@ -163,6 +172,10 @@ public sealed class Renderer : IDisposable
         PointLights.Contribute(c);
         HalfResTransparency.Contribute(c);
         HdrScene.Contribute(c);
+        SunShadow.Contribute(c);
+        AmbientOcclusion.Contribute(c);
+        AutoExposure.Contribute(c);
+        TemporalAa.Contribute(c);
         FilmicTonemap.Contribute(c);
     }
 
@@ -218,6 +231,30 @@ public sealed class Renderer : IDisposable
     /// Bloom (UE «сумма гауссиан», <see cref="BloomKernel"/>) между HDR-сценой и тонмапом; только с HDR, действует со следующего кадра.
     /// </summary>
     public BloomSettings Bloom { get; set; } = BloomSettings.Default;
+
+    /// <summary>
+    /// Сглаживание SMAA 1x (<see cref="SmaaMath"/>) после тонмапа: три прохода <c>post.smaa.*</c>, итог — в задний буфер. Только с HDR,
+    /// действует со следующего кадра; по умолчанию выключено.
+    /// </summary>
+    public bool Smaa { get; set; }
+
+    /// <summary>Тени от солнца (<see cref="SunShadow"/>): настройки и карта кадра; по умолчанию выключены.</summary>
+    public SunShadow Shadow { get; } = new();
+
+    /// <summary>
+    /// Временное сглаживание и размытие движения (<see cref="TemporalAa"/>): только с HDR, по умолчанию выключено. Сцену рисует матрица
+    /// со сдвигом <see cref="TemporalAa.Jitter"/>, вид задаёт <see cref="TemporalAa.SetView"/>.
+    /// </summary>
+    public TemporalAa Taa { get; } = null!;
+
+    /// <summary>Постобработка (<see cref="PostEffects"/>): цветокоррекция, виньетка, резкость; только с HDR, по умолчанию нейтральна.</summary>
+    public PostEffects Post { get; } = new();
+
+    /// <summary>Автоэкспозиция (<see cref="Render.AutoExposure"/>): средняя яркость сцены на GPU, экспозиция — к ней; только с HDR, по умолчанию выключена.</summary>
+    public AutoExposure AutoExposure { get; } = null!;
+
+    /// <summary>Затенение рассеянного света (<see cref="AmbientOcclusion"/>, GTAO): настройки и карта кадра; по умолчанию выключено.</summary>
+    public AmbientOcclusion Ao { get; }
 
     /// <summary>Значение очистки <see cref="RenderFrame.SceneColor"/>; смена пересоздаёт цель в начале следующего кадра.</summary>
     public System.Numerics.Vector4 SceneColorClear { get; set; } = new(0, 0, 0, 1);
@@ -488,10 +525,13 @@ public sealed class Renderer : IDisposable
             Scene.EnsureSize();
             FrameHdr = Hdr;
             HdrScene.Ensure(FrameHdr, SceneColorClear);
+            Taa.Ensure(FrameHdr && Taa.Enabled);
             Skinned.Begin();
             Debug.BeginFrame();
             Lights.BeginFrame();
             HalfRes.BeginFrame();
+            Shadow.BeginFrame();
+            Ao.BeginFrame();
             _ui?.BeginFrame();
             Graph.BeginFrame(0);
             Graph.BackBufferFrom = FrameHdr ? FramePhase.Post : FramePhase.Simulation;
@@ -501,9 +541,9 @@ public sealed class Renderer : IDisposable
             Lights.Flush();
             HalfRes.EndFrame();
             profiler.End(_zones.Build);
-            // Bloom и тонмап — последними проходами фазы Post: модули регистрируют свою постобработку раньше, во время построения кадра.
-            if (FrameHdr) HdrScene.AddTonemap(Graph, Exposure, Bloom);
-            else HdrScene.SkipFrame();
+            // Bloom, тонмап и SMAA — последними проходами фазы Post: модули регистрируют свою постобработку раньше, во время построения кадра.
+            if (FrameHdr) HdrScene.AddTonemap(Graph, Exposure, Bloom, Smaa, AutoExposure, Post, Taa);
+            else HdrScene.SkipFrame(AutoExposure);
 
             profiler.Begin(_zones.Record);
             Graph.Execute(list);
@@ -653,6 +693,9 @@ public sealed class Renderer : IDisposable
         Skinned.Dispose();
         Graph.Dispose();
         HdrScene.Dispose();
+        AutoExposure?.Dispose();
+        Taa?.Dispose();
+        Ao.Dispose();
         Scene.Dispose();
         Constants.Dispose();
         Pipelines.Dispose();

@@ -23,7 +23,9 @@ public enum Fluid2DStage
 /// Поля сима в битах half, как на GPU (ряд за рядом, ряд 0 — v = 0): <see cref="Composite"/> C (vx, vy, ρ, wet) — состояние после
 /// Composite, его экспортирует <c>RT_Composite</c>; <see cref="Advected"/> A (vx, vy, ρ, wet) — после адвекции (wet — копия C того же
 /// текселя: Composite берёт прошлую мокрую карту из A); <see cref="Pressure"/> P (P, D) — итог давления прошлого шага;
-/// <see cref="Scratch"/> S — второй буфер давления. Загрузка и чтение — <see cref="Fluid2DSim.Load"/>, <see cref="Fluid2DSim.ReadFields"/>.
+/// <see cref="Scratch"/> S — второй буфер давления; <see cref="AgeComposite"/>, <see cref="AgeAdvected"/> — канал возраста (float, с; при
+/// <see cref="Fluid2DParams.AgeChannel"/>, иначе нули) после Composite и после адвекции; <see cref="DensityComposite"/>, <see cref="DensityAdvected"/> —
+/// ρ во float при <see cref="Fluid2DParams.ConservativeDensity"/> (состояние; канал z C и A — его копия в half), иначе нули. Загрузка и чтение — <see cref="Fluid2DSim.Load"/>, <see cref="Fluid2DSim.ReadFields"/>.
 /// </summary>
 public sealed class Fluid2DFields
 {
@@ -35,6 +37,10 @@ public sealed class Fluid2DFields
         Advected = new Half[4 * n * n];
         Pressure = new Half[2 * n * n];
         Scratch = new Half[2 * n * n];
+        AgeComposite = new float[n * n];
+        AgeAdvected = new float[n * n];
+        DensityComposite = new float[n * n];
+        DensityAdvected = new float[n * n];
     }
 
     public int N { get; }
@@ -42,6 +48,21 @@ public sealed class Fluid2DFields
     public Half[] Advected { get; private set; }
     public Half[] Pressure { get; private set; }
     public Half[] Scratch { get; private set; }
+    public float[] AgeComposite { get; }
+    public float[] AgeAdvected { get; }
+    public float[] DensityComposite { get; }
+    public float[] DensityAdvected { get; }
+
+    /// <summary>Канал ρ во float (консервативный перенос) — из каналов z C и A в half (поля, собранные в half).</summary>
+    public Fluid2DFields WithFloatDensity()
+    {
+        for (int i = 0; i < N * N; i++)
+        {
+            DensityComposite[i] = (float)Composite[i * 4 + 2];
+            DensityAdvected[i] = (float)Advected[i * 4 + 2];
+        }
+        return this;
+    }
 
     public Fluid2DFields Clone()
     {
@@ -50,6 +71,10 @@ public sealed class Fluid2DFields
         Advected.CopyTo(c.Advected, 0);
         Pressure.CopyTo(c.Pressure, 0);
         Scratch.CopyTo(c.Scratch, 0);
+        AgeComposite.CopyTo(c.AgeComposite, 0);
+        AgeAdvected.CopyTo(c.AgeAdvected, 0);
+        DensityComposite.CopyTo(c.DensityComposite, 0);
+        DensityAdvected.CopyTo(c.DensityAdvected, 0);
         return c;
     }
 

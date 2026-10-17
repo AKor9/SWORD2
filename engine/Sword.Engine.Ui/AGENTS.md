@@ -31,14 +31,16 @@
 клавиатуры — `FocusId` (`WantsKeyboard`: горячие клавиши приложения молчат); курсор кадра — `Cursor`; окну, рисующему по
 событиям, — `WakeIn` (каретка, подсказка, неопределённый прогресс).
 
-- Оформление: `Panel`, `Label` (не влезает — «…»), `InfoRow` (подпись — значение), `SectionHeader`, `Separator`,
+- Оформление: `Panel`, `Label` (не влезает — «…»), `Paragraph` (перенос по словам, остаток — «…»), `InfoRow` (подпись — значение;
+  длинное значение теснит подпись), `SectionHeader`, `Separator`,
   `Arrow`, `StatusDot`.
 - `Button` (щелчок — отпускание над ней), `Toggle`; `Slider` (float, `log` — логарифмическая шкала; при min ≤ 0 —
   линейная), `Splitter`, `ProgressBar` (доля < 0 — неопределённый).
 - `TextField` (каретка, выделение, слова, Ctrl+A/C/X/V через `UiInput.Get/SetClipboard`, Enter/Escape),
   `NumberField` (Enter или щелчок мимо — принять, не число — прежнее, вне диапазона — прижать; Escape — отмена).
 - `BeginScroll`/`EndScroll`, `ScrollIntoView`, `BeginList`/`EndList` (`UiListRows` — видимые строки), `VirtualList`,
-  `Selectable`; `Tabs` (не влезли — полоса прокручивается и сама подводится к выбранной), `Combo`, `TreeNode`.
+  `Selectable`; `Tabs` (не влезли — полоса прокручивается и сама подводится к выбранной), `TabList` (вкладки столбцом,
+  выбранная — подсветка и полоса акцента), `Combo`, `TreeNode`.
 - Всплывающие окна: `BeginPopup`/`EndPopup`, `BeginModal`/`EndModal` (затемнение, мышь не проходит); под окном прошлого
   кадра виджеты нижних слоёв мышь не видят. `Tooltip` — через 0,5 с под мышью, рисуется последней в `EndFrame`.
 

@@ -101,15 +101,23 @@ public sealed class TuningPanelLogicTests
 
 /// <summary>
 /// Панель ручек на шрифтах пака: числа, флаги, кнопки, вкладки, подвал, строка состояния, мышь у панели, кадр без выделений.
-/// Раскладка при масштабе 1, верхе 0 и высоте 600: строки с y 46 (заголовок 22, строки по 24), состояние 538…556, подвал 556…582.
+/// Раскладка при масштабе 1, верхе 0 и высоте 600: панель x 8…518, меню вкладок x 18…122 (строки по 28), ручки справа x 134…508:
+/// строки с y 16 (заголовок 22, строки
+/// по 24), под ними — состояние в три строки и подвал 26 у низа панели (<see cref="TuningPanel.Bounds"/>: высота по содержимому).
 /// </summary>
 [Trait("Category", "Content")]
 public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>
 {
-    private const float HeaderY = 46, RowH = 24;
+    private const float HeaderY = 16, RowH = 24;
 
     /// <summary>Середина строки <paramref name="index"/> группы «Бой» (0 — заголовок).</summary>
     private static float RowY(int index) => index == 0 ? HeaderY + 11 : HeaderY + 22 + (index - 1) * RowH + RowH / 2;
+
+    /// <summary>Середина подвала: 10 от низа панели, высота 26.</summary>
+    private static float FooterY(TuningPanel panel) => panel.Bounds.Y1 - 10 - 13;
+
+    /// <summary>Полоса строки состояния: над подвалом через зазор 6.</summary>
+    private static (float Y0, float Y1) StatusBand(TuningPanel panel) => (HeaderY + 22 + 6 * RowH, panel.Bounds.Y1 - 10 - 26);
 
     private sealed class Driver(UiFonts fonts, TuningPanel panel)
     {
@@ -176,21 +184,21 @@ public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>
     public void Slider_DragSetsValue_NumberRowShowsIt_RightClickOnLabelResets()
     {
         var (_, k, d) = Open();
-        float y = RowY(2);   // острота: ползунок x 156…276 (ручка ходит 162…270), поле 280…338
-        d.Press(200, y);
+        float y = RowY(2);   // острота: справа от меню (x 134…508) подписи узкие — столбец 30 % (112), ползунок x 246…450, поле 450…508
+        d.Press(300, y);
         Assert.True(d.Mouse);
-        for (int i = 0; i <= 10; i++) d.Move(200 + i * 10, y).Frame();   // тянут за правый край дорожки
+        for (int i = 0; i <= 10; i++) d.Move(300 + i * 20, y).Frame();   // тянут за правый край дорожки
         Assert.True(d.Mouse);
         Assert.Equal(1, k.Sharpness);
-        d.Release(300, y);
+        d.Release(500, y);
         Assert.Equal(1, k.Sharpness);
 
-        d.Click(40, y, button: 1);   // ПКМ по подписи — к значению по умолчанию
+        d.Click(150, y, button: 1);   // ПКМ по подписи — к значению по умолчанию
         Assert.Equal(0.5f, k.Sharpness);
 
         // Целое: ползунок даёт число, запись — целым.
-        d.Press(216, RowY(3));
-        d.Release(216, RowY(3));
+        d.Press(348, RowY(3));   // середина хода ручки 256…440
+        d.Release(348, RowY(3));
         Assert.InRange(k.Enemies, 15, 17);
     }
 
@@ -201,9 +209,9 @@ public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>
         Assert.True(d.TextIn(RowY(0) - 11, RowY(0) + 11) > 0);   // заголовок раздела
         Assert.True(d.TextIn(RowY(6) - 12, RowY(6) + 12) >= 6);  // «живых» и «17»
 
-        d.Click(100, RowY(4));
+        d.Click(200, RowY(4));
         Assert.True(k.Invulnerable);
-        d.Click(100, RowY(5));
+        d.Click(200, RowY(5));
         Assert.Equal(1, k.Clicks);
 
         k.Alive = 123456;
@@ -215,20 +223,74 @@ public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>
     [Fact]
     public void HintOfHoveredRow_InStatusLine()
     {
-        var (_, _, d) = Open();
-        Assert.Equal(0, d.TextIn(538, 556));   // статуса ещё нет
-        d.Move(60, RowY(1)).Frame();           // строка урона с подсказкой
-        Assert.True(d.TextIn(538, 556) > 10);
-        d.Move(60, RowY(2)).Frame();           // у остроты подсказки нет
-        Assert.Equal(0, d.TextIn(538, 556));
+        var (panel, _, d) = Open();
+        var (y0, y1) = StatusBand(panel);
+        Assert.Equal(0, d.TextIn(y0, y1));   // статуса ещё нет
+        d.Move(160, RowY(1)).Frame();         // строка урона с подсказкой
+        Assert.True(d.TextIn(y0, y1) > 10);
+        d.Move(160, RowY(2)).Frame();         // у остроты подсказки нет
+        Assert.Equal(0, d.TextIn(y0, y1));
+    }
+
+    [Fact]
+    public void LongHint_WrapsByWords_InsideStatusLines()
+    {
+        var k = new Knobs();
+        const string hint = "длинная подсказка строки, которая не влезает в одну строку панели и переносится по словам на следующие строки состояния";
+        var panel = new TuningPanel { Open = true };
+        panel.Groups.Add(new TuningGroup("long", "Длинная").Float("x", "икс", () => k.Damage, v => k.Damage = v, 0, 1, hint: hint));
+        var d = new Driver(pak.Fonts, panel);
+        d.Move(160, HeaderY + RowH / 2).Frame();
+        float y0 = HeaderY + RowH, y1 = panel.Bounds.Y1 - 10 - 26;
+        var glyphs = d.Ui.Output.Quads.ToArray().Where(q => q.Mode == UiMode.Text && q.Centre.Y >= y0 && q.Centre.Y < y1).ToArray();
+        // строки — скопления центров glyph'ов по y: соседние строки дальше 8 px друг от друга (строка мелкого кегля ~15)
+        var ys = glyphs.Select(q => q.Centre.Y).Order().ToArray();
+        int lines = 1 + ys.Zip(ys.Skip(1), (a, b) => b - a > 8 ? 1 : 0).Sum();
+        Assert.InRange(lines, 2, 3);   // перенесена, но не вылезла из трёх строк
+        Assert.All(glyphs, q => Assert.InRange(q.Centre.X, panel.Bounds.X0, panel.Bounds.X1));
+    }
+
+    [Fact]
+    public void PanelHeight_FollowsContent_ButStopsAtWindowBottom()
+    {
+        var k = new Knobs();
+        var (panel, _, d) = Open();
+        float shortTab = panel.Bounds.Y1;
+        Assert.True(shortTab < 600 - 8 - 100, $"вкладка «Бой» из 7 строк — низ панели {shortTab}, не до низа окна");
+
+        var tall = new TuningGroup("tall", "Длинная");
+        for (int i = 0; i < 40; i++) tall.Float($"k{i}", "ручка", () => k.Damage, v => k.Damage = v, 0, 1);
+        panel.Groups.Add(tall);
+        panel.Tab = 1;
+        d.Frame();
+        Assert.Equal(600 - 8, panel.Bounds.Y1);   // 40 строк не влезают — до низа окна, дальше прокрутка
+    }
+
+    [Fact]
+    public void Menu_ListsEveryTab_ClickSelects_PanelNotShorterThanMenu()
+    {
+        var k = new Knobs();
+        var (panel, _, d) = Open();
+        string[] titles = ["Рэгдолл", "Локомоция", "Свет", "Огонь", "Кровь", "Графика", "Звук", "Сеть", "Ввод"];
+        foreach (string title in titles)
+            panel.Groups.Add(new TuningGroup(title, title).Float("x", "икс", () => k.Damage, v => k.Damage = v, 0, 1));
+        // каждая из десяти вкладок — строка меню слева (x 18…122, по 28 от y 16): щелчок выбирает её
+        for (int i = panel.Groups.Count - 1; i >= 0; i--)
+        {
+            d.Click(60, HeaderY + 28 * i + 14);
+            Assert.Equal(i, panel.Tab);
+        }
+        d.Click(60, HeaderY + 28 * 9 + 14);
+        // у вкладки одна строка, но панель — не короче меню: последняя вкладка не обрезана
+        Assert.True(panel.Bounds.Y1 >= HeaderY + 28 * 10 + 10, $"низ панели {panel.Bounds.Y1}");
     }
 
     [Fact]
     public void Footer_SaveLoadThroughHost_FailureInStatus_Reset()
     {
         var (panel, k, d) = Open();
-        const float footerY = 569;
-        d.Click(70, footerY);   // хоста нет — «сохранить» выключена
+        float footerY = FooterY(panel);   // подвал x 134…508: три кнопки по 122 через 4
+        d.Click(195, footerY);   // хоста нет — «сохранить» выключена
         Assert.Equal("", panel.Status);
 
         Dictionary<string, double>? saved = null;
@@ -239,20 +301,20 @@ public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>
         };
         panel.Load = g => $"загружено значений: {g.Apply(new Dictionary<string, double> { ["damage"] = 4 })}";
         k.Sharpness = 0.25f;
-        d.Click(70, footerY);
+        d.Click(195, footerY);
         Assert.Equal("сохранено: sword.user.json", panel.Status);
         Assert.Equal(0.25, saved!["sharpness"]);
         Assert.Single(saved);
 
-        d.Click(178, footerY);
+        d.Click(321, footerY);
         Assert.Equal("загружено значений: 1", panel.Status);
         Assert.Equal(4, k.Damage);
 
         panel.Save = _ => throw new IOException("файл занят");
-        d.Click(70, footerY);
+        d.Click(195, footerY);
         Assert.Equal("не сохранено: файл занят", panel.Status);
 
-        d.Click(286, footerY);
+        d.Click(447, footerY);
         Assert.Equal((1f, 0.5f), (k.Damage, k.Sharpness));
         Assert.Equal("значения по умолчанию", panel.Status);
     }
@@ -263,20 +325,21 @@ public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>
         var (panel, k, d) = Open();
         panel.Groups.Add(Knobs.Movement(k));
         d.Frame();
-        float first = new UiDrawList(pak.Fonts).Measure(UiFace.Label, d.Ui.Theme.FontSize, "Бой") + 24;
-        d.Click(18 + first + 10, 28);
+        d.Click(60, 16 + 28 + 14);   // меню слева: вторая строка — «Движение»
         Assert.Equal(1, panel.Tab);
-        d.Click(250, HeaderY + RowH / 2);   // единственная строка вкладки «Движение» — первая, без заголовка
+        d.Click(340, HeaderY + RowH / 2);   // единственная строка вкладки «Движение» — первая, без заголовка
         Assert.NotEqual(1, k.Damage);
     }
 
     [Fact]
     public void MouseOverPanel_IsCaptured_OutsideIsNot()
     {
-        var (_, _, d) = Open();
-        d.Move(100, 300).Frame();
+        var (panel, _, d) = Open();
+        d.Move(300, 150).Frame();
         Assert.True(d.Mouse);
-        d.Move(400, 300).Frame();
+        d.Move(600, 100).Frame();
+        Assert.False(d.Mouse);
+        d.Move(300, panel.Bounds.Y1 + 20).Frame();   // под панелью высотой по содержимому — уже игра
         Assert.False(d.Mouse);
         d.Input.MouseInside = false;
         d.Move(100, 300).Frame();
@@ -288,17 +351,17 @@ public sealed class TuningPanelTests(PakFonts pak) : IClassFixture<PakFonts>
     {
         var (_, k, d) = Open();
         float y = RowY(1);
-        d.Press(200, y);
-        for (int i = 0; i < 10; i++) d.Move(200 + i, y).Frame();   // прогрев: ползунок, поле числа, строка состояния
-        d.Release(210, y);
-        d.Move(60, y).Frame();
+        d.Press(300, y);
+        for (int i = 0; i < 10; i++) d.Move(300 + i, y).Frame();   // прогрев: ползунок, поле числа, строка состояния
+        d.Release(310, y);
+        d.Move(160, y).Frame();
 
         float before = k.Damage;
         long bytes = GC.GetAllocatedBytesForCurrentThread();
-        d.Press(200, y);
-        for (int i = 0; i < 60; i++) d.Move(200 + i, y).Frame();   // тянут ползунок: поле рядом показывает число каждый кадр
-        d.Release(260, y);
-        for (int i = 0; i < 60; i++) d.Move(60, RowY(1 + i % 6)).Frame();   // подсказки строк, строка состояния, флаг, кнопка
+        d.Press(300, y);
+        for (int i = 0; i < 60; i++) d.Move(300 + i, y).Frame();   // тянут ползунок: поле рядом показывает число каждый кадр
+        d.Release(360, y);
+        for (int i = 0; i < 60; i++) d.Move(160, RowY(1 + i % 6)).Frame();   // подсказки строк, строка состояния, флаг, кнопка
         long allocated = GC.GetAllocatedBytesForCurrentThread() - bytes;
 
         Assert.Equal(0, allocated);

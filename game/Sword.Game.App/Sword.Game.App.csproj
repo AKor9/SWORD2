@@ -30,6 +30,12 @@
   <PropertyGroup Condition="'$(WithoutFire)' == 'true'">
     <DefineConstants>$(DefineConstants);WITHOUT_FIRE</DefineConstants>
   </PropertyGroup>
+  <ItemGroup Condition="'$(WithoutBlood)' != 'true'">
+    <ProjectReference Include="..\modules\Sword.Game.Blood.Client\Sword.Game.Blood.Client.csproj" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(WithoutBlood)' == 'true'">
+    <DefineConstants>$(DefineConstants);WITHOUT_BLOOD</DefineConstants>
+  </PropertyGroup>
 
   <!-- Инструменты разработчика (панели DevTools, раздел 4): в сборке без них (-p:WithoutDevTools=true) их нет. -->
   <ItemGroup Condition="'$(WithoutDevTools)' != 'true'">

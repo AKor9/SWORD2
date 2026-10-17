@@ -18,18 +18,30 @@ internal static class ClientModuleList
 #if !WITHOUT_FIRE
         new Fire.FireModule(),
 #endif
+#if !WITHOUT_BLOOD
+        new Blood.BloodModule(),
+#endif
     ];
 
     /// <summary>
     /// Модули клиента над <paramref name="simulation"/> — до <see cref="ConfigSet.Complete"/> (модули читают свои секции), с сервисами
-    /// игры: оружие тика (<see cref="IWeaponTips"/>), туман, солнце и небо сцены.
+    /// игры: оружие тика (<see cref="IWeaponTips"/>), события боя и позы тика (<see cref="IBloodFeed"/>, <see cref="IFighterPoses"/>), меш
+    /// персонажа (<see cref="ISkinMesh"/>) и слой крови на коже (<see cref="ISkinBloodLayer"/>), рельеф (<see cref="ITerrainView"/>), туман, солнце и небо сцены — от клиента арены.
     /// </summary>
-    public static ClientModules Compose(ConfigSet config, Simulation simulation, ISceneFog fog, ISceneSky sky)
+    public static ClientModules Compose(ConfigSet config, Simulation simulation, ArenaClient arena)
     {
         var modules = Modules();
         foreach (string id in SwordSimulation.ClientModuleIds)
             if (!modules.Any(m => m.Id == id)) config.Skip(id);
-        var services = new ClientServices().Add<IWeaponTips>(link => new ArenaWeaponTips(link)).Add(fog).Add(sky);
+        var services = new ClientServices()
+            .Add<IWeaponTips>(link => new ArenaWeaponTips(link))
+            .Add<IBloodFeed>(link => new ArenaBloodFeed(link))
+            .Add<IFighterPoses>(link => new ArenaFighterPoses(link))
+            .Add<ISkinMesh>(arena.SkinMesh)
+            .Add<ISkinBloodLayer>(arena.SkinBlood)
+            .Add<ITerrainView>(arena.TerrainView)
+            .Add<ISceneFog>(arena)
+            .Add<ISceneSky>(arena);
         return ClientModules.Compose(config, simulation, modules, services);
     }
 }

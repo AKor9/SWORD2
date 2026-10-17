@@ -62,3 +62,16 @@ float4 PsSolid(float4 pos : SV_Position) : SV_Target0
 {
     return float4(asfloat(gPass0), asfloat(gPass1), asfloat(gPass2), 1);
 }
+
+// Резкие края под углом (SmaaGpuTests): светлый круг, наклонная полоса, тонкая наклонная линия и край около 50 градусов (диагонали
+// SMAA) на тёмном фоне, без сглаживания.
+float4 PsShapes(float4 pos : SV_Position) : SV_Target0
+{
+    float2 p = pos.xy;
+    float3 c = float3(0.02, 0.03, 0.05);
+    if (length(p - float2(30, 28)) < 19.3) c = float3(1, 1, 1);
+    if (p.y > 0.31 * p.x + 52.4) c = float3(0.6, 0.2, 0.05);
+    if (abs(p.x - 2.7 * p.y + 20.5) < 1.4) c = float3(0.1, 0.8, 0.3);
+    if (p.x > 0.83 * p.y + 71.3) c = float3(0.3, 0.45, 0.9);
+    return float4(c, 1);
+}

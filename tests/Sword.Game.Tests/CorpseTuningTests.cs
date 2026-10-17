@@ -273,8 +273,8 @@ public sealed class CorpseTuningDrawTests : IDisposable
     }
 
     /// <summary>
-    /// Подпись каждой строки вкладок «Рэгдолл» и «Бой» влезает в свою долю строки панели F3 (42 %, <c>TuningPanel.DrawItem</c>,
-    /// <c>UiContext.InfoRow</c>) при полосе прокрутки; полный смысл — в подсказке. Замер — в выводе.
+    /// Подпись каждой строки вкладок «Рэгдолл» и «Бой» (кегль <c>FontSize</c>) влезает в наибольший столбец подписей панели F3
+    /// (<see cref="TuningPanel.MaxLabelShare"/> строки) при полосе прокрутки; полный смысл — в подсказке. Замер — в выводе.
     /// </summary>
     [Fact]
     public void KnobLabels_FitLabelColumn_WithScrollbar()
@@ -285,13 +285,13 @@ public sealed class CorpseTuningDrawTests : IDisposable
         var groups = new[] { RagdollTuning.Build(binding, new ArenaView(ArenaTerrain.Height)), CombatTuning.Build(binding, link) };
         var draw = new UiDrawList(_fonts);
         var theme = UiTheme.Default;
-        float room = (TuningPanel.Width - 2 * 10 - theme.ScrollbarWidth - 3) * 0.42f;
+        float room = (TuningPanel.Width - 2 * 10 - TuningPanel.MenuWidth - 12 - theme.ScrollbarWidth - 3) * TuningPanel.MaxLabelShare - 10;   // 12 — разделитель меню, 10 — зазор до ползунка
         float widest = 0;
         int rows = 0;
         foreach (var group in groups)
             foreach (var item in group.Items.Where(i => i is TuningFloat or TuningInfo))
             {
-                float w = draw.Measure(UiFace.Body, theme.SmallFontSize, item.Label);
+                float w = draw.Measure(UiFace.Body, theme.FontSize, item.Label);
                 widest = MathF.Max(widest, w);
                 rows++;
                 _output.WriteLine($"{group.Title}: {item.Label} — {w:F1} из {room:F1} px");
@@ -363,16 +363,16 @@ public sealed class CorpseTuningDrawTests : IDisposable
         Assert.Equal((2, 2 * BodySegs.Bodies), (view.CorpseStats.Corpses, view.CorpseStats.SimulatedBodies));
 
         Frame();
-        // «трение о землю» — первая строка раздела «труп на земле»: заголовок, три строки трупов, заголовок (y 46 + 22 + 3·24 + 22 + 12),
-        // ползунок x 156…276: протяжка к правому краю — к пределу 2.
-        const float y = 46 + 22 + 3 * 24 + 22 + 12;
-        input.Mouse = new Vector2(200, y);
+        // «трение о землю» — первая строка раздела «труп на земле»: заголовок, три строки трупов, заголовок (y 16 + 22 + 3·24 + 22 + 12),
+        // ручки справа от меню, ползунок — от столбца подписей до поля числа (x 450): протяжка за правый край — к пределу 2.
+        const float y = 16 + 22 + 3 * 24 + 22 + 12;
+        input.Mouse = new Vector2(350, y);
         input.SetMouseButton(0, down: true, pressed: true, released: false);
         Assert.True(Frame());
         input.SetMouseButton(0, down: true, pressed: false, released: false);
         for (int i = 0; i <= 10; i++)
         {
-            input.Mouse = new Vector2(200 + i * 10, y);
+            input.Mouse = new Vector2(350 + i * 20, y);
             Frame();
         }
         input.SetMouseButton(0, down: false, pressed: false, released: true);

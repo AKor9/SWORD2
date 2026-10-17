@@ -3,18 +3,22 @@ namespace Sword.Engine.Fluid2D;
 /// <summary>
 /// CPU-эталон шага (float32): те же формулы, порядок операций, ручная билинейная выборка с зажимом и хранение в half, что у
 /// <c>fluid2d.hlsl</c> — по нему тесты сверяют GPU. Состояние — <see cref="Fields"/>; шумы — картинки <see cref="Fluid2DNoiseImage"/>
-/// (нужны, только если включены в параметрах).
+/// (нужны, только если включены в параметрах); формы штампов — картинки слоёв (форма k ≥ 1 — элемент k − 1, канал r).
 /// </summary>
 public sealed class Fluid2DReference
 {
     private readonly Fluid2DNoiseImage? _density, _amp;
+    private readonly IReadOnlyList<Fluid2DImage> _stampShapes;
+    private float[]? _stampGrid, _rhoOut;
 
-    public Fluid2DReference(Fluid2DParams parameters, Fluid2DNoiseImage? densityNoise, Fluid2DNoiseImage? ampNoise, Fluid2DFields? fields = null)
+    public Fluid2DReference(Fluid2DParams parameters, Fluid2DNoiseImage? densityNoise, Fluid2DNoiseImage? ampNoise, Fluid2DFields? fields = null,
+        IReadOnlyList<Fluid2DImage>? stampShapes = null)
     {
         parameters.Validate();
         Params = parameters;
         _density = densityNoise;
         _amp = ampNoise;
+        _stampShapes = stampShapes ?? [];
         Fields = fields ?? new Fluid2DFields(parameters.Resolution);
         if (Fields.N != parameters.Resolution) throw new ArgumentException($"поля {Fields.N}², а сим {parameters.Resolution}²");
     }
@@ -24,10 +28,17 @@ public sealed class Fluid2DReference
 
     public Fluid2DFields Fields { get; }
 
-    /// <summary>Шаг целиком: Composite → Advection → Divergence → давление (2 прохода, у грубого решателя — 1).</summary>
-    public void Step(in Fluid2DStepInput input, ReadOnlySpan<Fluid2DBrushTexel> brush = default)
+    /// <summary>Высоты рельефа для течения плёнки (как <see cref="Fluid2DSim.Heights"/>); null — уклона нет.</summary>
+    public Fluid2DHeightImage? Heights { get; set; }
+
+    /// <summary>Грид штампов последнего шага со штампами (плотность на тексель, float); штампов не было — null.</summary>
+    public float[]? StampGrid => _stampGrid;
+
+    /// <summary>Шаг целиком: [штампы] → Composite → Advection → Divergence → давление (2 прохода, у грубого решателя — 1).</summary>
+    public void Step(in Fluid2DStepInput input, ReadOnlySpan<Fluid2DBrushTexel> brush = default, Fluid2DStamps? stamps = null)
     {
         var c = Constants(input, brush);
+        if (Stamps(ref c, stamps, input)) StampPass(c, stamps!);
         Composite(c, brush);
         Advection(c);
         Divergence(c, brush);
@@ -41,12 +52,15 @@ public sealed class Fluid2DReference
     }
 
     /// <summary>Одна стадия на текущих полях (буферы — как у <see cref="Fluid2DStage"/>; давление ролями не меняется).</summary>
-    public void Stage(Fluid2DStage stage, in Fluid2DStepInput input, ReadOnlySpan<Fluid2DBrushTexel> brush = default)
+    public void Stage(Fluid2DStage stage, in Fluid2DStepInput input, ReadOnlySpan<Fluid2DBrushTexel> brush = default, Fluid2DStamps? stamps = null)
     {
         var c = Constants(input, brush);
         switch (stage)
         {
-            case Fluid2DStage.Composite: Composite(c, brush); break;
+            case Fluid2DStage.Composite:
+                if (Stamps(ref c, stamps, input)) StampPass(c, stamps!);
+                Composite(c, brush);
+                break;
             case Fluid2DStage.Advection: Advection(c); break;
             case Fluid2DStage.Divergence: Divergence(c, brush); break;
             case Fluid2DStage.PressureX: Pressure(c, false, Fields.Scratch, Fields.Pressure); break;
@@ -77,7 +91,58 @@ public sealed class Fluid2DReference
         if (p.DensityNoiseEnabled && _density is null) throw new InvalidOperationException("шум плотности включён, картинки нет");
         var amp = _amp is null ? default : new Fluid2DNoise(0, 0, _amp.Width, _amp.Height);
         var density = _density is null ? default : new Fluid2DNoise(0, 0, _density.Width, _density.Height);
-        return Fluid2DConstants.Build(p, input, hasBrush, amp, density);
+        var c = Fluid2DConstants.Build(p, input, hasBrush, amp, density);
+        if (Heights is not null) c.SetHeights(p, input, 0, Heights.Cells, Heights.Half);
+        return c;
+    }
+
+    private bool Stamps(ref Fluid2DConstants c, Fluid2DStamps? stamps, in Fluid2DStepInput input)
+    {
+        if (stamps is null) return false;
+        if (!stamps.Ready || stamps.Step != input.Step) throw new InvalidOperationException($"штампы не готовы к шагу {input.Step}");
+        if (stamps.Count == 0) return false;
+        c.SetStamps(stamps, 0, default);
+        return true;
+    }
+
+    // ── штампы ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Грид штампов (как <c>CsStamp</c>): тексель суммирует штампы своей ячейки бининга в порядке записи, с AABB, содержащим тексель.</summary>
+    private void StampPass(in Fluid2DConstants c, Fluid2DStamps stamps)
+    {
+        int n = (int)c.N;
+        var grid = new float[n * n];
+        var records = stamps.Records;
+        var cells = stamps.Cells;
+        var entries = stamps.Entries;
+        int side = stamps.CellTexels;
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                float u = (x + 0.5f) * c.InvN, v = (y + 0.5f) * c.InvN;
+                uint word = cells[(y / side) * stamps.CellsPerAxis + x / side];
+                var list = entries.Slice((int)(word & 0xFFFF), (int)(word >> 16));
+                float sum = 0f;
+                foreach (uint e in list)
+                {
+                    ref readonly var r = ref records[(int)e];
+                    if (u < r.Min.X || u > r.Max.X || v < r.Min.Y || v > r.Max.Y) continue;
+                    float dx = u - r.Center.X, dy = v - r.Center.Y;
+                    float qx = r.M00 * dx + r.M01 * dy;
+                    float qy = r.M10 * dx + r.M11 * dy;
+                    float value = 0f;
+                    if (r.Shape == 0)
+                    {
+                        float q2 = qx * qx + qy * qy;
+                        if (q2 <= 16f) value = MathF.Pow(2f, -0.72134752f * q2);
+                    }
+                    else if (MathF.Abs(qx) <= 1f && MathF.Abs(qy) <= 1f)
+                        value = Fluid2DPainterReference.SampleWrap(_stampShapes[(int)r.Shape - 1], qx * 0.5f + 0.5f, qy * 0.5f + 0.5f).X;
+                    sum += r.Peak * value;
+                }
+                grid[y * n + x] = sum;
+            }
+        _stampGrid = grid;
     }
 
     // ── стадии ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -86,23 +151,30 @@ public sealed class Fluid2DReference
     {
         int n = (int)c.N;
         var output = new Half[Fields.Composite.Length];
+        var ageOut = c.AgeEnabled != 0 ? new float[n * n] : null;
+        _rhoOut = (c.FilmFlags & Fluid2DConstants.FilmConservative) != 0 ? new float[n * n] : null;
         for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++) CompositeTexel(c, x, y, brush, output);
+            for (int x = 0; x < n; x++) CompositeTexel(c, x, y, brush, output, ageOut);
         output.CopyTo(Fields.Composite, 0);
+        ageOut?.CopyTo(Fields.AgeComposite, 0);
+        _rhoOut?.CopyTo(Fields.DensityComposite, 0);
     }
 
-    private void CompositeTexel(in Fluid2DConstants c, int x, int y, ReadOnlySpan<Fluid2DBrushTexel> brush, Half[] output)
+    private void CompositeTexel(in Fluid2DConstants c, int x, int y, ReadOnlySpan<Fluid2DBrushTexel> brush, Half[] output, float[]? ageOut)
     {
         var adv = Fields.Advected;
         var prs = Fields.Pressure;
         int n = (int)c.N;
         float uvx = (x + 0.5f) * c.InvN, uvy = (y + 0.5f) * c.InvN;
         float sx = uvx + c.Wod.X, sy = uvy + c.Wod.Y;
+        int hx = c.ShiftX, hy = c.ShiftY;
         float d = c.SimSpeed * c.InvN;
 
-        var a = Bilinear4(adv, n, sx, sy);
-        float px1 = BilinearP(prs, n, sx + d, sy).P, px0 = BilinearP(prs, n, sx - d, sy).P;
-        float py1 = BilinearP(prs, n, sx, sy + d).P, py0 = BilinearP(prs, n, sx, sy - d).P;
+        var a = Bilinear4(adv, n, sx, sy, hx, hy);
+        bool conservative = (c.FilmFlags & Fluid2DConstants.FilmConservative) != 0;
+        if (conservative) a = a with { Z = BilinearF(Fields.DensityAdvected, n, sx, sy, hx, hy) };
+        float px1 = BilinearP(prs, n, sx + d, sy, hx, hy).P, px0 = BilinearP(prs, n, sx - d, sy, hx, hy).P;
+        float py1 = BilinearP(prs, n, sx, sy + d, hx, hy).P, py0 = BilinearP(prs, n, sx, sy - d, hx, hy).P;
         float vx = a.X - 0.5f * (px1 - px0), vy = a.Y - 0.5f * (py1 - py0);
 
         Vec4 paint = default, bitmap = default;
@@ -136,26 +208,49 @@ public sealed class Fluid2DReference
         if (c.DensityEnabled != 0)
             dn = 1f + c.DensityAmount * (NoiseBilinear(_density!, uvx * c.DensityScale + c.DensityOffset.X, uvy * c.DensityScale + c.DensityOffset.Y) - 0.5f);
         float ep = MathF.Pow(EdgeMask(m, c.EdgeInvWidth), c.EdgePow);
-        float rho = Saturate(a.Z - MathF.Min(paint.Z, c.Eraser) + ((1f - c.Eraser) * paint.Z + 0.2f * bitmap.Z) * dn)
+        bool unbounded = (c.FilmFlags & Fluid2DConstants.FilmUnbounded) != 0;
+        float rho = BoundDensity(a.Z - MathF.Min(paint.Z, c.Eraser) + ((1f - c.Eraser) * paint.Z + 0.2f * bitmap.Z) * dn, unbounded)
             * (0.5f * (c.DensityAccumulation * MathF.Max(ep, 0.7f)) + 0.5f) * ep;
+        if (c.StampCells != 0) rho = rho + _stampGrid![y * n + x] * ep;
         rho = MathF.Max(rho, c.DensityFloor);
+        if ((c.FilmFlags & Fluid2DConstants.FilmFlow) != 0) (vnx, vny) = FilmVelocity(c, adv, n, x, y, hx, hy, uvx, uvy, vnx, vny, rho);
+        if (conservative)
+        {
+            vnx = Math.Clamp(vnx, -c.FilmClamp, c.FilmClamp);
+            vny = Math.Clamp(vny, -c.FilmClamp, c.FilmClamp);
+            _rhoOut![y * n + x] = rho;
+        }
 
-        int wx = Nearest(sx, n), wy = Nearest(sy, n);
+        int wx = Nearest(sx, n) + hx, wy = Nearest(sy, n) + hy;
         float wetPrev = wx >= 0 && wx < n && wy >= 0 && wy < n ? (float)adv[(wy * n + wx) * 4 + 3] : 0f;
         float wet = (0.982f * wetPrev + c.WetFeed * rho) * EdgeMask(m, c.WetInvWidth);
         Store4(output, y * n + x, vnx, vny, rho, wet);
+
+        if (ageOut is not null)
+        {
+            float ageMass = conservative ? BilinearAgeMassF(Fields.DensityAdvected, Fields.AgeAdvected, n, sx, sy, hx, hy)
+                : BilinearAgeMass(adv, Fields.AgeAdvected, n, sx, sy, hx, hy);
+            float ageIn = a.Z > 0f ? ageMass / a.Z : 0f;
+            float rhoOld = BoundDensity(a.Z, unbounded) * (0.5f * (c.DensityAccumulation * MathF.Max(ep, 0.7f)) + 0.5f) * ep;
+            float fresh = rho > rhoOld ? rhoOld / rho : 1f;
+            ageOut[y * n + x] = rho > 0f ? (ageIn + c.AgeStep) * fresh : 0f;
+        }
     }
 
     private void Advection(in Fluid2DConstants c)
     {
         int n = (int)c.N;
         var output = new Half[Fields.Advected.Length];
+        var ageOut = c.AgeEnabled != 0 ? new float[n * n] : null;
+        _rhoOut = (c.FilmFlags & Fluid2DConstants.FilmConservative) != 0 ? new float[n * n] : null;
         for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++) AdvectionTexel(c, x, y, output);
+            for (int x = 0; x < n; x++) AdvectionTexel(c, x, y, output, ageOut);
         output.CopyTo(Fields.Advected, 0);
+        ageOut?.CopyTo(Fields.AgeAdvected, 0);
+        _rhoOut?.CopyTo(Fields.DensityAdvected, 0);
     }
 
-    private void AdvectionTexel(in Fluid2DConstants c, int x, int y, Half[] output)
+    private void AdvectionTexel(in Fluid2DConstants c, int x, int y, Half[] output, float[]? ageOut)
     {
         var comp = Fields.Composite;
         int n = (int)c.N;
@@ -163,8 +258,137 @@ public sealed class Fluid2DReference
         int i = (y * n + x) * 4;
         float hx = (float)comp[i], hy = (float)comp[i + 1], hw = (float)comp[i + 3];
         float step = c.SimSpeed * c.InvN;
-        var s = Bilinear4(comp, n, uvx - hx * step, uvy - hy * step);
+        float bx = uvx - hx * step, by = uvy - hy * step;
+        var s = Bilinear4(comp, n, bx, by);
+        if ((c.FilmFlags & Fluid2DConstants.FilmConservative) != 0)
+        {
+            AdvectConservative(c, x, y, s, output, ageOut);
+            return;
+        }
         Store4(output, y * n + x, s.X * c.VelocityFeedback, s.Y * c.VelocityFeedback, s.Z * c.VelocityFeedback, hw);
+        if (ageOut is not null) ageOut[y * n + x] = s.Z > 0f ? BilinearAgeMass(comp, Fields.AgeComposite, n, bx, by, 0, 0) / s.Z : 0f;
+    }
+
+    /// <summary>Консервативная адвекция (как <c>AdvectConservative</c>): ρ — потоки через грани, возраст — потоки × возраст донора.</summary>
+    private void AdvectConservative(in Fluid2DConstants c, int x, int y, in Vec4 s, Half[] output, float[]? ageOut)
+    {
+        var comp = Fields.Composite;
+        int n = (int)c.N;
+        var rc = Fields.DensityComposite;
+        var here = Texel4(comp, n, x, y) with { Z = rc[y * n + x] };
+        Vec4 l = Texel4(comp, n, x - 1, y) with { Z = rc[y * n + Math.Clamp(x - 1, 0, n - 1)] };
+        Vec4 r = Texel4(comp, n, x + 1, y) with { Z = rc[y * n + Math.Clamp(x + 1, 0, n - 1)] };
+        Vec4 u = Texel4(comp, n, x, y - 1) with { Z = rc[Math.Clamp(y - 1, 0, n - 1) * n + x] };
+        Vec4 d = Texel4(comp, n, x, y + 1) with { Z = rc[Math.Clamp(y + 1, 0, n - 1) * n + x] };
+        float fxm = x > 0 ? FaceFlux(l.Z, l.X, here.Z, here.X) : 0f;
+        float fxp = x + 1 < n ? FaceFlux(here.Z, here.X, r.Z, r.X) : 0f;
+        float fym = y > 0 ? FaceFlux(u.Z, u.Y, here.Z, here.Y) : 0f;
+        float fyp = y + 1 < n ? FaceFlux(here.Z, here.Y, d.Z, d.Y) : 0f;
+        float rho = MathF.Max(here.Z - ((fxp - fxm) + (fyp - fym)) * c.SimSpeed, 0f);
+        int i = y * n + x;
+        Store4(output, i, s.X * c.VelocityFeedback, s.Y * c.VelocityFeedback, rho, here.W);
+        _rhoOut![i] = rho;
+        if (ageOut is null) return;
+        var age = Fields.AgeComposite;
+        float ah = age[i];
+        float axm = x > 0 ? FaceAge(fxm, l.X, here.X, age[i - 1], ah) : 0f;
+        float axp = x + 1 < n ? FaceAge(fxp, here.X, r.X, ah, age[i + 1]) : 0f;
+        float aym = y > 0 ? FaceAge(fym, u.Y, here.Y, age[i - n], ah) : 0f;
+        float ayp = y + 1 < n ? FaceAge(fyp, here.Y, d.Y, ah, age[i + n]) : 0f;
+        float mass = here.Z * ah - ((axp - axm) + (ayp - aym)) * c.SimSpeed;
+        ageOut[i] = rho > 0f ? MathF.Max(mass / rho, 0f) : 0f;
+    }
+
+    /// <summary>Поток через грань L|R донорской схемой (как <c>FaceFlux</c>): оба текселя грани считают одно число.</summary>
+    internal static float FaceFlux(float rhoL, float uL, float rhoR, float uR)
+    {
+        float uf = 0.5f * (uL + uR);
+        return uf > 0f ? rhoL * uf : rhoR * uf;
+    }
+
+    private static float FaceAge(float flux, float uL, float uR, float ageL, float ageR) => flux * (0.5f * (uL + uR) > 0f ? ageL : ageR);
+
+    // ── плёнка ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+    private float NeighbourRho(in Fluid2DConstants c, Half[] adv, int n, int x, int y, int sx, int sy) =>
+        (c.FilmFlags & Fluid2DConstants.FilmConservative) == 0 ? Texel4(adv, n, x, y, sx, sy).Z : TexelF(Fields.DensityAdvected, n, x, y, sx, sy);
+
+    /// <summary>Тексель float-канала через сдвиг окна, вне грида — 0 (как <c>TexelFS</c>).</summary>
+    private static float TexelF(float[] g, int n, int x, int y, int sx, int sy)
+    {
+        int px = Math.Clamp(x, 0, n - 1) + sx, py = Math.Clamp(y, 0, n - 1) + sy;
+        if (px < 0 || px >= n || py < 0 || py >= n) return 0f;
+        return g[py * n + px];
+    }
+
+    private static float BilinearF(float[] g, int n, float u, float v, int sx, int sy)
+    {
+        float px = u * n - 0.5f, py = v * n - 0.5f;
+        float fx = MathF.Floor(px), fy = MathF.Floor(py);
+        float tx = px - fx, ty = py - fy;
+        int x = (int)fx, y = (int)fy;
+        float a = TexelF(g, n, x, y, sx, sy), b = TexelF(g, n, x + 1, y, sx, sy);
+        float c = TexelF(g, n, x, y + 1, sx, sy), d = TexelF(g, n, x + 1, y + 1, sx, sy);
+        float ab = a + (b - a) * tx, cd = c + (d - c) * tx;
+        return ab + (cd - ab) * ty;
+    }
+
+    private static float AgeMassF(float[] rho, float[] age, int n, int x, int y, int sx, int sy)
+    {
+        int px = Math.Clamp(x, 0, n - 1) + sx, py = Math.Clamp(y, 0, n - 1) + sy;
+        if (px < 0 || px >= n || py < 0 || py >= n) return 0f;
+        int i = py * n + px;
+        return rho[i] * age[i];
+    }
+
+    private static float BilinearAgeMassF(float[] rho, float[] age, int n, float u, float v, int sx, int sy)
+    {
+        float px = u * n - 0.5f, py = v * n - 0.5f;
+        float fx = MathF.Floor(px), fy = MathF.Floor(py);
+        float tx = px - fx, ty = py - fy;
+        int x = (int)fx, y = (int)fy;
+        float a = AgeMassF(rho, age, n, x, y, sx, sy), b = AgeMassF(rho, age, n, x + 1, y, sx, sy);
+        float c = AgeMassF(rho, age, n, x, y + 1, sx, sy), d = AgeMassF(rho, age, n, x + 1, y + 1, sx, sy);
+        float ab = a + (b - a) * tx, cd = c + (d - c) * tx;
+        return ab + (cd - ab) * ty;
+    }
+
+    private static float BoundDensity(float rho, bool unbounded) => unbounded ? MathF.Max(rho, 0f) : Saturate(rho);
+
+    /// <summary>Скорость плёнки (как <c>FilmVelocity</c>): h_min, уклон ∇(рельеф + max(h − H, 0)), трение v/(1 + k·dt/h²).</summary>
+    private (float X, float Y) FilmVelocity(in Fluid2DConstants c, Half[] adv, int n, int x, int y, int sx, int sy, float u, float v, float vx, float vy,
+        float rho)
+    {
+        float h = rho * c.FilmHeight;
+        if (h < c.FilmMinThickness) return (0f, 0f);
+        float el = MathF.Max(NeighbourRho(c, adv, n, x - 1, y, sx, sy) * c.FilmHeight - c.FilmPuddle, 0f);
+        float er = MathF.Max(NeighbourRho(c, adv, n, x + 1, y, sx, sy) * c.FilmHeight - c.FilmPuddle, 0f);
+        float eu = MathF.Max(NeighbourRho(c, adv, n, x, y - 1, sx, sy) * c.FilmHeight - c.FilmPuddle, 0f);
+        float ed = MathF.Max(NeighbourRho(c, adv, n, x, y + 1, sx, sy) * c.FilmHeight - c.FilmPuddle, 0f);
+        float gx = (er - el) * c.FilmInvTwoDx, gy = (ed - eu) * c.FilmInvTwoDy;
+        if ((c.FilmFlags & Fluid2DConstants.FilmHeights) != 0)
+        {
+            var (tx, tz) = TerrainGradient(c, Heights!, u, v);
+            gx = gx + tx;
+            gy = gy + tz;
+        }
+        float ax = vx - c.FilmAccelX * gx, ay = vy - c.FilmAccelY * gy;
+        float k = 1f + c.FilmFrictionDt / (h * h);
+        return (ax / k, ay / k);
+    }
+
+    /// <summary>Градиент билинейного рельефа в текселе (как <c>TerrainGradient</c>).</summary>
+    internal static (float X, float Z) TerrainGradient(in Fluid2DConstants c, Fluid2DHeightImage heights, float u, float v)
+    {
+        var hs = heights.Values;
+        int cells = (int)c.HeightCells, nodes = cells + 1;
+        float gx = c.HeightX0 + u * c.HeightScaleU, gz = c.HeightZ0 + v * c.HeightScaleV;
+        float fx = Math.Clamp(MathF.Floor(gx), 0f, cells - 1), fz = Math.Clamp(MathF.Floor(gz), 0f, cells - 1);
+        float tx = Math.Clamp(gx - fx, 0f, 1f), tz = Math.Clamp(gz - fz, 0f, 1f);
+        int i = (int)fx, j = (int)fz;
+        float h00 = hs[j * nodes + i], h10 = hs[j * nodes + i + 1], h01 = hs[(j + 1) * nodes + i], h11 = hs[(j + 1) * nodes + i + 1];
+        float dx0 = h10 - h00, dx1 = h11 - h01, dz0 = h01 - h00, dz1 = h11 - h10;
+        return ((dx0 + (dx1 - dx0) * tz) * c.HeightInvStep, (dz0 + (dz1 - dz0) * tx) * c.HeightInvStep);
     }
 
     private void Divergence(in Fluid2DConstants c, ReadOnlySpan<Fluid2DBrushTexel> brush)
@@ -191,7 +415,7 @@ public sealed class Fluid2DReference
             paintRho = (float)brush[by * bn + bx].Density;
         }
         float div = Math.Clamp(c.DivergenceMult * (c.Puncture * paintRho + (dvx + dvy)), -2f, 2f);
-        float p0 = BilinearP(Fields.Pressure, n, uvx + c.Wod.X, uvy + c.Wod.Y).P;
+        float p0 = BilinearP(Fields.Pressure, n, uvx + c.Wod.X, uvy + c.Wod.Y, c.ShiftX, c.ShiftY).P;
         Store2(output, y * n + x, p0, div);
     }
 
@@ -249,6 +473,66 @@ public sealed class Fluid2DReference
     {
         int i = (Math.Clamp(y, 0, n - 1) * n + Math.Clamp(x, 0, n - 1)) * 4;
         return new Vec4((float)g[i], (float)g[i + 1], (float)g[i + 2], (float)g[i + 3]);
+    }
+
+    /// <summary>Тексель грида прошлого шага через сдвиг окна (sx, sy): (зажатый x, y) + сдвиг, вне грида — 0 (как <c>Texel4S</c>).</summary>
+    private static Vec4 Texel4(Half[] g, int n, int x, int y, int sx, int sy)
+    {
+        int px = Math.Clamp(x, 0, n - 1) + sx, py = Math.Clamp(y, 0, n - 1) + sy;
+        if (px < 0 || px >= n || py < 0 || py >= n) return default;
+        int i = (py * n + px) * 4;
+        return new Vec4((float)g[i], (float)g[i + 1], (float)g[i + 2], (float)g[i + 3]);
+    }
+
+    private static Vec4 Bilinear4(Half[] g, int n, float u, float v, int sx, int sy)
+    {
+        float px = u * n - 0.5f, py = v * n - 0.5f;
+        float fx = MathF.Floor(px), fy = MathF.Floor(py);
+        float tx = px - fx, ty = py - fy;
+        int x = (int)fx, y = (int)fy;
+        var ab = Lerp(Texel4(g, n, x, y, sx, sy), Texel4(g, n, x + 1, y, sx, sy), tx);
+        var cd = Lerp(Texel4(g, n, x, y + 1, sx, sy), Texel4(g, n, x + 1, y + 1, sx, sy), tx);
+        return Lerp(ab, cd, ty);
+    }
+
+    private static (float P, float D) TexelP(Half[] g, int n, int x, int y, int sx, int sy)
+    {
+        int px = Math.Clamp(x, 0, n - 1) + sx, py = Math.Clamp(y, 0, n - 1) + sy;
+        if (px < 0 || px >= n || py < 0 || py >= n) return (0f, 0f);
+        int i = (py * n + px) * 2;
+        return ((float)g[i], (float)g[i + 1]);
+    }
+
+    private static (float P, float D) BilinearP(Half[] g, int n, float u, float v, int sx, int sy)
+    {
+        float px = u * n - 0.5f, py = v * n - 0.5f;
+        float fx = MathF.Floor(px), fy = MathF.Floor(py);
+        float tx = px - fx, ty = py - fy;
+        int x = (int)fx, y = (int)fy;
+        var ab = LerpP(TexelP(g, n, x, y, sx, sy), TexelP(g, n, x + 1, y, sx, sy), tx);
+        var cd = LerpP(TexelP(g, n, x, y + 1, sx, sy), TexelP(g, n, x + 1, y + 1, sx, sy), tx);
+        return LerpP(ab, cd, ty);
+    }
+
+    /// <summary>ρ·возраст текселя (ρ — канал z грида) через сдвиг окна, вне грида — 0 (как <c>AgeMassS</c>).</summary>
+    private static float AgeMass(Half[] g, float[] age, int n, int x, int y, int sx, int sy)
+    {
+        int px = Math.Clamp(x, 0, n - 1) + sx, py = Math.Clamp(y, 0, n - 1) + sy;
+        if (px < 0 || px >= n || py < 0 || py >= n) return 0f;
+        int i = py * n + px;
+        return (float)g[i * 4 + 2] * age[i];
+    }
+
+    private static float BilinearAgeMass(Half[] g, float[] age, int n, float u, float v, int sx, int sy)
+    {
+        float px = u * n - 0.5f, py = v * n - 0.5f;
+        float fx = MathF.Floor(px), fy = MathF.Floor(py);
+        float tx = px - fx, ty = py - fy;
+        int x = (int)fx, y = (int)fy;
+        float a = AgeMass(g, age, n, x, y, sx, sy), b = AgeMass(g, age, n, x + 1, y, sx, sy);
+        float c = AgeMass(g, age, n, x, y + 1, sx, sy), d = AgeMass(g, age, n, x + 1, y + 1, sx, sy);
+        float ab = a + (b - a) * tx, cd = c + (d - c) * tx;
+        return ab + (cd - ab) * ty;
     }
 
     private static Vec4 Lerp(in Vec4 a, in Vec4 b, float t) =>
@@ -312,6 +596,34 @@ public sealed class Fluid2DReference
         ref readonly var b = ref g[Math.Clamp(y, 0, n - 1) * n + Math.Clamp(x, 0, n - 1)];
         lo = new Vec4((float)b.VelocityX, (float)b.VelocityY, (float)b.Density, (float)b.Capture);
         hi = new Vec4((float)b.BitmapVelocityX, (float)b.BitmapVelocityY, (float)b.BitmapDensity, (float)b.Unused);
+    }
+
+    /// <summary>Тексель кисти прошлого шага через сдвиг окна (sx, sy), вне грида — 0 (как <c>BrushTexelS</c>).</summary>
+    private static void BrushTexel(ReadOnlySpan<Fluid2DBrushTexel> g, int n, int x, int y, int sx, int sy, out Vec4 lo, out Vec4 hi)
+    {
+        int px = Math.Clamp(x, 0, n - 1) + sx, py = Math.Clamp(y, 0, n - 1) + sy;
+        if (px < 0 || px >= n || py < 0 || py >= n)
+        {
+            lo = hi = default;
+            return;
+        }
+        ref readonly var b = ref g[py * n + px];
+        lo = new Vec4((float)b.VelocityX, (float)b.VelocityY, (float)b.Density, (float)b.Capture);
+        hi = new Vec4((float)b.BitmapVelocityX, (float)b.BitmapVelocityY, (float)b.BitmapDensity, (float)b.Unused);
+    }
+
+    internal static void BrushBilinear(ReadOnlySpan<Fluid2DBrushTexel> g, int n, float u, float v, int sx, int sy, out Vec4 lo, out Vec4 hi)
+    {
+        float px = u * n - 0.5f, py = v * n - 0.5f;
+        float fx = MathF.Floor(px), fy = MathF.Floor(py);
+        float tx = px - fx, ty = py - fy;
+        int x = (int)fx, y = (int)fy;
+        BrushTexel(g, n, x, y, sx, sy, out var a0, out var a1);
+        BrushTexel(g, n, x + 1, y, sx, sy, out var b0, out var b1);
+        BrushTexel(g, n, x, y + 1, sx, sy, out var c0, out var c1);
+        BrushTexel(g, n, x + 1, y + 1, sx, sy, out var d0, out var d1);
+        lo = Lerp(Lerp(a0, b0, tx), Lerp(c0, d0, tx), ty);
+        hi = Lerp(Lerp(a1, b1, tx), Lerp(c1, d1, tx), ty);
     }
 
     internal static void BrushBilinear(ReadOnlySpan<Fluid2DBrushTexel> g, int n, float u, float v, out Vec4 lo, out Vec4 hi)

@@ -57,7 +57,11 @@ public sealed class ArenaBloomGpuTests(ITestOutputHelper output) : IDisposable, 
         using var renderer = new Renderer(new RendererOptions(window.NativeHandle, W, H, DebugLayer: true,
             ShaderRoot: Path.Combine(AppContext.BaseDirectory, "Shaders"), GpuValidation: true), contract);
         arena.Initialize(renderer, clock.Link);
+        // Кадры сравниваются между собой: дрожание камеры TAA меняло бы сцену от кадра к кадру.
+        renderer.Taa.Enabled = false;
         Assert.True(renderer.Hdr && renderer.Bloom == BloomSettings.Default);
+        // Кадры с bloom и без снимаются в разное время: подстройка автоэкспозиции между ними — не bloom.
+        renderer.AutoExposure.Enabled = false;
         for (int i = 0; i < 30; i++)
         {
             clock.RunFrame(0);

@@ -89,6 +89,9 @@ public static class ArenaTerrain
 
     private static float StepRadius(float x, float z) => MathF.Max(MathF.Abs(x - StepCentreX), MathF.Abs(z));
 
+    /// <summary>Составляющая ступеней пирамиды в точке (слагаемое <see cref="Height"/>): кромка яруса — её смена.</summary>
+    public static float StepHeightAt(float x, float z) => Steps(x, z);
+
     /// <summary>Высота без ступеней — непрерывная, с гладкой нормалью.</summary>
     public static float SmoothHeightAt(float x, float z) => Hills(x, z) + Slope(x, z) + Bumps(x, z);
 

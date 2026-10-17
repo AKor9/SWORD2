@@ -60,7 +60,43 @@ internal struct Fluid2DConstants
     public Vector2 BitmapOffset;
     public float BitmapScale, DensityTxtMult;
 
+    // Сдвиг окна целыми текселями (сим и кисть), канал возраста, штампы шага (fluid.stamp: таблица ячеек, записи, штампы в буфере кадра).
+    public int ShiftX, ShiftY, BrushShiftX, BrushShiftY;
+    public uint AgeEnabled;
+    public float AgeStep;
+    public uint StampCells, StampCellTexels, StampCellBase, StampEntryBase, StampBase;
+    public uint StampShapeSrv, StampShapeLayer, StampShapeWidth, StampShapeHeight;
+    public uint RoundNearest;
+
+    // Плёнка (A′): флаги, толщина на ρ, пороги, трение k·dt, центральная разность, ускорение в ед. скорости на единицу уклона, зажим CFL;
+    // высоты рельефа: буфер узлов, координаты узла текселя окна.
+    public uint FilmFlags;
+    public float FilmHeight, FilmMinThickness, FilmPuddle, FilmFrictionDt;
+    public float FilmInvTwoDx, FilmInvTwoDy, FilmAccelX, FilmAccelY, FilmClamp;
+    public uint HeightSrv, HeightCells;
+    public float HeightX0, HeightZ0, HeightScaleU, HeightScaleV, HeightInvStep;
+
     public const uint ExportInvert = 1, ExportInvertedAlpha = 2;
+
+    public const uint FilmConservative = 1, FilmUnbounded = 2, FilmFlow = 4, FilmHeights = 8;
+
+    /// <summary>
+    /// Высоты рельефа шага (только при <see cref="Fluid2DParams.FilmFlow"/> и сетке с ячейками): узел текселя окна (u, v) — X0 + u·ScaleU,
+    /// Z0 + v·ScaleV, площадка горизонтальна (u — вдоль +X, v — вдоль +Z), её центр — <see cref="Fluid2DStepInput.WindowCenter"/>.
+    /// </summary>
+    public void SetHeights(Fluid2DParams p, in Fluid2DStepInput input, int srv, int cells, float half)
+    {
+        if (!p.FilmFlow || cells <= 0) return;
+        double step = 2.0 * half / cells;
+        FilmFlags |= FilmHeights;
+        HeightSrv = (uint)srv;
+        HeightCells = (uint)cells;
+        HeightX0 = (float)((input.WindowCenter.X - 0.5 * p.Extents.X + half) / step);
+        HeightZ0 = (float)((input.WindowCenter.Y - 0.5 * p.Extents.Y + half) / step);
+        HeightScaleU = (float)(p.Extents.X / step);
+        HeightScaleV = (float)(p.Extents.Y / step);
+        HeightInvStep = (float)(1.0 / step);
+    }
 
     public const uint PainterPainterMode = 1, PainterAdditive = 2, PainterEdgeStep = 4, PainterNoise = 8, PainterBitmap = 16,
         PainterBitmapDensityOnly = 32;
@@ -126,6 +162,20 @@ internal struct Fluid2DConstants
             Frac(wy * BitmapScale + p.DensityTxtOffsetY * t + p.DensityTxtRandomOffset));
     }
 
+    /// <summary>Штампы шага: раскладка в буфере кадра (смещения в словах от <paramref name="wordBase"/>) и текстура форм.</summary>
+    public void SetStamps(Fluid2DStamps stamps, uint wordBase, in Fluid2DNoise shapes)
+    {
+        StampCells = (uint)stamps.CellsPerAxis;
+        StampCellTexels = (uint)stamps.CellTexels;
+        StampCellBase = wordBase;
+        StampEntryBase = wordBase + (uint)stamps.Cells.Length;
+        StampBase = StampEntryBase + (uint)stamps.Entries.Length;
+        StampShapeSrv = (uint)shapes.Srv;
+        StampShapeLayer = (uint)shapes.Layer;
+        StampShapeWidth = (uint)shapes.Width;
+        StampShapeHeight = (uint)shapes.Height;
+    }
+
     /// <summary>Шаг: всё, кроме номера прохода давления, — из параметров и входа.</summary>
     public static Fluid2DConstants Build(Fluid2DParams p, in Fluid2DStepInput input, bool brush, in Fluid2DNoise amp, in Fluid2DNoise density)
     {
@@ -177,7 +227,26 @@ internal struct Fluid2DConstants
             StepLo = (uint)input.Step,
             StepHi = (uint)(input.Step >> 32),
             CrudePass = (uint)(input.Step & 1),
+            ShiftX = input.ShiftTexels.X,
+            ShiftY = input.ShiftTexels.Y,
+            BrushShiftX = input.ShiftTexels.X / p.PaintBufferDownScaleFactor,
+            BrushShiftY = input.ShiftTexels.Y / p.PaintBufferDownScaleFactor,
+            AgeEnabled = p.AgeChannel ? 1u : 0,
+            AgeStep = (float)p.StepSeconds,
+            RoundNearest = p.HalfRoundToNearest ? 1u : 0,
+            FilmFlags = (p.ConservativeDensity ? FilmConservative : 0) | (p.UnboundedDensity ? FilmUnbounded : 0) | (p.FilmFlow ? FilmFlow : 0),
+            FilmHeight = p.FilmThicknessPerDensity,
+            FilmMinThickness = p.FilmMinThickness,
+            FilmPuddle = p.FilmPuddleThickness,
+            FilmFrictionDt = (float)(p.FilmFriction * p.StepSeconds),
+            FilmInvTwoDx = p.FilmSpread * p.Resolution / (2f * p.Extents.X),
+            FilmInvTwoDy = p.FilmSpread * p.Resolution / (2f * p.Extents.Y),
+            FilmAccelX = (float)(p.FilmGravity * p.StepSeconds * p.StepSeconds * p.Resolution / (p.SimSpeed * p.Extents.X)),
+            FilmAccelY = (float)(p.FilmGravity * p.StepSeconds * p.StepSeconds * p.Resolution / (p.SimSpeed * p.Extents.Y)),
+            FilmClamp = p.FilmCourant / p.SimSpeed,
         };
+        if (input.ShiftTexels.X % p.PaintBufferDownScaleFactor != 0 || input.ShiftTexels.Y % p.PaintBufferDownScaleFactor != 0)
+            throw new ArgumentException($"сдвиг окна {input.ShiftTexels} не кратен огрублению кисти {p.PaintBufferDownScaleFactor}");
 
         // Шумы-текстуры заворачиваются с периодом 1 по UV: постоянная часть координаты берётся по модулю 1 в double —
         // точность не падает с ростом WorldOffset и времени.

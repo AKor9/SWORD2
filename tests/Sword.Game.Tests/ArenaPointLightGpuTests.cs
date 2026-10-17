@@ -59,6 +59,8 @@ public sealed class ArenaPointLightGpuTests(ITestOutputHelper output) : IDisposa
         using var renderer = new Renderer(new RendererOptions(window.NativeHandle, W, H, DebugLayer: true,
             ShaderRoot: Path.Combine(AppContext.BaseDirectory, "Shaders"), GpuValidation: true), contract);
         arena.Initialize(renderer, clock.Link);
+        // Кадры сравниваются между собой: дрожание камеры TAA меняло бы сцену от кадра к кадру.
+        renderer.Taa.Enabled = false;
         for (int i = 0; i < 30; i++)
         {
             clock.RunFrame(0);

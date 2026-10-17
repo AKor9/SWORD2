@@ -13,7 +13,7 @@ internal sealed class BloomChain
 
     /// <summary>Корневые константы проходов bloom: вход (SRV), прибавка (SRV или BLOOM_NONE), порог, экспозиция, направление, радиус, N, усиление.</summary>
     public const int SlotSource = 0, SlotAdditive = 1, SlotThreshold = 2, SlotExposure = 3, SlotVertical = 4, SlotRadius = 5, SlotTaps = 6,
-        SlotGain = 7;
+        SlotGain = 7, SlotExposureBuffer = 8;
 
     private const int N = BloomKernel.Stages;
 
@@ -33,6 +33,7 @@ internal sealed class BloomChain
     private readonly Action<RenderPassContext>[] _recordX = new Action<RenderPassContext>[N];
     private readonly Action<RenderPassContext>[] _recordY = new Action<RenderPassContext>[N];
     private int _sceneSrv;
+    private uint _exposureSrv = AutoExposure.None;
     private float _threshold, _exposure;
 
     public BloomChain()
@@ -56,12 +57,14 @@ internal sealed class BloomChain
         c.AddSlot("BLOOM_RADIUS", SlotRadius, "радиус ядра, тексели уровня, float");
         c.AddSlot("BLOOM_TAPS", SlotTaps, "целый радиус N: тексели -N..N");
         c.AddSlot("BLOOM_GAIN", SlotGain, "усиление ступени, float");
+        c.AddSlot("BLOOM_EXPOSURE_BUFFER", SlotExposureBuffer, "SRV буфера автоэкспозиции или EXPOSURE_NONE");
     }
 
     /// <summary>Проходы bloom над цветом сцены — в фазу Post; вернёт итог (½ экрана) для тонмапа этого кадра.</summary>
-    public RenderTexture Add(RenderGraph graph, RenderTexture scene, int sceneSrv, float exposure, in BloomSettings bloom)
+    public RenderTexture Add(RenderGraph graph, RenderTexture scene, int sceneSrv, float exposure, in BloomSettings bloom, RenderBuffer? exposureBuffer)
     {
         _sceneSrv = sceneSrv;
+        _exposureSrv = exposureBuffer is { } eb ? (uint)graph.SrvOf(eb) : AutoExposure.None;
         _exposure = exposure;
         _threshold = bloom.Threshold;
         var input = scene;
@@ -70,7 +73,9 @@ internal sealed class BloomChain
             var level = graph.CreateTexture(LevelNames[l], Desc(graph, l));
             _levels[l] = level;
             _levelSrv[l] = graph.SrvOf(level);
-            graph.AddPass(LevelPasses[l], FramePhase.Post).Read(input).Color(level).Execute(_recordLevel[l]);
+            var levelPass = graph.AddPass(LevelPasses[l], FramePhase.Post).Read(input);
+            if (l == 0 && exposureBuffer is { } e) levelPass.Read(e);
+            levelPass.Color(level).Execute(_recordLevel[l]);
             input = level;
         }
         RenderTexture sum = default;
@@ -104,6 +109,7 @@ internal sealed class BloomChain
             ctx.SetConstant(SlotSource, _sceneSrv);
             ctx.SetConstant(SlotThreshold, _threshold);
             ctx.SetConstant(SlotExposure, _exposure);
+            ctx.SetConstant(SlotExposureBuffer, _exposureSrv);
         }
         else
         {

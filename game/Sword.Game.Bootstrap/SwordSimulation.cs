@@ -30,7 +30,7 @@ public static class SwordSimulation
     /// Id только клиентских модулей: их секции читает только клиент, exe без клиента и сборка без модуля их пропускают
     /// (<see cref="SkipClientSections"/>). Новый клиентский модуль — строка здесь и в композиции exe.
     /// </summary>
-    public static readonly IReadOnlyList<string> ClientModuleIds = ["fire"];
+    public static readonly IReadOnlyList<string> ClientModuleIds = ["fire", "blood"];
 
     public static Simulation Create(ConfigSet config, CharacterAssets assets)
     {

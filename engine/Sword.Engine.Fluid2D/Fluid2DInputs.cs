@@ -15,6 +15,20 @@ public readonly record struct Fluid2DStepInput(ulong Step, Vector2 WorldOffset, 
     /// <summary>Сдвиг площадки для инерции скоростью (<c>WorldOffsetDeltaForVelocityOffset</c>, при <see cref="Fluid2DParams.VeloFromSimAreaMotion"/>).</summary>
     public Vector2 VelocityOffsetDelta { get; init; }
 
+    /// <summary>
+    /// Сдвиг окна целыми текселями перед шагом (окно ушло на (X, Y) текселей в сторону +u, +v): тексель x всех гридов прошлого шага (A, P, кисть,
+    /// возраст) берётся из x + сдвиг точной копией, вне прежнего окна — 0; C пишется шагом уже в новом окне. Шумы привязаны к миру через
+    /// <see cref="WorldOffset"/> (его вызывающий двигает сам), дробный остаток — забота вызывающего. У грубой кисти (PaintBufferDownScaleFactor
+    /// &gt; 1) сдвиг кратен множителю.
+    /// </summary>
+    public (int X, int Y) ShiftTexels { get; init; }
+
+    /// <summary>
+    /// Мировой центр окна (x, z), м — для высот рельефа (<see cref="Fluid2DSim.Heights"/>, <see cref="Fluid2DReference.Heights"/>) при
+    /// <see cref="Fluid2DParams.FilmFlow"/>: площадка горизонтальна, u — вдоль +X, v — вдоль +Z (поворот −90° вокруг X).
+    /// </summary>
+    public Vector2 WindowCenter { get; init; }
+
     internal Quaternion Rotation => PlaneRotation == default ? Quaternion.Identity : PlaneRotation;
 }
 
@@ -115,4 +129,33 @@ public sealed class Fluid2DImage
             values[i] = srgb && i % 4 != 3 ? Fluid2DNoiseImage.SrgbToLinear(rgba[i]) : rgba[i] / 255f;
         return new Fluid2DImage(values, width, height);
     }
+}
+
+/// <summary>
+/// Буфер высот рельефа на GPU для плёнки (<see cref="Fluid2DParams.FilmFlow"/>): <c>StructuredBuffer&lt;float&gt;</c> узлов (Cells + 1)² по рядам z
+/// на квадрате ±Half м (узел i по x — −Half + i·Step), значение — мировая высота узла, м (форма <c>ITerrainView.HeightsSrv</c> и <c>Grid</c>).
+/// Рельеф — билинейный по ячейке, вне сетки — крайняя ячейка. default — высот нет (уклон 0).
+/// </summary>
+public readonly record struct Fluid2DHeightField(int Srv, int Cells, float Half)
+{
+    public int Nodes => Cells + 1;
+    public float Step => 2 * Half / Cells;
+    public bool Present => Cells > 0 && Srv >= 0;
+}
+
+/// <summary>Высоты рельефа для CPU-эталона — те же узлы, что <see cref="Fluid2DHeightField"/>: (Cells + 1)² float по рядам z на ±Half м.</summary>
+public sealed class Fluid2DHeightImage
+{
+    public Fluid2DHeightImage(float[] values, int cells, float half)
+    {
+        if (cells <= 0 || !(half > 0) || values.Length != (cells + 1) * (cells + 1))
+            throw new ArgumentException($"высоты {cells} ячеек на ±{half} м: значений {values.Length}, нужно {(cells + 1) * (cells + 1)}");
+        Values = values;
+        Cells = cells;
+        Half = half;
+    }
+
+    public float[] Values { get; }
+    public int Cells { get; }
+    public float Half { get; }
 }

@@ -32,13 +32,59 @@ public sealed partial class UiContext
 
     /// <summary>
     /// Строка-сведение «подпись — значение»: подпись слева приглушённая, значение справа цифровым начертанием, мелким кеглем;
-    /// <paramref name="split"/> — доля ширины под подпись.
+    /// <paramref name="split"/> — доля ширины под подпись. Значение не влезло в остаток — подпись уступает ему всё, кроме
+    /// своего текста. <paramref name="labelSize"/> — кегль подписи (null — мелкий).
     /// </summary>
-    public void InfoRow(UiRect r, ReadOnlySpan<char> label, ReadOnlySpan<char> value, float split = 0.42f, uint? valueColour = null)
+    public void InfoRow(UiRect r, ReadOnlySpan<char> label, ReadOnlySpan<char> value, float split = 0.42f, uint? valueColour = null,
+        float? labelSize = null)
     {
-        var name = r.SplitLeft(r.Width * split, out var rest);
-        Label(name, label, Theme.TextDim, UiAlign.Left, UiFace.Body, Theme.SmallFontSize);
+        float ls = labelSize ?? Theme.SmallFontSize;
+        float nameW = r.Width * split;
+        float need = Draw.Measure(UiFace.Num, S(Theme.SmallFontSize), value);
+        if (need > r.Width - nameW)
+            nameW = MathF.Min(nameW, Draw.Measure(UiFace.Body, S(ls), label) + S(10));
+        var name = r.SplitLeft(nameW, out var rest);
+        Label(name, label, Theme.TextDim, UiAlign.Left, UiFace.Body, ls);
         Label(rest, value, valueColour ?? Theme.Text, UiAlign.Right, UiFace.Num, Theme.SmallFontSize);
+    }
+
+    /// <summary>
+    /// Текст с переносом по словам в <paramref name="r"/>: строк — сколько влезает по высоте, остаток последней — с «…».
+    /// Возвращает число строк.
+    /// </summary>
+    public int Paragraph(UiRect r, ReadOnlySpan<char> text, uint? colour = null, UiFace face = UiFace.Body, float? size = null)
+    {
+        if (text.IsEmpty || r.Width <= 0) return 0;
+        float fs = S(size ?? Theme.FontSize), lh = Draw.LineHeight(face, fs);
+        int max = Math.Max(1, (int)(r.Height / lh));
+        uint c = colour ?? Theme.Text;
+        int lines = 0;
+        float y = r.Y0;
+        while (!text.IsEmpty && lines < max)
+        {
+            int n = lines == max - 1 ? text.Length : LineBreak(text, face, fs, r.Width);
+            Draw.TextFit(face, fs, new Vector2(r.X0, y), c, text[..n], r.Width);
+            text = text[n..].TrimStart(' ');
+            y += lh;
+            lines++;
+        }
+        return lines;
+    }
+
+    /// <summary>Длина начала <paramref name="text"/> до последнего пробела, с которым строка влезает в <paramref name="width"/>;
+    /// слово длиннее строки — целиком (его режет «…»).</summary>
+    private int LineBreak(ReadOnlySpan<char> text, UiFace face, float fs, float width)
+    {
+        if (Draw.Measure(face, fs, text) <= width) return text.Length;
+        int fit = -1;
+        for (int i = text.IndexOf(' '); i >= 0; i = text[(i + 1)..].IndexOf(' ') is var j && j >= 0 ? i + 1 + j : -1)
+        {
+            if (Draw.Measure(face, fs, text[..i]) > width) break;
+            fit = i;
+        }
+        if (fit > 0) return fit;
+        int word = text.IndexOf(' ');
+        return word > 0 ? word : text.Length;
     }
 
     /// <summary>Заголовок секции: мелкая подпись и тонкая линия до края.</summary>

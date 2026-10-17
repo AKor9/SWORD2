@@ -52,7 +52,7 @@ public sealed class ArenaWeaponTips(SimulationLink link) : IWeaponTips
     /// <summary>Оружие одного бойца (тело цикла — свой метод: цикл по бойцам раз в тик).</summary>
     private WeaponTip Tip(Entity e, int weapon, in WeaponInfo info, IBodyView? bodies)
     {
-        ulong key = (ulong)(uint)e.Generation << 32 | (uint)e.Index;
+        ulong key = FighterKey.Of(e);
         int slot = _world.TryGet<FighterSlot>(e, out var s) ? s.Index : -1;
         bool player = _world.Has<PlayerTag>(e), dead = _world.Has<Dead>(e);
         _world.TryGet<Blade>(e, out var blade);

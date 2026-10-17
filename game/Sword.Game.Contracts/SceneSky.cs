@@ -5,8 +5,10 @@ namespace Sword.Game.Contracts;
 /// <summary>
 /// Солнце и небо сцены для объёмов клиентских модулей (дым огня): <see cref="Sun"/> — множитель альбедо·N·L солнца (у UE-света
 /// той же силы освещённость в π раз больше), <see cref="Sky"/> — цвет неба для вертикальной поверхности. Линейный HDR до экспозиции.
+/// <see cref="SunDirection"/> — направление на солнце, единичное, мировые оси (блик и N·L модуля — с тем же солнцем, что у сцены);
+/// нулевое — солнца нет.
 /// </summary>
-public readonly record struct SceneSky(Vector3 Sun, Vector3 Sky)
+public readonly record struct SceneSky(Vector3 Sun, Vector3 Sky, Vector3 SunDirection = default)
 {
     /// <summary>Ни солнца, ни неба (сервиса нет — тесты модулей без игры).</summary>
     public static SceneSky None => default;

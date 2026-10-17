@@ -183,15 +183,15 @@ public sealed class CombatUiDrawTests : IDisposable
         }
 
         Frame();
-        // «урон» — первая строка после заголовка (y 46 + 22 + 12), ползунок x 156…276: протяжка к правому краю — к пределу 5.
-        const float y = 46 + 22 + 12;
-        input.Mouse = new Vector2(200, y);
+        // «урон» — первая строка после заголовка (y 16 + 22 + 12), ручки справа от меню, ползунок — от столбца подписей до поля числа (x 450): протяжка за правый край — к пределу 5.
+        const float y = 16 + 22 + 12;
+        input.Mouse = new Vector2(350, y);
         input.SetMouseButton(0, down: true, pressed: true, released: false);
         Assert.True(Frame());
         input.SetMouseButton(0, down: true, pressed: false, released: false);
         for (int i = 0; i <= 10; i++)
         {
-            input.Mouse = new Vector2(200 + i * 10, y);
+            input.Mouse = new Vector2(350 + i * 20, y);
             Frame();
         }
         input.SetMouseButton(0, down: false, pressed: false, released: true);

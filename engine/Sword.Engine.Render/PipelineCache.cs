@@ -120,6 +120,17 @@ internal sealed class PipelineCache : IDisposable
                 ComparisonFunction = ComparisonFunction.Always,
                 MaxLOD = float.MaxValue,
             },
+            // Карта теней (common/shadow.hlsli): сравнение с билинейной смесью четырёх текселей; за краем — 0 (дальше всего) — свет.
+            new StaticSamplerDescription(ShaderVisibility.All, 4, 0)
+            {
+                Filter = Filter.ComparisonMinMagMipLinear,
+                AddressU = TextureAddressMode.Border,
+                AddressV = TextureAddressMode.Border,
+                AddressW = TextureAddressMode.Border,
+                BorderColor = StaticBorderColor.OpaqueBlack,
+                ComparisonFunction = ComparisonFunction.GreaterEqual,
+                MaxLOD = float.MaxValue,
+            },
         };
 
         var desc = new RootSignatureDescription1(

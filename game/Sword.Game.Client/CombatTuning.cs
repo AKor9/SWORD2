@@ -40,7 +40,7 @@ public static class CombatTuning
 
     /// <summary>
     /// Урон последнего удара игрока против порога отруба части: «61 &gt; 27 — отрубил бы», «20 ≤ 27 — нет» (вмещается
-    /// в строку панели шириной 340); удара не было — «—».
+    /// в строку панели F3); удара не было — «—».
     /// </summary>
     public static int LastStrike(Span<char> d, in ArenaStats stats) =>
         stats.LastPart < 0 ? Length(new Line(d).S("—").Text)

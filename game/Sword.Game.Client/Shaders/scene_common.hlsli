@@ -29,6 +29,10 @@ struct FrameConstants
     float4x4 invViewProj;
     uint pointLights; uint pad0; uint pad1; uint pad2;
     SceneEnvironment env;
+    float4x4 shadowViewProj[2];
+    uint shadowMap0; uint shadowMap1; float shadowTexel0; float shadowTexel1;
+    float shadowBias0; float shadowBias1; float shadowSoftness; float shadowPad;
+    uint aoMap; uint specular; uint pad3; uint pad4;
 };
 _Static_assert(sizeof(FrameConstants) == FRAME_CONSTANTS_SIZE, "FrameConstants layout differs from C# (Scene/FrameConstants.cs)");
 

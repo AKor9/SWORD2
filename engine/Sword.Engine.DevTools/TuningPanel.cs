@@ -5,20 +5,29 @@ using Sword.Engine.Ui;
 namespace Sword.Engine.DevTools;
 
 /// <summary>
-/// Панель ручек (F3): вкладка на каждую <see cref="TuningGroup"/>; строка — подпись (ПКМ — к умолчанию), ползунок и поле
+/// Панель ручек (F3): слева — меню вкладок (вкладка на каждую <see cref="TuningGroup"/>), справа — её ручки; строка — подпись (ПКМ — к умолчанию), ползунок и поле
 /// числа, флаг, кнопка, строка состояния; внизу — «сохранить», «загрузить», «сброс» через делегаты хоста. О модулях знает
 /// только их группы. Кадр без выделений; ошибка записи — в строке состояния и журнале, а не падение кадра.
 /// </summary>
 public sealed class TuningPanel : IClientPanel
 {
-    /// <summary>Ширина панели, логические пиксели.</summary>
-    public const float Width = 340;
+    /// <summary>Ширина панели, логические пиксели: меню вкладок <see cref="MenuWidth"/> слева, ручки — справа (~374).</summary>
+    public const float Width = 510;
+
+    /// <summary>Ширина меню вкладок слева, логические пиксели.</summary>
+    public const float MenuWidth = 104;
+
+    /// <summary>Наибольшая доля строки под подпись: столбец подписей — по самой широкой подписи числа вкладки, не шире.</summary>
+    public const float MaxLabelShare = 0.55f;
 
     /// <summary>Ширина поля числа, логические пиксели: текст — в <c>ValueWidth − 2·UiContext.FieldPadding</c> (44 px). Формат
     /// ручки должен вмещать умолчание и пределы (у малых значений — с порядком, <c>0.#e-0</c>).</summary>
     public const float ValueWidth = 58;
 
-    private const float Margin = 8, RowHeight = 24, HeaderHeight = 22, TabsHeight = 24, FooterHeight = 26, StatusHeight = 18;
+    private const float Margin = 8, Padding = 10, Gap = 6, RowHeight = 24, HeaderHeight = 22, MenuRowHeight = 28, FooterHeight = 26;
+
+    /// <summary>Строк подсказки (или итога сохранения) над подвалом: длинная подсказка переносится по словам.</summary>
+    private const int StatusLines = 3;
 
     /// <summary>Длина текста строки состояния (<see cref="TuningText"/>), символов.</summary>
     public const int InfoCapacity = 128;
@@ -27,6 +36,8 @@ public sealed class TuningPanel : IClientPanel
     private int _tab;
     private string _status = "";
     private string[] _titles = [];
+    private TuningGroup? _labelGroup;
+    private float _labelScale, _labelWidest;
 
     /// <param name="toggle">Действие «открыть/закрыть» (композиция: F3); null — только <see cref="Open"/>.</param>
     public TuningPanel(InputAction? toggle = null)
@@ -62,6 +73,9 @@ public sealed class TuningPanel : IClientPanel
     /// <summary>Загрузить группу (кнопка «загрузить»): хост читает и применяет (<see cref="TuningGroup.Apply"/>), возвращает строку состояния.</summary>
     public Func<TuningGroup, string>? Load { get; set; }
 
+    /// <summary>Прямоугольник панели в последнем кадре, пиксели экрана: высота — по содержимому вкладки, не ниже окна.</summary>
+    public UiRect Bounds { get; private set; }
+
     /// <summary>Верхний край панели, пиксели экрана (под HUD игры); null — от верха окна.</summary>
     public Func<float>? Top { get; set; }
 
@@ -81,30 +95,40 @@ public sealed class TuningPanel : IClientPanel
         if (!Open || Groups.Count == 0) return false;
         var t = ui.Theme;
         float s = ui.Scale;
-        var panel = new UiRect(Margin * s, top + 6 * s, (Margin + Width) * s, ui.Height - Margin * s);
-        if (panel.Height < 120 * s) panel = panel with { Y0 = panel.Y1 - 120 * s };
-        ui.Panel(panel, t.OverlayStrong, 8 * s);
-        uint activeBefore = ui.ActiveId;
-        var inner = panel.Shrink(10 * s);
-
         _tab = Math.Clamp(_tab, 0, Groups.Count - 1);
         UpdateTitles();
-        ui.Tabs(inner.SplitTop(TabsHeight * s, out inner), "diag.tabs", ref _tab, _titles);
         var group = Groups[_tab];
-        inner.SplitTop(6 * s, out inner);
-
-        var footer = inner.SplitBottom(FooterHeight * s, out inner);
-        var status = inner.SplitBottom(StatusHeight * s, out inner);
-
         var items = group.Items;
-        float rowH = RowHeight * s, headH = HeaderHeight * s;
+        float rowH = RowHeight * s, headH = HeaderHeight * s, tabH = MenuRowHeight * s, pad = Padding * s, gap = Gap * s;
         float content = 0;
         for (int i = 0; i < items.Count; i++) content += items[i] is TuningHeader ? headH : rowH;
+        float statusH = MathF.Ceiling(StatusLines * ui.Draw.LineHeight(UiFace.Body, ui.S(t.SmallFontSize)));
+
+        // высота — по содержимому вкладки (или по меню, если оно длиннее), но не ниже окна: длинная вкладка прокручивается
+        float y0 = top + 6 * s;
+        float settingsH = content + 2 * gap + statusH + FooterHeight * s + 1;   // +1: округление — не полоса прокрутки
+        float need = 2 * pad + MathF.Max(settingsH, Groups.Count * tabH);
+        var panel = new UiRect(Margin * s, y0, (Margin + Width) * s, MathF.Min(y0 + need, ui.Height - Margin * s));
+        if (panel.Height < 120 * s) panel = panel with { Y0 = panel.Y1 - 120 * s };
+        Bounds = panel;
+        ui.Panel(panel, t.OverlayStrong, 8 * s);
+        uint activeBefore = ui.ActiveId;
+        var inner = panel.Shrink(pad);
+
+        // слева — меню вкладок, справа — ручки выбранной, подсказка и подвал
+        var menu = inner.SplitLeft(MenuWidth * s, out inner);
+        ui.TabList(menu, "diag.tabs", ref _tab, _titles, tabH);
+        ui.Separator(inner.SplitLeft(2 * Gap * s, out inner).Shrink(0, gap), vertical: true);
+        var footer = inner.SplitBottom(FooterHeight * s, out inner);
+        inner.SplitBottom(gap, out inner);
+        var status = inner.SplitBottom(statusH, out inner);
+        inner.SplitBottom(gap, out inner);
 
         string? hoverHint = null;
         Span<char> text = stackalloc char[InfoCapacity];
         ui.PushId(group.Id);
         var area = ui.BeginScroll(inner, "diag.scroll", content);
+        float labelW = LabelColumn(ui, group, area.Width);
         float y = area.Y0;
         for (int i = 0; i < items.Count; i++)
         {
@@ -113,12 +137,12 @@ public sealed class TuningPanel : IClientPanel
             var row = new UiRect(area.X0, y, area.X1, y + h);
             y += h;
             if (row.Y1 < inner.Y0 || row.Y0 > inner.Y1) continue;   // вне окна: не рисовать и не ловить мышь
-            DrawItem(ui, row, item, text);
+            DrawItem(ui, row, item, text, labelW);
             if (item.Hint is { } hint && ui.IsHovered(row)) hoverHint = hint;
         }
         ui.EndScroll();
 
-        ui.Label(status, hoverHint ?? _status, t.TextFaint, UiAlign.Left, UiFace.Label, t.SmallFontSize);
+        ui.Paragraph(status, hoverHint ?? _status, t.TextDim, UiFace.Body, t.SmallFontSize);
 
         float bw = (footer.Width - 8 * s) / 3;
         if (ui.Button(footer.SplitLeft(bw, out footer), "сохранить", enabled: Save is not null, id: "diag.save"))
@@ -149,6 +173,23 @@ public sealed class TuningPanel : IClientPanel
         for (int i = 0; i < Groups.Count; i++) _titles[i] = Groups[i].Title;
     }
 
+    /// <summary>
+    /// Ширина столбца подписей вкладки, пиксели экрана: самая широкая подпись числа и строки состояния плюс зазор, в
+    /// пределах 30 %…<see cref="MaxLabelShare"/> строки. Замер — один раз на вкладку и масштаб.
+    /// </summary>
+    private float LabelColumn(UiContext ui, TuningGroup group, float rowWidth)
+    {
+        if (!ReferenceEquals(_labelGroup, group) || _labelScale != ui.Scale)
+        {
+            float fs = ui.S(ui.Theme.FontSize), widest = 0;
+            var items = group.Items;
+            for (int i = 0; i < items.Count; i++)
+                if (items[i] is TuningFloat or TuningInfo) widest = MathF.Max(widest, ui.Draw.Measure(UiFace.Body, fs, items[i].Label));
+            (_labelGroup, _labelScale, _labelWidest) = (group, ui.Scale, widest + ui.S(10));
+        }
+        return Math.Clamp(_labelWidest, rowWidth * 0.3f, rowWidth * MaxLabelShare);
+    }
+
     /// <summary>Сохранение или загрузка хостом: итог — строка состояния; исключение — в строку и журнал, кадр идёт дальше.</summary>
     private static string Run(TuningGroup group, Func<TuningGroup, string> action, string failed)
     {
@@ -165,7 +206,7 @@ public sealed class TuningPanel : IClientPanel
         }
     }
 
-    private static void DrawItem(UiContext ui, UiRect row, TuningItem item, Span<char> text)
+    private static void DrawItem(UiContext ui, UiRect row, TuningItem item, Span<char> text, float labelW)
     {
         var t = ui.Theme;
         float s = ui.Scale;
@@ -177,10 +218,10 @@ public sealed class TuningPanel : IClientPanel
 
             case TuningFloat f:
             {
-                var label = row.SplitLeft(row.Width * 0.42f, out var rest);
+                var label = row.SplitLeft(labelW, out var rest);
                 var value = rest.SplitRight(ValueWidth * s, out var slider);
                 float current = f.Get();
-                ui.Label(label, f.Label, current != f.Default ? t.Text : t.TextDim, UiAlign.Left, UiFace.Body, t.SmallFontSize);
+                ui.Label(label, f.Label, current != f.Default ? t.Text : t.TextDim, UiAlign.Left, UiFace.Body);
                 ui.PushId(f.Key.Length > 0 ? f.Key : f.Label);
                 float edit = current;
                 if (ui.Slider(slider.Shrink(4 * s, 3 * s), "slider", ref edit, f.Min, f.Max, f.Log)) f.Set(f.Clamp(edit));
@@ -209,7 +250,7 @@ public sealed class TuningPanel : IClientPanel
             case TuningInfo info:
             {
                 int n = Math.Clamp(info.Text(text), 0, text.Length);
-                ui.InfoRow(row, info.Label, text[..n]);
+                ui.InfoRow(row, info.Label, text[..n], labelW / row.Width, labelSize: t.FontSize);
                 break;
             }
         }

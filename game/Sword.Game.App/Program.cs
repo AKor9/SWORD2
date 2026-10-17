@@ -91,7 +91,7 @@ public static partial class Program
           F3 — ручки «Бой» (урон, острота, враги нападают, игрок неуязвим, рывок) и «Рэгдолл» (трение, выталкивание,
           мягкость суставов, потолки трупа, скорости при смерти, толчок; трупы в кадре); изменение — команда в реплее,
           «сохранить» — секция combat или ragdoll в sword.user.json; «Свет» (ночь, тестовый факел, экспозиция, bloom) —
-          ручки рендера, «Огонь» (оверлей, вид поля, скорость сима, затухание, кисть, k) — модуля огня, «Графика» (vsync) — показа:
+          ручки рендера, «Огонь» (оверлей, вид поля, скорость сима, затухание, кисть, k) — модуля огня, «Графика» (vsync, SMAA) — показа:
           в реплей не идут и не сохраняются.
         Ключи:
           --windowed WxH    размер окна (по умолчанию 1600x900); окно с рамой, размер меняется мышью
@@ -205,8 +205,8 @@ public static partial class Program
                 showJoints: options.Overlays.Contains(ArenaClient.JointsOverlay), showContacts: options.Overlays.Contains(ArenaClient.ContactsOverlay),
                 showMotion: options.Overlays.Contains(ArenaClient.MotionOverlay), showLights: options.Overlays.Contains(ArenaClient.LightsOverlay),
                 testLights: options.TestLights);
-            // Клиентские модули (огонь) — до Complete: читают свои секции; выключенные не настраиваются вовсе. Туман сцены — от клиента арены.
-            var clientModules = ClientModuleList.Compose(config, simulation, arena, arena);
+            // Клиентские модули (огонь, кровь) — до Complete: читают свои секции; выключенные не настраиваются вовсе. Сервисы — от клиента арены.
+            var clientModules = ClientModuleList.Compose(config, simulation, arena);
             IReadOnlyList<string> overlays = [.. ArenaClient.KnownOverlays, .. clientModules.Overlays.Select(o => o.Name)];
             if (options.Overlays.FirstOrDefault(o => !overlays.Contains(o)) is { } unknown)
                 throw new ArgumentException($"--overlay {unknown}: такого оверлея нет; есть: {string.Join(", ", overlays)}");

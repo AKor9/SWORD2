@@ -164,9 +164,10 @@ public static class LocomotionKnobs
         for (int g = 0; g < GaspMotion.WeightKeys.Count; g++)
         {
             int group = g;
-            t.Float(GaspMotion.WeightKeys[g], $"вес: {GaspMotion.Groups[g].Name}", (in LocomotionRules r) => Weight(r, group),
+            string name = GaspMotion.Groups[g].Name.Replace("ω", "поворот");   // в шрифте панели нет греческих букв
+            t.Float(GaspMotion.WeightKeys[g], $"вес: {name}", (in LocomotionRules r) => Weight(r, group),
                 (ref LocomotionRules r, float v) => SetWeight(ref r, group, v), 0, 10, GaspMotion.Groups[g].Weight, format: "0.00",
-                hint: $"вес группы признаков «{GaspMotion.Groups[g].Name}» в цене кадра");
+                hint: $"вес группы признаков «{name}» в цене кадра");
         }
         SwordArm.Knob(t, d.ArmWeight);   // вес руки с мечом
         t.Float("turnAngle", "поворот: порог", (in LocomotionRules r) => r.TurnAngle, (ref LocomotionRules r, float v) => r.TurnAngle = v,
