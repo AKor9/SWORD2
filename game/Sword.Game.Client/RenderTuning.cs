@@ -28,7 +28,7 @@ public static class RenderTuning
         g.Float(TaaBlend, "доля кадра", () => taa.Blend, v => taa.Blend = v, 0.02f, 0.5f, log: true, format: "0.###",
             hint: "доля нового кадра в смеси: меньше — глаже, но дольше след у быстрого", defaultValue: taa.Blend);
         g.Bool(MotionBlur, "размытие движения", () => taa.MotionBlur, v => taa.MotionBlur = v,
-            "размытие мира вдоль его движения на экране от движения камеры (с TAA); персонажи не размываются", defaultValue: taa.MotionBlur);
+            "размытие вдоль движения на экране — камеры и объектов (взмах меча, бег; скорости предпрохода, с TAA)", defaultValue: taa.MotionBlur);
         g.Float(Shutter, "выдержка", () => taa.Shutter, v => taa.Shutter = v, 0f, 1f, format: "0.##",
             hint: "доля перемещения за кадр, по которой размывается: 0.5 — как кино 180°", defaultValue: taa.Shutter);
         g.Bool(Smaa, "SMAA", () => renderer.Smaa, v => renderer.Smaa = v,

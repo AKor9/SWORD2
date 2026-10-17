@@ -244,6 +244,7 @@ public sealed class PointLights : IDisposable
     private readonly RenderTexture[] _shadowMaps = new RenderTexture[MaxShadowed * 6];
     private readonly uint[] _shadowSrv = new uint[MaxShadowed * 6];
     private readonly Vector3[] _shadowPositions = new Vector3[MaxShadowed];
+    private readonly float[] _shadowRadii = new float[MaxShadowed];
     private readonly Action<RenderPassContext>[] _recordShadow = new Action<RenderPassContext>[MaxShadowed * 6];
     private Action<RenderPassContext>? _casters;
     private int _shadowed;
@@ -300,10 +301,34 @@ public sealed class PointLights : IDisposable
         {
             _shadowMaps[i] = g.CreateTexture(ShadowMapNames[i], desc);
             _shadowSrv[i] = (uint)g.SrvOf(_shadowMaps[i]);
-            g.AddPass(ShadowPassNames[i], FramePhase.Opaque).Depth(_shadowMaps[i], DepthAccess.Write, clear: 0f).Execute(_recordShadow[i]);
+            var pass = g.AddPass(ShadowPassNames[i], FramePhase.Opaque).Depth(_shadowMaps[i], DepthAccess.Write, clear: 0f);
+            frame.Skinned.ReadBy(pass);
+            pass.Execute(_recordShadow[i]);
         }
         ShadowsActive = true;
     }
+
+    /// <summary>
+    /// Нужен ли заслоняющий шар (xyz — центр, w — радиус) грани, которая рисуется сейчас (вызывается из заслоняющих
+    /// <see cref="AddShadowPasses"/>): нет, если он дальше радиуса источника или вне пирамиды грани (90°, от ближней плоскости).
+    /// </summary>
+    public bool ShadowCasterVisible(Vector4 sphere)
+    {
+        if (float.IsInfinity(sphere.W)) return true;
+        var d = new Vector3(sphere.X, sphere.Y, sphere.Z) - _facePosition;
+        float r = sphere.W;
+        if (d.Length() - r > _faceRadius) return false;
+        // Оси грани: вдоль — a, поперёк — u и w; плоскости пирамиды |u| = a и |w| = a, расстояние до них — (|u| − a)/√2.
+        float a = _face switch { 0 => d.X, 1 => -d.X, 2 => d.Y, 3 => -d.Y, 4 => d.Z, _ => -d.Z };
+        float u = _face < 2 ? d.Y : d.X, w = _face < 4 ? d.Z : d.Y;
+        if (a + r < ShadowNear) return false;
+        const float invSqrt2 = 0.70710678f;
+        return (MathF.Abs(u) - a) * invSqrt2 <= r && (MathF.Abs(w) - a) * invSqrt2 <= r;
+    }
+
+    private Vector3 _facePosition;
+    private float _faceRadius;
+    private int _face;
 
     /// <summary>Чтения карт теней в проходе, который освещает точечными источниками.</summary>
     public void ReadShadows(RenderGraph.RenderPassBuilder pass)
@@ -317,6 +342,7 @@ public sealed class PointLights : IDisposable
         int light = index / 6;
         if (light >= _shadowed) return;
         var p = _shadowPositions[light];
+        (_facePosition, _faceRadius, _face) = (p, _shadowRadii[light], index % 6);
         ctx.SetConstant(SlotShadowFace, index % 6);
         ctx.SetConstant(SlotShadowX, p.X);
         ctx.SetConstant(SlotShadowY, p.Y);
@@ -405,7 +431,7 @@ public sealed class PointLights : IDisposable
             }
             _shown[shown] = new ShownPointLight(light, fade);
             slot[++shown] = Pack(light, fade);
-            if (light.CastShadows && ShadowsActive && _shadowed < MaxShadowed) AttachShadow(ref slot[shown], light.Position);
+            if (light.CastShadows && ShadowsActive && _shadowed < MaxShadowed) AttachShadow(ref slot[shown], light.Position, light.Radius);
         }
         slot[0] = new GpuPointLight { Count = (uint)shown };
         _shownCount = shown;
@@ -415,8 +441,9 @@ public sealed class PointLights : IDisposable
         _shownDroppedFunctions = _droppedFunctions;
     }
 
-    private void AttachShadow(ref GpuPointLight g, Vector3 position)
+    private void AttachShadow(ref GpuPointLight g, Vector3 position, float radius)
     {
+        _shadowRadii[_shadowed] = radius;
         int b = _shadowed * 6;
         (g.Shadow0, g.Shadow1, g.Shadow2, g.Shadow3, g.Shadow4, g.Shadow5) =
             (_shadowSrv[b], _shadowSrv[b + 1], _shadowSrv[b + 2], _shadowSrv[b + 3], _shadowSrv[b + 4], _shadowSrv[b + 5]);

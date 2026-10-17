@@ -18,6 +18,7 @@ public sealed class TaaGpuTests : IDisposable, ILogSink
     private const int W = 160, H = 96;
     private const string Shader = "taa_tests.hlsl";
     private static readonly GraphicsPipelineDesc Stripes = new(Shader, "VsFull", "PsStripes", Depth: DepthMode.TestWrite);
+    private static readonly GraphicsPipelineDesc StripesVelocity = new(Shader, "VsFull", "PsStripesVelocity", Depth: DepthMode.TestWrite);
     private readonly Win32Window _window;
     private readonly Renderer _renderer;
     private readonly List<string> _d3d12 = [];
@@ -26,7 +27,7 @@ public sealed class TaaGpuTests : IDisposable, ILogSink
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct StripesFrame
     {
-        public Matrix4x4 ViewProj, InvViewProj;
+        public Matrix4x4 ViewProj, InvViewProj, VelocityViewProj;
         public Vector3 Eye; public float Pad;
     }
 
@@ -65,28 +66,45 @@ public sealed class TaaGpuTests : IDisposable, ILogSink
         return view * new Matrix4x4(xs, 0, 0, 0, 0, ys, 0, 0, 0, 0, 0, -1, 0, 0, 0.1f, 0);
     }
 
-    /// <summary>Кадр пола с глаза <paramref name="eye"/>; со снимком — красный канал по строкам сверху вниз.</summary>
-    private byte[]? Frame(Vector3 eye, bool shot)
+    /// <summary>
+    /// Кадр пола с глаза <paramref name="eye"/>, полосы сдвинуты на <paramref name="slide"/> м (в прошлом кадре — <paramref name="prevSlide"/>);
+    /// <paramref name="velocity"/> — проход скоростей сцены до цвета. Со снимком — красный канал по строкам сверху вниз.
+    /// </summary>
+    private byte[]? Frame(Vector3 eye, bool shot, float slide = 0, float prevSlide = 0, bool velocity = false)
     {
         var taa = _renderer.Taa;
         var vp = Camera(eye);
         var jittered = taa.Jitter(vp, W, H);
-        taa.SetView(vp, jittered);
+        taa.SetView(vp, jittered, velocity);
         Matrix4x4.Invert(jittered, out var inv);
-        var data = new StripesFrame { ViewProj = jittered, InvViewProj = inv, Eye = eye };
+        var data = new StripesFrame { ViewProj = jittered, InvViewProj = inv, VelocityViewProj = vp, Eye = eye };
         string path = Path.Combine(_dir, $"t{Guid.NewGuid():N}.bmp");
         _window.PumpMessages();
         _renderer.Render(f =>
         {
             f.SetFrameConstants(data);
-            f.Graph.AddPass("test.stripes").Color(f.SceneColor, _renderer.SceneColorClear).Color(f.Scene.Normal, SceneTargets.NormalClear)
-                .Depth(f.Scene.Depth, DepthAccess.Write, clear: 0f).Execute(ctx =>
-                {
-                    ctx.SetPipeline(Stripes);
-                    ctx.SetConstant(0, (uint)W);
-                    ctx.SetConstant(1, (uint)H);
-                    ctx.Draw(3);
-                });
+            if (velocity)
+                f.Graph.AddPass("test.stripes.velocity").Color(f.Scene.Velocity, SceneTargets.VelocityClear)
+                    .Depth(f.Scene.Depth, DepthAccess.Write, clear: 0f).Execute(ctx =>
+                    {
+                        ctx.SetPipeline(StripesVelocity);
+                        ctx.SetConstant(0, (uint)W);
+                        ctx.SetConstant(1, (uint)H);
+                        ctx.SetConstant(2, slide);
+                        ctx.SetConstant(3, prevSlide);
+                        ctx.Draw(3);
+                    });
+            var colour = f.Graph.AddPass("test.stripes").Color(f.SceneColor, _renderer.SceneColorClear).Color(f.Scene.Normal, SceneTargets.NormalClear);
+            if (velocity) colour.Depth(f.Scene.Depth, DepthAccess.Write);
+            else colour.Depth(f.Scene.Depth, DepthAccess.Write, clear: 0f);
+            colour.Execute(ctx =>
+            {
+                ctx.SetPipeline(Stripes);
+                ctx.SetConstant(0, (uint)W);
+                ctx.SetConstant(1, (uint)H);
+                ctx.SetConstant(2, slide);
+                ctx.Draw(3);
+            });
         }, vsync: false, shot ? new FrameCapture(path) : null);
         if (!shot) return null;
         var file = File.ReadAllBytes(path);
@@ -199,6 +217,69 @@ public sealed class TaaGpuTests : IDisposable, ILogSink
             blurred += InBetween(Frame(Eye + new Vector3(0.25f * i, 0, 0), shot: true)!);
         }
         Assert.True(blurred > sharp * 1.15, $"полутонов в движении: с размытием {blurred}, без {sharp}");
+        Assert.True(_d3d12.Count == 0, string.Join("\n", _d3d12));
+    }
+
+    /// <summary>Строка за строкой — сдвиг, при котором <paramref name="a"/> лучше всего совпадает с <paramref name="b"/> (−10…10 px).</summary>
+    private static int[] RowShifts(byte[] a, byte[] b)
+    {
+        var shifts = new List<int>();
+        for (int row = 16; row < H - 8; row += 16)
+        {
+            int best = 0;
+            long bestErr = long.MaxValue;
+            for (int shift = -10; shift <= 10; shift++)
+            {
+                long err = 0;
+                for (int x = 12; x < W - 12; x++) err += Math.Abs(a[row * W + x] - b[row * W + x + shift]);
+                if (err < bestErr) (bestErr, best) = (err, shift);
+            }
+            shifts.Add(best);
+        }
+        return [.. shifts];
+    }
+
+    /// <summary>
+    /// Скорости объектов: полосы едут по полу при неподвижной камере. Со скоростями сцены первый кадр после сдвига совпадает с сошедшимся
+    /// там же (история взята оттуда, куда полосы уехали); без них — история на прежнем месте, кадр отстаёт. Размытие движения по
+    /// скоростям сцены — полутонов больше, чем без размытия.
+    /// </summary>
+    [Fact]
+    public void ObjectVelocity_HistoryFollowsMovingSurface_AndBlurs()
+    {
+        var taa = _renderer.Taa;
+        taa.Enabled = true;
+        const float step = 0.15f;
+        byte[] FirstAfterSlide(bool velocity)
+        {
+            taa.Reset();
+            for (int i = 0; i < 30; i++) Frame(Eye, shot: false, velocity: velocity);
+            var first = Frame(Eye, shot: true, slide: step, prevSlide: 0, velocity: velocity)!;
+            return first;
+        }
+        var tracked = FirstAfterSlide(velocity: true);
+        var stale = FirstAfterSlide(velocity: false);
+        for (int i = 0; i < 30; i++) Frame(Eye, shot: false, slide: step, prevSlide: step, velocity: true);
+        var settled = Frame(Eye, shot: true, slide: step, prevSlide: step, velocity: true)!;
+        Assert.All(RowShifts(tracked, settled), s => Assert.Equal(0, s));
+        double Mean(byte[] a, byte[] b)
+        {
+            double m = 0;
+            for (int i = 0; i < a.Length; i++) m += Math.Abs(a[i] - b[i]);
+            return m / a.Length;
+        }
+        double trackedDiff = Mean(tracked, settled), staleDiff = Mean(stale, settled);
+        Assert.True(trackedDiff < staleDiff * 0.6, $"со скоростями отличие от сошедшегося {trackedDiff:0.#}, без них {staleDiff:0.#}");
+
+        // Полосы едут каждый кадр: с размытием по скоростям полутонов больше.
+        int sharp = 0, blurred = 0;
+        taa.MotionBlur = false;
+        for (int i = 1; i <= 6; i++) sharp += i > 2 ? InBetween(Frame(Eye, true, slide: i * step, prevSlide: (i - 1) * step, velocity: true)!) : 0;
+        taa.MotionBlur = true;
+        taa.Shutter = 1;
+        for (int i = 7; i <= 12; i++) blurred += i > 8 ? InBetween(Frame(Eye, true, slide: i * step, prevSlide: (i - 1) * step, velocity: true)!) : 0;
+        Assert.True(blurred > sharp * 1.15, $"полутонов: с размытием по скоростям {blurred}, без {sharp}");
+        Assert.Contains(_renderer.Graph.LastFrame, p => p.Name == "post.motionBlur.tiles");
         Assert.True(_d3d12.Count == 0, string.Join("\n", _d3d12));
     }
 }

@@ -7,6 +7,7 @@
 #include "common/pass.hlsli"
 #include "common/gbuffer.hlsli"
 #include "common/surface.hlsli"
+#include "common/fog.hlsli"
 #include "blood/blood_look.hlsli"
 #include "blood/blood_flight.hlsli"
 
@@ -28,6 +29,7 @@ struct FloorConstants
     uint normal; uint terrain; uint terrainCells; float terrainHalf;
     uint hasField; uint hasMap; uint hasTerrain; float f0;
     float drag; float stretch; float dropThickMm; float pad0;
+    float fogDensity; float fogFalloff; float2 pad1;
 };
 _Static_assert(sizeof(FloorConstants) == BLOOD_FLOOR_CONSTANTS_SIZE, "FloorConstants differs from C# BloodFloorConstants");
 
@@ -126,7 +128,7 @@ float3 Lit(FloorConstants c, BloodLookResult look, float3 n, float3 v, float3 wo
     float3 l = c.sunDir;
     float3 diffuse = look.albedo * (c.sun * saturate(dot(n, l)) + c.sky);
     float3 spec = SurfaceSpecular(n, v, l, c.sun, c.sky, c.f0, look.roughness);
-    float fog = saturate((distance(world, c.eye) - c.fogStart) / c.fogRange);
+    float fog = FogFactor(c.eye, world, c.fogStart, c.fogRange, c.fogDensity, c.fogFalloff);
     return lerp(diffuse + spec, c.fogColour, fog);
 }
 

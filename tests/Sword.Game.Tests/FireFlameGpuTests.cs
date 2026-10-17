@@ -87,7 +87,7 @@ public sealed class FireFlameGpuTests : IDisposable, ILogSink
     private static readonly Vector2 WorldOffset = new(0.123f, -0.071f);
     private const float Phase = 0.3f;
 
-    private static SceneFog Fog => new(new Vector3(0.5f, 0.25f, 0.125f), 4.9f, 0.5f);
+    private static SceneFog Fog => new(new Vector3(0.5f, 0.25f, 0.125f), 4.9f, 0.5f, 0.05f, 0.8f);
 
     /// <summary>Кадр: сцена (цвет <paramref name="background"/>, глубина — рампа по столбцам z0…z1), поле режима <paramref name="mode"/>, пламя.</summary>
     private void Build(RenderFrame f, Vector3 background, float z0, float z1, uint mode)
@@ -183,7 +183,7 @@ public sealed class FireFlameGpuTests : IDisposable, ILogSink
                 var (a, b, _) = FlameMath.Flow(uv, WorldOffset, new Vector2(s.X, s.Y), Phase, p);
                 if (SeamDistance(a.X) < 0.04f || SeamDistance(b.X) < 0.04f) continue;
                 var world = new Vector3(2 * uv.X - 1, 1 - 2 * uv.Y, 0);
-                float fog = Fog.Factor(Vector3.Distance(world, Eye));
+                float fog = Fog.Factor(Eye, world);
                 var expected = FlameMath.Pixel(s, Ramp(a.X), Ramp(b.X), Phase, uv, 1, fog, Fog.Colour, p);
                 // Допуск: шум железа ±0.004 (квантование рампы и мипов) через n³, плюс half и туман.
                 float rho = FlameMath.Density(s.Z);

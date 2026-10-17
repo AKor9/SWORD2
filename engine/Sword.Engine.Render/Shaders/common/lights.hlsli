@@ -4,6 +4,7 @@
 #ifndef SWORD_LIGHTS_HLSLI
 #define SWORD_LIGHTS_HLSLI
 #include "pass.hlsli"
+#include "surface.hlsli"
 
 struct PointLightData
 {
@@ -111,6 +112,30 @@ float3 PointLightDiffuse(PointLightData l, float3 n, float3 world, float3 eye)
     if (ndl > 0 && (l.flags & POINT_LIGHT_FUNCTION) != 0) att *= LightFunctionValue(l, -L, distance(world, eye));
     if (ndl > 0 && l.shadow0 != POINT_SHADOW_NONE) att *= PointShadow(l, world - l.position, n);
     return l.color * (att * ndl);
+}
+
+// Блик источника (GGX, f0 цветной - металл): то же затухание, light function и тень, что у рассеянного; v - на камеру.
+float3 PointLightSpecular(PointLightData l, float3 n, float3 v, float3 world, float3 eye, float3 f0, float roughness)
+{
+    float3 toLight = l.position - world;
+    float distSq = dot(toLight, toLight);
+    float att = PointLightAttenuation(distSq, l.invRadiusSq, l.exponent, (l.flags & POINT_LIGHT_INVERSE_SQUARED) != 0);
+    if (att <= 0 || distSq <= 0) return 0;
+    float3 L = toLight * rsqrt(distSq);
+    if (dot(n, L) <= 0) return 0;
+    if ((l.flags & POINT_LIGHT_FUNCTION) != 0) att *= LightFunctionValue(l, -L, distance(world, eye));
+    if (l.shadow0 != POINT_SHADOW_NONE) att *= PointShadow(l, world - l.position, n);
+    return l.color * att * SurfaceDirectSpecular(n, v, L, f0, roughness);
+}
+
+// Сумма бликов источников буфера srv (единицы - как у PointLightsDiffuse x диффузный цвет: прибавка к цвету сцены).
+float3 PointLightsSpecular(uint srv, float3 n, float3 v, float3 world, float3 eye, float3 f0, float roughness)
+{
+    StructuredBuffer<PointLightData> lights = ResourceDescriptorHeap[srv];
+    uint count = min(lights[0].count, POINT_LIGHTS_MAX);
+    float3 sum = 0;
+    for (uint i = 1; i <= count; i++) sum += PointLightSpecular(lights[i], n, v, world, eye, f0, roughness);
+    return sum;
 }
 
 // Сумма источников буфера srv для точки world с нормалью n (eye - камера, для угасания LF): множитель диффузного цвета.

@@ -5,7 +5,9 @@ namespace Sword.Game.Client.Scene;
 /// <summary>
 /// Шары каскадов теней солнца. Дальний — видимая часть земли (y = 0): углы и центр кадра, лучи выше горизонта — до
 /// <see cref="MaxDistance"/> от глаза; центр — среднее точек, радиус — до дальней точки с запасом под высоту бойцов. Ближний —
-/// вокруг точки земли в центре кадра, радиус — доля расстояния до неё (<see cref="NearShare"/>): чем ближе камера, тем мельче тексель.
+/// вокруг точки земли в центре кадра, радиус — доля расстояния до неё (<see cref="NearShare"/>): чем ближе камера, тем мельче тексель;
+/// и всегда с точкой <c>keep</c> (цель камеры — игрок) и <see cref="KeepMargin"/> вокруг неё: у низкой камеры вблизи центр кадра
+/// уходит на метры вперёд, и без этого игрок с тенью — на шве с размытым дальним каскадом.
 /// </summary>
 public static class ShadowFocus
 {
@@ -20,9 +22,14 @@ public static class ShadowFocus
 
     public const float MinRadius = 4f, MaxNearRadius = 20f, MaxRadius = 50f;
 
+    /// <summary>Запас ближнего вокруг точки keep, м: боец и его тень (рост × котангенс высоты солнца) с выборками PCF.</summary>
+    public const float KeepMargin = 2.5f;
+
     public readonly record struct Spheres(Vector3 NearCenter, float NearRadius, Vector3 FarCenter, float FarRadius);
 
-    public static Spheres Of(in Matrix4x4 viewProj)
+    /// <param name="keep">Точка, которую ближний каскад накрывает всегда (цель камеры); дальше от центра кадра, чем умещается в
+    /// <see cref="MaxNearRadius"/>, — не накрывает.</param>
+    public static Spheres Of(in Matrix4x4 viewProj, Vector3 keep)
     {
         if (!Matrix4x4.Invert(viewProj, out var inv)) return new(Vector3.Zero, MaxNearRadius, Vector3.Zero, MaxRadius);
         Span<Vector3> points = stackalloc Vector3[5];
@@ -39,7 +46,16 @@ public static class ShadowFocus
         foreach (var p in points) radius = MathF.Max(radius, Vector3.Distance(p, center));
         var look = points[4];
         float near = Math.Clamp(NearShare * Vector3.Distance(eye, look), MinRadius, MaxNearRadius);
-        return new(look, near, center, Math.Clamp(radius + Margin, MinRadius, MaxRadius));
+        // Ближний — шар через точку взгляда и keep: центр посередине, радиус — до обеих с запасом у keep.
+        var anchor = new Vector3(keep.X, 0, keep.Z);
+        float half = Vector3.Distance(look, anchor) * 0.5f;
+        var nearCenter = look;
+        if (half + KeepMargin <= MaxNearRadius && Vector3.Distance(look, anchor) + KeepMargin > near)
+        {
+            nearCenter = (look + anchor) * 0.5f;
+            near = Math.Clamp(MathF.Max(near, half + KeepMargin), MinRadius, MaxNearRadius);
+        }
+        return new(nearCenter, near, center, Math.Clamp(radius + Margin, MinRadius, MaxRadius));
     }
 
     /// <summary>

@@ -1,11 +1,13 @@
 {
   "converter": "texture",
   "import": "ambientcg",
-  "notes": "Цвет материалов сцены: слой 0 — ткань костюма бойцов (Fabric036), 1 — шлифованная сталь клинков (Metal009); шейдер берёт отношение к среднему цвету слоя — оттенок даёт цвет бойца.",
+  "notes": "Цвет материалов сцены: слой 0 — ткань костюма бойцов (Fabric036), 1 — шлифованная сталь клинков (Metal009), 2 — каменные плиты пола (Tiles141), 3 — камень колонн (Rock058); шейдер берёт отношение к среднему цвету слоя — оттенок даёт цвет бойца.",
   "params": {
     "layers": [
       "${src}/_Export/materials/Fabric036_Color.png",
-      "${src}/_Export/materials/Metal009_Color.png"
+      "${src}/_Export/materials/Metal009_Color.png",
+      "${src}/_Export/materials/Tiles141_Color.png",
+      "${src}/_Export/materials/Rock058_Color.png"
     ],
     "channel": "rgb",
     "size": 1024,

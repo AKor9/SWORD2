@@ -195,6 +195,50 @@ public sealed class ArenaLightingGpuTests(ITestOutputHelper output) : IDisposabl
     }
 
     /// <summary>
+    /// Блик точечного источника: ночью свет в 1.5 м над землёй — прибавка источника с бликами не меньше, чем без них (у диэлектриков
+    /// рассеянный тот же, блик только прибавляет; меньше — лишь у металла клинков), а на земле в точке зеркального отражения источника
+    /// к камере — больше (земля шероховата, 0.85: блик широкий и слабый).
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Gpu")]
+    [Trait("Category", "Content")]
+    public void PointSpecular_OnlyAdds_MirrorPointOnGroundGains()
+    {
+        Log.AddSink(this);
+        Directory.CreateDirectory(_dir);
+        var focus = new Vector3(2.5f, 0, 2.5f);
+        using var rig = new Rig(_dir, new CameraPose(0.6f, 0.75f, 9f, focus.X, focus.Z));
+        rig.Arena.Night = true;
+        rig.Renderer.AutoExposure.Enabled = false;
+        rig.Renderer.Ao.Enabled = false;
+        var light = new PointLight(focus + new Vector3(0, 1.5f, 0), new Vector3(1, 0.6f, 0.3f), 40f, 10f, LightFalloff.Exponent, 4f);
+        void AddLight(RenderFrame f) => f.Lights.Add(light);
+
+        var onLit = rig.Scene("pspec.on.lit", AddLight);
+        var onDark = rig.Scene("pspec.on.dark");
+        rig.Arena.Specular = false;
+        var offLit = rig.Scene("pspec.off.lit", AddLight);
+        var offDark = rig.Scene("pspec.off.dark");
+
+        int less = 0;
+        for (int p = 0; p < W * H; p++)
+        {
+            float on = Rig.Luma(onLit, p) - Rig.Luma(onDark, p), off = Rig.Luma(offLit, p) - Rig.Luma(offDark, p);
+            if (on < off - 1e-3f - off * 0.002f) less++;
+        }
+        // Точка земли, где отражение луча камеры попадает в источник: делит отрезок между их основаниями обратно высотам.
+        var eye = rig.Arena.Camera.Eye;
+        float t = light.Position.Y / (light.Position.Y + eye.Y);
+        var mirror = new Vector3(light.Position.X + (eye.X - light.Position.X) * t, 0, light.Position.Z + (eye.Z - light.Position.Z) * t);
+        int m = rig.Pixel(mirror);
+        float gainOn = Rig.Luma(onLit, m) - Rig.Luma(onDark, m), gainOff = Rig.Luma(offLit, m) - Rig.Luma(offDark, m);
+        output.WriteLine($"блик источника: прибавка в точке отражения {gainOn:0.###} против {gainOff:0.###} без бликов; меньше — {less} пикселей");
+        Assert.True(less < W * H / 100, $"прибавка с бликами меньше в {less} пикселях — больше, чем клинков в кадре");
+        Assert.True(gainOn > gainOff * 1.04f, $"в точке отражения {gainOn} против {gainOff}");
+        Assert.True(_d3d12.Count == 0, string.Join("\n", _d3d12));
+    }
+
+    /// <summary>
     /// Тени точечного источника: ночью свет в 1 м от боковины колонны — земля за колонной (по лучу от источника) в тени, земля между
     /// источником и колонной — как без теней; ни один пиксель не светлее, чем без них.
     /// </summary>

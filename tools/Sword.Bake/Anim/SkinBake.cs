@@ -30,7 +30,8 @@ public static class SkinBake
     /// Скинированный меш персонажа: суставы — кости экспорта <paramref name="animDir"/> (от него нужны только кости и
     /// пространство — manifest.json), bind-поза — поза покоя <paramref name="refPosePath"/>, оси glTF подбираются по ней.
     /// </summary>
-    internal static void Mesh(string glbPath, string refPosePath, string animDir, string outMesh, TextWriter log)
+    /// <param name="shadowTriangles">Треугольников в меше теней (<see cref="SkinnedMeshData.ShadowIndices"/>); 0 — без него.</param>
+    internal static void Mesh(string glbPath, string refPosePath, string animDir, string outMesh, TextWriter log, int shadowTriangles = 0)
     {
         var inv = CultureInfo.InvariantCulture;
         var man = RawAnimIO.ReadManifest(animDir);
@@ -85,6 +86,12 @@ public static class SkinBake
                 Joints = joints,
                 Weights = new Vector3(gltf.Weights[v * 4], gltf.Weights[v * 4 + 1], gltf.Weights[v * 4 + 2]),
             };
+        }
+        if (shadowTriangles > 0)
+        {
+            mesh.ShadowIndices = MeshDecimate.ShadowLod(mesh, shadowTriangles);
+            log.WriteLine(string.Create(inv, $"меш теней: {mesh.ShadowIndices.Length / 3} треугольников, " +
+                $"{mesh.ShadowIndices.Distinct().Count()} вершин из {mesh.Vertices.Length}"));
         }
         ContentFiles.Write(outMesh, mesh.Write);
         log.WriteLine($"меш → {Path.GetFullPath(outMesh)}: {mesh.Vertices.Length} вершин, {mesh.Indices.Length / 3} треугольников, {bc} суставов");

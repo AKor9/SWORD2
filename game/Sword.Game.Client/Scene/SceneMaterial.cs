@@ -2,8 +2,8 @@ namespace Sword.Game.Client.Scene;
 
 /// <summary>
 /// Материал поверхности сцены для бликов (<c>ShadeMaterial</c> в lighting.hlsli): шероховатость GGX (младшие 8 бит), металл (бит 8) и
-/// текстура (биты 9–10: 0 — нет, иначе слой + 1 массивов <c>textures/materials/*.swtex</c>, трипланар в позе привязки). У скина — поле
-/// <c>Flags</c> экземпляра (<c>GpuSkinInstance</c>), у пола и колонн — числа шейдера.
+/// текстура (биты 9–11: 0 — нет, иначе слой + 1 массивов <c>textures/materials/*.swtex</c>; трипланар — у скина в позе привязки, у пола
+/// и колонн в мире). У скина — поле <c>Flags</c> экземпляра (<c>GpuSkinInstance</c>), у пола и колонн — числа шейдера.
 /// </summary>
 public static class SceneMaterial
 {
@@ -13,8 +13,14 @@ public static class SceneMaterial
     /// <summary>Сдвиг номера текстуры (слой + 1) в материале.</summary>
     public const int TextureShift = 9;
 
-    /// <summary>Слои текстур материалов: ткань костюма (Fabric036) и шлифованная сталь (Metal009), ambientCG CC0.</summary>
-    public const uint Fabric = 1, BrushedSteel = 2;
+    /// <summary>Маска номера текстуры после сдвига.</summary>
+    public const uint TextureMask = 7;
+
+    /// <summary>
+    /// Слои текстур материалов (номер = слой + 1): ткань костюма (Fabric036), шлифованная сталь (Metal009), каменные плиты пола
+    /// (Tiles141), камень колонн (Rock058) — ambientCG CC0.
+    /// </summary>
+    public const uint Fabric = 1, BrushedSteel = 2, FloorTiles = 3, PillarStone = 4;
 
     /// <summary>Пути массивов текстур в паке: цвет (sRGB), нормали (OpenGL), шероховатость — слой на текстуру.</summary>
     public const string AlbedoPath = "textures/materials/albedo.swtex", NormalsPath = "textures/materials/normals.swtex",
@@ -36,10 +42,10 @@ public static class SceneMaterial
     public static readonly uint Charred = Pack(0.95f);
 
     /// <summary>Каменный пол и рельеф арены.</summary>
-    public static readonly uint Ground = Pack(0.85f);
+    public static readonly uint Ground = Pack(0.85f, texture: FloorTiles);
 
     /// <summary>Колонны.</summary>
-    public static readonly uint Pillar = Pack(0.7f);
+    public static readonly uint Pillar = Pack(0.7f, texture: PillarStone);
 
     /// <summary>Материал части оружия по имени материала секции меша (как <c>ArenaClient.WeaponMaterialColour</c>): прочее — сталь.</summary>
     public static uint OfWeaponPart(string material) => material.ToLowerInvariant() switch

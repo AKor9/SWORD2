@@ -73,6 +73,26 @@ public class SkinnedMeshDataTests
     }
 
     [Fact]
+    public void ShadowIndices_RoundTrip_OutOfRangeRejected_Version2ReadsWithout()
+    {
+        var a = Triangle();
+        a.ShadowIndices = [2, 1, 0];
+        var b = SkinnedMeshData.Read(new MemoryStream(Save(a)), "mem");
+        Assert.Equal(a.ShadowIndices, b.ShadowIndices);
+
+        a.ShadowIndices = [0, 1, 3];
+        Assert.Throws<InvalidDataException>(() => SkinnedMeshData.Read(new MemoryStream(Save(a)), "mem"));
+
+        // Без меша теней пишется версия 2 (байты прежних мешей те же) и читается без него.
+        a.ShadowIndices = [];
+        var v2 = Save(a);
+        Assert.Equal(2, BitConverter.ToUInt16(v2, 4));
+        var old = SkinnedMeshData.Read(new MemoryStream(v2), "v2");
+        Assert.Empty(old.ShadowIndices);
+        Assert.Equal(a.Indices, old.Indices);
+    }
+
+    [Fact]
     public void JointOutsideSkeletonIsRejected()
     {
         var m = Triangle();

@@ -32,4 +32,6 @@ public struct FrameConstants
     public uint AoMap; public uint Specular; public uint MaterialAlbedo; public uint MaterialNormals;
     /// <summary>Текстуры материалов (<see cref="SceneMaterial"/>): SRV цвета, нормалей и шероховатости или <c>SceneMaterialNone</c> — без текстур.</summary>
     public uint MaterialRoughness; public uint Pad5; public uint Pad6; public uint Pad7;
+    /// <summary>Скорости предпрохода (цель <c>SceneTargets.Velocity</c>): матрица этого кадра и прошлого, обе без сдвига TAA.</summary>
+    public Matrix4x4 VelocityViewProj, PrevViewProj;
 }

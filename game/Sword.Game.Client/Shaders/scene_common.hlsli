@@ -11,8 +11,8 @@ struct SceneEnvironment
     float3 skyLow; float pad1;
     float3 skyHigh; float pad2;
     float3 rim; float pad3;
-    float3 fog; float pad4;
-    float3 background; float pad5;
+    float3 fog; float fogDensity;            // fogDensity, fogFalloff - height fog (common/fog.hlsli)
+    float3 background; float fogFalloff;
 };
 
 // Константы кадра — одна структура, её размер сверяется с C# (FRAME_CONSTANTS_SIZE). Поля — строками по 16 байт:
@@ -34,10 +34,23 @@ struct FrameConstants
     float shadowBias0; float shadowBias1; float shadowSoftness; float shadowPad;
     uint aoMap; uint specular; uint materialAlbedo; uint materialNormals;
     uint materialRoughness; uint pad5; uint pad6; uint pad7;
+    float4x4 velocityViewProj;
+    float4x4 prevViewProj;
 };
 _Static_assert(sizeof(FrameConstants) == FRAME_CONSTANTS_SIZE, "FrameConstants layout differs from C# (Scene/FrameConstants.cs)");
 
 ConstantBuffer<FrameConstants> gFrame : register(b0);
+
+// Скорость точки на экране (цель скоростей сцены): этот кадр минус прошлый, доли экрана (y вниз), обе матрицы без сдвига TAA.
+float2 SceneVelocity(float3 world, float3 prevWorld)
+{
+    float4 c = mul(gFrame.velocityViewProj, float4(world, 1));
+    float4 p = mul(gFrame.prevViewProj, float4(prevWorld, 1));
+    return (c.xy / c.w - p.xy / p.w) * float2(0.5, -0.5);
+}
+
+// Выход предпрохода глубины, нормалей и скоростей (GTAO и TAA читают их до непрозрачного прохода).
+struct PrepassOut { float4 normal : SV_Target0; float2 velocity : SV_Target1; };
 
 uint Hash(uint x)
 {
