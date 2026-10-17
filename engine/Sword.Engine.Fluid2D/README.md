@@ -46,6 +46,8 @@ A, P, кисть, возраст — берётся из x + сдвиг (пос�
 **Выход** — `Export(RenderFrame)` → временная текстура RGBA16F N² кадра (`fluid.export`, раз за кадр после шагов): (v·edge10, ρ^Contrast
 или 1 − ρ^Contrast, max(wet·маска·edge10, 0.01) или 1 − ρ^Contrast). Выборку (clamp, билинейную) делает материал. Возраст —
 `ExportAge(RenderFrame)` → временная R32F N² (`fluid.export.age`) или хранилище `Age` (float на тексель, как `Composite`).
+Состояние между шагами (выход Advection, вход Composite следующего) — `Advected`, `AgeAdvected`, `DensityAdvected` (ρ во float при
+`ConservativeDensity`): вызывающий может вынуть массу проходом до шага (кровь — засохшее в карту пятен), обнулив ρ текселя во всех трёх.
 
 **Шум скорости** — `SimplexNoise` (C#) = `Simplex2` (HLSL): 3D-симплекс по открытому описанию (Gustavson; углы — сравнением координат, McEwan
 и др.), вклад угла (1 − 2|f|²)³·1024/375·(g·f), градиенты (±1, ±1, ±1) из битов 15–13 хеша PCG3D (Jarzynski, Olano) координат угла ×6,

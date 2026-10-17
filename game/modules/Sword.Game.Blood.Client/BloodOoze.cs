@@ -1,12 +1,17 @@
 namespace Sword.Game.Blood;
 
+/// <summary>Капля лужи трупа: боец, строка ран, номер раны, объём, мл, номер капли раны (соль места).</summary>
+public readonly record struct BloodPour(ulong Fighter, int Row, int Wound, float Volume, uint Salt);
+
 /// <summary>
 /// Сочение сильных ран (решения 2–4): у раны <see cref="BloodWound.Strong"/> — источник с темпом R₀ = урон · <see cref="BloodTuning.OozeRate"/>
 /// мл/с, гаснущим линейно до нуля за <see cref="BloodTuning.OozeSeconds"/>; у трупа темп не ниже доли <see cref="BloodTuning.OozeCorpseShare"/>
 /// от R₀ — пока труп лежит (до снятия бойца). Объём шага — точный интеграл темпа между временами шагов; общий предел темпа на бойца
 /// <see cref="BloodTuning.OozeMaxRate"/>. Выпущенное: доля <see cref="BloodTuning.OozeSpotShare"/> — в пятно у раны (оно растёт), остальное
 /// копится и уходит новым потёком (<see cref="BloodDrips.Feed"/>) порциями <see cref="BloodTuning.OozeFeedVolume"/>. Всё — функция записей
-/// ран и тиков: два прогона дают одно и то же; место потёка — из хеша (зерно раны, номер подпитки).
+/// ран и тиков: два прогона дают одно и то же; место потёка — из хеша (зерно раны, номер подпитки). Лужа под трупом: с тика смерти из ран
+/// трупа выливается <see cref="BloodTuning.CorpsePoolMl"/> с темпом ∝ e^(−t/τ), по ранам — по урону, каплями <see cref="BloodTuning.CorpsePourDropMl"/>
+/// (<see cref="Pours"/> шага; полёт и пол — у модуля).
 /// </summary>
 public sealed class BloodOoze
 {
@@ -19,10 +24,22 @@ public sealed class BloodOoze
         public double Released;   // выпущено, мл
         public uint Feeds;
         public float Rate;        // темп на последнем шаге, мл/с
+        public float PourPending; // лужа трупа: накоплено на каплю, мл
+        public uint Pours;
     }
 
     private Source[] _sources = new Source[64 * BloodWounds.RingSize];
     private readonly float[] _step = new float[BloodWounds.RingSize];
+    private ulong[] _deadKey = new ulong[64], _deadTick = new ulong[64];   // тик смерти + 1 (0 — жив)
+    private float[] _poolTime = new float[64];
+    private BloodPour[] _pours = new BloodPour[64];
+    private int _pourCount;
+
+    /// <summary>Капли лужи трупов последнего шага.</summary>
+    public ReadOnlySpan<BloodPour> Pours => _pours.AsSpan(0, _pourCount);
+
+    /// <summary>Вылито в лужи трупов с начала прогона, мл.</summary>
+    public double Poured { get; private set; }
 
     /// <summary>Выпущено сочением с начала прогона, мл; потёков рождено.</summary>
     public double Released { get; private set; }
@@ -67,6 +84,13 @@ public sealed class BloodOoze
         BloodDrips? drips)
     {
         if (_sources.Length < wounds.Capacity * BloodWounds.RingSize) Array.Resize(ref _sources, wounds.Capacity * BloodWounds.RingSize);
+        if (_deadKey.Length < wounds.Capacity)
+        {
+            Array.Resize(ref _deadKey, wounds.Capacity);
+            Array.Resize(ref _deadTick, wounds.Capacity);
+            Array.Resize(ref _poolTime, wounds.Capacity);
+        }
+        _pourCount = 0;
         Active = 0;
         Rate = 0;
         for (int row = 0; row < wounds.Capacity; row++)
@@ -100,6 +124,37 @@ public sealed class BloodOoze
         float scale = total > cap && total > 0 ? cap / total : 1;
         for (int i = 0; i < list.Length; i++)
             if (_step[i] > 0) Release(row, i, list[i], _step[i] * scale, tick, now, tuning, skin, drips);
+        Pool(row, tick, tickDt, corpse, wounds, tuning);
+    }
+
+    /// <summary>Лужа трупа: объём шага — ∫ темпа PoolMl/τ·e^(−t/τ) от тика смерти, по ранам — по урону; набралась капля — в <see cref="Pours"/>.</summary>
+    private void Pool(int row, ulong tick, float tickDt, bool corpse, BloodWounds wounds, BloodTuning tuning)
+    {
+        ulong key = wounds.Key(row);
+        if (!corpse || _deadKey[row] != key)
+        {
+            (_deadKey[row], _deadTick[row], _poolTime[row]) = (key, corpse ? tick + 1 : 0, 0);
+            if (!corpse) return;
+        }
+        if (_deadTick[row] == 0) (_deadTick[row], _poolTime[row]) = (tick + 1, 0);
+        float tau = MathF.Max(tuning.CorpsePoolSeconds, 1e-3f), t = (tick + 1 - _deadTick[row]) * tickDt;
+        float volume = tuning.CorpsePoolMl * (MathF.Exp(-_poolTime[row] / tau) - MathF.Exp(-t / tau));
+        _poolTime[row] = t;
+        var list = wounds.Of(row);
+        float damage = 0;
+        for (int i = 0; i < list.Length; i++) damage += MathF.Max(list[i].Damage, 0);
+        if (!(volume > 0) || !(damage > 0)) return;
+        float drop = MathF.Max(tuning.CorpsePourDropMl, 0.05f);
+        for (int i = 0; i < list.Length; i++)
+        {
+            ref var s = ref _sources[row * BloodWounds.RingSize + i];
+            s.PourPending += volume * MathF.Max(list[i].Damage, 0) / damage;
+            if (s.PourPending < drop) continue;
+            if (_pourCount == _pours.Length) Array.Resize(ref _pours, 2 * _pours.Length);
+            _pours[_pourCount++] = new BloodPour(key, row, i, s.PourPending, s.Pours++);
+            Poured += s.PourPending;
+            s.PourPending = 0;
+        }
     }
 
     private void Release(int row, int index, in BloodWound w, float volume, ulong tick, float now, BloodTuning tuning, BloodSkin? skin,
@@ -120,5 +175,11 @@ public sealed class BloodOoze
         s.Pending = 0;
     }
 
-    public void ClearAll() => Array.Clear(_sources);
+    public void ClearAll()
+    {
+        Array.Clear(_sources);
+        Array.Clear(_deadKey);
+        Array.Clear(_deadTick);
+        _pourCount = 0;
+    }
 }

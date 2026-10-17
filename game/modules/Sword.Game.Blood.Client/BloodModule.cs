@@ -174,7 +174,7 @@ public sealed class BloodModule : IClientModule
         BloodFloorView? floorView = null;
         if (settings.Floor)
         {
-            var floor = _floor = new BloodFloor();
+            var floor = _floor = new BloodFloor(Tuning);
             floorView = new BloodFloorView { Tuning = Tuning, Sky = _sky, Fog = _fog, Terrain = _terrain };
             var gpu = _floorGpu = new BloodFloorGpu(floor, floorView);
             // Ядро Fluid2D может уже объявить огонь (имена контракта общие).
@@ -224,6 +224,10 @@ public sealed class BloodModule : IClientModule
             .Float("oozeRate", "сочение: темп на урон, мл/с", () => t.OozeRate, v => t.OozeRate = v, 0f, 0.05f, format: "0.####")
             .Float("oozeSeconds", "сочение гаснет за, с", () => t.OozeSeconds, v => t.OozeSeconds = v, 1f, 120f, format: "0")
             .Float("oozeCorpseShare", "сочение у трупа: доля темпа", () => t.OozeCorpseShare, v => t.OozeCorpseShare = v, 0f, 1f, format: "0.##")
+            .Float("trailRadius", "след потёка на коже: радиус, м", () => t.TrailRadius, v => t.TrailRadius = v, 0f, 0.1f, format: "0.###")
+            .Float("trailCost", "след потёка: мл на метр", () => t.TrailCost, v => t.TrailCost = v, 0.1f, 20f, log: true, format: "0.##")
+            .Float("corpsePoolMl", "лужа трупа, мл", () => t.CorpsePoolMl, v => t.CorpsePoolMl = v, 0f, 1000f, format: "0")
+            .Float("corpsePoolSeconds", "лужа трупа: τ, с", () => t.CorpsePoolSeconds, v => t.CorpsePoolSeconds = v, 0.1f, 60f, log: true, format: "0.#")
             .Info("кожа", SkinStatus, "слотов кожи занято, сочащихся ран, темп сочения мкл/с, выпущено мкл")
             .Float("glossStart", "блеск уходит с, с", () => t.Look.GlossStart, v => t.Look.GlossStart = v, 0f, 300f, format: "0")
             .Float("glossEnd", "блеск ушёл к, с", () => t.Look.GlossEnd, v => t.Look.GlossEnd = v, 1f, 600f, format: "0")
@@ -251,7 +255,11 @@ public sealed class BloodModule : IClientModule
             .Float("floorWet", "мокрый пол: множитель", () => t.FloorWetDarken, v => t.FloorWetDarken = v, 0.1f, 1f, format: "0.##")
             .Float("floorHalo", "мокрый пол: ореол, текселей", () => t.FloorHalo, v => t.FloorHalo = v, 0f, 8f, format: "0.#")
             .Float("floorRipple", "плёнка: рябь, уклон", () => t.FloorRipple, v => t.FloorRipple = v, 0f, 0.3f, format: "0.###")
-            .Float("floorRippleSize", "плёнка: рябь, размер, м", () => t.FloorRippleSize, v => t.FloorRippleSize = v, 0.005f, 0.5f, log: true, format: "0.###"));
+            .Float("floorRippleSize", "плёнка: рябь, размер, м", () => t.FloorRippleSize, v => t.FloorRippleSize = v, 0.005f, 0.5f, log: true, format: "0.###")
+            .Float("floorNoise", "плёнка: неровность толщины ±", () => t.FloorNoise, v => t.FloorNoise = v, 0f, 1f, format: "0.##")
+            .Float("floorNoiseSize", "плёнка: неровность, размер, м", () => t.FloorNoiseSize, v => t.FloorNoiseSize = v, 0.01f, 1f, log: true, format: "0.###")
+            .Float("floorErode", "плёнка: рваный край, мм", () => t.FloorErodeMm, v => t.FloorErodeMm = v, 0f, 1f, format: "0.###")
+            .Float("floorDryAge", "засохшее — в карту с возраста, с", () => t.FloorDryAge, v => t.FloorDryAge = v, 10f, 3600f, log: true, format: "0"));
         b.Report(Report);
     }
 
@@ -279,6 +287,7 @@ public sealed class BloodModule : IClientModule
         if (_poses is not { } poses) return;
         if (ObservedTicks == 1) _ = poses.Count;   // первый снимок поз (буферы сервиса) — в служебном кадре первого тика
         if (feed.ArenaReset) _floor?.Reset();
+        foreach (ulong f in feed.Deaths) RememberDeath(f, tick, poses);
         if (Settings!.Body && (_surface is not null || EnsureSurface()))
         {
             if (feed.ArenaReset)
@@ -295,6 +304,24 @@ public sealed class BloodModule : IClientModule
         }
         if (_floor is not null && IsStep(tick)) StepFloor(tick, poses);
     }
+
+    /// <summary>Место смерти (таз тика) для итога: первые <see cref="DeathPoints"/>.</summary>
+    private void RememberDeath(ulong fighter, ulong tick, IFighterPoses poses)
+    {
+        if (_deathCount >= _deathsAt.Length) return;
+        int index = poses.Find(fighter);
+        if (index < 0) return;
+        var segments = poses.Segments(index);
+        if (segments.Length <= BodySegs.Pelvis) return;
+        var p = segments[BodySegs.Pelvis].Position;
+        _deathsAt[_deathCount++] = (tick, p.X, p.Z);
+    }
+
+    /// <summary>Мест смерти в итоге не больше.</summary>
+    public const int DeathPoints = 16;
+
+    private readonly (ulong Tick, float X, float Z)[] _deathsAt = new (ulong, float, float)[DeathPoints];
+    private int _deathCount;
 
     /// <summary>Шаг пола: отрывы шага потёков — в полёт (приземление по рельефу), окно у игрока, заявка шага сима.</summary>
     private void StepFloor(ulong tick, IFighterPoses poses)
@@ -372,6 +399,7 @@ public sealed class BloodModule : IClientModule
         _drips.Step(tick, _stepDt, poses);
         if (_skin is { } skin) StampSkin(skin, _drips.Stamps);
         _ooze.Step(tick, _tickDt, _clock, _wounds, Tuning, _dead, _skin, _drips);
+        if (_floor is { } floor && _ooze.Pours.Length > 0) Pour(floor, tick, poses);
         long spent = System.Diagnostics.Stopwatch.GetTimestamp() - started;
         LastStepMs = spent * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         if (!any) return;
@@ -379,10 +407,47 @@ public sealed class BloodModule : IClientModule
         _stepsTimed++;
     }
 
+    /// <summary>
+    /// Капли лужи трупа шага: из точки раны на коже позы тика, на 1 см наружу, со скоростью 0.1 м/с по нормали и разбросом ±5 см/с из хеша
+    /// (зерно раны, номер капли) — в полёт к полу.
+    /// </summary>
+    private void Pour(BloodFloor floor, ulong tick, IFighterPoses poses)
+    {
+        var pours = _ooze.Pours;
+        if (_pourDrops.Length < pours.Length) _pourDrops = new BloodDrop[Math.Max(2 * _pourDrops.Length, pours.Length)];
+        int count = 0;
+        for (int i = 0; i < pours.Length; i++)
+            if (PourDrop(pours[i], tick, poses, out var drop)) _pourDrops[count++] = drop;
+        floor.Detach(_pourDrops.AsSpan(0, count), _terrain, Tuning.DropDrag, _tickDt);
+    }
+
+    private BloodDrop[] _pourDrops = new BloodDrop[16];
+
+    private bool PourDrop(in BloodPour pour, ulong tick, IFighterPoses poses, out BloodDrop drop)
+    {
+        drop = default;
+        int index = poses.Find(pour.Fighter);
+        if (index < 0) return false;
+        var joints = poses.Joints(index);
+        if (joints.IsEmpty) return false;
+        ref readonly var w = ref _wounds.At(pour.Row, pour.Wound);
+        var s = _surface!;
+        s.SkinTriangle(w.Triangle, joints, out var w0, out var w1, out var w2);
+        var c = Vector3.Cross(w1 - w0, w2 - w0);
+        float l = c.Length();
+        var n = l > 1e-12f ? c * (s.FaceSign(w.Triangle) / l) : Vector3.UnitY;
+        uint seed = BloodHash.Combine(w.Seed, 0x700u + pour.Salt);
+        var jitter = new Vector3(BloodHash.Unit(seed, 0) - 0.5f, 0, BloodHash.Unit(seed, 1) - 0.5f) * 0.1f;
+        var p = w.Bary.X * w0 + w.Bary.Y * w1 + w.Bary.Z * w2 + n * 0.01f;
+        drop = new BloodDrop(pour.Fighter, tick, p, n * 0.1f + jitter, pour.Volume);
+        return true;
+    }
+
     /// <summary>Следы потёков шага — в кровь на коже.</summary>
     private void StampSkin(BloodSkin skin, ReadOnlySpan<DripStamp> stamps)
     {
-        for (int i = 0; i < stamps.Length; i++) skin.Stamp(stamps[i].Fighter, stamps[i].Triangle, stamps[i].Bary, stamps[i].Volume, _clock);
+        float radius = Tuning.TrailRadius;
+        for (int i = 0; i < stamps.Length; i++) skin.Stamp(stamps[i].Fighter, stamps[i].Triangle, stamps[i].Bary, stamps[i].Volume, _clock, radius);
     }
 
     /// <summary>Точка попадания для оверлея кадра.</summary>
@@ -594,6 +659,7 @@ public sealed class BloodModule : IClientModule
             built = Built,
             resets = Resets,
             lastFrame = new { ticks = LastFrameTicks, hits = LastFrameHits, deaths = LastFrameDeaths },
+            deathsAt = _deathsAt.Take(_deathCount).Select(d => new { tick = d.Tick, x = Math.Round(d.X, 2), z = Math.Round(d.Z, 2) }).ToArray(),
             // Позы — снимок последнего тика при чтении итога (в кадре скелет их не снимает).
             posedFighters = _poses?.Count ?? 0,
         },
@@ -659,6 +725,9 @@ public sealed class BloodModule : IClientModule
             landedMl = Math.Round(f.LandedMl, 4),
             stampedMl = Math.Round(f.StampedMl, 4),
             outsideMl = Math.Round(f.OutsideMl, 4),
+            offMapMl = Math.Round(f.OffMapMl, 4),
+            pouredMl = Math.Round(_ooze.Poured, 4),
+            dried = g?.Dries ?? 0,
             lost = f.Lost,
             drawnDrops = g?.DrawnDrops ?? 0,
             sumRho = stats is { } st ? Math.Round(st.DensitySum, 4) : (double?)null,

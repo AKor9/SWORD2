@@ -191,6 +191,15 @@ public sealed class Fluid2DSim : IDisposable
     /// </summary>
     public GpuStorage? Age => _ageC;
 
+    /// <summary>
+    /// Состояние между шагами — выход Advection, вход Composite следующего шага: поле A (как <see cref="Composite"/>), его возраст (при
+    /// <see cref="Fluid2DParams.AgeChannel"/>) и ρ во float (при <see cref="Fluid2DParams.ConservativeDensity"/>; его, а не half в A, берёт
+    /// Composite). Вынуть массу (засохшее — в карту пятен): обнулить ρ текселя во всех трёх проходом до шага.
+    /// </summary>
+    public GpuStorage Advected => _advected;
+    public GpuStorage? AgeAdvected => _ageA;
+    public GpuStorage? DensityAdvected => _rhoA;
+
     /// <summary>Обнулить поля и грид кисти: первым проходом следующего шага или экспорта (<c>fluid.clear</c>, <c>fluid.painter.clear</c>).</summary>
     public void Reset()
     {

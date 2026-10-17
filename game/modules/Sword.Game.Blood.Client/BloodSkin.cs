@@ -203,6 +203,22 @@ public sealed class BloodSkin
     }
 
     /// <summary>
+    /// Штамп следа потёка шириной: объём — пятном радиуса <paramref name="radius"/> вокруг точки (барицентрики треугольника в привязке) по связной
+    /// коже той же стороны (<see cref="Spot"/>); радиус 0 — трём вершинам треугольника.
+    /// </summary>
+    public void Stamp(ulong fighter, int triangle, Vector3 bary, float volume, float now, float radius)
+    {
+        if (!(radius > 0))
+        {
+            Stamp(fighter, triangle, bary, volume, now);
+            return;
+        }
+        var center = bary.X * _surface.BindPosition(_surface.Vertex(triangle, 0)) + bary.Y * _surface.BindPosition(_surface.Vertex(triangle, 1))
+            + bary.Z * _surface.BindPosition(_surface.Vertex(triangle, 2));
+        if (Spot(fighter, triangle, center, _surface.FaceNormalBind(triangle), radius, volume, now) == 0) Stamp(fighter, triangle, bary, volume, now);
+    }
+
+    /// <summary>
     /// Пятно у раны: объём <paramref name="volume"/>, мл, на связную кожу от треугольника раны в шаре радиуса <paramref name="radius"/> вокруг
     /// <paramref name="center"/> (привязка) — только по вершинам, нормаль которых смотрит в ту же сторону, что <paramref name="normal"/>;
     /// толщина спадает к краю как (1 − d²/R²)². Вернёт число вершин пятна.

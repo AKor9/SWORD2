@@ -9,10 +9,10 @@ public sealed class BloodTuning
     public float StrongDamage { get; set; } = 45;
 
     /// <summary>Крови в рану на единицу урона, мл.</summary>
-    public float VolumePerDamage { get; set; } = 0.05f;
+    public float VolumePerDamage { get; set; } = 0.12f;
 
     /// <summary>Вязкое гашение скорости потёка k, 1/с: v ← v·e^(−k·dt); на отвесной коже скорость устанавливается около g·dt·e^(−k·dt)/(1 − e^(−k·dt)).</summary>
-    public float Viscosity { get; set; } = 80;
+    public float Viscosity { get; set; } = 40;
 
     /// <summary>Объём потёка, с которого он отрывается каплей с поверхности, смотрящей вниз, мл.</summary>
     public float DetachVolume { get; set; } = 0.25f;
@@ -29,8 +29,11 @@ public sealed class BloodTuning
     /// <summary>Касательное ускорение слабее, м/с², — потёк стоит (кровь держится на коже).</summary>
     public float StickAccel { get; set; } = 2;
 
-    /// <summary>Объём, который потёк оставляет на метр следа, мл/м (плёнка ≈ 2 мм × 1 мм).</summary>
-    public float TrailCost { get; set; } = 2;
+    /// <summary>Объём, который потёк оставляет на метр следа, мл/м (полоса ≈ 4 см × 0.06 мм).</summary>
+    public float TrailCost { get; set; } = 2.5f;
+
+    /// <summary>След потёка на коже — пятно этого радиуса в привязке, м (на 24 м полоса — 2–3 пикселя; 0 — три вершины треугольника).</summary>
+    public float TrailRadius { get; set; } = 0.025f;
 
     /// <summary>Точки следа — не чаще, м.</summary>
     public float TrailStep { get; set; } = 0.01f;
@@ -42,15 +45,15 @@ public sealed class BloodTuning
     public float MaxAccel { get; set; } = 400;
 
     /// <summary>Пятно у раны при попадании: крови на единицу урона, мл.</summary>
-    public float SpotPerDamage { get; set; } = 0.02f;
+    public float SpotPerDamage { get; set; } = 0.04f;
 
     /// <summary>Радиус пятна у раны: наименьший, м, и прибавка на единицу урона, м (не больше <see cref="SpotRadiusMax"/>).</summary>
-    public float SpotRadiusMin { get; set; } = 0.012f;
-    public float SpotRadiusPerDamage { get; set; } = 0.0005f;
-    public float SpotRadiusMax { get; set; } = 0.05f;
+    public float SpotRadiusMin { get; set; } = 0.02f;
+    public float SpotRadiusPerDamage { get; set; } = 0.0008f;
+    public float SpotRadiusMax { get; set; } = 0.07f;
 
     /// <summary>Сочение сильной раны (решение 3): темп на единицу урона, мл/с; гаснет линейно до нуля за столько секунд.</summary>
-    public float OozeRate { get; set; } = 0.004f;
+    public float OozeRate { get; set; } = 0.01f;
     public float OozeSeconds { get; set; } = 20;
 
     /// <summary>У трупа темп не ниже этой доли начального — пока труп лежит (решение 4).</summary>
@@ -64,6 +67,14 @@ public sealed class BloodTuning
 
     /// <summary>Порция нового потёка из сочения, мл (больше порога отрыва — у раны снизу капает).</summary>
     public float OozeFeedVolume { get; set; } = 0.3f;
+
+    /// <summary>
+    /// Лужа под трупом: из ран трупа (по урону) каплями выливается столько, мл, — темп спадает как e^(−t/τ) от смерти (за 5–8 с — 80–93 %),
+    /// τ — <see cref="CorpsePoolSeconds"/>; капля — <see cref="CorpsePourDropMl"/>.
+    /// </summary>
+    public float CorpsePoolMl { get; set; } = 150;
+    public float CorpsePoolSeconds { get; set; } = 3;
+    public float CorpsePourDropMl { get; set; } = 1;
 
     /// <summary>Сопротивление полёта капли k, 1/с: dv/dt = g − k·v (предельная скорость g/k).</summary>
     public float DropDrag { get; set; } = 2;
@@ -80,8 +91,9 @@ public sealed class BloodTuning
     /// <summary>Пятно капли на полу: полуось гаусса — радиус диска толщины лужи H с её объёмом × это.</summary>
     public float DropSpread { get; set; } = 1.5f;
 
-    /// <summary>Отладочная лужа у ног игрока, мл.</summary>
-    public float PuddleMl { get; set; } = 60;
+    /// <summary>Отладочная лужа у ног игрока, мл, — выливается за столько секунд.</summary>
+    public float PuddleMl { get; set; } = 120;
+    public float PourSeconds { get; set; } = 1;
 
     /// <summary>Плёнка на полу: приёмник не круче, градусы; не дальше от рельефа по высоте, м.</summary>
     public float FloorMaxSlope { get; set; } = 50;
@@ -107,6 +119,17 @@ public sealed class BloodTuning
     /// <summary>Рябь плёнки: уклон шума в мире (без анимации) и его размер, м.</summary>
     public float FloorRipple { get; set; } = 0.02f;
     public float FloorRippleSize { get; set; } = 0.15f;
+
+    /// <summary>
+    /// Неровность плёнки на экране (статичный шум толщины в мире, 4 октавы): толщина × (1 ± <see cref="FloorNoise"/>) минус до
+    /// <see cref="FloorErodeMm"/> по шуму — край лужи рваный, толщина неравномерная; размер крупной октавы, м.
+    /// </summary>
+    public float FloorNoise { get; set; } = 0.5f;
+    public float FloorNoiseSize { get; set; } = 0.12f;
+    public float FloorErodeMm { get; set; } = 0.15f;
+
+    /// <summary>Засохшее в окне уходит в карту пятен: возраст не меньше, с (тонкое, стоящее; толще — вдвое старше).</summary>
+    public float FloorDryAge { get; set; } = 240;
 
     /// <summary>Функция свежести (кожа и пол).</summary>
     public BloodLookParams Look = BloodLookParams.Default;

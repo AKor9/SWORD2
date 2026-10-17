@@ -121,14 +121,112 @@ public sealed class BloodFloorTests(ITestOutputHelper output)
         Assert.Equal(total, floor.LandedMl, 4);
         Assert.Equal(total, stamped, 3);
         Assert.Equal(floor.StampedMl + floor.OutsideMl, floor.LandedMl, 6);
-        // Тик приземления наступил к шагу, в котором капля легла, и не раньше.
+        // Капля легла в первом шаге после тика касания (до него она на экране — в полёте), не раньше и не позже.
         foreach (var d in drops)
         {
             Assert.True(BloodFlight.Land(terrain, d.Position, d.Velocity, 2, TickDt, BloodFloor.MaxFlightTicks, out int ticks, out _, out _));
             ulong land = d.Tick + (ulong)ticks;
-            Assert.Contains(landedAt, t => t >= land && t < land + 2);
+            Assert.Contains(landedAt, t => t > land && t <= land + 2);
         }
         output.WriteLine($"капель 40, {total:F3} мл; в штампах {stamped:F4} мл");
+    }
+
+    /// <summary>Формы для CPU-тестов: брызги 3, капли 2, косые 4 (вытянуты вдвое), лужи 2; среднее слоя 0.2 + 0.01·k.</summary>
+    internal static BloodStampShapes FakeShapes() =>
+        new([3, 2, 4, 2], [.. Enumerable.Range(0, 11).Select(k => 0.2f + 0.01f * k)], [.. Enumerable.Range(0, 11).Select(k => k is >= 5 and < 9 ? 2f : 1f)]);
+
+    /// <summary>Группа формы k ≥ 1 у <see cref="FakeShapes"/>.</summary>
+    private static BloodShapeGroup GroupOf(int shape) => shape switch
+    {
+        <= 3 => BloodShapeGroup.Omni,
+        <= 5 => BloodShapeGroup.Spots,
+        <= 9 => BloodShapeGroup.Directional,
+        _ => BloodShapeGroup.Puddles,
+    };
+
+    [Fact]
+    public void Floor_Landing_ShapeByImpact_MassKept_OutsideWindowGoesToMap()
+    {
+        var floor = new BloodFloor { Shapes = FakeShapes() };
+        var terrain = new Terrain((_, _) => 0);
+        // Отвесная с 1.2 м, косая с 1.2 м (быстро вбок по +Z), медленная с 5 см, отвесная за окном (x = 20 м).
+        BloodDrop[] drops =
+        [
+            new(1, 10, new Vector3(0, 1.2f, 0), Vector3.Zero, 0.4f),
+            new(1, 10, new Vector3(1, 1.2f, 0), new Vector3(0, 0, 8), 0.4f),
+            new(1, 10, new Vector3(2, 0.05f, 0), Vector3.Zero, 1f),
+            new(1, 10, new Vector3(20, 1.2f, 0), Vector3.Zero, 0.4f),
+        ];
+        floor.Detach(drops, terrain, 2, TickDt);
+        floor.BeginFrame();
+        floor.Step(10, 5, Vector2.Zero, 1.5f, 60, null);
+        var stamps = new List<BloodFloorStamp>();
+        var map = new List<BloodMapStamp>();
+        for (ulong tick = 12; tick < 300; tick += 2)
+        {
+            floor.BeginFrame();
+            floor.Step(tick, tick / 2, Vector2.Zero, 1.5f, 60, null);
+            stamps.AddRange(floor.Stamps.ToArray());
+            map.AddRange(floor.MapStamps.ToArray());
+        }
+        Assert.Equal(3, stamps.Count);
+        var vertical = stamps.Single(s => MathF.Abs(s.Xz.X) < 0.1f);
+        var oblique = stamps.Single(s => MathF.Abs(s.Xz.X - 1) < 0.1f);
+        var gentle = stamps.Single(s => MathF.Abs(s.Xz.X - 2) < 0.1f);
+        Assert.Contains(GroupOf(vertical.Shape), new[] { BloodShapeGroup.Omni, BloodShapeGroup.Spots });
+        Assert.Equal(BloodShapeGroup.Directional, GroupOf(oblique.Shape));
+        Assert.Equal(BloodShapeGroup.Puddles, GroupOf(gentle.Shape));
+        // Косая: ось u — по горизонтальной скорости (+Z, угол π/2 ± 0.15), вытянута: слой ×2 и 1/sin α.
+        Assert.InRange(oblique.Angle, MathF.PI / 2 - 0.16f, MathF.PI / 2 + 0.16f);
+        Assert.True(oblique.HalfAxes.X > 1.4f * oblique.HalfAxes.Y, $"косая {oblique.HalfAxes}");
+        foreach (var s in stamps) Assert.Equal(BloodFloor.DensityVolume(s.Millilitres), s.Volume);
+        // За окном — в карту, масса та же.
+        Assert.Single(map);
+        Assert.Equal(BloodFloor.DensityVolume(0.4f), map[0].Volume);
+        Assert.Equal(0.4, floor.OutsideMl, 5);
+        Assert.Equal(floor.LandedMl, floor.StampedMl + floor.OutsideMl + floor.OffMapMl, 5);
+        output.WriteLine($"отвесная {vertical.HalfAxes} форма {vertical.Shape}; косая {oblique.HalfAxes} угол {oblique.Angle:F3}; медленная {gentle.HalfAxes}");
+    }
+
+    [Fact]
+    public void Floor_Puddle_PoursSeriesOfShapes_MassIsVolume_Deterministic()
+    {
+        (float Ml, int Count, int Shapes, BloodFloorStamp[] All) Run()
+        {
+            var floor = new BloodFloor { Shapes = FakeShapes() };
+            floor.RequestPuddle();
+            var all = new List<BloodFloorStamp>();
+            for (ulong tick = 0; tick < 400; tick += 2)
+            {
+                floor.BeginFrame();
+                floor.Step(tick, tick / 2, new Vector2(3, -2), 1.5f, 120, null);
+                all.AddRange(floor.Stamps.ToArray());
+            }
+            return (all.Sum(s => s.Millilitres), all.Count, all.Select(s => s.Shape).Distinct().Count(), [.. all]);
+        }
+        var a = Run();
+        var b = Run();
+        Assert.InRange(a.Ml, 120 * 0.9999f, 120 * 1.0001f);
+        Assert.True(a.Count >= 60 && a.Shapes >= 4, $"штампов {a.Count}, форм {a.Shapes}");
+        Assert.All(a.All, s => Assert.True(Vector2.Distance(s.Xz, new Vector2(3, -2)) < 0.3f));
+        Assert.Equal(a.All, b.All);
+        output.WriteLine($"лужа 120 мл: штампов {a.Count}, форм {a.Shapes}");
+    }
+
+    [Fact]
+    public void Shapes_PickInGroup_SkipEmptyLayers()
+    {
+        var shapes = new BloodStampShapes([2, 1, 0, 2], [0.3f, 0.001f, 0.5f, 0.2f, 0.4f], [1, 1, 1, 1, 1]);
+        for (uint seed = 0; seed < 200; seed++)
+        {
+            Assert.Equal(1, shapes.Pick(BloodShapeGroup.Omni, seed));          // слой 2 почти пуст — не выбирается
+            Assert.Equal(3, shapes.Pick(BloodShapeGroup.Spots, seed));
+            Assert.Equal(0, shapes.Pick(BloodShapeGroup.Directional, seed));   // группы нет — гаусс
+            Assert.InRange(shapes.Pick(BloodShapeGroup.Puddles, seed), 4, 5);
+        }
+        Assert.Equal(1f, shapes.Means[1]);
+        Assert.Equal(4096f, BloodFloor.Epoch(5000));
+        Assert.Equal(0f, BloodFloor.Epoch(4095.9f));
     }
 
     [Fact]
@@ -164,6 +262,7 @@ public sealed class BloodFloorGpuTests(ITestOutputHelper output)
         public readonly Win32Window Window;
         public readonly Renderer Renderer;
         public readonly BloodFloorGpu Gpu;
+        public readonly BloodTuning Tuning = new();
         private readonly List<IDisposable> _owned = [];
         private ulong _step;
         private int _cx, _cz;
@@ -177,7 +276,7 @@ public sealed class BloodFloorGpuTests(ITestOutputHelper output)
             BloodFloorGpu.Contribute(contract);
             Renderer = new Renderer(new RendererOptions(Window.NativeHandle, 64, 64, DebugLayer: true,
                 ShaderRoot: Path.Combine(AppContext.BaseDirectory, "Shaders"), GpuValidation: true), contract);
-            Gpu = new BloodFloorGpu(new BloodFloor(), new BloodFloorView { Tuning = new BloodTuning() });
+            Gpu = new BloodFloorGpu(new BloodFloor(), new BloodFloorView { Tuning = Tuning });
             Gpu.Create(Renderer, d =>
             {
                 _owned.Add(d);
@@ -190,7 +289,8 @@ public sealed class BloodFloorGpuTests(ITestOutputHelper output)
         {
             _cx += sx;
             _cz += sz;
-            var list = stamps.Select(s => new BloodFloorStamp(new Vector2(s.X, s.Z), BloodFloor.HalfAxis(s.Ml, 1.5f), BloodFloor.DensityVolume(s.Ml), s.Ml))
+            var list = stamps.Select(s => new BloodFloorStamp(new Vector2(s.X, s.Z), new Vector2(BloodFloor.HalfAxis(s.Ml, 1.5f)), 0, 0,
+                    BloodFloor.DensityVolume(s.Ml), s.Ml))
                 .ToArray();
             var step = new BloodFloorStep
             {
@@ -200,6 +300,19 @@ public sealed class BloodFloorGpuTests(ITestOutputHelper output)
             _step++;
             Window.PumpMessages();
             Renderer.Render(f => Gpu.Step(f, step, list), vsync: false);
+        }
+
+        /// <summary>Шаг с часами пола <paramref name="now"/>, с, переносом засохшего и каплями мимо окна.</summary>
+        public void StepAt(float now, bool dry, BloodFloorStamp[] stamps, BloodMapStamp[] map)
+        {
+            var step = new BloodFloorStep
+            {
+                Step = _step, Tick = 2 * _step, CenterX = _cx, CenterZ = _cz, StampCount = stamps.Length, MapStampCount = map.Length,
+                Reset = _step == 0 ? 1 : 0, Now = now, Dry = dry ? 1 : 0, Epoch = BloodFloor.Epoch(now),
+            };
+            _step++;
+            Window.PumpMessages();
+            Renderer.Render(f => Gpu.Step(f, step, stamps, map), vsync: false);
         }
 
         public double WindowMl()
@@ -220,6 +333,60 @@ public sealed class BloodFloorGpuTests(ITestOutputHelper output)
             for (int i = _owned.Count - 1; i >= 0; i--) _owned[i].Dispose();
             Renderer.Dispose();
             Window.Dispose();
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Gpu")]
+    public void Gpu_ShapedStamps_Mass_DriedToMap_EpochBirth_DropsOutsideToMap()
+    {
+        var sink = new D3d12Sink();
+        Log.AddSink(sink);
+        try
+        {
+            using var rig = new Rig();
+            var shapes = rig.Gpu.Shapes;
+            Assert.NotNull(shapes);
+            rig.Tuning.FloorDryAge = 0.5f;
+            // Формы пака: лужа 30 мл и 20 брызг по 0.3 мл — масса в поле ± 5 %.
+            var stamps = new List<BloodFloorStamp>();
+            int puddle = shapes!.Pick(BloodShapeGroup.Puddles, 1);
+            Assert.True(puddle > 0 && shapes.Mean(puddle) > BloodStampShapes.MinMean);
+            stamps.Add(new BloodFloorStamp(new Vector2(2, 0), new Vector2(0.15f), 0.4f, puddle, BloodFloor.DensityVolume(30), 30));
+            for (int i = 0; i < 20; i++)
+                stamps.Add(new BloodFloorStamp(new Vector2(-3 + 0.3f * i, 1), new Vector2(0.06f, 0.04f), 0.3f * i,
+                    shapes.Pick((BloodShapeGroup)(i % 3), (uint)i), BloodFloor.DensityVolume(0.3f), 0.3f));
+            float now = 70000;   // 19 ч: рождение в half — относительно эпохи
+            rig.StepAt(now, false, [.. stamps], []);
+            double total = 30 + 20 * 0.3, first = rig.WindowMl();
+            output.WriteLine($"формы: {total:F2} мл → в поле {first:F3} мл");
+            Assert.InRange(first, 0.95 * total, 1.05 * total);
+
+            // Засохшее (вдвое старше 0.5 с — любое, тонкое — старше 0.5 с) уходит из поля в карту.
+            for (int i = 1; i <= 150; i++) rig.StepAt(now + i / 60f, true, [], []);
+            double window = rig.WindowMl();
+            var map = rig.Map();
+            double mapMl = BloodFloor.Millilitres(BloodFloorGpu.MapDensity(map));
+            output.WriteLine($"после переноса засохшего: поле {window:F4} мл, карта {mapMl:F4} мл (было {first:F4})");
+            Assert.True(window < 0.01 * first, $"в поле осталось {window} мл");
+            Assert.InRange(mapMl, 0.99 * first, 1.01 * first);
+            float end = now + 150 / 60f, epoch = BloodFloor.Epoch(end);
+            int densest = 0;
+            for (int i = 1; i < map.Length; i++)
+                if ((float)BitConverter.UInt16BitsToHalf((ushort)map[i]) > (float)BitConverter.UInt16BitsToHalf((ushort)map[densest])) densest = i;
+            float birth = (float)BitConverter.UInt16BitsToHalf((ushort)(map[densest] >> 16));
+            float age = end - epoch - birth;
+            Assert.True(float.IsFinite(birth) && age >= 0.4f && age <= 3, $"рождение {birth} (эпоха {epoch}), возраст {age} с");
+
+            // Капля за окном (x = 20 м) — сразу в карту.
+            rig.StepAt(end + 1 / 60f, false, [], [new BloodMapStamp(new Vector2(20, 0), BloodFloor.DensityVolume(2))]);
+            double mapAfter = BloodFloor.Millilitres(BloodFloorGpu.MapDensity(rig.Map()));
+            Assert.InRange(mapAfter - mapMl, 1.99, 2.01);
+            Assert.True(sink.Messages.Count == 0, "сообщения отладочного слоя D3D12:\n" + string.Join("\n", sink.Messages));
+        }
+        finally
+        {
+            Log.RemoveSink(sink);
         }
     }
 

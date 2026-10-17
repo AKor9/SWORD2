@@ -391,6 +391,67 @@ public sealed class Renderer : IDisposable
     /// <exception cref="InvalidDataException">Поток — не текстура, обрезан или противоречив (в сообщении — имя).</exception>
     public GpuTexture LoadTexture(string name, Stream file) => AddTexture(name, name, TextureData.Read(file, name));
 
+    /// <summary>
+    /// Текстуры пака одного формата, размера и числа мипов — одним массивом слоёв под именем <paramref name="name"/> (слои — по порядку
+    /// путей, имена и соотношения сторон — из файлов). <paramref name="slices"/> — слоёв каждого файла, <paramref name="means"/> — среднее
+    /// канала r мипа 0 каждого слоя массива (R8 и BC4; иначе NaN). Ждёт GPU — на старте модуля.
+    /// </summary>
+    /// <exception cref="InvalidDataException">Файлы не одного формата, размера или числа мипов.</exception>
+    public GpuTexture LoadTextureArray(string name, IReadOnlyList<string> paths, out int[] slices, out float[] means)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(paths.Count);
+        var content = Content;
+        var parts = new TextureData[paths.Count];
+        for (int i = 0; i < parts.Length; i++)
+        {
+            string path = ContentPath.Normalize(paths[i]);
+            using var s = content.OpenRead(path);
+            parts[i] = TextureData.Read(s, content.Describe(path));
+            if (parts[i].Format != parts[0].Format || parts[i].Width != parts[0].Width || parts[i].Height != parts[0].Height
+                || parts[i].Mips != parts[0].Mips)
+                throw new InvalidDataException($"{name}: {path} — {parts[i].Format} {parts[i].Width}×{parts[i].Height}, мипов {parts[i].Mips}, " +
+                    $"а {paths[0]} — {parts[0].Format} {parts[0].Width}×{parts[0].Height}, мипов {parts[0].Mips}");
+        }
+        slices = [.. parts.Select(p => p.Slices)];
+        var first = parts[0];
+        var merged = new TextureData
+        {
+            Format = first.Format, Width = first.Width, Height = first.Height, Mips = first.Mips, Slices = parts.Sum(p => p.Slices),
+            Subresources = [.. parts.SelectMany(p => p.Subresources)],
+            Layers = [.. parts.SelectMany(p => Enumerable.Range(0, p.Slices).Select(k => k < p.Layers.Length ? p.Layers[k] : new TextureLayer("", 1)))],
+        };
+        merged.Validate(name);
+        means = new float[merged.Slices];
+        for (int k = 0; k < means.Length; k++) means[k] = LayerMean(merged, k);
+        return AddTexture(name, name, merged);
+    }
+
+    /// <summary>Среднее канала r мипа 0 слоя: R8 — байты, BC4 — палитра блока (8 уровней или 6 + 0 и 1); иначе NaN.</summary>
+    private static float LayerMean(TextureData data, int slice)
+    {
+        var bytes = data.Subresource(slice, 0);
+        double sum = 0;
+        if (data.Format == TexturePixelFormat.R8)
+        {
+            foreach (byte b in bytes) sum += b;
+            return (float)(sum / 255 / bytes.Length);
+        }
+        if (data.Format != TexturePixelFormat.Bc4) return float.NaN;
+        Span<float> palette = stackalloc float[8];
+        for (int b = 0; b + 8 <= bytes.Length; b += 8)
+        {
+            float r0 = bytes[b] / 255f, r1 = bytes[b + 1] / 255f;
+            palette[0] = r0;
+            palette[1] = r1;
+            for (int i = 1; i < 7; i++)
+                palette[i + 1] = r0 > r1 ? ((7 - i) * r0 + i * r1) / 7 : i < 5 ? ((5 - i) * r0 + i * r1) / 5 : i == 5 ? 0 : 1;
+            ulong bits = 0;
+            for (int i = 0; i < 6; i++) bits |= (ulong)bytes[b + 2 + i] << (8 * i);
+            for (int t = 0; t < 16; t++) sum += palette[(int)(bits >> (3 * t)) & 7];
+        }
+        return (float)(sum / (16.0 * (bytes.Length / 8)));
+    }
+
     /// <summary>Канал слоя 0, мип 0 текстуры пака на CPU — для CPU-эталонов и отчётов; только несжатые форматы.</summary>
     /// <exception cref="FileNotFoundException">Файла нет в контенте.</exception>
     /// <exception cref="InvalidDataException">Не текстура, обрезана или формат сжатый.</exception>

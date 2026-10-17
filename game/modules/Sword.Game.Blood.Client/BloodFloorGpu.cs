@@ -29,6 +29,8 @@ public struct BloodFloorConstants
     public Matrix4x4 ShadowViewProj0, ShadowViewProj1;
     public uint ShadowMap0, ShadowMap1; public float ShadowTexel0, ShadowTexel1;
     public float ShadowBias0, ShadowBias1, ShadowSoftness, ShadowPad;
+    /// <summary>Неровность плёнки (шум толщины в мире) и эпоха рождений карты, с.</summary>
+    public float NoiseAmp, NoiseSize, ErodeMm, Epoch;
 }
 
 /// <summary>Летящая капля для шейдера: отрыв (точка, скорость), время полёта в кадре, с, радиус, м.</summary>
@@ -52,14 +54,17 @@ public sealed class BloodFloorView
 /// <summary>
 /// Кровь на полу на GPU (<see cref="IGpuSimulation"/> <c>blood.floor</c>): <see cref="Fluid2DSim"/> пресета <see cref="BloodFloor.Params"/>
 /// в окне 32 м у игрока, высоты — буфер <see cref="ITerrainView"/>; шаги — по заявкам <see cref="BloodFloorStep"/> (60 Гц по <c>TickId</c>):
-/// сброс → перенос уходящей при сдвиге полосы в карту (<c>blood.floor.transfer</c>) → штампы и шаг сима со сдвигом. Карта засохших пятен —
-/// <see cref="BloodFloor.MapN"/>² uint (half ρ | half рождение), 64 МБ. Кадр: Opaque — летящие капли (<c>blood.drops</c>), Composite — плёнка
+/// сброс → перенос уходящей при сдвиге полосы в карту (<c>blood.floor.transfer</c>) → капли мимо окна — в карту (<c>blood.map.stamp</c>) →
+/// штампы (формы — слои текстур пака <see cref="BloodStampShapes"/>) и шаг сима со сдвигом → раз в <see cref="BloodFloor.DryEvery"/> шагов
+/// засохшее — из окна в карту (<c>blood.floor.dry</c>). Карта засохших пятен — <see cref="BloodFloor.MapN"/>² uint (half ρ | half рождение
+/// относительно эпохи <see cref="BloodFloor.Epoch"/>), 64 МБ. Кадр: Opaque — летящие капли (<c>blood.drops</c>), Composite — плёнка
 /// поверх приёмников (<c>blood.floor</c>). Ресурсы — при создании; кадр — 0 Б.
 /// </summary>
 public sealed class BloodFloorGpu : IGpuSimulation
 {
     public const string ShaderFile = "blood/blood_floor.hlsl";
-    public const string TransferPass = "blood.floor.transfer", MapClearPass = "blood.map.clear", FloorPass = "blood.floor", DropsPass = "blood.drops";
+    public const string TransferPass = "blood.floor.transfer", MapClearPass = "blood.map.clear", FloorPass = "blood.floor", DropsPass = "blood.drops",
+        MapStampPass = "blood.map.stamp", DryPass = "blood.floor.dry";
     private const int SlotC = 18, SlotAge = 19, SlotMap = 20, SlotShiftX = 21, SlotShiftZ = 22, SlotMapX = 23, SlotMapZ = 24, SlotNow = 25;
     private const int SlotData = 26, SlotDrops = 27;   // после чисел вида (0…18); compute-проходы вида не берут
     private const int Group = 8;
@@ -68,6 +73,8 @@ public sealed class BloodFloorGpu : IGpuSimulation
     private static readonly GraphicsPipelineDesc DropPipeline = new(ShaderFile, "VsDrop", "PsDrop", BlendMode.Opaque, DepthMode.TestWrite);
     private static readonly ComputePipelineDesc TransferPipeline = new(ShaderFile, "CsTransfer");
     private static readonly ComputePipelineDesc ClearPipeline = new(ShaderFile, "CsMapClear");
+    private static readonly ComputePipelineDesc MapStampPipeline = new(ShaderFile, "CsMapStamp");
+    private static readonly ComputePipelineDesc DryPipeline = new(ShaderFile, "CsDry");
 
     private readonly BloodFloor _floor;
     private readonly BloodFloorView _view;
@@ -77,7 +84,14 @@ public sealed class BloodFloorGpu : IGpuSimulation
     private GpuStorage? _map;
     private FrameData<BloodFloorConstants>? _constants;
     private FrameData<BloodDropGpu>? _drops;
-    private readonly Action<RenderPassContext> _transfer, _clear, _drawFloor, _drawDrops;
+    private FrameData<Vector4>? _mapStamps;
+    private readonly Action<RenderPassContext> _transfer, _clear, _drawFloor, _drawDrops, _mapStamp, _dry;
+    // Капли мимо окна и перенос засохшего: аргументы каждого шага кадра по очереди (как у переноса).
+    private (int Map, int Data, int First, int Count, float Now)[] _mapStampArgs = new (int, int, int, int, float)[8];
+    private int _mapStampCount, _mapStampNext, _mapStampFill;
+    private (int C, int Age, int Rho, int Map, int MapX, int MapZ, float Now, float DryAge)[] _dryArgs = new (int, int, int, int, int, int, float, float)[8];
+    private int _dryCount, _dryNext;
+    private ulong _argsFrame = ulong.MaxValue;
     // Переносы кадра по очереди: в кадре до 8 шагов, проход исполняется позже записи — аргументы каждого шага свои.
     private (int C, int Age, int Map, int ShiftX, int ShiftZ, int MapX, int MapZ, float Now)[] _transferArgs = new (int, int, int, int, int, int, int, float)[8];
     private int _transferCount, _transferNext;
@@ -96,6 +110,8 @@ public sealed class BloodFloorGpu : IGpuSimulation
         _clear = ClearMap;
         _drawFloor = DrawFloor;
         _drawDrops = DrawDrops;
+        _mapStamp = MapStamp;
+        _dry = Dry;
     }
 
     public string Name => "blood.floor";
@@ -107,6 +123,12 @@ public sealed class BloodFloorGpu : IGpuSimulation
     public long GpuSteps { get; private set; }
     public long Transfers { get; private set; }
     public long Resets { get; private set; }
+
+    /// <summary>Переносов засохшего из окна в карту (проходов).</summary>
+    public long Dries { get; private set; }
+
+    /// <summary>Формы штампов (нет текстур в паке — null, гаусс).</summary>
+    public BloodStampShapes? Shapes { get; private set; }
 
     /// <summary>Статистика последнего прочитанного шага (асинхронно).</summary>
     public Fluid2DStats? Stats { get; private set; }
@@ -127,8 +149,11 @@ public sealed class BloodFloorGpu : IGpuSimulation
     {
         _renderer = renderer;
         var p = BloodFloor.Params;
-        _sim = (Fluid2DSim)own(new Fluid2DSim(renderer, Name, p));
-        _stamps = new Fluid2DStamps(p, 4096, 65535);
+        var shapes = Shapes = LoadShapes(renderer, own, out var shapeTexture);
+        _floor.Shapes = shapes;
+        _sim = (Fluid2DSim)own(new Fluid2DSim(renderer, Name, p, stampShapes: shapeTexture));
+        _stamps = new Fluid2DStamps(p, 4096, 65535, shapes?.Means);
+        _mapStamps = renderer.CreateFrameData<Vector4>("blood.map.stamps", 64);
         _map = (GpuStorage)own(renderer.CreateStorage<uint>("blood.map", (uint)(BloodFloor.MapN * BloodFloor.MapN)));
         _constants = (FrameData<BloodFloorConstants>)own(renderer.CreateFrameData<BloodFloorConstants>("blood.floor.constants", 1));
         _drops = (FrameData<BloodDropGpu>)own(renderer.CreateFrameData<BloodDropGpu>("blood.drops", 1024));
@@ -136,15 +161,33 @@ public sealed class BloodFloorGpu : IGpuSimulation
         own(new Closer(this));
     }
 
+    /// <summary>Формы штампов — текстуры пака одним массивом; нет файла (эталонный пак) — гаусс с предупреждением.</summary>
+    private static BloodStampShapes? LoadShapes(Renderer renderer, Func<IDisposable, IDisposable> own, out Fluid2DNoise texture)
+    {
+        texture = default;
+        try
+        {
+            var t = (GpuTexture)own(renderer.LoadTextureArray("blood.shapes", BloodStampShapes.Paths, out int[] slices, out float[] means));
+            texture = new Fluid2DNoise(t.Srv, 0, t.Width, t.Height);
+            return new BloodStampShapes(slices, means, t.LayerAspects);
+        }
+        catch (Exception e) when (e is FileNotFoundException or InvalidDataException)
+        {
+            Sword.Engine.Diagnostics.Log.Warning(BloodModule.ModuleId, $"формы штампов пола не загружены — пятна гауссом: {e.Message}");
+            return null;
+        }
+    }
+
     public void AddPasses(RenderFrame frame, in SimFrame sim)
     {
         if (_sim is null) return;
+        EnsureMapStamps(_floor.MapStamps.Length);
         foreach (ref readonly var step in sim.Requests<BloodFloorStep>())
-            Step(frame, step, _floor.Stamps.Slice(step.StampFirst, step.StampCount));
+            Step(frame, step, _floor.Stamps.Slice(step.StampFirst, step.StampCount), _floor.MapStamps.Slice(step.MapStampFirst, step.MapStampCount));
     }
 
-    /// <summary>Шаг пола: сброс, перенос уходящей полосы в карту, штампы и шаг сима со сдвигом.</summary>
-    public void Step(RenderFrame frame, in BloodFloorStep step, ReadOnlySpan<BloodFloorStamp> stamps)
+    /// <summary>Шаг пола: сброс, перенос уходящей полосы в карту, капли мимо окна — в карту, штампы и шаг сима со сдвигом, засохшее — в карту.</summary>
+    public void Step(RenderFrame frame, in BloodFloorStep step, ReadOnlySpan<BloodFloorStamp> stamps, ReadOnlySpan<BloodMapStamp> mapStamps = default)
     {
         var sim = _sim!;
         var g = frame.Graph;
@@ -163,10 +206,17 @@ public sealed class BloodFloorGpu : IGpuSimulation
             if (_transferFrame != frame.Number) (_transferFrame, _transferCount, _transferNext) = (frame.Number, 0, 0);
             if (_transferCount == _transferArgs.Length) Array.Resize(ref _transferArgs, 2 * _transferArgs.Length);
             _transferArgs[_transferCount++] = (g.SrvOf(c), g.SrvOf(age), g.UavOf(map), step.ShiftX, step.ShiftZ,
-                step.CenterX - step.ShiftX + BloodFloor.MapOffset, step.CenterZ - step.ShiftZ + BloodFloor.MapOffset, step.Now);
+                step.CenterX - step.ShiftX + BloodFloor.MapOffset, step.CenterZ - step.ShiftZ + BloodFloor.MapOffset, step.Now - step.Epoch);
             g.AddComputePass(TransferPass, FramePhase.Simulation).Read(c).Read(age).Write(map).Execute(_transfer);
             Transfers++;
         }
+        if (_argsFrame != frame.Number) (_argsFrame, _mapStampCount, _mapStampNext, _dryCount, _dryNext, _mapStampFill) = (frame.Number, 0, 0, 0, 0, 0);
+        // Первый шаг (служебный кадр) прогревает конвейеры переноса засохшего и капель мимо окна пустыми проходами: сборка конвейера
+        // в обычном кадре выделяла бы память.
+        bool warm = GpuSteps == 0;
+        if ((!mapStamps.IsEmpty && step.Reset == 0) || warm) AddMapStamps(g, map, step, step.Reset == 0 ? mapStamps : default);
+        if ((step.Dry != 0 && step.Reset == 0 && step.ShiftX == 0 && step.ShiftZ == 0 && GpuSteps > 0) || warm)
+            AddDry(g, map, step, warm ? float.PositiveInfinity : MathF.Max(_view.Tuning.FloorDryAge, 1));
         var center = new Vector3(step.CenterX * BloodFloor.Texel, 0, step.CenterZ * BloodFloor.Texel);
         var rotation = PlaneRotation;
         var input = new Fluid2DStepInput(step.Step, Vector2.Zero, Vector2.Zero, rotation)
@@ -178,7 +228,7 @@ public sealed class BloodFloorGpu : IGpuSimulation
             sim.Heights = new Fluid2DHeightField(terrain.HeightsSrv, terrain.Grid.Cells, terrain.Grid.Half);
         var st = _stamps!;
         st.Begin(step.Step, center, rotation);
-        foreach (ref readonly var s in stamps) st.Add(new Vector3(s.Xz.X, 0, s.Xz.Y), 0, new Vector2(s.HalfAxis), s.Volume);
+        foreach (ref readonly var s in stamps) st.Add(new Vector3(s.Xz.X, 0, s.Xz.Y), s.Angle, s.HalfAxes, s.Volume, s.Shape);
         st.End();
         sim.Step(frame, input, (GpuStorage?)null, st);
         _centerX = step.CenterX;
@@ -190,6 +240,74 @@ public sealed class BloodFloorGpu : IGpuSimulation
 
     /// <summary>Площадка окна: горизонтальна, u — вдоль +X, v — вдоль +Z (поворот −90° вокруг X).</summary>
     public static Quaternion PlaneRotation { get; } = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -MathF.PI / 2);
+
+    /// <summary>
+    /// Засохшее окна — в карту до шага (из состояния между шагами — выхода Advection прошлого шага, уже со сдвигом окна этого шага не
+    /// совпадает: окно сдвигается в Composite, поэтому в шаге со сдвигом переноса нет): тонкое стоящее старше <see cref="BloodTuning.FloorDryAge"/>,
+    /// любое — вдвое старше; в поле — 0.
+    /// </summary>
+    private void AddDry(RenderGraph g, RenderBuffer map, in BloodFloorStep step, float dryAge)
+    {
+        var sim = _sim!;
+        var c = g.Import(sim.Advected);
+        var age = g.Import(sim.AgeAdvected!);
+        var rho = g.Import(sim.DensityAdvected!);
+        if (_dryCount == _dryArgs.Length) Array.Resize(ref _dryArgs, 2 * _dryArgs.Length);
+        _dryArgs[_dryCount++] = (g.UavOf(c), g.UavOf(age), g.UavOf(rho), g.UavOf(map), _centerX + BloodFloor.MapOffset,
+            _centerZ + BloodFloor.MapOffset, step.Now - step.Epoch, dryAge);
+        g.AddComputePass(DryPass, FramePhase.Simulation).Write(c).Write(age).Write(rho).Write(map).Execute(_dry);
+        Dries++;
+    }
+
+    /// <summary>Кадровый буфер капель мимо окна — не меньше <paramref name="count"/> (до первого шага кадра: растёт только пустым).</summary>
+    private void EnsureMapStamps(int count)
+    {
+        if (count <= _mapStamps!.Capacity) return;
+        _mapStamps.Dispose();
+        _mapStamps = _renderer!.CreateFrameData<Vector4>("blood.map.stamps", (uint)Math.Max(2 * count, 2 * (int)_mapStamps.Capacity));
+    }
+
+    /// <summary>Капли шага мимо окна — в кадровый буфер (x, z, объём ρ·м², 0) следом за прошлыми шагами кадра, проход — в карту.</summary>
+    private void AddMapStamps(RenderGraph g, RenderBuffer map, in BloodFloorStep step, ReadOnlySpan<BloodMapStamp> list)
+    {
+        if (_mapStampFill == 0) EnsureMapStamps(list.Length);
+        int count = Math.Min(list.Length, (int)_mapStamps!.Capacity - _mapStampFill);
+        var slot = _mapStamps.Slot;
+        for (int i = 0; i < count; i++) slot[_mapStampFill + i] = new Vector4(list[i].Xz.X, list[i].Xz.Y, list[i].Volume, 0);
+        if (_mapStampCount == _mapStampArgs.Length) Array.Resize(ref _mapStampArgs, 2 * _mapStampArgs.Length);
+        _mapStampArgs[_mapStampCount++] = (g.UavOf(map), _mapStamps.Srv, _mapStampFill, count, step.Now - step.Epoch);
+        _mapStampFill += count;
+        g.AddComputePass(MapStampPass, FramePhase.Simulation).Write(map).Execute(_mapStamp);
+    }
+
+    private void MapStamp(RenderPassContext ctx)
+    {
+        var a = _mapStampArgs[_mapStampNext++];
+        ctx.SetPipeline(MapStampPipeline);
+        ctx.SetConstant(SlotMap, a.Map);
+        ctx.SetConstant(SlotData, a.Data);
+        ctx.SetConstant(SlotMapX, a.First);
+        ctx.SetConstant(SlotMapZ, a.Count);
+        ctx.SetConstant(SlotNow, a.Now);
+        ctx.Dispatch(1, 1);
+    }
+
+    private void Dry(RenderPassContext ctx)
+    {
+        var a = _dryArgs[_dryNext++];
+        ctx.SetPipeline(DryPipeline);
+        ctx.SetConstant(SlotC, a.C);
+        ctx.SetConstant(SlotAge, a.Age);
+        ctx.SetConstant(SlotShiftX, a.Rho);
+        ctx.SetConstant(SlotMap, a.Map);
+        ctx.SetConstant(SlotMapX, a.MapX);
+        ctx.SetConstant(SlotMapZ, a.MapZ);
+        ctx.SetConstant(SlotNow, a.Now);
+        ctx.SetConstant(SlotShiftZ, a.DryAge);
+        ctx.SetConstant(SlotData, BloodFloor.Params.FilmMinThickness / BloodFloor.Params.FilmThicknessPerDensity);
+        uint groups = BloodFloor.N / Group;
+        ctx.Dispatch(groups, groups);
+    }
 
     private void Transfer(RenderPassContext ctx)
     {
@@ -278,6 +396,10 @@ public sealed class BloodFloorGpu : IGpuSimulation
             HaloTexels = t.FloorHalo,
             MeniscusMm = MathF.Max(t.FloorMeniscusMm, 1e-3f),
             Ripple = t.FloorRipple,
+            NoiseAmp = Math.Clamp(t.FloorNoise, 0, 1),
+            NoiseSize = MathF.Max(t.FloorNoiseSize, 1e-3f),
+            ErodeMm = MathF.Max(t.FloorErodeMm, 0),
+            Epoch = BloodFloor.Epoch(_now),
         };
         _data = _constants.Srv;
 
@@ -332,7 +454,10 @@ public sealed class BloodFloorGpu : IGpuSimulation
         .AddSize<BloodDropGpu>("BLOOD_DROP_SIZE")
         .AddSlot("gFloorC", SlotC).AddSlot("gFloorAge", SlotAge).AddSlot("gFloorMap", SlotMap).AddSlot("gFloorShiftX", SlotShiftX)
         .AddSlot("gFloorShiftZ", SlotShiftZ).AddSlot("gFloorMapX", SlotMapX).AddSlot("gFloorMapZ", SlotMapZ).AddSlot("gFloorNow", SlotNow)
-        .AddSlot("gFloorData", SlotData).AddSlot("gFloorDrops", SlotDrops);
+        .AddSlot("gFloorData", SlotData).AddSlot("gFloorDrops", SlotDrops)
+        // Перенос засохшего и капли мимо окна: те же слоты под своими именами.
+        .AddSlot("gFloorRho", SlotShiftX).AddSlot("gFloorDryAge", SlotShiftZ).AddSlot("gFloorMinRho", SlotData)
+        .AddSlot("gFloorStampFirst", SlotMapX).AddSlot("gFloorStampCount", SlotMapZ);
 
     private void PutDrop(Span<BloodDropGpu> slot, in BloodFlying f, float tickDt, float radiusScale)
     {
@@ -435,7 +560,8 @@ public sealed class BloodFloorGpu : IGpuSimulation
         public void Dispose()
         {
             gpu.Closing();
-            gpu._drops?.Dispose();   // выросший буфер капель не отдан хосту (own) — освобождается здесь
+            gpu._drops?.Dispose();   // буферы капель не отданы хосту (own: растут) — освобождаются здесь
+            gpu._mapStamps?.Dispose();
         }
     }
 }

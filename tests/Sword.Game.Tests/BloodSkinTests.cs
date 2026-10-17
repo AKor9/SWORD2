@@ -23,7 +23,7 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
     [Fact]
     public void Look_LayerByThickness_GlossyThenMatteThenBrown()
     {
-        // Толстая свежая — глубокий тёмно-красный (113, 9, 26), подложки не видно, глянец.
+        // Толстая свежая — глубокий тёмно-красный (92, 7, 10), подложки не видно, глянец.
         var thick = BloodLook.Evaluate(0, 1, Look);
         Near(Look.Deep, thick.Albedo);
         Assert.Equal(1, thick.Wet);
@@ -305,6 +305,65 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         Assert.Equal(a.Thick, b.Thick);
         Assert.Equal(a.Heads, b.Heads);
         output.WriteLine($"труп: за минуту {a.Released:F3} мл, потёков {a.Feeds}");
+    }
+
+    [Fact]
+    public void Ooze_CorpsePool_PoursExpFromDeath_ByDamage_Deterministic()
+    {
+        (double Poured, double[] ByWound, int Drops) Run(bool dead)
+        {
+            var rig = new OozeRig();
+            rig.Hit(60);
+            rig.Hit(30);
+            for (int i = 0; i < 60; i++) rig.Step();   // 1 с жив
+            rig.Dead = dead;
+            var byWound = new double[2];
+            int drops = 0;
+            for (int i = 0; i < 6 * 60; i++)
+            {
+                rig.Step();
+                foreach (var p in rig.Ooze.Pours)
+                {
+                    Assert.True(p.Volume >= rig.Tuning.CorpsePourDropMl, $"капля {p.Volume} мл");
+                    byWound[p.Wound] += p.Volume;
+                    drops++;
+                }
+            }
+            return (rig.Ooze.Poured, byWound, drops);
+        }
+        var t = new BloodTuning();
+        var a = Run(true);
+        // 6 с после смерти: PoolMl·(1 − e^(−6/τ)) без недобранной капли у каждой раны.
+        double expected = t.CorpsePoolMl * (1 - Math.Exp(-6 / t.CorpsePoolSeconds));
+        Assert.InRange(a.Poured, expected - 2 * t.CorpsePourDropMl - 0.1, expected + 0.1);
+        Assert.InRange(a.ByWound[0] / a.ByWound[1], 1.9, 2.1);   // по урону 60 : 30
+        Assert.Equal(a.Poured, a.ByWound.Sum(), 4);
+        var b = Run(true);
+        Assert.Equal(a.Poured, b.Poured);
+        Assert.Equal(a.Drops, b.Drops);
+        Assert.Equal(0, Run(false).Poured);   // живой лужу не льёт
+        output.WriteLine($"лужа трупа за 6 с: {a.Poured:F2} мл (формула {expected:F2}), капель {a.Drops}");
+    }
+
+    [Fact]
+    public void Stamp_WithRadius_SpreadsOverSkin_KeepsVolume()
+    {
+        var surface = new SkinSurface(BloodBodyTests.Wall(seam: false));
+        var narrow = new BloodSkin(surface, 1);
+        var wide = new BloodSkin(surface, 1);
+        int t = surface.Nearest(BodySegs.Torso, new Vector3(0.012f, 0.317f, 0), out var bary, out _);
+        narrow.Stamp(1, t, bary, 0.5f, 0, 0);
+        wide.Stamp(1, t, bary, 0.5f, 0, 0.1f);
+        int Count(BloodSkin skin)
+        {
+            int n = 0;
+            for (int w = 0; w < surface.WeldCount; w++) if (skin.Thickness(1, w) > 0) n++;
+            return n;
+        }
+        Assert.Equal(3, Count(narrow));
+        Assert.True(Count(wide) > 6, $"вершин у широкого штампа {Count(wide)}");
+        Assert.Equal(0.5, wide.Deposited, 5);
+        Assert.Equal(0.5, narrow.Deposited, 5);
     }
 
     [Fact]
