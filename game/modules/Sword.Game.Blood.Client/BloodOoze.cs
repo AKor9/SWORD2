@@ -194,6 +194,17 @@ public sealed class BloodOoze
         s.Pending = 0;
     }
 
+    /// <summary>
+    /// Строка ран освобождена (боец снят или построен заново, ключ прежний): источники и лужа трупа строки — с нуля, иначе смерть
+    /// возрождённого от первой же раны досталась бы луже прошлой жизни (почти вылитой).
+    /// </summary>
+    public void Clear(int row)
+    {
+        if ((uint)row >= (uint)_deadKey.Length) return;
+        (_deadKey[row], _deadTick[row], _poolTime[row]) = (0, 0, 0);
+        if ((row + 1) * BloodWounds.RingSize <= _sources.Length) Array.Clear(_sources, row * BloodWounds.RingSize, BloodWounds.RingSize);
+    }
+
     public void ClearAll()
     {
         Array.Clear(_sources);

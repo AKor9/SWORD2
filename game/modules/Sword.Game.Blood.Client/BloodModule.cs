@@ -660,6 +660,7 @@ public sealed class BloodModule : IClientModule
     {
         foreach (ulong f in fighters)
         {
+            _ooze.Clear(_wounds.Find(f));
             _wounds.Clear(f);
             _drips!.Clear(f);
             _skin?.Release(f);

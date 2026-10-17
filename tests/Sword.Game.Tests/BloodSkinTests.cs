@@ -384,6 +384,26 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Ooze_CorpsePool_AfterRebuildOnSameKey_PoursAgain()
+    {
+        var rig = new OozeRig();
+        rig.Hit(60);
+        rig.Step();
+        rig.Dead = true;
+        for (int i = 0; i < 6 * 60; i++) rig.Step();
+        double first = rig.Ooze.Poured;
+        // Возрождение на той же сущности (ключ прежний) — строка ран освобождается, как в BloodModule.Forget.
+        rig.Ooze.Clear(rig.Wounds.Find(1));
+        rig.Wounds.Clear(1);
+        rig.Dead = false;
+        rig.Hit(500);   // первая же рана новой жизни — смертельная: лужа не наследует почти вылитую прошлой смерти
+        rig.Dead = true;
+        for (int i = 0; i < 6 * 60; i++) rig.Step();
+        Assert.True(first > 100, $"первая лужа {first} мл");
+        Assert.InRange(rig.Ooze.Poured - first, 0.95 * first, 1.05 * first);
+    }
+
+    [Fact]
     public void Stamp_WithRadius_SpreadsOverSkin_KeepsVolume()
     {
         var surface = new SkinSurface(BloodBodyTests.Wall(seam: false));
