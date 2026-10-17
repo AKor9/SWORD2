@@ -27,6 +27,26 @@ SkinVertex SkinVertexOf(uint vid)
     return verts[vid];
 }
 
+/// Смешанная по весам матрица вершины (строки 3×4): её столбцы xyz — образы осей позы привязки в мире (для касательных и трипланара).
+SkinMat SkinBlended(SkinVertex v, SkinInstance inst)
+{
+    StructuredBuffer<SkinMat> palette = ResourceDescriptorHeap[R_SKINPAL];
+    float4 w = float4(v.w, saturate(1 - v.w.x - v.w.y - v.w.z));
+    SkinMat r;
+    r.r0 = 0;
+    r.r1 = 0;
+    r.r2 = 0;
+    for (uint k = 0; k < 4; k++)
+    {
+        if (w[k] <= 0) continue;
+        SkinMat m = palette[inst.palette + min((v.joints >> (8 * k)) & 0xFF, inst.jointCount - 1)];
+        r.r0 += w[k] * m.r0;
+        r.r1 += w[k] * m.r1;
+        r.r2 += w[k] * m.r2;
+    }
+    return r;
+}
+
 /// Точка и нормаль вершины в мире (нормаль не нормирована).
 void SkinTransform(SkinVertex v, SkinInstance inst, out float3 world, out float3 normal)
 {

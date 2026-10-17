@@ -100,6 +100,11 @@ struct SkinVs
     float4 layer : TEXCOORD3;       // wet layer over the skin (blood): linear albedo, coverage
     float layerRoughness : TEXCOORD4;
     nointerpolation uint material : TEXCOORD5;   // SceneMaterial: GpuSkinInstance.Flags
+    float3 bindPos : TEXCOORD6;                  // поза привязки (трипланар текстуры материала)
+    float3 bindNormal : TEXCOORD7;
+    float3 axisX : TEXCOORD8;                    // образы осей позы привязки в мире
+    float3 axisY : TEXCOORD9;
+    float3 axisZ : TEXCOORD10;
 };
 
 // Wet layer of a vertex (ISkinBloodLayer, SkinLayerTexel in C#): inst.owner = bindless SRV of the layer + 1 (0 - no layer); an element
@@ -127,6 +132,12 @@ SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.glow = inst.glow;
     o.layer = SkinLayerOf(inst.owner, vid, o.layerRoughness);
     o.material = inst.flags;
+    SkinMat m = SkinBlended(v, inst);
+    o.bindPos = v.p;
+    o.bindNormal = v.n;
+    o.axisX = m.r0.xyz;
+    o.axisY = m.r1.xyz;
+    o.axisZ = m.r2.xyz;
     return o;
 }
 
@@ -153,15 +164,21 @@ float4 PsSkinPre(SkinVs i) : SV_Target0 { return SceneNormalOut(i.normal, false)
 SceneOut PsSkin(SkinVs i)
 {
     float3 n = normalize(i.normal);
+    float3 colour = i.colour;
+    float roughness = MaterialRoughness(i.material);
+    uint texture = MaterialTexture(i.material);
+    if (texture != 0 && gFrame.materialAlbedo != SCENE_MATERIAL_NONE)
+        MaterialTextured(texture - 1, i.bindPos, i.bindNormal, i.axisX, i.axisY, i.axisZ, colour, n, roughness);
+    float metal = MaterialMetal(i.material);
     float cover = saturate(i.layer.a);
     if (cover <= 0)
     {
-        float3 c = ShadeMaterial(i.colour, n, i.world, SceneAo(i.pos.xy), i.material) + i.glow * float3(0.5, 0.15, 0.1);
+        float3 c = ShadeSurface(colour, n, i.world, SceneAo(i.pos.xy), roughness, metal) + i.glow * float3(0.5, 0.15, 0.1);
         return Scene(c, n, false);
     }
     // The layer albedo blends with the skin by the interpolated coverage; its highlight - GGX sun + sky reflection, under the fog.
-    float3 albedo = lerp(i.colour, i.layer.rgb, cover);
-    float3 c = ShadeMaterial(albedo, n, i.world, SceneAo(i.pos.xy), i.material) + i.glow * float3(0.5, 0.15, 0.1);
+    float3 albedo = lerp(colour, i.layer.rgb, cover);
+    float3 c = ShadeSurface(albedo, n, i.world, SceneAo(i.pos.xy), roughness, metal) + i.glow * float3(0.5, 0.15, 0.1);
     float3 v = normalize(gFrame.cameraPos - i.world);
     float3 r = reflect(-v, n);
     float3 skyHalf = (gFrame.env.skyHigh - gFrame.env.skyLow) * 0.5;

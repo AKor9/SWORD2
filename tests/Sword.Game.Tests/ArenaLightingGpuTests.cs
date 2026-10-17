@@ -234,6 +234,49 @@ public sealed class ArenaLightingGpuTests(ITestOutputHelper output) : IDisposabl
         Assert.True(_d3d12.Count == 0, string.Join("\n", _d3d12));
     }
 
+    /// <summary>
+    /// Текстуры материалов (ткань бойцов, сталь клинков): кадр вблизи детальнее — местный контраст выше, а средняя яркость почти та же
+    /// (рисунок — отношение к среднему цвету слоя, оттенок бойца сохраняется); выключенные — прежний кадр.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Gpu")]
+    [Trait("Category", "Content")]
+    public void MaterialTextures_AddDetail_KeepMeanBrightness_OffRestores()
+    {
+        Log.AddSink(this);
+        Directory.CreateDirectory(_dir);
+        using var rig = new Rig(_dir, new CameraPose(0.6f, 0.7f, 4f));
+        Assert.True(rig.Arena.MaterialTextures);
+        var on = rig.Scene("tex.on");
+        rig.Arena.MaterialTextures = false;
+        var off = rig.Scene("tex.off");
+        rig.Arena.MaterialTextures = true;
+        Assert.Equal(on, rig.Scene("tex.again"));
+
+        // Только пиксели, которые изменились, — бойцы и клинки; контраст — разность с правым соседом там, где без текстур поверхность
+        // гладкая (не силуэт и не шов меша): рисунок ткани и шлифовки.
+        double meanOn = 0, meanOff = 0, detailOn = 0, detailOff = 0;
+        int changed = 0;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W - 1; x++)
+            {
+                int p = y * W + x;
+                if (Math.Abs(Rig.Luma(on, p) - Rig.Luma(off, p)) < 1e-4f) continue;
+                changed++;
+                meanOn += Rig.Luma(on, p);
+                meanOff += Rig.Luma(off, p);
+                float smooth = Math.Abs(Rig.Luma(off, p + 1) - Rig.Luma(off, p));
+                if (smooth > 0.004f) continue;
+                detailOn += Math.Abs(Rig.Luma(on, p + 1) - Rig.Luma(on, p));
+                detailOff += smooth;
+            }
+        output.WriteLine($"текстуры: изменилось {changed} пикселей, яркость ×{meanOn / meanOff:0.###}, местный контраст ×{detailOn / detailOff:0.##}");
+        Assert.True(changed > 10000, $"текстуры изменили лишь {changed} пикселей");
+        Assert.InRange(meanOn / meanOff, 0.85, 1.15);
+        Assert.True(detailOn > detailOff * 1.2, $"контраст с текстурами {detailOn:0.#} против {detailOff:0.#}");
+        Assert.True(_d3d12.Count == 0, string.Join("\n", _d3d12));
+    }
+
     [Fact]
     [Trait("Category", "Gpu")]
     [Trait("Category", "Content")]

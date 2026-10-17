@@ -24,7 +24,7 @@ public static partial class Program
         string file = UserConfig.PathFrom(AppContext.BaseDirectory);
         tuning.Groups.AddRange(arena.TuningGroups);
         tuning.Groups.AddRange(modules.TuningGroups);   // вкладки модулей («Огонь») — после вкладок игры; выключенный модуль вкладки не даёт
-        // «Графика» — показ клиента движка (vsync, SMAA, тени, GTAO) и арены (материалы), последней.
+        // «Графика» — показ клиента движка (vsync) и арены (рендер, материалы), последней.
         var graphics = GraphicsTuning.Build(client);
         arena.AddGraphicsTuning(graphics);
         tuning.Groups.Add(graphics);

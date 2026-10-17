@@ -393,14 +393,32 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// <summary>Блики и металл материалов (<see cref="SceneMaterial"/>): выключены — только рассеянный свет; со следующего кадра.</summary>
     public bool Specular { get; set; } = true;
 
-    /// <summary>Строки ручек показа арены во вкладку «Графика» панели F3 (её строит DevTools над клиентом движка).</summary>
+    /// <summary>Текстуры материалов (ткань бойцов, сталь клинков): выключены или нет в паке — гладкие цвета; со следующего кадра.</summary>
+    public bool MaterialTextures { get; set; } = true;
+
+    /// <summary>SRV «текстур материалов нет» в константах кадра.</summary>
+    public const uint SceneMaterialNone = uint.MaxValue;
+
+    /// <summary>Повторов ткани и стали на метр позы привязки, сила нормалей текстур.</summary>
+    public const float FabricTiling = 3.5f, SteelTiling = 2f, MaterialNormalStrength = 0.8f;
+
+    private GpuTexture? _materialAlbedo, _materialNormals, _materialRoughness;
+
+    /// <summary>
+    /// Строки ручек показа во вкладку «Графика» панели F3 (её строит DevTools над клиентом движка): рендер (<see cref="RenderTuning"/>)
+    /// и материалы арены. До <see cref="Initialize"/> — только материалы.
+    /// </summary>
     public void AddGraphicsTuning(TuningGroup group)
     {
         ArgumentNullException.ThrowIfNull(group);
+        if (_renderer is { } renderer) RenderTuning.Add(group, renderer);
         group.Header("МАТЕРИАЛЫ");
         group.Bool("specular", "блики и металл", () => Specular, v => Specular = v,
             "блик солнца GGX и отражение неба: сталь клинков — металл, тела и камень — с шероховатостью; выключено — только рассеянный свет",
             defaultValue: true);
+        group.Bool("materialTextures", "текстуры материалов", () => MaterialTextures, v => MaterialTextures = v,
+            "ткань костюма бойцов и шлифованная сталь клинков (ambientCG, CC0): рисунок, нормали и шероховатость, трипланар в позе привязки; " +
+            "оттенок бойца сохраняется", defaultValue: true);
     }
 
     /// <summary>Направление света солнца (от солнца к сцене, единичное) — <c>lightDir</c> констант кадра.</summary>
@@ -489,6 +507,11 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         c.Add("SCENE_MATERIAL_METAL", SceneMaterial.Metal, "бит металла материала (SceneMaterial)");
         c.Add("SCENE_MATERIAL_GROUND", SceneMaterial.Ground, "материал пола и рельефа");
         c.Add("SCENE_MATERIAL_PILLAR", SceneMaterial.Pillar, "материал колонн");
+        c.Add("SCENE_MATERIAL_TEXTURE_SHIFT", SceneMaterial.TextureShift, "сдвиг номера текстуры (слой + 1) в материале");
+        c.Add("SCENE_MATERIAL_NONE", SceneMaterialNone, "текстур материалов нет");
+        c.Add("SCENE_MATERIAL_FABRIC_TILING", FabricTiling, "повторов ткани на метр позы привязки");
+        c.Add("SCENE_MATERIAL_STEEL_TILING", SteelTiling, "повторов стали на метр");
+        c.Add("SCENE_MATERIAL_NORMAL_STRENGTH", MaterialNormalStrength, "сила нормалей текстур материалов");
         c.AddSlot("R_TERRAIN", SlotTerrain, "высоты узлов рельефа (HeightField, по строкам z)");
         c.AddSlot("R_MESH", SlotMesh, "вершины единичной капсулы");
         c.AddSize<FrameConstants>("FRAME_CONSTANTS_SIZE");
@@ -508,6 +531,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         renderer.Ao.Enabled = true;   // затенение рассеянного света (GTAO); выключатель — там же
         renderer.AutoExposure.Enabled = true;   // автоэкспозиция; выключатель — там же
         renderer.Lights.Shadows = true;   // тени точечных источников с флагом (факел); выключатель — там же
+        LoadMaterialTextures(renderer);
         renderer.Post.Vignette = 0.3f;   // постобработка: углы чуть темнее, лёгкая резкость; ручки — там же
         renderer.Post.Sharpen = 0.3f;
         renderer.SceneColorClear = ClearColour;
@@ -960,6 +984,22 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         }
     }
 
+    /// <summary>Текстуры материалов из пака; нет в паке (старый пак) — без них, с записью в журнал.</summary>
+    private void LoadMaterialTextures(Renderer renderer)
+    {
+        try
+        {
+            _materialAlbedo = renderer.LoadTexture(SceneMaterial.AlbedoPath);
+            _materialNormals = renderer.LoadTexture(SceneMaterial.NormalsPath);
+            _materialRoughness = renderer.LoadTexture(SceneMaterial.RoughnessPath);
+        }
+        catch (FileNotFoundException e)
+        {
+            Log.Warning("arena", $"текстур материалов нет — бойцы и клинки без них: {e.Message}");
+            _materialAlbedo = _materialNormals = _materialRoughness = null;
+        }
+    }
+
     /// <summary>Заслоняющие точечный источник в грань его кубической карты: рельеф, колонны, бойцы и мечи.</summary>
     private void DrawPointShadow(RenderPassContext ctx)
     {
@@ -1036,6 +1076,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
             ShadowMap0 = shadow.Srv(0), ShadowMap1 = shadow.Srv(1), ShadowTexel0 = shadow.Texel(0), ShadowTexel1 = shadow.Texel(1),
             ShadowBias0 = shadow.Bias(0), ShadowBias1 = shadow.Bias(1), ShadowSoftness = shadow.Softness,
             AoMap = ao.Srv, Specular = Specular ? 1u : 0u,
+            MaterialAlbedo = MaterialTextures && _materialAlbedo is { } albedo ? (uint)albedo.Srv : SceneMaterialNone,
+            MaterialNormals = MaterialTextures && _materialNormals is { } normals ? (uint)normals.Srv : SceneMaterialNone,
+            MaterialRoughness = MaterialTextures && _materialRoughness is { } rough ? (uint)rough.Srv : SceneMaterialNone,
         };
     }
 

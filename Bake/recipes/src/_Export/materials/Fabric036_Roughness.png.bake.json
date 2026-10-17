@@ -1,0 +1,14 @@
+{
+  "converter": "texture",
+  "import": "ambientcg",
+  "notes": "Шероховатость материалов сцены: слой 0 — ткань, 1 — сталь.",
+  "params": {
+    "layers": [
+      "${src}/_Export/materials/Fabric036_Roughness.png",
+      "${src}/_Export/materials/Metal009_Roughness.png"
+    ],
+    "channel": "luma",
+    "size": 1024,
+    "out": "textures/materials/roughness.swtex"
+  }
+}

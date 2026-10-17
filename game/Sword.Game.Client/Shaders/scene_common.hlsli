@@ -32,7 +32,8 @@ struct FrameConstants
     float4x4 shadowViewProj[2];
     uint shadowMap0; uint shadowMap1; float shadowTexel0; float shadowTexel1;
     float shadowBias0; float shadowBias1; float shadowSoftness; float shadowPad;
-    uint aoMap; uint specular; uint pad3; uint pad4;
+    uint aoMap; uint specular; uint materialAlbedo; uint materialNormals;
+    uint materialRoughness; uint pad5; uint pad6; uint pad7;
 };
 _Static_assert(sizeof(FrameConstants) == FRAME_CONSTANTS_SIZE, "FrameConstants layout differs from C# (Scene/FrameConstants.cs)");
 

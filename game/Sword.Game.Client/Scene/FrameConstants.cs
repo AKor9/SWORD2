@@ -29,5 +29,7 @@ public struct FrameConstants
     public float ShadowBias0; public float ShadowBias1; public float ShadowSoftness; public float ShadowPad;
     /// <summary>Видимость рассеянного света по GTAO (<c>RenderFrame.Ao</c>): SRV карты (<c>AmbientOcclusion.None</c> — нет); блики и металл
     /// материалов (<see cref="SceneMaterial"/>): 1 — есть, 0 — только рассеянный свет, как без материалов.</summary>
-    public uint AoMap; public uint Specular; public uint Pad3; public uint Pad4;
+    public uint AoMap; public uint Specular; public uint MaterialAlbedo; public uint MaterialNormals;
+    /// <summary>Текстуры материалов (<see cref="SceneMaterial"/>): SRV цвета, нормалей и шероховатости или <c>SceneMaterialNone</c> — без текстур.</summary>
+    public uint MaterialRoughness; public uint Pad5; public uint Pad6; public uint Pad7;
 }
