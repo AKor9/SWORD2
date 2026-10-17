@@ -134,10 +134,10 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         for (int k = 0; k < 3; k++)
         {
             int weld = s.WeldVertex(seamTriangle, k);
-            var first = entries.Single(e => e.Element == s.VertexCount + s.WeldCopies(weld)[0]);
+            var first = entries.Single(e => e.Element == s.WeldCopies(weld)[0]);
             foreach (int v in s.WeldCopies(weld))
             {
-                var e = entries.Single(x => x.Element == s.VertexCount + v);
+                var e = entries.Single(x => x.Element == v);
                 Assert.Equal((first.X, first.Y), (e.X, e.Y));
                 copies++;
             }
@@ -543,8 +543,11 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
             }
             Frame(1);
             Assert.True(gpu.Srv(slot) >= 0);
+            // Буфер вида — ровно V элементов (шейдер скина: вершина с номером ≥ V добавлена разрезом меша, слоя у неё нет).
+            Assert.Equal((uint)s.VertexCount, gpu.Storage(slot).Count);
             var data = new ulong[2 * s.VertexCount];
-            renderer.ReadStorage(gpu.Storage(slot), data.AsSpan());
+            renderer.ReadStorage(gpu.Storage(slot), data.AsSpan(0, s.VertexCount));
+            renderer.ReadStorage(gpu.RawStorage(slot), data.AsSpan(s.VertexCount));
             float worstAdd = 0, worstMul = 0, worstScalar = 0;
             int worstCode = 0, offByOne = 0;
             for (int v = 0; v < s.VertexCount; v++)
@@ -593,7 +596,8 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
 
             skin.Release(5);
             Frame(2);
-            renderer.ReadStorage(gpu.Storage(slot), data.AsSpan());
+            renderer.ReadStorage(gpu.Storage(slot), data.AsSpan(0, s.VertexCount));
+            renderer.ReadStorage(gpu.RawStorage(slot), data.AsSpan(s.VertexCount));
             Assert.All(data, x => Assert.Equal(0ul, x));
             Assert.True(sink.Messages.Count == 0, "сообщения отладочного слоя D3D12:\n" + string.Join("\n", sink.Messages));
         }

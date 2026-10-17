@@ -54,6 +54,13 @@ public sealed class BloodModule : IClientModule
     private ISceneFog? _fog;
     private IWeaponTips? _tips;
     private IWeaponBloodLayer? _weaponLayer;
+    private ISeverFeed? _sever;
+    private IPiecePoses? _pieces;
+    private BloodStumps? _stumps;
+    private (ulong Fighter, int Segment)[] _severed = new (ulong, int)[8];
+    private int _severedCount;
+    private long _stumpTicks, _stumpMax;
+    private ulong _stumpMaxTick;
     private BloodBlade? _bladeBlood;
     private BloodBladeGpu? _bladeGpu;
     private WeaponTip[] _tipBuf = new WeaponTip[64];
@@ -118,6 +125,9 @@ public sealed class BloodModule : IClientModule
 
     /// <summary>Сочение сильных ран.</summary>
     public BloodOoze Ooze => _ooze;
+
+    /// <summary>Кровь из обрубков (есть сервис отделений и пол); иначе null.</summary>
+    public BloodStumps? Stumps => _stumps;
 
     /// <summary>Брызги из раны при ударе (счёт вылетевшего).</summary>
     public BloodSpray Spray => _spray;
@@ -204,6 +214,8 @@ public sealed class BloodModule : IClientModule
         _fog = b.Service<ISceneFog>();
         _tips = b.Service<IWeaponTips>();
         _weaponLayer = b.Service<IWeaponBloodLayer>();
+        _sever = b.Service<ISeverFeed>();
+        _pieces = b.Service<IPiecePoses>();
         if (settings.Blade && _tips is not null && _weaponLayer is not null) _bladeBlood = new BloodBlade(settings.BladeSlots, Tuning);
         if (_feed is null) Log.Warning(ModuleId, "событий боя нет (клиент игры не дал IBloodFeed) — крови не будет");
         _shown = new (Vector3, uint, float)[settings.ShownHits];
@@ -277,6 +289,18 @@ public sealed class BloodModule : IClientModule
             .Float("sprayOutward", "брызги: наружу по нормали", () => t.SprayOutward, v => t.SprayOutward = v, 0f, 2f, format: "0.##")
             .Float("spraySpeedMax", "брызги: скорость до, × кончика", () => t.SpraySpeedMax, v => t.SpraySpeedMax = v, 0.05f, 1.5f, format: "0.##")
             .Float("sprayBackShare", "брызги: доля к атакующему", () => t.SprayBackShare, v => t.SprayBackShare = v, 0f, 1f, format: "0.##")
+            .Info("обрубки", StumpStatus, "источников на срезах, родилось, выпущено мл: каплями, на кожу у края, потёками")
+            .Float("stumpMl", "культя: струя, мл", () => t.StumpMl, v => t.StumpMl = v, 0f, 2000f, format: "0")
+            .Float("stumpSeconds", "культя: струя гаснет, τ с", () => t.StumpSeconds, v => t.StumpSeconds = v, 0.1f, 20f, log: true, format: "0.##")
+            .Float("stumpCorpseShare", "культя у трупа: доля τ", () => t.StumpCorpseShare, v => t.StumpCorpseShare = v, 0.05f, 1f, format: "0.##")
+            .Float("stumpPulseHz", "культя: пульс, Гц", () => t.StumpPulseHz, v => t.StumpPulseHz = v, 0.2f, 4f, format: "0.##")
+            .Float("stumpSpeed", "культя: скорость струи, м/с", () => t.StumpSpeed, v => t.StumpSpeed = v, 0.1f, 10f, format: "0.#")
+            .Float("stumpSpread", "культя: разброс струи, рад", () => t.StumpSpread, v => t.StumpSpread = v, 0f, 1f, format: "0.##")
+            .Float("pieceMl", "кусок: выплеск, мл", () => t.PieceMl, v => t.PieceMl = v, 0f, 500f, format: "0")
+            .Float("stumpDripMl", "культя: капание, мл", () => t.StumpDripMl, v => t.StumpDripMl = v, 0f, 500f, format: "0")
+            .Float("pieceDripMl", "кусок: капание, мл", () => t.PieceDripMl, v => t.PieceDripMl = v, 0f, 500f, format: "0")
+            .Float("stumpRimMl", "край среза: кровь на кожу, мл", () => t.StumpRimMl, v => t.StumpRimMl = v, 0f, 100f, format: "0.#")
+            .Float("severSprayShare", "отруб: брызги из касания, доля", () => t.SeverSprayShare, v => t.SeverSprayShare = v, 0f, 1f, format: "0.##")
             .Float("bladePerDamage", "клинок: крови на урон, мл", () => t.BladePerDamage, v => t.BladePerDamage = v, 0f, 1f, format: "0.###")
             .Float("bladeViscosity", "клинок: вязкость k, 1/с", () => t.BladeViscosity, v => t.BladeViscosity = v, 1f, 1000f, log: true, format: "0.#")
             .Float("bladeDetachMl", "клинок: капля с конца, мл", () => t.BladeDetachMl, v => t.BladeDetachMl = v, 0.005f, 2f, log: true, format: "0.###")
@@ -446,6 +470,7 @@ public sealed class BloodModule : IClientModule
             if (_smear) SmearPlayer(blades, tick, poses);
             if (step && blades.UsedSlots > 0) StepBlades(blades, tick, poses);
         }
+        RememberSevered();
         if (Settings!.Body && (_surface is not null || EnsureSurface()))
         {
             if (feed.ArenaReset)
@@ -460,7 +485,61 @@ public sealed class BloodModule : IClientModule
             for (int i = 0; i < hits.Length; i++) Wound(hits[i], poses);
             if (step) StepDrips(tick, poses);
         }
+        if (_floor is { } stumpFloor) StepStumps(stumpFloor, feed, tick, step, poses);
         if (_floor is not null && step) StepFloor(tick, poses);
+    }
+
+    /// <summary>Отделения тика: (боец, сегмент) — удар, отрубивший часть, брызжет из касания меньше.</summary>
+    private void RememberSevered()
+    {
+        _severedCount = 0;
+        if (_sever is not { } sever) return;
+        foreach (var r in sever.Detached)
+        {
+            if (_severedCount == _severed.Length) Array.Resize(ref _severed, 2 * _severed.Length);
+            _severed[_severedCount++] = (r.Fighter, r.Event.Segment);
+        }
+    }
+
+    private bool Severed(ulong fighter, int segment)
+    {
+        for (int i = 0; i < _severedCount; i++)
+            if (_severed[i].Fighter == fighter && _severed[i].Segment == segment) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Обрубки: источники на срезах по отделениям тика (поза тика), шаг струй и капания по позам тика, капли — в полёт до шага пола (липнут
+    /// к телам, ложатся на пол).
+    /// </summary>
+    private void StepStumps(BloodFloor floor, IBloodFeed feed, ulong tick, bool step, IFighterPoses poses)
+    {
+        if (_sever is not { } sever) return;
+        if (_stumps is null)
+        {
+            if (Settings!.Body && _surface is null) return;
+            _stumps = new BloodStumps(_surface);
+        }
+        var stumps = _stumps;
+        if (ObservedTicks == 1)
+        {
+            stumps.Warm(poses, Tuning);
+            if (poses.Count > 0 && _pieces is { } warmPieces) _ = warmPieces.Pieces(poses.Fighter(0).Fighter).Length;   // первый снимок кусков (запрос мира) — здесь, а не в тике отруба
+        }
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (feed.ArenaReset) stumps.ClearAll();
+        foreach (ulong f in feed.Removed) stumps.Clear(f);
+        foreach (ulong f in feed.Built) stumps.Clear(f);
+        var detached = sever.Detached;
+        for (int i = 0; i < detached.Length; i++) stumps.Sever(detached[i].Fighter, detached[i].Event, tick, poses, _pieces, _skin, _clock, Tuning);
+        if (step && stumps.Alive > 0)
+        {
+            stumps.Step(tick, _stepDt, poses, _pieces, _dead, _skin, _drips, _clock, Tuning);
+            if (stumps.Drops.Length > 0) floor.DetachSticky(stumps.Drops, _terrain, Tuning.DropDrag, _tickDt, 0x57u);
+        }
+        long spent = System.Diagnostics.Stopwatch.GetTimestamp() - started;
+        _stumpTicks += spent;
+        if (ObservedTicks > WarmTicks && spent > _stumpMax) (_stumpMax, _stumpMaxTick) = (spent, tick);
     }
 
     /// <summary>Оружие бойцов тика (раз в тик, когда нужно).</summary>
@@ -728,7 +807,8 @@ public sealed class BloodModule : IClientModule
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         int attacker = hit.Attacker != hit.Fighter ? poses.Find(hit.Attacker) : -1;
-        var drops = _spray.Emit(hit, w, joints, attacker >= 0 ? poses.Segments(attacker) : default, _surface!, Tuning);
+        float share = Severed(hit.Fighter, hit.Segment) ? Tuning.SeverSprayShare : 1;
+        var drops = _spray.Emit(hit, w, joints, attacker >= 0 ? poses.Segments(attacker) : default, _surface!, Tuning, share);
         floor.DetachSticky(drops, _terrain, Tuning.DropDrag, _tickDt, w.Seed | 1);
         long spent = System.Diagnostics.Stopwatch.GetTimestamp() - started;
         _emitTicks += spent;
@@ -945,6 +1025,13 @@ public sealed class BloodModule : IClientModule
             .S(", в окно мкл ").I((long)((f?.StampedMl ?? 0) * 1000)).S(", шагов ").I(f?.Steps ?? 0).S(", сдвигов ").I(f?.Shifts ?? 0).Length;
     }
 
+    private int StumpStatus(Span<char> d)
+    {
+        var s = _stumps;
+        return new Line(d).S("источников ").I(s?.Alive ?? 0).S(", родилось ").I(s?.Born ?? 0).S(", мл: каплями ").I((long)(s?.DropsMl ?? 0))
+            .S(", на край ").I((long)(s?.RimMl ?? 0)).S(", потёками ").I((long)(s?.RunMl ?? 0)).Length;
+    }
+
     private int SkinStatus(Span<char> d)
     {
         return new Line(d).S("слотов ").I(_skin?.UsedSlots ?? 0).S(", сочится ").I(_ooze.Active).S(", темп мкл/с ").I((long)(_ooze.Rate * 1000))
@@ -977,6 +1064,8 @@ public sealed class BloodModule : IClientModule
             skinMesh = _mesh is not null,
             terrain = _terrain is not null,
             terrainSrv = _terrainSrv >= 0,
+            sever = _sever is not null,
+            pieces = _pieces is not null,
             sunDirection = _sky is { Sky.SunDirection: var d } && d != Vector3.Zero,
         },
         settings = new { body = Settings!.Body, floor = Settings.Floor },
@@ -1033,6 +1122,24 @@ public sealed class BloodModule : IClientModule
             gpu = _bladeGpu is not null,
             lastPacks = _bladeGpu?.Packs ?? 0,
             lastServed = _bladeGpu?.Served ?? 0,
+        } : null,
+        stumps = _stumps is { } st ? new
+        {
+            alive = st.Alive,
+            born = st.Born,
+            dropsMl = Math.Round(st.DropsMl, 3),
+            rimMl = Math.Round(st.RimMl, 3),
+            runMl = Math.Round(st.RunMl, 3),
+            drops = st.DropCount,
+            ms = Math.Round(Ms(_stumpTicks), 3),
+            maxTickMs = Math.Round(Ms(_stumpMax), 3),
+            maxTick = _stumpMaxTick,
+            sources = Enumerable.Range(0, BloodStumps.Capacity).Where(i => st.Source(i).Alive).Select(i => st.Source(i)).Select(x => new
+            {
+                fighter = x.Fighter, segment = BodySegs.Name(x.Segment), mode = x.Mode.ToString(), side = x.Side.ToString(), born = x.Born,
+                time = Math.Round(x.Time, 2), envelope = Math.Round(x.Envelope, 4), outMl = Math.Round(x.Out, 3), rim = x.RimCount, runs = x.RunCount,
+                x = Math.Round(x.Point.X, 3), y = Math.Round(x.Point.Y, 3), z = Math.Round(x.Point.Z, 3),
+            }).ToArray(),
         } : null,
         spray = new
         {
