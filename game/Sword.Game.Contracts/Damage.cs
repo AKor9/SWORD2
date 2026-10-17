@@ -60,15 +60,21 @@ public enum DeathCause : byte
 
     /// <summary>Команда сцены «убить без удара» (<see cref="SceneAction.Kill"/>).</summary>
     Command = 3,
+
+    /// <summary>Отделение ноги, головы или торса (<see cref="LimbDetached"/>).</summary>
+    Severed = 4,
+
+    /// <summary>Взрыв (<see cref="BlastCommand"/>).</summary>
+    Blast = 5,
 }
 
-/// <summary>Вид попадания: рубящий, укол, тупой (плашмя).</summary>
-/// <remarks><c>Blunt</c> не возникает: физического пути удара нет; номер оставлен ради раскладки вида попадания.</remarks>
+/// <summary>Вид попадания: рубящий, укол, тупой (тупое оружие — <c>combat.bluntWeapons</c>), взрыв (<see cref="BlastCommand"/>).</summary>
 public enum HitKind : byte
 {
     Slash = 0,
     Thrust = 1,
     Blunt = 2,
+    Blast = 3,
 }
 
 /// <summary>Идентификатор касания клинка: тик и порядковый номер в детерминированном порядке тика.</summary>
@@ -133,9 +139,6 @@ public struct Hit
     /// <summary>Смертельный укол: укол остриём вперёд (кончик шёл вдоль клинка — доля больше 0,6) в голову или торс, урон больше 20.</summary>
     public bool LethalThrust;
 
-    /// <summary>Порог отруба части для этого удара (торс — 75, прочее — <c>SeverAt</c>·0,6; удар игрока — ÷ острота).</summary>
-    public float SeverAt;
-
     public bool Probe;
 
     /// <summary>
@@ -146,8 +149,9 @@ public struct Hit
 }
 
 /// <summary>
-/// Заявка на отруб части (событие Resolve): урон попадания больше порога отруба. Ответа пока нет — модуль Cutting
-/// отложен, конечность на месте.
+/// Заявка на разрушение части (событие Resolve): каждое засчитанное попадание по плоти. Решает модуль Cutting — по энергии удара
+/// против сечения части: отруб (<see cref="LimbDetached"/>), неполный разрез (<see cref="PartialCut"/>) или ничего; без модуля
+/// конечность на месте.
 /// </summary>
 public struct SeverRequested
 {
@@ -157,6 +161,18 @@ public struct SeverRequested
     public int Part;
     public Vector3 Point, Blade, Dir;
     public HitKind Kind;
+
+    /// <summary>Скорость точки клинка в месте касания, м/с (мир); у пробы — по урону вдоль направления.</summary>
+    public Vector3 Velocity;
+
+    /// <summary>Острота удара: множитель энергии разреза (<c>combat.playerSharpness</c> у игрока, 1 у врага).</summary>
+    public float Sharpness;
+
+    /// <summary>Жертва — труп (мертва до тика).</summary>
+    public bool Corpse;
+
+    /// <summary>Взрыв (<see cref="HitKind.Blast"/>): энергия, дошедшая до части, Дж; <see cref="Velocity"/> — скорость, которую взрыв даёт части.</summary>
+    public float Energy;
 }
 
 /// <summary>
@@ -181,9 +197,9 @@ public struct ArenaStats
     public int Kills;
     public int Hits;
 
-    /// <summary>Последнее попадание игрока: сегмент (−1 — не было), урон и порог отруба той части.</summary>
+    /// <summary>Последнее попадание игрока: сегмент (−1 — не было) и урон.</summary>
     public int LastPart;
-    public float LastDamage, LastSeverAt;
+    public float LastDamage;
 
     /// <summary>Попаданий по трупам (<see cref="Hit.Corpse"/>): в <see cref="Hits"/> не входят, «убито» от них не растёт.</summary>
     public int CorpseHits;

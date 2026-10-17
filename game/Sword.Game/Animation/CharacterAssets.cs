@@ -2,6 +2,7 @@ using Sword.Engine.Animation;
 using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
 using Sword.Game.Combat;
+using Sword.Game.Contracts;
 using Sword.Game.Data;
 
 namespace Sword.Game.Animation;
@@ -34,6 +35,15 @@ public sealed class CharacterAssets
     /// <summary>Номер сустава <see cref="HandJoint"/> в скелете.</summary>
     public int Hand { get; }
 
+    /// <summary>Вершины меша персонажа (позиция в привязке, главный сустав) — профиль ткани сегментов.</summary>
+    public CharacterMeshPoints Mesh { get; }
+
+    private TissueProfiles? _tissue;
+
+    /// <summary>Профили ткани сегментов (<see cref="Bodies.Tissue"/>) — считаются один раз на ассеты.</summary>
+    public TissueProfiles Tissue =>
+        LazyInitializer.EnsureInitialized(ref _tissue, () => Bodies.Tissue.Build(Mesh, Clips.Skeleton));
+
     private Ragdoll.CorpseJoints.Anatomy? _hinges;
 
     /// <summary>
@@ -42,8 +52,9 @@ public sealed class CharacterAssets
     public Ragdoll.CorpseJoints.Anatomy Hinges =>
         LazyInitializer.EnsureInitialized(ref _hinges, () => new Ragdoll.CorpseJoints.Anatomy(Clips, new Bodies.BodyJoints(Clips.Skeleton)));
 
-    private CharacterAssets(ClipLibrary clips, ActionTable actions, WeaponTable weapons, StrikeTable strikes, int hand)
+    private CharacterAssets(ClipLibrary clips, ActionTable actions, WeaponTable weapons, StrikeTable strikes, int hand, CharacterMeshPoints mesh)
     {
+        Mesh = mesh;
         Clips = clips;
         Actions = actions;
         Weapons = weapons;
@@ -76,6 +87,8 @@ public sealed class CharacterAssets
         Skeleton skeleton;
         using (var s = content.OpenRead(skeletonPath)) skeleton = Skeleton.Read(s, content.Describe(skeletonPath));
         using (var s = content.OpenRead(MeshFile)) skeleton = skeleton.WithMeshBindPose(s, content.Describe(MeshFile));
+        CharacterMeshPoints mesh;
+        using (var s = content.OpenRead(MeshFile)) mesh = CharacterMesh.Read(s, content.Describe(MeshFile));
 
         var skipped = new List<string>();
         var files = content.List(ClipLibrary.AnimDir, ClipLibrary.ClipExt)
@@ -102,6 +115,6 @@ public sealed class CharacterAssets
         if (hand < 0) throw new InvalidDataException($"в скелете {SkeletonId} нет сустава «{HandJoint}» — в нём оружие");
         var strikes = StrikeTable.Analyse(clips, actions, hand, weapons.Weapons[weapons.Default].BladeTip);
         Log.Info("combat", $"оружие: {weapons.Names}; удары по клинку {weapons.Weapons[weapons.Default].Name} — {strikes.Describe(clips)}");
-        return new CharacterAssets(clips, actions, weapons, strikes, hand);
+        return new CharacterAssets(clips, actions, weapons, strikes, hand, mesh);
     }
 }

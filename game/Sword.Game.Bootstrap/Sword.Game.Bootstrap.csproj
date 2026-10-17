@@ -18,5 +18,11 @@
   <PropertyGroup Condition="'$(WithoutLocomotion)' == 'true'">
     <DefineConstants>$(DefineConstants);WITHOUT_LOCOMOTION</DefineConstants>
   </PropertyGroup>
+  <ItemGroup Condition="'$(WithoutCutting)' != 'true'">
+    <ProjectReference Include="..\modules\Sword.Game.Cutting\Sword.Game.Cutting.csproj" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(WithoutCutting)' == 'true'">
+    <DefineConstants>$(DefineConstants);WITHOUT_CUTTING</DefineConstants>
+  </PropertyGroup>
 
 </Project>

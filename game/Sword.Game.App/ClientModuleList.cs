@@ -21,6 +21,9 @@ internal static class ClientModuleList
 #if !WITHOUT_BLOOD
         new Blood.BloodModule(),
 #endif
+#if !WITHOUT_CUTTING
+        new Cutting.CuttingClientModule(),
+#endif
     ];
 
     /// <summary>
@@ -39,6 +42,8 @@ internal static class ClientModuleList
             .Add<IFighterPoses>(link => new ArenaFighterPoses(link))
             .Add<ISkinMesh>(arena.SkinMesh)
             .Add<ISkinBloodLayer>(arena.SkinBlood)
+            .Add(arena.SkinParts)
+            .Add<ISeverFeed>(link => new ArenaSeverFeed(link))
             .Add<ITerrainView>(arena.TerrainView)
             .Add<ISceneFog>(arena)
             .Add<ISceneSky>(arena);

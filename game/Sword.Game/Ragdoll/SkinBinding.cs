@@ -18,9 +18,13 @@ public sealed class SkinBindings
 {
     private readonly int[] _segments;
     private Matrix4x4[] _binding = [];
+    /// <summary>Привязки кусков: слот × <see cref="Severance.MaxPieces"/> × суставы — сустав относительно тела куска.</summary>
+    private Matrix4x4[] _ghost = [];
     private Entity[] _owner = [];
     private int[] _generation = [];
     private float[] _time = [];
+    /// <summary>Сегменты, чья привязка снята при отделении у живого (смерть их не переснимает).</summary>
+    private ushort[] _detached = [];
 
     /// <param name="jointSegments">Сегмент каждого сустава скелета (<see cref="JointSegments"/>).</param>
     /// <param name="slots">Слотов сочленений на старте (арена — 33 бойца).</param>
@@ -44,9 +48,11 @@ public sealed class SkinBindings
         if (slots <= _generation.Length) return;
         int n = Math.Max(slots, _generation.Length * 2);
         Array.Resize(ref _binding, n * _segments.Length);
+        Array.Resize(ref _ghost, n * Severance.MaxPieces * _segments.Length);
         Array.Resize(ref _owner, n);
         Array.Resize(ref _generation, n);
         Array.Resize(ref _time, n);
+        Array.Resize(ref _detached, n);
     }
 
     /// <summary>Привязка снята для этой смерти: слот тела, поколение, владелец и время смерти — те же.</summary>
@@ -56,27 +62,96 @@ public sealed class SkinBindings
 
     /// <summary>
     /// Снимок привязки (тик смерти) по телам <paramref name="body"/> и позе <paramref name="model"/> в мире бойца
-    /// <paramref name="fighterWorld"/>. Прежняя привязка слота заменяется.
+    /// <paramref name="fighterWorld"/>. Сегменты, отделённые при жизни (их привязка снята при отделении), не переснимаются.
     /// </summary>
     public void Capture(IPhysicsWorld physics, Entity owner, ArticulationHandle body, ReadOnlySpan<Matrix4x4> model, in Matrix4x4 fighterWorld,
         float time)
     {
         if (model.Length < _segments.Length) throw new ArgumentException($"поза из {model.Length} суставов, а в скелете {_segments.Length}", nameof(model));
-        Grow(body.Index + 1);
+        Own(owner, body);
+        ushort keep = _detached[body.Index];
         Span<Matrix4x4> inverse = stackalloc Matrix4x4[BodySegs.Bodies];
         for (int k = 0; k < BodySegs.Bodies; k++) inverse[k] = Inverse(physics.Get(physics.Body(body, k)));
         var dst = _binding.AsSpan(body.Index * _segments.Length, _segments.Length);
-        for (int j = 0; j < dst.Length; j++) dst[j] = model[j] * fighterWorld * inverse[BodySegs.Body(_segments[j])];
-        _owner[body.Index] = owner;
-        _generation[body.Index] = body.Generation;
+        for (int j = 0; j < dst.Length; j++)
+            if ((keep & (1 << _segments[j])) == 0) dst[j] = model[j] * fighterWorld * inverse[BodySegs.Body(_segments[j])];
         _time[body.Index] = time;
+    }
+
+    /// <summary>
+    /// Отделение у живого: привязка суставов сегментов <paramref name="segments"/> к их телам по позе тика (дальше их рисуют тела);
+    /// смерть их не переснимает.
+    /// </summary>
+    public void CaptureSegments(IPhysicsWorld physics, Entity owner, ArticulationHandle body, ReadOnlySpan<Matrix4x4> model,
+        in Matrix4x4 fighterWorld, ushort segments)
+    {
+        Own(owner, body);
+        var dst = _binding.AsSpan(body.Index * _segments.Length, _segments.Length);
+        for (int j = 0; j < dst.Length; j++)
+        {
+            int s = _segments[j];
+            if ((segments & (1 << s)) != 0) dst[j] = model[j] * fighterWorld * Inverse(physics.Get(physics.Body(body, BodySegs.Body(s))));
+        }
+        _detached[body.Index] |= segments;
+    }
+
+    /// <summary>
+    /// Кусок <paramref name="piece"/> отрезан от сегмента <paramref name="segment"/>: суставы сегмента относительно тела куска. Живой —
+    /// по позе тика; труп — из его привязки и тела сегмента до разреза (<paramref name="before"/>).
+    /// </summary>
+    public void CaptureGhost(IPhysicsWorld physics, Entity owner, ArticulationHandle body, int piece, int segment, ReadOnlySpan<Matrix4x4> model,
+        in Matrix4x4 fighterWorld, bool corpse, in BodyState before)
+    {
+        Own(owner, body);
+        var pieceInverse = Inverse(physics.Get(physics.Body(body, BodySegs.Bodies + piece)));
+        var row = _binding.AsSpan(body.Index * _segments.Length, _segments.Length);
+        var ghost = _ghost.AsSpan((body.Index * Severance.MaxPieces + piece) * _segments.Length, _segments.Length);
+        var was = System(before);
+        for (int j = 0; j < ghost.Length; j++)
+        {
+            if (_segments[j] != segment) continue;
+            ghost[j] = corpse ? row[j] * was * pieceInverse : model[j] * fighterWorld * pieceInverse;
+        }
+    }
+
+    /// <summary>
+    /// Тело сегмента <paramref name="segment"/> трупа сдвинулось (культя): привязка его суставов — к новой системе тела, чтобы скин не
+    /// сдвинулся (<c>binding · было · стало⁻¹</c>).
+    /// </summary>
+    public void Rebase(ArticulationHandle body, int segment, in BodyState before, in BodyState after)
+    {
+        if ((uint)body.Index >= (uint)_generation.Length || _generation[body.Index] != body.Generation) return;
+        var row = _binding.AsSpan(body.Index * _segments.Length, _segments.Length);
+        var move = System(before) * Inverse(after);
+        for (int j = 0; j < row.Length; j++)
+            if (_segments[j] == segment) row[j] *= move;
+    }
+
+    /// <summary>Слот за владельцем: чужой или другого поколения — сначала очистить.</summary>
+    private void Own(Entity owner, ArticulationHandle body)
+    {
+        Grow(body.Index + 1);
+        int slot = body.Index;
+        if (_generation[slot] == body.Generation && _owner[slot] == owner) return;
+        Clear(slot);
+        _owner[slot] = owner;
+        _generation[slot] = body.Generation;
+        _time[slot] = float.NaN;
     }
 
     /// <summary>Обратная система тела (вектор слева): перенос на минус центр, затем обратный поворот.</summary>
     private static Matrix4x4 Inverse(in BodyState s) =>
         Matrix4x4.CreateTranslation(-s.Position) * Matrix4x4.CreateFromQuaternion(Quaternion.Conjugate(s.Rotation));
 
-    /// <summary>Привязка тела: есть и снята для этого сочленения (поколение то же) — матрицы и время смерти.</summary>
+    /// <summary>Система тела (вектор слева): поворот, затем перенос в центр.</summary>
+    private static Matrix4x4 System(in BodyState s)
+    {
+        var m = Matrix4x4.CreateFromQuaternion(s.Rotation);
+        m.Translation = s.Position;
+        return m;
+    }
+
+    /// <summary>Привязка тела: есть и снята для этого сочленения (поколение то же) — матрицы и время смерти (NaN — снята при отделении у живого).</summary>
     public bool TryGet(ArticulationHandle body, out ReadOnlySpan<Matrix4x4> binding, out float time)
     {
         binding = default;
@@ -87,12 +162,29 @@ public sealed class SkinBindings
         return true;
     }
 
+    /// <summary>Привязка суставов куска <paramref name="piece"/> к его телу (суставы сегмента, от которого он отрезан).</summary>
+    public bool TryGetGhost(ArticulationHandle body, int piece, out ReadOnlySpan<Matrix4x4> ghost)
+    {
+        ghost = default;
+        if (body.IsNone || (uint)body.Index >= (uint)_generation.Length || _generation[body.Index] != body.Generation
+            || (uint)piece >= Severance.MaxPieces) return false;
+        ghost = _ghost.AsSpan((body.Index * Severance.MaxPieces + piece) * _segments.Length, _segments.Length);
+        return true;
+    }
+
     /// <summary>Слот <paramref name="slot"/>: поколение сочленения (0 — привязки нет), владелец, время смерти.</summary>
     public (int Generation, Entity Owner, float Time) At(int slot) => (_generation[slot], _owner[slot], _time[slot]);
+
+    /// <summary>Сегменты слота, снятые при отделении у живого.</summary>
+    public ushort DetachedAt(int slot) => _detached[slot];
 
     /// <summary>Матрицы привязки слота <paramref name="slot"/> (нет привязки — пусто).</summary>
     public ReadOnlySpan<Matrix4x4> BindingAt(int slot) =>
         _generation[slot] == 0 ? default : _binding.AsSpan(slot * _segments.Length, _segments.Length);
+
+    /// <summary>Привязки кусков слота подряд (нет привязки — пусто).</summary>
+    public ReadOnlySpan<Matrix4x4> GhostsAt(int slot) =>
+        _generation[slot] == 0 ? default : _ghost.AsSpan(slot * Severance.MaxPieces * _segments.Length, Severance.MaxPieces * _segments.Length);
 
     /// <summary>Сбросить привязки владельца <paramref name="owner"/> (метку смерти сняли или боец ушёл).</summary>
     public void Release(Entity owner)
@@ -106,17 +198,22 @@ public sealed class SkinBindings
         _generation[slot] = 0;
         _owner[slot] = Entity.Null;
         _time[slot] = 0;
+        _detached[slot] = 0;
         _binding.AsSpan(slot * _segments.Length, _segments.Length).Clear();
+        _ghost.AsSpan(slot * Severance.MaxPieces * _segments.Length, Severance.MaxPieces * _segments.Length).Clear();
     }
 }
 
-/// <summary>Привязка скина для наблюдателей (<see cref="ISkinView"/>) — чтение <see cref="SkinBindings"/>.</summary>
+// <summary>Привязка скина для наблюдателей (<see cref="ISkinView"/>) — чтение <see cref="SkinBindings"/>.</summary>
 public sealed class SkinView(SkinBindings skins) : ISkinView
 {
     public int JointCount => skins.JointCount;
 
     public bool TryGet(BodyRef body, out ReadOnlySpan<Matrix4x4> binding, out float time) =>
         skins.TryGet(FighterBodies.Handle(body), out binding, out time);
+
+    public bool TryGetGhost(BodyRef body, int piece, out ReadOnlySpan<Matrix4x4> ghost) =>
+        skins.TryGetGhost(FighterBodies.Handle(body), piece, out ghost);
 }
 
 /// <summary>
@@ -192,7 +289,14 @@ public sealed class SkinState(SkinBindings skins) : IStateContributor
         h.Add(owner.Index);
         h.Add(owner.Generation);
         h.Add(time);
-        foreach (var m in binding)
+        h.Add(skins.DetachedAt(i));
+        Matrices(ref h, binding);
+        Matrices(ref h, skins.GhostsAt(i));
+    }
+
+    private static void Matrices(ref StateHasher h, ReadOnlySpan<Matrix4x4> matrices)
+    {
+        foreach (var m in matrices)
         {
             h.Add(m.M11); h.Add(m.M12); h.Add(m.M13); h.Add(m.M14);
             h.Add(m.M21); h.Add(m.M22); h.Add(m.M23); h.Add(m.M24);
@@ -250,10 +354,14 @@ public sealed class SkinInvariant(IPhysicsWorld physics, SkinBindings skins) : I
         if (generation == 0) return null;
         var binding = skins.BindingAt(slot);
         var body = new ArticulationHandle(slot, generation);
-        if (!world.IsAlive(owner) || !world.TryGet<Dead>(owner, out var dead) || !world.TryGet<BodyRef>(owner, out var r)
-            || FighterBodies.Handle(r) != body)
-            return $"привязка скина тела {body} у {owner}, а он не мёртвый боец с этим телом";
-        if (!dead.Time.Equals(time)) return string.Create(CultureInfo.InvariantCulture, $"привязка скина {owner} снята в {time} с, а умер он в {dead.Time} с");
+        if (!world.IsAlive(owner) || !world.TryGet<BodyRef>(owner, out var r) || FighterBodies.Handle(r) != body)
+            return $"привязка скина тела {body} у {owner}, а он не боец с этим телом";
+        if (world.TryGet<Dead>(owner, out var dead))
+        {
+            if (!dead.Time.Equals(time) && !float.IsNaN(time))
+                return string.Create(CultureInfo.InvariantCulture, $"привязка скина {owner} снята в {time} с, а умер он в {dead.Time} с");
+        }
+        else if (!world.Has<Severance>(owner)) return $"привязка скина тела {body} у живого {owner} без отделённых частей";
         if (_finite[slot] == (generation, owner, time)) return null;   // эту привязку уже проверили: после снимка она не меняется
         foreach (var m in binding)
             if (!float.IsFinite(m.M11 + m.M12 + m.M13 + m.M21 + m.M22 + m.M23 + m.M31 + m.M32 + m.M33 + m.M41 + m.M42 + m.M43))

@@ -43,6 +43,31 @@ public static class Corpse
         }
     }
 
+    /// <summary>
+    /// Переход в труп бойца с отделёнными частями (<paramref name="severance"/>): как <see cref="Convert"/>, но суставы — по дереву
+    /// после отделений; суставы отделённого при жизни сохраняют привязку (их позу покоя задал разрез, а не поза смерти); отделённые тела
+    /// не урезаются — они уже на физике. Места под суставы и пары (<paramref name="all"/>, <paramref name="pairs"/>) — у вызывающего.
+    /// </summary>
+    public static void Convert(IPhysicsWorld physics, ArticulationHandle body, CorpseJoints joints, Span<JointDesc> descs,
+        ReadOnlySpan<Matrix4x4> model, in Matrix4x4 fighterWorld, int corpseProfile, in RagdollRules rules, in Severance severance,
+        Span<JointDesc> all, Span<BodyPair> pairs)
+    {
+        for (int k = 0; k < BodySegs.Bodies; k++)
+            if (!severance.IsDetached(k)) Tame(physics, physics.Body(body, k), rules.DeathMaxSpeed, rules.DeathMaxAngularSpeed);
+        int count = Severing.Joints(physics, body, joints, model, fighterWorld, severance, descs, all);
+        Severing.SetJointsKeeping(physics, body, all[..count], severance.Detached);
+        for (int j = 0; j < count; j++)
+            if (all[j].Child == BodySegs.Weapon) physics.SetJointEnabled(body, j, false);   // меч выпадает
+        physics.SetSelfContacts(body, pairs[..Severing.SelfPairs(all[..count], physics.BodyCount(body), severance, pairs)]);
+        for (int k = 0, n = physics.BodyCount(body); k < n; k++)
+        {
+            var b = physics.Body(body, k);
+            if (physics.Get(b).Mode == BodyMode.Simulated) continue;
+            physics.SetMode(b, BodyMode.Simulated);
+            physics.SetDynamics(b, corpseProfile);
+        }
+    }
+
     /// <summary>Скорость и угловая скорость тела — не больше пределов (направление сохраняется).</summary>
     private static void Tame(IPhysicsWorld physics, BodyHandle b, float maxSpeed, float maxAngular)
     {
@@ -104,10 +129,13 @@ public static class Corpse
 public sealed class DeathToRagdollSystem(IPhysicsWorld physics, CorpseJoints joints, int corpseProfile, bool gameplay) : IReactiveSystem<Added<Dead>>
 {
     private readonly JointDesc[] _descs = new JointDesc[CorpseJoints.Count];
+    private readonly JointDesc[] _all = new JointDesc[Severing.MaxBodies];
+    private readonly BodyPair[] _pairs = new BodyPair[Severing.MaxPairs];
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.DeathToRagdoll).After(GameLabels.SkinCapture).Reads<Dead>().Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>();
+        s.Label(GameLabels.DeathToRagdoll).After(GameLabels.SkinCapture).Reads<Dead>().Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>()
+            .Reads<Severance>();
         if (gameplay) s.Before(GameLabels.RootSteer).NextTickOk<Added<Dead>>();
     }
 
@@ -125,7 +153,10 @@ public sealed class DeathToRagdollSystem(IPhysicsWorld physics, CorpseJoints joi
             var body = FighterBodies.Handle(bodyRef);
             var pose = new PoseHandle(poseRef.Index, poseRef.Generation);
             if (!pool.IsAlive(pose) || !BodyPlacement.Placeable(physics, body) || Corpse.IsCorpse(physics, body)) continue;
-            Corpse.Convert(physics, body, joints, _descs, pool.Model(pose), BodyPlacement.World(root.Position, root.Facing), corpseProfile, rules);
+            if (world.TryGet<Severance>(e, out var severance))
+                Corpse.Convert(physics, body, joints, _descs, pool.Model(pose), BodyPlacement.World(root.Position, root.Facing), corpseProfile, rules,
+                    severance, _all, _pairs);
+            else Corpse.Convert(physics, body, joints, _descs, pool.Model(pose), BodyPlacement.World(root.Position, root.Facing), corpseProfile, rules);
         }
     }
 }

@@ -103,7 +103,8 @@ public sealed class StartPoseModel(ClipLibrary clips)
 /// по позе постройки (тела переставляются, а не создаются); построенный заново труп сначала снова живой. Бойцов сборки мира
 /// ставит <see cref="PlaceWorldBuilt"/>; их записи <c>Added</c> в тике 1 ставят их ещё раз теми же значениями — итог тот же.
 /// </summary>
-public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, StartPoseModel start) : IReactiveSystem<Added<Fighter>>
+public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, StartPoseModel start, Ragdoll.SkinBindings skins)
+    : IReactiveSystem<Added<Fighter>>
 {
     public void Setup(SystemSetup s) =>
         s.Label(GameLabels.BodySetup).After(GameLabels.FighterSetup).Before(GameLabels.RootSteer).Reads<Transform>().Reads<BodyRef>()
@@ -119,6 +120,9 @@ public sealed class BodySetupSystem(IPhysicsWorld physics, BodyJoints joints, St
                 continue;
             var handle = FighterBodies.Handle(body);
             if (!BodyPlacement.Placeable(physics, handle)) continue;
+            // Куски прошлой жизни уходят вместе с их суставами и парами; привязки скина — с нуля.
+            if (physics.BodyCount(handle) > BodySegs.Bodies) physics.RemoveBodies(handle, BodySegs.Bodies);
+            skins.Release(a.Entity);
             // Построенный заново мёртвый (возрождение, сброс R, команда сцены, пересборка) — снова живой: тела кинематические, профиль
             // по умолчанию, суставы включены; тела плоти и клинка ставятся без скорости по позе постройки (своей у бойца или общей).
             Ragdoll.Corpse.Revive(physics, handle);
@@ -158,7 +162,7 @@ public sealed class KinematicPlacementSystem(IPhysicsWorld physics, BodyJoints j
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>();
+        s.Label(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>().Reads<Severance>();
         // Мёртвый — труп на физике: его тела двигает шаг физики, а не поза; скорости последнего тика жизни берёт переход в труп.
         _query = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
     }
@@ -177,7 +181,9 @@ public sealed class KinematicPlacementSystem(IPhysicsWorld physics, BodyJoints j
                 var pose = new PoseHandle(poses[i].Index, poses[i].Generation);
                 var body = FighterBodies.Handle(bodies[i]);
                 if (!pool.IsAlive(pose) || !BodyPlacement.Placeable(physics, body)) continue;
-                BodyPlacement.Tick(physics, body, pool.Model(pose), joints, roots[i].Position, roots[i].Facing, dt);
+                if (ctx.World.TryGet<Severance>(chunk.Entities[i], out var severance))
+                    BodyPlacement.Tick(physics, body, pool.Model(pose), joints, roots[i].Position, roots[i].Facing, dt, severance);
+                else BodyPlacement.Tick(physics, body, pool.Model(pose), joints, roots[i].Position, roots[i].Facing, dt);
             }
         }
     }

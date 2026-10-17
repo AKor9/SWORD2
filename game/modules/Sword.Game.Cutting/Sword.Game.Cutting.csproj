@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Модуль Cutting (раздел 10, решение 21): расчленение в симуляции — ответ на заявки отруба, деление тел, записи отрубов. -->
+  <PropertyGroup>
+    <SwordSide>Simulation</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Game.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Runtime\Sword.Engine.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Ecs\Sword.Engine.Ecs.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Physics\Sword.Engine.Physics.csproj" />
+  </ItemGroup>
+
+</Project>

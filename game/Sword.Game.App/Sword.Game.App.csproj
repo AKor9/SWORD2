@@ -36,6 +36,12 @@
   <PropertyGroup Condition="'$(WithoutBlood)' == 'true'">
     <DefineConstants>$(DefineConstants);WITHOUT_BLOOD</DefineConstants>
   </PropertyGroup>
+  <ItemGroup Condition="'$(WithoutCutting)' != 'true'">
+    <ProjectReference Include="..\modules\Sword.Game.Cutting.Client\Sword.Game.Cutting.Client.csproj" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(WithoutCutting)' == 'true'">
+    <DefineConstants>$(DefineConstants);WITHOUT_CUTTING</DefineConstants>
+  </PropertyGroup>
 
   <!-- Инструменты разработчика (панели DevTools, раздел 4): в сборке без них (-p:WithoutDevTools=true) их нет. -->
   <ItemGroup Condition="'$(WithoutDevTools)' != 'true'">

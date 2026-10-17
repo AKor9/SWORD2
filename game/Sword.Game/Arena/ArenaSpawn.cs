@@ -232,6 +232,7 @@ public static class Fighters
         c.Add(e, new Fighter());
         // Здоровье — полное, мёртвый оживает (возрождение врага, сброс арены), вздрагивание игрока и пары удара врага — с нуля
         if (dead) c.Remove<Dead>(e);
+        c.Remove<Severance>(e);   // отделённые части уходят с телом: постройка их убирает (BodySetupSystem)
         c.Set(e, Health.Fresh);
         c.Set(e, HitImpulse.None);   // импульс удара и отдача — с нуля
         c.Set(e, Recoil.None);
@@ -270,7 +271,7 @@ public static class Fighters
 
     /// <summary>Объявления системы, которая только строит бойцов заново (<see cref="Rebuild"/>: возрождение врага).</summary>
     public static SystemSetup DeclaresRebuild(this SystemSetup s) => s
-        .Adds<Fighter>().Removes<Fighter>().Removes<Dead>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
+        .Adds<Fighter>().Removes<Fighter>().Removes<Dead>().Removes<Severance>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>().Sets<AnimatorAction>()
         .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>().Sets<Health>().Sets<StrikePairs>().Sets<Flinch>()
         .Sets<HitImpulse>().Sets<Recoil>();

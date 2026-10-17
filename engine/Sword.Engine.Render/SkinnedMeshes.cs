@@ -61,6 +61,8 @@ public sealed class SkinnedMeshes : IDisposable
         public readonly Matrix4x4[] InverseBind = inverseBind;
         public readonly List<int> Pending = [];
 
+        public long Bytes => (long)Vertices.SizeBytes + (long)Indices.Count * 4;
+
         public void Dispose()
         {
             Vertices.Dispose();
@@ -69,7 +71,8 @@ public sealed class SkinnedMeshes : IDisposable
     }
 
     private readonly Renderer _renderer;
-    private readonly List<Mesh> _meshes = [];
+    /// <summary>Меши по номерам; освобождённый производный — null (номер переиспользуется).</summary>
+    private readonly List<Mesh?> _meshes = [];
     /// <summary>Загруженные по пути: ключ — нормализованный путь контента без учёта регистра, как ищет сам контент.</summary>
     private readonly Dictionary<string, int> _loaded = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Загруженные по секциям (<see cref="LoadMeshSections"/>): ключ — как у <see cref="_loaded"/>.</summary>
@@ -177,8 +180,10 @@ public sealed class SkinnedMeshes : IDisposable
         var normals = new Vector3[v.Length];
         var joints = new uint[v.Length];
         var weights = new Vector4[v.Length];
+        var uvs = new Vector2[v.Length];
         for (int i = 0; i < v.Length; i++)
         {
+            uvs[i] = v[i].Uv;
             positions[i] = v[i].Position;
             normals[i] = v[i].Normal;
             joints[i] = v[i].Joints;
@@ -187,7 +192,7 @@ public sealed class SkinnedMeshes : IDisposable
         }
         return new SkinnedMeshCpu
         {
-            Positions = positions, Normals = normals, Indices = data.Indices, Joints = joints, Weights = weights,
+            Positions = positions, Normals = normals, Uvs = uvs, Indices = data.Indices, Joints = joints, Weights = weights,
             InverseBind = data.InverseBind, JointNames = data.JointNames,
         };
     }
@@ -203,13 +208,52 @@ public sealed class SkinnedMeshes : IDisposable
         return _meshes.Count - 1;
     }
 
-    public int JointCount(int mesh) => _meshes[mesh].JointCount;
+    /// <summary>
+    /// Производный меш (разрез): вершины — записи вершины скина по 48 байт (позиция, нормаль, UV, 4 сустава, 3 веса — как в .swmesh),
+    /// индексы — треугольники; суставы и обратные bind-матрицы — меша <paramref name="baseMesh"/>. Вернёт номер для <see cref="AddPosed"/>;
+    /// освобождает <see cref="RemoveMesh"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">Вершин не целое число записей, индекс вне вершин или треугольник неполный.</exception>
+    public int AddDerivedMesh(string name, int baseMesh, ReadOnlySpan<byte> vertices, ReadOnlySpan<uint> indices)
+    {
+        if (vertices.Length % SkinVertex.Size != 0) throw new ArgumentException($"вершин {vertices.Length} байт — не кратно {SkinVertex.Size}", nameof(vertices));
+        if (indices.Length % 3 != 0 || indices.Length == 0) throw new ArgumentException($"индексов {indices.Length} — не треугольники", nameof(indices));
+        int count = vertices.Length / SkinVertex.Size;
+        foreach (uint i in indices)
+            if (i >= (uint)count) throw new ArgumentException($"индекс {i} вне {count} вершин", nameof(indices));
+        var source = _meshes[baseMesh] ?? throw new ArgumentException($"меша {baseMesh} нет", nameof(baseMesh));
+        var data = MemoryMarshal.Cast<byte, SkinVertex>(vertices);
+        var mesh = new Mesh(name, _renderer.CreateData<SkinVertex>(name + ".Vertices", data.ToArray()),
+            _renderer.CreateIndices(name + ".Indices", indices.ToArray()), source.JointCount, source.InverseBind);
+        int free = _meshes.IndexOf(null);
+        if (free >= 0)
+        {
+            _meshes[free] = mesh;
+            return free;
+        }
+        _meshes.Add(mesh);
+        return _meshes.Count - 1;
+    }
+
+    /// <summary>Освободить меш (производный): буферы GPU — после кадров, которые его ещё рисуют; номер освобождается для новых.</summary>
+    public void RemoveMesh(int mesh)
+    {
+        var m = _meshes[mesh];
+        if (m is null) return;
+        _meshes[mesh] = null;
+        m.Dispose();   // буферы сами откладывают освобождение до забора кадров, которые их рисуют
+    }
+
+    /// <summary>Байт GPU-памяти меша (вершины и индексы); нет меша — 0.</summary>
+    public long MeshBytes(int mesh) => _meshes[mesh] is { } m ? m.Bytes : 0;
+
+    public int JointCount(int mesh) => _meshes[mesh]!.JointCount;
 
     /// <summary>Начало кадра: экземпляры прошлого кадра забыты.</summary>
     public void Begin()
     {
         _paletteUsed = _instanceCount = 0;
-        foreach (var m in _meshes) m.Pending.Clear();
+        foreach (var m in _meshes) m?.Pending.Clear();
     }
 
     /// <summary>
@@ -218,7 +262,7 @@ public sealed class SkinnedMeshes : IDisposable
     /// </summary>
     public Span<GpuMat34> Add(int mesh, Vector3 colour, uint owner = 0, float glow = 0, uint flags = 0)
     {
-        var m = _meshes[mesh];
+        var m = _meshes[mesh] ?? throw new ArgumentException($"меша {mesh} нет (освобождён)", nameof(mesh));
         if (_instanceCount >= MaxInstances || _paletteUsed + m.JointCount > MaxPalette)
         {
             if (!_overflowReported)
@@ -246,7 +290,7 @@ public sealed class SkinnedMeshes : IDisposable
     /// <exception cref="ArgumentException">Суставов в позе не столько, сколько в меше.</exception>
     public bool AddPosed(int mesh, ReadOnlySpan<Matrix4x4> model, in Matrix4x4 world, Vector3 colour, uint owner = 0, float glow = 0, uint flags = 0)
     {
-        var m = _meshes[mesh];
+        var m = _meshes[mesh] ?? throw new ArgumentException($"меша {mesh} нет (освобождён)", nameof(mesh));
         if (model.Length != m.InverseBind.Length)
             throw new ArgumentException($"{m.Name}: суставов в позе {model.Length}, в меше {m.InverseBind.Length}", nameof(model));
         var palette = Add(mesh, colour, owner, glow, flags);
@@ -262,7 +306,7 @@ public sealed class SkinnedMeshes : IDisposable
     /// <exception cref="ArgumentException">У меша есть суставы: его рисуют позой (<see cref="AddPosed"/>).</exception>
     public bool AddRigid(int mesh, in Matrix4x4 world, Vector3 colour, uint owner = 0, float glow = 0, uint flags = 0)
     {
-        var m = _meshes[mesh];
+        var m = _meshes[mesh] ?? throw new ArgumentException($"меша {mesh} нет (освобождён)", nameof(mesh));
         if (m.InverseBind.Length != 0)
             throw new ArgumentException($"{m.Name}: суставов {m.InverseBind.Length} — жёстко вкладывается только статический меш", nameof(mesh));
         var palette = Add(mesh, colour, owner, glow, flags);
@@ -283,7 +327,7 @@ public sealed class SkinnedMeshes : IDisposable
         ctx.SetConstant(SlotInstances, _instances.Srv);
         foreach (var m in _meshes)
         {
-            if (m.Pending.Count == 0) continue;
+            if (m is null || m.Pending.Count == 0) continue;
             int start = written;
             foreach (int i in m.Pending) gpu[written++] = _cpuInstances[i];
             ctx.SetConstant(SlotVerts, m.Vertices.Srv);
@@ -294,7 +338,7 @@ public sealed class SkinnedMeshes : IDisposable
 
     public void Dispose()
     {
-        foreach (var m in _meshes) m.Dispose();
+        foreach (var m in _meshes) m?.Dispose();
         _palette.Dispose();
         _instances.Dispose();
     }

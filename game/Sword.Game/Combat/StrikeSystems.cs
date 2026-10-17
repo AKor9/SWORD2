@@ -49,14 +49,16 @@ public struct StrikePairs
 /// меньше 4 — не касание и проход не тратит. Касание и пробы (<see cref="StrikeProbe"/>) — событие <see cref="StrikeContact"/>.
 /// Памяти в тике не выделяет.
 /// </summary>
-public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable strikes) : IContinuousSystem
+public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable strikes, bool[]? blunt = null) : IContinuousSystem
 {
     private const int Slots = ArenaRules.MaxFighters, Bodies = BodySegs.Bodies;
 
     private Query _fighters = null!, _dead = null!, _pairs = null!;
     private readonly Entity[] _entity = new Entity[Slots];
     private readonly bool[] _present = new bool[Slots], _alive = new bool[Slots], _placeable = new bool[Slots], _hasPairs = new bool[Slots],
-        _bounded = new bool[Slots];
+        _bounded = new bool[Slots], _armed = new bool[Slots];
+    /// <summary>Отделённые сегменты живой жертвы — не цели (у трупа цель — всё тело).</summary>
+    private readonly ushort[] _detached = new ushort[Slots];
     private readonly Vector3[] _root = new Vector3[Slots], _center = new Vector3[Slots];
     private readonly float[] _facing = new float[Slots], _radius = new float[Slots];
     private readonly ActionKind[] _kind = new ActionKind[Slots];
@@ -71,7 +73,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.StrikeDetection).ReadsJournal<Event<StrikeProbe>>().Reads<FighterSlot>().Reads<Transform>().Reads<AnimatorAction>()
-            .Reads<Blade>().Reads<BodyRef>().Writes<StrikePairs>().Emits<StrikeContact>()
+            .Reads<Blade>().Reads<BodyRef>().Reads<Severance>().Writes<StrikePairs>().Emits<StrikeContact>()
             .ReserveCommands(0, CombatReserve.Contacts, CombatReserve.Contacts * 128);
         _fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
         _dead = s.Query().With<Fighter>().With<Dead>().Read<FighterSlot>();
@@ -88,7 +90,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         Gather(ctx);
         _contacts = 0;
         for (int i = 0; i < Slots; i++)
-            if (_alive[i] && _kind[i] == ActionKind.Attack && _blade[i].Weapon >= 0) Attacker(ctx, i, time, rules);
+            if (_alive[i] && _armed[i] && _kind[i] == ActionKind.Attack && _blade[i].Weapon >= 0) Attacker(ctx, i, time, rules);
         foreach (var p in probes)
         {
             Probe(ctx, p.Value, time.Tick);
@@ -129,6 +131,9 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
                 _blade[slot] = blades[i];
                 _body[slot] = FighterBodies.Handle(bodies[i]);
                 _placeable[slot] = BodyPlacement.Placeable(physics, _body[slot]);
+                bool severed = ctx.World.TryGet<Severance>(entities[i], out var severance);
+                _detached[slot] = severed ? severance.Detached : (ushort)0;
+                _armed[slot] = !severed || !severance.IsDetached(BodySegs.Weapon);
             }
         }
         foreach (var chunk in ctx.Iterate(_dead))
@@ -136,7 +141,11 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
             var entities = chunk.Entities;
             var slots = chunk.Read<FighterSlot>()[..entities.Length];
             for (int i = 0; i < entities.Length; i++)
-                if (Owns(slots[i].Index, entities[i], out int slot)) _alive[slot] = false;
+                if (Owns(slots[i].Index, entities[i], out int slot))
+                {
+                    _alive[slot] = false;
+                    _detached[slot] = 0;
+                }
         }
         foreach (var chunk in ctx.Iterate(_pairs))
         {
@@ -207,7 +216,9 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
         ctx.Commands.Emit(new StrikeContact
         {
             Id = new ContactId(time.Tick, _contacts++), Attacker = _entity[att], Victim = _entity[vic], Part = BodySegs.Segment(body),
-            Point = point, Dir = dir, Blade = axis, Speed = speed, Kind = thrust ? HitKind.Thrust : HitKind.Slash, Damage = damage,
+            Point = point, Dir = dir, Blade = axis, Speed = speed, Damage = damage,
+            Kind = blunt is not null && (uint)blade.Weapon < (uint)blunt.Length && blunt[blade.Weapon] ? HitKind.Blunt
+                : thrust ? HitKind.Thrust : HitKind.Slash,
             AttackSerial = _serial[att],
         });
     }
@@ -255,7 +266,7 @@ public sealed class StrikeDetectionSystem(IPhysicsWorld physics, StrikeTable str
             var b = Vector3.Lerp(blade.PrevTip, blade.Tip, t);
             for (int body = 0; body < Bodies; body++)
             {
-                if (!BodySegs.IsFlesh(BodySegs.Segment(body))) continue;
+                if (!BodySegs.IsFlesh(BodySegs.Segment(body)) || (_detached[vic] & (1 << body)) != 0) continue;
                 int at = vic * Bodies + body;
                 float d2 = Segments.SegSeg(a, b, _endA[at], _endB[at], out var c1, out var c2);
                 float r = _bodyRadius[at] + DamageRules.SweepPad;

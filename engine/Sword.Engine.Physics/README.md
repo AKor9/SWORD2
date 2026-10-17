@@ -16,6 +16,8 @@ ECS, ни игры подсистема не знает. **Свой путь** (
 Интерфейс `IPhysicsWorld` (в одном процессе живут две реализации — эталон и кандидат; игра и тесты работают через интерфейс), реализация —
 `PhysicsWorld`. Открытые типы и члены меняются только отдельным маленьким коммитом «контракт: …» ([AGENTS.md](AGENTS.md)).
 - **Слоты и хэндлы.** `BodyHandle`, `ArticulationHandle` — индекс слота и поколение (0 — «нет»); `CreateArticulation`, `DestroyArticulation`,
+  `AddBody` (тело в конец сочленения — отделённый кусок; место под суставы и пары растёт, выделение — на событие), `RemoveBodies(keep)`
+  (тела с конца — вместе с их суставами и парами; слоты возвращаются с конца),
   `IsAlive`, `BodyCount`, `Body`, `ArticulationOf`; хешу, инвариантам и описанию — `ArticulationCount`, `LiveBodyCount`,
   `ArticulationCapacity/GenerationAt/At`, `FreeArticulations`, `BodyCapacity/GenerationAt/At`, `FreeBodies`.
 - **Тело и динамика.** `BodyState`: положение и поворот (ось капсулы — локальная Y), скорости, прошлая поза подшага, поза начала тика
@@ -28,16 +30,20 @@ ECS, ни игры подсистема не знает. **Свой путь** (
   `ApplyImpulse`, `Integrate`, `UpdateVelocity`), `Xpbd` (`Along`, `Attach`, `Angular`, `Contact`, `Friction`: тело — тело и тело — мир,
   все возвращают λ), `PhysicsMath.RotationVector`.
 - **Суставы.** `JointDesc` (фабрики `Hinge`, `SwingTwist`; `JointKind`, родитель и ребёнок, точка на ребёнке, пределы, `AxisSlack`,
-  `BendSign`, `HingeAxis`, `LimitCompliance` — null: из настроек), `SetJoints`, `JointCount`, `Joint`, `RebindJoints`,
+  `BendSign`, `HingeAxis`, `LimitCompliance` — null: из настроек), `SetJoints`, `SetJoint` (один сустав с готовой привязкой — перенос
+  сустава на кусок при разрезе без перепривязки по позе), `JointCount`, `Joint`, `RebindJoints`,
   `SetJointEnabled`/`IsJointEnabled`, `Binding` → `JointBinding`, `JointLimitHits` → `JointLimitHit`, `MeasureJoint` → `JointMeasure`.
 - **Самоколлизия.** `SetSelfContacts(articulation, pairs)` — пары тел одного сочленения (`BodyPair`: номера тел, разные, пара — не дважды),
   которые сталкиваются между собой; `SelfContacts` — таблица по порядку решения. Какие пары — решает владелец (у трупа бойца — таблица игры).
+- **Щупы земли.** `SetGroundProbes(body, spheres)` / `GroundProbes` — до `PhysicsWorld.MaxGroundProbes` = 6 сфер в системе тела, которые
+  касаются земли так же, как торцы капсулы (нормаль, трение с общим бюджетом); с телами не сталкиваются. Игра даёт их телу клинка: навершие,
+  гарда и головка молота за капсулой клинка — выпавшее оружие лежит на них, а не уходит в землю.
 - **Земля и статический мир.** `IGround` (реализует игра: `Touches` — до `IGround.MaxTouches` = 6 касаний `GroundTouch` по граням с
   непрерывной глубиной, `Depth`), `SetGround`, `SetWall(radius)` (окружность вокруг начала координат в XZ; ∞ — нет), `SetPillars`
   (`Pillar`), `Bounds` → `ArticulationBounds`.
 - **Шаг.** `Step(dt)` (подшаги — из настроек), `NonFiniteArticulations`, `HasNonFinite`, `AttachProfiler`. **Сон** — `IsAsleep`,
   `RestTime`, `Wake`, `AsleepCount`, `WakeReason`.
-- **Толчки живых и удары.** `KinematicSource` (`Body`, `Pass`, `NoReaction` — потребителя пока нет: Cutting отложен, решение 17),
+- **Толчки живых и удары.** `KinematicSource` (`Body`, `Pass`, `NoReaction` — потребителя пока нет),
   `PreparePass(pusher, strike, mass, speed)`, `PassHit`,
   `SpendHit`, `ApplyHit(body, point, impulse, impactSpeed, pusher)`, `Pass` → `PassState`, `Reaction`, `TakeReaction`, `EndKinematicTick`.
 - **Трасса.** `Trace`, `EnableTrace`, `DisableTrace`; `PhysicsTrace` (накопители, `LastContacts`, события, `Summary`), `PhysicsSource`

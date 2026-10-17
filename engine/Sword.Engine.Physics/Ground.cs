@@ -6,19 +6,58 @@ namespace Sword.Engine.Physics;
 // бюджетом Кулона.
 public sealed partial class PhysicsWorld
 {
-    /// <summary>Касание торца с землёй в подшаге: торец, нормаль грани, λn; застарелая ли глубина (глубже <c>PopSpeed·h</c> в начале подшага).</summary>
+    /// <summary>
+    /// Касание сферы тела с землёй в подшаге: центр сферы в системе тела и её радиус (торец — точка оси и радиус капсулы, щуп —
+    /// <see cref="SetGroundProbes"/>), нормаль грани, λn; застарелая ли глубина (глубже <c>PopSpeed·h</c> в начале подшага).
+    /// </summary>
     private struct GroundContactEntry
     {
-        public float Along, LambdaN;
+        public Vector3 Local;
+        public float Radius, LambdaN;
         public bool Old;
         public Vector3 Normal;
     }
+
+    /// <summary>Щупов земли у тела не больше (<see cref="SetGroundProbes"/>).</summary>
+    public const int MaxGroundProbes = 6;
+
+    /// <summary>Щупы земли по слотам тел: <see cref="MaxGroundProbes"/> мест на тело (центр в системе тела, радиус) и их число.</summary>
+    private Vector4[] _groundProbes = [];
+    private int[] _groundProbeCount = [];
+
+    public void SetGroundProbes(BodyHandle body, ReadOnlySpan<Vector4> spheres)
+    {
+        Check(body);
+        if (spheres.Length > MaxGroundProbes) throw new ArgumentException($"щупов {spheres.Length}, мест {MaxGroundProbes}", nameof(spheres));
+        foreach (var p in spheres)
+            if (!float.IsFinite(p.X + p.Y + p.Z + p.W) || !(p.W > 0)) throw new ArgumentException($"щуп {p}: конечный, радиус больше 0", nameof(spheres));
+        SleepWakeBody(body.Index, WakeReason.Command);
+        spheres.CopyTo(_groundProbes.AsSpan(body.Index * MaxGroundProbes, MaxGroundProbes));
+        _groundProbeCount[body.Index] = spheres.Length;
+    }
+
+    public ReadOnlySpan<Vector4> GroundProbes(BodyHandle body)
+    {
+        Check(body);
+        return _groundProbes.AsSpan(body.Index * MaxGroundProbes, _groundProbeCount[body.Index]);
+    }
+
+    /// <summary>Слоты тел выросли: место под щупы (только рост).</summary>
+    private void GroundProbesGrow(int bodies)
+    {
+        if (_groundProbeCount.Length >= bodies) return;
+        Array.Resize(ref _groundProbes, bodies * MaxGroundProbes);
+        Array.Resize(ref _groundProbeCount, bodies);
+    }
+
+    /// <summary>Тело в слоте выдано заново: щупов нет.</summary>
+    private void GroundProbesReset(int body) => _groundProbeCount[body] = 0;
 
     /// <summary>Вдавливание трением покоя сверх выхода, м, меньше которого не решается.</summary>
     private const float GroundFrictionPressSlack = 1e-5f;
 
     /// <summary>Касания тела с землёй в подшаге (оба торца × до <see cref="IGround.MaxTouches"/> граней) — для трения после нормали.</summary>
-    private readonly GroundContactEntry[] _groundContacts = new GroundContactEntry[2 * IGround.MaxTouches];
+    private readonly GroundContactEntry[] _groundContacts = new GroundContactEntry[(2 + MaxGroundProbes) * IGround.MaxTouches];
     private int _groundContactCount;
 
     /// <summary>Первый проход мира по слотам тел: Σλn и потраченное трением, кг·м, — бюджет мира после пар продолжает его.</summary>
@@ -35,28 +74,35 @@ public sealed partial class PhysicsWorld
         if (_contactsFriction > 0 && _groundContactCount > 0) GroundFriction(body, h);
     }
 
-    /// <summary>Нормали торцов тела против земли (без трения): нижний конец оси, затем верхний; касания — в <see cref="_groundContacts"/>.</summary>
+    /// <summary>
+    /// Нормали тела против земли (без трения): нижний конец оси, затем верхний, затем щупы по порядку; касания — в
+    /// <see cref="_groundContacts"/>.
+    /// </summary>
     private void GroundNormals(int body, float h)
     {
         _groundContactCount = 0;
-        float half = _bodies[body].HalfLength;
-        GroundEnd(body, -half, h);
-        if (half > 0) GroundEnd(body, half, h);
+        float half = _bodies[body].HalfLength, radius = _bodies[body].Radius;
+        GroundEnd(body, new Vector3(0, -half, 0), radius, h);
+        if (half > 0) GroundEnd(body, new Vector3(0, half, 0), radius, h);
+        for (int k = 0, n = _groundProbeCount[body]; k < n; k++)
+        {
+            var p = _groundProbes[body * MaxGroundProbes + k];
+            GroundEnd(body, new Vector3(p.X, p.Y, p.Z), p.W, h);
+        }
     }
 
-    /// <summary>Торец против земли: все грани, в которые вошла сфера торца, — по одной; старая глубина — та же грань в прошлой позе.</summary>
-    private void GroundEnd(int body, float along, float h)
+    /// <summary>Сфера тела против земли: все грани, в которые она вошла, — по одной; старая глубина — та же грань в прошлой позе.</summary>
+    private void GroundEnd(int body, Vector3 local, float radius, float h)
     {
         ref var s = ref _bodies[body];
-        var local = new Vector3(0, along, 0);
         var end = s.ToWorld(local);
-        int count = _ground!.Touches(end, s.Radius, _groundTouches);
+        int count = _ground!.Touches(end, radius, _groundTouches);
         if (count <= 0) return;
         count = Math.Min(count, _groundTouches.Length);
         var prevEnd = s.PrevPosition + Vector3.Transform(local, s.PrevRotation);
         // Первая грань — торец, глубина и нормаль касания (тело с тех пор не двигалось: тот же расчёт), остальные — заново
-        GroundFace(body, _groundTouches[0].Face, along, prevEnd, h, in _groundTouches[0], end);
-        for (int i = 1; i < count; i++) GroundFace(body, _groundTouches[i].Face, along, prevEnd, h, in Unsolved, default);
+        GroundFace(body, _groundTouches[0].Face, local, radius, prevEnd, h, in _groundTouches[0], end);
+        for (int i = 1; i < count; i++) GroundFace(body, _groundTouches[i].Face, local, radius, prevEnd, h, in Unsolved, default);
     }
 
     /// <summary>Касание без глубины — «посчитать грань заново в нынешнем положении торца».</summary>
@@ -67,7 +113,7 @@ public sealed partial class PhysicsWorld
     /// (<see cref="ContactsWorldPoint"/>). Старая глубина считается, только если может быть больше <c>PopSpeed·h</c>
     /// (<c>глубина + 2·смещение &gt; PopSpeed·h</c>). Торцы короткой капсулы почти совпадают: λ второго ≈ 0, бюджет трения не удваивается.
     /// </summary>
-    private void GroundFace(int body, int face, float along, Vector3 prevEnd, float h, in GroundTouch touch, Vector3 touchEnd)
+    private void GroundFace(int body, int face, Vector3 local, float radius, Vector3 prevEnd, float h, in GroundTouch touch, Vector3 touchEnd)
     {
         ref var s = ref _bodies[body];
         var ground = _ground!;
@@ -81,16 +127,17 @@ public sealed partial class PhysicsWorld
         }
         else
         {
-            end = s.ToWorld(new Vector3(0, along, 0));
-            pen = ground.Depth(end, s.Radius, face, out n);
+            end = s.ToWorld(local);
+            pen = ground.Depth(end, radius, face, out n);
         }
         if (!(pen > 0)) return;
-        float pen0 = pen + 2 * Vector3.Distance(end, prevEnd) <= _contactsPopSpeed * h ? 0 : ground.Depth(prevEnd, s.Radius, face, out _);
+        float pen0 = pen + 2 * Vector3.Distance(end, prevEnd) <= _contactsPopSpeed * h ? 0 : ground.Depth(prevEnd, radius, face, out _);
         s.Grounded = true;
-        float lambdaN = ContactsWorldPoint(body, PhysicsSource.Ground, end - n * s.Radius, n, pen, pen0, _contactsFriction, h);
+        float lambdaN = ContactsWorldPoint(body, PhysicsSource.Ground, end - n * radius, n, pen, pen0, _contactsFriction, h);
         if (!(lambdaN > 0) || _groundContactCount == _groundContacts.Length) return;
         ref var c = ref _groundContacts[_groundContactCount++];
-        c.Along = along;
+        c.Local = local;
+        c.Radius = radius;
         c.Normal = n;
         c.LambdaN = lambdaN;
         c.Old = pen0 > _contactsPopSpeed * h;
@@ -124,8 +171,8 @@ public sealed partial class PhysicsWorld
         for (int i = 0; i < _groundContactCount; i++)
         {
             ref var c = ref _groundContacts[i];
-            var end = s.ToWorld(new Vector3(0, c.Along, 0));
-            var p = end - c.Normal * s.Radius;   // материальная точка — после выталкивания
+            var end = s.ToWorld(c.Local);
+            var p = end - c.Normal * c.Radius;   // материальная точка — после выталкивания
             var arm = end - s.Position;
             bool still = _trace is not null && GroundStill(in s, p, c.Normal);
             float lambdaT = Xpbd.Friction(ref s, p, c.Normal, budget, 1, 0, h, out var turn);
@@ -144,8 +191,8 @@ public sealed partial class PhysicsWorld
     {
         if (!(press > GroundFrictionPressSlack)) return;
         ref var s = ref _bodies[body];
-        var end = s.ToWorld(new Vector3(0, c.Along, 0));
-        Xpbd.Contact(ref s, end - c.Normal * s.Radius, c.Normal, -press, 0, h);
+        var end = s.ToWorld(c.Local);
+        Xpbd.Contact(ref s, end - c.Normal * c.Radius, c.Normal, -press, 0, h);
     }
 
     /// <summary>Точка не сдвинулась вдоль земли за подшаг (меньше <see cref="Xpbd.FrictionEpsilon"/>) — трению держать нечего (трасса).</summary>

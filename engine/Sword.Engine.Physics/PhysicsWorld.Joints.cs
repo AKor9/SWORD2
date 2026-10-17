@@ -31,6 +31,43 @@ public sealed partial class PhysicsWorld
         JointsRebind(a);
     }
 
+    public void SetJoint(ArticulationHandle articulation, int joint, in JointDesc desc, in JointBinding binding)
+    {
+        Check(articulation);
+        int a = articulation.Index, n = _jointCount[a];
+        if ((uint)joint > (uint)n) throw new ArgumentOutOfRangeException(nameof(joint), joint, $"в сочленении {articulation} суставов {n}");
+        if (JointsProblem([desc], 0, _artCount[a]) is { } problem)
+            throw new ArgumentException($"сустав {joint} сочленения {articulation}: {problem}", nameof(desc));
+        var records = _joints[a];
+        for (int j = 0; j < n; j++)
+            if (j != joint && records![j].Desc.Child == desc.Child)
+                throw new ArgumentException($"сустав {joint} сочленения {articulation}: тело {desc.Child} — уже ребёнок сустава {j}", nameof(desc));
+        if (!Finite(binding.ParentAnchor) || !float.IsFinite(binding.Rest.X + binding.Rest.Y + binding.Rest.Z + binding.Rest.W))
+            throw new ArgumentException($"сустав {joint} сочленения {articulation}: привязка — конечная", nameof(binding));
+        SleepWake(a, WakeReason.Command);
+        if (joint == n)
+        {
+            JointsReserve(a, n + 1);
+            _jointCount[a] = n + 1;
+            JointsEnsureLog(a, 2 * (n + 1) * _settings.Substeps);
+        }
+        ref var r = ref _joints[a]![joint];
+        r = JointRecord.Of(desc);
+        r.ParentAnchor = binding.ParentAnchor;
+        r.Rest = Quaternion.Normalize(binding.Rest);
+    }
+
+    /// <summary>Тела с номерами от <paramref name="keep"/> удаляются: суставы с ними — тоже (порядок прочих сохраняется), журнал пуст.</summary>
+    private void JointsDropBodies(int a, int keep)
+    {
+        var records = _joints[a];
+        int n = _jointCount[a], m = 0;
+        for (int j = 0; j < n; j++)
+            if (records![j].Desc.Parent < keep && records[j].Desc.Child < keep) records[m++] = records[j];
+        _jointCount[a] = m;
+        _jointHitCount[a] = 0;
+    }
+
     public int JointCount(ArticulationHandle articulation)
     {
         Check(articulation);
@@ -100,7 +137,7 @@ public sealed partial class PhysicsWorld
     {
         if (joints <= 0) return;
         var records = _joints[a];
-        if (records is null || records.Length < joints) _joints[a] = new JointRecord[joints];
+        if (records is null || records.Length < joints) Array.Resize(ref _joints[a], joints);   // тело добавлено — суставы остаются
         JointsEnsureLog(a, 2 * joints * _settings.Substeps);
     }
 

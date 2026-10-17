@@ -35,7 +35,8 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     internal static Game Create(CharacterAssets assets, string sets, params (string Stage, ISystem System)[] systems)
     {
         IPhysicsWorld? physics = null;
-        var sim = Simulation.Build(ConfigSet.Empty(sets.Split(';', StringSplitOptions.RemoveEmptyEntries)), GameStages.All,
+        // Без расчленения: тела бойца — 14 капсул трупа (отделение частей проверяет SeverTests).
+        var sim = Simulation.Build(ConfigSet.Empty([.. sets.Split(';', StringSplitOptions.RemoveEmptyEntries), "modules.cutting.enabled=false"]), GameStages.All,
             b => GameCore.Configure(b, assets), [.. Bootstrap.SwordSimulation.Modules(), new Probe(p => physics = p, systems)]);
         return new Game(sim, physics!);
     }
@@ -730,7 +731,9 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Толпа 32 трупов, убитых около игрока: не разлетается (центры масс — в 8 м от игрока), через 5 с — покой; 0 Б на тик после прогрева.
+    /// Толпа 32 трупов, убитых около игрока: не разлетается (центры масс — в 8 м от игрока), через 6 с — покой; 0 Б на тик после прогрева.
+    /// Покой — через 6 с: мечи лежат на щупах земли (навершие, гарда), и последний труп кучи соскальзывает позже 5 с. Окно памяти — 1,5 с:
+    /// до возрождения врагов (8 с) куча не трогается.
     /// </summary>
     [Fact]
     public void Crowd32Corpses_NoScatter_Settle_ZeroBytesPerTick()
@@ -740,23 +743,23 @@ public sealed class RagdollCorpseTests(ITestOutputHelper output)
         for (int s = 1; s <= 32; s++) sim.Enqueue(Kill(s));
         sim.Step();
         var enemies = Enumerable.Range(1, 32).Select(s => Fighter(sim, s)).ToArray();
-        for (int t = 0; t < 600; t++) sim.Step();
+        for (int t = 0; t < 720; t++) sim.Step();
         var center = sim.World.Get<Transform>(Fighter(sim, 0)).Position;
         float far = enemies.Max(e => Vector2.Distance(new Vector2(Totals(sim, e).Com.X, Totals(sim, e).Com.Z), new Vector2(center.X, center.Z)));
         float ke = enemies.Max(e => Totals(sim, e).KineticEnergy);
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int t = 0; t < 240; t++)
+        for (int t = 0; t < 180; t++)
             sim.Step();
         long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
-        double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds / 240;
+        double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds / 180;
         foreach (var i in sim.Invariants.List().Where(i => i.Violations > 0)) output.WriteLine($"  нарушено {i.Id}: {i.Violations}");
         foreach (var v in sim.Invariants.Recent().Take(3)) output.WriteLine($"  {v}");
-        output.WriteLine(FormattableString.Invariant($"толпа 32 трупов: ЦМ до {far:F2} м от игрока, кинетическая ≤ {ke:F3} Дж через 5 с; тик {ms:F2} мс (Debug, с инвариантами после барьера); {bytes} Б за 240 тиков"));
+        output.WriteLine(FormattableString.Invariant($"толпа 32 трупов: ЦМ до {far:F2} м от игрока, кинетическая ≤ {ke:F3} Дж через 6 с; тик {ms:F2} мс (Debug, с инвариантами после барьера); {bytes} Б за 180 тиков"));
         Assert.True(far <= 8, $"разлетелись: {far} м");
         // 2,5 Дж — с самоколлизией трупы кучи лежат друг на друге, а не сложившись в себя: оседание дольше
         Assert.True(ke <= 2.5f, $"не успокоились: {ke} Дж");
-        Assert.True(bytes == 0, $"240 тиков толпы трупов выделили {bytes} Б");
+        Assert.True(bytes == 0, $"180 тиков толпы трупов выделили {bytes} Б");
         Clean(sim);
     }
 }

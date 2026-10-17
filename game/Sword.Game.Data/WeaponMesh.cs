@@ -4,7 +4,11 @@ using Sword.Engine.Formats;
 namespace Sword.Game.Data;
 
 /// <summary>Клинок меча в системе кисти (hand_r): основание, кончик и вершин в меше.</summary>
-public readonly record struct WeaponBlade(Vector3 Base, Vector3 Tip, int Vertices);
+public readonly record struct WeaponBlade(Vector3 Base, Vector3 Tip, int Vertices)
+{
+    /// <summary>Вершины меша в системе кисти — для щупов земли выпавшего оружия.</summary>
+    public Vector3[] Points { get; init; } = [];
+}
 
 /// <summary>
 /// Меш оружия (<c>meshes/weapons/имя.swmesh</c>, без суставов, вершины в системе кисти) → клинок: кончик — самая дальняя от кисти вершина,
@@ -30,6 +34,6 @@ public static class WeaponMesh
         foreach (var v in data.Vertices)
             if (v.Position.LengthSquared() > tip.LengthSquared()) tip = v.Position;
         if (tip == Vector3.Zero) throw new InvalidDataException($"{name}: все вершины меша оружия в кисти — клинка нет");
-        return new WeaponBlade(Vector3.Normalize(tip) * BaseOffset, tip, data.Vertices.Length);
+        return new WeaponBlade(Vector3.Normalize(tip) * BaseOffset, tip, data.Vertices.Length) { Points = [.. data.Vertices.Select(v => v.Position)] };
     }
 }

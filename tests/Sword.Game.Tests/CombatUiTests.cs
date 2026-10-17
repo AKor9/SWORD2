@@ -491,11 +491,8 @@ public class CombatUiTests
     {
         Span<char> d = stackalloc char[128];
         Assert.Equal("—", d[..CombatTuning.LastStrike(d, ArenaStats.Start)].ToString());
-        var stats = new ArenaStats { LastPart = BodySegs.Head, LastDamage = 60.8f, LastSeverAt = 27 };
-        Assert.Equal("61 > 27 — отрубил бы", d[..CombatTuning.LastStrike(d, stats)].ToString());
-        Assert.Equal("20 ≤ 27 — нет", d[..CombatTuning.LastStrike(d, stats with { LastDamage = 20 })].ToString());
+        var stats = new ArenaStats { LastPart = BodySegs.Head, LastDamage = 60.8f };
+        Assert.Equal("голова 61", d[..CombatTuning.LastStrike(d, stats)].ToString());
         Assert.Equal("рубящий 61, укол 62", d[..CombatTuning.MaxStrike(d, 2)].ToString());   // 2·(8 + 16·1,4), 2·(12 + 16·1,2)
-        Assert.Equal("27, 18, 25, 26, 37, 75", d[..CombatTuning.SeverThresholds(d, 1)].ToString());
-        Assert.Equal("14, 9, 13, 13, 19, 38", d[..CombatTuning.SeverThresholds(d, 2)].ToString());
     }
 }

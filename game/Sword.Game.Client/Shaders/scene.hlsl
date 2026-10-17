@@ -100,6 +100,7 @@ struct SkinVs
     float4 layer : TEXCOORD3;       // wet layer over the skin (blood): linear albedo, coverage
     float layerRoughness : TEXCOORD4;
     nointerpolation uint material : TEXCOORD5;   // SceneMaterial: GpuSkinInstance.Flags
+    float2 uv : TEXCOORD6;                        // cut cap: uv.x > 4, (uv - (8, 0)) - point in the cap plane / limb radius
 };
 
 // Wet layer of a vertex (ISkinBloodLayer, SkinLayerTexel in C#): inst.owner = bindless SRV of the layer + 1 (0 - no layer); an element
@@ -109,6 +110,9 @@ float4 SkinLayerOf(uint owner, uint vid, out float roughness)
     roughness = 1;
     if (owner == 0) return 0;
     StructuredBuffer<uint2> layer = ResourceDescriptorHeap[owner - 1];
+    uint count, stride;
+    layer.GetDimensions(count, stride);
+    if (vid >= count) return 0;   // vertices added by a mesh cut have no layer texel
     uint2 u = layer[vid];
     roughness = (u.y >> 24) / 255.0;
     return float4(f16tof32(u.x), f16tof32(u.x >> 16), f16tof32(u.y), ((u.y >> 16) & 0xFF) / 255.0);
@@ -127,8 +131,31 @@ SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.glow = inst.glow;
     o.layer = SkinLayerOf(inst.owner, vid, o.layerRoughness);
     o.material = inst.flags;
+    o.uv = v.uv;
     return o;
 }
+
+// Cut cap tissue by normalised distance from the bone axis r (1 - skin): skin rim, fat, muscle, bone ring, marrow. One function
+// for every cap; edges are antialiased by the pixel footprint of r.
+float3 CutTissue(float2 p, float3 skin)
+{
+    float r = length(p);
+    float aa = max(fwidth(r), 1e-4);
+    float streak = 0.85 + 0.15 * sin(p.x * 37.0 + sin(p.y * 23.0) * 2.0) * sin(p.y * 41.0);
+    float3 muscle = float3(0.42, 0.05, 0.045) * streak;
+    float3 fat = float3(0.86, 0.74, 0.42);
+    float3 dermis = lerp(skin, float3(0.78, 0.46, 0.40), 0.5);
+    float3 bone = float3(0.88, 0.84, 0.74);
+    float3 marrow = float3(0.38, 0.09, 0.07);
+    float3 c = marrow;
+    c = lerp(c, bone, smoothstep(0.11 - aa, 0.11 + aa, r));
+    c = lerp(c, muscle, smoothstep(0.22 - aa, 0.22 + aa, r));
+    c = lerp(c, fat, smoothstep(0.84 - aa, 0.84 + aa, r));
+    c = lerp(c, dermis, smoothstep(0.95 - aa, 0.95 + aa, r));
+    return c;
+}
+
+static const uint CUT_MATERIAL = 89;   // SceneMaterial.Pack(0.35): wet flesh
 
 float4 VsSkinPointShadow(uint vid : SV_VertexID, uint iid : SV_InstanceID) : SV_Position
 {
@@ -153,6 +180,11 @@ float4 PsSkinPre(SkinVs i) : SV_Target0 { return SceneNormalOut(i.normal, false)
 SceneOut PsSkin(SkinVs i)
 {
     float3 n = normalize(i.normal);
+    if (i.uv.x > 4)
+    {
+        float3 flesh = CutTissue(i.uv - float2(8, 0), i.colour);
+        return Scene(ShadeMaterial(flesh, n, i.world, SceneAo(i.pos.xy), CUT_MATERIAL), n, false);
+    }
     float cover = saturate(i.layer.a);
     if (cover <= 0)
     {

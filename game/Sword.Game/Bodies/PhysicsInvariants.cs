@@ -140,7 +140,8 @@ public static class PhysicsInvariants
                     if (!poses.IsAlive(pose) || !BodyPlacement.Placeable(physics, body)) continue;
                     // Поза постройки — своя у бойца (FighterStartPose) или общая
                     var model = built ? start.Of(StartPoseModel.For(world, entities[i])) : poses.Model(pose);
-                    if (Problem(model, roots[i], body, slots[i].Index) is not { } problem) continue;
+                    var severance = world.TryGet<Severance>(entities[i], out var sv) ? sv : default;
+                    if (Problem(model, roots[i], body, slots[i].Index, severance) is not { } problem) continue;
                     violations.Report(entities[i], problem);   // одна строка на бойца
                     if (violations.Full) return;
                 }
@@ -148,7 +149,7 @@ public static class PhysicsInvariants
         }
 
         /// <summary>Первая капсула бойца не на позе (тело цикла по бойцам — свой метод); все на месте — null.</summary>
-        private string? Problem(ReadOnlySpan<Matrix4x4> model, in Transform root, ArticulationHandle body, int weapon)
+        private string? Problem(ReadOnlySpan<Matrix4x4> model, in Transform root, ArticulationHandle body, int weapon, in Severance severance)
         {
             var w = BodyPlacement.World(root.Position, root.Facing);
             for (int k = 0; k < BodySegs.Bodies; k++)
@@ -170,7 +171,9 @@ public static class PhysicsInvariants
                 }
                 var dir = b - a;
                 if (dir.LengthSquared() < 1e-8f) dir = Vector3.UnitY;
-                float off = Vector3.Distance(s.Position, (a + b) * 0.5f);
+                // культя — центр сдвинут по оси сегмента (Severance.Shift)
+                var mid = (a + b) * 0.5f + (severance.IsCut(segment) ? Vector3.Normalize(dir) * severance.Shift[segment] : Vector3.Zero);
+                float off = Vector3.Distance(s.Position, mid);
                 float dot = Vector3.Dot(s.Axis, Vector3.Normalize(dir));
                 // нечисловое — дело physics.finite (оно же покажет, что именно)
                 if (off <= CenterTolerance && dot >= 1 - AxisTolerance || !float.IsFinite(off) || !float.IsFinite(dot)) continue;
@@ -310,8 +313,9 @@ public static class PhysicsInvariants
                     else
                     {
                         _owner[a.Index] = entities[i];
-                        if (physics.BodyCount(a) == BodySegs.Bodies || !world.Has<Fighter>(entities[i])) continue;
-                        violations.Report(entities[i], $"у бойца сочленение {a} из {physics.BodyCount(a)} тел, а нужно {BodySegs.Bodies}");
+                        int need = BodySegs.Bodies + (world.TryGet<Severance>(entities[i], out var severance) ? severance.Pieces : 0);
+                        if (physics.BodyCount(a) == need || !world.Has<Fighter>(entities[i])) continue;
+                        violations.Report(entities[i], $"у бойца сочленение {a} из {physics.BodyCount(a)} тел, а нужно {need} (кусков — {need - BodySegs.Bodies})");
                     }
                     if (violations.Full) return;
                 }

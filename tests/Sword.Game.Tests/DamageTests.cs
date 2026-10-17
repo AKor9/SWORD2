@@ -56,18 +56,13 @@ public sealed class DamageTests
     public void Rules_DamageSeverWoundsBleedLethalThrust()
     {
         Assert.Equal([0.9f, 1f, 1.6f, .4f, .4f, .4f, .4f, .5f, .5f, .5f, .5f, 0, .3f, .3f], DamageRules.HpMul.ToArray());
-        Assert.Equal([1e9f, 1e9f, 45, 42, 30, 42, 30, 62, 44, 62, 44, 1e9f, 30, 30], DamageRules.SeverAt.ToArray());
+
         // ((укол ? 12 : 8) + min(скорость, 16)·(укол ? 1,2 : 1,4))·(игрок ? урон игрока : 1)
         Assert.Equal((8f + 10f * 1.4f) * 1, DamageRules.StrikeDamage(false, 10, false, 2));
         Assert.Equal((8f + 16f * 1.4f) * 2, DamageRules.StrikeDamage(false, 40, true, 2));
         Assert.Equal((12f + 5f * 1.2f) * 2, DamageRules.StrikeDamage(true, 5, true, 2));
         Assert.Equal(60.8f, DamageRules.StrikeDamage(false, 30, true, 2), 4);
-        // порог отруба: торс 75, прочее — SeverAt·0,6; удар игрока — ÷ max(острота, 0,05)
-        Assert.Equal(75f, DamageRules.SeverThreshold(BodySegs.Torso));
-        Assert.Equal(45f * 0.6f, DamageRules.SeverThreshold(BodySegs.Head));
-        Assert.Equal(42f * 0.6f / 0.5f, DamageRules.SeverThreshold(BodySegs.UArmL, true, 0.5f));
-        Assert.Equal(42f * 0.6f / 0.05f, DamageRules.SeverThreshold(BodySegs.UArmL, true, 0));
-        Assert.Equal(42f * 0.6f, DamageRules.SeverThreshold(BodySegs.UArmL, false, 0.5f));
+
         // попадание: очки — урон × множитель, рана — + урон/45 (не больше 1,5), кровотечение — + урон·0,02
         var h = Health.Fresh;
         DamageRules.Apply(ref h, BodySegs.Head, 30);
@@ -116,9 +111,11 @@ public sealed class DamageTests
         Assert.Equal(50f / 45, h.Wounds[BodySegs.UArmL]);
         var hit = Assert.Single(sim.Export.Frame<Event<Hit>>().ToArray()).Record.Value;
         Assert.Equal((GameCore.Player(sim.World), enemy, BodySegs.UArmL, 50f, false, true), (hit.Attacker, hit.Victim, hit.Part, hit.Damage, hit.Killed, hit.Probe));
-        Assert.Equal(42f * 0.6f, hit.SeverAt);
         var sever = Assert.Single(sim.Export.Frame<Event<SeverRequested>>().ToArray()).Record.Value;
         Assert.Equal((enemy, BodySegs.UArmL, hit.Contact), (sever.Victim, sever.Part, sever.Contact));
+        // скорость пробы — вдоль направления, по урону; острота игрока по умолчанию — 1
+        Assert.Equal(sever.Dir * (50 * HitApplySystem.ProbeSpeedPerDamage), sever.Velocity);
+        Assert.Equal(1f, sever.Sharpness);
         var contact = Assert.Single(sim.Export.Frame<Event<StrikeContact>>().ToArray()).Record.Value;
         Assert.Equal(hit.Contact, contact.Id);
         Assert.True(contact.Probe && contact.AttackSerial == -1);
@@ -127,7 +124,7 @@ public sealed class DamageTests
         var actions = TestAssets.Assets.Actions;
         Assert.Contains(a.Clip, new[] { actions.Clip[ActionSlots.HitFront1], actions.Clip[ActionSlots.HitFront2], actions.Clip[ActionSlots.HitBack] });
         var stats = sim.World.Resource<ArenaStats>();
-        Assert.Equal((1, 0, BodySegs.UArmL, 50f, 42f * 0.6f), (stats.Hits, stats.Kills, stats.LastPart, stats.LastDamage, stats.LastSeverAt));
+        Assert.Equal((1, 0, BodySegs.UArmL, 50f), (stats.Hits, stats.Kills, stats.LastPart, stats.LastDamage));
         // реакция идёт: враг не бьёт (CanAct — нет), ход — 0,15
         Assert.False(ActionLayer.CanAct(a, false, TestAssets.Assets.Strikes.Attacks));
         Assert.Equal(ActionRules.HitReactMoveScale, ActionLayer.MoveScale(a, false));
@@ -600,7 +597,7 @@ public sealed class DamageContentTests
     public void Fight_CrowdGrownByArenaCommand_ReserveFollows_DoesNotAllocate()
     {
         var (sim, pool) = TestAssets.WithResource<PosePool>(
-            ConfigSet.Empty("arena.enemies=10", "combat.playerInvulnerable=true", "sim.invariants=false"), Reference.Value);
+            ConfigSet.Empty("arena.enemies=10", "combat.playerInvulnerable=true", "sim.invariants=false", "modules.cutting.enabled=false"), Reference.Value);
         // Запас пула в хеш не входит — читается прямо из пула.
         (int Reserved, int JobsReserved, int Capacity) Pool() => (pool.Reserved, pool.JobsReserved, pool.Capacity);
         var start = Pool();

@@ -384,7 +384,8 @@ public sealed class GraphicsDevice : IDisposable
     public void Dispose()
     {
         WaitForIdle();
-        foreach (var entry in _deferredRelease) entry.Resource.Dispose();
+        // освобождение ресурса может отложить ещё один (обёртка над буферами) — по индексу, пока список не опустеет
+        for (int i = 0; i < _deferredRelease.Count; i++) _deferredRelease[i].Resource.Dispose();
         _deferredRelease.Clear();
         ReleaseAll();
     }

@@ -14,8 +14,12 @@ namespace Sword.Game.Client;
 public readonly record struct FighterView(Entity Entity, bool IsPlayer, Vector3 Root, float Facing, float Height,
     int PoseStart = 0, int PoseCount = 0, int Slot = 0, int BodyStart = 0, int BodyCount = 0, int Weapon = -1,
     Matrix4x4 WeaponWorld = default, ShownBlade? Blade = null, bool Dead = false, bool Corpse = false,
-    Vector3 BoundsMin = default, Vector3 BoundsMax = default, int BodyJointStart = 0, int BodyJointCount = 0)
+    Vector3 BoundsMin = default, Vector3 BoundsMax = default, int BodyJointStart = 0, int BodyJointCount = 0, bool WorldPose = false,
+    int PieceStart = 0, int PieceCount = 0, bool Severed = false)
 {
+    /// <summary>Поза — мировые матрицы суставов (труп или живой с отделёнными частями): мир экземпляра — единичный.</summary>
+    public bool PoseInWorld => Corpse || WorldPose;
+
     /// <summary>Мировая система скелета: поворот на курс, перенос в корень на высоте.</summary>
     public Matrix4x4 World => ArenaView.FighterWorld(Root, Facing, Height);
 }
@@ -68,10 +72,11 @@ public sealed class ArenaView
     private Matrix4x4[] _poses = [];
     /// <summary>Капсулы тел бойцов кадра подряд — как показаны бойцы.</summary>
     private ShownCapsule[] _bodies = [];
-    private readonly BodySnapshot[] _snapshots = new BodySnapshot[BodySegs.Bodies];
-    /// <summary>Показанные системы тел бойца, которого сейчас снимает кадр (центр и поворот, вектор слева).</summary>
-    private readonly Matrix4x4[] _shown = new Matrix4x4[BodySegs.Bodies];
-    private readonly Quaternion[] _shownRotation = new Quaternion[BodySegs.Bodies];
+    private const int MaxBodies = BodySegs.Bodies + Severance.MaxPieces;
+    private readonly BodySnapshot[] _snapshots = new BodySnapshot[MaxBodies];
+    /// <summary>Показанные системы тел бойца, которого сейчас снимает кадр (центр и поворот, вектор слева); тела 14… — куски.</summary>
+    private readonly Matrix4x4[] _shown = new Matrix4x4[MaxBodies];
+    private readonly Quaternion[] _shownRotation = new Quaternion[MaxBodies];
     /// <summary>Тело сочленения каждого сустава скелета (сегмент сустава — <see cref="IBodyView.JointSegment"/>).</summary>
     private int[] _jointBodies = [];
     /// <summary>Обратная система тела клинка в кисти по номеру меча: кисть = это × тело клинка.</summary>
@@ -289,11 +294,15 @@ public sealed class ArenaView
         int weapon = world.TryGet<WeaponSlot>(e, out var w) && _combatView is not null && (uint)w.Index < (uint)_combatView.Weapons.Length ? w.Index : -1;
 
         // Труп: мёртвый с привязкой скина и годным телом — по телам.
+        bool severed = world.TryGet<Severance>(e, out var severance);
+        // отделения есть (и отрыв без кусков) — части меша бойца рисуются вместо целого
+        if (severed) view = view with { Severed = (severance.Cut | severance.Torn | severance.Detached) != 0 };
         if (dead && hasBody && _skinView is not null && _skinView.TryGet(bodyRef, out var binding, out _) && binding.Length == _jointBodies.Length
-            && ReadBody(_bodyView!, bodyRef) == BodySegs.Bodies)
+            && ReadBody(_bodyView!, bodyRef) is >= BodySegs.Bodies and var bodyCount)
         {
             _profiler.Begin(_posesZone);
-            view = Corpse(view, binding, alpha, weapon);
+            view = Corpse(view, binding, alpha, weapon, bodyCount);
+            if (severed) view = Pieces(view, bodyRef, severance);
             _profiler.End(_posesZone);
             _profiler.Begin(_bodiesZone);
             if (allBodies || joints) view = CorpseCapsules(view);
@@ -310,13 +319,36 @@ public sealed class ArenaView
             model.CopyTo(_poses.AsSpan(_posed));
             view = view with { PoseStart = _posed, PoseCount = model.Length };
             _posed += model.Length;
+            // Живой с отделёнными частями: поза — в мире; отделённое — по телам (привязка снята при отделении), куски — свои позы.
+            if (severed && hasBody && _skinView is not null && _skinView.TryGet(bodyRef, out var detached, out _) && detached.Length == model.Length
+                && detached.Length == _jointBodies.Length && ReadBody(_bodyView!, bodyRef) is >= BodySegs.Bodies and var count)
+            {
+                for (int k = 0; k < count; k++)
+                {
+                    var (center, rotation) = Shown(_snapshots[k], alpha);
+                    _shown[k] = BodySystem(center, rotation);
+                    _shownRotation[k] = rotation;
+                }
+                var pose = _poses.AsSpan(view.PoseStart, view.PoseCount);
+                LivingJoints(pose, view.World, pose);
+                DetachedJoints(detached, _jointBodies, _shown, severance.Detached, pose);
+                view = Pieces(view with { WorldPose = true }, bodyRef, severance);
+            }
         }
         _profiler.End(_posesZone);
         // Меч — жёсткое вложение в кисть позы тика в показанном мире (как меш); позы нет — кисть позы привязки.
-        if (_hand >= 0 && weapon >= 0)
+        if (severed && severance.IsDetached(BodySegs.Weapon) && hasBody && weapon >= 0 && weapon < _bladeInHand.Length
+            && ReadBody(_bodyView!, bodyRef) > BodySegs.Weapon)
         {
+            // меч из отрубленной руки — на своём теле (на физике), а не в кисти позы
+            var (center, rotation) = Shown(_snapshots[BodySegs.Body(BodySegs.Weapon)], alpha);
+            view = view with { Weapon = weapon, WeaponWorld = _bladeInHand[weapon] * BodySystem(center, rotation) };
+        }
+        else if (_hand >= 0 && weapon >= 0)
+        {
+            // поза живого с отделёнными частями уже в мире (LivingJoints выше) — второй раз мир бойца не прикладывается
             var handModel = view.PoseCount > _hand ? _poses[view.PoseStart + _hand] : _referenceHand;
-            view = view with { Weapon = weapon, WeaponWorld = handModel * view.World };
+            view = view with { Weapon = weapon, WeaponWorld = view.PoseInWorld && view.PoseCount > _hand ? handModel : handModel * view.World };
             if (blades && world.TryGet<Blade>(e, out var blade) && blade.Weapon >= 0) view = view with { Blade = CarryBlade(blade, cur, view) };
         }
         // Тело — постановка последнего тика в мире, где кадр показывает бойца (как меш): без отставания от персонажа.
@@ -351,14 +383,40 @@ public sealed class ArenaView
         return view;
     }
 
-    /// <summary>Труп по телам: суставы — привязка × показанное тело сегмента, меч — на теле клинка, рамка — по капсулам.</summary>
-    private FighterView Corpse(FighterView view, ReadOnlySpan<Matrix4x4> binding, float alpha, int weapon)
+    /// <summary>
+    /// Позы кусков бойца (части меша с куском рисуются ими): на кусок — поза бойца, где суставы сегмента, от которого он отрезан, — по
+    /// привязке куска и показанному телу куска. Поза бойца уже в мире.
+    /// </summary>
+    private FighterView Pieces(FighterView view, BodyRef bodyRef, in Severance severance)
+    {
+        int n = Math.Min(severance.Pieces, Severance.MaxPieces), size = view.PoseCount;
+        if (n == 0 || size == 0) return view;
+        if (_poses.Length < _posed + n * size) Array.Resize(ref _poses, Math.Max(_poses.Length * 2, _posed + n * size));
+        int start = _posed;
+        for (int k = 0; k < n; k++)
+        {
+            var block = _poses.AsSpan(_posed, size);
+            var pose = _poses.AsSpan(view.PoseStart, size);
+            if (_skinView!.TryGetGhost(bodyRef, k, out var ghost) && ghost.Length == size)
+                PieceJoints(pose, ghost, _jointBodies, severance.Piece[k].Segment, _shown[BodySegs.Bodies + k], block);
+            else pose.CopyTo(block);
+            _posed += size;
+        }
+        return view with { PieceStart = start, PieceCount = n };
+    }
+
+    /// <summary>Поза куска <paramref name="piece"/> бойца кадра (мировые суставы); куска нет — поза бойца.</summary>
+    public ReadOnlySpan<Matrix4x4> PiecePose(in FighterView fighter, int piece) =>
+        (uint)piece < (uint)fighter.PieceCount ? _poses.AsSpan(fighter.PieceStart + piece * fighter.PoseCount, fighter.PoseCount) : Pose(fighter);
+
+    /// <summary>Труп по телам: суставы — привязка × показанное тело сегмента, меч — на теле клинка, рамка — по капсулам (и кускам).</summary>
+    private FighterView Corpse(FighterView view, ReadOnlySpan<Matrix4x4> binding, float alpha, int weapon, int bodies)
     {
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
         var momentum = Vector3.Zero;
         float mass = 0;
-        for (int k = 0; k < BodySegs.Bodies; k++)
+        for (int k = 0; k < bodies; k++)
         {
             ref readonly var b = ref _snapshots[k];
             var (center, rotation) = Shown(b, alpha);
@@ -405,6 +463,24 @@ public sealed class ArenaView
         Span<Matrix4x4> joints)
     {
         for (int j = 0; j < joints.Length; j++) joints[j] = binding[j] * bodies[jointBodies[j]];
+    }
+
+    /// <summary>Суставы отделённых сегментов живого — по телам: <c>binding[j] · bodies[jointBodies[j]]</c> там, где сегмент в маске.</summary>
+    public static void DetachedJoints(ReadOnlySpan<Matrix4x4> binding, ReadOnlySpan<int> jointBodies, ReadOnlySpan<Matrix4x4> bodies, ushort detached,
+        Span<Matrix4x4> joints)
+    {
+        for (int j = 0; j < joints.Length; j++)
+            if ((detached & (1 << jointBodies[j])) != 0) joints[j] = binding[j] * bodies[jointBodies[j]];
+    }
+
+    /// <summary>
+    /// Суставы куска в мире: поза бойца, где суставы сегмента <paramref name="segment"/> — по привязке куска и его телу
+    /// (<paramref name="piece"/>) — вход палитры части меша с куском.
+    /// </summary>
+    public static void PieceJoints(ReadOnlySpan<Matrix4x4> pose, ReadOnlySpan<Matrix4x4> ghost, ReadOnlySpan<int> jointBodies, int segment,
+        in Matrix4x4 piece, Span<Matrix4x4> joints)
+    {
+        for (int j = 0; j < joints.Length; j++) joints[j] = jointBodies[j] == segment ? ghost[j] * piece : pose[j];
     }
 
     /// <summary>
@@ -492,7 +568,7 @@ public sealed class ArenaView
         PlayerFocus = Lerp(snapshot, alpha).Center with { Y = 0 };
     }
 
-    /// <summary>Тела сочленения в <see cref="_snapshots"/> (не больше 14); вернёт, сколько.</summary>
+    /// <summary>Тела сочленения в <see cref="_snapshots"/> (сегменты и куски, не больше <see cref="MaxBodies"/>); вернёт, сколько.</summary>
     private int ReadBody(IBodyView bodies, BodyRef body)
     {
         int n = Math.Min(bodies.BodyCount(body), _snapshots.Length);

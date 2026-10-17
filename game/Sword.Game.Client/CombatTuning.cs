@@ -7,9 +7,9 @@ namespace Sword.Game.Client;
 
 /// <summary>
 /// Вкладка «Бой» панели ручек F3: ручки секции <c>combat</c> (<see cref="CombatKnobs"/>) через привязку клиента
-/// (<see cref="TuningBinding"/>) и строки состояния — последний удар игрока против порога отруба, максимум удара, пороги
-/// отруба по частям. «Сохранить» и «загрузить» — секция <c>combat</c> файла <c>sword.user.json</c>. Отруба нет (Cutting
-/// отложен): «отрубил бы». Строки пишут текст на стек — кадр панели без выделений.
+/// (<see cref="TuningBinding"/>) и строки состояния — последний удар игрока, максимум удара. Острота — множитель энергии
+/// разреза удара игрока (решает модуль Cutting). «Сохранить» и «загрузить» — секция <c>combat</c> файла <c>sword.user.json</c>.
+/// Строки пишут текст на стек — кадр панели без выделений.
 /// </summary>
 public static class CombatTuning
 {
@@ -22,11 +22,8 @@ public static class CombatTuning
         g.Header("УДАР ИГРОКА");
         tuning.Add(g, CombatKnobs.PlayerDamage);
         tuning.Add(g, CombatKnobs.PlayerSharpness);
-        g.Info("последний удар", d => LastStrike(d, link.World.Resource<ArenaStats>()),
-            "урон последнего удара игрока и порог отруба той части (÷ острота): больше порога — отрубил бы (отруба пока нет — отложен)");
+        g.Info("последний удар", d => LastStrike(d, link.World.Resource<ArenaStats>()), "часть и урон последнего удара игрока");
         g.Info("максимум удара", d => MaxStrike(d, tuning.Value(CombatKnobs.PlayerDamage)));
-        g.Info("пороги отруба", d => SeverThresholds(d, tuning.Value(CombatKnobs.PlayerSharpness)),
-            "порог части ÷ острота: голова, предплечье, плечо, голень, бедро, торс");
         g.Header("ВРАГИ И ИГРОК");
         tuning.Add(g, CombatKnobs.EnemiesAttack);
         tuning.Add(g, CombatKnobs.PlayerInvulnerable);
@@ -38,33 +35,15 @@ public static class CombatTuning
         return g;
     }
 
-    /// <summary>
-    /// Урон последнего удара игрока против порога отруба части: «61 &gt; 27 — отрубил бы», «20 ≤ 27 — нет» (вмещается
-    /// в строку панели F3); удара не было — «—».
-    /// </summary>
+    /// <summary>Часть и урон последнего удара игрока: «голова 61»; удара не было — «—».</summary>
     public static int LastStrike(Span<char> d, in ArenaStats stats) =>
         stats.LastPart < 0 ? Length(new Line(d).S("—").Text)
-            : stats.LastDamage > stats.LastSeverAt
-                ? Length(new Line(d).F(stats.LastDamage, "F0").S(" > ").F(stats.LastSeverAt, "F0").S(" — отрубил бы").Text)
-                : Length(new Line(d).F(stats.LastDamage, "F0").S(" ≤ ").F(stats.LastSeverAt, "F0").S(" — нет").Text);
+            : Length(new Line(d).S(BodySegs.Title(stats.LastPart)).S(" ").F(stats.LastDamage, "F0").Text);
 
     /// <summary>«рубящий 61, укол 62» — удар клинком быстрее 16 м/с с уроном игрока (<see cref="DamageRules.StrikeDamage"/>).</summary>
     public static int MaxStrike(Span<char> d, float playerDamage) =>
         Length(new Line(d).S("рубящий ").F(DamageRules.StrikeDamage(false, DamageRules.SpeedCap, true, playerDamage), "F0")
             .S(", укол ").F(DamageRules.StrikeDamage(true, DamageRules.SpeedCap, true, playerDamage), "F0").Text);
-
-    /// <summary>
-    /// Пороги отруба частей ударом игрока (порог ÷ max(острота, 0,05)) — голова, предплечье, плечо, голень, бедро, торс:
-    /// «27, 18, 25, 26, 37, 75».
-    /// </summary>
-    public static int SeverThresholds(Span<char> d, float sharpness)
-    {
-        float k = MathF.Max(sharpness, DamageRules.MinSharpness);
-        return Length(new Line(d).F(DamageRules.SeverThreshold(BodySegs.Head) / k, "F0").S(", ")
-            .F(DamageRules.SeverThreshold(BodySegs.FArmR) / k, "F0").S(", ").F(DamageRules.SeverThreshold(BodySegs.UArmR) / k, "F0")
-            .S(", ").F(DamageRules.SeverThreshold(BodySegs.ShinR) / k, "F0").S(", ").F(DamageRules.SeverThreshold(BodySegs.ThighR) / k, "F0")
-            .S(", ").F(DamageRules.SeverThreshold(BodySegs.Torso) / k, "F0").Text);
-    }
 
     /// <summary>Строка уже на месте (<see cref="Line"/> пишет в тот же буфер) — её длина.</summary>
     private static int Length(ReadOnlySpan<char> text) => text.Length;

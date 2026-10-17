@@ -33,8 +33,38 @@ public static class BodySegs
     /// <summary>Тело сочленения бойца для сегмента (тот же номер); вне 0…13 — −1.</summary>
     public static int Body(int segment) => (uint)segment < Bodies ? segment : -1;
 
+    /// <summary>Родитель сегмента по дереву тела: таз — корень (−1), клинок — на правом предплечье.</summary>
+    public static int Parent(int segment) => segment switch
+    {
+        Pelvis => -1,
+        Torso or ThighL or ThighR => Pelvis,
+        Head or UArmL or UArmR => Torso,
+        FArmL => UArmL,
+        FArmR => UArmR,
+        ShinL => ThighL,
+        ShinR => ThighR,
+        Weapon => FArmR,
+        FootL => ShinL,
+        FootR => ShinR,
+        _ => throw new ArgumentOutOfRangeException(nameof(segment), segment, "сегмент тела — 0…13"),
+    };
+
     /// <summary>Сегмент плоти (0…13, не клинок): цель ударов и проб, у него рана (клинок — тело, но не часть тела бойца).</summary>
     public static bool IsFlesh(int segment) => (uint)segment < Count && segment != Weapon;
+
+    /// <summary>Сегмент и все его потомки по дереву тела (маска).</summary>
+    public static ushort Branch(int segment)
+    {
+        ushort mask = 0;
+        for (int s = 0; s < Count; s++)
+            for (int k = s; k >= 0; k = Parent(k))
+                if (k == segment)
+                {
+                    mask |= (ushort)(1 << s);
+                    break;
+                }
+        return mask;
+    }
 
     /// <summary>Имя сегмента для людей и журнала (<c>pelvis</c>, <c>forearm.l</c>…); нет такого сегмента — номер.</summary>
     public static string Name(int segment) => segment switch

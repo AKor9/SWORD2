@@ -126,7 +126,8 @@ public sealed class TorchContentTests
         var table = WeaponTable.Load(pak);
         Assert.Equal("torch", table.Weapons[^1].Name);
         int[] enemies = table.EnemyWeapons(new CombatSettings().PlayerOnlyWeapons);
-        Assert.Equal(Enumerable.Range(0, table.Count - 1), enemies);
+        // оружие только игрока (факел, пробный молот) врагам не достаётся
+        Assert.Equal(Enumerable.Range(0, table.Count).Where(w => table.Weapons[w].Name is not ("torch" or "maul")), enemies);
 
         Assert.Equal(["combat_sword", "katana", "katana_v2", "powerful_sword", "sword_1h", "sword_dss"], enemies.Select(w => table.Weapons[w].Name));
 

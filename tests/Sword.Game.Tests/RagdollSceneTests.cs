@@ -36,7 +36,8 @@ public sealed class RagdollSceneTests
     {
         IPhysicsWorld? physics = null;
         SkinBindings? skins = null;
-        var sim = Simulation.Build(ConfigSet.Empty(sets.Split(';')), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
+        // Без расчленения: тела бойца — 14 капсул трупа (отделение частей проверяет SeverTests).
+        var sim = Simulation.Build(ConfigSet.Empty([.. sets.Split(';'), "modules.cutting.enabled=false"]), GameStages.All, b => GameCore.Configure(b, TestAssets.Assets),
             [.. Bootstrap.SwordSimulation.Modules(), new Probe((p, s) => (physics, skins) = (p, s), stage, system)]);
         return new Game(sim, physics!, skins!);
     }
@@ -550,7 +551,7 @@ public sealed class RagdollSceneTests
         for (int t = 0; t < 5; t++) Step(foreign);
         var living = foreign.Invariants.Recent().First(x => x.Id == "ragdoll.skin");
         Assert.Equal(3ul, living.Tick);
-        Assert.Contains("не мёртвый боец", living.Details);
+        Assert.Contains("у живого", living.Details);
     }
 
     /// <summary><see cref="SkinOnLiving"/> с физикой, которую модуль получит только при сборке мира.</summary>

@@ -76,6 +76,9 @@ public static class ArenaInput
     /// <summary>Инвентарь: открыть / закрыть панель мечей (<see cref="InventoryPanel"/>); в команды идёт только выбор меча.</summary>
     public static readonly InputAction Inventory = new("inventory", "I");
 
+    /// <summary>Взрыв проверки у курсора (команда <c>BlastCommand</c>; энергия и радиус — вкладка F3 «Расчленение»).</summary>
+    public static readonly InputAction Blast = new("blast", "B");
+
     /// <summary>
     /// Меч инвентаря 1–9 при открытой панели — команда арены «взять меч» (<see cref="ArenaAction.EquipWeapon"/>) одним тиком,
     /// после PageUp, PageDown, R, T.
@@ -88,7 +91,7 @@ public static class ArenaInput
         MoveForward, MoveBack, MoveLeft, MoveRight, Walk, CameraFollow, CameraRotateLeft, CameraRotateRight,
         CameraZoomIn, CameraZoomOut, CameraOrbit, CameraPanUp, CameraPanDown, CameraPanLeft, CameraPanRight, UiModifier,
         HudHelp, HudProfiler, EnemiesMore, EnemiesFewer, ArenaReset, NextWeapon, DebugBodies, Attack, Stab, Dash, Inventory, .. Weapons,
-        DebugJoints, DebugContacts, DebugMotion,
+        DebugJoints, DebugContacts, DebugMotion, Blast,
     ];
 
     /// <summary>Управление камерой за кадр из ввода кадра.</summary>

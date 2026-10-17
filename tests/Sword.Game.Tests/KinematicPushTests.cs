@@ -493,7 +493,7 @@ public sealed class KinematicPushTests(ITestOutputHelper output)
             ctx.Commands.Emit(new Hit
             {
                 Contact = new ContactId(now, 0), Attacker = fromCorpse ? corpse : player, Victim = fromCorpse ? player : corpse, Part = BodySegs.Torso,
-                Damage = 10, Dir = Vector3.UnitZ, Kind = HitKind.Slash, SeverAt = 99, Probe = !fromCorpse, Corpse = false,
+                Damage = 10, Dir = Vector3.UnitZ, Kind = HitKind.Slash, Probe = !fromCorpse, Corpse = false,
             });
         }
     }

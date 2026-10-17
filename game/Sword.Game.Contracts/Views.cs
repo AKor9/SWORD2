@@ -128,4 +128,7 @@ public interface ISkinView : IReadView
 
     /// <summary>Привязка тела <paramref name="body"/> и время смерти, с; нет привязки — false.</summary>
     bool TryGet(BodyRef body, out ReadOnlySpan<Matrix4x4> binding, out float time);
+
+    /// <summary>Привязка суставов куска <paramref name="piece"/> (<see cref="Severance"/>) к телу куска; нет — false.</summary>
+    bool TryGetGhost(BodyRef body, int piece, out ReadOnlySpan<Matrix4x4> ghost);
 }

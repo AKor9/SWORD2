@@ -113,6 +113,8 @@ public sealed class SolutionTests
         Assert.Contains("Sword.Game.App → Sword.Game.Fire.Client", conditioned);
         Assert.Contains("Sword.Game.App → Sword.Game.Blood.Client", conditioned);
         Assert.Contains("Sword.Game.Bootstrap → Sword.Game.Locomotion", conditioned);
+        Assert.Contains("Sword.Game.Bootstrap → Sword.Game.Cutting", conditioned);
+        Assert.Contains("Sword.Game.App → Sword.Game.Cutting.Client", conditioned);
     }
 
     /// <summary>Каждый проект репозитория — в решении; заготовки запрещённых ссылок (tests/fixtures) — нет.</summary>

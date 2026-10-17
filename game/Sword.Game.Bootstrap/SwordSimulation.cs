@@ -18,13 +18,16 @@ public static class SwordSimulation
 #if !WITHOUT_LOCOMOTION
         new Locomotion.LocomotionModule(),
 #endif
+#if !WITHOUT_CUTTING
+        new Cutting.CuttingModule(),
+#endif
     ];
 
     /// <summary>
     /// Id всех модулей симуляции, и тех, что не вошли в сборку: секция модуля, которого нет, пропускается (<see cref="ConfigSet.Skip"/>) —
     /// без модуля игра стартует. Новый модуль — строка здесь и в <see cref="Modules"/>.
     /// </summary>
-    public static readonly IReadOnlyList<string> ModuleIds = ["locomotion"];
+    public static readonly IReadOnlyList<string> ModuleIds = ["locomotion", "cutting"];
 
     /// <summary>
     /// Id только клиентских модулей: их секции читает только клиент, exe без клиента и сборка без модуля их пропускают

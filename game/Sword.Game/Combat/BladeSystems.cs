@@ -69,6 +69,7 @@ public static class BladePlacement
         var b = physics.Body(body, BodySegs.Body(BodySegs.Weapon));
         physics.SetShape(b, BladeBody.Mass, BladeBody.Radius, shape.HalfLength);
         physics.Place(b, position, rotation);
+        physics.SetGroundProbes(b, weapons.Probes(weapon));   // выпавшее оружие лежит на навершии, гарде, головке, а не в земле
     }
 }
 
@@ -133,7 +134,8 @@ public sealed class BladePlacementSystem(IPhysicsWorld physics, WeaponTable weap
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.BladePlacement).After(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<WeaponSlot>()
-            .Reads<BodyRef>().Writes<Blade>();
+            .Reads<BodyRef>().Writes<Blade>().Reads<Severance>();
+        // Меч отделённой руки — на физике (выпал), его не ставит поза.
         _alive = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Write<Blade>().Read<BodyRef>();
     }
 
@@ -148,8 +150,12 @@ public sealed class BladePlacementSystem(IPhysicsWorld physics, WeaponTable weap
             var poses = chunk.Read<PoseRef>()[..blades.Length];
             var slots = chunk.Read<WeaponSlot>()[..blades.Length];
             var bodies = chunk.Read<BodyRef>()[..blades.Length];
+            var entities = chunk.Entities;
             for (int i = 0; i < blades.Length; i++)
+            {
+                if (ctx.World.TryGet<Severance>(entities[i], out var severance) && severance.IsDetached(BodySegs.Weapon)) continue;
                 Place(pool, ref blades[i], roots[i], poses[i], slots[i].Index, FighterBodies.Handle(bodies[i]), dt);
+            }
         }
     }
 

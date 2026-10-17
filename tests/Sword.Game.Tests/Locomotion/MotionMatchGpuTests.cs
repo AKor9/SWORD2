@@ -71,7 +71,7 @@ public sealed class MotionMatchGpuTests : IDisposable, ILogSink
         try
         {
             arena.Initialize(renderer, clock.Link);
-            Assert.Equal(["Бой", "Рэгдолл", "Локомоция", "Свет"], arena.TuningGroups.Select(g => g.Title));
+            Assert.Equal(["Бой", "Рэгдолл", "Расчленение", "Локомоция", "Свет"], arena.TuningGroups.Select(g => g.Title));
             void Frames(int n)
             {
                 for (int i = 0; i < n; i++)

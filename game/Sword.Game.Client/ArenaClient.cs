@@ -412,6 +412,18 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// <summary>Меш персонажа на CPU для клиентских модулей — источник после <see cref="Initialize"/>, загрузка — при первом обращении.</summary>
     public ArenaSkinMesh SkinMesh { get; } = new();
 
+    /// <summary>Части меша бойцов после разрезов (сервис клиентского модуля Cutting): есть у бойца — рисуются вместо целого меша.</summary>
+    public FighterSkinParts SkinParts { get; } = new();
+
+    /// <summary>Взрыв проверки (клавиша B): энергия, Дж, радиус, м (вкладка F3 «Расчленение»), высота над землёй, м.</summary>
+    public float BlastEnergy { get; set; } = 20000;
+
+    public float BlastRadius { get; set; } = 4;
+
+    public const float BlastHeight = 0.6f;
+
+    private Vector3? _blastAt;
+
     /// <summary>Слой крови на коже для модуля крови: SRV вида по вершинам бойца — в <c>owner</c> экземпляра скина.</summary>
     public ArenaSkinBloodLayer SkinBlood { get; } = new();
 
@@ -528,6 +540,8 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         _capsuleIndices = renderer.CreateIndices("Mesh.CapsuleIndices", CollectionsMarshal.AsSpan(idx));
 
         _manny = renderer.Skinned.LoadMesh("Manny", MannyMesh);
+        SkinParts.BaseMesh = _manny;
+        SkinParts.MeshPath = MannyMesh;
         // Палитра Manny — позы скелета бойца (вид тел симуляции): суставов столько же.
         int joints = renderer.Skinned.JointCount(_manny), skeleton = _simulation.World.View<IBodyView>().JointCount;
         if (joints != skeleton)
@@ -555,6 +569,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         _groups.Clear();
         _groups.Add(CombatTuning.Build(_tuning, _simulation));
         _groups.Add(RagdollTuning.Build(_tuning, _view));
+        _groups.Add(DismemberTuning.Build(_tuning, this));
         if (LocomotionTuning.Build(_tuning, _simulation, _view) is { } locomotion) _groups.Add(locomotion);   // игрок на MM
         // «Свет» — ручки клиента (рендер, окружение): значения здесь и в рендере, команд симуляции нет.
         _light = LightTuning.Build(this, renderer);
@@ -601,6 +616,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         // Курсор — после камеры этого кадра; точка на плоскости земли, только когда курсор над окном (SWORD).
         bool hit = _camera.ScreenToGround(input.MouseX, input.MouseY, input.Width, input.Height, out var ground);
         _frameCommand = PlayerIntent.Command(ArenaInput.Player(input), _camera, hit && input.MouseInside, ground);
+        // Взрыв проверки — над землёй у курсора, командой в первом тике после кадра нажатия.
+        if (input.WasPressed(ArenaInput.Blast) && hit && input.MouseInside)
+            _blastAt = new Vector3(ground.X, ArenaTerrain.Height(ground.X, ground.Z) + BlastHeight, ground.Z);
     }
 
     /// <summary>
@@ -666,6 +684,9 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         command.Stab = input.WasPressed(ArenaInput.Stab);
         command.Dash = input.WasPressed(ArenaInput.Dash);
         simulation.Enqueue(command);
+        if (_blastAt is { } blast && simulation.Accepts<BlastCommand>())
+            simulation.Enqueue(new BlastCommand { Position = blast, Energy = BlastEnergy, Radius = BlastRadius });
+        _blastAt = null;
         Span<ArenaCommand> arena = stackalloc ArenaCommand[ArenaIntent.Max];
         int n = ArenaIntent.Commands(input, arena);
         for (int i = 0; i < n; i++) simulation.Enqueue(arena[i]);
@@ -729,15 +750,26 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
             var fighter = fighters[i];
             var pose = _view.Pose(fighter);
             var colour = Colour(fighter);
-            uint owner = SkinBlood.OwnerOf(FighterKey.Of(fighter.Entity));
-            if (pose.IsEmpty)
+            ulong key = FighterKey.Of(fighter.Entity);
+            uint owner = SkinBlood.OwnerOf(key);
+            if (!fighter.Severed) SkinParts.Drop(key);   // построен заново — частей нет
+            if (!pose.IsEmpty && fighter.Severed && SkinParts.TryGet(key, out var parts))
+            {
+                // Части после разрезов: каждая — своей позой (кусок — по своему телу), меш один на всё тело бойца.
+                bool all = true;
+                foreach (var part in parts)
+                    all &= _renderer!.Skinned.AddPosed(part.Mesh, _view.PiecePose(fighter, part.Piece), Matrix4x4.Identity, colour, owner,
+                        flags: SceneMaterial.Body);
+                if (all) skinned++;
+            }
+            else if (pose.IsEmpty)
             {
                 var palette = _renderer!.Skinned.Add(_manny, colour, owner, flags: SceneMaterial.Body);
                 palette.Fill(GpuMat34.From(fighter.World));
                 if (!palette.IsEmpty) skinned++;
             }
             // У трупа поза — уже мировые матрицы суставов (привязка × тело), мир экземпляра — единичный.
-            else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.Corpse ? Matrix4x4.Identity : fighter.World, colour, owner,
+            else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.PoseInWorld ? Matrix4x4.Identity : fighter.World, colour, owner,
                          flags: SceneMaterial.Body)) skinned++;
         }
         SkinnedFighters = skinned;

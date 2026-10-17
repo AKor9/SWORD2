@@ -194,7 +194,7 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
     {
         s.Label(GameLabels.EnemyAi).After(GameLabels.PlayerCommand).ReadsJournal<Event<EnemyCommand>>().Reads<FighterSlot>()
             .Reads<Transform>().Reads<FighterSeed>().Writes<FighterCommand>().Writes<GazeTarget>().Writes<EnemyAiTerms>()
-            .Writes<AnimatorAction>().Writes<EnemyAttack>();
+            .Writes<AnimatorAction>().Writes<EnemyAttack>().Reads<Severance>();
         var fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<FighterSeed>();
         _fighters = fighters.Without<Dead>();
         _deadPlayer = fighters.With<PlayerTag>().With<Dead>();
@@ -226,8 +226,10 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
             {
                 int slot = slots[i].Index;
                 if ((uint)slot >= ArenaRules.MaxFighters || !_crowd.Think(slot, time.Time, ref intent[i], ref gaze[i], ref terms[i])) continue;
-                int commanded = Commanded(commands, slot);
-                Attack(ref action[i], ref attack[i], terms[i].Distance, commanded, strike, entities[i], time, rng, clips);
+                // без руки с мечом не бьёт: меч выпал
+                bool armed = !(world.TryGet<Severance>(entities[i], out var severance) && severance.IsDetached(BodySegs.Weapon));
+                int commanded = armed ? Commanded(commands, slot) : 0;
+                Attack(ref action[i], ref attack[i], terms[i].Distance, commanded, strike && armed, entities[i], time, rng, clips);
             }
         }
     }

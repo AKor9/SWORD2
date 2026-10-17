@@ -15,7 +15,13 @@ public sealed record CombatSettings
     /// Оружие только игрока (по умолчанию факел): враги не берут его случайно. Имена пака без расширения, регистр не важен; всё оружие
     /// только игрока — ошибка конфига.
     /// </summary>
-    public string[] PlayerOnlyWeapons { get; init; } = ["torch"];
+    public string[] PlayerOnlyWeapons { get; init; } = ["torch", "maul"];
+
+    /// <summary>
+    /// Тупое оружие (<c>combat.bluntWeapons</c>, по умолчанию молот): его касание — тупой удар (<see cref="HitKind.Blunt"/>): ломает и
+    /// отрывает, а не режет. Имена пака без расширения, регистр не важен; имя не из пака пропускается.
+    /// </summary>
+    public string[] BluntWeapons { get; init; } = ["maul"];
 
     /// <summary>Враги бьют по таймеру ИИ (<c>combat.enemiesAttack</c>, по умолчанию да); нет — мирные враги.</summary>
     public bool EnemiesAttack { get; init; } = true;

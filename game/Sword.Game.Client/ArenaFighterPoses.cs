@@ -128,7 +128,7 @@ public sealed class ArenaFighterPoses(SimulationLink link) : IFighterPoses
 
         // Тела сегментов тика.
         int segments = 0;
-        bool hasBody = _world.TryGet<BodyRef>(e, out var bodyRef) && _bodyView is not null && _bodyView.BodyCount(bodyRef) == BodySegs.Bodies;
+        bool hasBody = _world.TryGet<BodyRef>(e, out var bodyRef) && _bodyView is not null && _bodyView.BodyCount(bodyRef) >= BodySegs.Bodies;
         if (hasBody)
         {
             Grow(ref _segments, _segmentsUsed + BodySegs.Bodies);
@@ -159,6 +159,10 @@ public sealed class ArenaFighterPoses(SimulationLink link) : IFighterPoses
             Grow(ref _joints, _jointsUsed + model.Length);
             ArenaView.LivingJoints(model, ArenaView.TickWorld(cur, Height), _joints.AsSpan(_jointsUsed, model.Length));
             joints = model.Length;
+            // Живой с отделёнными частями: их суставы — по телам (привязка снята при отделении).
+            if (hasBody && _world.TryGet<Severance>(e, out var severance) && _skins is not null && _skins.TryGet(bodyRef, out var detached, out _)
+                && detached.Length == model.Length && detached.Length == _jointBodies.Length)
+                ArenaView.DetachedJoints(detached, _jointBodies, _bodies, severance.Detached, _joints.AsSpan(_jointsUsed, model.Length));
         }
 
         _fighters[_count] = new PosedFighter(FighterKey.Of(e), slot, player, dead, corpse, joints, segments);

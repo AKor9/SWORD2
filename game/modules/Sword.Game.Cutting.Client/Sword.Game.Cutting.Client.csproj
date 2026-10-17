@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Модуль Cutting (раздел 10, решение 21), клиентская часть: разрез меша кожи по записям отрубов, крышки, отсечение в шейдере. -->
+  <PropertyGroup>
+    <SwordSide>Client</SwordSide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sword.Game.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Sword.Game.Contracts\Sword.Game.Contracts.csproj" />
+    <ProjectReference Include="..\Sword.Game.Cutting\Sword.Game.Cutting.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Client\Sword.Engine.Client.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Render\Sword.Engine.Render.csproj" />
+    <ProjectReference Include="..\..\..\engine\Sword.Engine.Diagnostics\Sword.Engine.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>

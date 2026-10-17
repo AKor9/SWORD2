@@ -23,20 +23,7 @@ public sealed class CorpseJoints
     public static int JointOf(int segment) => segment - 1;
 
     /// <summary>Родитель сегмента по дереву тела: таз — корень (−1).</summary>
-    public static int Parent(int segment) => segment switch
-    {
-        BodySegs.Pelvis => -1,
-        BodySegs.Torso or BodySegs.ThighL or BodySegs.ThighR => BodySegs.Pelvis,
-        BodySegs.Head or BodySegs.UArmL or BodySegs.UArmR => BodySegs.Torso,
-        BodySegs.FArmL => BodySegs.UArmL,
-        BodySegs.FArmR => BodySegs.UArmR,
-        BodySegs.ShinL => BodySegs.ThighL,
-        BodySegs.ShinR => BodySegs.ThighR,
-        BodySegs.Weapon => BodySegs.FArmR,
-        BodySegs.FootL => BodySegs.ShinL,
-        BodySegs.FootR => BodySegs.ShinR,
-        _ => throw new ArgumentOutOfRangeException(nameof(segment), segment, "сегмент тела — 0…13"),
-    };
+    public static int Parent(int segment) => BodySegs.Parent(segment);
 
     /// <summary>Пределы шарнира: сгиб от выпрямленного, рад, и люфт оси, рад.</summary>
     public readonly record struct HingeLimits(float BendMin, float BendMax, float AxisSlack);

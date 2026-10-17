@@ -153,7 +153,8 @@ public sealed class BloodModuleTests
     public void HitPoint_InSegmentAxesOfSameTick_RoundTrips()
     {
         // Игрок рубит без перерыва, взгляд поворачивается на 45° каждые 300 тиков (сценарий crowd); враги бьют его — касания клинком.
-        var scene = new Scene(ticksPerFrame: 3, Pak.Value, "arena.enemies=8", "combat.playerInvulnerable=true")
+        // без расчленения: якорь сверяется с капсулами тела, а у культи и куска они другие
+        var scene = new Scene(ticksPerFrame: 3, Pak.Value, "arena.enemies=8", "combat.playerInvulnerable=true", "modules.cutting.enabled=false")
         {
             Command = tick =>
             {

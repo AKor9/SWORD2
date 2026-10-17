@@ -11,6 +11,9 @@ public sealed class SkinnedMeshCpu
 {
     public required Vector3[] Positions { get; init; }
     public required Vector3[] Normals { get; init; }
+
+    /// <summary>UV вершин (разрез меша сохраняет их у кромки).</summary>
+    public Vector2[] Uvs { get; init; } = [];
     public required uint[] Indices { get; init; }
     public required uint[] Joints { get; init; }
     public required Vector4[] Weights { get; init; }

@@ -16,6 +16,18 @@ public interface IPhysicsWorld
     /// <summary>Удалить сочленение вместе с его телами и суставами: их хэндлы устаревают.</summary>
     void DestroyArticulation(ArticulationHandle articulation);
 
+    /// <summary>
+    /// Новое тело в конце сочленения (номер — прежнее число тел): кинематическое, без формы, в начале координат, без суставов;
+    /// слот — первый свободный. Отделённый кусок тела; место под суставы и пары растёт (выделение памяти — на событие, не на шаг).
+    /// </summary>
+    int AddBody(ArticulationHandle articulation);
+
+    /// <summary>
+    /// Оставить в сочленении первые <paramref name="keep"/> тел (от 1): лишние — с конца — удаляются вместе с суставами и парами
+    /// самоколлизии, где они участвуют (постройка бойца заново после отделений). Хэндлы удалённых устаревают.
+    /// </summary>
+    void RemoveBodies(ArticulationHandle articulation, int keep);
+
     bool IsAlive(ArticulationHandle articulation);
 
     bool IsAlive(BodyHandle body);
@@ -45,6 +57,15 @@ public interface IPhysicsWorld
     void SetKinematicTarget(BodyHandle body, Vector3 position, Quaternion rotation, float dt);
 
     // ——— Динамика тела, профили, настройки ———
+
+    /// <summary>
+    /// Щупы земли тела — сферы в системе тела (xyz — центр, w — радиус, не больше <see cref="PhysicsWorld.MaxGroundProbes"/>): касаются земли
+    /// так же, как торцы капсулы, и держат то, что торчит за капсулой (гарда и навершие меча, головка молота). С пар тел не участвуют.
+    /// Пусто — только торцы. Выданное заново тело щупов не имеет.
+    /// </summary>
+    void SetGroundProbes(BodyHandle body, ReadOnlySpan<Vector4> spheres);
+
+    ReadOnlySpan<Vector4> GroundProbes(BodyHandle body);
 
     /// <summary>Режим тела; <see cref="BodyMode.Simulated"/> — только телу с массой. Поза и скорости сохраняются.</summary>
     void SetMode(BodyHandle body, BodyMode mode);
@@ -83,6 +104,13 @@ public interface IPhysicsWorld
     /// <see cref="ArgumentException"/>. Прежний размер с тем же числом суставов — без выделения памяти.
     /// </summary>
     void SetJoints(ArticulationHandle articulation, ReadOnlySpan<JointDesc> joints);
+
+    /// <summary>
+    /// Сустав <paramref name="joint"/> (0 … <see cref="JointCount"/>; равный числу — добавить в конец) с готовой привязкой, без
+    /// перепривязки по позе: перенос сустава на другое тело при разрезе сохраняет позу покоя и пределы. Включён. Негодное (как у
+    /// <see cref="SetJoints"/>, ребёнок уже в другом суставе, нечисловая привязка) — <see cref="ArgumentException"/>.
+    /// </summary>
+    void SetJoint(ArticulationHandle articulation, int joint, in JointDesc desc, in JointBinding binding);
 
     int JointCount(ArticulationHandle articulation);
 

@@ -41,20 +41,16 @@ public static class DamageRules
     /// <summary>Кровотечение: + урон·0,02 очков в секунду с попадания, гаснет на 0,2 в секунду (<c>AfterTick</c>).</summary>
     public const float BleedPerDamage = 0.02f, BleedDecay = 0.2f;
 
-    /// <summary>Порог отруба: торс — 75, прочее — <c>SeverAt</c>·0,6; острота игрока — не меньше 0,05.</summary>
-    public const float TorsoSever = 75f, SeverScale = 0.6f, MinSharpness = 0.05f;
+    /// <summary>Острота удара игрока — не меньше 0,05 (множитель энергии разреза, <see cref="SeverRequested.Sharpness"/>).</summary>
+    public const float MinSharpness = 0.05f;
 
     /// <summary>Враг возрождается, когда мёртв дольше, с (<c>Time − DeadTime &gt; 8</c>).</summary>
     public const float RespawnDelay = 8f;
 
     private static readonly float[] HpMulTable = [0.9f, 1f, 1.6f, .4f, .4f, .4f, .4f, .5f, .5f, .5f, .5f, 0, .3f, .3f];
-    private static readonly float[] SeverAtTable = [1e9f, 1e9f, 45, 42, 30, 42, 30, 62, 44, 62, 44, 1e9f, 30, 30];
 
     /// <summary>Множитель урона в очки жизни по сегменту: голова — 1,6, торс — 1, конечности — 0,3…0,5.</summary>
     public static ReadOnlySpan<float> HpMul => HpMulTable;
-
-    /// <summary>Порог отруба части по сегменту без отзывчивого режима: таз, торс и клинок не отрубаются.</summary>
-    public static ReadOnlySpan<float> SeverAt => SeverAtTable;
 
     /// <summary>
     /// Урон касания клинка: <c>((укол ? 12 : 8) + min(скорость, 16)·(укол ? 1,2 : 1,4))·(игрок ? урон игрока : 1)</c>.
@@ -64,13 +60,6 @@ public static class DamageRules
         float s = MathF.Min(speed, SpeedCap);
         return ((thrust ? 12f : 8f) + s * (thrust ? 1.2f : 1.4f)) * (player ? playerDamage : 1);
     }
-
-    /// <summary>Порог отруба части <paramref name="segment"/> (отзывчивый режим): торс — 75, прочее — <c>SeverAt</c>·0,6.</summary>
-    public static float SeverThreshold(int segment) => segment == BodySegs.Torso ? TorsoSever : SeverAtTable[segment] * SeverScale;
-
-    /// <summary>Порог отруба для удара: удара игрока — ÷ max(острота, 0,05).</summary>
-    public static float SeverThreshold(int segment, bool player, float sharpness) =>
-        SeverThreshold(segment) / (player ? MathF.Max(sharpness, MinSharpness) : 1);
 
     /// <summary>
     /// Смертельный укол: укол в голову или торс с уроном больше 20 — только остриём вперёд (<c>dot(dir, blade)</c> больше 0,6), а не

@@ -71,6 +71,24 @@ public sealed partial class PhysicsWorld
         if (need > 0 && (_selfPairs[a] is not { } stored || stored.Length < need)) _selfPairs[a] = new BodyPair[need];
     }
 
+    /// <summary>Тело добавлено (<see cref="AddBody"/>): место под все пары — с прежними парами.</summary>
+    private void SelfReserve(int a)
+    {
+        int need = SelfCapacity(_artCount[a]);
+        if (_selfPairs[a] is { } stored && stored.Length >= need) return;
+        Array.Resize(ref _selfPairs[a], need);
+    }
+
+    /// <summary>Тела с номерами от <paramref name="keep"/> удаляются: пары с ними — тоже (порядок прочих сохраняется).</summary>
+    private void SelfDropBodies(int a, int keep)
+    {
+        var pairs = _selfPairs[a];
+        int n = _selfCount[a], m = 0;
+        for (int k = 0; k < n; k++)
+            if (pairs![k].A < keep && pairs[k].B < keep) pairs[m++] = pairs[k];
+        _selfCount[a] = m;
+    }
+
     /// <summary>Самоколлизия подшага: неспящие сочленения с телами на физике по слотам, пары — по порядку таблицы. Толщина 0 — пропуск.</summary>
     private void SelfPairs(float h)
     {

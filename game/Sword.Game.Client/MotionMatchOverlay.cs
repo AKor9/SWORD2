@@ -67,7 +67,7 @@ public sealed class MotionMatchOverlay(Func<float, float, float> height)
         {
             int joint = mm.ContactJoint(k);
             if ((uint)joint >= (uint)pose.Length) continue;
-            _feet[_feetCount] = Vector3.Transform(pose[joint].Translation, player.Corpse ? Matrix4x4.Identity : player.World);
+            _feet[_feetCount] = Vector3.Transform(pose[joint].Translation, player.PoseInWorld ? Matrix4x4.Identity : player.World);
             bool ground = (status.Contacts >> k & 1) != 0;
             _ground[_feetCount++] = ground;
             if (ground) FeetOnGround++;

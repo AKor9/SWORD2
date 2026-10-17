@@ -152,6 +152,15 @@ public sealed class PhysicsState(IPhysicsWorld physics) : IStateContributor
         h.Add(s.Grounded);
         h.Add((int)s.Profile);
         h.Add((int)s.Source);
+        var probes = physics.GroundProbes(b);
+        h.Add(probes.Length);
+        foreach (var p in probes)
+        {
+            h.Add(p.X);
+            h.Add(p.Y);
+            h.Add(p.Z);
+            h.Add(p.W);
+        }
     }
 
     private static void Add(ref StateHasher h, Vector3 v)

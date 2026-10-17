@@ -21,6 +21,15 @@ public static class CorpseInvariants
     /// </summary>
     public const float SpeedSlack = 1.5f;
 
+    private static int Index(IPhysicsWorld physics, BodyHandle b)
+    {
+        var a = physics.ArticulationOf(b);
+        if (a.IsNone) return -1;
+        for (int k = 0, n = physics.BodyCount(a); k < n; k++)
+            if (physics.Body(a, k) == b) return k;
+        return -1;
+    }
+
     /// <summary>
     /// <c>physics.joints</c>: ошибка точки сустава после шага, м, и выход за предел, рад. Одна итерация решателя: толпа трупов
     /// друг на друге — до 28 мм и 0,66 рад.
@@ -116,7 +125,9 @@ public static class CorpseInvariants
                     var body = FighterBodies.Handle(bodies[i]);
                     if (!BodyPlacement.Placeable(physics, body)) continue;   // негодное тело — physics.bodyRefs
                     bool dead = world.TryGet<Dead>(entities[i], out var d);
-                    string? problem = dead ? (fresh && d.Time == now ? null : Corpse(body)) : alive ? Alive(body) : null;
+                    bool severed = world.TryGet<Severance>(entities[i], out var severance);
+                    string? problem = dead ? (fresh && d.Time == now ? null : severed ? SeveredCorpse(body, severance) : Corpse(body))
+                        : alive ? Alive(body, severance) : null;
                     if (problem is null) continue;
                     violations.Report(entities[i], problem);
                     if (violations.Full) return;
@@ -143,13 +154,37 @@ public static class CorpseInvariants
             return null;
         }
 
-        private string? Alive(ArticulationHandle body)
+        /// <summary>
+        /// Труп с отделёнными частями: все тела (и куски) — на физике с профилем трупа; сустав запястья (если есть) выключен, сустав
+        /// оторванного сегмента — тоже; прочие включены. Пары самоколлизии — по дереву после отделений, их число не сверяется.
+        /// </summary>
+        private string? SeveredCorpse(ArticulationHandle body, in Severance severance)
         {
-            for (int k = 0; k < BodySegs.Bodies; k++)
+            for (int k = 0, n = physics.BodyCount(body); k < n; k++)
             {
                 var s = physics.Get(physics.Body(body, k));
-                if (s.Mode != BodyMode.Kinematic || s.Profile != 0)
-                    return Text($"живой, а тело {BodySegs.Name(k)} — {s.Mode}, профиль {s.Profile} (у живого — Kinematic, профиль 0)");
+                if (s.Mode != BodyMode.Simulated || s.Profile != corpseProfile)
+                    return Text($"мёртвый, а тело {k} — {s.Mode}, профиль {s.Profile} (у трупа — Simulated, профиль {corpseProfile})");
+            }
+            for (int j = 0, n = physics.JointCount(body); j < n; j++)
+            {
+                int child = physics.Joint(body, j).Child;
+                bool want = child != BodySegs.Weapon && !(child < BodySegs.Bodies && severance.IsTorn(child));
+                if (physics.IsJointEnabled(body, j) != want)
+                    return Text($"мёртвый с отделёнными частями, а сустав {j} (ребёнок {child}) {(want ? "выключен" : "включён")}");
+            }
+            return null;
+        }
+
+        private string? Alive(ArticulationHandle body, in Severance severance)
+        {
+            for (int k = 0, n = physics.BodyCount(body); k < n; k++)
+            {
+                var s = physics.Get(physics.Body(body, k));
+                // отделённое у живого — на физике с профилем трупа (кусок, ветвь на нём, меч из отрубленной руки)
+                bool free = k >= BodySegs.Bodies || severance.IsDetached(k);
+                if (free ? s.Mode != BodyMode.Simulated || s.Profile != corpseProfile : s.Mode != BodyMode.Kinematic || s.Profile != 0)
+                    return Text($"живой, а тело {k} — {s.Mode}, профиль {s.Profile} (у живого — {(free ? "отделённое Simulated, профиль трупа" : "Kinematic, профиль 0")})");
             }
             for (int j = 0, n = physics.JointCount(body); j < n; j++)
                 if (!physics.IsJointEnabled(body, j)) return Text($"живой, а сустав {j} выключен");
@@ -166,7 +201,8 @@ public static class CorpseInvariants
 
     /// <summary>
     /// <c>physics.simulatedSpeed</c> — скорость и угловая скорость поперёк оси тела на физике не выше потолков профиля с запасом
-    /// <see cref="SpeedSlack"/>: ловит «взрыв» решателя и чужой профиль.
+    /// <see cref="SpeedSlack"/> (вращение сверх потолка — если и концы тела быстрее потолка скорости): ловит «взрыв» решателя и чужой
+    /// профиль.
     /// </summary>
     private sealed class SimulatedSpeed(IPhysicsWorld physics) : IInvariant
     {
@@ -192,9 +228,12 @@ public static class CorpseInvariants
             var s = physics.Get(b);
             if (s.Mode != BodyMode.Simulated) return null;
             var d = physics.GetDynamics(s.Profile);
-            float v = s.Velocity.Length(), w = Across(s);
-            if (v <= d.MaxSpeed * SpeedSlack && w <= d.MaxAngularSpeed * SpeedSlack || !float.IsFinite(v) || !float.IsFinite(w)) return null;
-            return Text($"тело {b} (сочленение {physics.ArticulationOf(b)}): скорость {v:G4} м/с (потолок {d.MaxSpeed}), угловая поперёк оси {w:G4} рад/с (потолок {d.MaxAngularSpeed}); запас ×{SpeedSlack}");
+            // шар (клочок) катится: его вращение — качение, не «взрыв» решателя (на 10 м/с при радиусе 5 см — 200 рад/с); короткая
+            // капсула (стопа, кусок) кувыркается так же — вращение сверх потолка не ошибка, пока концы тела не быстрее потолка скорости
+            float v = s.Velocity.Length(), w = s.HalfLength > 0 ? Across(s) : 0;
+            bool spin = w <= d.MaxAngularSpeed * SpeedSlack || w * (s.HalfLength + s.Radius) <= d.MaxSpeed * SpeedSlack;
+            if (v <= d.MaxSpeed * SpeedSlack && spin || !float.IsFinite(v) || !float.IsFinite(w)) return null;
+            return Text($"тело {b} (сочленение {physics.ArticulationOf(b)}): скорость {v:G4} м/с (потолок {d.MaxSpeed}), угловая поперёк оси {w:G4} рад/с (потолок {d.MaxAngularSpeed}); запас ×{SpeedSlack}; масса {s.Mass:G3} кг, радиус {s.Radius:G3}, полудлина {s.HalfLength:G3} м, номер в сочленении {Index(physics, b)}");
         }
     }
 
@@ -226,6 +265,10 @@ public static class CorpseInvariants
             for (int j = 0, n = physics.JointCount(a); j < n; j++)
             {
                 if (!physics.IsJointEnabled(a, j)) continue;
+                var d = physics.Joint(a, j);
+                // оба тела кинематические (живой с отделённой рукой: плечо к торсу) — сустав решатель не держит, их ставит поза
+                if (physics.Get(physics.Body(a, d.Parent)).Mode == BodyMode.Kinematic && physics.Get(physics.Body(a, d.Child)).Mode == BodyMode.Kinematic)
+                    continue;
                 var m = physics.MeasureJoint(a, j);
                 if (m.PointError <= PointTolerance && m.Excess <= ExcessTolerance || !float.IsFinite(m.PointError) || !float.IsFinite(m.Excess)) continue;
                 var desc = physics.Joint(a, j);

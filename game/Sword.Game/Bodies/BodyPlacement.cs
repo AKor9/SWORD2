@@ -145,16 +145,28 @@ public static class BodyPlacement
     /// <paramref name="dt"/>); тело клинка ставит клинок.
     /// </summary>
     public static void Tick(IPhysicsWorld physics, ArticulationHandle body, ReadOnlySpan<Matrix4x4> model, BodyJoints joints,
-        Vector3 root, float facing, float dt)
+        Vector3 root, float facing, float dt) => Tick(physics, body, model, joints, root, facing, dt, default);
+
+    /// <summary>
+    /// Тик бойца с отделёнными частями: отделённые тела — на физике, их не ставит поза; культя — со сдвигом центра по оси
+    /// (<see cref="Severance.Shift"/>).
+    /// </summary>
+    public static void Tick(IPhysicsWorld physics, ArticulationHandle body, ReadOnlySpan<Matrix4x4> model, BodyJoints joints,
+        Vector3 root, float facing, float dt, in Severance severance)
     {
         Span<Vector3> pos = stackalloc Vector3[BodySegs.Bodies];
         Span<Quaternion> rot = stackalloc Quaternion[BodySegs.Bodies];
         Capsules(model, joints, root, facing, pos, rot);
         for (int i = 0; i < BodySegs.Bodies; i++)
-            if (BodySegs.IsFlesh(BodySegs.Segment(i))) physics.SetKinematicTarget(physics.Body(body, i), pos[i], rot[i], dt);
+        {
+            int s = BodySegs.Segment(i);
+            if (!BodySegs.IsFlesh(s) || severance.IsDetached(s)) continue;
+            var p = severance.IsCut(s) ? pos[i] + Vector3.Transform(Vector3.UnitY, rot[i]) * severance.Shift[s] : pos[i];
+            physics.SetKinematicTarget(physics.Body(body, i), p, rot[i], dt);
+        }
     }
 
-    /// <summary>Сочленение годно для постановки бойца: живое и из <see cref="BodySegs.Bodies"/> тел (иначе его ловит <c>physics.bodyRefs</c>).</summary>
+    /// <summary>Сочленение годно для постановки бойца: живое, тела сегментов и куски (не больше <see cref="Severance.MaxPieces"/>).</summary>
     public static bool Placeable(IPhysicsWorld physics, ArticulationHandle body) =>
-        physics.IsAlive(body) && physics.BodyCount(body) == BodySegs.Bodies;
+        physics.IsAlive(body) && physics.BodyCount(body) is >= BodySegs.Bodies and <= BodySegs.Bodies + Severance.MaxPieces;
 }

@@ -6,8 +6,8 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Client;
 
 /// <summary>
-/// Оружие бойцов тика для клиентских модулей (<see cref="IWeaponTips"/>). Живой — клинок тика (<see cref="Blade"/>); мёртвый —
-/// оружие выпало: клинок по телу клинка трупа (тела нет — последний клинок). Построен в тике — есть запись
+/// Оружие бойцов тика для клиентских модулей (<see cref="IWeaponTips"/>). Живой — клинок тика (<see cref="Blade"/>); мёртвый или
+/// без руки с оружием — оружие выпало: клинок по телу клинка (тела нет — последний клинок). Построен в тике — есть запись
 /// <see cref="Added{T}"/> бойца в очереди кадра. Только игрок — свой запрос (<see cref="PlayerTag"/>). Без выделений.
 /// </summary>
 public sealed class ArenaWeaponTips(SimulationLink link) : IWeaponTips
@@ -57,7 +57,9 @@ public sealed class ArenaWeaponTips(SimulationLink link) : IWeaponTips
         bool player = _world.Has<PlayerTag>(e), dead = _world.Has<Dead>(e);
         _world.TryGet<Blade>(e, out var blade);
         Vector3 tip = blade.Tip, @base = blade.Base;
-        if (dead && bodies is not null && _world.TryGet<BodyRef>(e, out var body) && bodies.BodyCount(body) == BodySegs.Bodies)
+        // оружие на своём теле: у мёртвого и у живого, чья рука с оружием отделена (тела кусков — после 14 тел бойца)
+        bool dropped = dead || _world.TryGet<Severance>(e, out var severance) && severance.IsDetached(BodySegs.Weapon);
+        if (dropped && bodies is not null && _world.TryGet<BodyRef>(e, out var body) && bodies.BodyCount(body) >= BodySegs.Bodies)
         {
             var b = bodies.Body(body, BodySegs.Body(BodySegs.Weapon));
             var inWorld = InHand(weapon, info) * ArenaView.BodySystem(b.Position, b.Rotation);

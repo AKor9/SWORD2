@@ -72,21 +72,20 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
         ref var h = ref _health[k];
         bool lethal = !corpse && DamageRules.LethalThrust(c.Kind, c.Part, c.Damage, c.Dir, c.Blade);
         DamageRules.Apply(ref h, c.Part, c.Damage);
-        float severAt = DamageRules.SeverThreshold(c.Part, world.Has<PlayerTag>(c.Attacker), rules.PlayerSharpness);
         var cmd = ctx.Commands;
         bool killed = !corpse && DamageRules.Killed(h, lethal);
         // Попадание — первым (журналы разные: порядок событий Hit и SeverRequested между собой ничего не меняет).
         cmd.Emit(new Hit
         {
             Contact = c.Id, Attacker = c.Attacker, Victim = c.Victim, Part = c.Part, Damage = c.Damage, Point = c.Point, Dir = c.Dir, Kind = c.Kind,
-            Killed = killed, LethalThrust = lethal, SeverAt = severAt, Probe = c.Probe, Corpse = corpse,
+            Killed = killed, LethalThrust = lethal, Probe = c.Probe, Corpse = corpse,
         });
-        if (c.Damage > severAt)
-            cmd.Emit(new SeverRequested
-            {
-                Id = new RequestId(time.Tick, _requests++), Contact = c.Id, Victim = c.Victim, Part = c.Part, Point = c.Point, Blade = c.Blade,
-                Dir = c.Dir, Kind = c.Kind,
-            });
+        cmd.Emit(new SeverRequested
+        {
+            Id = new RequestId(time.Tick, _requests++), Contact = c.Id, Victim = c.Victim, Part = c.Part, Point = c.Point,
+            Blade = c.Probe ? ProbeEdge(c.Dir) : c.Blade, Dir = c.Dir, Kind = c.Kind, Velocity = PointVelocity(world, c), Corpse = corpse,
+            Sharpness = world.Has<PlayerTag>(c.Attacker) ? MathF.Max(rules.PlayerSharpness, DamageRules.MinSharpness) : 1,
+        });
         cmd.Set(c.Victim, h);
         if (killed)
         {
@@ -97,6 +96,35 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
         if ((corpse || killed) && world.TryGet<BodyRef>(c.Victim, out var victimBody) && world.TryGet<BodyRef>(c.Attacker, out var attackerBody)
             && HitImpulses.Apply(physics, FighterBodies.Handle(attackerBody), FighterBodies.Handle(victimBody), c, corpse, killed, out var impulse))
             cmd.Set(c.Victim, impulse);
+    }
+
+    /// <summary>
+    /// Скорость точки клинка атакующего в месте касания (тело клинка кинематическое: скорость и угловая — постановки тика). Проба
+    /// (клинка нет) — вдоль направления, по урону: <c>урон · 0,25</c> м/с (60 урона — 15 м/с).
+    /// </summary>
+    private Vector3 PointVelocity(World world, in StrikeContact c)
+    {
+        if (!c.Probe && world.TryGet<BodyRef>(c.Attacker, out var bodyRef))
+        {
+            var body = FighterBodies.Handle(bodyRef);
+            if (physics.IsAlive(body) && physics.BodyCount(body) > BodySegs.Weapon)
+            {
+                var blade = physics.Get(physics.Body(body, BodySegs.Body(BodySegs.Weapon)));
+                var v = blade.PointVelocity(c.Point);
+                if (float.IsFinite(v.X + v.Y + v.Z) && v.LengthSquared() > 1e-6f) return v;
+            }
+        }
+        return c.Dir * (c.Damage * ProbeSpeedPerDamage);
+    }
+
+    /// <summary>Скорость пробы на единицу урона, м/с.</summary>
+    public const float ProbeSpeedPerDamage = 0.25f;
+
+    /// <summary>Кромка пробы (клинка нет): горизонтальная поперёк направления — проба рубит части поперёк вертикали.</summary>
+    public static Vector3 ProbeEdge(Vector3 dir)
+    {
+        var edge = Vector3.Cross(Vector3.UnitY, dir);
+        return edge.LengthSquared() > 1e-8f ? Vector3.Normalize(edge) : Vector3.UnitX;
     }
 
     /// <summary>
@@ -270,7 +298,6 @@ public sealed class ArenaStatsSystem : IContinuousSystem
             if (!world.Has<PlayerTag>(h.Value.Attacker)) continue;
             stats.LastPart = h.Value.Part;
             stats.LastDamage = h.Value.Damage;
-            stats.LastSeverAt = h.Value.SeverAt;
         }
         foreach (var d in deaths)
             if (world.Has<EnemyTag>(d.Entity)) stats.Kills++;

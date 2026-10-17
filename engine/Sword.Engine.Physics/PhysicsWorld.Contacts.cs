@@ -171,6 +171,7 @@ public sealed partial class PhysicsWorld
         StepGrow(articulations, bodies);
         SleepGrow(articulations);
         SelfGrow(articulations);
+        GroundProbesGrow(bodies);
     }
 
     partial void ContactsReset(int articulation)

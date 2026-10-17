@@ -42,6 +42,15 @@ public static class GameCore
         poses.Reserve(fighters * PosesPerFighter, fighters * PoseJobsPerFighter);
     }
 
+    /// <summary>Тупое ли оружие по номеру таблицы (<c>combat.bluntWeapons</c>; имя не из пака — пропуск).</summary>
+    private static bool[] BluntTable(WeaponTable weapons, IEnumerable<string> blunt)
+    {
+        var table = new bool[weapons.Count];
+        foreach (string name in blunt)
+            if (weapons.Find(name) is >= 0 and var w) table[w] = true;
+        return table;
+    }
+
     /// <summary>Регистрации ядра — в <c>Simulation.Build</c> до модулей.</summary>
     public static void Configure(SimulationBuilder b, CharacterAssets assets)
     {
@@ -82,12 +91,13 @@ public static class GameCore
             .Component<Health>().Component<Dead>().Component<StrikePairs>().Component<Flinch>().Component<HitImpulse>().Component<Recoil>()
             // Своя поза постройки бойца и действующая модель контроллера — компоненты контрактов, которые ставит модуль (игроку на Motion
             // Matching); ядро читает и пишет их тем, у кого они есть. Бойцы без них — общая поза и модель по умолчанию (хеш ecs — от компонентов на сущностях).
-            .Component<FighterStartPose>().Component<SteerModel>()
-            .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>()
+            .Component<FighterStartPose>().Component<SteerModel>().Component<Severance>()
+            .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>().Event<LimbDetached>().Event<PartialCut>()
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>().Command<SceneCommand>()
+            .Command<BlastCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
             .Resource(PlayerInventory.All(weapons.Count, playerWeapon)).Resource(CombatRules.From(combat)).Resource(ArenaStats.Start).Resource(ragdoll)
-            .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 }).Resource(skins)
+            .Resource<IPhysicsWorld>(physics).Resource(new StartPose { Clip = -1 }).Resource(skins).Resource(assets.Tissue)
             .ReadView<IAnimationView>(new AnimationView(poses)).ReadView<IBodyView>(new BodyView(physics, jointSegments))
             .ReadView<ICombatView>(new CombatView(weapons, enemyWeapons, assets.Strikes, assets.Hand)).ReadView<ISkinView>(new SkinView(skins))
             .StateContributor(new AnimationState(poses))
@@ -105,7 +115,9 @@ public static class GameCore
             // Представление узнаёт о бойцах из очереди кадра: появился — завести, ушёл — убрать (Extract клиента).
             .Export<Added<Fighter>>().Export<Removed<Fighter>>()
             // Бой: касания, попадания, заявки на отруб и смерти — клиенту (HUD; без подписчика у события нет журнала).
-            .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>();
+            .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>()
+            // Отделения и неполные разрезы (модуль Cutting) — клиенту: разрез меша, кровь.
+            .Export<Event<LimbDetached>>().Export<Event<PartialCut>>();
         FighterBodies.Register(b, physics);
         PhysicsDebug.Register(b, physics);   // вид суставов и трассы физики, режим physics.trace — мир, хеш и реплей не меняют
         // Ручки «Бой» — поля правил боя (ресурс из секции combat), изменение на ходу — команда ручки (система tuning.combat в Begin).
@@ -119,7 +131,7 @@ public static class GameCore
             .System(GameStages.Intent, new PlayerCommandSystem(strikes))
             .System(GameStages.Intent, new EnemyAiSystem(strikes))
             .System(GameStages.Gameplay, new FighterSetupSystem())
-            .System(GameStages.Gameplay, new BodySetupSystem(physics, joints, start))
+            .System(GameStages.Gameplay, new BodySetupSystem(physics, joints, start, skins))
             .System(GameStages.Gameplay, new BladeSetupSystem(physics, weapons, assets.Hand, start))
             .System(GameStages.Gameplay, new SkinCaptureSystem(physics, skins, gameplay: true))
             .System(GameStages.Gameplay, new DeathToRagdollSystem(physics, corpseJoints, corpseProfile, gameplay: true))
@@ -137,9 +149,11 @@ public static class GameCore
             .System(GameStages.PrePhysics, new KinematicSourceSystem(physics))
             .System(GameStages.Physics, new PhysicsStepSystem(physics))
             .System(GameStages.Physics, new CorpseRootSystem(physics))
-            .System(GameStages.Combat, new StrikeDetectionSystem(physics, strikes))
+            .System(GameStages.Combat, new StrikeDetectionSystem(physics, strikes, BluntTable(weapons, combat.BluntWeapons ?? [])))
             .System(GameStages.Resolve, new HitApplySystem(physics))
+            .System(GameStages.Resolve, new BlastSystem(physics))
             .System(GameStages.React, new HitReactionSystem())
+            .System(GameStages.React, new SeverAftermathSystem(physics, corpseJoints, skins, corpseProfile))
             .System(GameStages.React, new RootRecoilSystem(physics))
             .System(GameStages.Aftermath, new BleedSystem())
             .System(GameStages.Aftermath, new RespawnSystem(enemyWeapons))
@@ -147,6 +161,8 @@ public static class GameCore
             .System(GameStages.Settle, new ArenaStatsSystem())
             .System(GameStages.Settle, new SkinCaptureSystem(physics, skins, gameplay: false))
             .System(GameStages.Settle, new DeathToRagdollSystem(physics, corpseJoints, corpseProfile, gameplay: false))
+            .System(GameStages.Settle, new BlastPushSystem(physics))
+            .System(GameStages.End, new SeverClearSystem(physics))
             .System(GameStages.End, new PoseReleaseSystem())
             .System(GameStages.End, new ActionPoseReleaseSystem())
             .System(GameStages.End, new SkinReleaseSystem(skins));

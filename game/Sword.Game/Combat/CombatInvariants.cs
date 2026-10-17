@@ -53,6 +53,8 @@ public static class CombatInvariants
                     var pose = new PoseHandle(refs[i].Index, refs[i].Generation);
                     int weapon = slots[i].Index;
                     if (!poses.IsAlive(pose) || (uint)weapon >= (uint)table.Length) continue;   // их ловят animation.owners, combat.weapons
+                    // меч из отрубленной руки выпал — клинок не на кисти законно
+                    if (world.TryGet<Severance>(entities[i], out var severance) && severance.IsDetached(BodySegs.Weapon)) continue;
                     var model = built ? start.Of(StartPoseModel.For(world, entities[i])) : poses.Model(pose);   // своя поза постройки или общая
                     if (Problem(model, table[weapon], weapon, roots[i], blades[i]) is not { } problem) continue;
                     violations.Report(entities[i], problem);

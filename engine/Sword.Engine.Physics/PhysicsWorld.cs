@@ -68,6 +68,7 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
             _bodyGeneration[b] = -_bodyGeneration[b] + 1;
             _bodyOwner[b] = a;
             _bodies[b] = BodyState.New(BodyMode.Kinematic);
+            GroundProbesReset(b);
             members[k] = b;
         }
         JointsReset(a);
@@ -97,6 +98,50 @@ public sealed partial class PhysicsWorld : IPhysicsWorld
         _artCount[a] = 0;
         _artGeneration[a] = -_artGeneration[a];
         _freeArts[_freeArtCount++] = a;
+    }
+
+    public int AddBody(ArticulationHandle articulation)
+    {
+        Check(articulation);
+        int a = articulation.Index, k = _artCount[a];
+        var members = _artBodies[a]!;
+        if (members.Length <= k) Array.Resize(ref _artBodies[a], Math.Max(k + 1, members.Length * 2));
+        if (_freeBodyCount == 0) GrowBodies(_bodyCapacity * 2);
+        int b = _freeBodies[--_freeBodyCount];
+        _bodyGeneration[b] = -_bodyGeneration[b] + 1;
+        _bodyOwner[b] = a;
+        _bodies[b] = BodyState.New(BodyMode.Kinematic);
+        GroundProbesReset(b);
+        _artBodies[a]![k] = b;
+        _artCount[a] = k + 1;
+        JointsReserve(a, k);
+        SelfReserve(a);
+        _trace?.ResetArticulation(a, _artBodies[a].AsSpan(0, k + 1));
+        SleepWake(a, WakeReason.Command);
+        return k;
+    }
+
+    public void RemoveBodies(ArticulationHandle articulation, int keep)
+    {
+        Check(articulation);
+        int a = articulation.Index, n = _artCount[a];
+        if (keep < 1 || keep > n) throw new ArgumentOutOfRangeException(nameof(keep), keep, $"в сочленении {articulation} тел {n}");
+        if (keep == n) return;
+        var members = _artBodies[a]!;
+        for (int k = keep; k < n; k++) SleepWakeAround(members[k]);
+        JointsDropBodies(a, keep);
+        SelfDropBodies(a, keep);
+        for (int k = n - 1; k >= keep; k--)
+        {
+            int b = members[k];
+            _bodyGeneration[b] = -_bodyGeneration[b];
+            _bodyOwner[b] = -1;
+            _bodies[b] = default;
+            _freeBodies[_freeBodyCount++] = b;
+        }
+        _artCount[a] = keep;
+        _trace?.ResetArticulation(a, members.AsSpan(0, keep));
+        SleepWake(a, WakeReason.Command);
     }
 
     public int BodyCount(ArticulationHandle articulation)

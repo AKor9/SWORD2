@@ -4,7 +4,7 @@ namespace Sword.Game.Contracts;
 
 /// <summary>
 /// Стадии тика игры; после каждой — барьер. Модуль встаёт в стадию до или после метки ядра (<see cref="GameLabels"/>).
-/// Defense и Dismember — пустые точки протокола боя: блок (Guard) и расчленение (Cutting) отложены.
+/// Defense — пустая точка протокола боя: блок (Guard) отложен. Dismember — стадия расчленения (модуль Cutting).
 /// </summary>
 public static class GameStages
 {
@@ -173,6 +173,18 @@ public static class GameLabels
 
     /// <summary>React, реактивная по <c>Event&lt;Hit&gt;</c>: реакция живой жертвы на последнее попадание тика.</summary>
     public static readonly SystemLabel HitReaction = new("core.hit-reaction");
+
+    /// <summary>Resolve, после <see cref="HitApply"/>, по команде <c>BlastCommand</c>: заявки взрыва по частям, смерть живых в зоне.</summary>
+    public static readonly SystemLabel Blast = new("core.blast");
+
+    /// <summary>Settle, после перехода в труп, по команде <c>BlastCommand</c>: толчок взрыва телам на физике.</summary>
+    public static readonly SystemLabel BlastPush = new("core.blast-push");
+
+    /// <summary>React, реактивная по <c>Event&lt;LimbDetached&gt;</c>: отделение части у бойца — тела, суставы, привязки скина, <c>Severance</c>.</summary>
+    public static readonly SystemLabel SeverAftermath = new("core.sever-aftermath");
+
+    /// <summary>End, реактивная по снятию <c>Severance</c>: куски бойца, построенного заново, уходят из сочленения.</summary>
+    public static readonly SystemLabel SeverClear = new("core.sever-clear");
 
     /// <summary>Aftermath: кровопотеря живых — очки жизни, кровотечение, смерть.</summary>
     public static readonly SystemLabel Bleed = new("core.bleed");
