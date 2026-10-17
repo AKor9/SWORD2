@@ -167,7 +167,7 @@ public sealed class BloodWounds
         int joint = surface.ReferenceJoint(segment, world, joints);
         if (joint < 0 || joint >= joints.Length) return -1;
         var bind = Vector3.Transform(world, surface.WorldToBind(joint, joints));
-        return refine ? NearestSkin(surface, segment, bind, world, joints, out bary) : surface.Nearest(segment, bind, out bary, out _);
+        return refine ? NearestSkin(surface, segment, bind, world, joints, out bary) : surface.Nearest(segment, bind, out bary, out _, coarse: true);
     }
 
     private static int NearestSkin(SkinSurface surface, int segment, Vector3 bind, Vector3 world, ReadOnlySpan<Matrix4x4> joints, out Vector3 bary)

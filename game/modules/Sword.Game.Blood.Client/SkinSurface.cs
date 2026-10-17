@@ -225,12 +225,15 @@ public sealed class SkinSurface
     public Matrix4x4 WorldToBind(int joint, ReadOnlySpan<Matrix4x4> joints) =>
         Matrix4x4.Invert(joints[joint], out var inverse) ? inverse * _bind[joint] : Matrix4x4.Identity;
 
-    /// <summary>Ближайший к точке привязки треугольник сегмента: треугольник, барицентрики, расстояние; нет треугольников — −1.</summary>
-    public int Nearest(int segment, Vector3 bind, out Vector3 bary, out float distance)
+    /// <summary>
+    /// Ближайший к точке привязки треугольник сегмента: треугольник, барицентрики, расстояние; нет треугольников — −1. <paramref name="coarse"/>
+    /// — грубо (пятна брызг): кольца — по первому треугольнику ячейки, точно — только в ближайшей ячейке (ошибка до ячейки, в разы дешевле).
+    /// </summary>
+    public int Nearest(int segment, Vector3 bind, out Vector3 bary, out float distance, bool coarse = false)
     {
         bary = default;
         distance = float.MaxValue;
-        return (uint)segment < BodySegs.Count && _grids[segment] is { } grid ? grid.Nearest(this, bind, out bary, out distance) : -1;
+        return (uint)segment < BodySegs.Count && _grids[segment] is { } grid ? grid.Nearest(this, bind, out bary, out distance, coarse) : -1;
     }
 
     /// <summary>
@@ -544,13 +547,13 @@ public sealed class SkinSurface
             return best;
         }
 
-        public int Nearest(SkinSurface s, Vector3 p, out Vector3 bary, out float distance)
+        public int Nearest(SkinSurface s, Vector3 p, out Vector3 bary, out float distance, bool coarse)
         {
             Cell(p, out int cx, out int cy, out int cz);
             // Расстояние от точки до клетки-старта (точка вне сетки — до её края): нижняя граница кольца r — max(это, (r − 1)·ячейка).
             var lo = _min + new Vector3(cx, cy, cz) * _cell;
             float outside = Vector3.Distance(p, Vector3.Clamp(p, lo, lo + new Vector3(_cell)));
-            int best = -1;
+            int best = -1, bestCell = -1;
             float bestD2 = float.MaxValue;
             bary = default;
             int rings = Math.Max(_nx, Math.Max(_ny, _nz));
@@ -563,25 +566,37 @@ public sealed class SkinSurface
                 }
                 for (int z = cz - r; z <= cz + r; z++)
                     for (int y = cy - r; y <= cy + r; y++)
-                        for (int x = cx - r; x <= cx + r; x++)
+                        // Только оболочка кольца: не на грани по y, z — лишь крайние x.
+                        for (int x = cx - r, dx = Math.Abs(y - cy) == r || Math.Abs(z - cz) == r ? 1 : Math.Max(1, 2 * r); x <= cx + r; x += dx)
                         {
-                            if (Math.Max(Math.Abs(x - cx), Math.Max(Math.Abs(y - cy), Math.Abs(z - cz))) != r) continue;
                             if ((uint)x >= (uint)_nx || (uint)y >= (uint)_ny || (uint)z >= (uint)_nz) continue;
                             int cell = (z * _ny + y) * _nx + x;
-                            for (int i = _start[cell]; i < _start[cell + 1]; i++)
-                            {
-                                int t = _items[i];
-                                var a = s._bindPos[s._tri[3 * t]];
-                                var b = s._bindPos[s._tri[3 * t + 1]];
-                                var c = s._bindPos[s._tri[3 * t + 2]];
-                                var w = ClosestBary(p, a, b, c);
-                                float d2 = Vector3.DistanceSquared(p, w.X * a + w.Y * b + w.Z * c);
-                                if (d2 < bestD2 || d2 == bestD2 && t < best) (bestD2, best, bary) = (d2, t, w);
-                            }
+                            int end = coarse ? Math.Min(_start[cell] + 1, _start[cell + 1]) : _start[cell + 1];
+                            if (Scan(s, p, _start[cell], end, ref best, ref bestD2, ref bary)) bestCell = cell;
                         }
             }
+            if (coarse && bestCell >= 0) Scan(s, p, _start[bestCell], _start[bestCell + 1], ref best, ref bestD2, ref bary);
             distance = best >= 0 ? MathF.Sqrt(bestD2) : float.MaxValue;
             return best;
+        }
+
+        /// <summary>Треугольники ячейки с <paramref name="first"/> до <paramref name="end"/>: ближе лучшего — лучший; true — сменился.</summary>
+        private bool Scan(SkinSurface s, Vector3 p, int first, int end, ref int best, ref float bestD2, ref Vector3 bary)
+        {
+            bool found = false;
+            for (int i = first; i < end; i++)
+            {
+                int t = _items[i];
+                var a = s._bindPos[s._tri[3 * t]];
+                var b = s._bindPos[s._tri[3 * t + 1]];
+                var c = s._bindPos[s._tri[3 * t + 2]];
+                var w = ClosestBary(p, a, b, c);
+                float d2 = Vector3.DistanceSquared(p, w.X * a + w.Y * b + w.Z * c);
+                if (!(d2 < bestD2 || d2 == bestD2 && t < best)) continue;
+                (bestD2, best, bary) = (d2, t, w);
+                found = true;
+            }
+            return found;
         }
     }
 }

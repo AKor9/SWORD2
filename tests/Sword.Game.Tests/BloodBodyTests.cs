@@ -145,6 +145,27 @@ public sealed class BloodBodyTests(ITestOutputHelper output)
     private const float Dt = 1f / 60;
 
     [Fact]
+    public void NearestCoarse_WithinOneCell_OfExact()
+    {
+        var surface = new SkinSurface(Sphere(0.3f, 96, 48));
+        var rng = new Random(7);
+        float worst = 0;
+        for (int k = 0; k < 400; k++)
+        {
+            var d = Vector3.Normalize(new Vector3(rng.NextSingle() - 0.5f, rng.NextSingle() - 0.5f, rng.NextSingle() - 0.5f));
+            var p = d * (0.3f + 0.1f * rng.NextSingle() - 0.02f);
+            int exact = surface.Nearest(BodySegs.Torso, p, out _, out float de);
+            int coarse = surface.Nearest(BodySegs.Torso, p, out var bary, out float dc, coarse: true);
+            Assert.True(exact >= 0 && coarse >= 0);
+            Assert.InRange(bary.X + bary.Y + bary.Z, 0.999f, 1.001f);
+            Assert.True(dc >= de - 1e-6f);
+            worst = MathF.Max(worst, dc - de);
+        }
+        output.WriteLine($"грубо дальше точного не больше {worst * 100:F2} см");
+        Assert.True(worst <= SkinSurface.GridCell * MathF.Sqrt(3), $"{worst}");
+    }
+
+    [Fact]
     public void Drip_OnVerticalWall_FlowsDown_AtViscousTerminalSpeed()
     {
         var (drips, surface, poses, tuning) = Setup(Wall(seam: false));
