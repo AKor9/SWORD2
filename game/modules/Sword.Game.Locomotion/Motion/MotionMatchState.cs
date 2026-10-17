@@ -84,6 +84,9 @@ public struct MotionMatchState
     /// <summary>Поворотов на месте (клипов поворота) с постройки.</summary>
     public int Turns;
 
+    /// <summary>Фиксация опорных стоп (<see cref="FootLock"/>; пишет <c>locomotion.mm-feet</c>); с нуля — стопы как в анимации.</summary>
+    public FootLockState Feet;
+
     /// <summary>Новое состояние: проигрывателя нет, первый шаг — с нуля.</summary>
     public static MotionMatchState Fresh => new()
     {

@@ -111,7 +111,6 @@ public sealed class UiInputSourceTests
     {
         Assert.Equal(CursorShape.Arrow, UiInputSource.Cursor(UiCursor.Arrow));
         Assert.Equal(CursorShape.IBeam, UiInputSource.Cursor(UiCursor.IBeam));
-        Assert.Equal(CursorShape.Hand, UiInputSource.Cursor(UiCursor.Hand));
         Assert.Equal(CursorShape.SizeWE, UiInputSource.Cursor(UiCursor.SizeWE));
         Assert.Equal(CursorShape.SizeNS, UiInputSource.Cursor(UiCursor.SizeNS));
         Assert.Equal(CursorShape.SizeAll, UiInputSource.Cursor(UiCursor.SizeAll));

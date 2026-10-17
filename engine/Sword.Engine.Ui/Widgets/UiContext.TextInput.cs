@@ -180,11 +180,9 @@ public sealed partial class UiContext
         bool changed = false;
         if (st.Editing && !editing)
         {
-            if (edit.LastExit != UiEditExit.Cancel
-                && float.TryParse(st.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed)
-                && float.IsFinite(parsed))
+            if (edit.LastExit != UiEditExit.Cancel && TryParseNumber(st.Text, out double number) && float.IsFinite((float)number))
             {
-                parsed = Math.Clamp(parsed, min, max);
+                float parsed = Math.Clamp((float)number, min, max);
                 changed = parsed != value;
                 value = parsed;
             }
@@ -192,5 +190,13 @@ public sealed partial class UiContext
         }
         st.Editing = editing;
         return changed;
+    }
+
+    /// <summary>Число, набранное человеком: десятичный разделитель — точка или запятая, не конечное — не число.</summary>
+    public static bool TryParseNumber(ReadOnlySpan<char> text, out double value)
+    {
+        Span<char> dot = text.Length <= 64 ? stackalloc char[text.Length] : new char[text.Length];
+        text.Replace(dot, ',', '.');
+        return double.TryParse(dot, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
     }
 }

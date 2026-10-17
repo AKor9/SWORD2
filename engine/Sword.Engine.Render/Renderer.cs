@@ -22,6 +22,9 @@ public sealed class RenderFrame
     /// <summary>Точечные источники этого кадра (<see cref="PointLights"/>): добавляет тот, кто строит кадр; SRV буфера — для констант кадра.</summary>
     public PointLights Lights => _renderer.Lights;
 
+    /// <summary>Скинированные меши этого кадра (<see cref="SkinnedMeshes"/>): экземпляры, скиннинг кадра, чтение его буфера проходами.</summary>
+    public SkinnedMeshes Skinned => _renderer.Skinned;
+
     /// <summary>Тени от солнца этого кадра (<see cref="SunShadow"/>): карта, матрица, проход заслоняющих.</summary>
     public SunShadow Shadow => _renderer.Shadow;
 
@@ -72,6 +75,9 @@ public sealed record FrameCapture(string? ColorPath, string? DepthPath = null)
 
     /// <summary>Карта цели ½ прозрачного (PNG ½ экрана) и сырая цель рядом (<c>.bin</c>); null — не снимать.</summary>
     public string? TransparentPath { get; init; }
+
+    /// <summary>Скорости сцены (<see cref="SceneTargets.Velocity"/>) сырыми: half x, y на пиксель, строки сверху вниз (<c>.bin</c>); null — не снимать.</summary>
+    public string? VelocityPath { get; init; }
 }
 
 /// <summary>Итог снимка: размер кадра, файлы, диапазон глубины (reversed-Z: больше — ближе) и доля пикселей с геометрией.</summary>
@@ -538,6 +544,7 @@ public sealed class Renderer : IDisposable
 
             profiler.Begin(_zones.Build);
             build(_frame);
+            Skinned.Flush();
             Lights.Flush();
             HalfRes.EndFrame();
             profiler.End(_zones.Build);
@@ -562,12 +569,15 @@ public sealed class Renderer : IDisposable
             throw;
         }
 
-        Vortice.Direct3D12.ID3D12Resource? readback = null, depthReadback = null, hdrReadback = null, bloomReadback = null, halfReadback = null;
+        Vortice.Direct3D12.ID3D12Resource? readback = null, depthReadback = null, hdrReadback = null, bloomReadback = null, halfReadback = null,
+            velocityReadback = null;
         var notes = capture is null ? null : new List<string>();   // обычный кадр — без выделений
         try
         {
             int w = 0, h = 0, pitch = 0, dw = 0, dh = 0, dpitch = 0, hw = 0, hh = 0, hpitch = 0, bw = 0, bh = 0, bpitch = 0, tw = 0, th = 0,
-                tpitch = 0;
+                tpitch = 0, vw = 0, vh = 0, vpitch = 0;
+            if (capture?.VelocityPath is not null)
+                velocityReadback = Screenshot.RecordTextureCapture(Device, list, Scene.VelocityResource, out vw, out vh, out vpitch);
             if (capture?.DepthPath is not null)
                 depthReadback = Screenshot.RecordDepthCapture(Device, list, Scene.DepthResource, out dw, out dh, out dpitch);
             if (capture?.ColorPath is not null) readback = Screenshot.RecordCapture(Device, list, out w, out h, out pitch);
@@ -609,6 +619,12 @@ public sealed class Renderer : IDisposable
                         current = capture.DepthPath!;
                         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
                         depth = Screenshot.SaveDepth(depthReadback, current, dw, dh, dpitch);
+                    }
+                    if (velocityReadback is not null)
+                    {
+                        current = capture.VelocityPath!;
+                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(current))!);
+                        Screenshot.SaveRaw(velocityReadback, current, vw, vh, vpitch, 4);
                     }
                     HdrCapture? hdr = null;
                     if (hdrReadback is not null)
@@ -676,6 +692,7 @@ public sealed class Renderer : IDisposable
             if (hdrReadback is not null) Device.DeferRelease(hdrReadback);
             if (bloomReadback is not null) Device.DeferRelease(bloomReadback);
             if (halfReadback is not null) Device.DeferRelease(halfReadback);
+            if (velocityReadback is not null) Device.DeferRelease(velocityReadback);
         }
         Device.DrainDebugMessages();
     }

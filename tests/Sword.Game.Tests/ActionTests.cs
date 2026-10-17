@@ -174,6 +174,57 @@ public sealed class ActionTests
         Clean(striking);
     }
 
+    /// <summary>
+    /// Удар всем телом (слой <c>full</c> в actions.json — особый приём) на бегу: тело целиком у клипа, ход гаснет по весу слоя (выпад
+    /// ведёт root motion клипа, а не бег под ним), локомоция под ударом не ищет кадр и начинает искать, когда удар уходит; после
+    /// удара — снова прежний бег. Удар слоем верха бег не трогает.
+    /// </summary>
+    [Fact]
+    public void PlayerFullBodyAttack_RunFadesByWeight_LocomotionSearchesWhileLeaving_RunBack()
+    {
+        var assets = CharacterAssets.Load(TestAssets.Content("""{ "stab1.layer": "full", "stab2.layer": "full", "stab3.layer": "full" }"""));
+        var sim = SwordSimulation.Create(ConfigSet.Empty(), assets);
+        var player = GameCore.Player(sim.World);
+        var run = new PlayerCommand { Move = new Vector2(0, 1), HasGaze = true, Gaze = new Vector3(0, 0, 50) };
+        Step(sim, 120, run);
+        float speed = sim.World.Get<RootVelocity>(player).Value.Length();
+        Assert.True(speed > 3, $"не разбежался: {speed} м/с");
+        Step(sim, 1, run with { Stab = true });
+        float slowest = float.MaxValue;
+        bool searchedUnder = false, leftSearching = false;
+        int ticks = 0;
+        for (; sim.World.Get<AnimatorAction>(player).Kind == ActionKind.Attack && ticks < 600; ticks++)
+        {
+            var a = sim.World.Get<AnimatorAction>(player);
+            Assert.False(a.Upper);
+            Assert.Equal(1, a.Stand);
+            Assert.Equal(1 - ActionLayer.Smooth(a.Weight), ActionLayer.MoveScale(a, agile: true));
+            bool search = sim.World.Get<AnimatorMotion>(player).Search;
+            if (a.Weight >= 1) slowest = MathF.Min(slowest, sim.World.Get<RootVelocity>(player).Value.Length());
+            if (a.Leaving) leftSearching |= search;
+            else searchedUnder |= search && ticks > 0;
+            Step(sim, 1, run);
+        }
+        Assert.InRange(ticks, 30, 599);
+        Assert.True(slowest < 0.1f * speed, $"под ударом всем телом бег не погас: {slowest} м/с из {speed}");
+        Assert.False(searchedUnder, "локомоция искала кадр под ударом всем телом");
+        Assert.True(leftSearching, "локомоция не искала кадр, пока удар уходил");
+        Step(sim, 60, run);
+        Assert.Equal(speed, sim.World.Get<RootVelocity>(player).Value.Length(), 0.05f);
+        Clean(sim);
+
+        // тот же укол слоем верха — бег как был
+        var upper = SwordSimulation.Create(ConfigSet.Empty(), CharacterAssets.Load(TestAssets.Content("""{ "stab1.layer": "upper", "stab2.layer": "upper", "stab3.layer": "upper" }""")));
+        var p = GameCore.Player(upper.World);
+        Step(upper, 120, run);
+        Step(upper, 1, run with { Stab = true });
+        for (int t = 0; t < 60; t++)
+        {
+            Assert.Equal(speed, upper.World.Get<RootVelocity>(p).Value.Length(), 3);
+            Step(upper, 1, run);
+        }
+    }
+
     // ── рывок ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>

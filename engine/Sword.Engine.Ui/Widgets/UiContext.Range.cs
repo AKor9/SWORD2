@@ -20,23 +20,15 @@ public sealed partial class UiContext
     {
         uint id = Id(label);
         var st = State<DragState>(id);
-        bool hovered = IsHovered(bar) && (ActiveId == 0 || ActiveId == id);
         float mouse = vertical ? Input.Mouse.X : Input.Mouse.Y;
-        if (hovered && Input.Pressed(0))
-        {
-            ActiveId = id;
-            st.Grab = mouse - position;
-        }
+        bool dragging = Drag(bar, id, out bool hovered, out bool started);
+        if (started) st.Grab = mouse - position;
         bool changed = false;
-        if (ActiveId == id)
+        if (dragging)
         {
-            if (Input.Down(0))
-            {
-                float p = Math.Clamp(mouse - st.Grab, min, MathF.Max(min, max));
-                changed = p != position;
-                position = p;
-            }
-            else ActiveId = 0;
+            float p = Math.Clamp(mouse - st.Grab, min, MathF.Max(min, max));
+            changed = p != position;
+            position = p;
         }
         if (hovered || ActiveId == id)
         {
@@ -61,30 +53,25 @@ public sealed partial class UiContext
         log &= min > 0 && max > min;   // на лог. шкале с min ≤ 0 выходил NaN — тогда линейная
         float knob = S(12), x0 = r.X0 + knob * 0.5f, x1 = r.X1 - knob * 0.5f, span = MathF.Max(1, x1 - x0);
 
-        bool hovered = IsHovered(r) && (ActiveId == 0 || ActiveId == id);
-        if (hovered && Input.Pressed(0))
+        bool dragging = Drag(r, id, out bool hovered, out bool started);
+        if (started)
         {
-            ActiveId = id;
             // схватили за ручку — тянуть от точки захвата, а не прыгать центром ручки под курсор
             float kx0 = x0 + span * SliderT(value, min, max, log);
             st.Grab = MathF.Abs(Input.Mouse.X - kx0) <= knob * 0.5f ? Input.Mouse.X - kx0 : 0;
         }
         bool changed = false;
-        if (ActiveId == id)
+        if (dragging)
         {
-            if (Input.Down(0) || Input.Pressed(0))
+            float t = Math.Clamp((Input.Mouse.X - st.Grab - x0) / span, 0, 1);
+            float current = SliderT(value, min, max, log);
+            if (MathF.Abs(t - current) * span >= 0.5f)   // мышь не сдвинулась — значение не трогать
             {
-                float t = Math.Clamp((Input.Mouse.X - st.Grab - x0) / span, 0, 1);
-                float current = SliderT(value, min, max, log);
-                if (MathF.Abs(t - current) * span >= 0.5f)   // мышь не сдвинулась — значение не трогать
-                {
-                    float v = log ? min * MathF.Pow(max / min, t) : min + (max - min) * t;
-                    v = Math.Clamp(v, MathF.Min(min, max), MathF.Max(min, max));   // Pow на краю даёт 2.0000002
-                    changed = v != value;
-                    value = v;
-                }
+                float v = log ? min * MathF.Pow(max / min, t) : min + (max - min) * t;
+                v = Math.Clamp(v, MathF.Min(min, max), MathF.Max(min, max));   // Pow на краю даёт 2.0000002
+                changed = v != value;
+                value = v;
             }
-            else ActiveId = 0;
         }
         float kx = x0 + span * SliderT(value, min, max, log), cy = r.Centre.Y, th = S(2);
         Draw.Rect(x0, cy - th, x1, cy + th, Theme.Field, th);

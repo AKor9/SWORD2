@@ -1,4 +1,3 @@
-using System.Globalization;
 using Sword.Engine.Client;
 using Sword.Engine.Diagnostics;
 using Sword.Engine.Ui;
@@ -18,42 +17,6 @@ public readonly record struct HudData(FrameStats Frame, int DrawCalls, int UiQua
 /// </summary>
 public readonly record struct CombatHud(float PlayerHp, bool PlayerDead, int AliveEnemies, int Enemies, int Kills, int Hits,
     int LastPart, float LastDamage, string? Weapon = null, bool InventoryOpen = false);
-
-/// <summary>Строка на стеке: форматирование без выделений в кадре.</summary>
-public ref struct Line
-{
-    private readonly Span<char> _buf;
-    private int _n;
-
-    public Line(Span<char> buf)
-    {
-        _buf = buf;
-        _n = 0;
-    }
-
-    public Line S(ReadOnlySpan<char> s)
-    {
-        s.CopyTo(_buf[_n..]);
-        _n += s.Length;
-        return this;
-    }
-
-    public Line F(double v, string fmt = "F1")
-    {
-        v.TryFormat(_buf[_n..], out int w, fmt, CultureInfo.InvariantCulture);
-        _n += w;
-        return this;
-    }
-
-    public Line I(long v)
-    {
-        v.TryFormat(_buf[_n..], out int w, default, CultureInfo.InvariantCulture);
-        _n += w;
-        return this;
-    }
-
-    public readonly ReadOnlySpan<char> Text => _buf[.._n];
-}
 
 /// <summary>
 /// HUD арены: слева вверху — панель производительности (FPS цветом по порогам 59/45, полоса бюджета 60 Гц — CPU + GPU,
@@ -80,6 +43,9 @@ public sealed class Hud
 
     private const float PerfW = 340, PerfPad = 14, RowH = 19, TitleH = 22, CellW = (PerfW - 2 * PerfPad - 16) / 2;
 
+    /// <summary>Доля ячейки под метку: самая длинная метка («попаданий») влезает, значение — в остаток.</summary>
+    private const float CellSplit = 0.6f;
+
     /// <summary>Справка (F1).</summary>
     public bool ShowHelp { get; set; } = true;
 
@@ -87,7 +53,7 @@ public sealed class Hud
     public bool ShowProfiler { get; set; }
 
     /// <summary>Масштаб интерфейса по высоте окна: <c>clamp(h / 1080, 0,75, 2) · UserScale</c>.</summary>
-    public static float Scale(int h) => Math.Clamp(h / 1080f, 0.75f, 2f) * UserScale;
+    public static float Scale(int h) => ClientPanels.DefaultScale(h) * UserScale;
 
     /// <summary>FPS цветом: от 59 — хорошо, от 45 — акцент, ниже — плохо.</summary>
     public static uint FpsColour(double fps) => fps >= 59 ? Good : fps >= 45 ? Accent : Bad;
@@ -178,8 +144,8 @@ public sealed class Hud
     private static float Section(UiDrawList d, float s, float x, float y, string title)
     {
         y += 6 * s;
-        float tw = d.Text(UiFace.Label, 11 * s, new(x, y), Dim, title);
-        d.Rect(x + tw + 8 * s, y + 7 * s, (PerfW - PerfPad) * s, y + 8 * s, RuleC);
+        float fs = 11 * s;
+        d.SectionHeader(new UiRect(x, y, (PerfW - PerfPad) * s, y + d.LineHeight(UiFace.Label, fs)), title, fs, Dim, RuleC, 8 * s, 1 * s);
         return y + (TitleH - 6) * s;
     }
 
@@ -187,8 +153,7 @@ public sealed class Hud
     private static void Cell(UiDrawList d, float s, float x, float y, int col, string label, ReadOnlySpan<char> value, uint colour)
     {
         float cx = x + col * (CellW + 16) * s;
-        d.Text(UiFace.Body, 13 * s, new(cx, y + 1 * s), Dim, label);
-        d.TextRight(UiFace.Num, 14 * s, new(cx + CellW * s, y), colour, value);
+        d.InfoRow(new UiRect(cx, y, cx + CellW * s, y + RowH * s), label, 13 * s, Dim, value, 14 * s, colour, CellSplit, 8 * s);
     }
 
     /// <summary>Строка секции профайлера — ниже обычной.</summary>
@@ -268,7 +233,7 @@ public sealed class Hud
     /// </summary>
     private static float DrawProfiler(UiDrawList d, float s, float x, float y, float right, Span<char> buf, ProfileDigest? digest)
     {
-        float rh = RowH * ProfilerRowScale * s, width = right - x;
+        float rh = RowH * ProfilerRowScale * s;
         y = Section(d, s, x, y, "ПРОФАЙЛЕР, мс");
         if (digest is not { Ready: true })
         {
@@ -281,13 +246,8 @@ public sealed class Hud
             double frame = Math.Max(digest.FrameMs, 1e-6);
             for (int i = 0; i < digest.Count; i++)
             {
-                double ms = digest.Ms(i);
-                float bar = (float)Math.Min(ms / frame, 1) * width;
-                d.Rect(x, y + 13 * s, right, y + 14.5f * s, T.TrackFaint, 1 * s);
-                d.Rect(x, y + 13 * s, x + bar, y + 14.5f * s, UiDrawList.WithAlpha(Accent, 0.8f), 1 * s);
-                float vw = d.TextRight(UiFace.Num, 12 * s, new(right, y), TextC, new Line(buf).F(ms, "F3").Text);
                 string name = digest.Zone(i) == CpuProfiler.FrameZone ? FrameSelfName : digest.Name(i);
-                d.TextFit(UiFace.Num, 12 * s, new(x, y), Dim, name, width - vw - 8 * s);
+                ProfilerRow(d, s, x, y, right, 0, buf, digest.Ms(i), frame, Accent, name);
                 y += rh;
             }
             if (GpuRows(digest) > 0)
@@ -299,17 +259,26 @@ public sealed class Hud
                 y += rh;
                 for (int i = 0; i < digest.GpuCount; i++)
                 {
-                    double ms = digest.GpuMs(i);
-                    float bar = (float)Math.Min(ms / gpuFrame, 1) * width;
-                    d.Rect(x, y + 13 * s, right, y + 14.5f * s, T.TrackFaint, 1 * s);
-                    d.Rect(x, y + 13 * s, x + bar, y + 14.5f * s, UiDrawList.WithAlpha(GpuC, 0.8f), 1 * s);
-                    float vw = d.TextRight(UiFace.Num, 12 * s, new(right, y), TextC, new Line(buf).F(ms, "F3").Text);
-                    d.TextFit(UiFace.Num, 12 * s, new(x + 10 * s, y), Dim, digest.GpuName(i), width - vw - 18 * s);
+                    ProfilerRow(d, s, x, y, right, 10, buf, digest.GpuMs(i), gpuFrame, GpuC, digest.GpuName(i));
                     y += rh;
                 }
             }
         }
         return y;
+    }
+
+    /// <summary>
+    /// Строка F2: имя (отступ <paramref name="indent"/>, длинное — с «…»), справа мс на кадр, под ними — полоса доли
+    /// <paramref name="ms"/> от <paramref name="total"/> цветом <paramref name="colour"/>.
+    /// </summary>
+    private static void ProfilerRow(UiDrawList d, float s, float x, float y, float right, float indent, Span<char> buf, double ms,
+        double total, uint colour, ReadOnlySpan<char> name)
+    {
+        float bar = (float)Math.Min(ms / total, 1) * (right - x);
+        d.Rect(x, y + 13 * s, right, y + 14.5f * s, T.TrackFaint, 1 * s);
+        d.Rect(x, y + 13 * s, x + bar, y + 14.5f * s, UiDrawList.WithAlpha(colour, 0.8f), 1 * s);
+        float vw = d.TextRight(UiFace.Num, 12 * s, new(right, y), TextC, new Line(buf).F(ms, "F3").Text);
+        d.TextFit(UiFace.Num, 12 * s, new(x + indent * s, y), Dim, name, right - x - vw - (8 + indent) * s);
     }
 
     /// <summary>Строк проходов GPU в F2: строка «GPU кадр» и проходы; времён GPU нет — ни одной.</summary>

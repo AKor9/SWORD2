@@ -52,19 +52,16 @@ public static class RagdollTuning
 
     /// <summary>«3, в покое 2, спят 1» — трупов кадра, из них в покое и спящих; трупов нет — «0».</summary>
     public static int Corpses(Span<char> d, in CorpseFrameStats s) =>
-        s.Corpses == 0 ? Length(new Line(d).S("0").Text)
-            : Length(new Line(d).I(s.Corpses).S(", в покое ").I(s.AtRest).S(", спят ").I(s.Asleep).Text);
+        s.Corpses == 0 ? new Line(d).S("0").Length
+            : new Line(d).I(s.Corpses).S(", в покое ").I(s.AtRest).S(", спят ").I(s.Asleep).Length;
 
     /// <summary>«42, на земле 17» — тел трупов на физике и из них на земле; нет — «0».</summary>
     public static int Bodies(Span<char> d, in CorpseFrameStats s) =>
-        s.SimulatedBodies == 0 ? Length(new Line(d).S("0").Text)
-            : Length(new Line(d).I(s.SimulatedBodies).S(", на земле ").I(s.GroundedBodies).Text);
+        s.SimulatedBodies == 0 ? new Line(d).S("0").Length
+            : new Line(d).I(s.SimulatedBodies).S(", на земле ").I(s.GroundedBodies).Length;
 
     /// <summary>«0.42 м/с, 1.3 рад/с» — наибольшие скорость и вращение тела трупа на физике; тел на физике нет — «—».</summary>
     public static int Fastest(Span<char> d, in CorpseFrameStats s) =>
-        s.SimulatedBodies == 0 ? Length(new Line(d).S("—").Text)
-            : Length(new Line(d).F(s.MaxSpeed, "F2").S(" м/с, ").F(s.MaxAngularSpeed, "F1").S(" рад/с").Text);
-
-    /// <summary>Строка уже на месте (<see cref="Line"/> пишет в тот же буфер) — её длина.</summary>
-    private static int Length(ReadOnlySpan<char> text) => text.Length;
+        s.SimulatedBodies == 0 ? new Line(d).S("—").Length
+            : new Line(d).F(s.MaxSpeed, "F2").S(" м/с, ").F(s.MaxAngularSpeed, "F1").S(" рад/с").Length;
 }

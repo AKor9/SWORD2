@@ -58,6 +58,42 @@ public static class AnimMath
         return Quaternion.CreateFromAxisAngle(v / angle, angle);
     }
 
+    /// <summary>
+    /// Кубический сплайн Катмулла — Рома между ключами <paramref name="b"/> (t = 0) и <paramref name="c"/> (t = 1) с соседями
+    /// <paramref name="a"/> и <paramref name="d"/>: проходит через ключи, скорость на стыке отрезков непрерывна (у линейного сэмпла
+    /// клипа 30 кадров/с она скачет на каждом ключе — рывок быстрых движений на 120 Гц).
+    /// </summary>
+    public static Vector3 CatmullRom(Vector3 a, Vector3 b, Vector3 c, Vector3 d, float t)
+    {
+        float t2 = t * t, t3 = t2 * t;
+        return 0.5f * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+    }
+
+    /// <inheritdoc cref="CatmullRom(Vector3, Vector3, Vector3, Vector3, float)"/>
+    public static float CatmullRom(float a, float b, float c, float d, float t)
+    {
+        float t2 = t * t, t3 = t2 * t;
+        return 0.5f * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+    }
+
+    /// <summary>
+    /// Поворот сплайном Катмулла — Рома по компонентам: соседи — на полусфере ключа <paramref name="b"/> по цепочке, итог
+    /// нормирован. Между близкими ключами (кадры клипа) — то же, что сплайн по дуге, и дешевле <c>Slerp</c>.
+    /// </summary>
+    public static Quaternion CatmullRom(Quaternion a, Quaternion b, Quaternion c, Quaternion d, float t)
+    {
+        if (Quaternion.Dot(a, b) < 0) a = Quaternion.Negate(a);
+        if (Quaternion.Dot(b, c) < 0) c = Quaternion.Negate(c);
+        if (Quaternion.Dot(c, d) < 0) d = Quaternion.Negate(d);
+        float t2 = t * t, t3 = t2 * t;
+        float wa = 0.5f * (-t + 2 * t2 - t3), wb = 0.5f * (2 - 5 * t2 + 3 * t3), wc = 0.5f * (t + 4 * t2 - 3 * t3), wd = 0.5f * (t3 - t2);
+        return Quaternion.Normalize(new Quaternion(
+            wa * a.X + wb * b.X + wc * c.X + wd * d.X,
+            wa * a.Y + wb * b.Y + wc * c.Y + wd * d.Y,
+            wa * a.Z + wb * b.Z + wc * c.Z + wd * d.Z,
+            wa * a.W + wb * b.W + wc * c.W + wd * d.W));
+    }
+
     /// <summary>Коэффициент затухания критически демпфированной пружины по полупериоду, 1/с.</summary>
     public static float HalflifeToDamping(float halflife) => 4f * MathF.Log(2f) / (halflife + 1e-5f);
 

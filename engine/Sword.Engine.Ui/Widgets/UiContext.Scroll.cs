@@ -47,11 +47,7 @@ public sealed partial class UiContext
         uint id = Id(label);
         var st = State<ScrollState>(id);
         float max = MathF.Max(0, contentHeight - view.Height);
-        if (Input.Wheel != 0 && IsHovered(view))
-        {
-            st.Offset -= Input.Wheel * S(Theme.RowHeight) * 3;
-            Input.Wheel = 0;
-        }
+        st.Offset -= TakeWheel(view) * S(Theme.RowHeight) * 3;
         st.Offset = Math.Clamp(st.Offset, 0, max);
         _scrolls.Push((id, view, contentHeight, st));
         Draw.PushClip(view);
@@ -72,21 +68,13 @@ public sealed partial class UiContext
         float thumbH = MathF.Min(track.Height, MathF.Max(S(24), track.Height * view.Height / content));
         float travel = MathF.Max(1, track.Height - thumbH);
         uint thumbId = id ^ 0x5CB0115u;
-        bool hovered = IsHovered(track) && (ActiveId == 0 || ActiveId == thumbId);
         float ty = track.Y0 + travel * st.Offset / max;
-        if (hovered && Input.Pressed(0))
+        bool dragging = Drag(track, thumbId, out bool hovered, out bool started);
+        if (started) st.Grab = Input.Mouse.Y >= ty && Input.Mouse.Y < ty + thumbH ? Input.Mouse.Y - ty : thumbH * 0.5f;
+        if (dragging)
         {
-            ActiveId = thumbId;
-            st.Grab = Input.Mouse.Y >= ty && Input.Mouse.Y < ty + thumbH ? Input.Mouse.Y - ty : thumbH * 0.5f;
-        }
-        if (ActiveId == thumbId)
-        {
-            if (Input.Down(0) || Input.Pressed(0))
-            {
-                st.Offset = Math.Clamp((Input.Mouse.Y - st.Grab - track.Y0) / travel * max, 0, max);
-                ty = track.Y0 + travel * st.Offset / max;
-            }
-            else ActiveId = 0;
+            st.Offset = Math.Clamp((Input.Mouse.Y - st.Grab - track.Y0) / travel * max, 0, max);
+            ty = track.Y0 + travel * st.Offset / max;
         }
         uint colour = ActiveId == thumbId ? Theme.ScrollbarActive : hovered ? Theme.ScrollbarHot : Theme.Scrollbar;
         Draw.Rect(track.X0, ty, track.X1, ty + thumbH, colour, bw * 0.5f);
@@ -136,8 +124,14 @@ public sealed partial class UiContext
         bool hovered = IsHovered(r) && (ActiveId == 0 || ActiveId == id);
         bool pressed = hovered && Input.Pressed(0);
         if (pressed) ActiveId = id;
+        RowBackground(r, selected, hovered);
+        return pressed;
+    }
+
+    /// <summary>Подложка строки списка или меню: выбранная — <see cref="UiTheme.RowSelected"/>, под мышью — <see cref="UiTheme.RowHover"/>.</summary>
+    private void RowBackground(UiRect r, bool selected, bool hovered)
+    {
         if (selected) Draw.Rect(r, Theme.RowSelected, S(3));
         else if (hovered) Draw.Rect(r, Theme.RowHover, S(3));
-        return pressed;
     }
 }

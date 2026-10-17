@@ -90,7 +90,7 @@
 s = поле(uv); ρ = clamp(s.b, 0, 1); vel = −clamp(s.rg, ±5)·0.5; ph = frac(3t); uvF = 4·(uv + WorldOffset)
 n = lerp(crumple((uvF + (ph − 0.5)·vel + 1)/2), crumple((uvF + (frac(ph + 0.5) − 0.5)·vel + 1)/2), |2ph − 1|)
 emis = max(Color2 + 20·n³·ρ⁶·(Color1 − Color2), 0)    Color1 (10, 0.5, 0), Color2 (0.0573, 0.0403, 0.038)
-α = saturate(ρ·sin(πu)·sin(πv)·DepthFade(10 см));  f = saturate((d − 25)/140);  вклад = (emis·(1 − f) + туман·f)·α, α
+α = saturate(ρ·sin(πu)·sin(πv)·DepthFade(10 см));  f = SceneFog.Factor(глаз, точка);  вклад = (emis·(1 − f) + туман·f)·α, α
 ```
 
 - **Шум** `effects/fire/crumple.swtex` (`T_Crumple_MultiLevel_Inv`, канал r, RGBA8 sRGB — выборка отдаёт линейное, как sRGB-текстура L2),

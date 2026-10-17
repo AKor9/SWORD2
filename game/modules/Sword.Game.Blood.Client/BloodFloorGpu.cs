@@ -23,6 +23,7 @@ public struct BloodFloorConstants
     public uint Normal, Terrain, TerrainCells; public float TerrainHalf;
     public uint HasField, HasMap, HasTerrain; public float F0;
     public float Drag, Stretch, DropThickMm, Pad0;
+    public float FogDensity, FogFalloff, Pad1, Pad2;
 }
 
 /// <summary>Летящая капля для шейдера: отрыв (точка, скорость), время полёта в кадре, с, радиус, м.</summary>
@@ -243,6 +244,8 @@ public sealed class BloodFloorGpu : IGpuSimulation
             FogStart = fog.Start,
             FogRange = fog.Range,
             FogColour = fog.Colour,
+            FogDensity = fog.HeightDensity,
+            FogFalloff = fog.HeightFalloff,
             Now = _now,
             WindowMin = window,
             CosMax = MathF.Cos(t.FloorMaxSlope * MathF.PI / 180),

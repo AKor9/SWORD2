@@ -198,9 +198,9 @@ public sealed class DebugDraw : IDisposable
             var c = Vector4.Transform(new Vector4(world, 1), viewProj);
             if (c.W <= 1e-4f) continue;
             float x = (c.X / c.W * 0.5f + 0.5f) * w, y = (0.5f - c.Y / c.W * 0.5f) * h;
-            float half = _textList.Measure(UiFace.Body, size, text) * 0.5f + size * 0.3f;
-            _textList.Rect(x - half, y - size * 0.7f, x + half, y + size * 0.7f, 0xA0000000, size * 0.3f);   // подложка
-            _textList.TextCentered(UiFace.Body, size, new Vector2(x, y - size * 0.5f), colour, text);
+            var box = _textList.TextBoxSize(UiFace.Body, size, text, new Vector2(size * 0.3f, size * 0.1f)) * 0.5f;
+            _textList.TextBox(new UiRect(x - box.X, y - box.Y, x + box.X, y + box.Y), UiFace.Body, size, colour, text,
+                UiTheme.Default.DebugTextBackdrop, size * 0.3f, size * 0.3f);
         }
         ui.Add(frame, _textList, name, target, FramePhase.Debug);
     }

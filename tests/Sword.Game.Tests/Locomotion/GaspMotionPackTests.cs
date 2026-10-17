@@ -60,12 +60,18 @@ public sealed class GaspMotionPackTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void DefaultSelection_Takes440_WithoutCircleStrafe()
+    public void DefaultSelection_Takes410_WithoutCircleStrafeAndRunStarts()
     {
         var selection = GaspMotion.Select(Library);
         Assert.Equal(444, selection.SourceClips);
-        Assert.Equal(440, selection.Count);
+        Assert.Equal(410, selection.Count);   // без 4 Circle_Strafe, 18 Run_Start, 10 Run_Reface_Start, 2 Transition_Walk_to_Run
         foreach (var name in selection.Names) Assert.NotEqual(GaspKind.CircleStrafe, name.Kind);
+        foreach (int c in selection.Clips)
+        {
+            string n = Library.Clips[c].ShortName;
+            Assert.False(n.Contains("Run_Start") || n.Contains("Run_Reface_Start") || n.Contains("Transition_Walk_to_Run"), n);
+        }
+        Assert.Contains(selection.Clips.ToArray(), c => Library.Clips[c].ShortName.Contains("Walk_Start"));
         Assert.Equal(444, GaspMotion.Select(Library, "").Count);
         var clips = selection.Clips;
         for (int i = 1; i < clips.Length; i++) Assert.True(clips[i] > clips[i - 1]);
@@ -95,7 +101,7 @@ public sealed class GaspMotionPackTests(ITestOutputHelper output)
 
         Assert.Equal(db.Fingerprint, again.Database.Fingerprint);
         Assert.Equal(db.Fingerprint, reversed.Fingerprint);
-        Assert.Equal(440, s.Clips);
+        Assert.Equal(410, s.Clips);
         Assert.Equal(db.Clips.ToArray().Sum(c => c.Count), s.Frames);
         Assert.True(s.Searchable > s.Frames / 2, $"искомых {s.Searchable} из {s.Frames}");
         int nonLoops = db.Clips.ToArray().Count(c => !c.Loop);

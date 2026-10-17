@@ -81,8 +81,8 @@ public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
         var attacks = strikes.Attacks;
         for (int i = 0; i < m.Length; i++)
         {
-            // локомоция ищет кадр, пока действие не ведёт всё тело (FullBodyAction до шага действия)
-            AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt, !a[i].FullBody);
+            // локомоция ищет кадр, пока действие не ведёт всё тело или уже уходит (до шага действия)
+            AnimatorRules.Step(ref m[i], AnimatorRules.DirToLocal(v[i].Value, t[i].Facing), dt, !a[i].FullBody || a[i].Leaving);
             float speed = new Vector2(m[i].Velocity.X, m[i].Velocity.Z).Length();   // сглаженная скорость для слоя верха
             ActionLayer.Tick(ref a[i], m[i].Moving, speed, dt, clips, attacks, agile);
         }
@@ -153,6 +153,17 @@ public sealed class AnimationTickSystem : IContinuousSystem
 }
 
 /// <summary>
+/// Movement, после <c>core.root-collision</c>: второй проход очереди пула того же тика (<see cref="PosePool.Pass"/>) — задания по
+/// окончательному корню (IK ног); очередь пуста — ничего.
+/// </summary>
+public sealed class PosePostTickSystem : IContinuousSystem
+{
+    public void Setup(SystemSetup s) => s.Label(GameLabels.PosePostTick).After(GameLabels.RootCollision);
+
+    public void Run(in SystemContext ctx) => ctx.World.Resource<PosePool>().Pass();
+}
+
+/// <summary>
 /// Gameplay, реактивная по <c>Added&lt;Fighter&gt;</c>: бойцу, построенному командами тика, — поза в пуле, взятая здесь, когда он
 /// уже в мире (поза, взятая командой, не вернулась бы, если бы команда не сыграла). У бойца со своей живой позой — ничего.
 /// </summary>
@@ -211,6 +222,12 @@ public sealed class AnimationView(PosePool pool) : IAnimationView
     {
         var h = new PoseHandle(pose.Index, pose.Generation);
         return pool.IsAlive(h) ? pool.Model(h) : default;
+    }
+
+    public ReadOnlySpan<Matrix4x4> PreviousModel(PoseRef pose)
+    {
+        var h = new PoseHandle(pose.Index, pose.Generation);
+        return pool.IsAlive(h) && pool.HasPreviousModel(h) ? pool.PreviousModel(h) : default;
     }
 
     public ReadOnlySpan<Matrix4x4> ReferenceModel() => pool.ReferenceModel;

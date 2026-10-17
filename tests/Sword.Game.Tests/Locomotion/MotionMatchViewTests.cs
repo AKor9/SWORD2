@@ -53,7 +53,7 @@ public sealed class MotionMatchViewTests(ITestOutputHelper output)
     }
 
     /// <summary>Сценарии замеров: команда игрока на тик (12 с каждый).</summary>
-    private static readonly (string Name, Func<int, PlayerCommand> Command)[] Scenarios =
+    internal static readonly (string Name, Func<int, PlayerCommand> Command)[] Scenarios =
     [
         ("бег по кругу 8 направлений", Circle),
         ("зигзаг бегом (0,4 с)", t => new PlayerCommand { Move = new Vector2(t / 48 % 2 == 0 ? 1 : -1, 1), HasGaze = true, Gaze = new Vector3(0, 0, 200) }),
@@ -413,7 +413,7 @@ public sealed class MotionMatchViewTests(ITestOutputHelper output)
     // ── F3 ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Вкладка F3 «Локомоция»: 22 ручки по порядку регистрации, строки состояния по виду пишут текст на стек без выделений; при
+    /// Вкладка F3 «Локомоция»: 25 ручек по порядку регистрации, строки состояния по виду пишут текст на стек без выделений; при
     /// <c>clips</c> вкладки нет.
     /// </summary>
     [Fact]
@@ -429,7 +429,7 @@ public sealed class MotionMatchViewTests(ITestOutputHelper output)
         Assert.Equal(["MOTION MATCHING ИГРОКА", "ПОИСК, ПЕРЕХОД, ВЕСА ГРУПП, РУКА, ПОВОРОТ"], group.Items.OfType<TuningHeader>().Select(h => h.Label));
         Assert.Equal(sim.Tuning.Where(k => k.Section == LocomotionKnobs.Section).Select(k => k.Key),
             group.Items.OfType<TuningFloat>().Select(f => f.Key));   // порядок регистрации: поиск и переход, веса, вес руки, поворот
-        Assert.Equal(22, group.Items.OfType<TuningFloat>().Count());
+        Assert.Equal(26, group.Items.OfType<TuningFloat>().Count());
         var rows = group.Items.OfType<TuningInfo>().ToList();
         Assert.Equal(["клип", "поиск", "время поиска", "переходов/с", "поворот на месте"], rows.Select(r => r.Label));
         long bytes = 0;

@@ -41,12 +41,4 @@ public sealed partial class UiContext
         Label(new UiRect(x, row.Y0, row.X1 - S(4), row.Y1), text, textColour ?? (selected ? Theme.Text : Theme.TextDim));
         return !leaf && st.Open;
     }
-
-    /// <summary>Свернуть или развернуть узел дерева программно.</summary>
-    public void SetTreeOpen(ReadOnlySpan<char> label, bool open)
-    {
-        var st = State<TreeState>(Id(label));
-        st.Open = open;
-        st.Known = true;
-    }
 }

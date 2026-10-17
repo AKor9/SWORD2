@@ -171,7 +171,10 @@ public sealed partial class PosePool
         DecayPositions(db.MovingJoints, p.PosOffset, p.PosOffsetVelocity, y, e, dt);
     }
 
-    /// <summary>Выход проигрывателя: кадр с долей (только внутри клипа), повороты — смещение · кадр, позиции движущихся суставов — кадр + смещение.</summary>
+    /// <summary>
+    /// Выход проигрывателя: кадр с долей (только внутри клипа; сплайн по соседним кадрам клипа, как <see cref="ClipLibrary.Sample"/>),
+    /// повороты — смещение · кадр, позиции движущихся суставов — кадр + смещение.
+    /// </summary>
     private static void SamplePlayer(MotionDatabase db, MotionPlayers.Slot p, int frame, float alpha, Span<Quaternion> rot, Span<Vector3> pos)
     {
         FramePose(db, frame, out var r0, out var p0);
@@ -179,10 +182,22 @@ public sealed partial class PosePool
         if (next >= 0)
         {
             FramePose(db, next, out var r1, out var p1);
-            SampleBetween(r0, p0, r1, p1, alpha, p.RotOffset, rot, pos);
+            FramePose(db, InClipPrevious(db, frame), out var ra, out var pa);
+            int after = InClipNext(db, next);
+            FramePose(db, after >= 0 ? after : next, out var rd, out var pd);
+            ClipLibrary.SampleKeys(ra, r0, r1, rd, pa, p0, p1, pd, alpha, rot, pos);
+            ApplyOffsets(p.RotOffset, rot);
         }
         else SampleAt(r0, p0, p.RotOffset, rot, pos);
         AddPositionOffsets(db.MovingJoints, p.PosOffset, pos);
+    }
+
+    /// <summary>Прошлый кадр клипа: у начала цикла — предпоследний (последний кадр цикла = первый), у начала клипа — сам кадр.</summary>
+    private static int InClipPrevious(MotionDatabase db, int frame)
+    {
+        var clip = db.Clips[db.ClipOf[frame]];
+        if (frame > clip.Start) return frame - 1;
+        return clip.Loop && clip.Count > 2 ? clip.End - 2 : frame;
     }
 
     /// <summary>Кадр входа, которым «становится» кадр выхода (цепочка — с предохранителем); не выход — сам кадр.</summary>
@@ -210,15 +225,12 @@ public sealed partial class PosePool
 
     // Циклы по суставам — свои методы (правило OSR): задание зовётся каждый тик.
 
-    private static void SampleBetween(ReadOnlySpan<Quaternion> r0, ReadOnlySpan<Vector3> p0, ReadOnlySpan<Quaternion> r1,
-        ReadOnlySpan<Vector3> p1, float alpha, ReadOnlySpan<Quaternion> offset, Span<Quaternion> rot, Span<Vector3> pos)
+    private static void ApplyOffsets(ReadOnlySpan<Quaternion> offset, Span<Quaternion> rot)
     {
         for (int j = 0; j < rot.Length; j++)
         {
-            var q = Quaternion.Slerp(r0[j], r1[j], alpha);
             var o = offset[j];
-            rot[j] = o == Quaternion.Identity ? q : Quaternion.Normalize(o * q);
-            pos[j] = Vector3.Lerp(p0[j], p1[j], alpha);
+            if (o != Quaternion.Identity) rot[j] = Quaternion.Normalize(o * rot[j]);
         }
     }
 

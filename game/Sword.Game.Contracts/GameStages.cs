@@ -78,6 +78,12 @@ public static class GameLabels
     public static readonly SystemLabel RootCollision = new("core.root-collision");
 
     /// <summary>
+    /// Movement, после <see cref="RootCollision"/>: второй проход очереди пула поз — задания по окончательному корню тика (IK ног
+    /// модуля) ставятся до этой метки, после <see cref="RootCollision"/>.
+    /// </summary>
+    public static readonly SystemLabel PosePostTick = new("core.pose-post-tick");
+
+    /// <summary>
     /// Gameplay, до <see cref="RootSteer"/>: построенному бойцу — форма тела и постановка капсул без скорости по позе
     /// постройки.
     /// </summary>

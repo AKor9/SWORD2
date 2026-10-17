@@ -20,6 +20,7 @@ SWORD 2eab13b: `Sword.Anim` (`AnimLibrary`, `SkeletalClips`, `AnimMath`) — в 
 | `Locomotion.Tick` (`LegacyLocomotion`) | модуль Locomotion, стадия Animation |
 | `TickActions` без действия: `clips.ToComponent` | `AnimatorPoseSystem` (Animation, `core.animator-pose`) — задание прямой кинематики |
 | — | `AnimationTickSystem` (Animation, `core.animation-tick`): пул исполняет задания пачкой |
+| — | `PosePostTickSystem` (Movement, `core.pose-post-tick`, после `core.root-collision`): второй проход очереди пула того же тика — задания по окончательному корню (IK ног фиксации стоп игрока на MM); пустая очередь — ничего |
 | `KinematicBegin`: `Root += RootVel·dt` | `RootControlSystem` (Movement), дальше `RootCollisionSystem` |
 | `CharacterRig`: слоты, клипы по умолчанию, `combat/actions.json` | `Game.Data.ActionSlots`, `ActionTable` |
 | `CharacterRig.TryLoad`: меш, клипы скелета `ue5_manny` | `CharacterAssets.Load` (скелет, поза привязки из меша, клипы, таблица действий) |

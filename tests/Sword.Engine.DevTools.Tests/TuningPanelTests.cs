@@ -1,32 +1,11 @@
 using System.Numerics;
 using Sword.Engine.Client;
-using Sword.Engine.Content;
 using Sword.Engine.Diagnostics;
-using Sword.Engine.Formats;
 using Sword.Engine.Platform;
 using Sword.Engine.Ui;
+using Sword.Tests;
 
 namespace Sword.Engine.DevTools.Tests;
-
-/// <summary>Шрифты пака контента на все тесты класса: чтение и склейка — один раз.</summary>
-public sealed class PakFonts : IDisposable
-{
-    public PakFonts()
-    {
-        using var pak = ContentLocator.Open();
-        var files = pak.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension)
-            .Select(f =>
-            {
-                using var s = pak.OpenRead(f);
-                return UiFontFile.Read(s, pak.Describe(f));
-            }).ToList();
-        Fonts = new UiFonts(files);
-    }
-
-    public UiFonts Fonts { get; }
-
-    public void Dispose() => Fonts.Dispose();
-}
 
 /// <summary>Настройки-заглушка группы: значения, которые панель читает и пишет делегатами.</summary>
 internal sealed class Knobs

@@ -3,6 +3,7 @@
 // element gFlameIndex (FireFlame.cs; CPU reference - FlameMath). Field output RGBA16F: (v.xy, rho, wet).
 #include "common/pass.hlsli"
 #include "common/gbuffer.hlsli"
+#include "common/fog.hlsli"
 
 struct FlameConstants
 {
@@ -17,7 +18,7 @@ struct FlameConstants
     float velocityClamp; float flowTile; float densityGain; float noisePower;
     float densityPower; float edgeMask; float2 viewDepth;   // viewDepth - k of SceneViewDepth
     uint field; uint noise; uint noiseLayer; uint sceneDepth;
-    float glowCut; float3 pad;               // glowCut - k of the full alpha (0 - off)
+    float glowCut; float fogDensity; float fogFalloff; float pad;   // glowCut - k of the full alpha (0 - off); height fog
 };
 _Static_assert(sizeof(FlameConstants) == FIRE_FLAME_CONSTANTS_SIZE, "FlameConstants differs from C# FlameConstants");
 
@@ -80,8 +81,8 @@ float4 FlameShade(FlameVs i)
     float glow = c.glowCut > 0.0 ? saturate(k / c.glowCut) : 1.0;
     float alpha = saturate(rho * edge * fade) * glow;
 
-    // Scene fog, linear by distance as Shade: lerp(emis, fog, f).
-    float fog = saturate((distance(i.world, c.eye) - c.fogStart) / c.fogRange);
+    // Scene fog as Shade (linear by distance and height fog): lerp(emis, fog, f).
+    float fog = FogFactor(c.eye, i.world, c.fogStart, c.fogRange, c.fogDensity, c.fogFalloff);
     float3 colour = emis * (1.0 - fog) + c.fogColour * fog;
     return float4(colour * alpha, alpha);
 }

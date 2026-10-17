@@ -100,8 +100,14 @@ public struct AnimatorAction
     public float FromTime;
     public int FromAttack;
 
-    /// <summary>Действие ведёт всё тело: локомоция под ним не ищет новый кадр.</summary>
+    /// <summary>Действие ведёт всё тело: локомоция под ним не ищет новый кадр (кроме ухода — <see cref="Leaving"/>).</summary>
     public readonly bool FullBody => Kind != ActionKind.None && !Upper;
+
+    /// <summary>
+    /// Действие уходит (вес гаснет к концу клипа или хвост обрезан): локомоция под ним уже ищет кадр, чтобы слой уходил в позу
+    /// нынешнего хода. Вид рывка гаснет вместе с прибавкой — не уходит.
+    /// </summary>
+    public readonly bool Leaving => Kind is not (ActionKind.None or ActionKind.Dash) && (CutRecovery || Time >= Duration - ActionRules.ActionOut);
 
     /// <summary>Курс ведёт клип поворота — боец стоит; пошёл — курс снова доворачивает контроллер.</summary>
     public readonly bool TurnDrivesYaw(bool moving) => Kind == ActionKind.Turn && !moving;
@@ -365,10 +371,11 @@ public static class ActionLayer
         : a.Kind == ActionKind.Attack ? Striking(a, attacks) ? ActionRules.StrikeTurnScale : 1 : 1;
 
     /// <summary>
-    /// Доля желаемой скорости хода: у игрока — 1 всегда; у врага удар — 0,35, реакция — 0,15, остальное — 1.
+    /// Доля желаемой скорости хода: у игрока — 1, в ударе всем телом — 1 − вес слоя (ход ведёт root motion клипа — выпад, а не
+    /// бег под ним); у врага удар — 0,35, реакция — 0,15, остальное — 1.
     /// </summary>
     public static float MoveScale(in AnimatorAction a, bool agile) =>
-        agile ? 1 : a.Kind switch
+        agile ? a.Kind == ActionKind.Attack && !a.Upper ? 1 - Smooth(a.Weight) : 1 : a.Kind switch
         {
             ActionKind.Attack => ActionRules.AttackMoveScale,
             ActionKind.HitReact => ActionRules.HitReactMoveScale,

@@ -202,9 +202,12 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
     [Fact]
     public void Walking_TwistReturnsToZero()
     {
-        const int Go = 360;
-        var walk = Circle(Go - 1, 60, 400) with { Move = new Vector2(0, 1) };   // взгляд — где остановился, ход вперёд
-        var run = Run(t => t < Go ? Circle(t, 60, 400) : walk, 600);
+        // Ход — с первого тика после 3 с, где корпус скручен заметно (шаги поворота сбрасывают скручивание — момент зависит от порога).
+        var probe = Run(t => Circle(t, 60, 600), 600);
+        int Go = probe.FindIndex(360, x => MathF.Abs(x.S.Twist) > 20 * Deg && x.S.TurnClip < 0) + 1;
+        Assert.True(Go > 360, "корпус так и не скрутился");
+        var walk = Circle(Go - 1, 60, 600) with { Move = new Vector2(0, 1) };   // взгляд — где остановился, ход вперёд
+        var run = Run(t => t < Go ? Circle(t, 60, 600) : walk, Go + 240);
         var start = run[Go];
         Assert.True(MathF.Abs(run[Go - 1].S.Twist) > 10 * Deg, $"к началу хода δ {D(run[Go - 1].S.Twist)}° — сценарий не скрутил корпус");
         int zero = run.FindIndex(Go, x => x.S.Twist == 0);
@@ -215,7 +218,10 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
         Assert.Equal(-1, start.S.TurnClip);
     }
 
-    /// <summary>Рука с мечом при скручивании: кисть и клинок относительно груди — у стойки оружия, как без скручивания.</summary>
+    /// <summary>
+    /// Рука с мечом при скручивании: кисть и клинок относительно груди — у стойки оружия, как без скручивания (плечевой пояс — добавкой
+    /// поверх клипа MM: дыхание стойки и рука клипа поворота сдвигают кисть на сантиметры; хват — тест руки с мечом).
+    /// </summary>
     [Fact]
     public void SwordArm_HoldsStance_WhileTwisted()
     {
@@ -235,7 +241,6 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
         pool.ToModel(h);
         pool.Tick();
         var stance = HandInChest(pool.Model(h));
-        var tip = Assets.Weapons.Weapons[Assets.Weapons.Default].BladeTip;
         int twisted = 0;
         for (int tick = 0; tick < 480; tick++)
         {
@@ -246,9 +251,8 @@ public sealed class TurnInPlaceTests(ITestOutputHelper output)
             if (tick < 150 || MathF.Abs(s.Twist) < 5 * Deg) continue;
             twisted++;
             var hand = HandInChest(view.Model(world.Get<PoseRef>(player)));
-            float off = MathF.Max(Vector3.Distance(hand.Translation, stance.Translation),
-                Vector3.Distance(Vector3.Transform(tip, hand), Vector3.Transform(tip, stance)));
-            Assert.True(off < 1e-3f, $"тик {tick + 1}, δ {D(s.Twist)}°: кисть от стойки {off} м");
+            float off = Vector3.Distance(hand.Translation, stance.Translation);
+            Assert.True(off < 0.08f, $"тик {tick + 1}, δ {D(s.Twist)}°: кисть от стойки {off} м");
         }
         Assert.True(twisted > 60, $"тиков со скручиванием {twisted}");
         Clean(sim);

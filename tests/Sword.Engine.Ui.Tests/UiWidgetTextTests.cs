@@ -1,29 +1,9 @@
 using System.Globalization;
 using System.Numerics;
 using Sword.Engine.Content;
-using Sword.Engine.Formats;
+using Sword.Tests;
 
 namespace Sword.Engine.Ui.Tests;
-
-/// <summary>Шрифты пака контента на все тесты класса: чтение и склейка — один раз.</summary>
-public sealed class PakFonts : IDisposable
-{
-    public PakFonts()
-    {
-        using var pak = ContentLocator.Open();
-        var files = pak.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension)
-            .Select(f =>
-            {
-                using var s = pak.OpenRead(f);
-                return UiFontFile.Read(s, pak.Describe(f));
-            }).ToList();
-        Fonts = new UiFonts(files);
-    }
-
-    public UiFonts Fonts { get; }
-
-    public void Dispose() => Fonts.Dispose();
-}
 
 /// <summary>
 /// Виджеты с текстом на шрифтах пака: поле ввода, числовое поле, подсказка, кадр панели без выделений. Категория Content:
@@ -226,6 +206,23 @@ public sealed class UiWidgetTextTests(PakFonts pak) : IClassFixture<PakFonts>
         Assert.InRange(rightmost, 190, 202);   // значение кончается у правого края (кайма — пиксель)
     }
 
+    [Fact]
+    public void TextBox_FillFirst_TextLastInsideBox_LongTextEllipsized()
+    {
+        var list = new UiDrawList(pak.Fonts);
+        var size = list.TextBoxSize(UiFace.Body, 14, "подсказка", new Vector2(6, 4));
+        var box = UiRect.FromSize(20, 30, size.X * 0.5f, size.Y);   // вдвое уже текста
+        list.TextBox(box, UiFace.Body, 14, 0xffffffff, "подсказка", 0x80000000, 6, 3);
+        var quads = list.Quads;
+        Assert.Equal(0x80000000u, quads[0].ColourA);
+        Assert.Equal(UiMode.Text, quads[^1].Mode);
+        foreach (ref readonly var q in quads[1..])
+        {
+            Assert.InRange(q.Centre.X, box.X0 + 6, box.X1 - 6);   // текст — в поле подложки
+            Assert.InRange(q.Centre.Y, box.Y0, box.Y1);
+        }
+    }
+
     // ── кадр без выделений ─────────────────────────────────────────────
 
     [Fact]
@@ -266,7 +263,6 @@ public sealed class UiWidgetTextTests(PakFonts pak) : IClassFixture<PakFonts>
             ui.TreeNode(new UiRect(10, 284, 350, 304), "node", "Скелет", 0, leaf: false, selected: false, out _, dot: t.Good);
             ui.ProgressBar(new UiRect(10, 308, 350, 318), 0.4f, "40%");
             ui.Tooltip(new UiRect(10, 322, 350, 342), "подсказка строки");
-            ui.OpenCombo("combo");
             ui.Combo(new UiRect(10, 346, 200, 370), "combo", ref combo, items);
         }
 
@@ -277,6 +273,8 @@ public sealed class UiWidgetTextTests(PakFonts pak) : IClassFixture<PakFonts>
         d.Ui.FocusId = d.Ui.Id("name");
         for (int i = 0; i < 10; i++) d.Move(30 + i, 60).Frame(frame);
         d.Release(40, 60).Frame(frame);
+        d.Click(100, 358, frame);                // раскрыть список
+        d.Ui.FocusId = d.Ui.Id("name");
         for (int i = 0; i < 40; i++) d.Move(300, 330).Frame(frame);   // подсказка показана хотя бы раз
         Assert.Equal(UiMode.Text, d.Ui.Output.Quads[^1].Mode);
         d.Press(20, 60).Frame(frame);
@@ -286,6 +284,8 @@ public sealed class UiWidgetTextTests(PakFonts pak) : IClassFixture<PakFonts>
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 60; i++) d.Move(30 + i * 3, 60).Frame(frame);
         d.Release(210, 60).Frame(frame);
+        d.Click(100, 358, frame);                // нажатие на ползунок закрыло список — раскрыть снова
+        d.Ui.FocusId = d.Ui.Id("name");
         for (int i = 0; i < 60; i++) d.Move(300, 330).Frame(frame);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
@@ -293,5 +293,8 @@ public sealed class UiWidgetTextTests(PakFonts pak) : IClassFixture<PakFonts>
         Assert.NotEqual(speedBefore, speed);
         Assert.True(d.Ui.WantsKeyboard);
         Assert.Equal(UiMode.Text, d.Ui.Output.Quads[^1].Mode);   // подсказка — последней
+        bool popup = false;
+        foreach (ref readonly var q in d.Ui.Output.Quads) popup |= q.ColourA == d.Ui.Theme.Shadow;   // тень — только у всплывающего окна
+        Assert.True(popup);   // список раскрыт и в замере
     }
 }

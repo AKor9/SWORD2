@@ -659,7 +659,7 @@ internal sealed class FireSmoke : IDisposable
                 Bx = (uint)bx, By = (uint)by, Bz = (uint)bz, Bricks = (uint)g.SrvOf(bricks),
                 Sun = sun, Albedo = p.Albedo,
                 Ambient = ambient, UnitsPerMetre = p.UnitsPerMetre,
-                FogColour = view.Fog.Colour, Fog = view.Fog.Factor(Vector3.Distance(w.Center, view.Eye)),
+                FogColour = view.Fog.Colour, Fog = view.Fog.Factor(view.Eye, w.Center),
                 DensityMult = p.DensityMult, DensityPow = p.DensityPow, DensityCut = p.DensityCut, AmbientMult = p.AmbientMult,
                 AmbientPow = p.AmbientPow, AmbientAoPow = p.AmbientAoPow, InvWidth = 1f / frame.Width, InvHeight = 1f / frame.Height,
                 ViewDepth = half.ViewDepth, SceneDepth = (uint)half.DepthSrv, Bounds = (uint)g.SrvOf(bounds),

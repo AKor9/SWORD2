@@ -23,15 +23,15 @@ public readonly record struct MeshSection(int Start, int Count, string Material)
 /// <summary>
 /// Меш персонажа или оружия (.swmesh): вершины в пространстве персонажа (+Z вперёд, +X влево, Y вверх, метры), суставы —
 /// имена, родители, обратные bind-матрицы (вектор слева). Статический меш — ноль суставов. Формат читает и эталонный пак:
-/// «SWMS», версия, счётчики, вершины, индексы, суставы, секции (с версии 2), «SMWS».
+/// «SWMS», версия, счётчики, вершины, индексы, суставы, секции (с версии 2), индексы меша теней (с версии 3), «SMWS».
 /// </summary>
 public sealed class SkinnedMeshData
 {
     public static ReadOnlySpan<byte> Magic => "SWMS"u8;
     private static ReadOnlySpan<byte> EndMagic => "SMWS"u8;
 
-    /// <summary>2 — с секциями материалов; 1 читается (без секций).</summary>
-    public const ushort Version = 2;
+    /// <summary>3 — с индексами меша теней; 2 (без них) и 1 (без секций) читаются.</summary>
+    public const ushort Version = 3;
 
     /// <summary>Пределы, за которыми файл считается испорченным, а не большим.</summary>
     public const int MaxVertices = 4_000_000, MaxIndices = 12_000_000, MaxJoints = 1024, MaxSections = 1024;
@@ -40,19 +40,24 @@ public sealed class SkinnedMeshData
     /// <summary>Секции по материалам подряд по индексам; пусто — весь меш одним материалом.</summary>
     public MeshSection[] Sections = [];
     public uint[] Indices = [];
+    /// <summary>Меш теней — прореженный по тем же вершинам (треугольники, индексы <see cref="Vertices"/>); пусто — нет.</summary>
+    public uint[] ShadowIndices = [];
     public string[] JointNames = [];
     public int[] JointParents = [];
     public Matrix4x4[] InverseBind = [];
     public int JointCount => JointNames.Length;
 
-    /// <summary>Записать в поток (текущая версия формата). Поток остаётся открытым.</summary>
+    /// <summary>
+    /// Записать в поток: с мешем теней — версия 3, без него — 2 (байты прежних мешей не меняются). Поток остаётся открытым.
+    /// </summary>
     public void Write(Stream stream)
     {
         if (JointParents.Length != JointCount || InverseBind.Length != JointCount)
             throw new InvalidOperationException($"суставов {JointCount}, родителей {JointParents.Length}, матриц {InverseBind.Length}");
         using var w = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+        ushort version = ShadowIndices.Length > 0 ? Version : (ushort)2;
         w.Write(Magic);
-        w.Write(Version);
+        w.Write(version);
         w.Write(Vertices.Length);
         w.Write(Indices.Length);
         w.Write(JointCount);
@@ -70,6 +75,11 @@ public sealed class SkinnedMeshData
             w.Write(s.Start);
             w.Write(s.Count);
             w.Write(s.Material);
+        }
+        if (version >= 3)
+        {
+            w.Write(ShadowIndices.Length);
+            w.Write(MemoryMarshal.AsBytes(ShadowIndices.AsSpan()));
         }
         w.Write(EndMagic);
     }
@@ -129,11 +139,20 @@ public sealed class SkinnedMeshData
                 m.Sections[s] = sec;
             }
         }
+        if (version >= 3)
+        {
+            int sic = Checked(r.ReadInt32(), 0, MaxIndices, "индексов меша теней", name);
+            if (sic % 3 != 0) throw new InvalidDataException($"{name}: индексов меша теней {sic} — не кратно 3");
+            m.ShadowIndices = new uint[sic];
+            stream.ReadExactly(MemoryMarshal.AsBytes(m.ShadowIndices.AsSpan()));
+        }
         stream.ReadExactly(magic);
         if (!magic.SequenceEqual(EndMagic)) throw new InvalidDataException($"{name}: нет конца файла «SMWS» — файл испорчен");
 
         foreach (uint i in m.Indices)
             if (i >= vc) throw new InvalidDataException($"{name}: индекс {i} за пределами {vc} вершин");
+        foreach (uint i in m.ShadowIndices)
+            if (i >= vc) throw new InvalidDataException($"{name}: индекс меша теней {i} за пределами {vc} вершин");
         if (jc > 0)
             foreach (var v in m.Vertices)
                 if ((v.Joints & 0xFF) >= jc || (v.Joints >> 8 & 0xFF) >= jc || (v.Joints >> 16 & 0xFF) >= jc || (v.Joints >> 24) >= jc)

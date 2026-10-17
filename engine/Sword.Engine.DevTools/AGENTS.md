@@ -44,7 +44,8 @@ SWORD 2eab13b (`Modules/Tools/Tuning/TuningPanel.cs`).
 действиями игры; в бенче панелей нет), масштаб панелей — масштаб HUD (`ClientPanels.Scale = Hud.Scale`); `ConnectDevTools` (после создания
 `ClientHost`: клиент игры завёл группы в `Initialize`) — вкладки `ArenaClient.TuningGroups` («Бой»), `Save`/`Load` — `TuningBinding.Save`/
 `Load` в `sword.user.json` рядом с `sword.json` (`UserConfig.PathFrom`), `Top` — нижний край панели производительности HUD
-(`ArenaClient.HudBottom`). Последняя вкладка — «Графика» (`GraphicsTuning`: vsync — `ClientHost.Vsync`, то же, что V; SMAA — `Renderer.Smaa`; тени — `Renderer.Shadow` и `Renderer.Lights.Shadows`; GTAO — `Renderer.Ao`; автоэкспозиция — `Renderer.AutoExposure`; TAA — `Renderer.Taa`; постобработка — `Renderer.Post`; материалы — `ArenaClient.AddGraphicsTuning`; не сохраняются). Строки группы «Бой» — ручки симуляции через `Engine.Client/TuningBinding`: `Get` — ожидающее значение, пока тик
+(`ArenaClient.HudBottom`). Последняя вкладка — «Графика» (`GraphicsTuning`: vsync — `ClientHost.Vsync`, то же, что V; строки рендера и материалов добавляет игра —
+`ArenaClient.AddGraphicsTuning` → `RenderTuning`: рендер DevTools не видит, матрица раздела 4; не сохраняются). Строки группы «Бой» — ручки симуляции через `Engine.Client/TuningBinding`: `Get` — ожидающее значение, пока тик
 команды не сыгран (решение 6е: на паузе ползунок не отскакивает), иначе мир; `Set` — команда ручки на ближайший тик; «сброс»
 (`TuningGroup.ResetAll`) — командами к значениям в коде.
 

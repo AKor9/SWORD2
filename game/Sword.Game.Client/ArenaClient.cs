@@ -108,7 +108,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     private static readonly GraphicsPipelineDesc GroundPre = new(SceneShader, "VsGround", "PsGroundPre", Depth: DepthMode.TestWrite);
     private static readonly GraphicsPipelineDesc TerrainPre = new(SceneShader, "VsTerrain", "PsGroundPre", Depth: DepthMode.TestWrite);
     private static readonly GraphicsPipelineDesc PillarPre = new(SceneShader, "VsPillar", "PsPillarPre", Depth: DepthMode.TestWrite);
-    private static readonly GraphicsPipelineDesc SkinPre = new(SceneShader, "VsSkin", "PsSkinPre", Depth: DepthMode.TestWrite);
+    private static readonly GraphicsPipelineDesc SkinPre = new(SceneShader, "VsSkinPre", "PsSkinPre", Depth: DepthMode.TestWrite);
 
     /// <summary>Фон окружения, когда он не цвет очистки (ночь): экранный треугольник на дальней глубине — только пустые пиксели.</summary>
     private static readonly GraphicsPipelineDesc Background = new(SceneShader, "VsBackground", "PsBackground", Depth: DepthMode.Test);
@@ -381,8 +381,18 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// <summary>Окружение сцены следующего кадра (<see cref="Night"/>).</summary>
     public SceneEnvironment Environment => Night ? SceneEnvironment.Night : SceneEnvironment.Day;
 
-    /// <summary>Туман сцены следующего кадра — для прозрачного клиентских модулей (пламя): цвет окружения, начало и длина как у <c>Shade</c>.</summary>
-    public SceneFog Fog => new(Environment.Fog, SceneEnvironment.FogStart, SceneEnvironment.FogRange);
+    /// <summary>
+    /// Туман сцены следующего кадра — для прозрачного клиентских модулей (пламя, дым, кровь): цвет и высотный туман окружения, начало и
+    /// длина как у <c>Shade</c>.
+    /// </summary>
+    public SceneFog Fog
+    {
+        get
+        {
+            var env = Environment;
+            return new(env.Fog, SceneEnvironment.FogStart, SceneEnvironment.FogRange, env.FogDensity, env.FogFalloff);
+        }
+    }
 
     /// <summary>
     /// Солнце и небо следующего кадра — для объёмов и бликов клиентских модулей (дым, кровь): солнце окружения, небо вертикальной поверхности,
@@ -393,14 +403,38 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// <summary>Блики и металл материалов (<see cref="SceneMaterial"/>): выключены — только рассеянный свет; со следующего кадра.</summary>
     public bool Specular { get; set; } = true;
 
-    /// <summary>Строки ручек показа арены во вкладку «Графика» панели F3 (её строит DevTools над клиентом движка).</summary>
+    /// <summary>
+    /// Текстуры материалов (ткань бойцов, сталь клинков, плиты пола, камень колонн): выключены или нет в паке — гладкие цвета; со
+    /// следующего кадра.
+    /// </summary>
+    public bool MaterialTextures { get; set; } = true;
+
+    /// <summary>SRV «текстур материалов нет» в константах кадра.</summary>
+    public const uint SceneMaterialNone = uint.MaxValue;
+
+    /// <summary>
+    /// Повторов на метр: ткани и стали — позы привязки, плит и камня колонн — мира (в текстуре плит 6 × 6 плит — по плите на клетку пола
+    /// 2 м, швы совпадают с сеткой); сила нормалей текстур.
+    /// </summary>
+    public const float FabricTiling = 3.5f, SteelTiling = 2f, FloorTiling = 1 / 12f, PillarTiling = 0.35f, MaterialNormalStrength = 0.8f;
+
+    private GpuTexture? _materialAlbedo, _materialNormals, _materialRoughness;
+
+    /// <summary>
+    /// Строки ручек показа во вкладку «Графика» панели F3 (её строит DevTools над клиентом движка): рендер (<see cref="RenderTuning"/>)
+    /// и материалы арены. До <see cref="Initialize"/> — только материалы.
+    /// </summary>
     public void AddGraphicsTuning(TuningGroup group)
     {
         ArgumentNullException.ThrowIfNull(group);
+        if (_renderer is { } renderer) RenderTuning.Add(group, renderer);
         group.Header("МАТЕРИАЛЫ");
         group.Bool("specular", "блики и металл", () => Specular, v => Specular = v,
             "блик солнца GGX и отражение неба: сталь клинков — металл, тела и камень — с шероховатостью; выключено — только рассеянный свет",
             defaultValue: true);
+        group.Bool("materialTextures", "текстуры материалов", () => MaterialTextures, v => MaterialTextures = v,
+            "ткань костюма бойцов и шлифованная сталь клинков (ambientCG, CC0): рисунок, нормали и шероховатость, трипланар в позе привязки; " +
+            "оттенок бойца сохраняется", defaultValue: true);
     }
 
     /// <summary>Направление света солнца (от солнца к сцене, единичное) — <c>lightDir</c> констант кадра.</summary>
@@ -501,6 +535,14 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         c.Add("SCENE_MATERIAL_METAL", SceneMaterial.Metal, "бит металла материала (SceneMaterial)");
         c.Add("SCENE_MATERIAL_GROUND", SceneMaterial.Ground, "материал пола и рельефа");
         c.Add("SCENE_MATERIAL_PILLAR", SceneMaterial.Pillar, "материал колонн");
+        c.Add("SCENE_MATERIAL_TEXTURE_SHIFT", SceneMaterial.TextureShift, "сдвиг номера текстуры (слой + 1) в материале");
+        c.Add("SCENE_MATERIAL_NONE", SceneMaterialNone, "текстур материалов нет");
+        c.Add("SCENE_MATERIAL_FABRIC_TILING", FabricTiling, "повторов ткани на метр позы привязки");
+        c.Add("SCENE_MATERIAL_STEEL_TILING", SteelTiling, "повторов стали на метр");
+        c.Add("SCENE_MATERIAL_FLOOR_TILING", FloorTiling, "повторов плит пола на метр мира");
+        c.Add("SCENE_MATERIAL_PILLAR_TILING", PillarTiling, "повторов камня колонн на метр мира");
+        c.Add("SCENE_MATERIAL_TEXTURE_MASK", SceneMaterial.TextureMask, "маска номера текстуры после сдвига");
+        c.Add("SCENE_MATERIAL_NORMAL_STRENGTH", MaterialNormalStrength, "сила нормалей текстур материалов");
         c.AddSlot("R_TERRAIN", SlotTerrain, "высоты узлов рельефа (HeightField, по строкам z)");
         c.AddSlot("R_MESH", SlotMesh, "вершины единичной капсулы");
         c.AddSize<FrameConstants>("FRAME_CONSTANTS_SIZE");
@@ -517,9 +559,13 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         renderer.Taa.MotionBlur = true;
         renderer.Smaa = false;
         renderer.Shadow.Enabled = true;   // тени солнца; выключатель — там же
+        renderer.Shadow.ReceiverFloor = TerrainFloor;   // рельеф не ниже пола: дальнему каскаду не нужны заслоняющие, чью тень покрывает ближний
+        _sunCasterVisible = renderer.Shadow.CasterVisible;
+        _pointCasterVisible = renderer.Lights.ShadowCasterVisible;
         renderer.Ao.Enabled = true;   // затенение рассеянного света (GTAO); выключатель — там же
         renderer.AutoExposure.Enabled = true;   // автоэкспозиция; выключатель — там же
         renderer.Lights.Shadows = true;   // тени точечных источников с флагом (факел); выключатель — там же
+        LoadMaterialTextures(renderer);
         renderer.Post.Vignette = 0.3f;   // постобработка: углы чуть темнее, лёгкая резкость; ручки — там же
         renderer.Post.Sharpen = 0.3f;
         renderer.SceneColorClear = ClearColour;
@@ -722,17 +768,22 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// <summary>Матрица, которой рисуется сцена кадра: камера со сдвигом TAA (без TAA — камера); оверлеи и выбор мышью — без сдвига.</summary>
     private Matrix4x4 _frameViewProj = Matrix4x4.Identity;
 
+    /// <summary>Камера прошлого кадра без сдвига — скорости предпрохода; до первого кадра — нет.</summary>
+    private Matrix4x4? _prevViewProj;
+
     public void BuildFrame(RenderFrame frame)
     {
         _camera.Rebuild(frame.Width, frame.Height);   // кадр из перетаскивания рамки — без Input, со своим размером
         var taa = _renderer!.Taa;
         _frameViewProj = taa.Jitter(_camera.ViewProj, frame.Width, frame.Height);
-        taa.SetView(_camera.ViewProj, _frameViewProj);
+        // Скорости пишет предпроход: он есть при GTAO или TAA.
+        bool prepass = frame.Ao.Enabled || taa.Enabled;
+        taa.SetView(_camera.ViewProj, _frameViewProj, velocity: prepass);
         var environment = Environment;
         _drawBackground = environment.Background != new Vector3(ClearColour.X, ClearColour.Y, ClearColour.Z);
         // Карта теней — над видимой частью земли; матрица нужна константам кадра раньше проходов.
         var shadow = frame.Shadow;
-        var focus = ShadowFocus.Of(_camera.ViewProj);
+        var focus = ShadowFocus.Of(_camera.ViewProj, _camera.Target);
         shadow.Prepare(frame, SunLight, focus.NearCenter, focus.NearRadius, focus.FarCenter, focus.FarRadius);
         var ao = frame.Ao;
         ao.Prepare(frame);
@@ -757,20 +808,20 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
             {
                 // Части после разрезов: каждая — своей позой (кусок — по своему телу), меш один на всё тело бойца.
                 bool all = true;
-                foreach (var part in parts)
-                    all &= _renderer!.Skinned.AddPosed(part.Mesh, _view.PiecePose(fighter, part.Piece), Matrix4x4.Identity, colour, owner,
-                        flags: SceneMaterial.Body);
+                for (int p = 0; p < parts.Length; p++)
+                    all &= _renderer!.Skinned.AddPosed(parts[p].Mesh, _view.PiecePose(fighter, parts[p].Piece), Matrix4x4.Identity, colour, owner,
+                        flags: SceneMaterial.Body, motionKey: MotionKey(fighter.Entity, CutPartKey + p));
                 if (all) skinned++;
             }
             else if (pose.IsEmpty)
             {
-                var palette = _renderer!.Skinned.Add(_manny, colour, owner, flags: SceneMaterial.Body);
+                var palette = _renderer!.Skinned.Add(_manny, colour, owner, flags: SceneMaterial.Body, motionKey: MotionKey(fighter.Entity, 0));
                 palette.Fill(GpuMat34.From(fighter.World));
                 if (!palette.IsEmpty) skinned++;
             }
             // У трупа поза — уже мировые матрицы суставов (привязка × тело), мир экземпляра — единичный.
             else if (_renderer!.Skinned.AddPosed(_manny, pose, fighter.PoseInWorld ? Matrix4x4.Identity : fighter.World, colour, owner,
-                         flags: SceneMaterial.Body)) skinned++;
+                         flags: SceneMaterial.Body, motionKey: MotionKey(fighter.Entity, 0))) skinned++;
         }
         SkinnedFighters = skinned;
         // Мечи — после всех тел (SkinnedCharacters SWORD: меч — сразу за телом бойца; кончится место — пропадут мечи, а не бойцы).
@@ -778,29 +829,35 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         for (int i = 0; i < fighters.Count; i++)
         {
             var fighter = fighters[i];
-            if ((uint)fighter.Weapon < (uint)_weapons.Length && AddWeapon(_weapons[fighter.Weapon], fighter.WeaponWorld))
+            if ((uint)fighter.Weapon < (uint)_weapons.Length && AddWeapon(_weapons[fighter.Weapon], fighter.WeaponWorld, fighter.Entity))
                 armed++;
         }
         DrawnWeapons = armed;
         profiler.End(_zones.Skin);
+        // Скиннинг кадра — одним проходом до всех, кто рисует бойцов и мечи (тени, предпроход, сцена читают его буфер).
+        _renderer!.Skinned.Prepare(frame);
 
         if (shadow.Active) shadow.AddPass(frame, _drawShadow);
         frame.Lights.AddShadowPasses(frame, _drawPointShadow);
         RenderGraph.RenderPassBuilder opaque;
-        if (ao.Active)
+        if (prepass)
         {
-            // GTAO читает глубину и нормали до непрозрачного прохода: предпроход пишет их, непрозрачный — поверх тем же (без очистки).
-            frame.Graph.AddPass("scene.prepass")
+            // GTAO и TAA читают глубину, нормали и скорости до непрозрачного прохода: предпроход пишет их, непрозрачный — поверх тем же
+            // (без очистки).
+            var pre = frame.Graph.AddPass("scene.prepass")
                 .Color(frame.Scene.Normal, SceneTargets.NormalClear)
-                .Depth(frame.Scene.Depth, DepthAccess.Write, clear: 0f)
-                .Execute(_drawPrepass);
+                .Color(frame.Scene.Velocity, SceneTargets.VelocityClear)
+                .Depth(frame.Scene.Depth, DepthAccess.Write, clear: 0f);
+            frame.Skinned.ReadBy(pre);
+            pre.Execute(_drawPrepass);
             var view = _camera.View;
-            ao.AddPasses(frame, _frameViewProj, _camera.Eye, new Vector3(view.M11, view.M21, view.M31), new Vector3(view.M12, view.M22, view.M32));
+            if (ao.Active)
+                ao.AddPasses(frame, _frameViewProj, _camera.Eye, new Vector3(view.M11, view.M21, view.M31), new Vector3(view.M12, view.M22, view.M32));
             opaque = frame.Graph.AddPass("scene.opaque")
                 .Color(frame.SceneColor, ClearColour)
                 .Color(frame.Scene.Normal)
-                .Depth(frame.Scene.Depth, DepthAccess.Write)
-                .Read(ao.Map);
+                .Depth(frame.Scene.Depth, DepthAccess.Write);
+            if (ao.Active) opaque.Read(ao.Map);
         }
         else
             opaque = frame.Graph.AddPass("scene.opaque")
@@ -809,6 +866,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
                 .Depth(frame.Scene.Depth, DepthAccess.Write, clear: 0f);
         if (shadow.Active) opaque.Read(shadow.Map(0)).Read(shadow.Map(1));
         frame.Lights.ReadShadows(opaque);
+        frame.Skinned.ReadBy(opaque);
         opaque.Execute(_drawOpaque);
 
         if (_ui is not null)
@@ -820,14 +878,34 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         profiler.Begin(_zones.Bodies);
         DrawDebug(frame);
         profiler.End(_zones.Bodies);
+        _prevViewProj = _camera.ViewProj;
     }
 
     /// <summary>Оружие бойца — все части меша своими цветами в одном мире; false — места в кадре не хватило хоть одной части.</summary>
-    private bool AddWeapon((int Mesh, Vector3 Colour, uint Material)[] parts, in Matrix4x4 world)
+    private bool AddWeapon((int Mesh, Vector3 Colour, uint Material)[] parts, in Matrix4x4 world, Entity owner)
     {
         bool all = true;
-        foreach (var (mesh, colour, material) in parts) all &= _renderer!.Skinned.AddRigid(mesh, world, colour, flags: material);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var (mesh, colour, material) = parts[i];
+            all &= _renderer!.Skinned.AddRigid(mesh, world, colour, flags: material, motionKey: MotionKey(owner, i + 1));
+        }
         return all;
+    }
+
+    /// <summary>
+    /// Ключ движения экземпляра скина (палитра прошлого кадра — скорости TAA и размытия): ключ бойца (номер и поколение — после
+    /// возрождения другой), перемешанный в 32 бита, и часть (0 — тело, 1… — части меча, <see cref="CutPartKey"/>… — части меша после
+    /// разрезов); не 0.
+    /// </summary>
+    /// <summary>Первая часть ключа движения у частей меша после разрезов (части меча — от 1).</summary>
+    private const int CutPartKey = 64;
+
+    private static uint MotionKey(Entity fighter, int part)
+    {
+        ulong h = (FighterKey.Of(fighter) + (ulong)part * 0x9E3779B97F4A7C15UL) * 0xBF58476D1CE4E5B9UL;
+        uint key = (uint)(h >> 32) ^ (uint)h;
+        return key == 0 ? 1 : key;
     }
 
     /// <summary>Зоны профайлера CPU в построении кадра арены (<see cref="Initialize"/>).</summary>
@@ -992,6 +1070,22 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         }
     }
 
+    /// <summary>Текстуры материалов из пака; нет в паке (старый пак) — без них, с записью в журнал.</summary>
+    private void LoadMaterialTextures(Renderer renderer)
+    {
+        try
+        {
+            _materialAlbedo = renderer.LoadTexture(SceneMaterial.AlbedoPath);
+            _materialNormals = renderer.LoadTexture(SceneMaterial.NormalsPath);
+            _materialRoughness = renderer.LoadTexture(SceneMaterial.RoughnessPath);
+        }
+        catch (FileNotFoundException e)
+        {
+            Log.Warning("arena", $"текстур материалов нет — бойцы и клинки без них: {e.Message}");
+            _materialAlbedo = _materialNormals = _materialRoughness = null;
+        }
+    }
+
     /// <summary>Заслоняющие точечный источник в грань его кубической карты: рельеф, колонны, бойцы и мечи.</summary>
     private void DrawPointShadow(RenderPassContext ctx)
     {
@@ -1001,7 +1095,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         ctx.Draw((uint)(_field.Cells * _field.Cells * 6));
         ctx.SetPipeline(PillarPointShadow);
         ctx.DrawIndexed(_capsuleIndices!, ArenaLayout.PillarCount);
-        _renderer!.Skinned.Record(ctx, SkinPointShadow);
+        _renderer!.Skinned.Record(ctx, SkinPointShadow, CullShadowCasters ? _pointCasterVisible : null, shadow: true);
     }
 
     /// <summary>Предпроход глубины и нормалей под GTAO: всё непрозрачное, кроме фона.</summary>
@@ -1027,8 +1121,19 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
         ctx.Draw((uint)(_field.Cells * _field.Cells * 6));
         ctx.SetPipeline(PillarShadow);
         ctx.DrawIndexed(_capsuleIndices!, ArenaLayout.PillarCount);
-        _renderer!.Skinned.Record(ctx, SkinShadow);
+        _renderer!.Skinned.Record(ctx, SkinShadow, CullShadowCasters ? _sunCasterVisible : null, shadow: true);
     }
+
+    /// <summary>
+    /// Отсев бойцов и мечей в проходах теней (со следующего кадра): каскады солнца — вне карты и (дальний) под покрытием ближнего, грани
+    /// точечных — вне радиуса и пирамиды грани. Кадр тот же, что без отсева; выключатель — для сравнения.
+    /// </summary>
+    public bool CullShadowCasters { get; set; } = true;
+
+    /// <summary>Ниже пола (плоскость чуть под нулём) рельеф не опускается, м.</summary>
+    private const float TerrainFloor = -0.05f;
+
+    private Func<Vector4, bool>? _sunCasterVisible, _pointCasterVisible;
 
     /// <summary>Тестовые источники <see cref="TestLights"/>: первый — в <see cref="TestLightOffset"/> от корня, остальные — по кругу.</summary>
     private void AddTestLights(PointLights lights, Vector3 root)
@@ -1068,6 +1173,10 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
             ShadowMap0 = shadow.Srv(0), ShadowMap1 = shadow.Srv(1), ShadowTexel0 = shadow.Texel(0), ShadowTexel1 = shadow.Texel(1),
             ShadowBias0 = shadow.Bias(0), ShadowBias1 = shadow.Bias(1), ShadowSoftness = shadow.Softness,
             AoMap = ao.Srv, Specular = Specular ? 1u : 0u,
+            MaterialAlbedo = MaterialTextures && _materialAlbedo is { } albedo ? (uint)albedo.Srv : SceneMaterialNone,
+            MaterialNormals = MaterialTextures && _materialNormals is { } normals ? (uint)normals.Srv : SceneMaterialNone,
+            MaterialRoughness = MaterialTextures && _materialRoughness is { } rough ? (uint)rough.Srv : SceneMaterialNone,
+            VelocityViewProj = _camera.ViewProj, PrevViewProj = _prevViewProj ?? _camera.ViewProj,
         };
     }
 

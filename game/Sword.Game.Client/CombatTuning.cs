@@ -37,14 +37,11 @@ public static class CombatTuning
 
     /// <summary>Часть и урон последнего удара игрока: «голова 61»; удара не было — «—».</summary>
     public static int LastStrike(Span<char> d, in ArenaStats stats) =>
-        stats.LastPart < 0 ? Length(new Line(d).S("—").Text)
-            : Length(new Line(d).S(BodySegs.Title(stats.LastPart)).S(" ").F(stats.LastDamage, "F0").Text);
+        stats.LastPart < 0 ? new Line(d).S("—").Length
+            : new Line(d).S(BodySegs.Title(stats.LastPart)).S(" ").F(stats.LastDamage, "F0").Length;
 
     /// <summary>«рубящий 61, укол 62» — удар клинком быстрее 16 м/с с уроном игрока (<see cref="DamageRules.StrikeDamage"/>).</summary>
     public static int MaxStrike(Span<char> d, float playerDamage) =>
-        Length(new Line(d).S("рубящий ").F(DamageRules.StrikeDamage(false, DamageRules.SpeedCap, true, playerDamage), "F0")
-            .S(", укол ").F(DamageRules.StrikeDamage(true, DamageRules.SpeedCap, true, playerDamage), "F0").Text);
-
-    /// <summary>Строка уже на месте (<see cref="Line"/> пишет в тот же буфер) — её длина.</summary>
-    private static int Length(ReadOnlySpan<char> text) => text.Length;
+        new Line(d).S("рубящий ").F(DamageRules.StrikeDamage(false, DamageRules.SpeedCap, true, playerDamage), "F0")
+            .S(", укол ").F(DamageRules.StrikeDamage(true, DamageRules.SpeedCap, true, playerDamage), "F0").Length;
 }

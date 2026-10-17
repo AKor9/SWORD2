@@ -93,9 +93,11 @@ public sealed class RagdollSleepTests(ITestOutputHelper output)
 
         Step(sim, Place(1, -6, 6));   // нижний построен заново в другом месте — как возрождение
         Assert.False(physics.IsAsleep(top), "верхний не проснулся, когда из-под него ушёл нижний");
-        for (int t = 0; t < 120; t++) sim.Step();
+        // 0,5 с: упасть на 0,2 м хватает, а засыпание трупов друг на друге (тики 800–900) не доводит прогон до возрождения (8 с)
+        for (int t = 0; t < 60; t++) sim.Step();
+        Assert.True(sim.World.Has<Dead>(Fighter(sim, 2)), $"верхний возродился до замера (тик {sim.Tick}) — сценарий дольше 8 с");
         float after = physics.Get(physics.Body(top, 0)).Position.Y;
-        output.WriteLine($"таз верхнего: на нижнем {before:F3} м → через 1 с {after:F3} м (лежащий на земле — {lying:F3})");
+        output.WriteLine($"таз верхнего: на нижнем {before:F3} м → через 0,5 с {after:F3} м (лежащий на земле — {lying:F3})");
         Assert.True(after < lying + 0.05f, $"верхний висит: таз {after} м (лежащий на земле — {lying} м)");
         Clean(sim);
     }

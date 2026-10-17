@@ -117,4 +117,16 @@ public sealed class CharacterAssets
         Log.Info("combat", $"оружие: {weapons.Names}; удары по клинку {weapons.Weapons[weapons.Default].Name} — {strikes.Describe(clips)}");
         return new CharacterAssets(clips, actions, weapons, strikes, hand, mesh);
     }
+
+    /// <summary>
+    /// Те же клипы и мечи с другим выбором действий (<paramref name="actionsJson"/> — как <c>actions.json</c>, поверх клипов по
+    /// умолчанию): таблица действий и окна ударов — заново, клипы не грузятся.
+    /// </summary>
+    /// <exception cref="InvalidDataException"><paramref name="actionsJson"/> — не объект «строка → строка».</exception>
+    public CharacterAssets WithActions(string actionsJson, ICollection<string> warnings)
+    {
+        var actions = ActionTable.Resolve(Clips.FindClip, c => Clips.Clips[c].Name, actionsJson, warnings);
+        var strikes = StrikeTable.Analyse(Clips, actions, Hand, Weapons.Weapons[Weapons.Default].BladeTip);
+        return new CharacterAssets(Clips, actions, Weapons, strikes, Hand);
+    }
 }

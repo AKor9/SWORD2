@@ -746,10 +746,10 @@ else {
             $opaque = @($result.report.passes | Where-Object { $_.name -eq 'scene.opaque' })
             if ($opaque.Count -ne 1) { $problems += 'нет прохода scene.opaque' }
             elseif ($opaque[0].draws -lt 4) { $problems += "scene.opaque: вызовов отрисовки $($opaque[0].draws), ожидалось не меньше 4" }
-            # HUD: панели (фигуры) и текст — разные конвейеры, значит не меньше двух вызовов; FPS посчитан.
+            # HUD: панели (фигуры) и текст — один конвейер, вызов рвёт только обрезка: хотя бы один вызов; FPS посчитан.
             $hud = @($result.report.passes | Where-Object { $_.name -eq 'hud' })
             if ($hud.Count -ne 1) { $problems += 'нет прохода hud' }
-            elseif ($hud[0].draws -lt 2) { $problems += "hud: вызовов отрисовки $($hud[0].draws), ожидалось не меньше 2" }
+            elseif ($hud[0].draws -lt 1) { $problems += "hud: вызовов отрисовки $($hud[0].draws), ожидался хотя бы один" }
             elseif ($result.hud.quads -lt 100) { $problems += "hud: квадов $($result.hud.quads) — HUD пуст?" }
             # Шаг кадра — от счётчика кадров (FPS начинается с 60 и сам по себе ничего не доказывает).
             elseif (-not ($result.report.stats.frameMs -gt 0 -and $result.report.stats.fps -gt 0)) { $problems += "числа кадра в итоге: шаг $($result.report.stats.frameMs) мс, FPS $($result.report.stats.fps)" }

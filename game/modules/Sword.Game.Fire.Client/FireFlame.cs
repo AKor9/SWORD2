@@ -162,7 +162,7 @@ internal struct FlameConstants
     public float VelocityClamp, FlowTile, DensityGain, NoisePower;
     public float DensityPower, EdgeMask; public Vector2 ViewDepth;
     public uint Field, Noise, NoiseLayer, SceneDepth;
-    public float GlowCut, Pad0, Pad1, Pad2;
+    public float GlowCut, FogDensity, FogFalloff, Pad0;
 }
 
 /// <summary>
@@ -243,7 +243,7 @@ internal sealed class FireFlame
                 VelocityClamp = p.VelocityClamp, FlowTile = p.FlowTile, DensityGain = p.DensityGain, NoisePower = p.FlowDensityPow,
                 DensityPower = p.DensityPower, EdgeMask = p.EdgeMask ? 1 : 0, ViewDepth = view.ViewDepth,
                 Field = (uint)g.SrvOf(q.Field), Noise = (uint)_noise, NoiseLayer = (uint)_noiseLayer, SceneDepth = (uint)frame.Scene.DepthSrv,
-                GlowCut = p.GlowCut,
+                GlowCut = p.GlowCut, FogDensity = view.Fog.HeightDensity, FogFalloff = view.Fog.HeightFalloff,
             };
         }
         _count = count;

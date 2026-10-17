@@ -784,46 +784,23 @@ public sealed class FireModule : IClientModule
 
     private int GasStatus(Span<char> dest)
     {
-        if (_gasSims.Count == 0) return Write(dest, 0, "газа нет");
+        if (_gasSims.Count == 0) return new Line(dest).S("газа нет").Length;
         var gas = _gasSims[0];
-        int n = Write(dest, 0, gas.Slot.State switch { FireGasState.Emitting => "горит ", FireGasState.Fading => "гаснет ", _ => "свободен " });
-        n = Write(dest, n, "шагов ");
-        if (gas.Slot.Steps.TryFormat(dest[n..], out int w)) n += w;
-        if (gas.Stats is { } s)
-        {
-            n = Write(dest, n, ", Σρ ");
-            if (s.DensitySum.TryFormat(dest[n..], out w, "0.0")) n += w;
-        }
-        if (gas.Drift.Compute(DriftWindow) is { KnobPath: > 0.05f } d)
-        {
-            n = Write(dest, n, ", центроид/шишка ");
-            if (d.Ratio.TryFormat(dest[n..], out w, "0.00")) n += w;
-        }
-        return n;
+        var line = new Line(dest).S(gas.Slot.State switch { FireGasState.Emitting => "горит ", FireGasState.Fading => "гаснет ", _ => "свободен " })
+            .S("шагов ").I(gas.Slot.Steps);
+        if (gas.Stats is { } s) line = line.S(", Σρ ").F(s.DensitySum, "0.0");
+        if (gas.Drift.Compute(DriftWindow) is { KnobPath: > 0.05f } d) line = line.S(", центроид/шишка ").F(d.Ratio, "0.00");
+        return line.Length;
     }
 
     private int Status(Span<char> dest)
     {
-        if (_sims.Count == 0) return Write(dest, 0, "сима нет");
+        if (_sims.Count == 0) return new Line(dest).S("сима нет").Length;
         var sim = _sims[0];
-        int n = Write(dest, 0, sim.Slot.State switch { FireState.Burning => "горит ", FireState.Dying => "гаснет ", _ => "свободен " });
-        n = Write(dest, n, "шагов ");
-        if (sim.Slot.Steps.TryFormat(dest[n..], out int w)) n += w;
-        n = Write(dest, n, ", k ");
-        if (sim.K.TryFormat(dest[n..], out w, "0.00")) n += w;
-        if (sim.Stats is { } s)
-        {
-            n = Write(dest, n, ", Σρ ");
-            if (s.DensitySum.TryFormat(dest[n..], out w, "0.0")) n += w;
-        }
-        return n;
-    }
-
-    private static int Write(Span<char> dest, int at, string text)
-    {
-        int n = Math.Min(text.Length, dest.Length - at);
-        if (n > 0) text.AsSpan(0, n).CopyTo(dest[at..]);
-        return at + Math.Max(n, 0);
+        var line = new Line(dest).S(sim.Slot.State switch { FireState.Burning => "горит ", FireState.Dying => "гаснет ", _ => "свободен " })
+            .S("шагов ").I(sim.Slot.Steps).S(", k ").F(sim.K, "0.00");
+        if (sim.Stats is { } s) line = line.S(", Σρ ").F(s.DensitySum, "0.0");
+        return line.Length;
     }
 
     /// <summary>Раздел <c>fire</c> итога <c>--json</c>: настройки, найденное оружие, огни последнего тика, экземпляры сима и проверки.</summary>

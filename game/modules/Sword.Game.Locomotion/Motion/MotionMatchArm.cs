@@ -20,13 +20,19 @@ public sealed class SwordArm
     public const string Root = "clavicle_r";
 
     /// <summary>Суставы, без которых руки с мечом нет, — все в поддереве <see cref="Root"/> (нет — ошибка старта).</summary>
-    public static readonly IReadOnlyList<string> Joints = [Root, "upperarm_r", "lowerarm_r", "hand_r"];
+    public static readonly IReadOnlyList<string> Joints = [Root, "upperarm_r", "lowerarm_r", Grip];
 
     /// <summary>Вес руки по умолчанию (<c>locomotion.armWeight</c>): стойка целиком.</summary>
     public const float DefaultWeight = 1;
 
     /// <summary>Предел скорости веса руки, 1/с: от 0 до 1 — за 0,25 с (ручка на ходу).</summary>
     public const float WeightRate = 4;
+
+    /// <summary>
+    /// Доля стойки в плечевом поясе поверх добавки: мах руки клипа MM с мечом — на 60 % (полный мах бега с клинком в руке выглядит
+    /// разболтанным).
+    /// </summary>
+    public const float SwingDamp = 0.4f;
 
     /// <summary>Момент клипа стойки, с: стойка неподвижна относительно груди (дыхание стойки не спорит с дыханием клипа MM).</summary>
     public const float StanceTime = 0;
@@ -37,8 +43,26 @@ public sealed class SwordArm
     /// <summary>Сустав <see cref="Root"/> в скелете; −1 — не заведена (<see cref="Init"/>).</summary>
     public int Joint { get; private set; } = -1;
 
-    /// <summary>Маска руки в пуле поз симуляции.</summary>
+    /// <summary>Маска руки в пуле поз симуляции (поддерево ключицы).</summary>
     public PoseMask Mask { get; private set; }
+
+    /// <summary>
+    /// Плечевой пояс — поддерево ключицы без поддерева <see cref="Grip"/> (ключица, плечо, предплечье и их скрутки): сюда стойка
+    /// ложится добавкой — отклонением стойки от нейтральной стойки MM (кадр <see cref="MotionMatchRuntime.StartFrame"/>), поверх маха
+    /// руки клипа MM (локоть сгибается с бегом); кисть — стойкой целиком (хват меча). Так рука на бегу машет, а хват и угол клинка к
+    /// предплечью — стойки.
+    /// </summary>
+    public PoseMask Shoulder { get; private set; }
+
+    /// <summary>Кисть, пальцы и сустав оружия — поддерево <see cref="Grip"/>: стойкой целиком.</summary>
+    public PoseMask GripMask { get; private set; }
+
+    /// <summary>Корень поддерева хвата.</summary>
+    public const string Grip = "hand_r";
+
+    /// <summary>Нейтральная стойка MM: клип и момент (кадр позы постройки), от неё — добавка плечевого пояса.</summary>
+    public int NeutralClip { get; private set; } = -1;
+    public float NeutralTime { get; private set; }
 
     /// <summary>Компонент, системы и инвариант руки (только при <c>locomotion.player = mm</c>).</summary>
     public void Configure(SimulationBuilder b) =>
@@ -75,6 +99,14 @@ public sealed class SwordArm
         }
         Joint = root;
         Mask = pool.AddMask(mask);
+        var forearm = new float[skeleton.JointCount];
+        skeleton.SubtreeMask(skeleton.Find(Grip), forearm);
+        var shoulder = new float[skeleton.JointCount];
+        for (int j = 0; j < shoulder.Length; j++) shoulder[j] = mask[j] * (1 - forearm[j]);
+        Shoulder = pool.AddMask(shoulder);
+        GripMask = pool.AddMask(forearm);
+        NeutralClip = runtime.StartPose.Clip;
+        NeutralTime = runtime.StartPose.Time;
         runtime.StartPose = runtime.StartPose with
         {
             LayerClip = world.Resource<ActionTable>().Idle, LayerTime = StanceTime, LayerJoint = Joint,
@@ -99,6 +131,9 @@ public struct MotionMatchArm
 {
     /// <summary>Поза стойки руки в пуле поз (заводит первый шаг руки, возвращает <c>locomotion.mm-arm-release</c>).</summary>
     public PoseHandle Pose;
+
+    /// <summary>Нейтральная стойка MM (<see cref="SwordArm.NeutralClip"/>) — опора добавки плечевого пояса; заводит и возвращает так же.</summary>
+    public PoseHandle Neutral;
 
     /// <summary>Клип стойки в <see cref="Pose"/>; −1 — поза стойки ещё не взята.</summary>
     public int Clip;
@@ -186,7 +221,12 @@ public sealed class SwordArmSystem(SwordArm arm) : IContinuousSystem
     /// <summary>Шаг руки бойца (тело цикла — свой метод: правило OSR).</summary>
     private void Tick(ref MotionMatchArm s, World world, Entity e, PoseHandle pose, PosePool pool, float target, float step, int stance)
     {
-        if (s.Pose.IsNone) s.Pose = pool.Alloc();   // из запаса пула (PosesPerFighter): поза руки вместо слоя и снимка локомоции клипами
+        if (s.Pose.IsNone) s.Pose = pool.Alloc();   // из запаса пула (PosesPerFighter): поза руки и нейтральная — вместо слоя и снимка локомоции клипами
+        if (s.Neutral.IsNone)
+        {
+            s.Neutral = pool.Alloc();
+            pool.Sample(s.Neutral, arm.NeutralClip, arm.NeutralTime);
+        }
         if (s.Restart)
         {
             s.Restart = false;
@@ -199,7 +239,12 @@ public sealed class SwordArmSystem(SwordArm arm) : IContinuousSystem
             pool.Sample(s.Pose, stance, SwordArm.StanceTime);
             s.Clip = stance;
         }
-        if (s.Weight > 0) pool.BlendMasked(pose, s.Pose, s.Weight, arm.Mask, 0);
+        if (s.Weight <= 0) return;
+        // Плечевой пояс — добавкой к маху руки MM; предплечье и кисть — стойкой. В нейтральной стойке MM итог — стойка как есть
+        // (поза постройки — слой стойки по всей руке — та же).
+        pool.AddMasked(pose, s.Neutral, s.Pose, s.Weight, arm.Shoulder);
+        pool.BlendMasked(pose, s.Pose, s.Weight * SwordArm.SwingDamp, arm.Shoulder, 0);
+        pool.BlendMasked(pose, s.Pose, s.Weight, arm.GripMask, 0);
     }
 }
 
@@ -212,7 +257,10 @@ public sealed class SwordArmReleaseSystem : IReactiveSystem<Removed<MotionMatchA
     {
         var pool = ctx.World.Resource<PosePool>();
         foreach (var r in removed)
+        {
             if (pool.IsAlive(r.Value.Pose)) pool.Free(r.Value.Pose);
+            if (pool.IsAlive(r.Value.Neutral)) pool.Free(r.Value.Neutral);
+        }
     }
 }
 
@@ -263,13 +311,19 @@ public sealed class SwordArmInvariant : IInvariant
         if (!(float.IsFinite(s.Weight) && s.Weight >= 0 && s.Weight <= 1))
             return string.Create(CultureInfo.InvariantCulture, $"вес руки {s.Weight} вне 0…1");
         if (s.Clip < -1 || s.Clip >= view.ClipCount) return $"клип стойки {s.Clip} вне библиотеки (клипов {view.ClipCount})";
-        if (s.Pose.IsNone) return null;   // позу берёт первый шаг руки
-        if (view.Model(new PoseRef { Index = s.Pose.Index, Generation = s.Pose.Generation }).IsEmpty) return $"поза стойки {s.Pose} не жива";
-        if (world.TryGet<PoseRef>(e, out var own) && own.Index == s.Pose.Index && own.Generation == s.Pose.Generation)
-            return $"поза стойки {s.Pose} — это итоговая поза бойца";
-        if (s.Pose.Index >= _owner.Length) Array.Resize(ref _owner, Math.Max(_owner.Length * 2, s.Pose.Index + 1));
-        if (!_owner[s.Pose.Index].IsNull) return $"поза стойки {s.Pose} — ещё и у {_owner[s.Pose.Index]}";
-        _owner[s.Pose.Index] = e;
+        return Own(world, view, e, s.Pose, "поза стойки") ?? Own(world, view, e, s.Neutral, "нейтральная стойка");
+    }
+
+    /// <summary>Поза руки живая, не итоговая поза бойца и не у двух бойцов; ещё не взята — в порядке.</summary>
+    private string? Own(WorldReader world, IAnimationView view, Entity e, PoseHandle pose, string what)
+    {
+        if (pose.IsNone) return null;   // позу берёт первый шаг руки
+        if (view.Model(new PoseRef { Index = pose.Index, Generation = pose.Generation }).IsEmpty) return $"{what} {pose} не жива";
+        if (world.TryGet<PoseRef>(e, out var own) && own.Index == pose.Index && own.Generation == pose.Generation)
+            return $"{what} {pose} — это итоговая поза бойца";
+        if (pose.Index >= _owner.Length) Array.Resize(ref _owner, Math.Max(_owner.Length * 2, pose.Index + 1));
+        if (!_owner[pose.Index].IsNull) return $"{what} {pose} — ещё и у {_owner[pose.Index]}";
+        _owner[pose.Index] = e;
         return null;
     }
 }

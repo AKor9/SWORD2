@@ -1,15 +1,14 @@
 using System.Numerics;
 using Sword.Engine.Client;
-using Sword.Engine.Content;
 using Sword.Engine.DevTools;
 using Sword.Engine.Diagnostics;
-using Sword.Engine.Formats;
 using Sword.Engine.Platform;
 using Sword.Engine.Runtime;
 using Sword.Engine.Ui;
 using Sword.Game.Client;
 using Sword.Game.Combat;
 using Sword.Game.Contracts;
+using Sword.Tests;
 
 namespace Sword.Game.Tests;
 
@@ -24,12 +23,7 @@ public sealed class CombatUiDrawTests : IDisposable
 
     public CombatUiDrawTests()
     {
-        using var pak = ContentLocator.Open();
-        var files = new List<UiFontFile>();
-        foreach (var f in pak.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension))
-            using (var s = pak.OpenRead(f))
-                files.Add(UiFontFile.Read(s, pak.Describe(f)));
-        _fonts = new UiFonts(files);
+        _fonts = PakFonts.Read();
     }
 
     public void Dispose() => _fonts.Dispose();

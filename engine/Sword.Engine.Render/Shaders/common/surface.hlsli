@@ -61,6 +61,20 @@ float3 SurfaceSpecular(float3 n, float3 v, float3 l, float3 sun, float3 skyRefle
     return SURFACE_PI * sun * (spec * nl) + skyReflected * SurfaceEnvBrdfApprox(f0, r, nv);
 }
 
+/// Direct GGX highlight of one light with a coloured f0: D * V * F * N.L (multiply by the light's radiance; the scene's sun units add pi).
+float3 SurfaceDirectSpecular(float3 n, float3 v, float3 l, float3 f0, float roughness)
+{
+    float r = clamp(roughness, 0.03, 1);
+    float a = r * r;
+    float nv = saturate(dot(n, v)) + 1e-4;
+    float nl = saturate(dot(n, l));
+    float3 h = v + l;
+    h *= rsqrt(max(dot(h, h), 1e-12));
+    float k = 1 - saturate(dot(v, h));
+    float k5 = k * k * k * k * k;
+    return SurfaceGgx(saturate(dot(n, h)), a * a) * SurfaceVisibility(nl, nv, a) * nl * (f0 + (1 - f0) * k5);
+}
+
 /// The same with a coloured f0 (metals: f0 = albedo): Schlick and the split sum per channel.
 float3 SurfaceSpecular3(float3 n, float3 v, float3 l, float3 sun, float3 skyReflected, float3 f0, float roughness)
 {

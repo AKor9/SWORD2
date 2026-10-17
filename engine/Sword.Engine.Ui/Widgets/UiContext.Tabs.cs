@@ -38,11 +38,7 @@ public sealed partial class UiContext
 
         if (scroll)
         {
-            if (Input.Wheel != 0 && IsHovered(r))
-            {
-                st.Offset -= Input.Wheel * S(40);
-                Input.Wheel = 0;
-            }
+            st.Offset -= TakeWheel(r) * S(40);
             // выбор сменился (клавиша, код, ставшая невидимой вкладка) — подвести полосу к нему
             if (st.Shown != index)
             {
@@ -105,8 +101,7 @@ public sealed partial class UiContext
                 changed = true;
             }
             bool selected = i == index;
-            if (selected) Draw.Rect(tab, Theme.RowSelected, S(3));
-            else if (hovered) Draw.Rect(tab, Theme.RowHover, S(3));
+            RowBackground(tab, selected, hovered);
             if (selected) Draw.Rect(tab.X0, tab.Y0 + S(4), tab.X0 + S(3), tab.Y1 - S(4), Theme.Accent, S(1));
             Label(tab.Shrink(S(10), 0), tabs[i], selected || hovered ? Theme.Text : Theme.TextDim, UiAlign.Left, UiFace.Label);
         }

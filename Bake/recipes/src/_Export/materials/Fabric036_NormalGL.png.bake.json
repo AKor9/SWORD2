@@ -1,0 +1,16 @@
+{
+  "converter": "texture",
+  "import": "ambientcg",
+  "notes": "Нормали материалов сцены (OpenGL: зелёный — вверх): слой 0 — ткань, 1 — сталь, 2 — плиты пола, 3 — камень колонн; трипланар в позе привязки.",
+  "params": {
+    "layers": [
+      "${src}/_Export/materials/Fabric036_NormalGL.png",
+      "${src}/_Export/materials/Metal009_NormalGL.png",
+      "${src}/_Export/materials/Tiles141_NormalGL.png",
+      "${src}/_Export/materials/Rock058_NormalGL.png"
+    ],
+    "channel": "normal",
+    "size": 1024,
+    "out": "textures/materials/normals.swtex"
+  }
+}

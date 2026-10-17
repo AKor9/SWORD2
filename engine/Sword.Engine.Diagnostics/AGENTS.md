@@ -5,6 +5,8 @@ Core. Сейчас: журнал (`Log`), профайлер CPU (`CpuProfiler`)
 проходов в профайлере кадра (`CpuProfilerGpu.cs`), прогрев JIT (`JitWarmup`), ручки (`TuningGroup`, `Tuning.cs`). Фича профайлера —
 [game/Sword.Game/Features/Profiler/README.md](../../game/Sword.Game/Features/Profiler/README.md).
 
+- `Line` — строка на стеке (HUD, строки состояния `TuningText` модулей): не влезло — обрезается, числа — инвариантной
+  культурой; своих помощников форматирования в модулях не заводить.
 - Ручки — `TuningGroup`: группа (вкладка панели F3) из заголовков, чисел, флагов, кнопок и строк состояния; значение — живые делегаты
   `Get`/`Set`, привязку к симуляции делает клиент (`Engine.Client/TuningBinding`). Сохранение — `Values`/`Apply` (файл пишет хост).
   Проверка — `tests/Sword.Engine.Runtime.Tests/TuningGroupTests`.

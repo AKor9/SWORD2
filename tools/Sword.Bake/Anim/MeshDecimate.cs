@@ -19,8 +19,34 @@ public static class MeshDecimate
     private const float MinFlipCos = 0.2f;
 
     /// <returns>Треугольников в итоге.</returns>
-    public static int Run(SkinnedMeshData mesh, int maxTriangles)
+    public static int Run(SkinnedMeshData mesh, int maxTriangles) => Decimate(mesh, maxTriangles, keepSeams: true, out _);
+
+    /// <summary>
+    /// Индексы меша теней: тот же меш, прореженный до <paramref name="maxTriangles"/> без неподвижных швов атрибутов и границ секций
+    /// (тени нужны только точки), — по исходным вершинам <paramref name="mesh"/>: схлопывание половинное, оставшиеся вершины — его же.
+    /// Сам меш не меняется; бюджет не меньше треугольников меша — его индексы.
+    /// </summary>
+    public static uint[] ShadowLod(SkinnedMeshData mesh, int maxTriangles)
     {
+        var copy = new SkinnedMeshData
+        {
+            Vertices = mesh.Vertices, Indices = mesh.Indices, Sections = [],
+            JointNames = mesh.JointNames, JointParents = mesh.JointParents, InverseBind = mesh.InverseBind,
+        };
+        if (Decimate(copy, maxTriangles, keepSeams: false, out var origin) == mesh.Indices.Length / 3 && origin is null)
+            return (uint[])mesh.Indices.Clone();
+        var indices = new uint[copy.Indices.Length];
+        for (int i = 0; i < indices.Length; i++) indices[i] = (uint)origin![copy.Indices[i]];
+        return indices;
+    }
+
+    /// <summary>
+    /// <paramref name="keepSeams"/> — вершины на шве атрибутов и на границе секций неподвижны; <paramref name="origin"/> — исходная вершина
+    /// каждой вершины итога (null — прореживать не пришлось).
+    /// </summary>
+    private static int Decimate(SkinnedMeshData mesh, int maxTriangles, bool keepSeams, out int[]? origin)
+    {
+        origin = null;
         var verts = mesh.Vertices;
         var idx = mesh.Indices;
         int faces = idx.Length / 3;
@@ -90,10 +116,10 @@ public static class MeshDecimate
             foreach (int f in vFaces[w])
             {
                 for (int k = 0; k < 3; k++) if (fw[f * 3 + k] == w) used.Add(fa[f * 3 + k]);
-                if (section >= 0 && faceSection[f] != section) locked[w] = true;
+                if (keepSeams && section >= 0 && faceSection[f] != section) locked[w] = true;
                 section = faceSection[f];
             }
-            if (used.Count > 1) locked[w] = true;
+            if (keepSeams && used.Count > 1) locked[w] = true;
         }
 
         // ── квадрики граней ──
@@ -206,6 +232,7 @@ public static class MeshDecimate
         var remap = new int[verts.Length];
         Array.Fill(remap, -1);
         var outVerts = new List<SkinVertex>();
+        var outOrigin = new List<int>();
         var outIdx = new List<uint>();
         var sections = new List<MeshSection>();
         int sectionCount = Math.Max(mesh.Sections.Length, 1);
@@ -222,6 +249,7 @@ public static class MeshDecimate
                     {
                         remap[a] = outVerts.Count;
                         outVerts.Add(verts[a]);
+                        outOrigin.Add(a);
                     }
                     outIdx.Add((uint)remap[a]);
                 }
@@ -231,6 +259,7 @@ public static class MeshDecimate
         mesh.Vertices = [.. outVerts];
         mesh.Indices = [.. outIdx];
         mesh.Sections = [.. sections];
+        origin = [.. outOrigin];
         return live;
     }
 

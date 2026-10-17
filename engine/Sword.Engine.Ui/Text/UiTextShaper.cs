@@ -15,6 +15,7 @@ internal sealed class UiTextShaper : IDisposable
     private readonly int[] _roleFont;
     private readonly HarfBuzzSharp.Buffer _buffer = new();
     private UiShapedGlyph[] _result = new UiShapedGlyph[128];
+    private readonly UiShapeCache _cache = new();
 
     /// <param name="fonts">Шрифты в порядке склейки.</param>
     /// <param name="roleFont">[роль] → номер шрифта.</param>
@@ -62,9 +63,23 @@ internal sealed class UiTextShaper : IDisposable
         return new Blob(memory, data.Length, MemoryMode.ReadOnly, () => System.Runtime.InteropServices.Marshal.FreeHGlobal(memory));
     }
 
+    /// <summary>
+    /// Shaping строки шрифтом роли. Результат живёт до следующего вызова. Повтор той же строки той же ролью — из кэша
+    /// (<see cref="UiShapeCache"/>): интерфейс каждый кадр рисует почти те же строки, а HarfBuzz — самое дорогое в тексте.
+    /// </summary>
     public ReadOnlySpan<UiShapedGlyph> Shape(UiFace face, ReadOnlySpan<char> text)
     {
         if (text.IsEmpty) return [];
+        if (_cache.TryGet(face, text, out var cached)) return cached;
+        return _cache.Add(face, text, ShapeNow(face, text));
+    }
+
+    /// <summary>Строк, отданных HarfBuzz с создания.</summary>
+    public long Shaped { get; private set; }
+
+    private ReadOnlySpan<UiShapedGlyph> ShapeNow(UiFace face, ReadOnlySpan<char> text)
+    {
+        Shaped++;
         int font = _roleFont[(int)face];
 
         _buffer.Reset();

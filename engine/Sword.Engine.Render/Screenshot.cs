@@ -213,6 +213,23 @@ internal static class Screenshot
         }
     }
 
+    /// <summary>Сырая цель из буфера чтения в файл: строки подряд без выравнивания, <paramref name="pixel"/> байт на пиксель.</summary>
+    public static unsafe void SaveRaw(ID3D12Resource readback, string path, int width, int height, int rowPitch, int pixel)
+    {
+        byte* source = readback.Map<byte>(0);
+        try
+        {
+            var raw = new byte[width * height * pixel];
+            for (int y = 0; y < height; y++)
+                new ReadOnlySpan<byte>(source + (long)y * rowPitch, width * pixel).CopyTo(raw.AsSpan(y * width * pixel, width * pixel));
+            File.WriteAllBytes(path, raw);
+        }
+        finally
+        {
+            readback.Unmap(0);
+        }
+    }
+
     /// <summary>Записать снятый кадр: расширение .bmp — BMP, иначе PNG; вернёт цвет кадра (RGB по строкам).</summary>
     /// <remarks><c>AggressiveOptimization</c> — по той же причине, что у <see cref="SaveDepth"/>.</remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

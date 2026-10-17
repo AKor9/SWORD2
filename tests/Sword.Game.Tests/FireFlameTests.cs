@@ -116,13 +116,28 @@ public sealed class FireFlameTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Fog_LinearLikeShade()
+    public void Fog_LinearLikeShade_HeightFogThickerLow()
     {
         var fog = new SceneFog(new Vector3(0.1f), SceneEnvironment.FogStart, SceneEnvironment.FogRange);
-        Assert.Equal(0f, fog.Factor(10));
-        Assert.Equal(0.5f, fog.Factor(95), 1e-6f);
-        Assert.Equal(1f, fog.Factor(500));
-        Assert.Equal(0f, SceneFog.None.Factor(1e6f));
+        var eye = new Vector3(0, 6, 0);
+        Assert.Equal(0f, fog.Factor(eye, eye + new Vector3(10, 0, 0)));
+        Assert.Equal(0.5f, fog.Factor(eye, eye + new Vector3(0, 0, 95)), 1e-6f);
+        Assert.Equal(1f, fog.Factor(eye, eye + new Vector3(500, 0, 0)));
+        Assert.Equal(0f, SceneFog.None.Factor(eye, new Vector3(1e6f, 0, 0)));
+
+        // Высотный: прибавка к линейному, у земли гуще, чем выше на том же расстоянии; горизонтальный луч на высоте y — ровно
+        // 1 − e^(−плотность·e^(−спад·y)·d); вверх от камеры — реже, чем вниз.
+        var day = SceneEnvironment.Day;
+        var height = fog with { HeightDensity = day.FogDensity, HeightFalloff = day.FogFalloff };
+        var low = new Vector3(60, 0, 0);
+        Assert.True(height.Factor(eye, low) > fog.Factor(eye, low));
+        Assert.True(height.Factor(eye, low) > height.Factor(eye, low with { Y = 12 }));
+        Assert.True(height.Factor(eye, new Vector3(0, 0, 20)) is > 0f and < 0.1f);
+        var flat = new Vector3(20, 1, 0);
+        Assert.Equal(1 - MathF.Exp(-day.FogDensity * MathF.Exp(-day.FogFalloff) * 20), height.Factor(flat with { X = 0 }, flat), 1e-5f);
+        Assert.True(height.Factor(eye, eye + new Vector3(0, 10, 10)) < height.Factor(eye, eye + new Vector3(0, -6, 10)));
+        // Луч вдоль пола из камеры у земли в 60 м — дымка заметна, но не стена.
+        Assert.InRange(height.Factor(eye, low) - fog.Factor(eye, low), 0.05f, 0.25f);
         // Полный туман — цвет тумана с альфой пламени (вклад поверх туманной сцены тот же, что у непрозрачного).
         var px = FlameMath.Pixel(new Vector4(0, 0, 1, 1), 1, 1, 0.5f, new Vector2(0.5f), 1, 1, fog.Colour, P);
         Assert.True(Vector3.Distance(new Vector3(px.X, px.Y, px.Z), fog.Colour * px.W) < 1e-6f);

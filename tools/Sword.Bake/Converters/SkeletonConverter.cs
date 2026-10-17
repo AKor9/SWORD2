@@ -57,6 +57,8 @@ internal sealed class CharacterMeshParams
     public string Rig { get; set; } = "";
     [Description("Меш в Content/; пусто — meshes/characters/<имя файла>.swmesh.")]
     public string? Out { get; set; }
+    [Description("Треугольников в меше теней (прореженный по тем же вершинам — проходы теней рисуют его); 0 — без него.")]
+    public int ShadowTriangles { get; set; }
 }
 
 /// <summary>Скелетный меш персонажа glTF → <c>meshes/characters/&lt;имя&gt;.swmesh</c> (<see cref="SkinBake.Mesh"/>): bind-поза — поза покоя рига.</summary>
@@ -73,6 +75,7 @@ internal sealed class CharacterMeshConverter : Converter<CharacterMeshParams>
     protected override void Bake(BakeJob job, CharacterMeshParams p)
     {
         var rig = job.Baker.Rig(p.Rig);
-        SkinBake.Mesh(job.Source, rig.RefPose, rig.Clips, job.Output(p.Out ?? $"meshes/characters/{NameOf(job.Source)}.swmesh"), job.Log);
+        SkinBake.Mesh(job.Source, rig.RefPose, rig.Clips, job.Output(p.Out ?? $"meshes/characters/{NameOf(job.Source)}.swmesh"), job.Log,
+            p.ShadowTriangles);
     }
 }

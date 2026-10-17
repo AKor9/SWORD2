@@ -311,6 +311,48 @@ public sealed class PoseTests
         Assert.Throws<InvalidOperationException>(() => pool.AddMasked(a, r, p, 1, mask));
     }
 
+    /// <summary>
+    /// Модель прошлого тика: после тика с прямой кинематикой — модель тика раньше; новая поза и поза без прямой кинематики в последнем
+    /// тике — та же, что модель (стоит — скорости нет); вторая прямая кинематика в одном тике прошлое не сдвигает.
+    /// </summary>
+    [Fact]
+    public void PreviousModel_IsModelOfTickBefore_NewOrStandingPose_SameAsModel()
+    {
+        var pool = new PosePool(TwoClips());
+        var h = pool.Alloc();
+        Assert.Equal(pool.Model(h).ToArray(), pool.PreviousModel(h).ToArray());
+        pool.Sample(h, 0, 0.1f);
+        pool.ToModel(h);
+        pool.Tick();
+        var first = pool.Model(h).ToArray();
+        Assert.Equal(first, pool.PreviousModel(h).ToArray());   // первая прямая кинематика: прошлого нет
+        Assert.False(pool.HasPreviousModel(h));
+        pool.Sample(h, 0, 0.3f);
+        pool.ToModel(h);
+        pool.Sample(h, 0, 0.5f);
+        pool.ToModel(h);   // вторая за тик
+        pool.Tick();
+        Assert.Equal(first, pool.PreviousModel(h).ToArray());
+        Assert.True(pool.HasPreviousModel(h));
+        Assert.NotEqual(first, pool.Model(h).ToArray());
+        var second = pool.Model(h).ToArray();
+        pool.Tick();   // поза стоит
+        Assert.Equal(second, pool.PreviousModel(h).ToArray());
+        Assert.False(pool.HasPreviousModel(h));
+        pool.ToModel(h);   // после простоя прошлое — не модель давнего тика
+        pool.Tick();
+        Assert.False(pool.HasPreviousModel(h));
+        pool.ToModel(h);
+        pool.Tick();
+        Assert.True(pool.HasPreviousModel(h));
+        Assert.Equal(second, pool.PreviousModel(h).ToArray());
+        pool.Free(h);
+        var again = pool.Alloc();   // тот же слот — новая поза без прошлого
+        Assert.Equal(again.Index, h.Index);
+        Assert.Equal(pool.ReferenceModel.ToArray(), pool.PreviousModel(again).ToArray());
+        Assert.Throws<InvalidOperationException>(() => pool.PreviousModel(h).ToArray());
+    }
+
     [Fact]
     public void ToModel_ParentAfterChild_MatchesRecursiveOrder()
     {

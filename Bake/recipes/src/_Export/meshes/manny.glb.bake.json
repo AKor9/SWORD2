@@ -4,6 +4,7 @@
   "notes": "Скелетный меш UE5 Manny (tools/ue/export_meshes.py → _Export/meshes/manny.glb); bind-поза — поза покоя рига.",
   "params": {
     "rig": "${src}/_Export/meshes/skeleton.json",
-    "out": "meshes/characters/manny.swmesh"
+    "out": "meshes/characters/manny.swmesh",
+    "shadowTriangles": 15000
   }
 }

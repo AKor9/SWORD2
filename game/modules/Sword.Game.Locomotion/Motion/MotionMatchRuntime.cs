@@ -17,6 +17,9 @@ public sealed class MotionMatchRuntime
     private float _tick;
 
     public GaspMotionBase Base { get; private set; } = null!;
+
+    /// <summary>Пул поз симуляции (итоговая поза бойца — для замера по ней, <see cref="MotionMatchView.Measure"/>).</summary>
+    public PosePool Pool { get; private set; } = null!;
     public MotionDatabase Database { get; private set; } = null!;
     public MotionPlayers Players { get; private set; } = null!;
     public MotionMatcher Matcher { get; private set; } = null!;
@@ -43,6 +46,9 @@ public sealed class MotionMatchRuntime
     /// <summary>Окно пропуска своего клипа, кадров (<see cref="GaspMotion.SkipSeconds"/> × частота клипов).</summary>
     public int SkipFrames { get; private set; }
 
+    /// <summary>Суставы схемы видимой позы для запроса передачи от действия (<see cref="VisibleJoints"/>) — буферы, память в тике не выделяется.</summary>
+    private Vector3[] _jointPositions = [], _jointVelocities = [];
+
     /// <summary>Заведён (<see cref="Init"/> прошёл).</summary>
     public bool Ready => Database is not null;
 
@@ -63,6 +69,7 @@ public sealed class MotionMatchRuntime
             throw new InvalidDataException($"Motion Matching игрока (locomotion.player = mm) не стартует: {e.Message}", e);
         }
         Database = Base.Database;
+        Pool = pool;
         if (Database.Rows.Length == 0)
             throw new InvalidDataException($"Motion Matching игрока (locomotion.player = mm) не стартует: в базе (отбор «{pattern}») нет искомых кадров");
         _tick = tickSeconds;
@@ -84,6 +91,34 @@ public sealed class MotionMatchRuntime
         StartPose = new FighterStartPose { Clip = clip.LibraryClip, Time = 0 };
         Turn = new TurnInPlace(Base, pool, StartFrame);
         _histories = new RootHistory?[Players.Capacity];
+        _jointPositions = new Vector3[Database.Schema.Joints.Length];
+        _jointVelocities = new Vector3[Database.Schema.Joints.Length];
+    }
+
+    /// <summary>
+    /// Суставы схемы видимой позы последнего тика в системе его корня: положения — модель позы; скорости — разность с моделью тика
+    /// раньше (повёрнутой на поворот корня за тик) плюс скорость управления <paramref name="velocity"/> (мир) — как у кадров базы, где
+    /// скорость сустава несёт ход корня. Корень — по управлению, а не по истории: прибавка рывка и выпад клипа — не ход ног.
+    /// Истории меньше двух тиков — пусто.
+    /// </summary>
+    public PoseJoints VisibleJoints(PosePool pool, PoseHandle pose, RootHistory history, Vector3 velocity)
+    {
+        if (history.Count < 2 || history[history.Count - 1].Tick == history[history.Count - 2].Tick) return default;
+        var model = pool.Model(pose);
+        var before = pool.PreviousModel(pose);
+        var now = history[history.Count - 1];
+        var then = history[history.Count - 2];
+        float dt = (now.Tick - then.Tick) * _tick;
+        float turn = Pose2.Wrap(then.Root.Yaw - now.Root.Yaw);
+        var root = Pose2.Rotate(velocity, -now.Root.Yaw);
+        var joints = Database.Schema.Joints;
+        for (int k = 0; k < joints.Length; k++)
+        {
+            var p = model[joints[k]].Translation;
+            _jointPositions[k] = p;
+            _jointVelocities[k] = (p - Pose2.Rotate(before[joints[k]].Translation, turn)) / dt + root;
+        }
+        return new PoseJoints(_jointPositions, _jointVelocities);
     }
 
     /// <summary>История корня проигрывателя <paramref name="player"/> (по слоту; новый слот — новая история).</summary>

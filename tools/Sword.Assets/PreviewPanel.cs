@@ -284,7 +284,7 @@ internal sealed partial class PreviewPanel(Func<PreviewImage, PreviewTexture> up
     /// <summary>3D-сцена в прямоугольнике: фон, ввод, треугольники, подсказка.</summary>
     private void Draw3D(UiContext ui, UiRect view)
     {
-        ui.Draw.Rect(view, UiDrawList.Rgba(24, 24, 28), ui.S(4));
+        ui.Draw.Rect(view, ui.Theme.Viewport, ui.S(4));
         HandleInput(ui, view);
         ui.Draw.PushClip(view);
         DrawScene(ui, view);
@@ -296,20 +296,19 @@ internal sealed partial class PreviewPanel(Func<PreviewImage, PreviewTexture> up
     private static void Hint(UiContext ui, UiRect view, string text)
     {
         var t = ui.Theme;
+        float fs = ui.S(t.SmallFontSize), pad = ui.S(4);
         var row = view.Shrink(ui.S(8)).SplitTop(ui.S(18), out _);
-        float w = ui.Draw.Measure(UiFace.Body, ui.S(t.SmallFontSize), text);
-        ui.Draw.Rect(new UiRect(row.X0 - ui.S(4), row.Y0, MathF.Min(row.X0 + w + ui.S(4), row.X1), row.Y1), UiDrawList.Rgba(16, 16, 20, 190), ui.S(3));
-        ui.Label(row, text, t.TextDim, UiAlign.Left, UiFace.Body, t.SmallFontSize);
+        float w = ui.Draw.TextBoxSize(UiFace.Body, fs, text, new Vector2(pad, 0)).X;
+        var box = new UiRect(row.X0 - pad, row.Y0, MathF.Min(row.X0 - pad + w, row.X1), row.Y1);
+        ui.Draw.TextBox(box, UiFace.Body, fs, t.TextDim, text, t.TextBackdrop, pad, ui.S(3));
     }
 
     private void HandleInput(UiContext ui, UiRect view)
     {
-        uint id = ui.Id("preview-view");
-        bool hovered = ui.IsHovered(view) && (ui.ActiveId == 0 || ui.ActiveId == id);
         var mouse = ui.Input.Mouse;
-        if (hovered && ui.Input.Pressed(0))
+        bool dragging = ui.Drag(view, ui.Id("preview-view"), out _, out bool started);
+        if (started)
         {
-            ui.ActiveId = id;
             _lastMouse = mouse;
             if (ui.DoubleClicked)
             {
@@ -319,23 +318,15 @@ internal sealed partial class PreviewPanel(Func<PreviewImage, PreviewTexture> up
                 _zoom = 1;
             }
         }
-        if (ui.ActiveId == id)
+        if (dragging)
         {
-            if (ui.Input.Down(0))
-            {
-                var d = mouse - _lastMouse;
-                _yaw -= d.X * 0.01f;
-                _pitch = Math.Clamp(_pitch + d.Y * 0.01f, -1.5f, 1.5f);
-                _lastMouse = mouse;
-                ui.Cursor = UiCursor.SizeAll;
-            }
-            else ui.ActiveId = 0;
+            var d = mouse - _lastMouse;
+            _yaw -= d.X * 0.01f;
+            _pitch = Math.Clamp(_pitch + d.Y * 0.01f, -1.5f, 1.5f);
+            _lastMouse = mouse;
+            ui.Cursor = UiCursor.SizeAll;
         }
-        if (hovered && ui.Input.Wheel != 0)
-        {
-            _zoom = Math.Clamp(_zoom * MathF.Pow(1.15f, ui.Input.Wheel), 0.2f, 20f);
-            ui.Input.Wheel = 0;
-        }
+        if (ui.TakeWheel(view) is var wheel and not 0) _zoom = Math.Clamp(_zoom * MathF.Pow(1.15f, wheel), 0.2f, 20f);
     }
 
     private void DrawScene(UiContext ui, UiRect view)

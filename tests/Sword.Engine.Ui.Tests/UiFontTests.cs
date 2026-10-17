@@ -1,6 +1,7 @@
 using System.Numerics;
 using Sword.Engine.Content;
 using Sword.Engine.Formats;
+using Sword.Tests;
 
 namespace Sword.Engine.Ui.Tests;
 
@@ -123,14 +124,7 @@ public sealed class UiTextTests : IDisposable
 
     public UiTextTests()
     {
-        using var pak = ContentLocator.Open();
-        var files = pak.List(UiVectorFontFormat.Dir, UiVectorFontFormat.Extension)
-            .Select(f =>
-            {
-                using var s = pak.OpenRead(f);
-                return UiFontFile.Read(s, pak.Describe(f));
-            }).ToList();
-        _fonts = new UiFonts(files);
+        _fonts = PakFonts.Read();
     }
 
     public void Dispose() => _fonts.Dispose();
@@ -173,17 +167,70 @@ public sealed class UiTextTests : IDisposable
     }
 
     [Fact]
-    public void Split_SeparatesTextAndShapes_IntoPipelineBatches()
+    public void Split_TextAndShapesShareOneBatch_OnlyScissorBreaksIt()
     {
-        // Текст и фигуры — разные конвейеры: текст, фигура, текст — три вызова; подряд однородные — один.
+        // Текст и фигуры — один конвейер: текст, фигуры, текст — один вызов. Вызов рвёт только другой scissor; обрезка, которая
+        // даёт тот же scissor, что предыдущая, вызов не рвёт.
         var d = new UiDrawList(_fonts);
         d.Text(UiFace.Body, 14, new Vector2(10, 10), 1, "ab");
         d.Rect(0, 0, 50, 20, 1);
         d.Rect(0, 30, 50, 50, 1);
         d.Text(UiFace.Num, 14, new Vector2(10, 40), 1, "12");
+        d.PushClip(new UiRect(0, 0, 100, 100));
+        d.Rect(0, 0, 50, 20, 1);
+        d.PushClip(new UiRect(0.2f, 0.2f, 99.6f, 99.6f));   // тот же целочисленный scissor
+        d.Rect(0, 30, 50, 50, 1);
+        d.PopClip();
+        d.PopClip();
+        d.Rect(0, 0, 50, 20, 1);
         var batches = new List<UiBatch>();
         d.Split(640, 480, batches);
-        Assert.Equal([(0, 2, true), (2, 2, false), (4, 2, true)], batches.Select(b => (b.Start, b.Count, b.Vector)));
+        Assert.Equal([(0, 6, 640), (6, 2, 100), (8, 1, 640)], batches.Select(b => (b.Start, b.Count, b.X1)));
+    }
+
+    [Fact]
+    public void Shape_RepeatedText_IsShapedOnce_LongTextIsNotCached()
+    {
+        var d = new UiDrawList(_fonts);
+        long before = _fonts.ShapedStrings;
+        for (int i = 0; i < 50; i++)
+        {
+            d.Clear();
+            d.Text(UiFace.Body, 14, new Vector2(10, 10), 1, "кэш shaping");   // кадр за кадром — одна строка
+            d.Measure(UiFace.Num, 14, "кэш shaping");                           // та же строка другой ролью — своя запись
+        }
+        Assert.Equal(2, _fonts.ShapedStrings - before);
+
+        // Кэш тот же, что был бы без него: glyph'ы из кэша и свежие совпадают.
+        var a = _fonts.Shape(UiFace.Body, "кэш shaping").ToArray();
+        string longText = new('ж', 600);
+        before = _fonts.ShapedStrings;
+        _fonts.Shape(UiFace.Body, longText);
+        _fonts.Shape(UiFace.Body, longText);
+        Assert.Equal(2, _fonts.ShapedStrings - before);   // длиннее предела — не кэшируется
+        Assert.Equal(a, _fonts.Shape(UiFace.Body, "кэш shaping").ToArray());
+    }
+
+    [Fact]
+    public void Shape_CacheOverflow_ResetsAndStaysCorrect_NoAllocations()
+    {
+        var reference = _fonts.Shape(UiFace.Body, "постоянная подпись").ToArray();
+        Span<char> buf = stackalloc char[16];
+        for (int i = 0; i < 5000; i++)   // больше, чем записей в кэше: он очищается и заполняется снова
+        {
+            i.TryFormat(buf, out int n);
+            _fonts.Shape(UiFace.Num, buf[..n]);
+        }
+        Assert.Equal(reference, _fonts.Shape(UiFace.Body, "постоянная подпись").ToArray());
+
+        long bytes = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 5000; i++)
+        {
+            i.TryFormat(buf, out int n);
+            _fonts.Shape(UiFace.Num, buf[..n]);
+            _fonts.Shape(UiFace.Body, "постоянная подпись");
+        }
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - bytes);
     }
 
     [Fact]

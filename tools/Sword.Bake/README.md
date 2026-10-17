@@ -12,7 +12,7 @@
 | `anim` | `manifest.json` выгрузки (рядом `clips/`) | `animations/<набор>/*.swclip` — все клипы выгрузки по наборам `sets` |
 | `skeleton` | `skeleton.json` (поза покоя) | `skeletons/<id>.swskeleton`; рецепт — риг для остальных |
 | `weapon` | `*.glb`, `*.gltf` | `meshes/weapons/<имя>.swmesh`, `data/weapons/<имя>.swblood` |
-| `character` | `*.glb`, `*.gltf` | `meshes/characters/<имя>.swmesh` |
+| `character` | `*.glb`, `*.gltf` | `meshes/characters/<имя>.swmesh` (`shadowTriangles` > 0 — с мешем теней: прореженный по тем же вершинам, `MeshDecimate.ShadowLod`; Manny — 15 000 из 92 178) |
 | `anatomy` | `*.glb`, `*.gltf` | `meshes/characters/anatomy/<имя>.swmesh` |
 | `texture` | `*.png` | `textures/<имя>.swtex` (или `out`) — массив слоёв `layers` |
 | `font` | `*.ttf` | `fonts/<имя>.swfont` и лицензии `extra` рядом |

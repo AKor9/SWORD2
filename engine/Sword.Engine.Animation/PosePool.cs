@@ -32,10 +32,16 @@ public readonly record struct BlendMemory(PoseHandle Output, PoseHandle Shortest
     public bool IsNone => Output.IsNone || Shortest.IsNone;
 }
 
-/// <summary>Итог одного <see cref="PosePool.Tick"/>: выполнено заданий каждого вида и пропущено (<see cref="Stale"/>).</summary>
-public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale, int Motions = 0, int Twists = 0)
+/// <summary>
+/// Итог тика пула (<see cref="PosePool.Tick"/> и проходы того же тика, <see cref="PosePool.Pass"/>): выполнено заданий каждого вида
+/// и пропущено (<see cref="Stale"/>).
+/// </summary>
+public readonly record struct PoseTickStats(int Samples, int Blends, int Copies, int ToModel, int Stale, int Motions = 0, int Twists = 0, int LegIks = 0)
 {
-    public int Total => Samples + Blends + Copies + ToModel + Motions + Twists;
+    public int Total => Samples + Blends + Copies + ToModel + Motions + Twists + LegIks;
+
+    public static PoseTickStats operator +(PoseTickStats a, PoseTickStats b) => new(a.Samples + b.Samples, a.Blends + b.Blends,
+        a.Copies + b.Copies, a.ToModel + b.ToModel, a.Stale + b.Stale, a.Motions + b.Motions, a.Twists + b.Twists, a.LegIks + b.LegIks);
 }
 
 /// <summary>
@@ -45,14 +51,14 @@ public readonly record struct PoseTickStats(int Samples, int Blends, int Copies,
 /// </summary>
 public sealed partial class PosePool
 {
-    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel, Motion, Twist }
+    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel, Motion, Twist, LegIk }
 
     private struct Job
     {
         public Op Op;
         public PoseHandle Dst, Src;
         public PoseHandle Ref;   // добавка по маске: поза, от которой считается отклонение
-        public int Clip;      // клип сэмпла, маска смешивания (добавки) по маске или скручивание
+        public int Clip;      // клип сэмпла, маска смешивания (добавки) по маске, скручивание; задание Motion, LegIk — номер в своей таблице
         public float Value;   // время клипа, вес смешивания или угол скручивания
         public float Stand;   // смешивание по маске: доля клипа в суставах вне маски; скручивание: поворот груди
         public BlendMemory Memory;   // смешивание по маске: память (None — без неё)
@@ -79,6 +85,11 @@ public sealed partial class PosePool
     private Quaternion[] _rot = [];
     private Vector3[] _pos = [];
     private Matrix4x4[] _model = [];
+    private Matrix4x4[] _previousModel = [];
+    private long[] _modelTick = [];   // номер Tick, в котором слот последний раз прошёл ToModel; новая поза — NoModelTick
+    private bool[] _hasPrevious = [];  // _previousModel слота — модель тика прямо перед последним ToModel
+    private long _ticks;   // исполненных Tick; проходы того же тика (Pass) его не меняют
+    private const long NoModelTick = long.MinValue;
     private int[] _generation = [];
     private int[] _free = [];
     private int _freeCount, _capacity;
@@ -144,6 +155,7 @@ public sealed partial class PosePool
         if (slots > _generation.Length) Resize(slots);
         if (jobs > _jobs.Length) Array.Resize(ref _jobs, jobs);
         if (jobs > _motionJobs.Length) Array.Resize(ref _motionJobs, jobs);
+        if (jobs > _legJobs.Length) Array.Resize(ref _legJobs, jobs);
     }
 
     private void Resize(int slots)
@@ -151,6 +163,9 @@ public sealed partial class PosePool
         Array.Resize(ref _rot, slots * _jc);
         Array.Resize(ref _pos, slots * _jc);
         Array.Resize(ref _model, slots * _jc);
+        Array.Resize(ref _previousModel, slots * _jc);
+        Array.Resize(ref _modelTick, slots);
+        Array.Resize(ref _hasPrevious, slots);
         Array.Resize(ref _generation, slots);
         Array.Resize(ref _free, slots);
     }
@@ -174,6 +189,9 @@ public sealed partial class PosePool
         Skeleton.ReferenceRot.CopyTo(_rot.AsSpan(i * _jc, _jc));
         Skeleton.ReferencePos.CopyTo(_pos.AsSpan(i * _jc, _jc));
         _referenceModel.CopyTo(_model.AsSpan(i * _jc, _jc));
+        _referenceModel.CopyTo(_previousModel.AsSpan(i * _jc, _jc));
+        _modelTick[i] = NoModelTick;
+        _hasPrevious[i] = false;
         return new PoseHandle(i, gen);
     }
 
@@ -209,6 +227,24 @@ public sealed partial class PosePool
     {
         Check(h);
         return _model.AsSpan(h.Index * _jc, _jc);
+    }
+
+    /// <summary>
+    /// Модельные матрицы позы на <see cref="ToModel"/> прошлого <see cref="Tick"/> — пара к <see cref="Model"/> для скоростей суставов
+    /// и показа между тиками. Прошлой модели нет (<see cref="HasPreviousModel"/>: поза только заведена или стояла) — то же, что
+    /// <see cref="Model"/>. Не состояние пула: в логике и хеше не участвует.
+    /// </summary>
+    public ReadOnlySpan<Matrix4x4> PreviousModel(PoseHandle h)
+    {
+        Check(h);
+        return (HasPreviousModel(h) ? _previousModel : _model).AsSpan(h.Index * _jc, _jc);
+    }
+
+    /// <summary>У позы есть модель прошлого тика: прямая кинематика была и в последнем <see cref="Tick"/>, и раньше.</summary>
+    public bool HasPreviousModel(PoseHandle h)
+    {
+        Check(h);
+        return _modelTick[h.Index] == _ticks - 1 && _hasPrevious[h.Index];
     }
 
     /// <summary>Задание: поза клипа <paramref name="clip"/> в момент <paramref name="time"/>, с, — в <paramref name="dst"/>.</summary>
@@ -399,10 +435,30 @@ public sealed partial class PosePool
         _jobs[_jobCount++] = job;
     }
 
-    /// <summary>Исполнить все задания очереди по порядку и очистить её.</summary>
+    /// <summary>Исполнить все задания очереди по порядку и очистить её; тик пула — следующий.</summary>
     public PoseTickStats Tick()
     {
-        int samples = 0, blends = 0, copies = 0, models = 0, stale = 0, motions = 0, twists = 0;
+        var stats = Run(_ticks);
+        _ticks++;
+        return LastTick = stats;
+    }
+
+    /// <summary>
+    /// Ещё один проход очереди в том же тике (задания, поставленные после <see cref="Tick"/>, — например, IK ноги по окончательному
+    /// корню): исполнить и очистить; тик пула не меняется, итог прибавляется к <see cref="LastTick"/>. Пустая очередь — ничего.
+    /// </summary>
+    public PoseTickStats Pass()
+    {
+        if (_jobCount == 0) return default;
+        var stats = Run(_ticks - 1);
+        LastTick += stats;
+        return stats;
+    }
+
+    /// <summary>Очередь по порядку в тике пула <paramref name="tick"/> (номер для прошлой модели, <see cref="ToModel(int, int, long)"/>).</summary>
+    private PoseTickStats Run(long tick)
+    {
+        int samples = 0, blends = 0, copies = 0, models = 0, stale = 0, motions = 0, twists = 0, legs = 0;
         var clips = Clips;
         for (int n = 0; n < _jobCount; n++)
         {
@@ -458,7 +514,7 @@ public sealed partial class PosePool
                     break;
                 }
                 case Op.ToModel:
-                    Skeleton.ToModel(_rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), _model.AsSpan(d, _jc));
+                    ToModel(job.Dst.Index, d, tick);
                     models++;
                     break;
                 case Op.Motion:
@@ -469,6 +525,11 @@ public sealed partial class PosePool
                     if (job.Value != 0 || job.Stand != 0) ApplyTwist(_twists[job.Clip], _rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), job.Value, job.Stand);
                     twists++;
                     break;
+                case Op.LegIk:
+                    if (_legJobs[job.Clip].Align) ApplyKneeAlign(in _legJobs[job.Clip], d);
+                    else ApplyLegIk(in _legJobs[job.Clip], d);
+                    legs++;
+                    break;
             }
         }
         _jobCount = 0;
@@ -477,7 +538,25 @@ public sealed partial class PosePool
             Array.Clear(_motionJobs, 0, _motionCount);   // хранилища не держатся очередью после тика
             _motionCount = 0;
         }
-        return LastTick = new PoseTickStats(samples, blends, copies, models, stale, motions, twists);
+        _legCount = 0;
+        return new PoseTickStats(samples, blends, copies, models, stale, motions, twists, legs);
+    }
+
+    /// <summary>
+    /// Прямая кинематика слота: первая за <see cref="Tick"/> сохраняет прежнюю модель (<see cref="PreviousModel"/>) — модель прошлого
+    /// тика, если прямая кинематика была и в нём (<see cref="HasPreviousModel"/>); у только что заведённой позы прошлое — она же.
+    /// </summary>
+    private void ToModel(int slot, int d, long tick)
+    {
+        long last = _modelTick[slot];
+        if (last != tick)
+        {
+            if (last != NoModelTick) _model.AsSpan(d, _jc).CopyTo(_previousModel.AsSpan(d, _jc));
+            _hasPrevious[slot] = last == tick - 1;
+        }
+        Skeleton.ToModel(_rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc), _model.AsSpan(d, _jc));
+        if (last == NoModelTick) _model.AsSpan(d, _jc).CopyTo(_previousModel.AsSpan(d, _jc));
+        _modelTick[slot] = tick;
     }
 
     /// <summary>Исполнить задание проигрывателя (Motion/PosePool.Motion.cs); false — проигрыватель освобождён, задание пропущено.</summary>

@@ -34,6 +34,47 @@ public sealed class MotionQueryTests
         return history;
     }
 
+    /// <summary>
+    /// Суставы из видимой позы (передача от действия всем телом): положения и скорости суставов кадра, как их считает кинематика
+    /// базы, дают признаки суставов этого кадра (курс пары — из положений), хотя текущий кадр проигрывателя — другой; длина не по
+    /// схеме — ошибка.
+    /// </summary>
+    [Fact]
+    public void VisiblePose_JointFeaturesFromPose_NotFromCurrentFrame()
+    {
+        var lib = MotionBuildFixtures.Library(MotionBuildFixtures.Standard());
+        var schema = MotionBuildFixtures.Schema();
+        var clips = MotionBuildFixtures.All(lib);
+        var db = MotionDatabase.Build(lib, clips, schema, new MotionBuildFixtures.TestPolicy(), MotionBuildFixtures.Params());
+        var kin = ClipKinematics.Compute(lib, clips, schema, MotionBuildFixtures.Contacts);
+        int jc = schema.Joints.Length;
+        var walk = db.Clips[1];
+        int seen = walk.Start + 9, current = db.Clips[2].Start + 3;
+        var query = new MotionQuery(db);
+        var root = new Pose2(1, 2, 0.3f);
+        var velocity = new Vector3(0, 0, 1.5f);
+        var model = new TrajectoryModel(14, 12, velocity, 0.3f);
+        var pose = new PoseJoints(kin.Positions.Slice(seen * jc, jc), kin.Velocities.Slice(seen * jc, jc));
+        query.Fill(new TrajectoryState(root, velocity), model, Steady(root, velocity), Now, current, 1, 1, query.DataYawRate, pose);
+        var row = db.FeatureRow(seen);
+        var other = db.FeatureRow(current);
+        float apart = 0;
+        foreach (var g in schema.Groups)
+        {
+            if (!MotionSchema.IsJoint(g.Kind)) continue;
+            for (int i = g.Offset; i < g.End; i++)
+            {
+                Assert.True(MathF.Abs(row[i] - query.Values[i]) < 1e-4f, $"{g.Name}[{i - g.Offset}]: кадр {row[i]}, запрос {query.Values[i]}");
+                apart = MathF.Max(apart, MathF.Abs(other[i] - query.Values[i]));
+            }
+        }
+        Assert.True(apart > 0.1f, "признаки текущего кадра совпали с видимой позой — проверка ничего не различает");
+        var positions = kin.Positions[..(jc - 1)].ToArray();
+        var velocities = kin.Velocities[..(jc - 1)].ToArray();
+        Assert.Throws<ArgumentException>(() => query.Fill(new TrajectoryState(root, velocity), model, Steady(root, velocity), Now, current, 1, 1,
+            query.DataYawRate, new PoseJoints(positions, velocities)));
+    }
+
     [Theory]
     [InlineData(0, 0.7f)]
     [InlineData(0, -2.5f)]

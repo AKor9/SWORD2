@@ -83,5 +83,12 @@
     "source": "свой",
     "license": "проект SWORD",
     "pipeline": [ "json" ]
+  },
+  "ambientcg": {
+    "collection": "ambientCG — Fabric036, Metal009, Tiles141, Rock058 (1K-JPG)",
+    "source": "ambientcg.com",
+    "license": "CC0 1.0",
+    "pipeline": [ "jpg_to_png" ],
+    "notes": "Скачаны 17.10.2026 (Fabric036_1K-JPG.zip, Metal009_1K-JPG.zip, Tiles141_1K-JPG.zip, Rock058_1K-JPG.zip); карты Color, NormalGL, Roughness переведены в PNG → _Export/materials. Ткань костюма бойцов, шлифованная сталь клинков (трипланар в позе привязки), плиты пола и камень колонн (трипланар в мире) — SceneMaterial."
   }
 }

@@ -69,9 +69,11 @@ public sealed class SunShadow
     private readonly RenderTexture[] _maps = new RenderTexture[Cascades];
     private readonly uint[] _srv = [None, None];
     private readonly Matrix4x4[] _viewProj = new Matrix4x4[Cascades];
-    private readonly float[] _texel = new float[Cascades], _bias = new float[Cascades];
+    private readonly float[] _texel = new float[Cascades], _bias = new float[Cascades], _radius = new float[Cascades], _range = new float[Cascades];
     private readonly Action<RenderPassContext>[] _record = new Action<RenderPassContext>[Cascades];
     private Action<RenderPassContext>? _casters;
+    private Vector3 _lightDir;
+    private int _cascade;
 
     public SunShadow()
     {
@@ -117,6 +119,49 @@ public sealed class SunShadow
     /// <summary><see cref="DepthBias"/> в единицах глубины карты каскада.</summary>
     public float Bias(int cascade) => _bias[cascade];
 
+    /// <summary>
+    /// Ниже этой высоты принимающих тень нет, м (земля сцены); по умолчанию −∞ — тогда заслоняющие дальнего каскада не отсеиваются
+    /// по ближнему (<see cref="CasterVisible"/>).
+    /// </summary>
+    public float ReceiverFloor { get; set; } = float.NegativeInfinity;
+
+    /// <summary>
+    /// Нужен ли заслоняющий шар (xyz — центр, w — радиус) карте каскада, который рисуется сейчас (вызывается из заслоняющих
+    /// <see cref="AddPass"/>): нет, если шар вне карты по осям света, а для дальнего — ещё и если ближний покрывает всю его тень: шар и
+    /// его проекция по свету на <see cref="ReceiverFloor"/> — внутри ближнего с запасом на PCF и сдвиг по нормали (там шейдер берёт ближний).
+    /// </summary>
+    public bool CasterVisible(Vector4 sphere)
+    {
+        if (float.IsInfinity(sphere.W)) return true;
+        var center = new Vector3(sphere.X, sphere.Y, sphere.Z);
+        if (!InMap(_cascade, center, sphere.W, 0)) return false;
+        return _cascade == 0 || !NearCovers(center, sphere.W);
+    }
+
+    /// <summary>Шар внутри карты каскада по осям света (с запасом <paramref name="margin"/> в долях полукарты).</summary>
+    private bool InMap(int cascade, Vector3 center, float radius, float margin)
+    {
+        var p = Vector3.Transform(center, _viewProj[cascade]);
+        float r = radius / _radius[cascade];
+        return margin == 0
+            ? MathF.Abs(p.X) - r <= 1 && MathF.Abs(p.Y) - r <= 1
+            : MathF.Abs(p.X) + r <= 1 - margin && MathF.Abs(p.Y) + r <= 1 - margin;
+    }
+
+    private bool NearCovers(Vector3 center, float radius)
+    {
+        if (_lightDir.Y >= 0 || float.IsNegativeInfinity(ReceiverFloor)) return false;
+        // Запас: выборки PCF (2 шага мягкости) и сдвиг по нормали, в текселях → в доли полукарты.
+        float margin = 2 * (2 * _softness + NormalOffset + 1) / _size;
+        if (!InMap(0, center, radius, margin)) return false;
+        // Тень шара ложится вдоль света до пола: и нижняя точка этого отрезка — в глубине ближнего (z ≥ 0, ближе к солнцу — до 1).
+        float drop = (center.Y + radius - ReceiverFloor) / -_lightDir.Y;
+        var floor = center + _lightDir * Math.Max(drop, 0);
+        float dz = radius / _range[0] + margin;
+        float zTop = Vector3.Transform(center, _viewProj[0]).Z, zFloor = Vector3.Transform(floor, _viewProj[0]).Z;
+        return zTop + dz <= 1 && zFloor - dz >= 0;
+    }
+
     internal void BeginFrame()
     {
         Active = false;
@@ -131,6 +176,7 @@ public sealed class SunShadow
     {
         ArgumentNullException.ThrowIfNull(frame);
         if (!Enabled) return false;
+        _lightDir = Vector3.Normalize(lightDir);
         Cascade(frame, 0, lightDir, nearCenter, nearRadius);
         Cascade(frame, 1, lightDir, farCenter, farRadius);
         Active = true;
@@ -141,6 +187,8 @@ public sealed class SunShadow
     {
         _viewProj[i] = SunShadowMath.ViewProj(lightDir, center, radius, _size, out _texel[i], out float range);
         _bias[i] = DepthBias / range;
+        _radius[i] = radius;
+        _range[i] = range;
         _maps[i] = frame.Graph.CreateTexture(MapNames[i], new TextureDesc(TextureFormat.Depth32Float, TextureUsage.DepthTarget, _size, _size, ClearDepth: 0));
         _srv[i] = (uint)frame.Graph.SrvOf(_maps[i]);
     }
@@ -151,13 +199,18 @@ public sealed class SunShadow
         if (!Active) throw new InvalidOperationException("тени: AddPass без Prepare в этом кадре");
         _casters = casters;
         for (int i = 0; i < Cascades; i++)
-            frame.Graph.AddPass(PassNames[i], FramePhase.Opaque).Depth(_maps[i], DepthAccess.Write, clear: 0f).Execute(_record[i]);
+        {
+            var pass = frame.Graph.AddPass(PassNames[i], FramePhase.Opaque).Depth(_maps[i], DepthAccess.Write, clear: 0f);
+            frame.Skinned.ReadBy(pass);
+            pass.Execute(_record[i]);
+        }
     }
 
     private void Record(RenderPassContext ctx, int cascade)
     {
         // Слоты обнуляются только в начале прохода: индекс каскада ставится до заслоняющих, их слоты — другие.
         ctx.SetConstant(SlotCascade, cascade);
+        _cascade = cascade;
         _casters!(ctx);
     }
 

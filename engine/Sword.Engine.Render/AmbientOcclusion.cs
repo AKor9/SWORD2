@@ -13,7 +13,7 @@ internal struct AoConstants
     public Vector3 Eye; public float Radius;
     public Vector3 Right; public float Intensity;
     public Vector3 Up; public float Pad0;
-    public uint Width; public uint Height; public uint Pad1; public uint Pad2;
+    public uint Width; public uint Height; public uint RawWidth; public uint RawHeight;   // кадр и сырая карта ½
 }
 
 /// <summary>
@@ -98,7 +98,7 @@ public sealed class AmbientOcclusion : IDisposable
         if (!Enabled) return false;
         var g = frame.Graph;
         var desc = new TextureDesc(TextureFormat.Rg16Float, TextureUsage.Storage, g.Width, g.Height);
-        _raw = g.CreateTexture("ao.raw", desc);
+        _raw = g.CreateTexture("ao.raw", desc with { Width = RawSize(g.Width), Height = RawSize(g.Height) });
         Map = g.CreateTexture("ao.map", desc);
         _rawSrv = g.SrvOf(_raw);
         _rawUav = g.UavOf(_raw);
@@ -125,13 +125,16 @@ public sealed class AmbientOcclusion : IDisposable
             Eye = eye, Radius = _radius,
             Right = right, Intensity = _intensity,
             Up = up,
-            Width = _width, Height = _height,
+            Width = _width, Height = _height, RawWidth = (uint)RawSize(g.Width), RawHeight = (uint)RawSize(g.Height),
         };
         _depthSrv = _scene.DepthSrv;
         _normalSrv = g.SrvOf(_scene.Normal);
         g.AddComputePass("ao.gtao", FramePhase.Opaque).Read(_scene.Depth).Read(_scene.Normal).Write(_raw).Execute(_recordGtao);
-        g.AddComputePass("ao.blur", FramePhase.Opaque).Read(_raw).Write(Map).Execute(_recordBlur);
+        g.AddComputePass("ao.blur", FramePhase.Opaque).Read(_raw).Read(_scene.Depth).Write(Map).Execute(_recordBlur);
     }
+
+    /// <summary>Сторона сырой карты: 1/2 кадра с округлением вверх.</summary>
+    private static int RawSize(int full) => (full + 1) / 2;
 
     private void RecordGtao(RenderPassContext ctx)
     {
@@ -140,7 +143,7 @@ public sealed class AmbientOcclusion : IDisposable
         ctx.SetConstant(SlotDepth, _depthSrv);
         ctx.SetConstant(SlotNormal, _normalSrv);
         ctx.SetConstant(SlotTarget, _rawUav);
-        ctx.Dispatch((_width + 7) / 8, (_height + 7) / 8);
+        ctx.Dispatch(((_width + 1) / 2 + 7) / 8, ((_height + 1) / 2 + 7) / 8);
     }
 
     private void RecordBlur(RenderPassContext ctx)
@@ -148,6 +151,7 @@ public sealed class AmbientOcclusion : IDisposable
         ctx.SetPipeline(Blur);
         ctx.SetConstant(SlotConstants, _constants.Srv);
         ctx.SetConstant(SlotSource, _rawSrv);
+        ctx.SetConstant(SlotDepth, _depthSrv);
         ctx.SetConstant(SlotTarget, _mapUav);
         ctx.Dispatch((_width + 7) / 8, (_height + 7) / 8);
     }

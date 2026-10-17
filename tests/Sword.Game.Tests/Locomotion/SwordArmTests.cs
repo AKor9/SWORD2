@@ -92,6 +92,31 @@ public sealed class SwordArmTests(ITestOutputHelper output)
 
     private static Matrix4x4 Stance => ClipHandInChest(Assets.Actions.Idle, SwordArm.StanceTime);
 
+    private static int Forearm => Assets.Clips.Skeleton.Find("lowerarm_r");
+
+    /// <summary>Хват: кисть в системе предплечья.</summary>
+    private static Matrix4x4 Grip(ReadOnlySpan<Matrix4x4> model)
+    {
+        Assert.True(Matrix4x4.Invert(model[Forearm], out var forearm));
+        return model[Assets.Hand] * forearm;
+    }
+
+    private static Matrix4x4 StanceGrip
+    {
+        get
+        {
+            var pool = new PosePool(Assets.Clips, capacity: 1);
+            var h = pool.Alloc();
+            pool.Sample(h, Assets.Actions.Idle, SwordArm.StanceTime);
+            pool.ToModel(h);
+            pool.Tick();
+            return Grip(pool.Model(h));
+        }
+    }
+
+    private static Matrix4x4 PlayerGrip(Simulation sim) =>
+        Grip(sim.World.View<IAnimationView>().Model(sim.World.Get<PoseRef>(GameCore.Player(sim.World))));
+
     private static Matrix4x4 PlayerHandInChest(Simulation sim)
     {
         var world = sim.World;
@@ -124,7 +149,7 @@ public sealed class SwordArmTests(ITestOutputHelper output)
     {
         var (sim, pool) = WithPool("locomotion.player=mm", "arena.enemies=0");
         var skeleton = pool.Skeleton;
-        Assert.Equal(3, pool.MaskCount);   // ядро: верх и всё тело; модуль: рука
+        Assert.Equal(5, pool.MaskCount);   // ядро: верх и всё тело; модуль: рука, плечевой пояс, кисть
         var mask = pool.Mask(new PoseMask(2)).ToArray();
         var names = Enumerable.Range(0, mask.Length).Where(j => mask[j] == 1).Select(j => skeleton.JointNames[j]).ToArray();
         output.WriteLine($"маска руки: {names.Length} суставов — {string.Join(", ", names)}");
@@ -148,34 +173,48 @@ public sealed class SwordArmTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Кисть и кончик клинка относительно груди — у стойки оружия (ε) в каждом тике стоя и на ходу (бег в стороны, шаг назад, круг
-    /// направлений), без ударов; при весе руки 0 рука — нейтральная рука клипов GASP, далеко от стойки (рука правда подменена).
+    /// Хват (кисть в системе предплечья) — стойки (ε) в каждом тике стоя и на ходу; стоя кисть относительно груди — у стойки (дыхание
+    /// стойки MM — сантиметры); на ходу рука машет вместе с клипом MM (кисть относительно груди ходит на десятки сантиметров), но
+    /// остаётся у тела; при весе руки 0 рука — нейтральная рука клипов GASP, далеко от стойки (рука правда подменена).
     /// </summary>
     [Fact]
-    public void HandToChest_IsStance_StandingAndMoving()
+    public void Grip_IsStance_ArmSwingsOnTheMove()
     {
         var stance = Stance;
+        var grip = StanceGrip;
         var sim = Create("arena.enemies=0");
         var neutral = Create("arena.enemies=0", "locomotion.armWeight=0");
-        float stand = 0, moving = 0, neutralMin = float.MaxValue;
+        float stand = 0, gripOff = 0, neutralMin = float.MaxValue;
+        var hands = new List<Vector3>();
         for (int t = 0; t < 120; t++)
         {
             Step(sim, Stand);
             Step(neutral, Stand);
-            stand = MathF.Max(stand, Off(PlayerHandInChest(sim), stance));
+            stand = MathF.Max(stand, Vector3.Distance(PlayerHandInChest(sim).Translation, stance.Translation));
+            gripOff = MathF.Max(gripOff, Off(PlayerGrip(sim), grip));
             neutralMin = MathF.Min(neutralMin, Off(PlayerHandInChest(neutral), stance));
         }
         for (int t = 0; t < 720; t++)
         {
             Step(sim, Moving(t));
             Step(neutral, Moving(t));
-            moving = MathF.Max(moving, Off(PlayerHandInChest(sim), stance));
+            gripOff = MathF.Max(gripOff, Off(PlayerGrip(sim), grip));
+            hands.Add(PlayerHandInChest(sim).Translation);
             neutralMin = MathF.Min(neutralMin, Off(PlayerHandInChest(neutral), stance));
+        }
+        float swing = 0, far = 0;
+        foreach (var a in hands)
+        {
+            far = MathF.Max(far, Vector3.Distance(a, stance.Translation));
+            foreach (var b in hands) swing = MathF.Max(swing, Vector3.Distance(a, b));
         }
         var s = sim.World.Get<MotionMatchState>(GameCore.Player(sim.World));
         output.WriteLine(string.Create(Inv,
-            $"от стойки: стоя {stand:G3} м, на ходу {moving:G3} м (переходов MM {s.Transitions}); вес 0 — ближе всего {neutralMin:F3} м"));
-        Assert.True(stand < Eps && moving < Eps, $"кисть от стойки: стоя {stand}, на ходу {moving}");
+            $"хват от стойки {gripOff:G3} м; кисть стоя от стойки {stand:F3} м, на ходу размах {swing:F3} м, дальше всего от стойки {far:F3} м; вес 0 — ближе всего {neutralMin:F3} м"));
+        Assert.True(gripOff < Eps, $"хват от стойки {gripOff} м");
+        Assert.True(stand < 0.03f, $"кисть стоя от стойки {stand} м");
+        Assert.True(swing > 0.1f, $"на ходу рука не машет: размах {swing} м");
+        Assert.True(far < 0.6f, $"рука ушла от стойки на {far} м");
         Assert.True(s.Transitions > 5, $"переходов MM {s.Transitions}");
         Assert.True(neutralMin > 0.1f, $"рука клипов GASP у стойки ({neutralMin} м) — проверка ничего не проверяет");
         Assert.Equal(0, Arm(neutral).Weight);
@@ -185,7 +224,7 @@ public sealed class SwordArmTests(ITestOutputHelper output)
 
     /// <summary>
     /// Удар на бегу (слоем верха): при полном весе слоя действий кисть относительно груди — ровно клип удара в его момент (рука у слоя
-    /// действий, стойка под ним не видна), замах уводит её далеко от стойки; удар погас — снова стойка.
+    /// действий, стойка под ним не видна), замах уводит её далеко от стойки; удар погас — снова хват стойки.
     /// </summary>
     [Fact]
     public void Attack_ArmBelongsToActionLayer()
@@ -209,7 +248,7 @@ public sealed class SwordArmTests(ITestOutputHelper output)
             fromStance = MathF.Max(fromStance, Off(hand, stance));
         }
         var after = sim.World.Get<Animation.AnimatorAction>(player);
-        float back = Off(PlayerHandInChest(sim), stance);
+        float back = Off(PlayerGrip(sim), StanceGrip);
         output.WriteLine(string.Create(Inv,
             $"удар: тиков с полным весом {full}, от клипа удара {fromAction:G3} м, от стойки до {fromStance:F3} м; после удара от стойки {back:G3} м"));
         Assert.True(full > 10, $"тиков удара с полным весом {full}");
@@ -301,11 +340,11 @@ public sealed class SwordArmTests(ITestOutputHelper output)
             Step(sim, Stand);
             int weapon = sim.World.Get<WeaponSlot>(player).Index;
             Assert.Equal(weapon, sim.World.Get<Blade>(player).Weapon);
-            Assert.True(Off(PlayerHandInChest(sim), stance) < Eps);
+            Assert.True(Off(PlayerGrip(sim), StanceGrip) < Eps);
             Assert.Equal(arm.Pose, Arm(sim).Pose);
             Assert.Equal(Assets.Actions.Idle, Arm(sim).Clip);
             for (int t = 0; t < 30; t++) Step(sim, Moving(t));
-            Assert.True(Off(PlayerHandInChest(sim), stance) < Eps);
+            Assert.True(Off(PlayerGrip(sim), StanceGrip) < Eps);
         }
         Assert.Equal(before, sim.World.Get<WeaponSlot>(player).Index);   // по кругу
         Clean(sim);
