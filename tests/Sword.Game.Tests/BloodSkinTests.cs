@@ -23,8 +23,8 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
     [Fact]
     public void Look_LayerByThickness_GlossyThenMatteThenBrown()
     {
-        // Толстая свежая — глубокий тёмно-красный (92, 7, 10), подложки не видно, глянец.
-        var thick = BloodLook.Evaluate(0, 1, Look);
+        // Толстая (2 мм) свежая — глубокий тёмно-красный (58, 4, 6), подложки не видно, глянец.
+        var thick = BloodLook.Evaluate(0, 2, Look);
         Near(Look.Deep, thick.Albedo);
         Assert.Equal(1, thick.Wet);
         Assert.Equal(Look.WetRoughness, thick.Roughness, 5);
@@ -349,7 +349,8 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         {
             var rig = new OozeRig();
             rig.Hit(60);
-            rig.Hit(30);
+            rig.Step();
+            rig.Hit(30);   // последняя рана живого — смертельная
             for (int i = 0; i < 60; i++) rig.Step();   // 1 с жив
             rig.Dead = dead;
             var byWound = new double[2];
@@ -368,10 +369,12 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         }
         var t = new BloodTuning();
         var a = Run(true);
-        // 6 с после смерти: PoolMl·(1 − e^(−6/τ)) без недобранной капли у каждой раны.
-        double expected = t.CorpsePoolMl * (1 - Math.Exp(-6 / t.CorpsePoolSeconds));
+        // 6 с после смерти: PoolMl·(1 − e^(−(6 − задержка)/τ)) без недобранной капли у каждой раны.
+        double expected = t.CorpsePoolMl * (1 - Math.Exp(-(6 - t.CorpsePoolDelay) / t.CorpsePoolSeconds));
         Assert.InRange(a.Poured, expected - 2 * t.CorpsePourDropMl - 0.1, expected + 0.1);
-        Assert.InRange(a.ByWound[0] / a.ByWound[1], 1.9, 2.1);   // по урону 60 : 30
+        // По урону², смертельная (последняя, 30) — с весом LethalPourWeight: 60² : 30²·6.
+        double ratio = 60.0 * 60 / (30.0 * 30 * BloodOoze.LethalPourWeight);
+        Assert.InRange(a.ByWound[0] / a.ByWound[1], 0.95 * ratio, 1.05 * ratio);
         Assert.Equal(a.Poured, a.ByWound.Sum(), 4);
         var b = Run(true);
         Assert.Equal(a.Poured, b.Poured);

@@ -6,7 +6,7 @@ namespace Sword.Game.Blood;
 /// <summary>
 /// Числа функции свежести крови (ручки F3 «Кровь»). Кровь — поглощающий слой поверх подложки (Бер — Ламберт, BVR §5.3): пропускание
 /// туда и обратно e^(−2σh) по каналам — сине-зелёный гаснет за 30–50 мкм, красный проходит доли миллиметра; рассеянное самим слоем —
-/// альбедо бесконечно толстой крови <see cref="Deep"/> (92, 7, 10) sRGB × (1 − пропускание). Тонкий слой — подложка видна, темнее и
+/// альбедо бесконечно толстой крови <see cref="Deep"/> (58, 4, 6) sRGB × (1 − пропускание). Тонкий слой — подложка видна, темнее и
 /// красная; толстый — глубокий тёмно-красный; засохшая буреет к <see cref="Dry"/> (WR §4.7) и мутнеет (<see cref="DryAbsorb"/>). Блеск
 /// уходит за <see cref="GlossStart"/>…<see cref="GlossEnd"/> с, темнеет за <see cref="DarkStart"/>…<see cref="DarkEnd"/> с (решение 6);
 /// толстая сохнет в <see cref="ThickSlow"/> раз дольше. Раскладка — корневые константы <c>blood_look.hlsli</c> (<see cref="Slots"/> подряд,
@@ -35,7 +35,7 @@ public struct BloodLookParams
         ThickMm = 0.3f, EdgeMm = 0.02f, ThickSlow = 2f,
         GlossStart = 10, GlossEnd = 60, DarkStart = 60, DarkEnd = 180,
         WetRoughness = 0.08f, DryRoughness = 0.6f,
-        Deep = BloodLook.Linear(92, 7, 10), Absorb = new Vector3(2.5f, 40, 55), Dry = new Vector3(0.055f, 0.010f, 0.008f),
+        Deep = BloodLook.Linear(58, 4, 6), Absorb = new Vector3(1.5f, 40, 55), Dry = new Vector3(0.055f, 0.010f, 0.008f),
         DryAbsorb = 10,
     };
 }

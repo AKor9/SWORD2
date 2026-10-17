@@ -33,6 +33,8 @@ public struct BloodFloorConstants
     public float EdgeWarp;
     /// <summary>Неровность плёнки (шум толщины в мире) и эпоха рождений карты, с.</summary>
     public float NoiseAmp, NoiseSize, ErodeMm, Epoch;
+    /// <summary>Широкий блик солнца свежей плёнки: вес и прибавка к шероховатости; яркость горизонта в отражении неба (× SkyHigh).</summary>
+    public float Glint, GlintRoughness, Horizon, MaxTilt;
 }
 
 /// <summary>Летящая капля для шейдера: отрыв (точка, скорость), время полёта в кадре, с, радиус, м.</summary>
@@ -403,6 +405,10 @@ public sealed class BloodFloorGpu : IGpuSimulation
             NoiseSize = MathF.Max(t.FloorNoiseSize, 1e-3f),
             ErodeMm = MathF.Max(t.FloorErodeMm, 0),
             Epoch = BloodFloor.Epoch(_now),
+            Glint = MathF.Max(t.FloorGlint, 0),
+            GlintRoughness = MathF.Max(t.FloorGlintRoughness, 0),
+            Horizon = MathF.Max(t.FloorHorizon, 0),
+            MaxTilt = MathF.Tan(Math.Clamp(t.FloorMaxTilt, 0, 80) * MathF.PI / 180),
         };
         _data = _constants.Srv;
 

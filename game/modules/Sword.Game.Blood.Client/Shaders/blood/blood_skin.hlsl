@@ -39,8 +39,10 @@ void CsLook(uint3 id : SV_DispatchThreadID)
     RWStructuredBuffer<uint2> target = ResourceDescriptorHeap[gSkinTarget];
     uint2 raw = target[vertices + id.x];
     float thickness = asfloat(raw.x);
-    if (!(thickness > 0)) return;
-    BloodLookResult look = BloodLookEval(max(asfloat(gSkinNow) - asfloat(raw.y), 0), thickness, BloodLookFromPass());
+    // A vertex without blood gets the neutral look (M = 1, A = 0, coverage 0, roughness of fresh blood), not zeros: the skin shader
+    // interpolates the look across triangles, and M = 0 there drew a dark outline around every stain.
+    float age = thickness > 0 ? max(asfloat(gSkinNow) - asfloat(raw.y), 0) : 0;
+    BloodLookResult look = BloodLookEval(age, max(thickness, 0), BloodLookFromPass());
     float3 add = BloodAdd(look), mul = BloodMul(look);
     uint x = Float11(add.r) | (Float11(add.g) << 11) | (Float10(add.b) << 22);
     uint y = UnormBits(mul.r, 127) | (UnormBits(mul.g, 127) << 7) | (UnormBits(mul.b, 127) << 14) | (UnormBits(look.coverage, 31) << 21)

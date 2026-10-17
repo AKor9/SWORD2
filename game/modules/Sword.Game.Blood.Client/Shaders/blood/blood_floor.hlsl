@@ -40,6 +40,7 @@ struct FloorConstants
     uint shadowMap0; uint shadowMap1; float shadowTexel0; float shadowTexel1;
     float shadowBias0; float shadowBias1; float shadowSoftness; float edgeWarp;
     float noiseAmp; float noiseSize; float erodeMm; float epoch;
+    float glint; float glintRough; float horizon; float maxTilt;
 };
 _Static_assert(sizeof(FloorConstants) == BLOOD_FLOOR_CONSTANTS_SIZE, "FloorConstants differs from C# BloodFloorConstants");
 
@@ -51,6 +52,7 @@ struct DropGpu
 _Static_assert(sizeof(DropGpu) == BLOOD_DROP_SIZE, "DropGpu differs from C# BloodDropGpu");
 
 static const float BLOOD_TEXEL = BLOOD_FLOOR_SIZE / BLOOD_FLOOR_N;
+static const float DROP_MIN_PIXELS = 0.75;   // a flying drop on screen: radius not below, pixels
 
 // ── compute ───────────────────────────────────────────────────────────────
 
@@ -253,10 +255,24 @@ float3 SkyAt(FloorConstants c, float y) { return lerp(c.skyLow, c.skyHigh, satur
 // the reflected vector x skyGain).
 float3 LayerDiffuseLight(FloorConstants c, float3 n, float sunVis) { return c.sun * (saturate(dot(n, c.sunDir)) * sunVis) + SkyAt(c, n.y); }
 
-float3 LayerSpecular(FloorConstants c, float3 n, float3 v, float roughness, float sunVis)
+// Sky seen in the reflected direction r: the scene's gradient plus a bright horizon (x skyHigh, growing as (1 - r.y)^4) - at grazing
+// angles the Fresnel of the film reflects the light low sky, so wet blood reads even in shadow; x skyGain.
+float3 ReflectedSky(FloorConstants c, float3 r)
+{
+    float k = 1 - saturate(r.y);
+    k *= k;
+    return (SkyAt(c, r.y) + c.skyHigh * (c.horizon * k * k)) * c.skyGain;
+}
+
+// Highlight of the film: GGX sun (sharp, the layer's roughness) + the reflected sky, and a second, wider sun lobe of weight glint (the
+// ripple and the meniscus spread the glint around the mirror direction - a dual-lobe wet highlight; the sky is already in the first).
+float3 LayerSpecular(FloorConstants c, float3 n, float3 v, float roughness, float sunVis, float glint)
 {
     float3 r = reflect(-v, n);
-    return SurfaceSpecular(n, v, c.sunDir, c.sun * sunVis, SkyAt(c, r.y) * c.skyGain, c.f0, roughness);
+    float3 sun = c.sun * sunVis;
+    float3 s = SurfaceSpecular(n, v, c.sunDir, sun, ReflectedSky(c, r), c.f0, roughness);
+    if (glint > 0) s += glint * SurfaceSpecular(n, v, c.sunDir, sun, 0, c.f0, roughness + c.glintRough);
+    return s;
 }
 
 // Sun visibility at a point of the receiver (the scene's sun shadow map; no map - 1).
@@ -271,7 +287,7 @@ float FloorSunVisibility(FloorConstants c, float3 world, float3 n)
 // Opaque blood (a drop in flight, unshadowed): its albedo lit + the highlight, under the fog.
 float3 Lit(FloorConstants c, BloodLookResult look, float3 n, float3 v, float3 world)
 {
-    float3 colour = look.albedo * LayerDiffuseLight(c, n, 1) + LayerSpecular(c, n, v, look.roughness, 1);
+    float3 colour = look.albedo * LayerDiffuseLight(c, n, 1) + LayerSpecular(c, n, v, look.roughness, 1, c.glint * look.wet);
     float fog = saturate((distance(world, c.eye) - c.fogStart) / c.fogRange);
     return lerp(colour, c.fogColour, fog);
 }
@@ -366,7 +382,8 @@ void FloorLayer(FloorConstants c, FilmLook look, float3 n, float3 v, float3 worl
     out float3 add)
 {
     mul = look.mul * BloodWetMul(wet, c.wetDarken);
-    add = look.add * (LayerDiffuseLight(c, n, sunVis) * mottle) + look.coverage * LayerSpecular(c, n, v, look.roughness, sunVis);
+    float glint = c.glint * saturate(look.wet / max(look.coverage, 1e-4));   // fresh film only: dry crust has no wide glint
+    add = look.add * (LayerDiffuseLight(c, n, sunVis) * mottle) + look.coverage * LayerSpecular(c, n, v, look.roughness, sunVis, glint);
     float fog = saturate((distance(world, c.eye) - c.fogStart) / c.fogRange);
     add = add * (1 - fog) + c.fogColour * fog * (1 - mul);
 }
@@ -466,6 +483,8 @@ FilmOut PsFloor(float4 pos : SV_Position)
         float2 ripple = (RippleGradient(q) + 0.5 * RippleGradient(q * 2.31 + 17.3)) * c.ripple;
         float3 g = float3(slope.x + ripple.x, 0, slope.y + ripple.y);
         g -= n * dot(n, g);
+        float gl = length(g);
+        if (gl > c.maxTilt) g *= c.maxTilt / gl;   // the steep meniscus at the very edge: tilted, never on its side
         float3 nf = normalize(n - g);
         float3 m2, a2;
         FloorLayer(c, look, nf, v, p, max(haloWet, look.wet), sunVis, mottle, m2, a2);
@@ -507,10 +526,29 @@ DropVs VsDrop(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     side = dot(side, side) > 1e-8 ? normalize(side) : normalize(cross(axis, float3(1, 0, 0.001)));
     float r = d.radius;
     float halfLen = r + 0.5 * min(speed * c.stretch, 6 * r);
-    float2 q = k[vid];
+    float4x4 vp = float4x4(c.viewProj0, c.viewProj1, c.viewProj2, c.viewProj3);
+    // A far drop is no thinner than DROP_MIN_PIXELS in radius: smaller ones are widened to it and kept with the probability of their
+    // true area share (a stable hash of the drop's start) - fewer, not fainter, drops in the distance, without subpixel flicker.
+    float4 c0 = mul(float4(x, 1), vp), c1 = mul(float4(x + side * r, 1), vp);
+    float pixels = c0.w > 1e-4 && c1.w > 1e-4 ? length((c1.xy / c1.w - c0.xy / c0.w) * 0.5 / float2(c.invWidth, c.invHeight)) : DROP_MIN_PIXELS;
     DropVs o;
+    if (pixels < DROP_MIN_PIXELS)
+    {
+        float grow = DROP_MIN_PIXELS / max(pixels, 1e-3);
+        float keep = 1 / (grow * grow);
+        uint h = asuint(d.x0.x) * 0x8DA6B343u ^ asuint(d.x0.y) * 0xD8163841u ^ asuint(d.x0.z) * 0xCB1AB31Fu;
+        h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+        if ((h & 0xFFFF) / 65536.0 >= keep)
+        {
+            o = (DropVs)0;   // degenerate: all six corners at one point - nothing is drawn
+            return o;
+        }
+        r *= grow;
+        halfLen *= grow;
+    }
+    float2 q = k[vid];
     o.world = x + side * (q.x * r) + axis * (q.y * halfLen);
-    o.pos = mul(float4(o.world, 1), float4x4(c.viewProj0, c.viewProj1, c.viewProj2, c.viewProj3));
+    o.pos = mul(float4(o.world, 1), vp);
     o.local = float2(q.x * r, q.y * halfLen);
     o.radius = r;
     o.halfSeg = halfLen - r;

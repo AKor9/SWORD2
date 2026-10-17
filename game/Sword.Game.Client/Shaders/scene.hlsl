@@ -117,6 +117,10 @@ void SkinLayerOf(uint owner, uint vid, out float4 add, out float4 mul)
 }
 
 static const float SKIN_LAYER_F0 = 0.028;   // SkinLayerTexel.F0
+// Second, wider sun lobe of a fresh wet layer (the film is uneven: the glint spreads around the mirror direction, as on the blood floor
+// film): weight and added roughness; it fades out as the layer roughens to dry (roughness 0.15...0.45).
+static const float SKIN_LAYER_GLINT = 0.4;
+static const float SKIN_LAYER_GLINT_ROUGHNESS = 0.3;
 
 SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
 {
@@ -174,6 +178,8 @@ SceneOut PsSkin(SkinVs i)
     float3 skyHalf = (gFrame.env.skyHigh - gFrame.env.skyLow) * 0.5;
     float3 sky = (gFrame.env.skyLow + skyHalf) + r.y * skyHalf;
     float3 spec = SurfaceSpecular(n, v, l, gFrame.env.sun * shadow, sky * ao, SKIN_LAYER_F0, i.layerMul.a);
+    float glint = SKIN_LAYER_GLINT * (1 - smoothstep(0.15, 0.45, i.layerMul.a));
+    if (glint > 0) spec += glint * SurfaceSpecular(n, v, l, gFrame.env.sun * shadow, 0, SKIN_LAYER_F0, i.layerMul.a + SKIN_LAYER_GLINT_ROUGHNESS);
     float fog = saturate((distance(i.world, gFrame.cameraPos) - 25) / 140);
     return Scene(c + cover * (1 - fog) * spec, n, false);
 }

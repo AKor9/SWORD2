@@ -69,11 +69,13 @@ public sealed class BloodTuning
     public float OozeFeedVolume { get; set; } = 0.3f;
 
     /// <summary>
-    /// Лужа под трупом: из ран трупа (по урону) каплями выливается столько, мл, — темп спадает как e^(−t/τ) от смерти (за 5–8 с — 80–93 %),
-    /// τ — <see cref="CorpsePoolSeconds"/>; капля — <see cref="CorpsePourDropMl"/>.
+    /// Лужа под трупом: из ран трупа (по урону²) каплями выливается столько, мл, — после задержки <see cref="CorpsePoolDelay"/>, с (труп
+    /// падает), темп спадает как e^(−t/τ) (к 5 с от смерти — 80 %, к 7.5 с — 93 %), τ — <see cref="CorpsePoolSeconds"/>; капля —
+    /// <see cref="CorpsePourDropMl"/>.
     /// </summary>
     public float CorpsePoolMl { get; set; } = 150;
-    public float CorpsePoolSeconds { get; set; } = 3;
+    public float CorpsePoolSeconds { get; set; } = 2.5f;
+    public float CorpsePoolDelay { get; set; } = 1;
     public float CorpsePourDropMl { get; set; } = 1;
 
     /// <summary>Сопротивление полёта капли k, 1/с: dv/dt = g − k·v (предельная скорость g/k).</summary>
@@ -103,7 +105,7 @@ public sealed class BloodTuning
     /// Нормаль плёнки: уклон профиля толщины × усиление; профиль — h_c·(1 − e^(−h/h_c)) (<see cref="FloorMeniscusMm"/>): у тонкого края
     /// круче (мениск), толстая середина лужи плоская.
     /// </summary>
-    public float FloorNormalScale { get; set; } = 8;
+    public float FloorNormalScale { get; set; } = 30;
     public float FloorMeniscusMm { get; set; } = 0.5f;
 
     /// <summary>F0 блика плёнки (кровь n ≈ 1.40 — 0.028, BVR §5.3).</summary>
@@ -111,6 +113,22 @@ public sealed class BloodTuning
 
     /// <summary>Сила отражения неба плёнкой (1 — как у сцены).</summary>
     public float FloorSkyGain { get; set; } = 2.5f;
+
+    /// <summary>
+    /// Яркость горизонта в отражении неба (× верх неба сцены, растёт к горизонту как (1 − r.y)⁴): на скользящих углах френель плёнки
+    /// отражает светлое низкое небо — мокрое читается и в тени.
+    /// </summary>
+    public float FloorHorizon { get; set; } = 1.5f;
+
+    /// <summary>
+    /// Второй, широкий блик солнца свежей плёнки (рябь и мениск размывают блик вокруг зеркального направления): вес и прибавка к
+    /// шероховатости слоя.
+    /// </summary>
+    public float FloorGlint { get; set; } = 0.4f;
+    public float FloorGlintRoughness { get; set; } = 0.3f;
+
+    /// <summary>Наклон нормали плёнки (мениск, рябь) не больше, градусы.</summary>
+    public float FloorMaxTilt { get; set; } = 30f;
 
     /// <summary>
     /// Мокрая подложка: множитель пола под свежей кровью и в ореоле вокруг (Lagarde: до 0.2 у пористой; с оттенком
@@ -124,7 +142,7 @@ public sealed class BloodTuning
     public float FloorEdgeWarp { get; set; } = 0.6f;
 
     /// <summary>Рябь плёнки: уклон шума в мире (без анимации) и его размер, м.</summary>
-    public float FloorRipple { get; set; } = 0.02f;
+    public float FloorRipple { get; set; } = 0.03f;
     public float FloorRippleSize { get; set; } = 0.15f;
 
     /// <summary>

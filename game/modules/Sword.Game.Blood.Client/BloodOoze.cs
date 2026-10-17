@@ -10,7 +10,8 @@ public readonly record struct BloodPour(ulong Fighter, int Row, int Wound, float
 /// <see cref="BloodTuning.OozeMaxRate"/>. Выпущенное: доля <see cref="BloodTuning.OozeSpotShare"/> — в пятно у раны (оно растёт), остальное
 /// копится и уходит новым потёком (<see cref="BloodDrips.Feed"/>) порциями <see cref="BloodTuning.OozeFeedVolume"/>. Всё — функция записей
 /// ран и тиков: два прогона дают одно и то же; место потёка — из хеша (зерно раны, номер подпитки). Лужа под трупом: с тика смерти из ран
-/// трупа выливается <see cref="BloodTuning.CorpsePoolMl"/> с темпом ∝ e^(−t/τ), по ранам — по урону, каплями <see cref="BloodTuning.CorpsePourDropMl"/>
+/// трупа после задержки <see cref="BloodTuning.CorpsePoolDelay"/> (труп падает) выливается <see cref="BloodTuning.CorpsePoolMl"/> с темпом ∝ e^(−t/τ),
+/// по ранам — по урону² (смертельная — с весом <see cref="LethalPourWeight"/>), каплями <see cref="BloodTuning.CorpsePourDropMl"/>
 /// (<see cref="Pours"/> шага; полёт и пол — у модуля).
 /// </summary>
 public sealed class BloodOoze
@@ -127,7 +128,7 @@ public sealed class BloodOoze
         Pool(row, tick, tickDt, corpse, wounds, tuning);
     }
 
-    /// <summary>Лужа трупа: объём шага — ∫ темпа PoolMl/τ·e^(−t/τ) от тика смерти, по ранам — по урону; набралась капля — в <see cref="Pours"/>.</summary>
+    /// <summary>Лужа трупа: объём шага — ∫ темпа PoolMl/τ·e^(−t/τ) от тика смерти + задержка, по ранам — по урону²; набралась капля — в <see cref="Pours"/>.</summary>
     private void Pool(int row, ulong tick, float tickDt, bool corpse, BloodWounds wounds, BloodTuning tuning)
     {
         ulong key = wounds.Key(row);
@@ -137,24 +138,42 @@ public sealed class BloodOoze
             if (!corpse) return;
         }
         if (_deadTick[row] == 0) (_deadTick[row], _poolTime[row]) = (tick + 1, 0);
-        float tau = MathF.Max(tuning.CorpsePoolSeconds, 1e-3f), t = (tick + 1 - _deadTick[row]) * tickDt;
+        // Пока труп падает (задержка), лужа не льётся: капли с летящего тела легли бы дорожкой, а не лужей.
+        float tau = MathF.Max(tuning.CorpsePoolSeconds, 1e-3f), t = (tick + 1 - _deadTick[row]) * tickDt - MathF.Max(tuning.CorpsePoolDelay, 0);
+        if (!(t > 0)) return;
         float volume = tuning.CorpsePoolMl * (MathF.Exp(-_poolTime[row] / tau) - MathF.Exp(-t / tau));
         _poolTime[row] = t;
         var list = wounds.Of(row);
+        ulong lethal = 0;   // последняя рана живого — смертельная
+        for (int i = 0; i < list.Length; i++)
+            if (!list[i].Corpse && list[i].Tick >= lethal) lethal = list[i].Tick;
         float damage = 0;
-        for (int i = 0; i < list.Length; i++) damage += MathF.Max(list[i].Damage, 0);
+        for (int i = 0; i < list.Length; i++) damage += PourWeight(list[i], lethal);
         if (!(volume > 0) || !(damage > 0)) return;
         float drop = MathF.Max(tuning.CorpsePourDropMl, 0.05f);
         for (int i = 0; i < list.Length; i++)
         {
             ref var s = ref _sources[row * BloodWounds.RingSize + i];
-            s.PourPending += volume * MathF.Max(list[i].Damage, 0) / damage;
+            s.PourPending += volume * PourWeight(list[i], lethal) / damage;
             if (s.PourPending < drop) continue;
             if (_pourCount == _pours.Length) Array.Resize(ref _pours, 2 * _pours.Length);
             _pours[_pourCount++] = new BloodPour(key, row, i, s.PourPending, s.Pours++);
             Poured += s.PourPending;
             s.PourPending = 0;
         }
+    }
+
+    /// <summary>Смертельная рана (последняя рана живого) льёт в лужу трупа с весом во столько раз больше.</summary>
+    public const float LethalPourWeight = 6;
+
+    /// <summary>
+    /// Доля раны в луже трупа ∝ урон², у смертельной — × <see cref="LethalPourWeight"/>: льёт в основном одна рана — лужа, а не россыпь
+    /// пятен по всем ранам (удары врага равны по урону).
+    /// </summary>
+    private static float PourWeight(in BloodWound w, ulong lethal)
+    {
+        float d = MathF.Max(w.Damage, 0);
+        return d * d * (!w.Corpse && w.Tick == lethal ? LethalPourWeight : 1);
     }
 
     private void Release(int row, int index, in BloodWound w, float volume, ulong tick, float now, BloodTuning tuning, BloodSkin? skin,

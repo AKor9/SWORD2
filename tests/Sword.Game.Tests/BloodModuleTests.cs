@@ -278,6 +278,12 @@ public sealed class BloodModuleTests
         scene.Frames(1);
         Assert.Equal([(kill, FighterKey.Of(scene.Slot(1)))], deaths);
         Assert.True(scene.Feed.TryBleed(FighterKey.Of(scene.Slot(1)), out _, out dead) && dead);
+        // Игрок — сущность с номером 0 (не Entity.Null): его труп тоже мёртв, иначе нет лужи трупа игрока.
+        Assert.Equal(0, scene.Slot(0).Index);
+        Assert.True(scene.Feed.TryBleed(FighterKey.Of(scene.Slot(0)), out _, out dead) && !dead);
+        scene.Pending.Add(new SceneCommand { Action = SceneAction.Kill, Slot = 0 });
+        scene.Frames(1);
+        Assert.True(scene.Feed.TryBleed(FighterKey.Of(scene.Slot(0)), out _, out dead) && dead);
         Assert.Empty(resets);
 
         built.Clear();
