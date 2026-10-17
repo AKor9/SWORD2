@@ -9,7 +9,7 @@ public sealed class BloodTuning
     public float StrongDamage { get; set; } = 45;
 
     /// <summary>Крови в рану на единицу урона, мл.</summary>
-    public float VolumePerDamage { get; set; } = 0.12f;
+    public float VolumePerDamage { get; set; } = 0.35f;
 
     /// <summary>Вязкое гашение скорости потёка k, 1/с: v ← v·e^(−k·dt); на отвесной коже скорость устанавливается около g·dt·e^(−k·dt)/(1 − e^(−k·dt)).</summary>
     public float Viscosity { get; set; } = 40;
@@ -45,22 +45,22 @@ public sealed class BloodTuning
     public float MaxAccel { get; set; } = 400;
 
     /// <summary>Пятно у раны при попадании: крови на единицу урона, мл.</summary>
-    public float SpotPerDamage { get; set; } = 0.04f;
+    public float SpotPerDamage { get; set; } = 0.1f;
 
     /// <summary>Радиус пятна у раны: наименьший, м, и прибавка на единицу урона, м (не больше <see cref="SpotRadiusMax"/>).</summary>
     public float SpotRadiusMin { get; set; } = 0.02f;
-    public float SpotRadiusPerDamage { get; set; } = 0.0008f;
-    public float SpotRadiusMax { get; set; } = 0.07f;
+    public float SpotRadiusPerDamage { get; set; } = 0.0012f;
+    public float SpotRadiusMax { get; set; } = 0.1f;
 
     /// <summary>Сочение сильной раны (решение 3): темп на единицу урона, мл/с; гаснет линейно до нуля за столько секунд.</summary>
-    public float OozeRate { get; set; } = 0.01f;
+    public float OozeRate { get; set; } = 0.03f;
     public float OozeSeconds { get; set; } = 20;
 
     /// <summary>У трупа темп не ниже этой доли начального — пока труп лежит (решение 4).</summary>
     public float OozeCorpseShare { get; set; } = 0.25f;
 
     /// <summary>Темп сочения всех ран бойца не больше, мл/с.</summary>
-    public float OozeMaxRate { get; set; } = 1f;
+    public float OozeMaxRate { get; set; } = 3f;
 
     /// <summary>Доля выпущенного — в пятно у раны (растёт), остальное — потёками.</summary>
     public float OozeSpotShare { get; set; } = 0.3f;
@@ -73,10 +73,50 @@ public sealed class BloodTuning
     /// падает), темп спадает как e^(−t/τ) (к 5 с от смерти — 80 %, к 7.5 с — 93 %), τ — <see cref="CorpsePoolSeconds"/>; капля —
     /// <see cref="CorpsePourDropMl"/>.
     /// </summary>
-    public float CorpsePoolMl { get; set; } = 150;
+    public float CorpsePoolMl { get; set; } = 600;
     public float CorpsePoolSeconds { get; set; } = 2.5f;
     public float CorpsePoolDelay { get; set; } = 1;
     public float CorpsePourDropMl { get; set; } = 1;
+
+    /// <summary>
+    /// Брызги из раны при ударе: крови на единицу урона, мл (капли — пока не наберётся; число ∝ урону), не больше капель на удар; диаметр
+    /// капли — лог-нормально: медиана, мм, σ логарифма, в пределах <see cref="SprayMinMm"/>…<see cref="SprayMaxMm"/>.
+    /// </summary>
+    public float SprayPerDamage { get; set; } = 0.08f;
+    public int SprayMaxDrops { get; set; } = 256;
+    public float SprayMedianMm { get; set; } = 2.5f;
+    public float SpraySigma { get; set; } = 0.6f;
+    public float SprayMinMm { get; set; } = 1;
+    public float SprayMaxMm { get; set; } = 6;
+
+    /// <summary>Скорость капли брызг — доля скорости кончика клинка (от, до), в пределах <see cref="SprayMinSpeed"/>…<see cref="SprayMaxSpeed"/>, м/с.</summary>
+    public float SpraySpeedMin { get; set; } = 0.2f;
+    public float SpraySpeedMax { get; set; } = 0.6f;
+    public float SprayMinSpeed { get; set; } = 1;
+    public float SprayMaxSpeed { get; set; } = 8;
+
+    /// <summary>
+    /// Веер брызг: полуугол в плоскости хода клинка (Dir, Blade), рад; разброс поперёк неё, рад; доля скорости наружу по нормали кожи.
+    /// Укол — струя назад по ходу клинка в конусе <see cref="SprayThrustCone"/>, рад.
+    /// </summary>
+    public float SprayFan { get; set; } = 0.6f;
+    public float SprayCross { get; set; } = 0.2f;
+    public float SprayOutward { get; set; } = 0.5f;
+    public float SprayThrustCone { get; set; } = 0.35f;
+
+    /// <summary>
+    /// Обратный конус к атакующему: доля капель брызг, которые летят в его торс, голову и руки (прицел по замкнутой формуле полёта с разбросом
+    /// <see cref="SprayBackJitter"/>, м); атакующий дальше <see cref="SprayBackRange"/>, м, — нет.
+    /// </summary>
+    public float SprayBackShare { get; set; } = 0.2f;
+    public float SprayBackJitter { get; set; } = 0.08f;
+    public float SprayBackRange { get; set; } = 2.5f;
+
+    /// <summary>Капля брызг не липнет к своему телу, пока не пролетела столько, м (вылетает из раны).</summary>
+    public float SprayOwnSkip { get; set; } = 0.06f;
+
+    /// <summary>Прилипшая к коже капля — пятно толщины не больше этой, мм (радиус — от объёма, 0.8…3 см).</summary>
+    public float SprayStickMm { get; set; } = 0.15f;
 
     /// <summary>Сопротивление полёта капли k, 1/с: dv/dt = g − k·v (предельная скорость g/k).</summary>
     public float DropDrag { get; set; } = 2;

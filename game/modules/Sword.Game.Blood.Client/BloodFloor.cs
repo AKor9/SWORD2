@@ -31,9 +31,12 @@ public readonly record struct BloodFloorStamp(Vector2 Xz, Vector2 HalfAxes, floa
 /// <summary>Штамп прямо в карту пятен (капля легла вне окна): центр (x, z), м, объём ρ·м².</summary>
 public readonly record struct BloodMapStamp(Vector2 Xz, float Volume);
 
-/// <summary>Капля в полёте: отрыв (точка, скорость, тик), приземление (тик, время после отрыва, точка, скорость), объём, мл, зерно формы.</summary>
+/// <summary>
+/// Капля в полёте: отрыв (точка, скорость, тик), приземление (тик, время после отрыва, точка, скорость), объём, мл, зерно формы; чья (ключ
+/// бойца) и липнет ли к телам бойцов (брызги из раны — <see cref="BloodFloor.Collide"/>).
+/// </summary>
 public readonly record struct BloodFlying(Vector3 X0, Vector3 V0, ulong Tick0, ulong LandTick, float LandTime, Vector3 Land, float Volume,
-    Vector3 LandVelocity, uint Seed);
+    Vector3 LandVelocity, uint Seed, ulong Owner = 0, bool Sticky = false);
 
 /// <summary>
 /// Кровь на полу на CPU: капли от тела (<see cref="BloodDrips.Drops"/>) и из ран трупа — полёт замкнутой формулой (<see cref="BloodFlight"/>),
@@ -81,11 +84,15 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
     public static Fluid2DParams Params { get; } = Fluid2DParams.BloodSpread with { DensityNoiseEnabled = false, EdgeMaskWidth = 1f / N };
 
     private readonly BloodTuning _tuning = tuning ?? new BloodTuning();
-    private BloodFlying[] _flying = new BloodFlying[64];
+    private BloodFlying[] _flying = new BloodFlying[1024];
     private int _flyingCount;
     private BloodFloorStamp[] _stamps = new BloodFloorStamp[64];
     private int _stampCount;
     private BloodMapStamp[] _mapStamps = new BloodMapStamp[16];
+    private BloodStick[] _sticks = new BloodStick[64];
+    private int _stickCount;
+    private ulong _collided;
+    private Vector4[] _bounds = new Vector4[64];
     private int _mapStampCount;
     private readonly Vector3[] _recent = new Vector3[RecentLandings];
     private bool _window, _resetPending = true, _puddle;
@@ -129,6 +136,13 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
     public double OutsideMl { get; private set; }
     public double OffMapMl { get; private set; }
     public long Lost { get; private set; }
+
+    /// <summary>Капель брызг, прилипших к телам бойцов, и их объём, мл (<see cref="Collide"/>).</summary>
+    public long Stuck { get; private set; }
+    public double StuckMl { get; private set; }
+
+    /// <summary>Касания тел последнего <see cref="Collide"/>.</summary>
+    public ReadOnlySpan<BloodStick> Sticks => _sticks.AsSpan(0, _stickCount);
     public long Steps { get; private set; }
     public long Shifts { get; private set; }
 
@@ -154,6 +168,7 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
     public void Reset()
     {
         _flyingCount = 0;
+        _stickCount = 0;
         _pourStep = int.MaxValue;
         _resetPending = true;
     }
@@ -161,10 +176,19 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
     /// <summary>Отрывы шага: приземление по рельефу на CPU (тик, точка, скорость) — сразу; в полёт. Зерно формы — (боец, тик, номер в шаге).</summary>
     public void Detach(ReadOnlySpan<BloodDrop> drops, ITerrainView? terrain, float drag, float tickDt)
     {
-        for (int i = 0; i < drops.Length; i++) DetachOne(drops[i], i, terrain, drag, tickDt);
+        for (int i = 0; i < drops.Length; i++) DetachOne(drops[i], i, terrain, drag, tickDt, 0, false);
     }
 
-    private void DetachOne(in BloodDrop d, int index, ITerrainView? terrain, float drag, float tickDt)
+    /// <summary>
+    /// Брызги из раны: как <see cref="Detach"/>, но капли липнут к телам бойцов (<see cref="Collide"/>); зерно формы — ещё и с солью
+    /// <paramref name="salt"/> (зерно раны: несколько ран бойца в тике).
+    /// </summary>
+    public void DetachSticky(ReadOnlySpan<BloodDrop> drops, ITerrainView? terrain, float drag, float tickDt, uint salt)
+    {
+        for (int i = 0; i < drops.Length; i++) DetachOne(drops[i], i, terrain, drag, tickDt, salt, true);
+    }
+
+    private void DetachOne(in BloodDrop d, int index, ITerrainView? terrain, float drag, float tickDt, uint salt, bool sticky)
     {
         Detached++;
         DetachedMl += d.Volume;
@@ -174,9 +198,128 @@ public sealed class BloodFloor(BloodTuning? tuning = null)
             return;
         }
         if (_flyingCount == _flying.Length) Array.Resize(ref _flying, _flying.Length * 2);
-        uint seed = BloodHash.Combine(BloodHash.Seed(d.Fighter, d.Tick, 0), (uint)index);
+        uint seed = BloodHash.Seed(d.Fighter, d.Tick, 0);
+        if (salt != 0) seed = BloodHash.Combine(seed, salt);
+        seed = BloodHash.Combine(seed, (uint)index);
         _flying[_flyingCount++] = new BloodFlying(d.Position, d.Velocity, d.Tick, d.Tick + (ulong)ticks, t, point, d.Volume,
-            BloodFlight.Velocity(d.Velocity, drag, t), seed);
+            BloodFlight.Velocity(d.Velocity, drag, t), seed, d.Fighter, sticky);
+    }
+
+    /// <summary>Запас к шару бойца для отбора, м.</summary>
+    private const float BoundsMargin = 0.05f;
+
+    /// <summary>Капсула плоти тика для проверки касаний: концы оси, радиус, сегмент; боец — номер в позах.</summary>
+    private struct Capsule
+    {
+        public Vector3 P, Q, Center;
+        public float Radius, Reach;
+        public int Segment;
+    }
+
+    private Capsule[] _capsules = new Capsule[64 * BodySegs.Flesh];
+    private int[] _capsuleStart = new int[65];
+
+    /// <summary>
+    /// Касание тел бойцов на тике <paramref name="tick"/> (позы этого тика): липкие капли проверяются на хорде полёта с прошлой проверки до
+    /// этого тика (не дальше приземления; за шаг 60 Гц хорда отходит от дуги меньше 1 мм) против капсул плоти всех бойцов (клинок — нет);
+    /// своё тело — только когда капля отлетела от точки вылета дальше <paramref name="ownSkip"/>, м, и капсула, внутри которой хорда
+    /// начинается, не держит (вылет из раны). Первое касание — в <see cref="Sticks"/> (точка на капсуле, скорость), капля из полёта уходит
+    /// (на пол не ляжет).
+    /// </summary>
+    public ReadOnlySpan<BloodStick> Collide(ulong tick, IFighterPoses poses, float drag, float tickDt, float ownSkip)
+    {
+        _stickCount = 0;
+        ulong since = _collided;
+        _collided = tick;
+        if (!AnySticky()) return Sticks;   // позы не трогать: снимок поз всех бойцов — при первом обращении в тике
+        int fighters = poses.Count;
+        if (_bounds.Length < fighters)
+        {
+            _bounds = new Vector4[Math.Max(2 * _bounds.Length, fighters)];
+            _capsuleStart = new int[_bounds.Length + 1];
+            _capsules = new Capsule[_bounds.Length * BodySegs.Flesh];
+        }
+        _capsuleStart[0] = 0;
+        for (int f = 0; f < fighters; f++) _capsuleStart[f + 1] = Capsules(poses.Segments(f), _capsuleStart[f], out _bounds[f]);
+        int w = 0;
+        for (int i = 0; i < _flyingCount; i++)
+        {
+            if (_flying[i].Sticky && CollideOne(_flying[i], since, tick, poses, drag, tickDt, ownSkip)) continue;
+            _flying[w++] = _flying[i];
+        }
+        _flyingCount = w;
+        return Sticks;
+    }
+
+    private bool AnySticky()
+    {
+        for (int i = 0; i < _flyingCount; i++) if (_flying[i].Sticky) return true;
+        return false;
+    }
+
+    /// <summary>Капсулы плоти бойца — с места <paramref name="at"/>; шар бойца — среднее центров и наибольшее удаление края (тел нет — w −1).</summary>
+    private int Capsules(ReadOnlySpan<SegmentBody> segments, int at, out Vector4 bound)
+    {
+        bound = new Vector4(0, 0, 0, -1);
+        if (segments.IsEmpty) return at;
+        var c = Vector3.Zero;
+        for (int k = 0; k < segments.Length; k++) c += segments[k].Position;
+        c /= segments.Length;
+        float r = 0;
+        for (int k = 0; k < segments.Length; k++)
+        {
+            ref readonly var body = ref segments[k];
+            r = MathF.Max(r, Vector3.Distance(body.Position, c) + body.HalfLength + body.Radius);
+            if (!BodySegs.IsFlesh(body.Segment) || at == _capsules.Length) continue;
+            var axis = Vector3.TransformNormal(Vector3.UnitY, body.World) * body.HalfLength;
+            _capsules[at++] = new Capsule
+            {
+                P = body.Position - axis, Q = body.Position + axis, Center = body.Position, Radius = body.Radius,
+                Reach = body.HalfLength + body.Radius, Segment = body.Segment,
+            };
+        }
+        bound = new Vector4(c, r + BoundsMargin);
+        return at;
+    }
+
+    private bool CollideOne(in BloodFlying f, ulong since, ulong tick, IFighterPoses poses, float drag, float tickDt, float ownSkip)
+    {
+        float t0 = since > f.Tick0 ? (since - f.Tick0) * tickDt : 0;
+        float t1 = MathF.Min(tick > f.Tick0 ? (tick - f.Tick0) * tickDt : 0, f.LandTime);
+        if (!(t1 > t0)) return false;
+        var a = BloodFlight.Position(f.X0, f.V0, drag, t0);
+        var b = BloodFlight.Position(f.X0, f.V0, drag, t1);
+        if (!Touch(f, a, b, poses, ownSkip, out int fighter, out int segment, out float s)) return false;
+        if (_stickCount == _sticks.Length) Array.Resize(ref _sticks, 2 * _sticks.Length);
+        _sticks[_stickCount++] = new BloodStick(poses.Fighter(fighter).Fighter, segment, Vector3.Lerp(a, b, s),
+            BloodFlight.Velocity(f.V0, drag, t0 + (t1 - t0) * s), f.Volume);
+        Stuck++;
+        StuckMl += f.Volume;
+        return true;
+    }
+
+    /// <summary>Первое касание хорды a–b с капсулами плоти бойцов: боец (номер в позах), сегмент, доля хорды.</summary>
+    private bool Touch(in BloodFlying f, Vector3 a, Vector3 b, IFighterPoses poses, float ownSkip, out int fighter, out int segment, out float s)
+    {
+        (fighter, segment, s) = (-1, -1, float.MaxValue);
+        bool clear = Vector3.DistanceSquared(b, f.X0) > ownSkip * ownSkip;
+        var mid = 0.5f * (a + b);
+        float half = 0.5f * Vector3.Distance(a, b);
+        for (int i = 0; i < poses.Count; i++)
+        {
+            var bound = _bounds[i];
+            if (bound.W < 0 || Vector3.Distance(mid, new Vector3(bound.X, bound.Y, bound.Z)) > bound.W + half) continue;
+            if (!clear && poses.Fighter(i).Fighter == f.Owner) continue;
+            for (int k = _capsuleStart[i]; k < _capsuleStart[i + 1]; k++)
+            {
+                ref readonly var c = ref _capsules[k];
+                if (Vector3.Distance(mid, c.Center) > c.Reach + half) continue;
+                float hit = BloodSpray.SegmentCapsule(a, b, c.P, c.Q, c.Radius);
+                if (hit < 0 || hit >= s) continue;
+                (fighter, segment, s) = (i, c.Segment, hit);
+            }
+        }
+        return fighter >= 0;
     }
 
     /// <summary>

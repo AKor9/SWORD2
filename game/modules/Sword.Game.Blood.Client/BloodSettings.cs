@@ -16,10 +16,10 @@ public sealed record BloodSettings
     public int ShownHits { get; init; } = 64;
 
     /// <summary>Потёков по коже на бойца не больше (вытесняется самый старый).</summary>
-    public int DripsPerFighter { get; init; } = 16;
+    public int DripsPerFighter { get; init; } = 32;
 
     /// <summary>Потёков по коже на мир не больше.</summary>
-    public int DripsWorld { get; init; } = 512;
+    public int DripsWorld { get; init; } = 1024;
 
     /// <summary>Бойцов с кровью на коже одновременно (пул буферов по вершинам: ≈ 0.78 МБ видеопамяти и 0.6 МБ памяти на слот).</summary>
     public int SkinSlots { get; init; } = 40;

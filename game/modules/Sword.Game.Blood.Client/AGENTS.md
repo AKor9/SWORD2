@@ -18,13 +18,13 @@
   сдвигается только целыми текселями, а уходящее из окна до шага уходит в карту (`blood.floor.transfer`); засохшее — из состояния между
   шагами (`Advected`), не из `Composite` (его следующий шаг не читает).
 
-Проверка: `dotnet test tests/Sword.Game.Tests --filter "FullyQualifiedName~Blood"` (GPU и Content — пак игры);
-`verify.ps1 -Only without-modules`.
+Проверка: `dotnet test tests/Sword.Game.Tests --filter "FullyQualifiedName~Blood"` (нужен пак), `verify.ps1 -Only without-modules`.
 
 Видно: `Sword.exe --json` → `blood.feed` (тики, попадания, смерти, постройки, сбросы, последний кадр, бойцов в позах),
-`blood.services`, `blood.wounds` (с `ooze`), `blood.skin`, `blood.drips`, `blood.floor` (`fieldHash`, мл окна и карты); оверлеи `blood` (с рамкой
-окна пола и приземлениями), `blood.wounds`, `blood.drips`; вкладка F3 «Кровь» (лужа под игроком: `--tune blood.puddle=1`). Снимки боя —
-`--attack` (удар каждый тик) и `--fps 60`: прогон повторяется, `blood.feed.deathsAt` — куда ставить `--camera`.
+`blood.services`, `blood.wounds` (с `ooze`), `blood.skin`, `blood.drips`, `blood.floor` (`fieldHash`, мл окна и карты), `blood.spray`
+(брызги, на коже, касания); оверлеи `blood` (с рамкой окна пола и приземлениями), `blood.wounds`, `blood.drips`; вкладка F3 «Кровь» (лужа
+под игроком: `--tune blood.puddle=1`). Снимки боя — `--attack` (удар каждый тик), `--fps 60` и `--set combat.playerInvulnerable=true`:
+прогон повторяется, `blood.feed.deathsAt` — куда ставить `--camera`.
 
 Типичные ошибки: читать `IBloodFeed` вне наблюдателя тиков и ждать всех тиков кадра (отдаётся последний сыгранный); якорь раны по позе
 кадра, а не тика; путать `Point` пробы удара (центр капсулы) с касанием клинка (поверхность).

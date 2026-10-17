@@ -233,6 +233,8 @@ public sealed class BloodFloorGpu : IGpuSimulation
         var st = _stamps!;
         st.Begin(step.Step, center, rotation);
         foreach (ref readonly var s in stamps) st.Add(new Vector3(s.Xz.X, 0, s.Xz.Y), s.Angle, s.HalfAxes, s.Volume, s.Shape);
+        // Первый шаг — и проход штампов (его буферы сим заводит при первом штампе): исчезающе малый штамп в центре окна.
+        if (warm && stamps.IsEmpty) st.Add(center, 0, new Vector2(BloodFloor.Texel), WarmStampVolume, 0);
         st.End();
         sim.Step(frame, input, (GpuStorage?)null, st);
         _centerX = step.CenterX;
@@ -241,6 +243,9 @@ public sealed class BloodFloorGpu : IGpuSimulation
         _floorReady = true;
         GpuSteps++;
     }
+
+    /// <summary>Объём штампа прогрева, ρ·м² (≈ 3·10⁻¹⁵ мл: в half поля — ноль).</summary>
+    public const float WarmStampVolume = 1e-18f;
 
     /// <summary>Площадка окна: горизонтальна, u — вдоль +X, v — вдоль +Z (поворот −90° вокруг X).</summary>
     public static Quaternion PlaneRotation { get; } = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -MathF.PI / 2);
@@ -494,13 +499,18 @@ public sealed class BloodFloorGpu : IGpuSimulation
 
     private void DrawDrops(RenderPassContext ctx)
     {
-        if (_dropCount == 0) return;
+        // Первый кадр — конвейер капель собирается и без капель (иначе — при первых брызгах посреди боя: десятки мс и выделения).
+        if (_dropCount == 0 && _dropsWarm) return;
+        _dropsWarm = true;
         ctx.SetPipeline(DropPipeline);
+        if (_dropCount == 0) return;
         SetLook(ctx);
         ctx.SetConstant(SlotData, _data);
         ctx.SetConstant(SlotDrops, _dropsSrv);
         ctx.Draw(6, (uint)_dropCount);
     }
+
+    private bool _dropsWarm;
 
     public void OnReadback(ReadOnlySpan<byte> data)
     {
