@@ -18,8 +18,10 @@ internal static class RootLayout
 
 /// <summary>
 /// Смешивание цели 0. <see cref="Premultiplied"/>: dst = src.rgb + dst·(1 − src.a), альфа — непрозрачность «поверх».
+/// <see cref="DualSource"/>: dst.rgb = src0.rgb + dst.rgb·src1.rgb (цветное пропускание: слой поглощает подложку по каналам; пиксельный
+/// шейдер пишет SV_Target0 и SV_Target1, цель одна), альфа цели не меняется.
 /// </summary>
-public enum BlendMode { Opaque, Additive, Alpha, Premultiplied }
+public enum BlendMode { Opaque, Additive, Alpha, Premultiplied, DualSource }
 
 /// <summary>
 /// Глубина конвейера. Обратный Z: сравнение GreaterEqual. <see cref="TestBehind"/> — проходит то, что ЗА записанной
@@ -191,6 +193,9 @@ internal sealed class PipelineCache : IDisposable
         else if (d.Blend == BlendMode.Premultiplied)
             blendDesc.RenderTarget[0] = new RenderTargetBlendDescription(true, false,
                 Blend.One, Blend.InverseSourceAlpha, BlendOperation.Add, Blend.One, Blend.InverseSourceAlpha, BlendOperation.Add);
+        else if (d.Blend == BlendMode.DualSource)
+            blendDesc.RenderTarget[0] = new RenderTargetBlendDescription(true, false,
+                Blend.One, Blend.Source1Color, BlendOperation.Add, Blend.Zero, Blend.One, BlendOperation.Add);
 
         if (d.Depth != DepthMode.None && layout.Depth == Format.Unknown)
             throw new InvalidOperationException($"{d.File}:{d.VsEntry}/{d.PsEntry}: глубина {d.Depth} в проходе без цели глубины");

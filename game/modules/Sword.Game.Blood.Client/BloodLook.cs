@@ -4,37 +4,54 @@ using System.Runtime.InteropServices;
 namespace Sword.Game.Blood;
 
 /// <summary>
-/// Числа функции свежести крови (ручки F3 «Кровь»): палитра L2 — густая (226, 24, 28) sRGB, тонкий край (126, 7, 0), засохшая на коже —
-/// (0.06, 0.008, 0.006) линейно (WR §4.7); блеск уходит за <see cref="GlossStart"/>…<see cref="GlossEnd"/> с, темнеет и буреет за
-/// <see cref="DarkStart"/>…<see cref="DarkEnd"/> с (решение 6); толстая сохнет в <see cref="ThickSlow"/> раз дольше (SWORD 1: DryThick).
-/// Раскладка — корневые константы <c>blood_look.hlsli</c> (<see cref="Slots"/> подряд, по порядку полей).
+/// Числа функции свежести крови (ручки F3 «Кровь»). Кровь — поглощающий слой поверх подложки (Бер — Ламберт, BVR §5.3): пропускание
+/// туда и обратно e^(−2σh) по каналам — сине-зелёный гаснет за 30–50 мкм, красный проходит доли миллиметра; рассеянное самим слоем —
+/// альбедо бесконечно толстой крови <see cref="Deep"/> (113, 9, 26) sRGB × (1 − пропускание). Тонкий слой — подложка видна, темнее и
+/// красная; толстый — глубокий тёмно-красный; засохшая буреет к <see cref="Dry"/> (WR §4.7) и мутнеет (<see cref="DryAbsorb"/>). Блеск
+/// уходит за <see cref="GlossStart"/>…<see cref="GlossEnd"/> с, темнеет за <see cref="DarkStart"/>…<see cref="DarkEnd"/> с (решение 6);
+/// толстая сохнет в <see cref="ThickSlow"/> раз дольше. Раскладка — корневые константы <c>blood_look.hlsli</c> (<see cref="Slots"/> подряд,
+/// по порядку полей).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 public struct BloodLookParams
 {
-    /// <summary>Толщина, мм, с которой кровь «густая» (цвет и замедление высыхания — полностью).</summary>
+    /// <summary>Толщина, мм, с которой кровь «густая» (замедление высыхания — полностью).</summary>
     public float ThickMm;
-    /// <summary>Толщина, мм, при которой покрытие 1 − 1/e.</summary>
-    public float CoverMm;
+    /// <summary>Мягкий край: покрытие (блеск плёнки) — smoothstep(0, EdgeMm, h).</summary>
+    public float EdgeMm;
     public float ThickSlow;
     public float GlossStart, GlossEnd, DarkStart, DarkEnd;
     public float WetRoughness, DryRoughness;
-    public Vector3 Thick, Thin, Dry;
+    /// <summary>Альбедо толстого слоя (свежая), поглощение σ по каналам, 1/мм, альбедо засохшей.</summary>
+    public Vector3 Deep, Absorb, Dry;
+    /// <summary>Засохшая поглощает сильнее во всех каналах, 1/мм (тонкая корка — бурая, а не красная).</summary>
+    public float DryAbsorb;
 
     /// <summary>Скаляров в раскладке.</summary>
-    public const int Slots = 18;
+    public const int Slots = 19;
 
     public static BloodLookParams Default => new()
     {
-        ThickMm = 0.3f, CoverMm = 0.02f, ThickSlow = 2f,
+        ThickMm = 0.3f, EdgeMm = 0.02f, ThickSlow = 2f,
         GlossStart = 10, GlossEnd = 60, DarkStart = 60, DarkEnd = 180,
-        WetRoughness = 0.12f, DryRoughness = 0.6f,
-        Thick = BloodLook.Linear(226, 24, 28), Thin = BloodLook.Linear(126, 7, 0), Dry = new Vector3(0.06f, 0.008f, 0.006f),
+        WetRoughness = 0.08f, DryRoughness = 0.6f,
+        Deep = BloodLook.Linear(113, 9, 26), Absorb = new Vector3(2.5f, 40, 55), Dry = new Vector3(0.055f, 0.010f, 0.008f),
+        DryAbsorb = 10,
     };
 }
 
-/// <summary>Вид крови: линейное альбедо, покрытие (доля поверхности под кровью), шероховатость GGX, влажность (1 — свежая) и засохлость.</summary>
-public readonly record struct BloodLookResult(Vector3 Albedo, float Coverage, float Roughness, float Wet, float Dry);
+/// <summary>
+/// Вид крови: альбедо слоя (рассеянное толстой кровью), пропускание до подложки и обратно по каналам, покрытие (доля поверхности под
+/// плёнкой — блеск), шероховатость GGX, влажность (1 — свежая) и засохлость. Слой поверх подложки s: s·<see cref="Mul"/> + <see cref="Add"/>.
+/// </summary>
+public readonly record struct BloodLookResult(Vector3 Albedo, Vector3 Transmission, float Coverage, float Roughness, float Wet, float Dry)
+{
+    /// <summary>Множитель подложки: 1 − покрытие·(1 − пропускание).</summary>
+    public Vector3 Mul => Vector3.One - Coverage * (Vector3.One - Transmission);
+
+    /// <summary>Своё альбедо слоя: покрытие · альбедо · (1 − пропускание).</summary>
+    public Vector3 Add => Coverage * Albedo * (Vector3.One - Transmission);
+}
 
 /// <summary>
 /// Функция свежести — одна для кожи и пола: возраст, с, и толщина, мм → вид. Тот же расчёт в тех же выражениях и порядке — HLSL
@@ -46,16 +63,18 @@ public static class BloodLook
 
     public static BloodLookResult Evaluate(float age, float thicknessMm, in BloodLookParams p)
     {
-        float thick = Saturate(thicknessMm / p.ThickMm);
+        float h = MathF.Max(thicknessMm, 0);
+        float thick = Saturate(h / p.ThickMm);
         float slow = 1 + (p.ThickSlow - 1) * thick;
         float a = age / slow;
         float wet = 1 - Smooth(p.GlossStart, p.GlossEnd, a);
         float dry = Smooth(p.DarkStart, p.DarkEnd, a);
-        var fresh = p.Thin + (p.Thick - p.Thin) * thick;
-        var albedo = fresh + (p.Dry - fresh) * dry;
+        var albedo = p.Deep + (p.Dry - p.Deep) * dry;
+        var sigma = p.Absorb + new Vector3(p.DryAbsorb * dry);
+        var transmission = new Vector3(MathF.Exp(-2 * sigma.X * h), MathF.Exp(-2 * sigma.Y * h), MathF.Exp(-2 * sigma.Z * h));
         float roughness = p.WetRoughness + (p.DryRoughness - p.WetRoughness) * (1 - wet);
-        float coverage = 1 - MathF.Exp(-thicknessMm / p.CoverMm);
-        return new BloodLookResult(albedo, coverage, roughness, wet, dry);
+        float coverage = Smooth(0, p.EdgeMm, h);
+        return new BloodLookResult(albedo, transmission, coverage, roughness, wet, dry);
     }
 
     /// <summary>Гладкая ступенька (как <c>smoothstep</c> HLSL).</summary>
@@ -80,7 +99,7 @@ public static class BloodLook
     public static void Write(in BloodLookParams p, Span<float> into)
     {
         into[0] = p.ThickMm;
-        into[1] = p.CoverMm;
+        into[1] = p.EdgeMm;
         into[2] = p.ThickSlow;
         into[3] = p.GlossStart;
         into[4] = p.GlossEnd;
@@ -88,14 +107,15 @@ public static class BloodLook
         into[6] = p.DarkEnd;
         into[7] = p.WetRoughness;
         into[8] = p.DryRoughness;
-        into[9] = p.Thick.X;
-        into[10] = p.Thick.Y;
-        into[11] = p.Thick.Z;
-        into[12] = p.Thin.X;
-        into[13] = p.Thin.Y;
-        into[14] = p.Thin.Z;
+        into[9] = p.Deep.X;
+        into[10] = p.Deep.Y;
+        into[11] = p.Deep.Z;
+        into[12] = p.Absorb.X;
+        into[13] = p.Absorb.Y;
+        into[14] = p.Absorb.Z;
         into[15] = p.Dry.X;
         into[16] = p.Dry.Y;
         into[17] = p.Dry.Z;
+        into[18] = p.DryAbsorb;
     }
 }

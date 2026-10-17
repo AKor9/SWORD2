@@ -4,7 +4,7 @@
 #include "common/pass.hlsli"
 #include "blood/blood_look.hlsli"
 
-// Root constants (BloodSkinGpu.Contribute): 0...17 - the look numbers, gSkinTarget, gSkinCount, gSkinEntries, gSkinFirst, gSkinNow.
+// Root constants (BloodSkinGpu.Contribute): 0...18 - the look numbers, gSkinTarget, gSkinCount, gSkinEntries, gSkinFirst, gSkinNow.
 
 [numthreads(BLOOD_SKIN_GROUP, 1, 1)]
 void CsClear(uint3 id : SV_DispatchThreadID)
@@ -25,8 +25,12 @@ void CsScatter(uint3 id : SV_DispatchThreadID)
     target[e.x] = e.yz;
 }
 
-uint Unorm8(float v) { return uint(saturate(v) * 255 + 0.5); }
+uint UnormBits(float v, float max) { return uint(saturate(v) * max + 0.5); }
+uint Float11(float v) { return (f32tof16(max(v, 0)) >> 4) & 0x7FF; }
+uint Float10(float v) { return (f32tof16(max(v, 0)) >> 5) & 0x3FF; }
 
+// The look of a vertex - SkinLayerTexel: x = the layer's own albedo A (R11G11B10F), y = the substrate multiplier M (unorm7 x 3),
+// coverage (unorm5), roughness (unorm6). The skin shader: albedo = skin * M + A, the highlight x coverage.
 [numthreads(BLOOD_SKIN_GROUP, 1, 1)]
 void CsLook(uint3 id : SV_DispatchThreadID)
 {
@@ -37,7 +41,9 @@ void CsLook(uint3 id : SV_DispatchThreadID)
     float thickness = asfloat(raw.x);
     if (!(thickness > 0)) return;
     BloodLookResult look = BloodLookEval(max(asfloat(gSkinNow) - asfloat(raw.y), 0), thickness, BloodLookFromPass());
-    uint x = f32tof16(look.albedo.r) | (f32tof16(look.albedo.g) << 16);
-    uint y = f32tof16(look.albedo.b) | (Unorm8(look.coverage) << 16) | (Unorm8(look.roughness) << 24);
+    float3 add = BloodAdd(look), mul = BloodMul(look);
+    uint x = Float11(add.r) | (Float11(add.g) << 11) | (Float10(add.b) << 22);
+    uint y = UnormBits(mul.r, 127) | (UnormBits(mul.g, 127) << 7) | (UnormBits(mul.b, 127) << 14) | (UnormBits(look.coverage, 31) << 21)
+        | (UnormBits(look.roughness, 63) << 26);
     target[id.x] = uint2(x, y);
 }

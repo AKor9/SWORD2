@@ -21,17 +21,46 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
     // ---------------- функция свежести ----------------
 
     [Fact]
-    public void Look_FreshScarletGlossy_ThenMatte_ThenBrown()
+    public void Look_LayerByThickness_GlossyThenMatteThenBrown()
     {
+        // Толстая свежая — глубокий тёмно-красный (113, 9, 26), подложки не видно, глянец.
         var thick = BloodLook.Evaluate(0, 1, Look);
-        Near(Look.Thick, thick.Albedo);
+        Near(Look.Deep, thick.Albedo);
         Assert.Equal(1, thick.Wet);
         Assert.Equal(Look.WetRoughness, thick.Roughness, 5);
-        Assert.True(thick.Coverage > 0.999f);
-        Near(Look.Thin, BloodLook.Evaluate(0, 0, Look).Albedo);
+        Assert.Equal(1, thick.Coverage);
+        Assert.True(thick.Mul.X < 0.01f && thick.Mul.Y < 1e-6f && thick.Mul.Z < 1e-6f, $"толстая пропускает {thick.Mul}");
+        // Тонкая — подложка видна, темнее и краснее (красный проходит, синий гаснет первым); своего альбедо почти нет.
+        var thin = BloodLook.Evaluate(0, 0.005f, Look);
+        Assert.True(thin.Transmission.X > 0.9f && thin.Transmission.X > thin.Transmission.Y && thin.Transmission.Y > thin.Transmission.Z,
+            $"тонкая: {thin.Transmission}");
+        Assert.True(thin.Add.X < 0.01f);
+        // Средняя (0.1 мм) — красный подложки ещё проходит, сине-зелёный погашен: алая полоса только на светлом.
+        var mid = BloodLook.Evaluate(0, 0.1f, Look);
+        Assert.True(mid.Transmission.X > 0.5f && mid.Transmission.Y < 0.01f && mid.Transmission.Z < 0.01f, $"средняя: {mid.Transmission}");
+        // Слой над белым: белое · M + A ∈ [0, 1] и не светлее подложки по каналам.
+        foreach (float h in new[] { 0f, 0.001f, 0.01f, 0.1f, 1f, 3f })
+        {
+            var r = BloodLook.Evaluate(0, h, Look);
+            var white = r.Mul + r.Add;
+            Assert.True(white.X <= 1 + 1e-6f && white.Y <= 1 + 1e-6f && white.Z <= 1 + 1e-6f && white.Y >= 0, $"h {h}: {white}");
+        }
+        // Мягкий край: покрытие 0 без крови, растёт по толщине гладко, половина — на EdgeMm/2, полное — с EdgeMm.
+        Assert.Equal(0, BloodLook.Evaluate(0, 0, Look).Coverage);
+        Assert.Equal(0.5f, BloodLook.Evaluate(0, Look.EdgeMm / 2, Look).Coverage, 5);
+        Assert.Equal(1, BloodLook.Evaluate(0, Look.EdgeMm, Look).Coverage);
+        float cover = -1;
+        for (float h = 0; h <= 2 * Look.EdgeMm; h += Look.EdgeMm / 50)
+        {
+            float c = BloodLook.Evaluate(0, h, Look).Coverage;
+            Assert.True(c >= cover, $"покрытие убывает на {h} мм");
+            cover = c;
+        }
+        // Засохшая — бурая и мутнее: альбедо Dry, шероховатость засохшей, пропускает меньше свежей той же толщины.
         var old = BloodLook.Evaluate(1000, 0.05f, Look);
         Near(Look.Dry, old.Albedo);
         Assert.Equal(Look.DryRoughness, old.Roughness, 5);
+        Assert.True(old.Transmission.X < BloodLook.Evaluate(0, 0.05f, Look).Transmission.X);
         float wet = 2, dry = -1;
         for (float age = 0; age <= 400; age += 0.5f)
         {
@@ -340,7 +369,8 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Вид вершин на GPU (<c>CsLook</c>) = <see cref="BloodLook.Evaluate"/> с упаковкой <see cref="SkinLayerTexel"/> (половинная точность и 1/255),
+    /// Вид вершин на GPU (<c>CsLook</c>) = <see cref="BloodLook.Evaluate"/> с упаковкой <see cref="SkinLayerTexel"/> (A — R11G11B10F, M — 1/127,
+    /// покрытие — 1/31, шероховатость — 1/63),
     /// во все копии вершины на шве; снятый слот — нули. Любое предупреждение D3D12 — провал.
     /// </summary>
     [Fact]
@@ -375,20 +405,23 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
             Assert.True(gpu.Srv(slot) >= 0);
             var data = new ulong[2 * s.VertexCount];
             renderer.ReadStorage(gpu.Storage(slot), data.AsSpan());
-            float worstAlbedo = 0, worstScalar = 0;
+            float worstAdd = 0, worstMul = 0, worstScalar = 0;
             for (int v = 0; v < s.VertexCount; v++)
             {
                 int w = s.WeldOf(v);
                 var cpu = BloodLook.Evaluate(now - BirthOf(data[s.VertexCount + v]), ThickOf(data[s.VertexCount + v]), Look);
                 Assert.Equal(skin.Thickness(5, w), ThickOf(data[s.VertexCount + v]));
-                SkinLayerTexel.Unpack((uint)data[v], (uint)(data[v] >> 32), out var albedo, out float coverage, out float roughness);
-                var d = Vector3.Abs(albedo - cpu.Albedo) / Vector3.Max(cpu.Albedo, new Vector3(1e-3f));
-                worstAlbedo = MathF.Max(worstAlbedo, MathF.Max(d.X, MathF.Max(d.Y, d.Z)));
-                worstScalar = MathF.Max(worstScalar, MathF.Max(MathF.Abs(coverage - cpu.Coverage), MathF.Abs(roughness - cpu.Roughness)));
+                SkinLayerTexel.Unpack((uint)data[v], (uint)(data[v] >> 32), out var add, out var mul, out float coverage, out float roughness);
+                var d = Vector3.Abs(add - cpu.Add) / Vector3.Max(cpu.Add, new Vector3(1e-3f));
+                worstAdd = MathF.Max(worstAdd, MathF.Max(d.X, MathF.Max(d.Y, d.Z)));
+                var m = Vector3.Abs(mul - cpu.Mul);
+                worstMul = MathF.Max(worstMul, MathF.Max(m.X, MathF.Max(m.Y, m.Z)));
+                worstScalar = MathF.Max(worstScalar, MathF.Max(MathF.Abs(coverage - cpu.Coverage) * 31, MathF.Abs(roughness - cpu.Roughness) * 63));
             }
-            output.WriteLine($"GPU − CPU: альбедо {worstAlbedo:E2} (отн.), покрытие и шероховатость {worstScalar * 255:F2}/255");
-            Assert.True(worstAlbedo <= 2e-3f, $"альбедо {worstAlbedo}");
-            Assert.True(worstScalar <= 1.01f / 255, $"покрытие или шероховатость {worstScalar}");
+            output.WriteLine($"GPU − CPU: A {worstAdd:E2} (отн.), M {worstMul * 127:F2}/127, покрытие и шероховатость {worstScalar:F2} шага");
+            Assert.True(worstAdd <= 0.035f, $"A {worstAdd}");
+            Assert.True(worstMul <= 0.51f / 127, $"M {worstMul}");
+            Assert.True(worstScalar <= 0.51f, $"покрытие или шероховатость {worstScalar} шага");
 
             // Кадр — 0 Б сверх пустого кадра рендера: проходы с изменениями и без.
             long Spent(Action<RenderFrame> build)

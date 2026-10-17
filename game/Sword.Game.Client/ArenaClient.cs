@@ -388,7 +388,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// Солнце и небо следующего кадра — для объёмов и бликов клиентских модулей (дым, кровь): солнце окружения, небо вертикальной поверхности,
     /// направление на солнце (обратное <see cref="SunLight"/>).
     /// </summary>
-    public SceneSky Sky => new(Environment.Sun, (Environment.SkyLow + Environment.SkyHigh) * 0.5f, -SunLight);
+    public SceneSky Sky => new(Environment.Sun, (Environment.SkyLow + Environment.SkyHigh) * 0.5f, -SunLight, Environment.SkyLow, Environment.SkyHigh);
 
     /// <summary>Блики и металл материалов (<see cref="SceneMaterial"/>): выключены — только рассеянный свет; со следующего кадра.</summary>
     public bool Specular { get; set; } = true;

@@ -15,14 +15,20 @@ public struct BloodFloorConstants
     public Vector3 Eye; public float InvWidth;
     public Vector3 SunDir; public float InvHeight;
     public Vector3 Sun; public float FogStart;
-    public Vector3 Sky; public float FogRange;
+    public Vector3 SkyLow; public float FogRange;
+    public Vector3 SkyHigh; public float SkyGain;
     public Vector3 FogColour; public float Now;
     public Vector2 WindowMin; public float CosMax, HeightBand;
     public Vector2 MapMin; public float ThickMmPerRho, NormalScale;
     public uint Field, Age, Map, Depth;
     public uint Normal, Terrain, TerrainCells; public float TerrainHalf;
     public uint HasField, HasMap, HasTerrain; public float F0;
-    public float Drag, Stretch, DropThickMm, Pad0;
+    public float Drag, Stretch, DropThickMm, RippleSize;
+    public float WetDarken, HaloTexels, MeniscusMm, Ripple;
+    /// <summary>Тень солнца кадра (<see cref="SunShadow"/>, каскады 0 и 1; карты нет — <see cref="SunShadow.None"/>): блик плёнки — под тенью.</summary>
+    public Matrix4x4 ShadowViewProj0, ShadowViewProj1;
+    public uint ShadowMap0, ShadowMap1; public float ShadowTexel0, ShadowTexel1;
+    public float ShadowBias0, ShadowBias1, ShadowSoftness, ShadowPad;
 }
 
 /// <summary>Летящая капля для шейдера: отрыв (точка, скорость), время полёта в кадре, с, радиус, м.</summary>
@@ -55,10 +61,10 @@ public sealed class BloodFloorGpu : IGpuSimulation
     public const string ShaderFile = "blood/blood_floor.hlsl";
     public const string TransferPass = "blood.floor.transfer", MapClearPass = "blood.map.clear", FloorPass = "blood.floor", DropsPass = "blood.drops";
     private const int SlotC = 18, SlotAge = 19, SlotMap = 20, SlotShiftX = 21, SlotShiftZ = 22, SlotMapX = 23, SlotMapZ = 24, SlotNow = 25;
-    private const int SlotData = 18, SlotDrops = 19;
+    private const int SlotData = 26, SlotDrops = 27;   // после чисел вида (0…18); compute-проходы вида не берут
     private const int Group = 8;
 
-    private static readonly GraphicsPipelineDesc FloorPipeline = new(ShaderFile, "VsFull", "PsFloor", BlendMode.Premultiplied);
+    private static readonly GraphicsPipelineDesc FloorPipeline = new(ShaderFile, "VsFull", "PsFloor", BlendMode.DualSource);
     private static readonly GraphicsPipelineDesc DropPipeline = new(ShaderFile, "VsDrop", "PsDrop", BlendMode.Opaque, DepthMode.TestWrite);
     private static readonly ComputePipelineDesc TransferPipeline = new(ShaderFile, "CsTransfer");
     private static readonly ComputePipelineDesc ClearPipeline = new(ShaderFile, "CsMapClear");
@@ -239,7 +245,9 @@ public sealed class BloodFloorGpu : IGpuSimulation
             InvHeight = 1f / Math.Max(1, frame.Height),
             SunDir = sky.SunDirection == Vector3.Zero ? Vector3.UnitY : Vector3.Normalize(sky.SunDirection),
             Sun = sky.Sun,
-            Sky = sky.Sky,
+            SkyLow = sky.SkyLow == Vector3.Zero && sky.SkyHigh == Vector3.Zero ? sky.Sky : sky.SkyLow,
+            SkyHigh = sky.SkyLow == Vector3.Zero && sky.SkyHigh == Vector3.Zero ? sky.Sky : sky.SkyHigh,
+            SkyGain = t.FloorSkyGain,
             FogStart = fog.Start,
             FogRange = fog.Range,
             FogColour = fog.Colour,
@@ -265,6 +273,11 @@ public sealed class BloodFloorGpu : IGpuSimulation
             Drag = t.DropDrag,
             Stretch = t.DropStretch,
             DropThickMm = t.DropThickMm,
+            RippleSize = MathF.Max(t.FloorRippleSize, 1e-3f),
+            WetDarken = t.FloorWetDarken,
+            HaloTexels = t.FloorHalo,
+            MeniscusMm = MathF.Max(t.FloorMeniscusMm, 1e-3f),
+            Ripple = t.FloorRipple,
         };
         _data = _constants.Srv;
 
@@ -291,8 +304,22 @@ public sealed class BloodFloorGpu : IGpuSimulation
     {
         if (_sim is null || _framed != frame.Number) return;
         var g = frame.Graph;
-        g.AddPass(FloorPass, FramePhase.Composite).Color(frame.SceneColor).Read(frame.Scene.Depth).Read(frame.Scene.Normal)
-            .Read(g.Import(_sim.Composite)).Read(g.Import(_sim.Age!)).Read(g.Import(_map!)).Execute(_drawFloor);
+        // Тень солнца — здесь: карты кадра заводит клиент игры до проходов, константы пола записаны в DrawDrops (фаза Opaque).
+        var shadow = frame.Shadow;
+        ref var k = ref _constants!.Slot[0];
+        k.ShadowViewProj0 = shadow.ViewProj(0);
+        k.ShadowViewProj1 = shadow.ViewProj(1);
+        k.ShadowMap0 = shadow.Active ? shadow.Srv(0) : SunShadow.None;
+        k.ShadowMap1 = shadow.Active ? shadow.Srv(1) : SunShadow.None;
+        k.ShadowTexel0 = shadow.Texel(0);
+        k.ShadowTexel1 = shadow.Texel(1);
+        k.ShadowBias0 = shadow.Bias(0);
+        k.ShadowBias1 = shadow.Bias(1);
+        k.ShadowSoftness = shadow.Softness;
+        var pass = g.AddPass(FloorPass, FramePhase.Composite).Color(frame.SceneColor).Read(frame.Scene.Depth).Read(frame.Scene.Normal)
+            .Read(g.Import(_sim.Composite)).Read(g.Import(_sim.Age!)).Read(g.Import(_map!));
+        if (shadow.Active) pass.Read(shadow.Map(0)).Read(shadow.Map(1));
+        pass.Execute(_drawFloor);
     }
 
     /// <summary>Числа шейдера пола в контракт.</summary>

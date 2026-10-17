@@ -87,9 +87,26 @@ public sealed class BloodTuning
     public float FloorMaxSlope { get; set; } = 50;
     public float FloorHeightBand { get; set; } = 0.15f;
 
-    /// <summary>Нормаль плёнки: усиление уклона толщины; F0 блика.</summary>
-    public float FloorNormalScale { get; set; } = 6;
-    public float FloorF0 { get; set; } = 0.03f;
+    /// <summary>
+    /// Нормаль плёнки: уклон профиля толщины × усиление; профиль — h_c·(1 − e^(−h/h_c)) (<see cref="FloorMeniscusMm"/>): у тонкого края
+    /// круче (мениск), толстая середина лужи плоская.
+    /// </summary>
+    public float FloorNormalScale { get; set; } = 8;
+    public float FloorMeniscusMm { get; set; } = 0.5f;
+
+    /// <summary>F0 блика плёнки (кровь n ≈ 1.40 — 0.028, BVR §5.3).</summary>
+    public float FloorF0 { get; set; } = 0.028f;
+
+    /// <summary>Сила отражения неба плёнкой (1 — как у сцены).</summary>
+    public float FloorSkyGain { get; set; } = 2.5f;
+
+    /// <summary>Мокрая подложка: множитель пола под свежей кровью и в ореоле вокруг (Lagarde: до 0.2 у пористой), радиус ореола, текселей.</summary>
+    public float FloorWetDarken { get; set; } = 0.7f;
+    public float FloorHalo { get; set; } = 1.5f;
+
+    /// <summary>Рябь плёнки: уклон шума в мире (без анимации) и его размер, м.</summary>
+    public float FloorRipple { get; set; } = 0.02f;
+    public float FloorRippleSize { get; set; } = 0.15f;
 
     /// <summary>Функция свежести (кожа и пол).</summary>
     public BloodLookParams Look = BloodLookParams.Default;

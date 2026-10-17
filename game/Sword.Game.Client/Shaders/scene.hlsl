@@ -97,24 +97,26 @@ struct SkinVs
     float3 normal : TEXCOORD1;
     nointerpolation float3 colour : COLOR0;
     nointerpolation float glow : TEXCOORD2;
-    float4 layer : TEXCOORD3;       // wet layer over the skin (blood): linear albedo, coverage
-    float layerRoughness : TEXCOORD4;
+    float4 layerAdd : TEXCOORD3;    // wet layer over the skin (blood): its own albedo A, coverage of the highlight
+    float4 layerMul : TEXCOORD4;    // multiplier M of the skin under the layer, roughness
     nointerpolation uint material : TEXCOORD5;   // SceneMaterial: GpuSkinInstance.Flags
 };
 
 // Wet layer of a vertex (ISkinBloodLayer, SkinLayerTexel in C#): inst.owner = bindless SRV of the layer + 1 (0 - no layer); an element
-// per mesh vertex: x = half r | half g << 16, y = half b | unorm8 coverage << 16 | unorm8 roughness << 24.
-float4 SkinLayerOf(uint owner, uint vid, out float roughness)
+// per mesh vertex: x = A in R11G11B10F (half bits without the sign), y = M unorm7 x 3 | coverage unorm5 << 21 | roughness unorm6 << 26.
+// The layer over the skin: albedo = skin * M + A. No layer: A = 0, M = 1, coverage 0.
+void SkinLayerOf(uint owner, uint vid, out float4 add, out float4 mul)
 {
-    roughness = 1;
-    if (owner == 0) return 0;
+    add = 0;
+    mul = float4(1, 1, 1, 1);
+    if (owner == 0) return;
     StructuredBuffer<uint2> layer = ResourceDescriptorHeap[owner - 1];
     uint2 u = layer[vid];
-    roughness = (u.y >> 24) / 255.0;
-    return float4(f16tof32(u.x), f16tof32(u.x >> 16), f16tof32(u.y), ((u.y >> 16) & 0xFF) / 255.0);
+    add = float4(f16tof32((u.x & 0x7FF) << 4), f16tof32(((u.x >> 11) & 0x7FF) << 4), f16tof32((u.x >> 22) << 5), ((u.y >> 21) & 0x1F) / 31.0);
+    mul = float4((u.y & 0x7F) / 127.0, ((u.y >> 7) & 0x7F) / 127.0, ((u.y >> 14) & 0x7F) / 127.0, (u.y >> 26) / 63.0);
 }
 
-static const float SKIN_LAYER_F0 = 0.03;   // SkinLayerTexel.F0
+static const float SKIN_LAYER_F0 = 0.028;   // SkinLayerTexel.F0
 
 SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
 {
@@ -125,7 +127,7 @@ SkinVs VsSkin(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.pos = mul(gFrame.viewProj, float4(o.world, 1));
     o.colour = inst.colour;
     o.glow = inst.glow;
-    o.layer = SkinLayerOf(inst.owner, vid, o.layerRoughness);
+    SkinLayerOf(inst.owner, vid, o.layerAdd, o.layerMul);
     o.material = inst.flags;
     return o;
 }
@@ -153,20 +155,25 @@ float4 PsSkinPre(SkinVs i) : SV_Target0 { return SceneNormalOut(i.normal, false)
 SceneOut PsSkin(SkinVs i)
 {
     float3 n = normalize(i.normal);
-    float cover = saturate(i.layer.a);
+    float cover = saturate(i.layerAdd.a);
     if (cover <= 0)
     {
         float3 c = ShadeMaterial(i.colour, n, i.world, SceneAo(i.pos.xy), i.material) + i.glow * float3(0.5, 0.15, 0.1);
         return Scene(c, n, false);
     }
-    // The layer albedo blends with the skin by the interpolated coverage; its highlight - GGX sun + sky reflection, under the fog.
-    float3 albedo = lerp(i.colour, i.layer.rgb, cover);
-    float3 c = ShadeMaterial(albedo, n, i.world, SceneAo(i.pos.xy), i.material) + i.glow * float3(0.5, 0.15, 0.1);
+    // Blood is an absorbing layer over the skin: the skin shows through it darkened and reddened (M), the layer adds its own albedo (A);
+    // its highlight - GGX sun + sky reflection by the reflected vector, x coverage, under the fog.
+    float3 albedo = i.colour * saturate(i.layerMul.rgb) + max(i.layerAdd.rgb, 0);
+    float ao = SceneAo(i.pos.xy);
+    float3 c = ShadeMaterial(albedo, n, i.world, ao, i.material) + i.glow * float3(0.5, 0.15, 0.1);
     float3 v = normalize(gFrame.cameraPos - i.world);
     float3 r = reflect(-v, n);
+    float3 l = normalize(-gFrame.lightDir);
+    float shadow = SunShadow(gFrame.shadowMap0, gFrame.shadowViewProj[0], gFrame.shadowTexel0, gFrame.shadowBias0,
+        gFrame.shadowMap1, gFrame.shadowViewProj[1], gFrame.shadowTexel1, gFrame.shadowBias1, gFrame.shadowSoftness, i.world, n, l);
     float3 skyHalf = (gFrame.env.skyHigh - gFrame.env.skyLow) * 0.5;
     float3 sky = (gFrame.env.skyLow + skyHalf) + r.y * skyHalf;
-    float3 spec = SurfaceSpecular(n, v, normalize(-gFrame.lightDir), gFrame.env.sun, sky, SKIN_LAYER_F0, i.layerRoughness);
+    float3 spec = SurfaceSpecular(n, v, l, gFrame.env.sun * shadow, sky * ao, SKIN_LAYER_F0, i.layerMul.a);
     float fog = saturate((distance(i.world, gFrame.cameraPos) - 25) / 140);
     return Scene(c + cover * (1 - fog) * spec, n, false);
 }

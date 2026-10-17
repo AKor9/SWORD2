@@ -232,7 +232,11 @@ public sealed class BloodModule : IClientModule
             .Float("wetRoughness", "шероховатость свежей", () => t.Look.WetRoughness, v => t.Look.WetRoughness = v, 0.03f, 1f, format: "0.##")
             .Float("dryRoughness", "шероховатость засохшей", () => t.Look.DryRoughness, v => t.Look.DryRoughness = v, 0.03f, 1f, format: "0.##")
             .Float("thickMm", "густая с толщины, мм", () => t.Look.ThickMm, v => t.Look.ThickMm = v, 0.01f, 5f, log: true, format: "0.###")
-            .Float("coverMm", "покрытие: толщина, мм", () => t.Look.CoverMm, v => t.Look.CoverMm = v, 0.001f, 1f, log: true, format: "0.####")
+            .Float("edgeMm", "мягкий край плёнки, мм", () => t.Look.EdgeMm, v => t.Look.EdgeMm = v, 0.001f, 1f, log: true, format: "0.####")
+            .Float("absorbR", "поглощение красного, 1/мм", () => t.Look.Absorb.X, v => t.Look.Absorb.X = v, 0.1f, 100f, log: true, format: "0.##")
+            .Float("absorbG", "поглощение зелёного, 1/мм", () => t.Look.Absorb.Y, v => t.Look.Absorb.Y = v, 1f, 500f, log: true, format: "0.#")
+            .Float("absorbB", "поглощение синего, 1/мм", () => t.Look.Absorb.Z, v => t.Look.Absorb.Z = v, 1f, 500f, log: true, format: "0.#")
+            .Float("dryAbsorb", "засохшая: поглощение +, 1/мм", () => t.Look.DryAbsorb, v => t.Look.DryAbsorb = v, 0f, 200f, format: "0.#")
             .Info("пол", FloorStatus, "капель в полёте, приземлилось и в окно, мкл, шагов пола, сдвигов окна")
             .Button("лужа под игроком", () => _floor?.RequestPuddle(), "штамп отладочной лужи у ног игрока (подгонка вида)")
             .Bool("puddle", "лужа под игроком (флаг)", () => _floor?.PuddlePending ?? false, v => { if (v) _floor?.RequestPuddle(); }, defaultValue: false)
@@ -241,7 +245,13 @@ public sealed class BloodModule : IClientModule
             .Float("dropSpread", "пятно капли: размер ×", () => t.DropSpread, v => t.DropSpread = v, 0.25f, 8f, format: "0.##")
             .Float("dropRadius", "капля в полёте: радиус ×", () => t.DropRadiusScale, v => t.DropRadiusScale = v, 0.25f, 8f, format: "0.##")
             .Float("floorNormal", "плёнка: усиление нормали", () => t.FloorNormalScale, v => t.FloorNormalScale = v, 0f, 50f, format: "0.#")
-            .Float("floorF0", "плёнка: F0 блика", () => t.FloorF0, v => t.FloorF0 = v, 0f, 0.2f, format: "0.###"));
+            .Float("floorMeniscus", "плёнка: мениск до толщины, мм", () => t.FloorMeniscusMm, v => t.FloorMeniscusMm = v, 0.01f, 10f, log: true, format: "0.##")
+            .Float("floorF0", "плёнка: F0 блика", () => t.FloorF0, v => t.FloorF0 = v, 0f, 0.2f, format: "0.###")
+            .Float("floorSky", "плёнка: сила неба", () => t.FloorSkyGain, v => t.FloorSkyGain = v, 0f, 4f, format: "0.##")
+            .Float("floorWet", "мокрый пол: множитель", () => t.FloorWetDarken, v => t.FloorWetDarken = v, 0.1f, 1f, format: "0.##")
+            .Float("floorHalo", "мокрый пол: ореол, текселей", () => t.FloorHalo, v => t.FloorHalo = v, 0f, 8f, format: "0.#")
+            .Float("floorRipple", "плёнка: рябь, уклон", () => t.FloorRipple, v => t.FloorRipple = v, 0f, 0.3f, format: "0.###")
+            .Float("floorRippleSize", "плёнка: рябь, размер, м", () => t.FloorRippleSize, v => t.FloorRippleSize = v, 0.005f, 0.5f, log: true, format: "0.###"));
         b.Report(Report);
     }
 
