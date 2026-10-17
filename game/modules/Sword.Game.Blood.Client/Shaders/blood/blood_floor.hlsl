@@ -239,6 +239,13 @@ float MapSmooth(StructuredBuffer<uint> map, float2 f, out float birth)
     return max(v, 0);
 }
 
+// Slope of the film profile h_c (1 - exp(-h / h_c)) per unit rho, mm: steep at the thin edge (meniscus), flat in the thick middle. Of
+// max(rho, 0): the negative lobe of the bicubic outside the film would overflow exp (NaN in the normal) at a small meniscus.
+float FilmProfileSlope(float rho, float thickMmPerRho, float meniscusMm)
+{
+    return thickMmPerRho * exp(-max(rho, 0) * thickMmPerRho / meniscusMm);
+}
+
 // Terrain height - bilinear over the nodes of the height buffer (as the terrain mesh is drawn), outside - the edge cell.
 float TerrainHeight(FloorConstants c, float2 xz)
 {
@@ -481,7 +488,7 @@ FilmOut PsFloor(float4 pos : SV_Position)
         FilmLook look = FilteredLook(ageBuf[t.x + t.y * BLOOD_FLOOR_N], fieldS, fieldFw, lp);
         // Film normal: slope of the film profile h_c (1 - exp(-h / h_c)) (steep at the thin edge - meniscus, flat in the thick middle) from
         // the smooth field's gradient x normalScale, plus the still ripple (world noise), in the receiver basis.
-        float dProfile = c.thickMmPerRho * exp(-max(fieldRho, 0) * c.thickMmPerRho / c.meniscusMm);   // the negative lobe: no exp overflow
+        float dProfile = FilmProfileSlope(fieldRho, c.thickMmPerRho, c.meniscusMm);
         float2 slope = fieldGrad * (dProfile * 1e-3 / BLOOD_TEXEL * c.normalScale);
         float2 q = p.xz / c.rippleSize;
         float2 ripple = (RippleGradient(q) + 0.5 * RippleGradient(q * 2.31 + 17.3)) * c.ripple;

@@ -324,3 +324,24 @@
   их диапазона — край старого пятна мог стать «свежим»); профиль мениска — от max(ρ, 0) (переполнение exp на отрицательном лепестке → NaN).
 - Не исправлено: разбор слоёв в scene.hlsl тестом не покрыт; допуск A в `Gpu_Look…` 3.5 % (мутация 5 % поймана с малым запасом).
 - Проверки: `Sword.Game.Tests --filter Blood` 50/50; verify build, forbidden-references, line-endings, app-smoke — ok (528 Б/кадр).
+
+## Самопроверка 3 (2026-10-17)
+
+- Цена (бой `--attack --units 3 --fps 60`, неуязвимый игрок, 2400 кадров, Release, 1600×900; прогон на версию; было → стало): GPU крови
+  0.733 → 0.449 мс/кадр; тик 2-го и следующих ударов 5.6 → 0.9–1.6 мс, первый 10.7 → 8.6 мс (JIT); среднее наблюдателя 0.034 → 0.039 мс,
+  p99 0.27 → 0.31 мс — разброс прогонов; 369 Б/кадр; `fieldHash` 68378C7F46283B85 тот же.
+- Fluid2D: `DivergenceMult` 0 (`HasPressure`) — без divergence/pressure в симе и эталоне (−0.25 мс; P после очистки — нули, поле бит в
+  бит; огонь не тронут, DM ≠ 0); тест времени `BloodSpread` 1024² 0.582 → 0.305 мс.
+- Якорь 2-го удара 4.5 мс: редкий `NearestSkinned` шёл кодом нулевого уровня → поиск `SkinSurface` (`Nearest`, `NearestSkinned`, `Scan`,
+  `ClosestBary`) — `AggressiveOptimization` + `WarmAnchor` в первом тике (без прогрева AO собирался в тике удара, 8 мс). Итог — `p99TickMs`.
+- Тесты: `BloodLayerGpuTests` — `SkinLayerOf`/`WeaponLayerOf` (вынесены в `scene_layers.hlsli`, код тот же) = `SkinLayerTexel`/
+  `WeaponBloodLayout`; `MapSmooth` — рождение в диапазоне; `FilmProfileSlope` (из `PsFloor`) конечен при ρ −0.75 и мениске 0.01 мм
+  (контракт пола 8² — `BloodFloorGpu.Contribute(c, n, mapN)`); мутации (сторона, /128, все веса, без max) ловятся. `Gpu_Look…`: A 3.5 % →
+  коды R11G11B10F ±1 шаг. 12 R подряд посреди боя — `Module_OnPak_ManyResets…`. Плёнка — без проходов давления, P = +0.
+- Документы: README Blood — ручки F3 таблицей с умолчаниями, «Цена», «Известные ошибки», «Что проверить в игре», без имён точек; AGENTS —
+  27 строк; README Fluid2D — шаг без давления, числа; план — решение 20 (сверх: брызги, кровь на чужом теле и оружии — слова
+  пользователя 2026-10-17), «Не делаем», строки этапа 12 и модуля.
+- Хвосты: капля до касания — закрыто в v3; `WetMapEdgeMaskWidth`, `Extents.Z` на кровь пола не влияют (кисти и мокрой карты нет) — в README
+  Fluid2D; эпоха карты и JIT первого удара — «Известные ошибки».
+- Проверки: build; `Sword.Game.Tests --filter Blood` 54/54; Fluid2D 97/97; Architecture 32/33 (DevTools → Render — прежнее, вне крови);
+  verify build, forbidden-references, line-endings, app-smoke, without-modules — ok.

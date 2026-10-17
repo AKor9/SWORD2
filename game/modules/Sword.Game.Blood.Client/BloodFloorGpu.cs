@@ -459,11 +459,14 @@ public sealed class BloodFloorGpu : IGpuSimulation
     }
 
     /// <summary>Числа шейдера пола в контракт.</summary>
-    public static void Contribute(ShaderContract c) => c
+    public static void Contribute(ShaderContract c) => Contribute(c, BloodFloor.N, BloodFloor.MapN);
+
+    /// <summary>Контракт с окном и картой <paramref name="n"/>² и <paramref name="mapN"/>² текселей — проверочные шейдеры тестов.</summary>
+    internal static void Contribute(ShaderContract c, int n, int mapN) => c
         .Section("Blood: floor film, map of dried stains, drops (Sword.Game.Blood.Client)")
-        .Add("BLOOD_FLOOR_N", BloodFloor.N, "texels of the floor window per side")
+        .Add("BLOOD_FLOOR_N", n, "texels of the floor window per side")
         .Add("BLOOD_FLOOR_SIZE", BloodFloor.Size, "size of the floor window, m")
-        .Add("BLOOD_MAP_N", BloodFloor.MapN, "texels of the map of dried stains per side")
+        .Add("BLOOD_MAP_N", mapN, "texels of the map of dried stains per side")
         .AddSize<BloodFloorConstants>("BLOOD_FLOOR_CONSTANTS_SIZE")
         .AddSize<BloodDropGpu>("BLOOD_DROP_SIZE")
         .AddSlot("gFloorC", SlotC).AddSlot("gFloorAge", SlotAge).AddSlot("gFloorMap", SlotMap).AddSlot("gFloorShiftX", SlotShiftX)

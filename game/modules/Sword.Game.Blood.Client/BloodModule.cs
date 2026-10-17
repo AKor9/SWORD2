@@ -344,7 +344,26 @@ public sealed class BloodModule : IClientModule
         ObserveTick(tick);
         long spent = System.Diagnostics.Stopwatch.GetTimestamp() - started;
         _observeTicks += spent;
-        if (ObservedTicks > WarmTicks) Slow(tick, spent);
+        if (ObservedTicks <= WarmTicks) return;
+        Slow(tick, spent);
+        _tickHistogram[Math.Min((int)(Ms(spent) / HistogramStepMs), _tickHistogram.Length - 1)]++;
+    }
+
+    /// <summary>Гистограмма тиков наблюдателя после прогрева: корзина 10 мкс, последняя — 10 мс и дольше (p99 в итоге).</summary>
+    private const double HistogramStepMs = 0.01;
+    private readonly long[] _tickHistogram = new long[1000];
+
+    /// <summary>Наблюдатель тиков после прогрева: 99-й процентиль, мс (верх корзины 10 мкс).</summary>
+    public double P99ObserveMs
+    {
+        get
+        {
+            long total = 0, seen = 0;
+            foreach (long n in _tickHistogram) total += n;
+            for (int i = 0; i < _tickHistogram.Length; i++)
+                if ((seen += _tickHistogram[i]) * 100 >= total * 99) return (i + 1) * HistogramStepMs;
+            return 0;
+        }
     }
 
     private long _observeTicks, _observeMax, _emitTicks, _collideTicks;
@@ -404,7 +423,11 @@ public sealed class BloodModule : IClientModule
         Built += feed.Built.Length;
         if (feed.ArenaReset) Resets++;
         if (_poses is not { } poses) return;
-        if (ObservedTicks == 1) _ = poses.Count;   // первый снимок поз (буферы сервиса) — в служебном кадре первого тика
+        if (ObservedTicks == 1)
+        {
+            _ = poses.Count;   // первый снимок поз (буферы сервиса) — в служебном кадре первого тика
+            if (_surface is not null) WarmAnchor(_surface, poses);
+        }
         if (feed.ArenaReset) _floor?.Reset();
         foreach (ulong f in feed.Deaths) RememberDeath(f, tick, poses);
         for (int i = 0; i < hits.Length; i++) Blade(hits[i], poses);
@@ -656,6 +679,19 @@ public sealed class BloodModule : IClientModule
         Log.Info(ModuleId, $"кожа: треугольников {_surface.TriangleCount}, вершин {_surface.VertexCount} (сварено {_surface.WeldCount}), " +
             $"рёбер без пары {_surface.OpenEdges}, {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} мс");
         return true;
+    }
+
+    /// <summary>
+    /// Якорь раны один раз в первом тике: поиск ближайшей кожи собирается JIT здесь, а не в тике первого удара (было ≈ 8 мс в нём).
+    /// </summary>
+    private static void WarmAnchor(SkinSurface surface, IFighterPoses poses)
+    {
+        if (poses.Count == 0) return;
+        var joints = poses.Joints(0);
+        int pelvis = surface.ReferenceJoint(BodySegs.Pelvis, default, joints);
+        if (pelvis < 0 || pelvis >= joints.Length) return;
+        BloodWounds.Anchor(surface, BodySegs.Pelvis, joints[pelvis].Translation, joints, out _);
+        BloodWounds.Anchor(surface, BodySegs.Pelvis, joints[pelvis].Translation, joints, out _, refine: false);
     }
 
     /// <summary>Шаг потёков на тике <paramref name="tick"/>: ⌊tick·60/T⌋ сменился (при T ≤ 60 — каждый тик).</summary>
@@ -970,6 +1006,7 @@ public sealed class BloodModule : IClientModule
             // Позы — снимок последнего тика при чтении итога (в кадре скелет их не снимает).
             posedFighters = _poses?.Count ?? 0,
             meanTickMs = Math.Round(MeanObserveMs, 4),
+            p99TickMs = Math.Round(P99ObserveMs, 3),
             maxTickMs = Math.Round(MaxObserveMs, 3),
             slowTicks = _slow.Where(x => x.Spent > 0).Select(x => new { tick = x.Tick, ms = Math.Round(Ms(x.Spent), 3) }).ToArray(),
         },

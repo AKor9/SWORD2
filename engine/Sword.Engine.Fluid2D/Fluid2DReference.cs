@@ -34,13 +34,14 @@ public sealed class Fluid2DReference
     /// <summary>Грид штампов последнего шага со штампами (плотность на тексель, float); штампов не было — null.</summary>
     public float[]? StampGrid => _stampGrid;
 
-    /// <summary>Шаг целиком: [штампы] → Composite → Advection → Divergence → давление (2 прохода, у грубого решателя — 1).</summary>
+    /// <summary>Шаг целиком: [штампы] → Composite → Advection → Divergence → давление (2 прохода, у грубого решателя — 1; при DivergenceMult 0 — без них).</summary>
     public void Step(in Fluid2DStepInput input, ReadOnlySpan<Fluid2DBrushTexel> brush = default, Fluid2DStamps? stamps = null)
     {
         var c = Constants(input, brush);
         if (Stamps(ref c, stamps, input)) StampPass(c, stamps!);
         Composite(c, brush);
         Advection(c);
+        if (!Params.HasPressure) return;
         Divergence(c, brush);
         if (Params.CrudePressureSolver) Pressure(c, c.CrudePass != 0, Fields.Scratch, Fields.Pressure);
         else

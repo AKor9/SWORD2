@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Sword.Game.Contracts;
 
 namespace Sword.Game.Blood;
@@ -283,6 +284,9 @@ public sealed class SkinSurface
     }
 
     /// <summary>Ближайшая точка треугольника к <paramref name="p"/> (Ericson, RTCD 5.1.5): барицентрики.</summary>
+    // Поиск ближайшей кожи — примитивная геометрия, PGO ей не нужен: сразу оптимизирована (якорь раны редок — без этого первые удары шли
+    // кодом нулевого уровня, до 4.5 мс на рану). Скин вершины горяч в шаге потёков и остаётся с PGO.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static Vector3 ClosestBary(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
     {
         var ab = b - a;
@@ -520,6 +524,7 @@ public sealed class SkinSurface
             z = Math.Clamp((int)MathF.Floor(q.Z), 0, _nz - 1);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public int NearestSkinned(SkinSurface s, Vector3 bind, float radius, Vector3 world, ReadOnlySpan<Matrix4x4> joints, out Vector3 bary,
             out float distance)
         {
@@ -547,6 +552,7 @@ public sealed class SkinSurface
             return best;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public int Nearest(SkinSurface s, Vector3 p, out Vector3 bary, out float distance, bool coarse)
         {
             Cell(p, out int cx, out int cy, out int cz);
@@ -581,6 +587,7 @@ public sealed class SkinSurface
         }
 
         /// <summary>Треугольники ячейки с <paramref name="first"/> до <paramref name="end"/>: ближе лучшего — лучший; true — сменился.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool Scan(SkinSurface s, Vector3 p, int first, int end, ref int best, ref float bestD2, ref Vector3 bary)
         {
             bool found = false;

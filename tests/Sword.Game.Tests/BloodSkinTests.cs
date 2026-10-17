@@ -465,6 +465,29 @@ public sealed class BloodSkinTests(ITestOutputHelper output)
         arena.Frame(0);
         Assert.Equal(0, arena.Blood.Skin!.UsedSlots);
     }
+
+    /// <summary>
+    /// Много R подряд посреди боя (сброс в каждом кадре, затем через кадр): после каждого — ни ран, ни потёков, ни крови на коже, ни
+    /// сочения; счёт сбросов — по числу R; бой после них снова кровит, как первый.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Content")]
+    public void Module_OnPak_ManyResetsInARow_ClearEachTime_BleedAgain()
+    {
+        var arena = new BloodBodyTests.Arena();
+        for (int f = 0; f < 200; f++) arena.Frame(f);
+        var blood = arena.Blood;
+        Assert.True(blood.Skin!.UsedSlots > 0 && blood.Wounds.Count > 0 && blood.Drips!.Alive > 0, "до сброса крови нет");
+        for (int r = 0; r < 12; r++)
+        {
+            arena.ArenaCommands.Add(new ArenaCommand { Action = ArenaAction.Reset });
+            arena.Frame(0);
+            Assert.Equal((r + 1, 0, 0, 0, 0), ((int)blood.Resets, blood.Skin.UsedSlots, blood.Wounds.Count, blood.Drips.Alive, blood.Ooze.Active));
+            if (r % 2 == 1) arena.Frame(1);   // через кадр — кадр без сброса между ними
+        }
+        for (int f = 0; f < 200; f++) arena.Frame(f);
+        Assert.True(blood.Skin.UsedSlots > 0 && blood.Wounds.Count > 0, $"после сбросов: слотов {blood.Skin.UsedSlots}, ран {blood.Wounds.Count}");
+    }
 }
 
 /// <summary>Кровь на коже на GPU (<see cref="BloodSkinGpu"/>): вид вершин = функция свежести на CPU, снятый слот обнуляется.</summary>
@@ -523,6 +546,7 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
             var data = new ulong[2 * s.VertexCount];
             renderer.ReadStorage(gpu.Storage(slot), data.AsSpan());
             float worstAdd = 0, worstMul = 0, worstScalar = 0;
+            int worstCode = 0, offByOne = 0;
             for (int v = 0; v < s.VertexCount; v++)
             {
                 int w = s.WeldOf(v);
@@ -531,12 +555,19 @@ public sealed class BloodSkinGpuTests(ITestOutputHelper output)
                 SkinLayerTexel.Unpack((uint)data[v], (uint)(data[v] >> 32), out var add, out var mul, out float coverage, out float roughness);
                 var d = Vector3.Abs(add - cpu.Add) / Vector3.Max(cpu.Add, new Vector3(1e-3f));
                 worstAdd = MathF.Max(worstAdd, MathF.Max(d.X, MathF.Max(d.Y, d.Z)));
+                // A — коды R11G11B10F той же упаковки CPU-вида: не дальше одного шага (граница округления; шаг — 1.6 % у r, g и 3.1 % у b).
+                uint gx = (uint)data[v], cx = SkinLayerTexel.Pack(cpu.Add, cpu.Mul, cpu.Coverage, cpu.Roughness).X;
+                int code = Math.Max(Math.Abs((int)(gx & 0x7FF) - (int)(cx & 0x7FF)),
+                    Math.Max(Math.Abs((int)(gx >> 11 & 0x7FF) - (int)(cx >> 11 & 0x7FF)), Math.Abs((int)(gx >> 22) - (int)(cx >> 22))));
+                worstCode = Math.Max(worstCode, code);
+                if (code > 0) offByOne++;
                 var m = Vector3.Abs(mul - cpu.Mul);
                 worstMul = MathF.Max(worstMul, MathF.Max(m.X, MathF.Max(m.Y, m.Z)));
                 worstScalar = MathF.Max(worstScalar, MathF.Max(MathF.Abs(coverage - cpu.Coverage) * 31, MathF.Abs(roughness - cpu.Roughness) * 63));
             }
-            output.WriteLine($"GPU − CPU: A {worstAdd:E2} (отн.), M {worstMul * 127:F2}/127, покрытие и шероховатость {worstScalar:F2} шага");
-            Assert.True(worstAdd <= 0.035f, $"A {worstAdd}");
+            output.WriteLine($"GPU − CPU: A {worstAdd:E2} (отн.), кодов A до {worstCode} шага (вершин со сдвигом {offByOne} из {s.VertexCount}), " +
+                $"M {worstMul * 127:F2}/127, покрытие и шероховатость {worstScalar:F2} шага");
+            Assert.True(worstCode <= 1, $"A: коды R11G11B10F расходятся на {worstCode} шага");
             Assert.True(worstMul <= 0.51f / 127, $"M {worstMul}");
             Assert.True(worstScalar <= 0.51f, $"покрытие или шероховатость {worstScalar} шага");
 

@@ -320,7 +320,9 @@ public sealed class Fluid2DSim : IDisposable
                 Out1 = age ? g.UavOf(ea) : 0, Out6 = rho ? g.UavOf(ra) : 0, GroupsX = groups, GroupsY = groups,
             });
         }
-        if (only is null or Fluid2DStage.Divergence)
+        // DivergenceMult 0: дивергенция нулевая, давление после очистки остаётся нулём — проходы шага не нужны (стадии проверки идут).
+        bool pressure = _params.HasPressure || only is not null;
+        if (pressure && only is null or Fluid2DStage.Divergence)
         {
             var pass = g.AddComputePass("fluid.divergence", FramePhase.Simulation).Read(a).Read(p);
             if (hasBrush) pass = pass.Read(b);
@@ -329,8 +331,8 @@ public sealed class Fluid2DSim : IDisposable
         }
         if (only is null)
         {
-            if (_params.CrudePressureSolver) AddPressure(g, k, groups, (input.Step & 1) != 0, s, p);
-            else
+            if (pressure && _params.CrudePressureSolver) AddPressure(g, k, groups, (input.Step & 1) != 0, s, p);
+            else if (pressure)
             {
                 AddPressure(g, k, groups, false, s, p);
                 AddPressure(g, k, groups, true, p, s);

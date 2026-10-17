@@ -18,7 +18,7 @@ public interface ISkinBloodLayer
 /// Вид слоя кожи в вершине — два слова. Слой поверх кожи: альбедо = кожа · M + A (M — пропускание слоя до кожи и обратно с покрытием,
 /// A — своё альбедо слоя), блик слоя — × покрытие. x — A в R11G11B10F (биты half без знака: r, g — 11 старших, b — 10; ≥ 0);
 /// y — M unorm7 r | g ≪ 7 | b ≪ 14, покрытие unorm5 ≪ 21, шероховатость GGX unorm6 ≪ 26. Отражательная способность при нормальном
-/// падении — <see cref="F0"/> (кровь, n ≈ 1.40). Тот же разбор — в шейдере скина игры (<c>SkinLayerOf</c> в scene.hlsl).
+/// падении — <see cref="F0"/> (кровь, n ≈ 1.40). Тот же разбор — в шейдере скина игры (<c>SkinLayerOf</c> в scene_layers.hlsli; тест — BloodLayerGpuTests).
 /// </summary>
 public static class SkinLayerTexel
 {

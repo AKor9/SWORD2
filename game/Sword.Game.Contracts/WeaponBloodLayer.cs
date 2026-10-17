@@ -39,7 +39,7 @@ public interface IWeaponBloodLayer
 /// Раскладка буфера крови лезвия (<c>uint2</c> на элемент): заголовок <see cref="Header"/> элементов — геометрия лезвия в пространстве
 /// меша (float подряд по словам: начало x, y, z; клеток на сторону (uint); ось длины / длина x, y, z; ось ширины / полуширина x, y, z;
 /// нормаль x, y, z; зерно шума (uint)), затем клетки вдоль лезвия: сторона 0 (по нормали) — <c>Header + i</c>, сторона 1 —
-/// <c>Header + cells + i</c>, вид клетки — <see cref="SkinLayerTexel"/>. Тот же разбор — <c>WeaponLayerOf</c> в scene.hlsl игры.
+/// <c>Header + cells + i</c>, вид клетки — <see cref="SkinLayerTexel"/>. Тот же разбор — <c>WeaponLayerOf</c> в scene_layers.hlsli игры (тест — BloodLayerGpuTests).
 /// </summary>
 public static class WeaponBloodLayout
 {

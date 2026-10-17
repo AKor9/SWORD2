@@ -393,7 +393,8 @@ public sealed class Fluid2DFilmGpuTests : IDisposable
         _gpu.AssertNoDebugMessages();
     }
 
-    /// <summary>Кадр плёнки со штампами, кистью, высотами, экспортом и возрастом — 0 Б; проходы по порядку; сброс обнуляет float-канал ρ.</summary>
+    /// <summary>Кадр плёнки со штампами, кистью, высотами, экспортом и возрастом — 0 Б; проходы по порядку (без давления: DivergenceMult 0 —
+    /// P остаётся +0 бит в бит); сброс обнуляет float-канал ρ.</summary>
     [Fact]
     public void FilmFrame_AllocatesNothing_ResetClears()
     {
@@ -424,9 +425,12 @@ public sealed class Fluid2DFilmGpuTests : IDisposable
         long bytes = (GC.GetAllocatedBytesForCurrentThread() - before) / frames;
         Assert.True(bytes == 0, $"кадр плёнки выделил {bytes} Б");
         var names = _gpu.Renderer.Graph.LastFrame.Select(r => r.Name).ToArray();
-        Assert.Equal(["fluid.painter", "fluid.stamp", "fluid.composite", "fluid.advection", "fluid.divergence", "fluid.pressure.x", "fluid.pressure.y",
-            "fluid.stats.rows", "fluid.stats", "fluid.export", "fluid.export.age"], names);
-        Assert.True(Mass(s.Sim.ReadFields()) > 0);
+        // DivergenceMult 0: без дивергенции и давления, P остаётся нулём.
+        Assert.Equal(["fluid.painter", "fluid.stamp", "fluid.composite", "fluid.advection", "fluid.stats.rows", "fluid.stats", "fluid.export",
+            "fluid.export.age"], names);
+        var fields = s.Sim.ReadFields();
+        Assert.True(Mass(fields) > 0);
+        Assert.All(fields.Pressure, h => Assert.Equal(0, BitConverter.HalfToUInt16Bits(h)));
         s.Sim.Reset();
         _gpu.Frame(f => s.Sim.Step(f, new Fluid2DStepInput(0, default, default)));
         Assert.Equal(0, Mass(s.Sim.ReadFields()));
