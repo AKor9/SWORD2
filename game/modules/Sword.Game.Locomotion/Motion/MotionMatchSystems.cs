@@ -88,7 +88,7 @@ public sealed class MotionMatchSystem(MotionMatchRuntime runtime) : IContinuousS
     {
         s.Label(MotionMatchSystems.Step).After(GameLabels.ActionSnapshot).Before(GameLabels.AnimatorPose).Reads<Transform>().Reads<RootVelocity>()
             .Reads<SteerModel>().Reads<AnimatorMotion>().Reads<PoseRef>().Writes<MotionMatchState>();
-        _query = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<RootVelocity>().Read<SteerModel>().Read<AnimatorMotion>()
+        _query = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<RootVelocity>().Read<SteerModel>().Read<AnimatorMotion>()
             .Read<PoseRef>().Write<MotionMatchState>();
     }
 
@@ -256,7 +256,7 @@ public sealed class MotionMatchHistorySystem(MotionMatchRuntime runtime) : ICont
     public void Setup(SystemSetup s)
     {
         s.Label(MotionMatchSystems.History).After(GameLabels.RootCollision).Reads<Transform>().Writes<MotionMatchState>();
-        _query = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Write<MotionMatchState>();
+        _query = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Write<MotionMatchState>();
     }
 
     public void Run(in SystemContext ctx)

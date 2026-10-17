@@ -14,8 +14,12 @@ public interface ISeverFeed
 /// <summary>Отделение тика для клиента: ключ бойца (<see cref="FighterKey"/>) и событие.</summary>
 public readonly record struct SeverRecord(ulong Fighter, LimbDetached Event);
 
-/// <summary>Часть меша бойца после разрезов: номер меша рендера и кусок, чьей позой она рисуется (−1 — поза бойца).</summary>
-public readonly record struct SkinPart(int Mesh, int Piece);
+/// <summary>
+/// Часть меша бойца после разрезов: номер меша рендера и кусок, чьей позой она рисуется (−1 — поза бойца). Изгиб у перелома
+/// (<see cref="BendPiece"/> ≥ 0): у меша есть суставы-призраки — суставы сегмента <see cref="BendSegment"/> по порядку номеров, после
+/// суставов скелета; они рисуются позой куска перелома <see cref="BendPiece"/>, а кожа у места перелома тянется между ними.
+/// </summary>
+public readonly record struct SkinPart(int Mesh, int Piece, int BendPiece = -1, int BendSegment = -1);
 
 /// <summary>
 /// Меши бойцов после разрезов (сервис клиента): клиентский модуль Cutting режет меш и кладёт сюда части бойца, клиент арены рисует их

@@ -225,7 +225,7 @@ public sealed class SkinCaptureSystem(IPhysicsWorld physics, SkinBindings skins,
 {
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.SkinCapture).Reads<Dead>().Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>();
+        s.Label(GameLabels.SkinCapture).Reads<Dead>().Reads<Downed>().Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>();
         // В Gameplay — смерти командой сцены этого тика и (уже снятые) попадания и кровопотеря прошлого; после постройки тел и клинка
         // (поставленный и убитый в одном тике — по телам постройки и позе прошлого тика: мёртвый не анимируется).
         if (gameplay) s.After(GameLabels.BladeSetup).Before(GameLabels.RootSteer).NextTickOk<Added<Dead>>();
@@ -244,6 +244,8 @@ public sealed class SkinCaptureSystem(IPhysicsWorld physics, SkinBindings skins,
             var body = FighterBodies.Handle(bodyRef);
             var pose = new PoseHandle(poseRef.Index, poseRef.Generation);
             if (!pool.IsAlive(pose) || !BodyPlacement.Placeable(physics, body) || skins.Has(e, body, dead.Time)) continue;
+            // лежит на физике: привязка снята при падении, поза бойца с тех пор стоит (сбит и убит в одном тике — снимается здесь)
+            if (world.TryGet<Downed>(e, out var downed) && skins.Has(e, body, downed.Time)) continue;
             skins.Capture(physics, e, body, pool.Model(pose), BodyPlacement.World(root.Position, root.Facing), dead.Time);
         }
     }
@@ -332,7 +334,9 @@ public sealed class SkinInvariant(IPhysicsWorld physics, SkinBindings skins) : I
             for (int i = 0; i < entities.Length; i++)
             {
                 var body = FighterBodies.Handle(bodies[i]);
-                if (!BodyPlacement.Placeable(physics, body) || skins.Has(entities[i], body, dead[i].Time)) continue;
+                // убит лёжа (сбит с ног) — привязка с момента падения
+                float since = world.TryGet<Downed>(entities[i], out var downed) ? downed.Time : dead[i].Time;
+                if (!BodyPlacement.Placeable(physics, body) || skins.Has(entities[i], body, since)) continue;
                 violations.Report(entities[i], string.Create(CultureInfo.InvariantCulture,
                     $"мёртвый (с {dead[i].Time} с, {dead[i].Cause}) без привязки скина тела {body}"));
                 if (violations.Full) return;
@@ -356,12 +360,13 @@ public sealed class SkinInvariant(IPhysicsWorld physics, SkinBindings skins) : I
         var body = new ArticulationHandle(slot, generation);
         if (!world.IsAlive(owner) || !world.TryGet<BodyRef>(owner, out var r) || FighterBodies.Handle(r) != body)
             return $"привязка скина тела {body} у {owner}, а он не боец с этим телом";
+        bool down = world.Has<Downed>(owner);   // сбитый с ног — привязка снята при падении (и умер лёжа — она же)
         if (world.TryGet<Dead>(owner, out var dead))
         {
-            if (!dead.Time.Equals(time) && !float.IsNaN(time))
+            if (!down && !dead.Time.Equals(time) && !float.IsNaN(time))
                 return string.Create(CultureInfo.InvariantCulture, $"привязка скина {owner} снята в {time} с, а умер он в {dead.Time} с");
         }
-        else if (!world.Has<Severance>(owner)) return $"привязка скина тела {body} у живого {owner} без отделённых частей";
+        else if (!down && !world.Has<Severance>(owner)) return $"привязка скина тела {body} у живого {owner} без отделённых частей и не сбитого";
         if (_finite[slot] == (generation, owner, time)) return null;   // эту привязку уже проверили: после снимка она не меняется
         foreach (var m in binding)
             if (!float.IsFinite(m.M11 + m.M12 + m.M13 + m.M21 + m.M22 + m.M23 + m.M31 + m.M32 + m.M33 + m.M41 + m.M42 + m.M43))

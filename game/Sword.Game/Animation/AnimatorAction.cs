@@ -32,6 +32,12 @@ public enum ActionKind : byte
 
     /// <summary>Поворот на месте клипом (<c>StartTurn</c>): курс ведёт yaw клипа, пока боец стоит.</summary>
     Turn = 6,
+
+    /// <summary>
+    /// Вставание после падения (<c>StartStandUp</c>): клип вставания всем телом от позы тел, лёгших на физику (снимок, переход
+    /// <see cref="ActionRules.RiseFade"/>); ход, поворот и удары — нельзя.
+    /// </summary>
+    StandUp = 7,
 }
 
 /// <summary>
@@ -78,6 +84,12 @@ public struct AnimatorAction
 
     /// <summary>Скорость клипа действия (секунд клипа за секунду): 1; у рывка — отрезок клипа уклонения за время рывка.</summary>
     public float Rate;
+
+    /// <summary>
+    /// Отдача удара: ещё <see cref="Hold"/> с клип удара идёт со скоростью <see cref="HoldRate"/> — оружие вязнет в теле или встаёт
+    /// (<see cref="ActionLayer.Recoil"/>).
+    /// </summary>
+    public float Hold, HoldRate;
 
     /// <summary>
     /// Переход от снимка позы: 0 — только что снята, 1 — снимка нет; растёт на 1/0,15 с за тик.
@@ -175,6 +187,9 @@ public static class ActionRules
 
     /// <summary>Переход от снимка позы, с (<c>SnapFade</c>); снимок — при прерывании действия с весом больше 0,05 (<c>Begin</c>).</summary>
     public const float SnapFade = 0.15f, SnapVisible = 0.05f;
+
+    /// <summary>Переход от позы лёгших на физику тел к клипу вставания, с.</summary>
+    public const float RiseFade = 0.45f;
 
     /// <summary>
     /// Удар не-<c>Agile</c> (враг) можно продолжить следующим через 0,1 с после окна урона (<c>ComboDelay</c>); <c>Agile</c> — сразу.
@@ -295,6 +310,35 @@ public static class ActionLayer
         Begin(ref a, ActionKind.Attack, info.Clip, info.Upper, clips.Duration(info.Clip), attack);
     }
 
+    /// <summary>Сколько длится отдача удара, с.</summary>
+    public const float RecoilTime = 0.15f;
+
+    /// <summary>
+    /// Отдача удара в тело: доля <paramref name="recoil"/> импульса оружия ушла в тело — клип удара замедляется до <c>1 − recoil</c>
+    /// (не меньше 0) и за <see cref="RecoilTime"/> с плавно (квадрат доли) возвращается к прежней скорости; новая отдача не слабее
+    /// идущей. Только удар.
+    /// </summary>
+    public static bool Recoil(ref AnimatorAction a, float recoil)
+    {
+        if (a.Kind != ActionKind.Attack || !(recoil > 0)) return false;
+        float rate = Math.Clamp(1 - recoil, 0, 1);
+        if (a.Hold > 0 && a.HoldRate <= rate) return false;
+        a.Hold = RecoilTime;
+        a.HoldRate = rate;
+        return true;
+    }
+
+    /// <summary>
+    /// Вставание: клип <paramref name="clip"/> всем телом с начала, сразу с полным весом — от снимка позы, которую дали тела на физике
+    /// (поставлена в позу бойца до снимка тика; переход — <see cref="ActionRules.RiseFade"/>).
+    /// </summary>
+    public static void StartStandUp(ref AnimatorAction a, int clip, ClipLibrary clips)
+    {
+        Begin(ref a, ActionKind.StandUp, clip, false, clips.Duration(clip), -1);
+        Snapshot(ref a);
+        a.Weight = 1;
+    }
+
     /// <summary>
     /// Реакция врага на попадание: клип реакции с начала, слой — слота; прерывает любое действие. Номер удара не меняется.
     /// </summary>
@@ -333,6 +377,7 @@ public static class ActionLayer
         a.Duration = duration;
         a.Time = 0;
         a.Rate = 1;
+        a.Hold = 0;
         a.Attack = attack;
     }
 
@@ -348,7 +393,7 @@ public static class ActionLayer
         a.Kind == ActionKind.Attack && attacks[a.Attack].InWindow(a.Time);
 
     /// <summary>Занят действием, которое замедляет поворот не-<c>Agile</c>: удар, реакция на попадание.</summary>
-    public static bool Busy(in AnimatorAction a) => a.Kind is ActionKind.Attack or ActionKind.HitReact;
+    public static bool Busy(in AnimatorAction a) => a.Kind is ActionKind.Attack or ActionKind.HitReact or ActionKind.StandUp;
 
     /// <summary>
     /// Можно начать новое действие: свободен, поворот, удар после окна урона (<c>Agile</c> — сразу, иначе через 0,1 с), вид рывка.
@@ -367,7 +412,8 @@ public static class ActionLayer
     /// Доля скорости поворота курса: занятый не-<c>Agile</c> — 0,35; <c>Agile</c> в окне урона — 0,6; иначе — 1.
     /// </summary>
     public static float TurnScale(in AnimatorAction a, bool agile, ReadOnlySpan<AttackInfo> attacks) =>
-        !agile ? Busy(a) ? ActionRules.BusyTurnScale : 1
+        a.Kind == ActionKind.StandUp ? 0
+        : !agile ? Busy(a) ? ActionRules.BusyTurnScale : 1
         : a.Kind == ActionKind.Attack ? Striking(a, attacks) ? ActionRules.StrikeTurnScale : 1 : 1;
 
     /// <summary>
@@ -379,6 +425,7 @@ public static class ActionLayer
         {
             ActionKind.Attack => ActionRules.AttackMoveScale,
             ActionKind.HitReact => ActionRules.HitReactMoveScale,
+            ActionKind.StandUp => 0,
             _ => 1,
         };
 
@@ -392,13 +439,17 @@ public static class ActionLayer
         a.RootDelta = Vector3.Zero;
         a.YawDelta = 0;
         if (a.Kind != ActionKind.None) Step(ref a, moving, speed, dt, clips, attacks, agile);
-        if (a.SnapFade < 1) a.SnapFade = MathF.Min(1, a.SnapFade + dt / ActionRules.SnapFade);
+        if (a.SnapFade < 1) a.SnapFade = MathF.Min(1, a.SnapFade + dt / (a.Kind == ActionKind.StandUp ? ActionRules.RiseFade : ActionRules.SnapFade));
     }
 
     private static void Step(ref AnimatorAction a, bool moving, float speed, float dt, ClipLibrary clips, ReadOnlySpan<AttackInfo> attacks, bool agile)
     {
         float before = a.Time;
-        a.Time += dt * a.Rate;   // скорость 1 — точно dt
+        // отдача: клип вязнет и плавно набирает прежнюю скорость (резкий пуск после остановки читался рывком)
+        float recovered = 1 - a.Hold / ActionLayer.RecoilTime;
+        float hold = a.Hold > 0 ? a.HoldRate + (1 - a.HoldRate) * recovered * recovered : 1;
+        a.Hold = MathF.Max(0, a.Hold - dt);
+        a.Time += dt * a.Rate * hold;   // скорость 1 — точно dt
         // Слой верха на ходу: ноги у локомоции, выпад не двигает — идёт только стоя (stand → 1).
         float stand = a.Upper ? ActionRules.StandWeight(speed) : 1;
         a.Stand = stand;

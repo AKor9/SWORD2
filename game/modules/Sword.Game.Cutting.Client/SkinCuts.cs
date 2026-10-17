@@ -69,7 +69,17 @@ public static class CutField
 /// <summary>Меши частей: выгрузка и освобождение (рендер — производные от меша персонажа; тесты — на CPU).</summary>
 public interface ICutMeshes
 {
-    int Add(string name, CutMesh mesh);
+    /// <summary>
+    /// Буферы меша части — в потоке разреза, вне кадра (выделение и копия мегабайт стоили бы кадру миллисекунды); null — хранилище их
+    /// не готовит.
+    /// </summary>
+    StagedSkinMesh? Stage(string name, CutMesh mesh);
+
+    /// <summary>
+    /// Меш части (из готовых буферов <paramref name="staged"/>, если есть); <paramref name="inverseBind"/> — свои обратные bind-матрицы
+    /// (изгиб: суставы-призраки), пусто — меша персонажа.
+    /// </summary>
+    int Add(string name, CutMesh mesh, StagedSkinMesh? staged = null, ReadOnlySpan<Matrix4x4> inverseBind = default);
 
     void Remove(int mesh);
 
@@ -79,7 +89,11 @@ public interface ICutMeshes
 /// <summary>Меши частей у рендера: производные от меша персонажа <paramref name="baseMesh"/>.</summary>
 public sealed class RendererCutMeshes(SkinnedMeshes meshes, int baseMesh) : ICutMeshes
 {
-    public int Add(string name, CutMesh mesh) => meshes.AddDerivedMesh(name, baseMesh, MemoryMarshal.AsBytes(mesh.Vertices.AsSpan()), mesh.Indices);
+    public StagedSkinMesh? Stage(string name, CutMesh mesh) => meshes.StageDerivedMesh(name, MemoryMarshal.AsBytes(mesh.Vertices.AsSpan()), mesh.Indices);
+
+    public int Add(string name, CutMesh mesh, StagedSkinMesh? staged = null, ReadOnlySpan<Matrix4x4> inverseBind = default) =>
+        staged is not null ? meshes.AddDerivedMesh(baseMesh, staged, inverseBind)
+            : meshes.AddDerivedMesh(name, baseMesh, MemoryMarshal.AsBytes(mesh.Vertices.AsSpan()), mesh.Indices, inverseBind);
 
     public void Remove(int mesh) => meshes.RemoveMesh(mesh);
 
@@ -95,12 +109,27 @@ public sealed class RendererCutMeshes(SkinnedMeshes meshes, int baseMesh) : ICut
 /// </summary>
 public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinMesh skin, ISeverFeed feed)
 {
-    private sealed record Part(CutMesh Mesh, int Gpu, int Piece);
+    /// <summary>Часть: меш, номер меша рендера, кусок позы; изгиб — кусок и сегмент суставов-призраков (−1 — нет).</summary>
+    private sealed record Part(CutMesh Mesh, int Gpu, int Piece, int BendPiece = -1, int BendSegment = -1);
 
     private sealed record Job(LimbDetached Event, Matrix4x4[] Joints, SegmentBody Body);
 
     /// <summary>Итог разреза: часть <see cref="Target"/> заменяется частями <see cref="Parts"/>; кусок −2 — поза прежней части.</summary>
-    private sealed record Done(int Target, List<(CutMesh Mesh, int Piece)> Parts);
+    /// <summary>
+    /// Итог разреза: часть <see cref="Target"/> заменяется частями <see cref="Parts"/>; кусок −2 — поза прежней части. Изгиб у перелома —
+    /// часть −2 с суставами-призраками (<see cref="Inverse"/> — обратные bind-матрицы скелета и призраков).
+    /// </summary>
+    private sealed record Done(int Target, List<(CutMesh Mesh, int Piece)> Parts, int BendPiece = -1, int BendSegment = -1, Matrix4x4[]? Inverse = null)
+    {
+        /// <summary>Буферы мешей частей, готовые в потоке разреза (по номеру части; null — нет).</summary>
+        public StagedSkinMesh?[] Staged { get; set; } = [];
+
+        /// <summary>Не пригодились (боец построен заново) — освободить.</summary>
+        public void Discard()
+        {
+            foreach (var s in Staged) s?.Dispose();
+        }
+    }
 
     private sealed class Fighter
     {
@@ -129,6 +158,11 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
     public long Bytes { get; private set; }
 
     public double LastMs { get; private set; }
+
+    /// <summary>Готовый разрез в меши рендера и части (главный поток): последний и наибольший, мс (диагностика).</summary>
+    public double ApplyMs { get; private set; }
+
+    public double MaxApplyMs { get; private set; }
 
     /// <summary>Разрезов в очереди и в фоне нет.</summary>
     public bool Idle
@@ -164,6 +198,9 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
         for (int j = 0; j < _jointSegment.Length; j++) _jointSegment[j] = skin.JointSegment(j);
         _keyJoint = KeyJoints(cpu, _jointSegment);
         _ = Task.Run(Warm);   // первый разрез ждал бы JIT десятки мс
+        // выгрузка меша части — в главном потоке кадра: её путь (буферы, освобождение) компилируется здесь, а не в кадре первого разреза
+        var warm = new CutMesh { Vertices = [_base.Vertices[0], _base.Vertices[1], _base.Vertices[2]], Indices = [0, 1, 2] };
+        _meshes.Remove(_meshes.Add("Cut.warm", warm, _meshes.Stage("Cut.warm", warm)));
     }
 
     /// <summary>Сустав сегмента с наибольшим суммарным весом — к нему крепится крышка.</summary>
@@ -232,7 +269,10 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
     /// </summary>
     private void Reset(ulong key, Fighter fresh)
     {
-        if (_fighters.Remove(key, out _) && parts.TryGet(key, out _)) parts.Drop(key);
+        // разрез прошлой жизни ещё в фоне — его буферы освободятся, когда он кончится
+        if (_fighters.Remove(key, out var old) && old.Running is { } running)
+            running.ContinueWith(t => { if (t.IsCompletedSuccessfully) t.Result?.Discard(); }, TaskScheduler.Default);
+        if (old is not null && parts.TryGet(key, out _)) parts.Drop(key);
         fresh.Parts.Add(new Part(_base!, parts.BaseMesh, -1));
         _fighters[key] = fresh;
     }
@@ -265,7 +305,9 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
     {
         var e = job.Event;
         int target = PartOf(f, e.Segment);
-        var mesh = f.Parts[target].Mesh;
+        var part = f.Parts[target];
+        // изогнутая часть режется без призраков: их влияния — снова на суставы сегмента
+        var mesh = part.BendPiece >= 0 ? Flatten(part.Mesh, part.BendSegment) : part.Mesh;
         return Task.Run<Done?>(() =>
         {
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -275,8 +317,14 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
             {
                 SeverMode.Shatter => Shatter(target, mesh, palette, job),
                 SeverMode.Tear => Tear(target, mesh, palette, job),
+                SeverMode.Fracture => Bend(target, mesh, palette, job),
                 _ => Split(target, mesh, palette, job),
             };
+            // буферы мешей частей — здесь, вне кадра: в кадре остаётся только опубликовать их
+            var staged = new StagedSkinMesh?[done.Parts.Count];
+            for (int i = 0; i < staged.Length; i++)
+                if (done.Parts[i].Mesh.Indices.Length > 0) staged[i] = _meshes!.Stage("Cut", done.Parts[i].Mesh);
+            done.Staged = staged;
             LastMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             return done;
         });
@@ -326,6 +374,109 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
         Rebind(a, below, key);
         Rebind(b, (ushort)~branch, key);
         return new Done(target, [(a, -2), (b, e.Piece)]);
+    }
+
+    /// <summary>Полуширина полосы у перелома, где кожа делится между суставом сегмента и его призраком, м.</summary>
+    public const float BendBand = 0.03f;
+
+    /// <summary>
+    /// Перелом: меш не режется. Суставам сегмента — призраки (новые номера после суставов скелета, по порядку номеров) с той же
+    /// привязкой; вес вершины на суставе сегмента делится между ним и его призраком по стороне от плоскости перелома — гладко в полосе
+    /// ±<see cref="BendBand"/>: сторона куска идёт за призраками (поза куска), кожа у перелома тянется. Влияний — четыре сильнейших.
+    /// </summary>
+    private Done Bend(int target, CutMesh mesh, Matrix4x4[] palette, Job job)
+    {
+        var e = job.Event;
+        var (center, _, rotation) = Bone(job, e.StumpShift);
+        var normal = Vector3.Normalize(Vector3.Transform(e.Normal, rotation));
+        float distance = Vector3.Dot(normal, center) + e.Offset;
+        var ghost = Ghosts(e.Segment, out var inverse);
+        if (inverse.Length > 256) return new Done(target, [(mesh, -2)]);   // номер сустава вершины — байт
+        var vertices = (CutVertex[])mesh.Vertices.Clone();
+        Span<int> joints = stackalloc int[8];
+        Span<float> weights = stackalloc float[8];
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            float d = Vector3.Dot(normal, CutField.Posed(vertices[i], palette)) - distance;
+            float s = Math.Clamp((d + BendBand) / (2 * BendBand), 0, 1);
+            BendVertex(ref vertices[i], ghost, s * s * (3 - 2 * s), joints, weights);
+        }
+        return new Done(target, [(new CutMesh { Vertices = vertices, Indices = mesh.Indices }, -2)], e.Piece, e.Segment, inverse);
+    }
+
+    /// <summary>Призраки суставов сегмента: номер призрака каждого сустава (−1 — не сегмента) и обратные bind-матрицы скелета и призраков.</summary>
+    private int[] Ghosts(int segment, out Matrix4x4[] inverse)
+    {
+        int n = _inverse.Length;
+        var ghost = new int[n];
+        var list = new List<Matrix4x4>(_inverse);
+        for (int j = 0; j < n; j++)
+        {
+            ghost[j] = -1;
+            if (_jointSegment[j] != segment) continue;
+            ghost[j] = list.Count;
+            list.Add(_inverse[j]);
+        }
+        inverse = [.. list];
+        return ghost;
+    }
+
+    /// <summary>Вес вершины на суставах сегмента: доля <paramref name="t"/> — их призракам; четыре сильнейших влияния, сумма 1.</summary>
+    private static void BendVertex(ref CutVertex v, int[] ghost, float t, Span<int> joints, Span<float> weights)
+    {
+        int count = 0;
+        for (int k = 0; k < 4; k++)
+        {
+            float w = CutField.Weight(v, k);
+            if (!(w > 0)) continue;
+            int j = (int)(v.Joints >> (8 * k) & 0xFF);
+            int g = (uint)j < (uint)ghost.Length ? ghost[j] : -1;
+            if (g < 0 || t <= 0) (joints[count], weights[count++]) = (j, w);
+            else if (t >= 1) (joints[count], weights[count++]) = (g, w);
+            else
+            {
+                (joints[count], weights[count++]) = (j, w * (1 - t));
+                (joints[count], weights[count++]) = (g, w * t);
+            }
+        }
+        // четыре сильнейших
+        for (int a = 0; a < count; a++)
+            for (int b = a + 1; b < count; b++)
+                if (weights[b] > weights[a])
+                {
+                    (weights[a], weights[b]) = (weights[b], weights[a]);
+                    (joints[a], joints[b]) = (joints[b], joints[a]);
+                }
+        int keep = Math.Min(count, 4);
+        float sum = 0;
+        for (int k = 0; k < keep; k++) sum += weights[k];
+        uint packed = 0;
+        Span<float> w4 = stackalloc float[4];
+        for (int k = 0; k < keep; k++)
+        {
+            w4[k] = sum > 0 ? weights[k] / sum : 0;
+            packed |= (uint)joints[k] << (8 * k);
+        }
+        v.Joints = packed;
+        v.Weights = new Vector3(w4[0], w4[1], w4[2]);
+    }
+
+    /// <summary>Меш без призраков: влияния призраков сегмента <paramref name="segment"/> — снова на его суставы.</summary>
+    private CutMesh Flatten(CutMesh mesh, int segment)
+    {
+        var ghost = Ghosts(segment, out _);
+        var back = new int[ghost.Length + 256];
+        for (int j = 0; j < back.Length; j++) back[j] = j;
+        for (int j = 0; j < ghost.Length; j++)
+            if (ghost[j] >= 0) back[ghost[j]] = j;
+        var vertices = (CutVertex[])mesh.Vertices.Clone();
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            uint packed = 0;
+            for (int k = 0; k < 4; k++) packed |= (uint)back[(int)(vertices[i].Joints >> (8 * k) & 0xFF)] << (8 * k);
+            vertices[i].Joints = packed;
+        }
+        return new CutMesh { Vertices = vertices, Indices = mesh.Indices };
     }
 
     /// <summary>
@@ -522,13 +673,26 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
 
     private void Apply(ulong key, Fighter f, Done done)
     {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        ApplyParts(key, f, done);
+        ApplyMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        MaxApplyMs = Math.Max(MaxApplyMs, ApplyMs);
+    }
+
+    private void ApplyParts(ulong key, Fighter f, Done done)
+    {
         var old = f.Parts[done.Target];
         var next = new List<Part>(f.Parts);
         next.RemoveAt(done.Target);
-        foreach (var (mesh, piece) in done.Parts)
+        for (int i = 0; i < done.Parts.Count; i++)
         {
+            var (mesh, piece) = done.Parts[i];
+            var staged = i < done.Staged.Length ? done.Staged[i] : null;
             if (mesh.Indices.Length == 0) continue;
-            var part = new Part(mesh, Upload($"Cut.{key}", mesh), piece == -2 ? old.Piece : piece);
+            var inverse = piece == -2 && done.Inverse is { } bind ? bind : default;
+            var part = piece == -2
+                ? new Part(mesh, Upload($"Cut.{key}", mesh, staged, inverse), old.Piece, done.BendPiece, done.BendSegment)
+                : new Part(mesh, Upload($"Cut.{key}", mesh, staged), piece);
             if (piece == -2) next.Insert(done.Target, part);
             else next.Add(part);
         }
@@ -536,7 +700,8 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
         f.Parts.Clear();
         f.Parts.AddRange(next);
         var published = new SkinPart[f.Parts.Count];
-        for (int i = 0; i < published.Length; i++) published[i] = new SkinPart(f.Parts[i].Gpu, f.Parts[i].Piece);
+        for (int i = 0; i < published.Length; i++)
+            published[i] = new SkinPart(f.Parts[i].Gpu, f.Parts[i].Piece, f.Parts[i].BendPiece, f.Parts[i].BendSegment);
         parts.Set(key, published);
         f.Published = true;
         Cuts++;
@@ -574,9 +739,9 @@ public sealed class SkinCuts(FighterSkinParts parts, IFighterPoses poses, ISkinM
     private static bool Same(in CutVertex a, in CutVertex b) =>
         MemoryMarshal.AsBytes(new ReadOnlySpan<CutVertex>(in a)).SequenceEqual(MemoryMarshal.AsBytes(new ReadOnlySpan<CutVertex>(in b)));
 
-    private int Upload(string name, CutMesh mesh)
+    private int Upload(string name, CutMesh mesh, StagedSkinMesh? staged = null, ReadOnlySpan<Matrix4x4> inverseBind = default)
     {
-        int id = _meshes!.Add(name, mesh);
+        int id = _meshes!.Add(name, mesh, staged, inverseBind);
         Meshes++;
         Bytes += _meshes.Bytes(id);
         return id;

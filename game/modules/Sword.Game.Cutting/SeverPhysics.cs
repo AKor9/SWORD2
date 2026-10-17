@@ -194,10 +194,18 @@ public sealed class SeverDecisionSystem : IReactiveSystem<Event<SeverRequested>>
         LimbDetached cut = default;
         PartialCut partial = default;
         var outcome = r.Kind == HitKind.Blunt
-            ? ImpactPhysics.Blunt(r, part, body, shift, end, tissue, rules, free, out cut)
+            ? ImpactPhysics.Blunt(r, part, body, shift, end, tissue, rules, free, Broken(severance, part), out cut)
             : free >= 1 ? SeverPhysics.Decide(r, part, body, shift, end, tissue, rules, out cut, out partial) : SeverOutcome.None;
         if (outcome == SeverOutcome.Partial) ctx.Commands.Emit(partial);
         if (outcome == SeverOutcome.Cut) Emit(ctx, v, severance, cut, physics, a);
+    }
+
+    /// <summary>Кость части уже сломана: от неё есть кусок перелома.</summary>
+    private static bool Broken(in Severance severance, int part)
+    {
+        for (int k = 0; k < severance.Pieces; k++)
+            if (severance.Piece[k].Segment == part && severance.Piece[k].Mode == SeverMode.Fracture) return true;
+        return false;
     }
 
     /// <summary>

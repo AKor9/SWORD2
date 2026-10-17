@@ -88,11 +88,11 @@ public static class GameCore
             .Component<FighterSlot>().Component<FighterSeed>().Component<EnemyAiTerms>().Component<RootContacts>()
             .Component<PoseRef>().Component<AnimatorMotion>().Component<AnimatorAction>().Component<ActionPoses>().Component<BodyRef>()
             .Component<WeaponSlot>().Component<Blade>().Component<PlayerControl>().Component<AttackCombo>().Component<EnemyAttack>()
-            .Component<Health>().Component<Dead>().Component<StrikePairs>().Component<Flinch>().Component<HitImpulse>().Component<Recoil>()
+            .Component<Health>().Component<Dead>().Component<StrikePairs>().Component<Flinch>().Component<Shove>().Component<Downed>().Component<HitImpulse>().Component<Recoil>()
             // Своя поза постройки бойца и действующая модель контроллера — компоненты контрактов, которые ставит модуль (игроку на Motion
             // Matching); ядро читает и пишет их тем, у кого они есть. Бойцы без них — общая поза и модель по умолчанию (хеш ecs — от компонентов на сущностях).
             .Component<FighterStartPose>().Component<SteerModel>().Component<Severance>()
-            .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>().Event<LimbDetached>().Event<PartialCut>()
+            .Event<StrikeContact>().Event<Hit>().Event<SeverRequested>().Event<HitResponse>().Event<LimbDetached>().Event<PartialCut>()
             .Command<PlayerCommand>().Command<ArenaCommand>().Command<EnemyCommand>().Command<StrikeProbe>().Command<SceneCommand>()
             .Command<BlastCommand>()
             .Resource(poses).Resource(assets.Actions).Resource(new ArenaState { Enemies = arena.Enemies })
@@ -117,7 +117,7 @@ public static class GameCore
             // Бой: касания, попадания, заявки на отруб и смерти — клиенту (HUD; без подписчика у события нет журнала).
             .Export<Event<StrikeContact>>().Export<Event<Hit>>().Export<Event<SeverRequested>>().Export<Added<Dead>>()
             // Отделения и неполные разрезы (модуль Cutting) — клиенту: разрез меша, кровь.
-            .Export<Event<LimbDetached>>().Export<Event<PartialCut>>();
+            .Export<Event<LimbDetached>>().Export<Event<PartialCut>>().Export<Event<HitResponse>>();
         FighterBodies.Register(b, physics);
         PhysicsDebug.Register(b, physics);   // вид суставов и трассы физики, режим physics.trace — мир, хеш и реплей не меняют
         // Ручки «Бой» — поля правил боя (ресурс из секции combat), изменение на ходу — команда ручки (система tuning.combat в Begin).
@@ -135,6 +135,7 @@ public static class GameCore
             .System(GameStages.Gameplay, new BladeSetupSystem(physics, weapons, assets.Hand, start))
             .System(GameStages.Gameplay, new SkinCaptureSystem(physics, skins, gameplay: true))
             .System(GameStages.Gameplay, new DeathToRagdollSystem(physics, corpseJoints, corpseProfile, gameplay: true))
+            .System(GameStages.Gameplay, new RiseSystem(physics, skins))
             .System(GameStages.Gameplay, new EnemyCommandSystem())
             .System(GameStages.Gameplay, new ScenePlayerIntentSystem())
             .System(GameStages.Gameplay, new RootSteerSystem(strikes))
@@ -143,6 +144,7 @@ public static class GameCore
             .System(GameStages.Animation, new AnimatorPoseSystem(upper, full))
             .System(GameStages.Animation, new AnimationTickSystem())
             .System(GameStages.Movement, new RootControlSystem())
+            .System(GameStages.Movement, new ShoveSystem())
             .System(GameStages.Movement, new RootCollisionSystem())
             .System(GameStages.Movement, new PosePostTickSystem())
             .System(GameStages.PrePhysics, new KinematicPlacementSystem(physics, joints))
@@ -162,6 +164,7 @@ public static class GameCore
             .System(GameStages.Settle, new ArenaStatsSystem())
             .System(GameStages.Settle, new SkinCaptureSystem(physics, skins, gameplay: false))
             .System(GameStages.Settle, new DeathToRagdollSystem(physics, corpseJoints, corpseProfile, gameplay: false))
+            .System(GameStages.Settle, new KnockdownSystem(physics, corpseJoints, skins, corpseProfile))
             .System(GameStages.Settle, new BlastPushSystem(physics))
             .System(GameStages.End, new SeverClearSystem(physics))
             .System(GameStages.End, new PoseReleaseSystem())

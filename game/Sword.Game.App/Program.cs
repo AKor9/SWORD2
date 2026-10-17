@@ -197,7 +197,10 @@ public static partial class Program
             if (replay is not null && replay.Content != "none" && content != "none" && replay.Content != content)
                 throw new InvalidDataException($"реплей записан на контенте {replay.Content}, а пак здесь — {content}: хеши сравнивать бессмысленно");
             var config = replay?.CreateConfig(sets) ?? ConfigSet.Load(AppContext.BaseDirectory, sets);
-            var simulation = SwordSimulation.Create(config, Sword.Game.Animation.CharacterAssets.LoadFromPak());
+            var assets = Sword.Game.Animation.CharacterAssets.LoadFromPak();
+            var simulation = SwordSimulation.Create(config, assets);
+            // первый удар каждого вида не компилирует JIT в тике игры: бой прогревается отдельной симуляцией в фоне
+            if (replay is null && options.Bench == 0) _ = CombatWarmup.Start(config, assets);
             var playback = replay is null ? null : simulation.Play(replay);
             // Живая игра: тяжёлые кодовые инварианты — раз в 4 тика (InvariantCost.Heavy); сверка реплея — каждый тик.
             simulation.Invariants.LivePeriods = replay is null;

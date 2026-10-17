@@ -52,6 +52,41 @@ internal struct SkinnedVertex
 public readonly record struct MeshPart(int Mesh, string Material);
 
 /// <summary>
+/// Буферы производного меша, заполненные вне потока кадра (<see cref="SkinnedMeshes.StageDerivedMesh"/>): в меш — в потоке кадра
+/// (<see cref="SkinnedMeshes.AddDerivedMesh(int, StagedSkinMesh, System.ReadOnlySpan{System.Numerics.Matrix4x4})"/>); не понадобились —
+/// <see cref="Dispose"/> (GPU их не видел — освобождаются сразу).
+/// </summary>
+public sealed class StagedSkinMesh : IDisposable
+{
+    private StagedBuffer? _vertices, _indices;
+
+    internal StagedSkinMesh(string name, int vertexCount, StagedBuffer vertices, StagedBuffer indices)
+    {
+        Name = name;
+        VertexCount = vertexCount;
+        _vertices = vertices;
+        _indices = indices;
+    }
+
+    public string Name { get; }
+    public int VertexCount { get; }
+
+    internal (StagedBuffer Vertices, StagedBuffer Indices) Take()
+    {
+        var pair = (_vertices ?? throw new InvalidOperationException($"{Name}: буферы уже взяты или освобождены"), _indices!);
+        _vertices = _indices = null;
+        return pair;
+    }
+
+    public void Dispose()
+    {
+        _vertices?.Dispose();
+        _indices?.Dispose();
+        _vertices = _indices = null;
+    }
+}
+
+/// <summary>
 /// Скинированные меши: вершины и индексы — один раз в память GPU; каждый кадр в кольца пишутся палитры (мировые
 /// матрицы скиннинга) и экземпляры, один <c>DrawIndexedInstanced</c> на меш. Скиннинг — common/skin.hlsli: с <see cref="Prepare"/> —
 /// один раз за кадр вычислительным проходом <c>skin.vertices</c> в буфер вершин кадра (точка и нормаль в мире), проходы читают его;
@@ -276,18 +311,46 @@ public sealed class SkinnedMeshes : IDisposable
     /// освобождает <see cref="RemoveMesh"/>.
     /// </summary>
     /// <exception cref="ArgumentException">Вершин не целое число записей, индекс вне вершин или треугольник неполный.</exception>
-    public int AddDerivedMesh(string name, int baseMesh, ReadOnlySpan<byte> vertices, ReadOnlySpan<uint> indices)
+    public int AddDerivedMesh(string name, int baseMesh, ReadOnlySpan<byte> vertices, ReadOnlySpan<uint> indices) =>
+        AddDerivedMesh(name, baseMesh, vertices, indices, default);
+
+    /// <summary>
+    /// Буферы производного меша — из любого потока (выделение и копия мегабайт — не в кадре); в меш —
+    /// <see cref="AddDerivedMesh(int, StagedSkinMesh, ReadOnlySpan{Matrix4x4})"/> в потоке кадра, не понадобился — <c>Dispose</c>.
+    /// </summary>
+    /// <exception cref="ArgumentException">Вершин не целое число записей, индекс вне вершин или треугольник неполный.</exception>
+    public StagedSkinMesh StageDerivedMesh(string name, ReadOnlySpan<byte> vertices, ReadOnlySpan<uint> indices)
+    {
+        int count = CheckDerived(vertices, indices);
+        var device = _renderer.Device;
+        return new StagedSkinMesh(name, count, StaticBuffer.Stage(device, name + ".Vertices", MemoryMarshal.Cast<byte, SkinVertex>(vertices)),
+            StaticBuffer.Stage(device, name + ".Indices", indices));
+    }
+
+    /// <summary>Производный меш из буферов <paramref name="staged"/> (они переходят мешу); суставы — как в <see cref="AddDerivedMesh(string, int, ReadOnlySpan{byte}, ReadOnlySpan{uint}, ReadOnlySpan{Matrix4x4})"/>.</summary>
+    public int AddDerivedMesh(int baseMesh, StagedSkinMesh staged, ReadOnlySpan<Matrix4x4> inverseBind)
+    {
+        var source = _meshes[baseMesh] ?? throw new ArgumentException($"меша {baseMesh} нет", nameof(baseMesh));
+        var (vertices, indices) = staged.Take();
+        var mesh = new Mesh(staged.Name, new GpuData(StaticBuffer.Publish(_renderer.Device, vertices)),
+            new GpuIndices(StaticBuffer.Publish(_renderer.Device, indices, withSrv: false)), null,
+            inverseBind.IsEmpty ? source.JointCount : inverseBind.Length, inverseBind.IsEmpty ? source.InverseBind : inverseBind.ToArray(),
+            staged.VertexCount, source.Bounds, source.SkinMargin);
+        return Register(mesh);
+    }
+
+    private static int CheckDerived(ReadOnlySpan<byte> vertices, ReadOnlySpan<uint> indices)
     {
         if (vertices.Length % SkinVertex.Size != 0) throw new ArgumentException($"вершин {vertices.Length} байт — не кратно {SkinVertex.Size}", nameof(vertices));
         if (indices.Length % 3 != 0 || indices.Length == 0) throw new ArgumentException($"индексов {indices.Length} — не треугольники", nameof(indices));
         int count = vertices.Length / SkinVertex.Size;
         foreach (uint i in indices)
             if (i >= (uint)count) throw new ArgumentException($"индекс {i} вне {count} вершин", nameof(indices));
-        var source = _meshes[baseMesh] ?? throw new ArgumentException($"меша {baseMesh} нет", nameof(baseMesh));
-        var data = MemoryMarshal.Cast<byte, SkinVertex>(vertices);
-        var array = data.ToArray();
-        var mesh = new Mesh(name, _renderer.CreateData<SkinVertex>(name + ".Vertices", array), _renderer.CreateIndices(name + ".Indices", indices.ToArray()),
-            null, source.JointCount, source.InverseBind, count, BoundsOf(array), source.SkinMargin);
+        return count;
+    }
+
+    private int Register(Mesh mesh)
+    {
         int free = _meshes.IndexOf(null);
         if (free >= 0)
         {
@@ -296,6 +359,22 @@ public sealed class SkinnedMeshes : IDisposable
         }
         _meshes.Add(mesh);
         return _meshes.Count - 1;
+    }
+
+    /// <summary>
+    /// Производный меш со своими обратными bind-матрицами <paramref name="inverseBind"/> (пусто — меша <paramref name="baseMesh"/>):
+    /// суставов в позе экземпляра — столько же.
+    /// </summary>
+    public int AddDerivedMesh(string name, int baseMesh, ReadOnlySpan<byte> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<Matrix4x4> inverseBind)
+    {
+        int count = CheckDerived(vertices, indices);
+        var source = _meshes[baseMesh] ?? throw new ArgumentException($"меша {baseMesh} нет", nameof(baseMesh));
+        var data = MemoryMarshal.Cast<byte, SkinVertex>(vertices);
+        // вершины производного — вершины основы на своих местах и новые внутри тела (крышки): шар основы их покрывает
+        var mesh = new Mesh(name, _renderer.CreateData<SkinVertex>(name + ".Vertices", data), _renderer.CreateIndices(name + ".Indices", indices),
+            null, inverseBind.IsEmpty ? source.JointCount : inverseBind.Length, inverseBind.IsEmpty ? source.InverseBind : inverseBind.ToArray(), count,
+            source.Bounds, source.SkinMargin);
+        return Register(mesh);
     }
 
     /// <summary>Освободить меш (производный): буферы GPU — после кадров, которые его ещё рисуют; номер освобождается для новых.</summary>

@@ -288,7 +288,7 @@ public sealed class FootLockSystem(FootLockLegs legs, MotionMatchRuntime runtime
     {
         s.Label(FootLockLegs.Step).After(GameLabels.RootCollision).After(MotionMatchSystems.History).Before(GameLabels.PosePostTick)
             .Reads<Transform>().Reads<PrevTransform>().Reads<AnimatorMotion>().Reads<PoseRef>().Writes<MotionMatchState>();
-        _query = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PrevTransform>().Read<AnimatorMotion>().Read<PoseRef>()
+        _query = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<PrevTransform>().Read<AnimatorMotion>().Read<PoseRef>()
             .Write<MotionMatchState>();
     }
 

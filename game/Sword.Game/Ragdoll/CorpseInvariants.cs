@@ -126,7 +126,9 @@ public static class CorpseInvariants
                     if (!BodyPlacement.Placeable(physics, body)) continue;   // негодное тело — physics.bodyRefs
                     bool dead = world.TryGet<Dead>(entities[i], out var d);
                     bool severed = world.TryGet<Severance>(entities[i], out var severance);
+                    bool down = world.TryGet<Downed>(entities[i], out var downed);
                     string? problem = dead ? (fresh && d.Time == now ? null : severed ? SeveredCorpse(body, severance) : Corpse(body))
+                        : down ? (fresh && downed.Time == now ? null : Lying(body))
                         : alive ? Alive(body, severance) : null;
                     if (problem is null) continue;
                     violations.Report(entities[i], problem);
@@ -172,6 +174,18 @@ public static class CorpseInvariants
                 bool want = child != BodySegs.Weapon && !(child < BodySegs.Bodies && severance.IsTorn(child));
                 if (physics.IsJointEnabled(body, j) != want)
                     return Text($"мёртвый с отделёнными частями, а сустав {j} (ребёнок {child}) {(want ? "выключен" : "включён")}");
+            }
+            return null;
+        }
+
+        /// <summary>Сбитый с ног: все тела (и куски) — на физике с профилем трупа.</summary>
+        private string? Lying(ArticulationHandle body)
+        {
+            for (int k = 0, n = physics.BodyCount(body); k < n; k++)
+            {
+                var s = physics.Get(physics.Body(body, k));
+                if (s.Mode != BodyMode.Simulated || s.Profile != corpseProfile)
+                    return Text($"сбит с ног, а тело {k} — {s.Mode}, профиль {s.Profile} (лежащий — Simulated, профиль трупа)");
             }
             return null;
         }

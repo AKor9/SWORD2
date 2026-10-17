@@ -77,6 +77,15 @@ public static class GameLabels
     public static readonly SystemLabel RootControl = new("core.root-control");
     public static readonly SystemLabel RootCollision = new("core.root-collision");
 
+    /// <summary>Settle, после <see cref="DeathToRagdoll"/>: сбитый с ног живой — на физику.</summary>
+    public static readonly SystemLabel Knockdown = new("core.knockdown");
+
+    /// <summary>Gameplay, до <see cref="RootSteer"/>: сбитый отлежался — встаёт.</summary>
+    public static readonly SystemLabel Rise = new("core.rise");
+
+    /// <summary>Movement, после <see cref="RootControl"/>, до <see cref="RootCollision"/>: толчок корня ударом.</summary>
+    public static readonly SystemLabel Shove = new("core.shove");
+
     /// <summary>
     /// Movement, после <see cref="RootCollision"/>: второй проход очереди пула поз — задания по окончательному корню тика (IK ног
     /// модуля) ставятся до этой метки, после <see cref="RootCollision"/>.

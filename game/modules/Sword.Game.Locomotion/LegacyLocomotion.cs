@@ -163,7 +163,7 @@ public sealed class LegacyLocomotionSystem(bool player = true) : IContinuousSyst
     {
         s.Label(Label).After(GameLabels.ActionSnapshot).Before(GameLabels.AnimatorPose).Reads<AnimatorMotion>().Reads<PoseRef>().Writes<LegacyLocomotionState>();
         // мёртвый (Dead) замирает: локомоция его позу не трогает (поза смерти — по ней переход в труп)
-        var query = s.Query().With<Fighter>().Without<Dead>().Read<AnimatorMotion>().Read<PoseRef>().Write<LegacyLocomotionState>();
+        var query = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<AnimatorMotion>().Read<PoseRef>().Write<LegacyLocomotionState>();
         _query = player ? query : query.Without<PlayerTag>();
     }
 

@@ -146,7 +146,7 @@ public sealed class ScenePlayerIntentSystem : IContinuousSystem
     {
         s.Label(GameLabels.SceneIntent).After(GameLabels.EnemyCommand).Before(GameLabels.RootSteer).ReadsJournal<Event<SceneCommand>>()
             .Writes<FighterCommand>();
-        _player = s.Query().With<Fighter>().With<PlayerTag>().Without<Dead>().Write<FighterCommand>();
+        _player = s.Query().With<Fighter>().With<PlayerTag>().Without<Dead>().Without<Downed>().Write<FighterCommand>();
     }
 
     public void Run(in SystemContext ctx)

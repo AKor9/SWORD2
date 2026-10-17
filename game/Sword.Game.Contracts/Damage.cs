@@ -157,6 +157,9 @@ public struct SeverRequested
 {
     public RequestId Id;
     public ContactId Contact;
+
+    /// <summary>Атакующий (у взрыва — нет).</summary>
+    public Entity Attacker;
     public Entity Victim;
     public int Part;
     public Vector3 Point, Blade, Dir;

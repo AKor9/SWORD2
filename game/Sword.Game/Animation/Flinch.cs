@@ -3,17 +3,17 @@ using Sword.Engine.Animation;
 
 namespace Sword.Game.Animation;
 
-/// <summary>Слот вздрагивания: клип реакции (−1 — слот свободен), время от начала и длина, с.</summary>
+/// <summary>Слот вздрагивания: клип реакции (−1 — слот свободен), время от начала и длина, с; сила удара 0…1.</summary>
 public struct FlinchSlot
 {
     public int Clip;
-    public float Time, Length;
+    public float Time, Length, Strength;
 
     public static FlinchSlot Free => new() { Clip = -1 };
 }
 
 /// <summary>
-/// Вздрагивание игрока от попадания: первые 0,55 с клипа реакции — добавкой поворотов к верху тела (сила 0,8) поверх удара, бега
+/// Вздрагивание бойца от попадания (сила — по удару): первые 0,55 с клипа реакции — добавкой поворотов к верху тела (сила 0,8) поверх удара, бега
 /// и рывка; управление не отнимается. Два слота: новое попадание гасит прошлое с текущего веса, а не обрывает. Хешируется.
 /// </summary>
 public struct Flinch
@@ -42,11 +42,11 @@ public static class FlinchLayer
     public static float Envelope(float t, float length) => Math.Clamp(t / In, 0, 1) * Math.Clamp((length - t) / Out, 0, 1);
 
     /// <summary>
-    /// Новое вздрагивание клипом <paramref name="clip"/>: прошлый слот гаснет от своего веса выхода, новый — в другом слоте с начала;
+    /// Новое вздрагивание клипом <paramref name="clip"/> с силой <paramref name="strength"/> (доля добавки): прошлый слот гаснет от своего веса выхода, новый — в другом слоте с начала;
     /// другой слот ещё виден (третье попадание) — нового нет, идущие доигрывают (иначе скачки позы — <c>physics.kinematicSpeed</c>).
     /// false — не начато.
     /// </summary>
-    public static bool Start(ref Flinch f, int clip, float duration)
+    public static bool Start(ref Flinch f, int clip, float duration, float strength = 1)
     {
         int next = f.Last ^ 1;
         ref var target = ref f.Slot(next);
@@ -57,6 +57,7 @@ public static class FlinchLayer
         target.Clip = clip;
         target.Time = 0;
         target.Length = MathF.Min(Length, duration);
+        target.Strength = Math.Clamp(strength, 0, 1);
         f.Count++;
         return true;
     }
@@ -75,7 +76,7 @@ public static class FlinchLayer
 
     /// <summary>
     /// Задания пулу поз (после действия и снимка, до прямой кинематики): каждый занятый слот — добавка по маске верха
-    /// <paramref name="upper"/> с весом силы × огибающей. Позы берутся при первом вздрагивании.
+    /// <paramref name="upper"/> с весом силы слоя × силы удара × огибающей. Позы берутся при первом вздрагивании.
     /// </summary>
     public static void Pose(in Flinch f, ref ActionPoses poses, PoseHandle pose, PosePool pool, PoseMask upper)
     {
@@ -90,7 +91,7 @@ public static class FlinchLayer
             }
             pool.Sample(poses.FlinchRef, s.Clip, 0);
             pool.Sample(poses.FlinchPose, s.Clip, s.Time);
-            pool.AddMasked(pose, poses.FlinchRef, poses.FlinchPose, Strength * Envelope(s.Time, s.Length), upper);
+            pool.AddMasked(pose, poses.FlinchRef, poses.FlinchPose, Strength * s.Strength * Envelope(s.Time, s.Length), upper);
         }
     }
 }

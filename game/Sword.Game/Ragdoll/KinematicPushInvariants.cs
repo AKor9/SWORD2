@@ -52,7 +52,7 @@ public static class KinematicPushInvariants
             int stage = StageIndex(ctx.Stage);
             if (stage < PrePhysicsIndex || stage > ResolveIndex) return;   // метки этого тика ещё не поставлены или действие могло смениться
             var world = ctx.World;
-            _alive ??= world.Query().With<Fighter>().Without<Dead>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
+            _alive ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
             foreach (var chunk in world.Iterate(_alive))
             {
                 var entities = chunk.Entities;

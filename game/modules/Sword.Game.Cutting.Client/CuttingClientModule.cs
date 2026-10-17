@@ -21,6 +21,6 @@ public sealed class CuttingClientModule : IClientModule
         b.Initialize(ctx => cuts.Init(ctx.Renderer))
             .AfterTick(cuts.AfterTick)
             .Extract((in FrameView _) => cuts.Update())
-            .Report(() => new { cuts = cuts.Cuts, meshes = cuts.Meshes, megabytes = cuts.Bytes / (1024.0 * 1024.0), lastMs = cuts.LastMs });
+            .Report(() => new { cuts = cuts.Cuts, meshes = cuts.Meshes, megabytes = cuts.Bytes / (1024.0 * 1024.0), lastMs = cuts.LastMs, applyMs = cuts.ApplyMs, maxApplyMs = cuts.MaxApplyMs });
     }
 }

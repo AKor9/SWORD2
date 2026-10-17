@@ -309,9 +309,14 @@ public static class AnimationInvariants
                     if (a.Attack != -1) return $"реакция на попадание, а удар {a.Attack}";
                     int slot = a.Clip == actions.Clip[ActionSlots.HitBack] ? ActionSlots.HitBack
                         : a.Clip == actions.Clip[ActionSlots.HitFront1] ? ActionSlots.HitFront1
-                        : a.Clip == actions.Clip[ActionSlots.HitFront2] ? ActionSlots.HitFront2 : -1;
+                        : a.Clip == actions.Clip[ActionSlots.HitFront2] ? ActionSlots.HitFront2
+                        : a.Clip == actions.Clip[ActionSlots.HitBig] ? ActionSlots.HitBig : -1;
                     if (slot < 0) return $"реакция на попадание клипом {a.Clip} — не клип реакции";
                     if (a.Upper != actions.Upper[slot]) return $"реакция на попадание слоем верха {a.Upper}, а у слота {ActionSlots.Names[slot]} — {actions.Upper[slot]}";
+                    break;
+                case ActionKind.StandUp:
+                    if (world.Has<PlayerTag>(e)) return "вставание у игрока — игрок не падает";
+                    if (a.Clip != actions.Clip[ActionSlots.StandUp] || a.Upper) return $"вставание клипом {a.Clip} (слоем верха {a.Upper}) — не клип вставания всем телом";
                     break;
                 case ActionKind.Turn:
                     if ((uint)a.Clip >= (uint)pool.Clips.ClipCount) return $"поворот: клипа {a.Clip} нет в библиотеке";

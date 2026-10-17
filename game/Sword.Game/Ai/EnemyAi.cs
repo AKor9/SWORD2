@@ -196,10 +196,10 @@ public sealed class EnemyAiSystem(StrikeTable strikes) : IContinuousSystem
             .Reads<Transform>().Reads<FighterSeed>().Writes<FighterCommand>().Writes<GazeTarget>().Writes<EnemyAiTerms>()
             .Writes<AnimatorAction>().Writes<EnemyAttack>().Reads<Severance>();
         var fighters = s.Query().With<Fighter>().Read<FighterSlot>().Read<Transform>().Read<FighterSeed>();
-        _fighters = fighters.Without<Dead>();
+        _fighters = fighters.Without<Dead>().Without<Downed>();
         _deadPlayer = fighters.With<PlayerTag>().With<Dead>();
         // мёртвый враг не думает — он замер
-        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Without<Dead>().Read<FighterSlot>().Write<FighterCommand>().Write<GazeTarget>()
+        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Without<Dead>().Without<Downed>().Read<FighterSlot>().Write<FighterCommand>().Write<GazeTarget>()
             .Write<EnemyAiTerms>().Write<AnimatorAction>().Write<EnemyAttack>();
     }
 
@@ -280,7 +280,7 @@ public sealed class EnemyCommandSystem : IContinuousSystem
     {
         s.Label(GameLabels.EnemyCommand).Before(GameLabels.RootSteer).ReadsJournal<Event<EnemyCommand>>().Reads<FighterSlot>()
             .Writes<FighterCommand>();
-        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Without<Dead>().Read<FighterSlot>().Write<FighterCommand>();
+        _enemies = s.Query().With<Fighter>().With<EnemyTag>().Without<Dead>().Without<Downed>().Read<FighterSlot>().Write<FighterCommand>();
     }
 
     public void Run(in SystemContext ctx)

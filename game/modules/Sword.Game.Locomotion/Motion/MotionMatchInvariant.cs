@@ -32,7 +32,7 @@ public sealed class MotionMatchInvariant(MotionMatchRuntime runtime) : IInvarian
     {
         if (!runtime.Ready) return;
         var world = ctx.World;
-        _query ??= world.Query().With<Fighter>().Without<Dead>().Read<MotionMatchState>();
+        _query ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<MotionMatchState>();
         var rules = world.Resource<LocomotionRules>();
         float range = rules.RateRange, max = rules.TurnMax * MathF.PI / 180;
         var players = runtime.Players;

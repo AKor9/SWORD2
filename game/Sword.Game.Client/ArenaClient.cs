@@ -815,7 +815,7 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
                 // Части после разрезов: каждая — своей позой (кусок — по своему телу), меш один на всё тело бойца.
                 bool all = true;
                 for (int p = 0; p < parts.Length; p++)
-                    all &= _renderer!.Skinned.AddPosed(parts[p].Mesh, _view.PiecePose(fighter, parts[p].Piece), Matrix4x4.Identity, colour, owner,
+                    all &= _renderer!.Skinned.AddPosed(parts[p].Mesh, PartPose(fighter, parts[p]), Matrix4x4.Identity, colour, owner,
                         flags: SceneMaterial.Body, motionKey: MotionKey(fighter.Entity, CutPartKey + p));
                 if (all) skinned++;
             }
@@ -909,6 +909,18 @@ public sealed class ArenaClient : IClientGame, IClientObservable, ISceneFog, ISc
     /// возрождения другой), перемешанный в 32 бита, и часть (0 — тело, 1… — части меча, <see cref="CutPartKey"/>… — части меша после
     /// разрезов); не 0.
     /// </summary>
+    /// <summary>Поза части с изгибом у перелома (суставы скелета и призраки); буфер растёт удвоением.</summary>
+    private Matrix4x4[] _bend = [];
+
+    /// <summary>Поза части меша после разрезов: своего куска; с изгибом у перелома — и призраки сегмента по куску перелома.</summary>
+    private ReadOnlySpan<Matrix4x4> PartPose(in FighterView fighter, in SkinPart part)
+    {
+        if (part.BendPiece < 0) return _view.PiecePose(fighter, part.Piece);
+        int need = _view.BendJoints(part.BendSegment);
+        if (_bend.Length < need) Array.Resize(ref _bend, Math.Max(need, _bend.Length * 2));
+        return _bend.AsSpan(0, _view.BendPose(fighter, part.Piece, part.BendPiece, part.BendSegment, _bend));
+    }
+
     /// <summary>Первая часть ключа движения у частей меша после разрезов (части меча — от 1).</summary>
     private const int CutPartKey = 64;
 

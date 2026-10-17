@@ -7,6 +7,7 @@ using Sword.Game.Animation;
 using Sword.Game.Arena;
 using Sword.Game.Bodies;
 using Sword.Game.Contracts;
+using Sword.Game.Movement;
 using Sword.Game.Data;
 
 namespace Sword.Game.Combat;
@@ -44,7 +45,7 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
     // Буфер — на пик полной арены (по два касания на бойца за тик: Set<Health>, Add<Dead>, Hit, SeverRequested, Set<HitImpulse>)
     // — без роста посреди боя.
     public void Setup(SystemSetup s) =>
-        s.Label(GameLabels.HitApply).Reads<Health>().Reads<PlayerControl>().Reads<BodyRef>().Sets<Health>().Adds<Dead>().Sets<HitImpulse>()
+        s.Label(GameLabels.HitApply).Reads<Health>().Reads<PlayerControl>().Reads<BodyRef>().Reads<Downed>().Sets<Health>().Adds<Dead>().Sets<HitImpulse>()
             .Emits<Hit>().Emits<SeverRequested>()
             .ReserveCommands(CombatReserve.Contacts * 3, CombatReserve.Contacts * 2, CombatReserve.Contacts * 512);
 
@@ -82,7 +83,7 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
         });
         cmd.Emit(new SeverRequested
         {
-            Id = new RequestId(time.Tick, _requests++), Contact = c.Id, Victim = c.Victim, Part = c.Part, Point = c.Point,
+            Id = new RequestId(time.Tick, _requests++), Contact = c.Id, Attacker = c.Attacker, Victim = c.Victim, Part = c.Part, Point = c.Point,
             Blade = c.Probe ? ProbeEdge(c.Dir) : c.Blade, Dir = c.Dir, Kind = c.Kind, Velocity = PointVelocity(world, c), Corpse = corpse,
             Sharpness = world.Has<PlayerTag>(c.Attacker) ? MathF.Max(rules.PlayerSharpness, DamageRules.MinSharpness) : 1,
         });
@@ -93,8 +94,9 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
             cmd.Add(c.Victim, new Dead { Time = time.Time, Cause = c.Probe ? DeathCause.Probe : DeathCause.Hit });
         }
         // Импульс удара в часть — труп (из прохода, отдача атакующему) или убитый этим ударом (ещё кинематическая часть)
-        if ((corpse || killed) && world.TryGet<BodyRef>(c.Victim, out var victimBody) && world.TryGet<BodyRef>(c.Attacker, out var attackerBody)
-            && HitImpulses.Apply(physics, FighterBodies.Handle(attackerBody), FighterBodies.Handle(victimBody), c, corpse, killed, out var impulse))
+        bool lying = corpse || world.Has<Downed>(c.Victim);   // сбитый с ног — тела на физике, как у трупа
+        if ((lying || killed) && world.TryGet<BodyRef>(c.Victim, out var victimBody) && world.TryGet<BodyRef>(c.Attacker, out var attackerBody)
+            && HitImpulses.Apply(physics, FighterBodies.Handle(attackerBody), FighterBodies.Handle(victimBody), c, lying, killed, out var impulse))
             cmd.Set(c.Victim, impulse);
     }
 
@@ -144,56 +146,126 @@ public sealed class HitApplySystem(IPhysicsWorld physics) : IReactiveSystem<Even
 }
 
 /// <summary>
-/// React, реактивная по <see cref="Hit"/>: живая жертва реагирует на последнее попадание тика — сзади <c>hit_back</c>, спереди
-/// <c>hit_front1</c> или <c>hit_front2</c> (поток ГСЧ <see cref="Stream"/>). Враг — действием (<see cref="ActionLayer.StartHitReact"/>),
-/// игрок — вздрагивает (<see cref="FlinchLayer.Start"/>). Мёртвые не реагируют.
+/// React, реактивная по <see cref="HitResponse"/> (решает модуль Impact): исполнение отклика. Жертва — толчок корня (<see cref="Shove"/>,
+/// сумма откликов тика) и реакция по сильнейшему отклику тика (равные — последний): вздрагивание добавкой с силой удара — сзади
+/// <c>hit_back</c>, спереди <c>hit_front1</c> или <c>hit_front2</c> (поток ГСЧ <see cref="Stream"/>); враг ещё и действием реакции тем же
+/// клипом (прерывает удар), пошатывание с толчком от <see cref="BigPush"/> — сильным клипом <c>hit_big</c>. Игрок только вздрагивает.
+/// Атакующий — отдача удара (<see cref="ActionLayer.Recoil"/>). Мёртвые не реагируют. Без выделений.
 /// </summary>
-public sealed class HitReactionSystem : IReactiveSystem<Event<Hit>>
+public sealed class HitReactionSystem : IReactiveSystem<Event<HitResponse>>
 {
     /// <summary>Поток ГСЧ выбора клипа реакции спереди.</summary>
     public static readonly uint Stream = SimRandom.Stream("combat.hit-react");
 
-    public void Setup(SystemSetup s) =>
-        s.Label(GameLabels.HitReaction).Reads<Transform>().Reads<AnimatorAction>().Reads<Flinch>().Sets<AnimatorAction>().Sets<Flinch>()
-            .ReserveCommands(CombatReserve.Contacts, 0, CombatReserve.Contacts * 256);
+    /// <summary>Толчок, с которого пошатывание спереди — сильным клипом, м/с.</summary>
+    public const float BigPush = 0.8f;
 
-    public void React(in SystemContext ctx, ReadOnlySpan<Event<Hit>> hits)
+    private const int Max = CombatReserve.Contacts * 2;
+    private readonly Entity[] _entities = new Entity[Max];
+    private readonly AnimatorAction[] _actions = new AnimatorAction[Max];
+    private readonly Flinch[] _flinches = new Flinch[Max];
+    private readonly Shove[] _shoves = new Shove[Max];
+    private readonly byte[] _state = new byte[Max];
+    private int _count;
+
+    private const byte HasAction = 1, HasFlinch = 2, HasShove = 4, ActionSet = 8, FlinchSet = 16, ShoveSet = 32, Down = 64;
+
+    public void Setup(SystemSetup s) =>
+        s.Label(GameLabels.HitReaction).Reads<Transform>().Reads<AnimatorAction>().Reads<Flinch>().Reads<Shove>().Reads<Dead>().Reads<PlayerTag>()
+            .Reads<Downed>().ReadsJournal<Event<LimbDetached>>().Sets<AnimatorAction>().Sets<Flinch>().Sets<Shove>().Adds<Shove>().Adds<Downed>()
+            .ReserveCommands(Max * 3, 0, Max * 3 * 256);
+
+    public void React(in SystemContext ctx, ReadOnlySpan<Event<HitResponse>> responses)
     {
         var world = ctx.World;
         var rng = world.Resource<SimRandom>();
         ulong tick = world.Resource<SimTime>().Tick;
+        float now = world.Resource<SimTime>().Time;
         var clips = world.Resource<PosePool>().Clips;
         var actions = world.Resource<ActionTable>();
-        for (int i = 0; i < hits.Length; i++)
+        _count = 0;
+        // перелом ноги этого тика: живого валит отделение (без встать), реакции не нужны
+        foreach (var d in ctx.Journal<Event<LimbDetached>>())
+            if (Ragdoll.Severing.Cripples(d.Value.Mode, d.Value.Segment) && world.IsAlive(d.Value.Victim) && Slot(world, d.Value.Victim) is var c and >= 0)
+                _state[c] = Down;
+        for (int i = 0; i < responses.Length; i++)
         {
-            var hit = hits[i].Value;
-            if (Later(hits, i)) continue;   // реакция — по последнему попаданию тика
-            var e = hit.Victim;
-            if (!world.IsAlive(e) || world.Has<Dead>(e) || !world.TryGet<Transform>(e, out var t)) continue;
+            var r = responses[i].Value;
+            if (world.IsAlive(r.Attacker) && !world.Has<Dead>(r.Attacker) && Slot(world, r.Attacker) is var a and >= 0 && (_state[a] & HasAction) != 0
+                && ActionLayer.Recoil(ref _actions[a], r.Recoil))
+                _state[a] |= ActionSet;
+            var e = r.Victim;
+            if (!world.IsAlive(e) || world.Has<Dead>(e) || world.Has<Downed>(e) || !world.TryGet<Transform>(e, out var t)
+                || Slot(world, e) is not (var k and >= 0) || (_state[k] & Down) != 0)
+                continue;
+            // сбит с ног (враг): тела — на физику в Settle, реакций нет
+            if (r.Level == HitLevel.Knockdown && !world.Has<PlayerTag>(e))
+            {
+                _state[k] = Down;
+                ctx.Commands.Add(e, new Downed { Time = now, Impulse = r.Impulse, Point = r.Point, Part = r.Part });
+                continue;
+            }
+            _shoves[k].Velocity = ShoveRules.Add(_shoves[k].Velocity, r.Push);
+            _state[k] |= ShoveSet;
+            if (!Strongest(responses, i)) continue;
             var forward = new Vector3(MathF.Sin(t.Facing), 0, MathF.Cos(t.Facing));
-            var toHit = hit.Point - t.Position;
+            var toHit = r.Point - t.Position;
             toHit.Y = 0;
             bool behind = Vector3.Dot(toHit, forward) < 0;
+            bool react = !world.Has<PlayerTag>(e) && (_state[k] & HasAction) != 0;
             int slot = behind ? ActionSlots.HitBack
+                : react && r.Level != HitLevel.Flinch && r.Push.Length() >= BigPush ? ActionSlots.HitBig
                 : rng.Index(Stream, tick, e, 2) % 2 == 0 ? ActionSlots.HitFront1 : ActionSlots.HitFront2;
             int clip = actions.Clip[slot];
-            if (world.TryGet<Flinch>(e, out var flinch))
+            // враг реагирует действием на каждое попадание (прерывает удар), пошатывание — сильным клипом; сила удара видна добавкой
+            if (react)
             {
-                if (FlinchLayer.Start(ref flinch, clip, clips.Duration(clip))) ctx.Commands.Set(e, flinch);
+                ActionLayer.StartHitReact(ref _actions[k], clip, actions.Upper[slot], clips);
+                _state[k] |= ActionSet;
             }
-            else if (world.TryGet<AnimatorAction>(e, out var action))
-            {
-                ActionLayer.StartHitReact(ref action, clip, actions.Upper[slot], clips);
-                ctx.Commands.Set(e, action);
-            }
+            if ((_state[k] & HasFlinch) != 0 && FlinchLayer.Start(ref _flinches[k], clip, clips.Duration(clip), r.Strength))
+                _state[k] |= FlinchSet;
+        }
+        var cmd = ctx.Commands;
+        for (int k = 0; k < _count; k++)
+        {
+            var e = _entities[k];
+            if ((_state[k] & ActionSet) != 0) cmd.Set(e, _actions[k]);
+            if ((_state[k] & FlinchSet) != 0) cmd.Set(e, _flinches[k]);
+            if ((_state[k] & ShoveSet) == 0) continue;
+            if ((_state[k] & HasShove) != 0) cmd.Set(e, _shoves[k]);
+            else cmd.Add(e, _shoves[k]);
         }
     }
 
-    private static bool Later(ReadOnlySpan<Event<Hit>> hits, int i)
+    /// <summary>Боец в накоплении тика: действие, вздрагивание и толчок — итог прошлых откликов тика.</summary>
+    private int Slot(World world, Entity e)
     {
-        for (int j = i + 1; j < hits.Length; j++)
-            if (hits[j].Value.Victim == hits[i].Value.Victim) return true;
-        return false;
+        for (int i = 0; i < _count; i++)
+            if (_entities[i] == e) return i;
+        if (_count == Max) return -1;
+        int k = _count++;
+        _entities[k] = e;
+        _state[k] = 0;
+        if (world.TryGet<AnimatorAction>(e, out _actions[k])) _state[k] |= HasAction;
+        if (world.TryGet<Flinch>(e, out _flinches[k])) _state[k] |= HasFlinch;
+        if (world.TryGet<Shove>(e, out _shoves[k])) _state[k] |= HasShove;
+        else _shoves[k] = default;
+        return k;
+    }
+
+    /// <summary>Отклик <paramref name="i"/> — сильнейший у своей жертвы в тике (равные — последний).</summary>
+    private static bool Strongest(ReadOnlySpan<Event<HitResponse>> responses, int i)
+    {
+        var victim = responses[i].Value.Victim;
+        var level = responses[i].Value.Level;
+        for (int j = 0; j < responses.Length; j++)
+        {
+            if (j == i || responses[j].Value.Victim != victim) continue;
+            var other = responses[j].Value.Level;
+            if (other > level || other == level && j > i) return false;
+        }
+        return true;
     }
 }
 

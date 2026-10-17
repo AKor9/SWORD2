@@ -24,5 +24,11 @@
   <PropertyGroup Condition="'$(WithoutCutting)' == 'true'">
     <DefineConstants>$(DefineConstants);WITHOUT_CUTTING</DefineConstants>
   </PropertyGroup>
+  <ItemGroup Condition="'$(WithoutImpact)' != 'true'">
+    <ProjectReference Include="..\modules\Sword.Game.Impact\Sword.Game.Impact.csproj" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(WithoutImpact)' == 'true'">
+    <DefineConstants>$(DefineConstants);WITHOUT_IMPACT</DefineConstants>
+  </PropertyGroup>
 
 </Project>

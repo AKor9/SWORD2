@@ -39,7 +39,7 @@ public static class CombatInvariants
             if (Stages.MidTickBefore(ctx, GameStages.PrePhysics)) return;
             var world = ctx.World;
             bool built = Stages.BeforeFirstTick(ctx);
-            _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Read<Blade>();
+            _query ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Read<Blade>();
             var table = weapons.Weapons;
             foreach (var chunk in world.Iterate(_query))
             {

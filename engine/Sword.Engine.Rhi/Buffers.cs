@@ -23,7 +23,13 @@ public sealed unsafe class StaticBuffer : IDisposable
     }
 
     public static StaticBuffer Create<T>(GraphicsDevice gd, string name, ReadOnlySpan<T> data, bool withSrv = true)
-        where T : unmanaged
+        where T : unmanaged => Publish(gd, Stage(gd, name, data), withSrv);
+
+    /// <summary>
+    /// Ресурс UPLOAD-кучи с данными, без SRV: вызов устройства и копия — из любого потока (большой буфер — не в кадре: выделение и
+    /// обнуление страниц стоят миллисекунды). В буфер — <see cref="Publish"/> в потоке кадра.
+    /// </summary>
+    public static StagedBuffer Stage<T>(GraphicsDevice gd, string name, ReadOnlySpan<T> data) where T : unmanaged
     {
         uint stride = (uint)sizeof(T);
         ulong bytes = (ulong)data.Length * stride;
@@ -31,7 +37,13 @@ public sealed unsafe class StaticBuffer : IDisposable
         void* mapped = resource.Map<byte>(0);
         data.CopyTo(new Span<T>(mapped, data.Length));
         resource.Unmap(0);
+        return new StagedBuffer(resource, (uint)data.Length, stride, bytes);
+    }
 
+    /// <summary>Буфер из заполненного ресурса <paramref name="staged"/> (и SRV в bindless-куче) — в потоке кадра; ресурс переходит буферу.</summary>
+    public static StaticBuffer Publish(GraphicsDevice gd, StagedBuffer staged, bool withSrv = true)
+    {
+        var resource = staged.Take();
         int srv = -1;
         if (withSrv)
         {
@@ -41,10 +53,10 @@ public sealed unsafe class StaticBuffer : IDisposable
                 Format = Format.Unknown,
                 ViewDimension = ShaderResourceViewDimension.Buffer,
                 Shader4ComponentMapping = ShaderComponentMapping.Default,
-                Buffer = new BufferShaderResourceView { FirstElement = 0, NumElements = (uint)data.Length, StructureByteStride = stride },
+                Buffer = new BufferShaderResourceView { FirstElement = 0, NumElements = staged.Count, StructureByteStride = staged.Stride },
             }, gd.Bindless.Cpu(srv));
         }
-        return new StaticBuffer(gd, resource, srv, (uint)data.Length, bytes);
+        return new StaticBuffer(gd, resource, srv, staged.Count, staged.SizeBytes);
     }
 
     public void Dispose()
@@ -53,6 +65,40 @@ public sealed unsafe class StaticBuffer : IDisposable
         _disposed = true;
         if (Srv >= 0) _gd.DeferRelease(Resource, Srv);
         else _gd.DeferRelease(Resource);
+    }
+}
+
+/// <summary>
+/// Заполненный ресурс UPLOAD-кучи до публикации (<see cref="StaticBuffer.Stage"/>): GPU его ещё не видел — не опубликованный
+/// освобождается сразу.
+/// </summary>
+public sealed class StagedBuffer : IDisposable
+{
+    private ID3D12Resource? _resource;
+
+    internal StagedBuffer(ID3D12Resource resource, uint count, uint stride, ulong size)
+    {
+        _resource = resource;
+        Count = count;
+        Stride = stride;
+        SizeBytes = size;
+    }
+
+    public uint Count { get; }
+    public uint Stride { get; }
+    public ulong SizeBytes { get; }
+
+    internal ID3D12Resource Take()
+    {
+        var r = _resource ?? throw new InvalidOperationException("ресурс уже опубликован или освобождён");
+        _resource = null;
+        return r;
+    }
+
+    public void Dispose()
+    {
+        _resource?.Dispose();
+        _resource = null;
     }
 }
 

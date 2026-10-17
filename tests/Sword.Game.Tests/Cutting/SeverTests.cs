@@ -357,9 +357,12 @@ public sealed class SeverTests
         Clean(sim);
     }
 
-    /// <summary>Сильный молот по голени: отрыв по суставу — голень и стопа свободны, живой мёртв.</summary>
+    /// <summary>
+    /// Сильный молот по голени: кость ломается, но не отрывается — кусок висит на слабом суставе (меш не режется), живой без ноги
+    /// падает; второй сильный удар по сломанной голени отрывает её по суставу.
+    /// </summary>
     [Fact]
-    public void Blunt_Tears_Leg()
+    public void Blunt_BreaksLeg_SecondHitTearsBroken()
     {
         var sim = Create();
         var enemy = Enemy(sim);
@@ -367,8 +370,15 @@ public sealed class SeverTests
         sim.Export.BeginFrame();
         Probe(sim, BodySegs.ShinL, 80, HitKind.Blunt);
         Step(sim, 1);
-        var ev = Assert.Single(Detached(sim));
-        Assert.Equal(SeverMode.Tear, ev.Mode);
+        var first = Assert.Single(Detached(sim));
+        Assert.Equal(SeverMode.Fracture, first.Mode);
+        Assert.False(sim.World.Get<Severance>(enemy).IsTorn(BodySegs.ShinL));
+        Step(sim, 60);
+        sim.Export.BeginFrame();
+        Probe(sim, BodySegs.ShinL, 80, HitKind.Blunt);
+        Step(sim, 1);
+        var second = Assert.Single(Detached(sim));
+        Assert.Equal(SeverMode.Tear, second.Mode);
         var severance = sim.World.Get<Severance>(enemy);
         Assert.True(severance.IsTorn(BodySegs.ShinL) && severance.IsDetached(BodySegs.FootL));
         Assert.True(sim.World.Has<Dead>(enemy));
@@ -376,13 +386,22 @@ public sealed class SeverTests
         Clean(sim);
     }
 
-    /// <summary>Молот по голове: голова в клочья — пять кусков на физике, культя шеи; мёртв; куски числовые и падают.</summary>
+    /// <summary>
+    /// Молот по голове стоящего — голова цела (удар уводит голову; урон решает здоровье); по голове трупа — в клочья: пять кусков на физике,
+    /// культя шеи; куски числовые и падают.
+    /// </summary>
     [Fact]
-    public void Blunt_ShattersHead()
+    public void Blunt_ShattersHeadOnlyLying()
     {
         var sim = Create();
         var enemy = Enemy(sim);
         Step(sim, 5);
+        sim.Export.BeginFrame();
+        Probe(sim, BodySegs.Head, 30, HitKind.Blunt);
+        Step(sim, 1);
+        Assert.Empty(Detached(sim));
+        sim.Enqueue(new SceneCommand { Action = SceneAction.Kill, Slot = 1 });
+        Step(sim, 60);
         sim.Export.BeginFrame();
         Probe(sim, BodySegs.Head, 80, HitKind.Blunt);
         Step(sim, 1);
@@ -392,7 +411,6 @@ public sealed class SeverTests
         var body = Body(sim, enemy);
         Assert.Equal(BodySegs.Bodies + ev.Count, physics.BodyCount(body));
         Assert.Equal(ev.Count, sim.World.Get<Severance>(enemy).Pieces);
-        Assert.True(sim.World.Has<Dead>(enemy));
         Step(sim, 180);
         for (int k = BodySegs.Bodies; k < physics.BodyCount(body); k++) Assert.True(physics.Get(physics.Body(body, k)).IsFinite);
         Clean(sim);

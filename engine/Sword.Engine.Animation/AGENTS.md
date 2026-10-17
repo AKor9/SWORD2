@@ -6,7 +6,8 @@
 - Контент подсистема не читает: скелет, меш (поза привязки) и клипы ей отдают потоками (`Skeleton.Read`,
   `Skeleton.WithMeshBindPose`, `ClipLibrary.Load` с `ClipSource`). Двоичные раскладки — в `Sword.Engine.Formats`
   (`SkeletonFile`, `ClipFile`, `SkinnedMeshData`).
-- Позы меняются только заданиями пула (`Sample`, `Blend`, `BlendMasked`, `AddMasked`, `Copy`, `ToModel`, `Motion`, `Twist`, `LegIk`);
+- Позы меняются только заданиями пула (`Sample`, `Blend`, `BlendMasked`, `AddMasked`, `Copy`, `ToModel`, `Motion`, `Twist`, `LegIk`,
+  `FromModel` — локальная поза из модельных матриц, копия при постановке);
   `PosePool.Tick` исполняет очередь в порядке постановки, `PosePool.Pass` — ещё раз в том же тике (номер тика пула и прошлая модель
   не меняются). `LegIk` правит только модельные матрицы — после `ToModel` той же позы; `ToModel` после него снимает правку.
   Порядок заданий одной позы и арифметика — как у последовательных вызовов `ClipLibrary`/`Skeleton` (тесты `PoseTests`): от них зависят хеши эталонов SWORD2 (участник `animation`). Меняя сэмплинг, смешивание или прямую

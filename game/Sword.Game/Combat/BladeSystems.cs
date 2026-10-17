@@ -136,7 +136,7 @@ public sealed class BladePlacementSystem(IPhysicsWorld physics, WeaponTable weap
         s.Label(GameLabels.BladePlacement).After(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<WeaponSlot>()
             .Reads<BodyRef>().Writes<Blade>().Reads<Severance>();
         // Меч отделённой руки — на физике (выпал), его не ставит поза.
-        _alive = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Write<Blade>().Read<BodyRef>();
+        _alive = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<PoseRef>().Read<WeaponSlot>().Write<Blade>().Read<BodyRef>();
     }
 
     public void Run(in SystemContext ctx)

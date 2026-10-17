@@ -27,10 +27,16 @@ public sealed class SkinPartsTests(ITestOutputHelper output)
     private sealed class CpuMeshes : ICutMeshes
     {
         public readonly Dictionary<int, CutMesh> Meshes = [];
+
+        /// <summary>Свои обратные bind-матрицы меша (изгиб у перелома: суставы-призраки).</summary>
+        public readonly Dictionary<int, Matrix4x4[]> Inverse = [];
         private int _next = 1;
 
-        public int Add(string name, CutMesh mesh)
+        public Sword.Engine.Render.StagedSkinMesh? Stage(string name, CutMesh mesh) => null;
+
+        public int Add(string name, CutMesh mesh, Sword.Engine.Render.StagedSkinMesh? staged = null, ReadOnlySpan<Matrix4x4> inverseBind = default)
         {
+            if (!inverseBind.IsEmpty) Inverse[_next] = inverseBind.ToArray();
             Meshes[_next] = mesh;
             return _next++;
         }
@@ -75,8 +81,10 @@ public sealed class SkinPartsTests(ITestOutputHelper output)
             if (t == 360) Probe(sim, 1, BodySegs.ThighR, 70);                   // нога — смерть
             if (t == 480) Probe(sim, 1, BodySegs.Head, 60);                     // голова трупа
             if (t == 150) Probe(sim, 2, BodySegs.FArmL, 40, HitKind.Blunt);     // перелом
-            if (t == 300) Probe(sim, 2, BodySegs.Head, 80, HitKind.Blunt);      // голова в клочья
-            if (t == 200) Probe(sim, 3, BodySegs.ShinL, 80, HitKind.Blunt);     // отрыв голени у живого
+            if (t == 280) sim.Enqueue(new SceneCommand { Action = SceneAction.Kill, Slot = 2 });
+            if (t == 300) Probe(sim, 2, BodySegs.Head, 80, HitKind.Blunt);      // голова лежащего в клочья
+            if (t == 200) Probe(sim, 3, BodySegs.ShinL, 80, HitKind.Blunt);     // перелом голени
+            if (t == 230) Probe(sim, 3, BodySegs.ShinL, 80, HitKind.Blunt);     // сломанная — отрыв
             if (t == 260) Probe(sim, 3, BodySegs.UArmR, 80, HitKind.Blunt);     // и плеча
             if (t == 330) Probe(sim, 3, BodySegs.UArmL, 60);                    // разрез после отрывов: первый кусок у бойца с частями
             if (t == 100) Probe(sim, 5, BodySegs.UArmR, 60, HitKind.Blunt);     // молот по рукам и торсу живого
@@ -111,7 +119,9 @@ public sealed class SkinPartsTests(ITestOutputHelper output)
                 Assert.True(fighter.PoseInWorld, $"боец {fighter.Slot} с частями — поза не в мире");
                 foreach (var part in list)
                 {
-                    var (ratio, where) = Stretch(meshes.Meshes[part.Mesh], inverse, view.PiecePose(fighter, part.Piece), skin.JointNames);
+                    var partInverse = meshes.Inverse.GetValueOrDefault(part.Mesh) ?? inverse;
+                    var partPose = part.BendPiece < 0 ? view.PiecePose(fighter, part.Piece).ToArray() : Bent(view, fighter, part);
+                    var (ratio, where) = Stretch(meshes.Meshes[part.Mesh], partInverse, partPose, skin.JointNames);
                     string key = $"слот {fighter.Slot} кусок {part.Piece}";
                     if (!islands.ContainsKey(key)) islands[key] = Islands(meshes.Meshes[part.Mesh], skin.JointNames.ToArray());
                     if (!worst.TryGetValue(key, out var w) || ratio > w.Ratio) worst[key] = (ratio, $"тик {t}: {where}");
@@ -361,6 +371,101 @@ public sealed class SkinPartsTests(ITestOutputHelper output)
             if (j < names.Length) set.Add(names[j]);
         }
         return set;
+    }
+
+    /// <summary>
+    /// Молот ломает предплечье живого врага: меш не режется — одна часть с теми же треугольниками и вершинами (крышки нет), суставы-призраки
+    /// сегмента после суставов скелета (номер — байт); кисть рисуется у куска перелома (висит на нём), кожа у перелома тянется не больше
+    /// 15 см.
+    /// </summary>
+    [Fact]
+    public void Fracture_BendsSkin_WithoutCut()
+    {
+        var sim = Sword.Game.Bootstrap.SwordSimulation.Create(
+            ConfigSet.Empty(["arena.enemies=1", "combat.enemiesAttack=false"]), BloodBodyTests.Pak.Value);
+        var skin = BloodBodyTests.PakMesh.Value;
+        var parts = new FighterSkinParts { BaseMesh = 0, MeshPath = "manny" };
+        SkinCuts? cuts = null;
+        var clock = new SimulationClock(sim, (_, _) => { }, 1, afterTick: t => cuts!.AfterTick(t));
+        cuts = new SkinCuts(parts, new ArenaFighterPoses(clock.Link), skin, new ArenaSeverFeed(clock.Link));
+        var meshes = new CpuMeshes();
+        meshes.Meshes[0] = Base(skin);
+        cuts.Init(new SkinnedMeshCpu
+        {
+            Positions = skin.Positions.ToArray(), Normals = skin.Normals.ToArray(), Indices = skin.Indices.ToArray(), Joints = skin.Joints.ToArray(),
+            Weights = skin.Weights.ToArray(), InverseBind = skin.InverseBind.ToArray(), JointNames = skin.JointNames.ToArray(),
+        }, meshes);
+        var view = new ArenaView(ArenaTerrain.Height);
+        var names = skin.JointNames.ToArray();
+        int hand = Array.IndexOf(names, "hand_l");
+        sim.Enqueue(new SceneCommand { Action = SceneAction.Place, Slot = 0, Position = new Vector2(0, 0), Facing = 0 });
+        sim.Enqueue(new SceneCommand { Action = SceneAction.Place, Slot = 1, Position = new Vector2(0, 1.6f), Facing = MathF.PI });
+        float stretch = 0, handGap = 0;
+        bool bent = false;
+        for (int t = 0; t < 150; t++)
+        {
+            if (t == 20) sim.Enqueue(new StrikeProbe { Attacker = 0, Victim = 1, Part = BodySegs.FArmL, Damage = 40, Kind = HitKind.Blunt });
+            clock.RunFrame(0);
+            while (true)
+            {
+                cuts.Update();
+                if (cuts.Idle) break;
+                Thread.Sleep(1);
+            }
+            view.Extract(clock.Link, 1, allBodies: false);
+            var fighter = view.Fighters.Single(f => f.Slot == 1);
+            if (!parts.TryGet(FighterKey.Of(fighter.Entity), out var list)) continue;
+            var part = Assert.Single(list.ToArray());
+            Assert.True(part.BendPiece >= 0 && part.BendSegment == BodySegs.FArmL, $"часть {part}");
+            var mesh = meshes.Meshes[part.Mesh];
+            Assert.Equal(skin.Indices.ToArray(), mesh.Indices);
+            Assert.Equal(skin.Positions.Length, mesh.Vertices.Length);
+            var inverse = meshes.Inverse[part.Mesh];
+            Assert.InRange(inverse.Length, skin.InverseBind.Length + 1, 256);
+            bent = true;
+            var pose = Bent(view, fighter, part);
+            stretch = MathF.Max(stretch, Stretch(mesh, inverse, pose, names).Ratio);
+            // кисть — у куска перелома: сустав кисти в позе части совпадает с позой куска
+            var piece = view.PiecePose(fighter, part.BendPiece);
+            var palette = new Matrix4x4[inverse.Length];
+            for (int j = 0; j < palette.Length; j++) palette[j] = inverse[j] * pose[j];
+            for (int i = 0; i < mesh.Vertices.Length; i++)
+            {
+                var v = mesh.Vertices[i];
+                if (Dominant(v) != hand + 0 && Dominant(v) < names.Length) continue;
+                var posed = CutField.Posed(v, palette);
+                var bound = Vector3.Transform(skin.Positions[i], skin.InverseBind[hand] * piece[hand]);
+                if (Dominant(skin.Joints[i], skin.Weights[i]) == hand) handGap = MathF.Max(handGap, Vector3.Distance(posed, bound));
+            }
+        }
+        Assert.True(bent, "перелома не было");
+        Assert.True(stretch < 0.15f, $"кожа у перелома тянется на {stretch:F3} м");
+        Assert.True(handGap < 0.02f, $"кисть отстала от куска перелома на {handGap:F3} м");
+    }
+
+    private static int Dominant(in CutVertex v)
+    {
+        int best = 0;
+        for (int k = 1; k < 4; k++)
+            if (CutField.Weight(v, k) > CutField.Weight(v, best)) best = k;
+        return (int)(v.Joints >> (8 * best) & 0xFF);
+    }
+
+    private static int Dominant(uint joints, Vector4 weights)
+    {
+        int best = 0;
+        for (int k = 1; k < 4; k++)
+            if (weights[k] > weights[best]) best = k;
+        return (int)(joints >> (8 * best) & 0xFF);
+    }
+
+    /// <summary>Поза части с изгибом у перелома — как у арены (<see cref="ArenaView.BendPose"/>).</summary>
+    private static Matrix4x4[] Bent(ArenaView view, in FighterView fighter, in SkinPart part)
+    {
+        var dst = new Matrix4x4[view.BendJoints(part.BendSegment)];
+        int n = view.BendPose(fighter, part.Piece, part.BendPiece, part.BendSegment, dst);
+        Assert.Equal(dst.Length, n);
+        return dst;
     }
 
     private static Matrix4x4[] World(ReadOnlySpan<Matrix4x4> pose, in FighterView fighter)

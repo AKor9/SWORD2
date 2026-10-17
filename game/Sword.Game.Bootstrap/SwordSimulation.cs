@@ -21,13 +21,16 @@ public static class SwordSimulation
 #if !WITHOUT_CUTTING
         new Cutting.CuttingModule(),
 #endif
+#if !WITHOUT_IMPACT
+        new Impact.ImpactModule(),
+#endif
     ];
 
     /// <summary>
     /// Id всех модулей симуляции, и тех, что не вошли в сборку: секция модуля, которого нет, пропускается (<see cref="ConfigSet.Skip"/>) —
     /// без модуля игра стартует. Новый модуль — строка здесь и в <see cref="Modules"/>.
     /// </summary>
-    public static readonly IReadOnlyList<string> ModuleIds = ["locomotion", "cutting"];
+    public static readonly IReadOnlyList<string> ModuleIds = ["locomotion", "cutting", "impact"];
 
     /// <summary>
     /// Id только клиентских модулей: их секции читает только клиент, exe без клиента и сборка без модуля их пропускают

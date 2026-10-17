@@ -291,6 +291,7 @@ public sealed class ArenaView
         if (world.TryGet<FighterSlot>(e, out var slot)) view = view with { Slot = slot.Index };
         bool dead = world.Has<Dead>(e);
         view = view with { Dead = dead };
+        bool lying = dead || world.Has<Downed>(e);   // сбитый с ног рисуется по телам, как труп
         bool hasBody = world.TryGet<BodyRef>(e, out var bodyRef) && _bodyView is not null;
         int weapon = world.TryGet<WeaponSlot>(e, out var w) && _combatView is not null && (uint)w.Index < (uint)_combatView.Weapons.Length ? w.Index : -1;
 
@@ -298,7 +299,7 @@ public sealed class ArenaView
         bool severed = world.TryGet<Severance>(e, out var severance);
         // отделения есть (и отрыв без кусков) — части меша бойца рисуются вместо целого
         if (severed) view = view with { Severed = (severance.Cut | severance.Torn | severance.Detached) != 0 };
-        if (dead && hasBody && _skinView is not null && _skinView.TryGet(bodyRef, out var binding, out _) && binding.Length == _jointBodies.Length
+        if (lying && hasBody && _skinView is not null && _skinView.TryGet(bodyRef, out var binding, out _) && binding.Length == _jointBodies.Length
             && ReadBody(_bodyView!, bodyRef) is >= BodySegs.Bodies and var bodyCount)
         {
             _profiler.Begin(_posesZone);
@@ -407,6 +408,31 @@ public sealed class ArenaView
             _posed += size;
         }
         return view with { PieceStart = start, PieceCount = n };
+    }
+
+    /// <summary>
+    /// Поза части с изгибом у перелома (<see cref="SkinPart.BendPiece"/>): поза части <paramref name="piece"/> и после неё суставы
+    /// сегмента <paramref name="segment"/> по позе куска перелома <paramref name="bendPiece"/> — по порядку номеров, как призраки меша.
+    /// Вернёт число суставов в <paramref name="dst"/>.
+    /// </summary>
+    public int BendPose(in FighterView fighter, int piece, int bendPiece, int segment, Span<Matrix4x4> dst)
+    {
+        var pose = PiecePose(fighter, piece);
+        var bend = PiecePose(fighter, bendPiece);
+        pose.CopyTo(dst);
+        int n = pose.Length, body = BodySegs.Body(segment);
+        for (int j = 0; j < _jointBodies.Length && j < bend.Length; j++)
+            if (_jointBodies[j] == body) dst[n++] = bend[j];
+        return n;
+    }
+
+    /// <summary>Суставов в позе части с изгибом сегмента <paramref name="segment"/>: суставы скелета и призраки сегмента.</summary>
+    public int BendJoints(int segment)
+    {
+        int n = _jointBodies.Length, body = BodySegs.Body(segment);
+        foreach (int b in _jointBodies)
+            if (b == body) n++;
+        return n;
     }
 
     /// <summary>Поза куска <paramref name="piece"/> бойца кадра (мировые суставы); куска нет — поза бойца.</summary>

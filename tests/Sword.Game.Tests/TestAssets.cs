@@ -168,8 +168,8 @@ public static class TestAssets
         }
         // Реакции на попадание: корпус (spine_05) и плечо отклоняются назад — у вздрагивания игрока есть что добавить к верху тела,
         // у реакции врага — сдвиг корня назад. Свой источник — после «test_combat»: номера прежних клипов не сдвигаются.
-        string[] hits = ["1HM_HitReact01", "1HM_HitReact02", "1HM_HitReact_Behind01"];
-        for (int k = 0; k < 3; k++) content.Add($"animations/test_hit/{hits[k]}.swclip", HitClip(n++, k == 2 ? 1 : -1).Write);
+        string[] hits = ["1HM_HitReact01", "1HM_HitReact02", "1HM_HitReact_Behind01", "Anim_PS_Hit_Front_Big_RM"];
+        for (int k = 0; k < hits.Length; k++) content.Add($"animations/test_hit/{hits[k]}.swclip", HitClip(n++, k == 2 ? 1 : -1).Write);
         if (actionsJson is not null) content.Add("data/combat/actions.json", System.Text.Encoding.UTF8.GetBytes(actionsJson));
         // Оружие: два статических меша в системе кисти — по алфавиту katana (0), sword_1h (1, меч по умолчанию).
         if (!weapons) return content;

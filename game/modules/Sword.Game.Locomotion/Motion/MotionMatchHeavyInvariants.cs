@@ -35,7 +35,7 @@ public sealed class MotionMatchDecayInvariant(MotionMatchRuntime runtime) : IInv
     {
         if (!runtime.Ready) return;
         var world = ctx.World;
-        _query ??= world.Query().With<Fighter>().Without<Dead>().Read<MotionMatchState>();
+        _query ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<MotionMatchState>();
         float halflife = world.Resource<LocomotionRules>().InertialHalflife;
         bool seen = false;
         foreach (var chunk in world.Iterate(_query))
@@ -127,7 +127,7 @@ public sealed class MotionMatchContinuityInvariant(MotionMatchRuntime runtime) :
     {
         if (!runtime.Ready) return;
         var world = ctx.World;
-        _query ??= world.Query().With<Fighter>().Without<Dead>().Read<MotionMatchState>();
+        _query ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<MotionMatchState>();
         float dt = world.Resource<SimTime>().Dt;
         foreach (var chunk in world.Iterate(_query))
         {

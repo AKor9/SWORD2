@@ -371,11 +371,16 @@ public sealed class DamageTests
         var anim1 = flinched.World.View<IAnimationView>();
         var mask = ActionRules.UpperMask(TestAssets.Assets.Clips.Skeleton);
         bool differed = false;
+        float pushed = 0;
         for (int t = 0; t < 120; t++)
         {
             Step(plain, 1, new PlayerCommand { Move = new Vector2(0, 1) });
             Step(flinched, 1, new PlayerCommand { Move = new Vector2(0, 1) });
-            Assert.Equal(plain.World.Get<Transform>(p0), flinched.World.Get<Transform>(p1));
+            // управление то же (скорость корня и курс); удар лишь сдвигает корень толчком — на сантиметры
+            var (t0, t1) = (plain.World.Get<Transform>(p0), flinched.World.Get<Transform>(p1));
+            Assert.Equal(t0.Facing, t1.Facing);
+            pushed = MathF.Max(pushed, Vector3.Distance(t0.Position, t1.Position));
+            Assert.True(pushed < 0.05f, $"толчок сдвинул игрока на {pushed:F3} м");
             Assert.Equal(plain.World.Get<RootVelocity>(p0), flinched.World.Get<RootVelocity>(p1));
             // модельные матрицы: у суставов вне маски верха (таз, ноги) все предки тоже вне маски — поза та же
             var rot0 = anim0.Model(plain.World.Get<PoseRef>(p0));
@@ -388,6 +393,7 @@ public sealed class DamageTests
             if (t >= 70) Assert.Equal(rot0.ToArray(), rot1.ToArray());   // 0,55 с вздрагивания прошли
         }
         Assert.True(differed, "вздрагивание не изменило верх тела");
+        Assert.True(pushed > 0, "удар не толкнул игрока");
         Assert.Equal(1, flinched.World.Get<Flinch>(p1).Count);
         Assert.Equal(ActionKind.None, flinched.World.Get<AnimatorAction>(p1).Kind);   // игрок не играет реакцию действием
         Clean(flinched);

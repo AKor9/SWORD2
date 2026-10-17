@@ -194,7 +194,7 @@ public sealed class SwordArmSystem(SwordArm arm) : IContinuousSystem
     {
         s.Label(SwordArm.Step).After(MotionMatchSystems.Step).Before(GameLabels.AnimatorPose).Reads<PoseRef>().Reads<FighterStartPose>()
             .Writes<MotionMatchArm>();
-        _query = s.Query().With<Fighter>().With<MotionMatchState>().Without<Dead>().Read<PoseRef>().Write<MotionMatchArm>();
+        _query = s.Query().With<Fighter>().With<MotionMatchState>().Without<Dead>().Without<Downed>().Read<PoseRef>().Write<MotionMatchArm>();
     }
 
     public void Run(in SystemContext ctx)

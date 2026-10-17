@@ -44,11 +44,17 @@ public static class ActionSlots
     public static int EvadeRight { get; }
 
     /// <summary>
-    /// Слоты реакции на попадание: спереди — два клипа (выбор — ГСЧ), сзади — один.
+    /// Слоты реакции на попадание: спереди — два клипа (выбор — ГСЧ), сзади — один, сильное спереди — <see cref="HitBig"/>.
     /// </summary>
     public static int HitFront1 { get; }
     public static int HitFront2 { get; }
     public static int HitBack { get; }
+
+    /// <summary>Сильное попадание спереди — пошатывание с отходом назад (root motion клипа).</summary>
+    public static int HitBig { get; }
+
+    /// <summary>Вставание после падения — всем телом.</summary>
+    public static int StandUp { get; }
 
     static ActionSlots()
     {
@@ -67,6 +73,12 @@ public static class ActionSlots
         defaults.AddRange(["1HM_BlockLeft", "1HM_BlockRight", "1HM_BlockLeftLow", "1HM_BlockRightLow", "1HM_HitReact01", "1HM_HitReact02",
             "1HM_HitReact_Behind01", "1HM_Evade_Forward", "1HM_Evade_Back", "1HM_Evade_Left", "1HM_Evade_Right",
             "1HM_TurnLeft90", "1HM_TurnRight90", "1HM_Turn180"]);
+        names.Add("hit_big");
+        titles.Add("сильное попадание спереди");
+        defaults.Add("Anim_PS_Hit_Front_Big_RM");
+        names.Add("stand_up");
+        titles.Add("вставание");
+        defaults.Add("Anim_PS_Standup_RM");
         AllNames = [.. names];
         AllTitles = [.. titles];
         AllDefaults = [.. defaults];
@@ -82,6 +94,8 @@ public static class ActionSlots
         HitFront1 = Index("hit_front1");
         HitFront2 = Index("hit_front2");
         HitBack = Index("hit_back");
+        HitBig = Index("hit_big");
+        StandUp = Index("stand_up");
     }
 
     /// <summary>Номер слота по ключу; нет — −1.</summary>

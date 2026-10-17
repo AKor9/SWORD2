@@ -85,7 +85,7 @@ public sealed class KinematicSourceSystem(IPhysicsWorld physics) : IContinuousSy
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.KinematicSource).After(GameLabels.BladePlacement).Reads<AnimatorAction>().Reads<Blade>().Reads<BodyRef>();
-        _alive = s.Query().With<Fighter>().Without<Dead>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
+        _alive = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<AnimatorAction>().Read<Blade>().Read<BodyRef>();
     }
 
     public void Run(in SystemContext ctx)
@@ -126,7 +126,7 @@ public sealed class RootRecoilSystem(IPhysicsWorld physics) : IContinuousSystem
         s.Label(GameLabels.RootRecoil).ReadsJournal<Event<Hit>>().Reads<BodyRef>().Reads<FighterCommand>().Reads<AnimatorAction>()
             .Writes<RootVelocity>().Sets<Recoil>()
             .ReserveCommands(ArenaRules.MaxFighters, 0, ArenaRules.MaxFighters * 128);
-        _alive = s.Query().With<Fighter>().Without<Dead>().Read<BodyRef>().Read<FighterCommand>().Read<AnimatorAction>().Write<RootVelocity>();
+        _alive = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<BodyRef>().Read<FighterCommand>().Read<AnimatorAction>().Write<RootVelocity>();
         _dead = s.Query().With<Fighter>().With<Dead>().Read<BodyRef>();
     }
 

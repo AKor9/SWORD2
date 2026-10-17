@@ -164,7 +164,7 @@ public sealed class KinematicPlacementSystem(IPhysicsWorld physics, BodyJoints j
     {
         s.Label(GameLabels.KinematicPlacement).Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>().Reads<Severance>();
         // Мёртвый — труп на физике: его тела двигает шаг физики, а не поза; скорости последнего тика жизни берёт переход в труп.
-        _query = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
+        _query = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<PoseRef>().Read<BodyRef>();
     }
 
     public void Run(in SystemContext ctx)

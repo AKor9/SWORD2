@@ -43,6 +43,7 @@
     <Project Path="game/modules/Sword.Game.Blood.Client/Sword.Game.Blood.Client.csproj" />
     <Project Path="game/modules/Sword.Game.Cutting/Sword.Game.Cutting.csproj" />
     <Project Path="game/modules/Sword.Game.Cutting.Client/Sword.Game.Cutting.Client.csproj" />
+    <Project Path="game/modules/Sword.Game.Impact/Sword.Game.Impact.csproj" />
     <Project Path="game/modules/Sword.Game.Fire.Client/Sword.Game.Fire.Client.csproj" />
     <Project Path="game/modules/Sword.Game.Locomotion/Sword.Game.Locomotion.csproj" />
   </Folder>

@@ -145,7 +145,9 @@ public sealed class ArenaFighterPoses(SimulationLink link) : IFighterPoses
         // Суставы: труп — по телам, живой — модельная поза тика в мире бойца на тике.
         int joints = 0;
         bool corpse = false;
-        if (dead && hasBody && _skins is not null && _skins.TryGet(bodyRef, out var binding, out _) && binding.Length == _jointBodies.Length)
+        // сбитый с ног лежит на физике — суставы по телам, как у трупа
+        if ((dead || _world.Has<Downed>(e)) && hasBody && _skins is not null && _skins.TryGet(bodyRef, out var binding, out _)
+            && binding.Length == _jointBodies.Length)
         {
             Grow(ref _joints, _jointsUsed + binding.Length);
             ArenaView.CorpseJoints(binding, _jointBodies, _bodies, _joints.AsSpan(_jointsUsed, binding.Length));

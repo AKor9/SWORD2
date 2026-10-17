@@ -145,7 +145,6 @@ public static class Fighters
             world.AddImmediate(e, new PlayerTag());
             world.AddImmediate(e, PlayerControl.Idle);
             world.AddImmediate(e, AttackCombo.Start);
-            world.AddImmediate(e, Flinch.None);
         }
         else
         {
@@ -156,6 +155,8 @@ public static class Fighters
             world.AddImmediate(e, StrikePairs.None);
         }
         world.AddImmediate(e, Health.Fresh);
+        world.AddImmediate(e, Flinch.None);
+        world.AddImmediate(e, new Shove());
         world.AddImmediate(e, HitImpulse.None);   // импульс удара в тело и отдача корню — последние
         world.AddImmediate(e, Recoil.None);
         world.AddImmediate(e, AnimatorAction.None);
@@ -190,7 +191,6 @@ public static class Fighters
             c.Add(d, new PlayerTag());
             c.Add(d, PlayerControl.Idle);
             c.Add(d, AttackCombo.Start);
-            c.Add(d, Flinch.None);
         }
         else
         {
@@ -201,6 +201,8 @@ public static class Fighters
             c.Add(d, StrikePairs.None);
         }
         c.Add(d, Health.Fresh);
+        c.Add(d, Flinch.None);
+        c.Add(d, new Shove());
         c.Add(d, HitImpulse.None);   // импульс удара в тело и отдача корню — последние
         c.Add(d, Recoil.None);
         c.Add(d, AnimatorAction.None);
@@ -233,6 +235,7 @@ public static class Fighters
         // Здоровье — полное, мёртвый оживает (возрождение врага, сброс арены), вздрагивание игрока и пары удара врага — с нуля
         if (dead) c.Remove<Dead>(e);
         c.Remove<Severance>(e);   // отделённые части уходят с телом: постройка их убирает (BodySetupSystem)
+        c.Remove<Downed>(e);
         c.Set(e, Health.Fresh);
         c.Set(e, HitImpulse.None);   // импульс удара и отдача — с нуля
         c.Set(e, Recoil.None);
@@ -247,10 +250,11 @@ public static class Fighters
         c.Set(e, action.Rebuilt());   // без действия и снимка; номер удара и счёт снимков — прежние
         c.Set(e, new WeaponSlot { Index = s.Weapon });
         c.Set(e, Blade.None);
+        c.Set(e, Flinch.None);
+        c.Set(e, new Shove());
         if (s.IsPlayer)
         {
             c.Set(e, PlayerControl.Idle);   // буферы, перезарядка и рывок — с нуля; связка — прежняя
-            c.Set(e, Flinch.None);
         }
         else
         {
@@ -266,13 +270,13 @@ public static class Fighters
         .Adds<PrevTransform>().Adds<RootVelocity>().Adds<FighterCommand>().Adds<GazeTarget>().Adds<AnimatorMotion>()
         .Adds<PoseRef>().Adds<BodyRef>().Adds<EnemyAiTerms>().Adds<RootContacts>().Adds<AnimatorAction>().Adds<ActionPoses>()
         .Adds<WeaponSlot>().Adds<Blade>().Adds<PlayerControl>().Adds<AttackCombo>().Adds<EnemyAttack>()
-        .Adds<Health>().Adds<StrikePairs>().Adds<Flinch>().Adds<HitImpulse>().Adds<Recoil>()
+        .Adds<Health>().Adds<StrikePairs>().Adds<Flinch>().Adds<Shove>().Adds<HitImpulse>().Adds<Recoil>()
         .DeclaresRebuild();
 
     /// <summary>Объявления системы, которая только строит бойцов заново (<see cref="Rebuild"/>: возрождение врага).</summary>
     public static SystemSetup DeclaresRebuild(this SystemSetup s) => s
-        .Adds<Fighter>().Removes<Fighter>().Removes<Dead>().Removes<Severance>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
+        .Adds<Fighter>().Removes<Fighter>().Removes<Dead>().Removes<Severance>().Removes<Downed>().Sets<FighterSeed>().Sets<Transform>().Sets<PrevTransform>().Sets<RootVelocity>()
         .Sets<FighterCommand>().Sets<GazeTarget>().Sets<AnimatorMotion>().Sets<EnemyAiTerms>().Sets<AnimatorAction>()
-        .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>().Sets<Health>().Sets<StrikePairs>().Sets<Flinch>()
+        .Sets<WeaponSlot>().Sets<Blade>().Sets<PlayerControl>().Sets<EnemyAttack>().Sets<Health>().Sets<StrikePairs>().Sets<Flinch>().Sets<Shove>()
         .Sets<HitImpulse>().Sets<Recoil>();
 }

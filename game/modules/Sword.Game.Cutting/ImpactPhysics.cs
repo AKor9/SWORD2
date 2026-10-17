@@ -5,8 +5,9 @@ using Sword.Game.Contracts;
 namespace Sword.Game.Cutting;
 
 /// <summary>
-/// Физика тупого удара и взрыва. Тупой: энергия <c>½ · m · v²</c> (m — масса молота с руками). Голова — в клочья выше порога;
-/// конечность — отрыв по суставу, если энергии хватает на сечение у сустава, иначе перелом в точке удара, если хватает на сечение кости.
+/// Физика тупого удара и взрыва. Тупой: энергия <c>½ · m · v²</c> (m — масса молота с руками) дробит, а не рубит. Голова — в клочья выше
+/// порога, только у лежащего (труп: голове некуда уйти от удара); конечность — перелом в точке удара, если энергии хватает на сечение
+/// кости; отрыв по суставу — только уже сломанной части (кость не держит), если энергии хватает на сечение у сустава.
 /// Импульс части — удар двух тел: <c>(1 + e) · μ · v</c>, μ — приведённая масса. Взрыв: энергия, дошедшая до части, против её массы —
 /// клочья; иначе разность скоростей части и родителя от взрыва — отрыв, если энергия этой разности больше прочности сустава.
 /// </summary>
@@ -25,8 +26,9 @@ public static class ImpactPhysics
     public const float FractureMargin = 0.03f;
 
     /// <summary>Тупой удар по части. <paramref name="freePieces"/> — сколько ещё кусков можно завести у бойца.</summary>
+    /// <param name="broken">Кость части уже сломана (есть кусок перелома от неё).</param>
     public static SeverOutcome Blunt(in SeverRequested r, int segment, in BodyState body, float shift, float end, TissueProfiles tissue,
-        in CuttingRules rules, int freePieces, out LimbDetached ev)
+        in CuttingRules rules, int freePieces, bool broken, out LimbDetached ev)
     {
         ev = default;
         float speed = r.Velocity.Length();
@@ -38,13 +40,13 @@ public static class ImpactPhysics
         float mu = rules.BluntMass * mass / (rules.BluntMass + mass);
         var impulse = r.Velocity * (mu * (1 + Restitution));
         float proximal = shift - body.HalfLength;
-        if (segment == BodySegs.Head && energy >= rules.HeadCrush && freePieces >= 2)
+        if (segment == BodySegs.Head && r.Corpse && energy >= rules.HeadCrush && freePieces >= 2)
         {
             ev = Shatter(r, segment, body, shift, end, tissue, Math.Min(ShatterCount, freePieces), impulse);
             return SeverOutcome.Cut;
         }
         float joint = tissue.SliceRadius(segment, tissue.Slice(segment, proximal));
-        if (energy >= rules.TearToughness * MathF.PI * joint * joint)
+        if (broken && energy >= rules.TearToughness * MathF.PI * joint * joint)
         {
             ev = Tear(r, segment, body, proximal, joint, impulse);
             return SeverOutcome.Cut;

@@ -20,7 +20,7 @@ public sealed class MotionMatchEventSystem(MotionMatchRuntime runtime) : IContin
     public void Setup(SystemSetup s)
     {
         s.Label(Label).After(GameLabels.RootCollision).Before(MotionMatchSystems.History).Reads<MotionMatchState>().Emits<MotionTransition>();
-        _query = s.Query().With<Fighter>().Without<Dead>().Read<MotionMatchState>();
+        _query = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<MotionMatchState>();
     }
 
     public void Run(in SystemContext ctx)

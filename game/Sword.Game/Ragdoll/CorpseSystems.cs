@@ -68,6 +68,13 @@ public static class Corpse
         }
     }
 
+    /// <summary>Меч выпадает: сустав клинка (ребёнок — тело клинка) выключен.</summary>
+    public static void DropWeapon(IPhysicsWorld physics, ArticulationHandle body)
+    {
+        for (int j = 0, n = physics.JointCount(body); j < n; j++)
+            if (physics.Joint(body, j).Child == BodySegs.Body(BodySegs.Weapon)) physics.SetJointEnabled(body, j, false);
+    }
+
     /// <summary>Скорость и угловая скорость тела — не больше пределов (направление сохраняется).</summary>
     private static void Tame(IPhysicsWorld physics, BodyHandle b, float maxSpeed, float maxAngular)
     {
@@ -134,7 +141,7 @@ public sealed class DeathToRagdollSystem(IPhysicsWorld physics, CorpseJoints joi
 
     public void Setup(SystemSetup s)
     {
-        s.Label(GameLabels.DeathToRagdoll).After(GameLabels.SkinCapture).Reads<Dead>().Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>()
+        s.Label(GameLabels.DeathToRagdoll).After(GameLabels.SkinCapture).Reads<Dead>().Reads<Downed>().Reads<Transform>().Reads<PoseRef>().Reads<BodyRef>()
             .Reads<Severance>();
         if (gameplay) s.Before(GameLabels.RootSteer).NextTickOk<Added<Dead>>();
     }
@@ -152,7 +159,13 @@ public sealed class DeathToRagdollSystem(IPhysicsWorld physics, CorpseJoints joi
                 continue;
             var body = FighterBodies.Handle(bodyRef);
             var pose = new PoseHandle(poseRef.Index, poseRef.Generation);
-            if (!pool.IsAlive(pose) || !BodyPlacement.Placeable(physics, body) || Corpse.IsCorpse(physics, body)) continue;
+            if (!pool.IsAlive(pose) || !BodyPlacement.Placeable(physics, body)) continue;
+            if (Corpse.IsCorpse(physics, body))
+            {
+                // убит лёжа (сбит с ног): тела уже на физике, меч выпадает из руки
+                if (world.Has<Downed>(e)) Corpse.DropWeapon(physics, body);
+                continue;
+            }
             if (world.TryGet<Severance>(e, out var severance))
                 Corpse.Convert(physics, body, joints, _descs, pool.Model(pose), BodyPlacement.World(root.Position, root.Facing), corpseProfile, rules,
                     severance, _all, _pairs);
@@ -200,17 +213,24 @@ public sealed class PhysicsStepSystem : IContinuousSystem
 /// </summary>
 public sealed class CorpseRootSystem(IPhysicsWorld physics) : IContinuousSystem
 {
-    private Query _dead = null!;
+    private Query _dead = null!, _downed = null!;
 
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.CorpseRoot).After(GameLabels.PhysicsStep).Reads<BodyRef>().Writes<Transform>();
         _dead = s.Query().With<Fighter>().With<Dead>().Read<BodyRef>().Write<Transform>();
+        _downed = s.Query().With<Fighter>().With<Downed>().Without<Dead>().Read<BodyRef>().Write<Transform>();   // сбитый с ног лежит так же
     }
 
     public void Run(in SystemContext ctx)
     {
-        foreach (var chunk in ctx.Iterate(_dead))
+        Follow(ctx, _dead);
+        Follow(ctx, _downed);
+    }
+
+    private void Follow(in SystemContext ctx, Query query)
+    {
+        foreach (var chunk in ctx.Iterate(query))
         {
             var roots = chunk.Write<Transform>();
             var bodies = chunk.Read<BodyRef>()[..roots.Length];

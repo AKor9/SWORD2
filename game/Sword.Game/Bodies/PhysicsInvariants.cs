@@ -125,7 +125,7 @@ public static class PhysicsInvariants
             var world = ctx.World;
             // До первого тика тела стоят по позе постройки (сборка мира), а не по позе бойца: её ещё не считал ни один тик.
             bool built = BeforeFirstTick(ctx);
-            _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PoseRef>().Read<BodyRef>().Read<WeaponSlot>();
+            _query ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<PoseRef>().Read<BodyRef>().Read<WeaponSlot>();
             foreach (var chunk in world.Iterate(_query))
             {
                 var entities = chunk.Entities;
@@ -242,7 +242,7 @@ public static class PhysicsInvariants
             var world = ctx.World;
             float dt = world.Resource<SimTime>().Dt;
             // мёртвый замер: его капсулы хранят скорости последнего тика жизни (для рэгдолла) — это не скачок постановки
-            _query ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<PrevTransform>().Read<BodyRef>();
+            _query ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<PrevTransform>().Read<BodyRef>();
             foreach (var chunk in world.Iterate(_query))
             {
                 var entities = chunk.Entities;

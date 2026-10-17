@@ -48,11 +48,11 @@ public sealed class AnimatorInputSystem(StrikeTable strikes) : IContinuousSystem
     {
         s.Label(GameLabels.AnimatorInput).After(GameLabels.RootSteer).Reads<Transform>().Reads<RootVelocity>().Writes<AnimatorMotion>()
             .Writes<AnimatorAction>().Writes<Flinch>();
-        _plain = s.Query().With<Fighter>().Without<Dead>().Without<AnimatorAction>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>();
-        var acting = s.Query().With<Fighter>().Without<Dead>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>().Write<AnimatorAction>();
+        _plain = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Without<AnimatorAction>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>();
+        var acting = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>().Read<RootVelocity>().Write<AnimatorMotion>().Write<AnimatorAction>();
         _agile = acting.With<PlayerTag>();
         _steady = acting.Without<PlayerTag>();
-        _flinch = s.Query().With<Fighter>().Without<Dead>().Write<Flinch>();
+        _flinch = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Write<Flinch>();
     }
 
     public void Run(in SystemContext ctx)
@@ -101,8 +101,8 @@ public sealed class AnimatorPoseSystem(PoseMask upper, PoseMask full) : IContinu
     public void Setup(SystemSetup s)
     {
         s.Label(GameLabels.AnimatorPose).Reads<PoseRef>().Reads<AnimatorAction>().Reads<Flinch>().Writes<ActionPoses>();
-        _plain = s.Query().With<Fighter>().Without<Dead>().Without<AnimatorAction>().Read<PoseRef>();
-        var acting = s.Query().With<Fighter>().Without<Dead>().Read<PoseRef>().Read<AnimatorAction>().Write<ActionPoses>();
+        _plain = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Without<AnimatorAction>().Read<PoseRef>();
+        var acting = s.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<PoseRef>().Read<AnimatorAction>().Write<ActionPoses>();
         _acting = acting.Without<Flinch>();
         _flinching = acting.Read<Flinch>();
     }

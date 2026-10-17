@@ -51,7 +51,7 @@ public readonly record struct PoseTickStats(int Samples, int Blends, int Copies,
 /// </summary>
 public sealed partial class PosePool
 {
-    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel, Motion, Twist, LegIk }
+    private enum Op : byte { Sample, Blend, BlendMasked, AddMasked, Copy, ToModel, Motion, Twist, LegIk, FromModel }
 
     private struct Job
     {
@@ -396,6 +396,24 @@ public sealed partial class PosePool
         Push(new Job { Op = Op.Copy, Dst = dst, Src = src });
     }
 
+    /// <summary>Модельные матрицы заданий <see cref="FromModel"/> тика: у задания — с номера <c>Clip × суставов</c>; растут удвоением.</summary>
+    private Matrix4x4[] _staged = [];
+    private int _stagedCount;
+
+    /// <summary>
+    /// Задание: локальная поза <paramref name="dst"/> — из модельных матриц <paramref name="model"/> (вектор слева, без масштаба):
+    /// <c>local = model · model(родителя)⁻¹</c>. Матрицы копируются при постановке. Поза тела, лёгшего на физику, — обратно в анимацию.
+    /// </summary>
+    /// <exception cref="ArgumentException">Матриц не столько, сколько суставов.</exception>
+    public void FromModel(PoseHandle dst, ReadOnlySpan<Matrix4x4> model)
+    {
+        Check(dst);
+        if (model.Length != _jc) throw new ArgumentException($"матриц {model.Length}, суставов {_jc}", nameof(model));
+        if (_staged.Length < (_stagedCount + 1) * _jc) Array.Resize(ref _staged, Math.Max((_stagedCount + 1) * _jc, _staged.Length * 2));
+        model.CopyTo(_staged.AsSpan(_stagedCount * _jc, _jc));
+        Push(new Job { Op = Op.FromModel, Dst = dst, Clip = _stagedCount++ });
+    }
+
     /// <summary>Задание: модельные матрицы <paramref name="dst"/> — прямой кинематикой из её локальной позы.</summary>
     public void ToModel(PoseHandle dst)
     {
@@ -530,9 +548,14 @@ public sealed partial class PosePool
                     else ApplyLegIk(in _legJobs[job.Clip], d);
                     legs++;
                     break;
+                case Op.FromModel:
+                    Locals(_staged.AsSpan(job.Clip * _jc, _jc), _rot.AsSpan(d, _jc), _pos.AsSpan(d, _jc));
+                    copies++;
+                    break;
             }
         }
         _jobCount = 0;
+        _stagedCount = 0;
         if (_motionCount > 0)
         {
             Array.Clear(_motionJobs, 0, _motionCount);   // хранилища не держатся очередью после тика
@@ -540,6 +563,19 @@ public sealed partial class PosePool
         }
         _legCount = 0;
         return new PoseTickStats(samples, blends, copies, models, stale, motions, twists, legs);
+    }
+
+    /// <summary>Локальная поза из модельных матриц: <c>local = model · model(родителя)⁻¹</c>.</summary>
+    private void Locals(ReadOnlySpan<Matrix4x4> model, Span<Quaternion> rot, Span<Vector3> pos)
+    {
+        var parents = Skeleton.JointParents;
+        for (int j = 0; j < model.Length; j++)
+        {
+            var local = model[j];
+            if (parents[j] >= 0 && Matrix4x4.Invert(model[parents[j]], out var up)) local *= up;
+            rot[j] = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(local));
+            pos[j] = local.Translation;
+        }
     }
 
     /// <summary>

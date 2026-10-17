@@ -30,6 +30,10 @@ public static class Severing
         return mask;
     }
 
+    /// <summary>Перелом ноги: живой падает на физику и не встаёт (<see cref="Downed.Crippled"/>), но жив.</summary>
+    public static bool Cripples(SeverMode mode, int segment) =>
+        mode == SeverMode.Fracture && segment is BodySegs.ThighL or BodySegs.ShinL or BodySegs.FootL or BodySegs.ThighR or BodySegs.ShinR or BodySegs.FootR;
+
     /// <summary>Без этой части живой не стоит и не живёт: таз, торс, голова, ноги. Без руки — бьётся дальше.</summary>
     public static bool KillsLiving(int segment) => segment is not (BodySegs.UArmL or BodySegs.FArmL or BodySegs.UArmR or BodySegs.FArmR);
 
@@ -186,11 +190,13 @@ public sealed class SeverAftermathSystem(IPhysicsWorld physics, CorpseJoints joi
     private readonly Entity[] _victims = new Entity[CombatReserve.Contacts];
     private readonly Severance[] _states = new Severance[CombatReserve.Contacts];
     private readonly bool[] _killed = new bool[CombatReserve.Contacts];
+    private readonly bool[] _crippled = new bool[CombatReserve.Contacts];
+    private readonly LimbDetached[] _breaks = new LimbDetached[CombatReserve.Contacts];
     private int _count;
 
     public void Setup(SystemSetup s) =>
-        s.Label(GameLabels.SeverAftermath).Reads<Severance>().Reads<Dead>().Reads<BodyRef>().Reads<PoseRef>().Reads<Transform>()
-            .Sets<Severance>().Adds<Severance>().Adds<Dead>()
+        s.Label(GameLabels.SeverAftermath).Reads<Severance>().Reads<Dead>().Reads<Downed>().Reads<BodyRef>().Reads<PoseRef>().Reads<Transform>()
+            .Sets<Severance>().Adds<Severance>().Adds<Dead>().Adds<Downed>().Sets<Downed>()
             .ReserveCommands(CombatReserve.Contacts * 2, CombatReserve.Contacts, CombatReserve.Contacts * 512);
 
     public void React(in SystemContext ctx, ReadOnlySpan<Event<LimbDetached>> events)
@@ -205,6 +211,12 @@ public sealed class SeverAftermathSystem(IPhysicsWorld physics, CorpseJoints joi
             if (world.Has<Severance>(_victims[i])) cmd.Set(_victims[i], _states[i]);
             else cmd.Add(_victims[i], _states[i]);
             if (_killed[i]) cmd.Add(_victims[i], new Dead { Time = time.Time, Cause = DeathCause.Severed });
+            else if (_crippled[i] && world.TryGet<Downed>(_victims[i], out var down)) cmd.Set(_victims[i], down with { Crippled = true });
+            else if (_crippled[i])
+                cmd.Add(_victims[i], new Downed
+                {
+                    Time = time.Time, Impulse = _breaks[i].Impulse, Point = _breaks[i].Point, Part = _breaks[i].Segment, Crippled = true,
+                });
         }
     }
 
@@ -266,7 +278,7 @@ public sealed class SeverAftermathSystem(IPhysicsWorld physics, CorpseJoints joi
             sev.Cut |= (ushort)(1 << s);
             sev.Shift[s] = ev.StumpShift;
             if (corpse) skins.Rebase(body, s, before, physics.Get(bs));
-            // дети сегмента — оторваны: их суставу не на чем держаться
+            // дети сегмента
             branch = (ushort)(Severing.Branch(s) & ~(1 << s));
             for (int c = 0; c < BodySegs.Count; c++)
                 if (c != BodySegs.Pelvis && BodySegs.Parent(c) == s)
@@ -294,7 +306,23 @@ public sealed class SeverAftermathSystem(IPhysicsWorld physics, CorpseJoints joi
             Severing.SetJointsKeeping(physics, body, _joints.AsSpan(0, n), earlier);
             physics.SetSelfContacts(body, _pairs.AsSpan(0, Severing.SelfPairs(_joints.AsSpan(0, n), physics.BodyCount(body), sev, _pairs)));
             if (fresh != 0) skins.CaptureSegments(physics, e, body, model, fighterWorld, fresh);
-            if (!world.Has<Dead>(e) && Severing.KillsLiving(s)) _killed[k] = true;
+            // сломанная нога не держит — живой падает и не встаёт; отрубленная нога, голова, торс — смерть
+            if (!world.Has<Dead>(e) && Severing.Cripples(ev.Mode, s))
+            {
+                _crippled[k] = true;
+                _breaks[k] = ev;
+            }
+            else if (!world.Has<Dead>(e) && Severing.KillsLiving(s)) _killed[k] = true;
+        }
+        // сбитый с ног — живой, хоть тела и на физике: те же последствия, что у стоящего
+        if (corpse && !world.Has<Dead>(e) && world.Has<Downed>(e))
+        {
+            if (Severing.Cripples(ev.Mode, s))
+            {
+                _crippled[k] = true;
+                _breaks[k] = ev;
+            }
+            else if (Severing.KillsLiving(s)) _killed[k] = true;
         }
     }
 
@@ -435,6 +463,7 @@ public sealed class SeverAftermathSystem(IPhysicsWorld physics, CorpseJoints joi
         _victims[_count] = e;
         _states[_count] = world.TryGet<Severance>(e, out var s) ? s : default;
         _killed[_count] = false;
+        _crippled[_count] = false;
         return _count++;
     }
 }

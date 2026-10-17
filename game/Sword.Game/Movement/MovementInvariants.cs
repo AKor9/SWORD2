@@ -51,7 +51,7 @@ public sealed class RootOverlapInvariant : IInvariant
     public void Evaluate(in InvariantContext ctx, ref ViolationSink violations)
     {
         var world = ctx.World;
-        _fighters ??= world.Query().With<Fighter>().Without<Dead>().Read<Transform>();   // мёртвые — вне столкновений корней
+        _fighters ??= world.Query().With<Fighter>().Without<Dead>().Without<Downed>().Read<Transform>();   // мёртвые — вне столкновений корней
         int n = 0;
         foreach (var chunk in world.Iterate(_fighters))
         {

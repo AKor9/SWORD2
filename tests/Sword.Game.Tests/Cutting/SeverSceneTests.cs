@@ -41,9 +41,11 @@ public sealed class SeverSceneTests
             if (t == 360) Probe(sim, 1, BodySegs.ThighR, 70);
             if (t == 540) Probe(sim, 1, BodySegs.Head, 60);
             if (t == 150) Probe(sim, 2, BodySegs.FArmL, 40, HitKind.Blunt);   // перелом
-            if (t == 300) Probe(sim, 2, BodySegs.Head, 80, HitKind.Blunt);    // голова в клочья
+            if (t == 280) sim.Enqueue(new SceneCommand { Action = SceneAction.Kill, Slot = 2 });
+            if (t == 300) Probe(sim, 2, BodySegs.Head, 80, HitKind.Blunt);    // голова лежащего в клочья
             if (t == 420) sim.Enqueue(new BlastCommand { Position = new Vector3(-2.3f, 0.8f, 2.4f), Energy = 40000, Radius = 5 });
-            if (t == 200) Probe(sim, 3, BodySegs.ShinL, 80, HitKind.Blunt);   // отрыв голени у живого (без кусков)
+            if (t == 200) Probe(sim, 3, BodySegs.ShinL, 80, HitKind.Blunt);   // перелом голени у живого — падает
+            if (t == 260) Probe(sim, 3, BodySegs.ShinL, 80, HitKind.Blunt);   // сломанная голень отрывается
             if (t == 60) Probe(sim, 4, BodySegs.Torso, 120);   // торс пополам: верх с головой и руками — кусок
             sim.Export.BeginFrame();
             sim.Step();
