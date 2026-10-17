@@ -127,6 +127,6 @@ public sealed class CharacterAssets
     {
         var actions = ActionTable.Resolve(Clips.FindClip, c => Clips.Clips[c].Name, actionsJson, warnings);
         var strikes = StrikeTable.Analyse(Clips, actions, Hand, Weapons.Weapons[Weapons.Default].BladeTip);
-        return new CharacterAssets(Clips, actions, Weapons, strikes, Hand);
+        return new CharacterAssets(Clips, actions, Weapons, strikes, Hand, Mesh);
     }
 }
